@@ -13,11 +13,13 @@ import io
 import json
 import math
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from cleverly.validation._seeds import sample_seed_streams
+from tests.studies.evidence.manifest import csv_text, read_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyBatch
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
@@ -50,9 +52,102 @@ STRUCTURAL_FIELDS = (
 FIT_FIELDS = ("truth", "estimate", "std_error")
 Key = tuple[str, str, int]
 
+#: The row files that the baseline commit stored as gzip CSV and the tree stores as Parquet.
+#: The baseline manifest and the plan keep the historical names, because they record bytes of
+#: that commit.  The manifest of the tree names the Parquet files.
+ROW_FILES = {
+    "replicates.csv.gz": "replicates.parquet",
+    "property-replicates.csv.gz": "property-replicates.parquet",
+}
+
+#: SHA-256 of the CSV text of each baseline row file, by study slug and current file name.
+#:
+#: The text is what gunzip returns for the baseline blob.  :func:`csv_text` returns the same
+#: bytes for the Parquet file of a row file that the repair did not change, so the digest
+#: shows that the file still holds the baseline rows.  ``repair_property_seeds.py`` checks each
+#: digest against the Git blob of :data:`BASELINE_COMMIT`.
+BASELINE_ROW_CSV_SHA256 = {
+    "canonical-cvtmle": {
+        "replicates.parquet": "79d910c55c97107ae35336e155e99e4e950386b1da633a0287844af7e2a8bad5",
+        "property-replicates.parquet": (
+            "18b93234a3f7a706882011a5e622bcd15bfb6792a75f8d0f9b7adf169255990a"
+        ),
+    },
+    "canonical-multi-arm-drtmle": {
+        "replicates.parquet": "959caa04a536f006f77ac9b65546c0e877a433f3016c4c6756250ba7c7ea1092",
+        "property-replicates.parquet": (
+            "11c79f47a01ff1e16207eb466bef444db2791faff3da3d21786d123252905f59"
+        ),
+    },
+    "canonical-tmle": {
+        "replicates.parquet": "da0139acaf20a1cde632396274dd2e27b4268fa87d7b0dd5aaaf2a0164188ded",
+        "property-replicates.parquet": (
+            "de080cad26a3aff6ab8d45b141caf9b43399e677d53f5b1ef869b852fb64287c"
+        ),
+    },
+    "fold-evaluated-cvtmle": {
+        "replicates.parquet": "8aa43d02f8fd64ac1cef4d0daf3f37b2ff20c8c5a7b0c046836d5399cb881e17",
+        "property-replicates.parquet": (
+            "2071d4593df327e07b2094a6ffb1a67481f4d183545e33c1de3a51e65c31621c"
+        ),
+    },
+    "fold-targeted-cvtmle": {
+        "replicates.parquet": "682b44138cac806f2c1f7b15e915e776a3c399e32ee4f3b56de05bb44955e2f1",
+        "property-replicates.parquet": (
+            "96f39293aa050f3b8a3e7a8cb14aa05d54a0c0843e1a4467af6493be6f0f22b7"
+        ),
+    },
+    "repeated-crossfit-tmle": {
+        "replicates.parquet": "e9aabfe86a281a15b44ea02185c6928c587c2a7cb4713c858a5476b5ce1e1ca3",
+        "property-replicates.parquet": (
+            "7aed1e0a1b2a3073314ccdff0d409acb2ac3bacadae1231f239abb3d857f35ff"
+        ),
+    },
+}
+
 
 def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def current_name(baseline_name: str) -> str:
+    """The name that the tree gives a file of the baseline commit.
+
+    Parameters
+    ----------
+    baseline_name : str
+        A key of the baseline manifest.
+
+    Returns
+    -------
+    str
+        The Parquet name for a row file, and ``baseline_name`` for every other file.
+    """
+    return ROW_FILES.get(baseline_name, baseline_name)
+
+
+def carried_rows_findings(slug: str, directory: Path, names: Iterable[str]) -> list[str]:
+    """The row files in ``directory`` whose rows are not the baseline rows of study ``slug``.
+
+    Parameters
+    ----------
+    slug : str
+        The study.
+    directory : pathlib.Path
+        The study directory.
+    names : Iterable of str
+        The Parquet row files that the study carries from the baseline.
+
+    Returns
+    -------
+    list of str
+        One message per file whose CSV text differs from :data:`BASELINE_ROW_CSV_SHA256`.
+    """
+    return [
+        f"{name} no longer holds the baseline rows of {slug}"
+        for name in names
+        if digest(csv_text(read_rows(directory / name))) != BASELINE_ROW_CSV_SHA256[slug][name]
+    ]
 
 
 def json_bytes(value: Any) -> bytes:
@@ -327,6 +422,20 @@ def carried_rows_sha256(raw: bytes, planned: Iterable[Mapping[str, Any]]) -> str
     return digest(header + b"".join(line for key, (line, _) in rows.items() if key not in changed))
 
 
+def attribution_of(baseline_hashes: Mapping[str, str]) -> dict[str, str]:
+    """Who produced each artifact of the composite, by the name the tree gives it."""
+    return {
+        current_name(name): (
+            "composite_replicates"
+            if name == "property-replicates.csv.gz"
+            else "analysis"
+            if name == "properties.csv"
+            else "baseline"
+        )
+        for name in baseline_hashes
+    }
+
+
 def composite_manifest(
     baseline_raw: bytes,
     *,
@@ -355,16 +464,7 @@ def composite_manifest(
         },
         "replacement": {**operation, "positions": plan["changes"][slug], "replay": replay},
         "analysis": dict(operation),
-        "artifact_attribution": {
-            name: (
-                "composite_replicates"
-                if name == "property-replicates.csv.gz"
-                else "analysis"
-                if name == "properties.csv"
-                else "baseline"
-            )
-            for name in baseline["sha256"]
-        },
+        "artifact_attribution": attribution_of(baseline["sha256"]),
         "composite_property_csv_sha256": property_raw_sha256,
         "carried_property_rows_sha256": carried_property_rows_sha256,
     }
@@ -409,20 +509,16 @@ def validate_composite_manifest(manifest: Mapping[str, Any], plan_raw: bytes) ->
     if section["replacement"]["positions"] != plan["changes"][slug]:
         raise ValueError("replacement key/seed provenance differs from predeclared plan")
     attribution = section["artifact_attribution"]
-    expected_attribution = {
-        name: (
-            "composite_replicates"
-            if name == "property-replicates.csv.gz"
-            else "analysis"
-            if name == "properties.csv"
-            else "baseline"
-        )
-        for name in baseline["sha256"]
-    }
-    if attribution != expected_attribution or set(manifest["sha256"]) != set(baseline["sha256"]):
+    expected_attribution = attribution_of(baseline["sha256"])
+    if attribution != expected_attribution or set(manifest["sha256"]) != set(expected_attribution):
         raise ValueError("artifact attribution/coverage differs")
+    # A carried row file changed its bytes with its format.  ``carried_rows_findings`` compares
+    # its rows with the baseline rows, and this loop compares every other carried file's bytes.
+    original = {current_name(name): name for name in baseline["sha256"]}
     for name, owner in attribution.items():
-        if owner == "baseline" and manifest["sha256"][name] != baseline["sha256"][name]:
+        if owner != "baseline" or name in ROW_FILES.values():
+            continue
+        if manifest["sha256"][name] != baseline["sha256"][original[name]]:
             raise ValueError(f"baseline primary/reference artifact changed: {name}")
     for name in ("replacement", "analysis"):
         metadata = section[name]

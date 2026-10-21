@@ -17,15 +17,16 @@ from collections.abc import Callable, Mapping
 import pandas as pd
 
 from tests.studies.evidence import failures, property_verdicts
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import StudyRecord
 
 #: Artefact file names, and the columns each is keyed by.
 ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "replicates": ("replicates.csv.gz", ()),
+    "replicates": ("replicates.parquet", ()),
     "summary": ("summary.csv", ("implementation", "scenario", "estimand")),
     "performance": ("performance-tests.csv", ("implementation", "scenario", "estimand")),
     "equivalence": ("equivalence.csv", ("scenario", "estimand")),
-    "property_replicates": ("property-replicates.csv.gz", ()),
+    "property_replicates": ("property-replicates.parquet", ()),
     "properties": ("properties.csv", ("property", "cell")),
 }
 
@@ -98,7 +99,12 @@ _REFERENCE = re.compile(
 def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     """Every committed artefact of a study, keyed by its short name."""
     frames = {
-        name: pd.read_csv(record.artifact(filename)) for name, (filename, _) in ARTIFACTS.items()
+        name: (
+            read_rows(record.artifact(filename))
+            if filename.endswith(".parquet")
+            else pd.read_csv(record.artifact(filename))
+        )
+        for name, (filename, _) in ARTIFACTS.items()
     }
     if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))

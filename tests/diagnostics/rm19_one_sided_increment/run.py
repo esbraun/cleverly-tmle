@@ -553,7 +553,7 @@ def compare_by_exit(
 
 def _committed_reference(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """The committed ``cleverly`` and R rows and R's ``score_max`` of the draws ``rows`` holds."""
-    committed = shared.read_rows(BINARY.artifact("replicates.csv.gz"))
+    committed = shared.read_rows(BINARY.artifact("replicates.parquet"))
     fitted = rows[DRAW].drop_duplicates()
     committed = committed.merge(fitted, on=DRAW)
     diagnostics = shared.read_rows(BINARY.artifact("fit-diagnostics.csv"))
@@ -570,7 +570,7 @@ def _committed_reference(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 def validate_committed(
     rows: pd.DataFrame, r_rows: pd.DataFrame, twins: pd.DataFrame
 ) -> pd.DataFrame:
-    """V1, V2, V3 and V5 on the Part A rows, against the committed ``replicates.csv.gz``.
+    """V1, V2, V3 and V5 on the Part A rows, against the committed ``replicates.parquet``.
 
     V2 reads the counting rerun ``r_rows`` and the ``twins`` of step AV: rule 1 checks the
     rerun against the committed R rows, and rules 2 to 5 read its round counts and the twins.

@@ -102,11 +102,11 @@
     "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
   },
   "sha256": {
-    "replicates.csv.gz": "073099c4060087b5fd6b10119d1c405a5c6cf5d8b473d90d4fd9f09469adbbd4",
+    "replicates.parquet": "36276afe8192ae5a454e4a15b8dd8cae7e44977911c392f7172ae5b098e82736",
     "summary.csv": "db7083cba1d79048f8b24fbc84f25b3ba39b860f234c62825e296aac9636cfeb",
     "equivalence.csv": "7b4241aa37a40a10841c2ba54160dc9996616c33149cfa93abc754ee50a7e659",
     "performance-tests.csv": "f707a50a231dd787136788b2665caaf931208731aed8708a337c23127b8324e3",
-    "property-replicates.csv.gz": "e5d8910e4baa6af008d46376634354c4566628c8cbb69df2d0d5ecae45a07204",
+    "property-replicates.parquet": "daca4e95e4c63795deab12bbdd3677ed8b1a61f72df285871949782907b5d511",
     "properties.csv": "493be7180c5ff17e1f3ff356c67ffae079525a1a95d4a366b1a7f333249e3ea8"
   }
 }

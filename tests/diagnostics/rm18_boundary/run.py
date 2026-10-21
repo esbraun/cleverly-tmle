@@ -184,7 +184,7 @@ def validate_cells(part: str, cap: int | None, jobs: int) -> pd.DataFrame:
     keys = ["property", "cell", "replicate"]
     for entries in by_record.values():
         record = entries[0][0]
-        committed = shared.read_rows(record.artifact("property-replicates.csv.gz"))
+        committed = shared.read_rows(record.artifact("property-replicates.parquet"))
         refits = []
         for _, module, property_name, cell_name, _ in entries:
             selection = committed.loc[

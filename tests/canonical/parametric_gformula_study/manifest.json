@@ -115,14 +115,14 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "2d6e50361e70263f8b12cd4c65a644cf7c3094164a3ef5a0a90f5180097298ae",
+    "replicates.parquet": "3bb86f7a1fd998eab4088f97bc0dc5eb2b004b30a134783d85d88449add8e596",
     "summary.csv": "daca70a51c2ac50a0d10f2605ef5e58d7f073a3957f318df9c05c336dec255ec",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "051e17ef24c6556c12be5ec40ae34051600ffcceeff818adeb134a9fc4abb82b",
-    "property-replicates.csv.gz": "d28fe63a15a82e74f784b023fc246838352a949dd78d3be2279c93ee3016b90e",
+    "property-replicates.parquet": "5854f48bdc8967e94358c44b9136fc04d957e836d82851224cb757759bfde973",
     "properties.csv": "13e01a556a4f109ba060929902d292c1c53879354f7b88595375d055f6d2d04b",
     "property-failures.csv": "66d79a8021b76b4745069ced330b04ac23952a7b83ee90b35bb5ff78b5eeee0e",
     "property-failure-accounting.csv": "39ddceffc0284ae9286fd25e10ffb5af4ecded326e670a13267a26d68d20c586",
-    "property-failure-witnesses.csv": "decfb19e9691cae6d54fdd9a9c5657321ad1b17e946ced4ca539c62ee53ed0cc"
+    "property-failure-witnesses.parquet": "1017051a42c32485d86bd8360cb0083716b9701e88539909fb9e5dd008ca5903"
   }
 }

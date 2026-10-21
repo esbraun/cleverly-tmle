@@ -26,6 +26,7 @@ import cleverly.sensitivity.omitted_variable as ov
 from cleverly.inference.cluster import influence_variance
 from tests.diagnostics.x26_red_cells import agreement, rerun
 from tests.studies import omitted_variable_bound_plugin as study
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.seeds import replicate_seed
 
 CANONICAL = study.STUDY.artifacts
@@ -51,10 +52,8 @@ def test_the_rows_are_the_declared_design() -> None:
 
 def test_the_draws_are_the_ones_the_red_cells_fitted() -> None:
     """The refit reproduces the standard error that the declared run committed, per replicate."""
-    committed = pd.read_csv(
-        CANONICAL / "property-replicates.csv.gz",
-        usecols=["cell", "replicate", "std_error"],
-        float_precision="round_trip",
+    committed = read_rows(
+        CANONICAL / "property-replicates.parquet", columns=["cell", "replicate", "std_error"]
     )
     rows = _rows()
     for token, cell in RED_CELLS.items():

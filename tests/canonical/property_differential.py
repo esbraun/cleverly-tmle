@@ -10,7 +10,7 @@ X40 modules run on synthetic rows until their declared runs commit their rows.
 
 | subject | rows |
 | --- | --- |
-| every registered study with a committed ``property-replicates.csv.gz`` | the committed rows |
+| every registered study with a committed ``property-replicates.parquet`` | the committed rows |
 | :data:`SYNTHETIC_MODULES` | :func:`synthetic_rows`, from the module's declared cells |
 
 The perturbations are
@@ -67,6 +67,7 @@ import pytest
 from scipy.stats import norm
 
 from tests.studies.evidence import property_failures
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import StudyRecord, registered
 
 #: The bootstrap count of every differential summary (rev 3 R3-2).  At most the fast tier's
@@ -105,7 +106,7 @@ SUBJECTS = (
     *(
         slug
         for slug, record in _STUDIES.items()
-        if record.artifact("property-replicates.csv.gz").exists()
+        if record.artifact("property-replicates.parquet").exists()
     ),
     *SYNTHETIC_MODULES,
 )
@@ -285,7 +286,7 @@ def subject_rows(subject: str) -> pd.DataFrame:
     if subject in SYNTHETIC_MODULES:
         with reduced(record):
             return synthetic_rows(module)
-    return pd.read_csv(record.artifact("property-replicates.csv.gz"))
+    return read_rows(record.artifact("property-replicates.parquet"))
 
 
 def kinds(subject: str) -> tuple[str, ...]:

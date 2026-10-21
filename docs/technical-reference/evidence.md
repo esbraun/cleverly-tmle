@@ -120,7 +120,7 @@ band of that fit have a fifth record,
 
 The C-TMLE0 strategy has its own record,
 [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md), with R `ctmle` type 3 as its
-declared comparator, whose runs are pending. Binary compatibility
+comparator. Binary compatibility
 remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
 branches.
 

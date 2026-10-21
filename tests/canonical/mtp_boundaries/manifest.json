@@ -181,11 +181,11 @@
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
   "sha256": {
-    "replicates.csv.gz": "83c840f921299607341b2547df6bf8e87c407a76b2169eee176894bd79cdab33",
+    "replicates.parquet": "00f81babf60fb144889af7b419ed87f709be585ce7e0490a032a36931b257744",
     "summary.csv": "564514aa5ac534ac3351eb5ea24cd1def9fd7b989a64447277c6e4595c295b07",
     "equivalence.csv": "31d5eae45f85f6dc3602092f9f95447da4a11e60e4745eba40450d19e31be518",
     "performance-tests.csv": "cbefffe866d1aebdbbac1acf75d51f02bef550a2312e587811472ad2f24079ad",
-    "property-replicates.csv.gz": "1bbf5c0ca03a39673dd7630efaabc9ded9043d23c0c3d6d1ad2fbbba98ce3860",
+    "property-replicates.parquet": "9b3125afdf5cc4732c8aa32a4f078d2558f4266d6ec411feae02c8fc1587946e",
     "properties.csv": "f0597de36d996e4950be1dd3676fe06995ab0d5f75bbdaf5f327a392a168a90f",
     "exactness.csv": "e9b44a15422027ee8e737f0d28560b61244ef8f214556fb7c6b37b4f68fec0ef"
   }

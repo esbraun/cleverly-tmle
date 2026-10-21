@@ -194,7 +194,7 @@ of `ey[1][V=2]` cover 0.900 and 0.8925 in the two implementations on the same dr
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_stratified/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_stratified/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_stratified/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_stratified/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_stratified/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_stratified/properties.csv)
 carry the protocol, provenance, and every published row.

@@ -196,7 +196,7 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/manifest.json),
 [native-result probe](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/probe_native_result2.R),
 [native-result artifact](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/native-result2-defect.csv),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/properties.csv)
 carry the protocol, provenance, and every published row.

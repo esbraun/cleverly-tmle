@@ -231,6 +231,6 @@ The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonica
 records the seeds, the margins, the estimator configuration, the source hashes and the result
 hashes. It records the comparator as pending, with the runner and the image source hashes. Run
 `python -m tests.canonical.point_survival_curve.regenerate` to regenerate the artifacts. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/properties.csv)
 carry every published row.

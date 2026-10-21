@@ -10,7 +10,7 @@ mismatch is a defect.
 
 **The draws.**  Replicate ``k`` is the draw that property replicate ``k`` of the declared run
 fitted: ``stream_seed(STUDY, "property_sample", "interval_calibration", SCENARIO, k)``.  The
-committed ``property-replicates.csv.gz`` holds the reported standard error of that draw, and
+committed ``property-replicates.parquet`` holds the reported standard error of that draw, and
 :func:`reported_standard_error` reads the lower-bound error that the declared fit gives.  The diagnostic reads the same
 samples as the red cells.
 

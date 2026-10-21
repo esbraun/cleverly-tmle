@@ -170,7 +170,7 @@ shows detectable bias rather than an interval failure.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course_cvtmle/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course_cvtmle/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course_cvtmle/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course_cvtmle/replicates.parquet),
 [performance decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course_cvtmle/performance-tests.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course_cvtmle/properties.csv)
 carry the protocol, provenance, and every published row.

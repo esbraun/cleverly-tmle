@@ -100,7 +100,7 @@ bytes it published before.
 | --- | --- |
 | `property-failures.csv` | one record for each failed fit, with the columns of `failures.csv`. The `scenarios` field lists the `property/cell` names that the fit writes |
 | `property-failure-accounting.csv` | for each summary row that read a lost replicate: the bound, then one row for each declared clause. Each clause row gives the complete-case slack, the worst-case slack, the label, and the gate |
-| `property-failure-witnesses.csv` | the witness of each draw in each cell that lost a replicate |
+| `property-failure-witnesses.parquet` | the witness of each draw in each cell that lost a replicate |
 
 #### Record and stamp rules
 
@@ -376,7 +376,7 @@ comparator has to reach.
 | R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
 | R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
 | archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
-| R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the replay gates and the descriptive paired rows of the binary `canonical-ctmle-sequences` study, and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the declared C-TMLE0 comparator of the `ctmle-derivative` study, whose runs are pending, and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
+| R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the replay gates and the descriptive paired rows of the binary `canonical-ctmle-sequences` study, and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the C-TMLE0 comparator of the `ctmle-derivative` study and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
 | Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator and not planned as a roadmap priority. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so the implementation is not suitable for a numerical comparison without a fold audit. |
 
 ### Multi-arm selector recommendation
@@ -475,13 +475,18 @@ evidence. This policy writes failed statistical verdicts. It does not permit an 
 replication, invalid schemas, non-finite estimates, or incomplete provenance. Existing studies use
 `publication_policy="gated"` unless they declare otherwise.
 
-Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
+Published studies retain `replicates.parquet`, `property-replicates.parquet`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. A run with a recorded comparator failure also retains `failures.csv` and
 `failure-accounting.csv`. A run with a recorded property failure also retains
-`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.csv`.
+`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.parquet`.
 Run a disposable smoke study first, then the declared study without permitting
 failed replications. The [red cells](#red-cells) section states what may change after a result.
+
+The three row files are Parquet files. Write them with `write_rows` and read them with
+`read_rows`, both in `tests/studies/evidence/manifest.py`. The function `csv_text` returns the
+canonical CSV text of a row file.
+The footer of a Parquet file names the `pyarrow` version that wrote it. Write row files with the `pyarrow` version that `uv.lock` pins. To tell whether a row file moved, compare its `csv_text` and not its bytes.
 
 A regeneration owns its declared core budget. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
 beside a study regeneration. Documentation quotes measured values through
