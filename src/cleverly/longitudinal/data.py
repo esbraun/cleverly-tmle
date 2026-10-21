@@ -128,6 +128,8 @@ __all__ = [
     "RegimenMasks",
     "Repeated",
     "assignment_matrix",
+    "check_markov_order",
+    "markov_restriction",
 ]
 
 #: What a treatment node holds.  A ``"categorical"`` node holds level codes, of one column or
@@ -185,6 +187,7 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "event_codes",
     "repeated_names",
     "panel",
+    "markov_order",
 )
 
 
@@ -232,6 +235,54 @@ class Repeated:
 #: Every mask and design here reads it through :func:`assignment_matrix`, so the static
 #: case is the broadcast of the dynamic one rather than a second code path.
 Assignment: TypeAlias = Sequence[float] | FloatArray
+
+
+def markov_restriction(markov_order: int) -> str:
+    """The statement of the statistical-model restriction that ``markov_order`` declares.
+
+    Parameters
+    ----------
+    markov_order : int
+        The declared order ``k``.
+
+    Returns
+    -------
+    str
+        The restriction, for the identification record of a fit.
+    """
+    return (
+        f"statistical-model restriction, Markov order {markov_order}: at every node the "
+        "outcome regression and the treatment and censoring mechanisms depend on the history "
+        f"only through W and the last {markov_order + 1} nodes. It restricts the observed-data "
+        "model and does not change the estimand. Every nuisance the estimator fits reads the "
+        "window, so the estimator's own consistency and interval conditions apply to the "
+        "nuisances fitted on the window, and each of them needs the restriction for the "
+        "nuisance it reads."
+    )
+
+
+def check_markov_order(markov_order: int | None) -> None:
+    """Refuse a ``markov_order`` that is not a non-negative integer.
+
+    Parameters
+    ----------
+    markov_order : int or None
+        The declared order, or ``None`` for the full history.
+
+    Raises
+    ------
+    ValueError
+        When ``markov_order`` is not ``None`` and not a non-negative integer.
+    """
+    if markov_order is None:
+        return
+    valid = (
+        isinstance(markov_order, (int, np.integer))
+        and not isinstance(markov_order, bool)
+        and int(markov_order) >= 0
+    )
+    if not valid:
+        raise ValueError(f"markov_order must be a non-negative integer; got {markov_order!r}")
 
 
 def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArray:
@@ -446,6 +497,10 @@ class LongitudinalData:
     #: The unit identifier of each row on a container built by :meth:`from_long_panel`, in
     #: sorted order, else ``None``.
     unit_ids: Any = None
+    #: The declared Markov order ``k`` of :meth:`with_markov_order`, or ``None`` for the full
+    #: history.  Every nuisance design then reads ``W`` and a window of the last nodes, and
+    #: the frames a rule or a policy reads keep the full history.
+    markov_order: int | None = None
 
     # ------------------------------------------------------------------ build
 
@@ -1198,6 +1253,52 @@ class LongitudinalData:
         from .panel import to_long_panel
 
         return to_long_panel(self)
+
+    def with_markov_order(self, markov_order: int | None) -> LongitudinalData:
+        """Return a copy whose nuisance designs read a window of the last nodes.
+
+        The order ``k`` is a statistical-model restriction on the observed law.  At node
+        ``t`` the treatment and censoring mechanisms read ``W``, ``L_{t-k}, ..., L_t`` and
+        ``A_{t-k-1}, ..., A_{t-1}``.  The outcome regression reads ``W`` and
+        ``L_{t-k}, ..., L_t``, plus the arms of the rule and policy nodes in ``[t-k-1, t]``.
+        The estimand does not change.
+
+        Parameters
+        ----------
+        markov_order : int or None
+            The order ``k``, or ``None`` for the full history.
+
+        Returns
+        -------
+        LongitudinalData
+            A copy that records the order.
+
+        Raises
+        ------
+        ValueError
+            When ``markov_order`` is not a non-negative integer.
+        DataError
+            When the window keeps every earlier node of the design.
+        CapabilityError
+            When the design has one baseline treatment and no time-varying covariate.
+        """
+        check_markov_order(markov_order)
+        if markov_order is None:
+            return replace(self, markov_order=None)
+        if self.treatment_held and not any(names for names in self.time_varying_names):
+            raise CapabilityError(
+                "markov_order= restricts the time-varying history, and this design has none: "
+                "one baseline treatment and no time-varying covariate.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Omit markov_order=.",
+            )
+        if markov_order >= self.n_times - 1:
+            raise DataError(
+                f"markov_order={markov_order} keeps every earlier node of this "
+                f"{self.n_times}-node design, so it restricts nothing. Omit markov_order= to "
+                "use the full history"
+            )
+        return replace(self, markov_order=int(markov_order))
 
     def with_known_mechanisms(
         self, *, treatment_probabilities: Any = None, censoring_probabilities: Any = None
@@ -2539,6 +2640,49 @@ class LongitudinalData:
         matrix = np.hstack([block for block in blocks if block.shape[1]])
         return np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
+    def window_start(self, time: int) -> int:
+        """The first covariate node the nuisance designs at ``time`` read.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+
+        Returns
+        -------
+        int
+            ``max(1, time - k)`` under :attr:`markov_order` ``k``, and ``1`` without one.
+        """
+        if self.markov_order is None:
+            return 1
+        return max(1, time - self.markov_order)
+
+    def window_covariates(self, time: int) -> FloatArray:
+        """``[W, L_s, ..., L_t]`` from :meth:`window_start` ``s``, as a finite matrix.
+
+        Without :attr:`markov_order` it is :meth:`covariate_history` itself.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+
+        Returns
+        -------
+        FloatArray
+            The baseline columns and the covariate blocks of the window nodes.
+        """
+        if self.markov_order is None:
+            return self.covariate_history(time)
+        if not 1 <= time <= self.n_times:
+            raise DataError(f"time {time} is outside 1..{self.n_times}")
+        start = self.window_start(time)
+        blocks = [self.baseline, *self.time_varying[start - 1 : time]]
+        present = [block for block in blocks if block.shape[1]]
+        if not present:
+            return np.zeros((self.n, 0))
+        return np.nan_to_num(np.hstack(present), nan=0.0, posinf=0.0, neginf=0.0)
+
     def history_names(self, time: int) -> tuple[str, ...]:
         """Column names of :meth:`covariate_history`, in its column order.
 
@@ -2760,11 +2904,17 @@ class LongitudinalData:
         :meth:`covariate_history` bit for bit, so the decision cannot be reversed by an
         edit that reads as a tidy-up.  It says nothing about which design is right, and a
         test claiming to say that should be mutated and seen to fail before it is trusted.
+
+        Under :attr:`markov_order` ``k`` the design holds ``W``, ``L_{t-k}, ..., L_t`` and the
+        blocks of ``A_{t-k-1}, ..., A_{t-1}``, plus ``A_t`` with ``include_current``.
         """
-        columns = [self.covariate_history(time)]
+        columns = [self.window_covariates(time)]
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
-        for t in range(1, last + 1):
+        # Under a Markov order k the window holds A_{t-k-1}, ..., A_{t-1}: the arms that
+        # precede the window's covariates L_{t-k}, ..., L_t.
+        first = 1 if self.markov_order is None else max(1, self.window_start(time) - 1)
+        for t in range(first, last + 1):
             if self.is_held_node(t):
                 # One block per *decision*: an identity node repeats node 1, so it adds
                 # nothing the node-1 block does not already hold.

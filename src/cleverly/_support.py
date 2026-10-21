@@ -288,8 +288,10 @@ class SupportKey:
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key on the policy axis holds the policy density ``ratio``. A longitudinal key
         holds ``multiplier_kind``, the inverse-probability ``normalization``, the policy density
-        ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm and the
-        ``isotonic`` projection.
+        ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm, the
+        ``isotonic`` projection, whether the fit declares ``node_bounds``, the
+        ``hazard_pooling``, whether it declares a ``ratio_trim`` and the data's
+        ``markov_order``.
     """
 
     kind: str
@@ -676,6 +678,10 @@ def longitudinal_key(
             ("survival_model", _option(estimator.survival_model)),
             ("targeting", _option(estimator.targeting)),
             ("isotonic", _option(estimator.isotonic)),
+            ("node_bounds", bool(getattr(estimator, "node_bounds", None))),
+            ("hazard_pooling", _option(getattr(estimator, "hazard_pooling", "node"))),
+            ("ratio_trim", getattr(estimator, "ratio_trim", None) is not None),
+            ("markov_order", _option(getattr(data, "markov_order", None))),
         ),
     )
     learners = {

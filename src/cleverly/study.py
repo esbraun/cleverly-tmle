@@ -50,6 +50,7 @@ from .longitudinal import (
     SequentialIPW,
 )
 from .longitudinal import estimator as _sequential
+from .longitudinal.data import check_markov_order, markov_restriction
 from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
     BASELINE_TILT_REFUSAL,
@@ -930,6 +931,10 @@ class LongitudinalTreatment:
         The known retention probabilities (a tuple of pairs is also accepted): each censoring
         column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
         censoring learner.
+    markov_order : int or None
+        A statistical-model restriction of order ``k``.  Every nuisance model at node ``t``
+        reads the baseline covariates and the last ``k + 1`` nodes only.  The estimand does
+        not change.  ``None`` uses the full history.
 
     See Also
     --------
@@ -974,9 +979,11 @@ class LongitudinalTreatment:
     continuous_treatment: Sequence[str] | Mapping[str, Any] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    markov_order: int | None = None
     dose_atoms: Mapping[str, Sequence[float]] | None = None
 
     def __post_init__(self) -> None:
+        check_markov_order(self.markov_order)
         continuous = self.continuous_treatment
         object.__setattr__(
             self,
@@ -1032,9 +1039,11 @@ class LongitudinalTreatment:
             Validated time-ordered representation.
         """
         if isinstance(data, LongitudinalData):
+            if self.markov_order is not None and data.markov_order is None:
+                data = data.with_markov_order(self.markov_order)
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_frame(
+        prepared = LongitudinalData.from_frame(
             data,
             outcome=self.outcome,
             treatment=self.treatment,
@@ -1057,6 +1066,9 @@ class LongitudinalTreatment:
             ),
             dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
         )
+        if self.markov_order is None:
+            return prepared
+        return prepared.with_markov_order(self.markov_order)
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """The event nodes and cause labels this outcome declaration implies.
@@ -1107,6 +1119,7 @@ class LongitudinalTreatment:
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment", declared_treatment, tuple(data.treatment_names)),
             ("held treatment", held, data.treatment_held),
+            ("markov_order", self.markov_order, data.markov_order),
             ("time grid", None, data.time_grid),
             ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
             ("time_varying", blocks, prepared_blocks),
@@ -3804,18 +3817,28 @@ class ExplicitAdjustmentProvider:
             longitudinal=True,
             history=history,
         )
+        identification = (
+            _LONGITUDINAL_TILT_IDENTIFICATION
+            if declares_tilt(regimens)
+            else _LONGITUDINAL_MTP_IDENTIFICATION
+            if declares_mtp(regimens)
+            else _LONGITUDINAL_POLICY_IDENTIFICATION
+            if declares_policy(regimens)
+            else _LONGITUDINAL_IDENTIFICATION
+        )
+        markov_order = getattr(design, "markov_order", None)
+        if markov_order is not None:
+            identification = replace(
+                identification,
+                model_restrictions=(
+                    *identification.model_restrictions,
+                    markov_restriction(markov_order),
+                ),
+            )
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
-            identification=(
-                _LONGITUDINAL_TILT_IDENTIFICATION
-                if declares_tilt(regimens)
-                else _LONGITUDINAL_MTP_IDENTIFICATION
-                if declares_mtp(regimens)
-                else _LONGITUDINAL_POLICY_IDENTIFICATION
-                if declares_policy(regimens)
-                else _LONGITUDINAL_IDENTIFICATION
-            ),
+            identification=identification,
             provider=self,
             _study=study,
         )

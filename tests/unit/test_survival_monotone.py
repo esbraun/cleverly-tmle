@@ -90,6 +90,22 @@ def test_w1_the_one_step_curve_never_decreases(frame: Any) -> None:
         assert np.all(np.diff(_curve(result, label)) >= 0.0)
 
 
+def test_w1_a_bounded_one_step_curve_never_decreases(frame: Any) -> None:
+    """A bounded node holds its hazards in the bound, and every incidence stays a running sum."""
+    result = _fit(
+        frame,
+        COLUMNS,
+        survival_model="hazard",
+        targeting="one_step",
+        node_bounds={2: (0.02, 0.2)},
+    )
+    record = next(iter(result.fits.values())).hazard
+    assert record.converged
+    assert record.share_clipped[0][2] > 0.0
+    for label in REGIMENS:
+        assert np.all(np.diff(_curve(result, label)) >= 0.0)
+
+
 def test_w1_the_isotonic_iterated_mean_curve_is_monotone_and_pava(frame: Any) -> None:
     plain = _fit(frame, COLUMNS)
     projected = _fit(frame, COLUMNS, isotonic=True)

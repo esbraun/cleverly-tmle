@@ -592,6 +592,25 @@ def measured(row: Any) -> str:
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
         )
+    if family == "binding_witness":
+        # The two shares the witness reads.
+        return (
+            f"exceeds-bound share {render(float(row.exceeds_share))}, "
+            f"moved share {render(float(row.moved_share))}"
+        )
+    if family == "reported_calibration":
+        # A reported cell has no bootstrap SE-ratio interval, so the point ratio is printed.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "unbounded_fit":
+        # The unbounded fit's accuracy, and the RMSE of both fits on the same draws.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"RMSE {render(float(row.rmse))}, bounded RMSE {render(float(row.bounded_rmse))}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 
@@ -647,6 +666,7 @@ _BIAS_GATED = frozenset(
         "treatment_complete_case",
         "weight_necessity",
         "blip_feature_control",
+        "bound_necessity",
     }
 )
 

@@ -307,6 +307,8 @@ fit chooses the family of each model from its response.
 | --- | --- |
 | `n_folds > 1` | `CapabilityError`, `implementation_gap`. The fit is in sample only |
 | `msm=` | `CapabilityError`, `api_redirection`. `LTMLE(msm=...)` fits a working model |
+| `markov_order=` on the design | `CapabilityError`, `api_redirection`. The simulation models read the full history. `LTMLE`, `SDR` and the sequential baselines read the window |
+| `ratio_trim=`, `hazard_pooling="pooled"` | `CapabilityError`, `api_redirection`. `LTMLE` and `SDR` take them |
 | `alpha=`, `max_iter=`, `tol=` | `MethodConfigurationError`. No fluctuation exists |
 | `pseudo_learner=` | `CapabilityError`. The fit has no pseudo-outcome regression |
 | a risk-ratio tilt | `CapabilityError`, `api_redirection`. The fit simulates an odds tilt only |

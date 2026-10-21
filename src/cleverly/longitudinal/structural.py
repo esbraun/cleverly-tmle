@@ -21,7 +21,8 @@ The nuisances condition on the full history :math:`H_t`.  They are the outcome m
 :math:`q_t(H_t) = E[Y \mid H_t]` and, for each :math:`j \ge t`, the product means
 :math:`m_{j,t}(H_t) = E[Z_j \mid H_t]` with :math:`Z_j = \phi_j(H_j) \otimes c(A_j)`.  The
 score of node :math:`t` is :math:`\tilde Z_{t,t}(\tilde Y_t - \sum_{j \ge t}
-\tilde Z_{j,t}^\top \psi_j)`, and the nodes are solved from the last to the first.
+\tilde Z_{j,t}^\top \psi_j)`, and the nodes are solved from the last to the first.  A design
+with a declared ``markov_order`` is refused: its restriction does not cover these means.
 ``docs/technical-reference/structural-dynamic-effects.md`` gives the derivation, the influence
 curves and the conditions.
 """
@@ -176,6 +177,18 @@ _HELD_REFUSAL = Refusal(
     "a design with one baseline decision held over every node has no treatment variation "
     "after node 1 for the blips of the later nodes to use.",
     alternative="Fit LTMLE or SDR, which read a held decision.",
+)
+#: Why a fit refuses a declared Markov order.  The restriction of
+#: :func:`~cleverly.longitudinal.data.markov_restriction` names the regimen outcome regression and
+#: the treatment and censoring mechanisms.  The g-estimation nuisances are other conditional
+#: means, so a window on them would rest on a restriction nobody declared.
+_MARKOV_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "StructuralNestedMean conditions the outcome mean E[Y | H_t] and the product means "
+    "E[Z_j | H_t] on the full history. The Markov restriction of markov_order= covers the "
+    "regimen outcome regressions and the treatment and censoring mechanisms only, and not "
+    "these means.",
+    alternative="Omit markov_order=, or fit LTMLE or SDR, whose nuisances read the window.",
 )
 _KNOWN_MECHANISM_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -1563,6 +1576,8 @@ class StructuralNestedMean:
             raise CapabilityError.from_refusal(_HELD_REFUSAL)
         if data.known_mechanisms is not None:
             raise CapabilityError.from_refusal(_KNOWN_MECHANISM_REFUSAL)
+        if data.markov_order is not None:
+            raise CapabilityError.from_refusal(_MARKOV_REFUSAL)
         if data.has_mixed_node:
             raise CapabilityError.from_refusal(_mixed_refusal(data))
 
