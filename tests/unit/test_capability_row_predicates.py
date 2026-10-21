@@ -198,6 +198,7 @@ class TestTheTiltRowsReadTheCallsPredicate:
         """The names are the contract the rows read, so the order is pinned by name."""
         assert [name for name, _ in _FIT_WIDE_TILT_RULES] == [
             "longitudinal",
+            "adaptive_iptw",
             "learned_rule",
             "natural_course",
             "missing_outcome",
@@ -596,6 +597,7 @@ class TestTheRefuteRowResolvesEachRequest:
     def test_the_rule_table_is_ordered(self) -> None:
         assert [name for name, _ in _REQUEST_RULES] == [
             "estimator",
+            "adaptive_iptw",
             "learned_rule",
             "estimand",
             "no_effect_null",

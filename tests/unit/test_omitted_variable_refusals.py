@@ -468,6 +468,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         assert [name for name, _ in _FIT_WIDE_BOUND_RULES] == [
             "longitudinal",
             "drtmle",
+            "adaptive_iptw",
             "collaborative_tmle",
             "response_mechanism",
             "missing_treatment",
