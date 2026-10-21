@@ -365,7 +365,9 @@ estimators, the samples, the fold seeds, the trial counts and the positive rule 
 The clause-binding table `tests/canonical/clause-bindings.csv` has no `repeat_stability` row for
 either study while the committed rows hold the old cells. After the run, search the two subjects
 with `python -m tests.canonical.property_differential --bindings DIR --subjects
-repeated-crossfit-tmle longitudinal-repeated-crossfit` and write the rows.
+repeated-crossfit-tmle longitudinal-repeated-crossfit`. Merge the `found` rows of the two search
+files into the table in its sort order. `--write` does not apply here, because it needs a search
+file for every subject and rewrites the whole table.
 
 The declared run has not happened when this section is written. Every value marked `placeholder`
 below is filled by the declared run's thread, from the run's manifest and the output of `inherit.py`.

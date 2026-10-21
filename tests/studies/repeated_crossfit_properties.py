@@ -108,7 +108,7 @@ CONTROL_ARM = "second_draw_control"
 def repeat_stability_cells() -> tuple[PropertyCell, ...]:
     """The three-draw, first-draw and second-draw arms, as declarations of the law they sample.
 
-    Every arm reads one sample of :func:`~cleverly.datasets.binary_outcome_dgp` and vary only
+    Every arm reads one sample of :func:`~cleverly.datasets.binary_outcome_dgp` and varies only
     the fold seed, so ``seed`` here names the stream that sample comes from rather than a
     per-replication stream, and ``replicates`` is the number of fold-seed trials.
 

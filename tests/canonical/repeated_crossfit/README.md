@@ -27,10 +27,12 @@ nuisance training and foldwise targeting differ from `cleverly`'s complement-tra
 pooled update, so it is corroboration for the reporting layer rather than numerical parity for
 the complete estimator. `equivalence.csv` is intentionally empty and schema-valid.
 
-Regenerate from the repository root:
+Regenerate from the repository root with the declared run form. The run writes into a scratch
+`--output` outside the repository, then copies the artifacts, `manifest.json` and `run.log` into
+this directory. `tests/canonical/declared_run.py` describes the guard:
 
-```powershell
-uv run --extra dev python -m tests.canonical.repeated_crossfit.regenerate
+```bash
+uv run --extra dev python -m tests.canonical.repeated_crossfit.regenerate --jobs 4 --output ~/scratch/point-run
 ```
 
 ## Rerun for the second-draw control
@@ -42,8 +44,9 @@ run. Run it from a clean, pushed commit with every thread variable set to 1:
 python -m tests.canonical.repeated_crossfit.regenerate --jobs 4 --output ~/scratch/x79-point
 ```
 
-Only the `repeat_stability` rows may change beyond float noise. Compare every other row of the new
-`properties.csv` with the committed one before the commit. Discrete columns and verdicts must
+The run copies its artifacts into this directory. Only the `repeat_stability` rows may change
+beyond float noise. Compare every other row of the new `properties.csv` with the committed one
+before the commit. Discrete columns and verdicts must
 match. A float column must agree within 1e-9, and the largest difference goes in the pull request.
 `tests/canonical/provenance-revisions.md` declares this reading.
 
