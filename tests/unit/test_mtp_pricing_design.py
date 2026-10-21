@@ -538,6 +538,48 @@ def test_every_primary_scenario_is_an_exactness_witness() -> None:
     assert len(study.scientific_failures({"exactness.csv": table})["exactness witness"]) == 6
 
 
+def test_a_lost_witness_fit_turns_the_exactness_audit_red() -> None:
+    # A real failure frame names its scenarios in the ``scenarios`` column, joined by ``;``.
+    def record(implementation: str, scenarios: str, replicates: str) -> dict[str, object]:
+        return {
+            "implementation": implementation,
+            "group_id": f"{implementation}:{scenarios}",
+            "scenarios": scenarios,
+            "replicates": replicates,
+            "attempt": 1,
+            "class": "error",
+            "stage": "fit",
+            "call": "lmtp_tmle",
+            "message": "synthetic",
+            "seed": 0,
+        }
+
+    rows = pd.DataFrame.from_records(
+        {
+            "implementation": implementation,
+            "scenario": scenario,
+            "replicate": 0,
+            "estimand": "ey_regimen[price_down]",
+            "estimate": 0.8,
+            "std_error": 0.02,
+        }
+        for scenario in study.SCENARIOS
+        for implementation in (study.STUDY.implementation, "lmtp")
+    )
+    table = study.extra_artifacts(rows)["exactness.csv"]
+    failures = pd.DataFrame.from_records(
+        [
+            record("lmtp", "pricing_ltmle_tau2;pricing_sdr_tau5", "1;2"),
+            record(study.STUDY.implementation, "pricing_ltmle_tau2", "1"),
+        ]
+    )
+    audit = study.account_failures(failures, {"exactness.csv": table}).set_index("leg")
+    # Four (scenario, replicate) fits are lost; the pair both sides lost counts once.
+    assert audit.loc["exactness witness", "own"] == 0
+    assert audit.loc["exactness witness", "failed"] == 4
+    assert not audit.loc["exactness witness", "passed"]
+
+
 def test_the_primary_ltmle_rows_bound_the_submodel_at_lmtp_bound() -> None:
     import inspect
 
