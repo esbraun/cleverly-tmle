@@ -862,14 +862,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 )
 
 
-#: Longitudinal-engine settings with no point-treatment implementation, as
-#: ``(group, field, public name)``. A point-treatment translation refuses each one that differs
-#: from its default, ``ratio_trim`` with its own message first.
-_POINT_LONGITUDINAL_ONLY: tuple[tuple[str, str, str], ...] = (
-    ("targeting", "ratio_trim", "ratio_trim"),
-    ("models", "hazard_pooling", "hazard_pooling"),
-)
-
 #: The refusal of ``ratio_trim=`` on a point-treatment fit, which names the bound it has.
 _POINT_RATIO_TRIM = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -878,6 +870,23 @@ _POINT_RATIO_TRIM = Refusal(
     alternative=(
         "Declare the point treatment as a one-node LongitudinalTreatment to trim its ratio."
     ),
+)
+
+#: The refusal of ``hazard_pooling=`` other than ``"node"`` on a point-treatment fit.
+_POINT_HAZARD_POOLING = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "point-treatment TMLE cannot apply longitudinal option(s): ['hazard_pooling']. "
+    "hazard_pooling= pools the censoring model of a longitudinal fit over its nodes, and a "
+    "point-treatment fit has one censoring indicator.",
+    alternative="Remove it, or use a LongitudinalTreatment design.",
+)
+
+#: The refusal of ``node_bounds=`` on a point-treatment functional (R-i5).
+_POINT_NODE_BOUNDS = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "node_bounds= bounds the logistic fluctuation of each node of a longitudinal "
+    "iterated-mean fit, and a point-treatment functional has no such nodes.",
+    alternative="Remove it, or declare a longitudinal or TimeToEvent design.",
 )
 
 
@@ -1130,26 +1139,10 @@ class TMLEMethod:
             return common
         if targeting.ratio_trim is not None:
             raise MethodConfigurationError.from_refusal(_POINT_RATIO_TRIM)
-        defaults = TMLEMethod()
-        refused = [
-            public_name
-            for group_name, field_name, public_name in _POINT_LONGITUDINAL_ONLY
-            if _differs_from_default(
-                getattr(getattr(self, group_name), field_name),
-                getattr(getattr(defaults, group_name), field_name),
-            )
-        ]
-        if refused:
-            raise MethodConfigurationError(
-                f"point-treatment TMLE cannot apply longitudinal option(s): {refused}. "
-                "Remove them or use a LongitudinalTreatment design."
-            )
+        if models.hazard_pooling != TMLEMethod().models.hazard_pooling:
+            raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
-            raise MethodConfigurationError(
-                "node_bounds= bounds the logistic fluctuation of each node of a longitudinal "
-                "iterated-mean fit, and a point-treatment functional has no such nodes. Remove "
-                "it, or declare a longitudinal or TimeToEvent design"
-            )
+            raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
         if models.survival_model != "iterated_mean" or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "

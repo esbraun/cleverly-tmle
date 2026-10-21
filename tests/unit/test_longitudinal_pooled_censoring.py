@@ -19,7 +19,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, LongitudinalTreatment, ModelSpec, RegimeMean, TMLEMethod
 from cleverly.datasets import make_longitudinal, make_point_survival
-from cleverly.exceptions import CapabilityError, MethodConfigurationError
+from cleverly.exceptions import CapabilityError, MethodConfigurationError, RefusalReason
 from cleverly.longitudinal import LTMLE, SDR, LongitudinalResult, pooled_hazards
 from cleverly.longitudinal.pooled_hazards import stacked_design
 
@@ -273,8 +273,12 @@ class TestRefusals:
         with pytest.raises(
             MethodConfigurationError,
             match=r"cannot apply longitudinal option\(s\): \['hazard_pooling'\]",
-        ):
+        ) as caught:
             method.estimator_kwargs(longitudinal=False)
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert caught.value.refusal.alternative == (
+            "Remove it, or use a LongitudinalTreatment design."
+        )
         assert method.estimator_kwargs(longitudinal=True)["hazard_pooling"] == "pooled"
 
 

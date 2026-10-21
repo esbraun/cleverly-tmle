@@ -587,8 +587,13 @@ class TestRefusals:
 
     def test_a_point_treatment_fit_refuses_the_setting(self) -> None:
         method = TMLEMethod(targeting=Targeting(node_bounds={1: (0.0, 0.5)}))
-        with pytest.raises(MethodConfigurationError, match="node_bounds="):
+        with pytest.raises(MethodConfigurationError, match="node_bounds=") as caught:
             method.estimator_kwargs(longitudinal=False)
+        # R-i5 is a module-level record with an alternative, as the other refusals are.
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert caught.value.refusal.alternative == (
+            "Remove it, or declare a longitudinal or TimeToEvent design."
+        )
 
     def test_the_tmle_method_translates_the_setting_for_a_longitudinal_fit(self) -> None:
         declared = {1: (0.0, 0.5)}
