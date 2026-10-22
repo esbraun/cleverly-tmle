@@ -1,0 +1,5 @@
+scenario,parameter,method,estimand_kind,outcome_family,treatment_kind,learners,cross_fitting,inference,known_mechanism,n,covariates_per_row,min_event_count,clusters,arms,replicates,nodes
+E3,rr[V=0],TMLE,rr[V=0],binomial,discrete,"LogisticRegression(C=1000000.0,max_iter=2000) | LogisticRegression(C=1000000.0,max_iter=2000)",off,influence_curve,False,2000,0.001,202,,2,,
+E3,rr[V=1],TMLE,rr[V=1],binomial,discrete,"LogisticRegression(C=1000000.0,max_iter=2000) | LogisticRegression(C=1000000.0,max_iter=2000)",off,influence_curve,False,2000,0.001,202,,2,,
+E3,rr[V=2],TMLE,rr[V=2],binomial,discrete,"LogisticRegression(C=1000000.0,max_iter=2000) | LogisticRegression(C=1000000.0,max_iter=2000)",off,influence_curve,False,2000,0.001,202,,2,,
+E4,rr_t5,LTMLE,risk_regimen,survival,discrete,"LogisticRegression(C=inf,max_iter=1000) | LogisticRegression(C=inf,max_iter=1000) | LogisticRegression(C=inf,max_iter=1000) | LogisticRegression(C=inf,max_iter=1000)",off,influence_curve,False,2000,0.001,129,,2,,5.0
