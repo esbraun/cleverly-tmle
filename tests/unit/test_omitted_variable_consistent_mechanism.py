@@ -306,3 +306,16 @@ def test_repeats_combine_the_point_bounds_by_the_median(binary_frame: Any) -> No
     bound = _bound(guarded)
     assert bound.lower == pytest.approx(float(np.median(lowers)), rel=1e-12)
     assert bound.limit_refusal is not None
+
+
+class TestThePerArmParametricPointBound:
+    def test_a_per_arm_fit_refuses_the_refit(self) -> None:
+        """A per-arm mechanism reads one outcome prediction, so it has no refit on every covariate."""
+        collaborative = per_arm_fit(extended_frame(BINARY_ACTIVE, 500, 93))
+        with pytest.raises(CapabilityError) as raised:
+            omitted_variable_bounds(
+                collaborative, "ate", cf_y=CF, cf_d=CF, assume_consistent_mechanism=True
+            )
+        assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert "per-arm" in str(raised.value)
+        assert "ordinary TMLE" in str(raised.value)
