@@ -190,6 +190,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert elements.nu2 > 6.0
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
     _check_refutation(namespace)
+    _check_generated_outcome(namespace)
     _check_evalue(namespace)
     _check_stress_surface(namespace)
     _check_bound_limit(namespace)
@@ -240,8 +241,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         ("placebo", ["CTMLE[greedy]"])
     ]
     assert all(row.scope.n_min == 2000 for row in c_tmle_rows)
-    # "The data hold the five columns of Step 2 and no other measure", and no generated outcome
-    # of the page's family runs at the default count beyond what the page states.
+    # "The data hold the five columns of Step 2 and no other measure".
     assert list(namespace["frame"].columns) == [
         "transition_success",
         "transition_navigation",
@@ -251,6 +251,25 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     ]
     with pytest.raises(ValueError, match="negative_control_outcome"):
         namespace["refute"](namespace["collaborative"], tests=("negative_control_outcome",))
+
+
+def _check_generated_outcome(namespace: dict[str, Any]) -> None:
+    """Step 10: the generated Bernoulli law has ATE 0.12, and 400 draws state a pass."""
+    law = namespace["generated_law"]
+    # An identity link gives an arm contrast that does not vary with W: the truth is the effect.
+    assert law.link == "identity" and law.effect == 0.12
+    for name, report in namespace["generated"].items():
+        (test,) = report.tests
+        assert test.name == "simulated_outcome" and test.rung == "L2"
+        assert test.passed is True and report.passed is True
+        assert len(test.values) == 400
+        # "0.12194 and 0.12191": the mean of the generated estimates sits at the law's truth.
+        spread = np.std(test.values, ddof=1) / np.sqrt(400)
+        assert abs(np.mean(test.values) - 0.12) < 3 * spread
+        # The generated truth is not the page's ATE.
+        assert abs(namespace["fits"][name]["ate"].psi - 0.12) > 0.02
+    stored = stored_output(NOTEBOOK, "generated")
+    assert stored.count("VERDICT: every refutation test with a verdict passed it.") == 2
 
 
 def _check_evalue(namespace: dict[str, Any]) -> None:
@@ -287,6 +306,13 @@ def _check_stress_surface(namespace: dict[str, Any]) -> None:
         assert association.min() == pytest.approx(-0.0071, abs=5e-5)
         assert association.max() == pytest.approx(0.0122, abs=5e-5)
         assert abs(association).max() < 0.05
+        # "The cells on the diagonal ... return near zero": a nonzero witness against the
+        # off-diagonal cells, which move the estimate by several times as much.
+        diagonal = cells[
+            (cells["treatment_strength"] == cells["outcome_strength"])
+            & (cells["treatment_strength"] > 0.0)
+        ]["displacement"]
+        assert (diagonal > 0).all() and diagonal.max() < 0.04
         # The outcome-only column moves the estimate further as the strength grows.
         column = cells[cells["treatment_strength"] == 0.0].sort_values("outcome_strength")
         movement = column["displacement"].to_numpy()
