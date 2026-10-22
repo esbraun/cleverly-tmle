@@ -1493,7 +1493,7 @@ ANCHOR = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
 #: is the nonzero witness of its fit, and ``natural_course`` has none.
 CONFOUNDING_REQUESTS: dict[str, tuple[tuple[dict[str, Any], bool], ...]] = {
     "categorical": (
-        ({"benchmark_covariates": ("V",)}, False),
+        ({"benchmark_covariates": ("V",)}, True),
         ({"benchmark_covariates": ("V__small",)}, False),
         ({"benchmark_covariates": ("W",)}, True),
     ),
@@ -1509,7 +1509,13 @@ CONFOUNDING_REQUESTS: dict[str, tuple[tuple[dict[str, Any], bool], ...]] = {
 }
 
 #: The fit and the covariate of each refused calibration.
-REFUSED_COVARIATES = (("categorical", "V"), ("categorical", "V__small"), ("constant", "W4"))
+REFUSED_COVARIATES = (("categorical", "V__small"), ("constant", "W4"))
+
+#: The fragment of each refused calibration's sentence that names the refused covariate.
+REFUSED_FRAGMENTS = {
+    ("categorical", "V__small"): "'V__small' is one indicator of 'V'",
+    ("constant", "W4"): "constant covariate 'W4'",
+}
 
 
 @pytest.fixture(scope="module")
@@ -1566,7 +1572,7 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         )
         assert row.status is AssessmentStatus.UNAVAILABLE
         assert row.reason == _text(simulated_confounding_refusal(result, "ate", (name,)))
-        assert row.reason is not None and f"{kind} covariate {name!r}" in row.reason
+        assert row.reason is not None and REFUSED_FRAGMENTS[kind, name] in row.reason
         with pytest.raises(CapabilityError) as error:
             simulated_confounding(result, grid=ANCHOR, **request)
         assert type(error.value) is CapabilityError
@@ -1595,7 +1601,9 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         assert item.detail == _text(simulated_confounding_refusal(result, "ate", (name,)))
         assert DECLINED not in item.detail
 
-    @pytest.mark.parametrize(("kind", "name"), [("categorical", "W"), ("constant", "W1")])
+    @pytest.mark.parametrize(
+        ("kind", "name"), [("categorical", "W"), ("categorical", "V"), ("constant", "W1")]
+    )
     def test_a_covariate_that_calibrates_runs(
         self, confounding_fits: dict[str, Any], kind: str, name: str
     ) -> None:

@@ -10,8 +10,9 @@ law, so it lives here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
+from numbers import Real
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -57,7 +58,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class _ValidatedRequest:
     estimator: Any
     calibration_names: tuple[str, ...]
-    treatment_family: Literal["binary", "continuous", "vector"]
+    treatment_family: Literal["binary", "categorical", "continuous", "vector"]
     movement_scale: Literal["estimate_difference", "log_ratio"]
     # Excluded from equality for the reason ``AssessmentItem.arguments`` is: the generated
     # ``__eq__`` would return an array here rather than a bool, and ``__hash__`` would
@@ -67,6 +68,18 @@ class _ValidatedRequest:
     baseline_mask: np.ndarray[Any, Any] = field(compare=False)
     stratum: tuple[Any, ...] | None
     conditioning_code: float | None
+    #: The structured key of the requested parameter.
+    key: Any = field(default=None, compare=False)
+    #: The arm codes ``(a, b)`` that the pairwise swap of a multi-arm treatment exchanges,
+    #: ``a`` first.  ``None`` on every other treatment.
+    arm_codes: tuple[float, float] | None = None
+    #: The level codes ``(a, b)`` each categorical component of more than two levels swaps,
+    #: as ``(component, (a, b))`` pairs in component order.  Empty on every other treatment.
+    component_pairs: tuple[tuple[str, tuple[float, float]], ...] = ()
+    #: The declared level of the latent cause: ``"row"``, ``"cluster"`` or ``"mixed"``.
+    latent_level: Literal["row", "cluster", "mixed"] = "row"
+    #: The intra-cluster correlation of a ``"mixed"`` latent, else ``None``.
+    latent_rho: float | None = None
 
 
 #: The declared estimand type each supported contrast alias must carry.  One map, built
@@ -118,7 +131,7 @@ _CONDITIONAL_TARGETS: frozenset[str] = _BINARY_PARAMETER_TARGETS - MEAN_GROUP_ES
 _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTABLE_TYPES)
 
 
-#: The six missing-science stops, each naming the artifact the surface would need and the
+#: The four missing-science stops, each naming the artifact the surface would need and the
 #: roadmap rows that track it.  Named constants rather than inline literals, because the
 #: capability row, the execution refusal, and the roadmap must quote one text.  The
 #: hard-stop review (docs/technical-reference/hard-stop-review.md) moved each declarable
@@ -132,17 +145,6 @@ _LONGITUDINAL_REFUSAL = Refusal(
     "docs/roadmap.md F13 tracks censoring, survival outcomes, time-varying covariates "
     "after the first treatment node, and time-varying latents.",
     alternative=NO_ALTERNATIVE,
-    roadmap="X82",
-)
-_MULTI_ARM_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no category-valued perturbation law for a multi-arm "
-    "treatment. docs/roadmap.md X82 part F tracks a swap of the two arms of a declared pairwise "
-    "contrast.",
-    alternative=(
-        "Call evalue(result, '<one two-arm contrast>') or omitted_variable_bounds(result) "
-        "on the same multi-arm fit."
-    ),
     roadmap="X82",
 )
 _MISSING_OUTCOME_REFUSAL = Refusal(
@@ -178,32 +180,6 @@ _INTERMEDIATE_REFUSAL = Refusal(
     alternative=NO_ALTERNATIVE,
     roadmap="X82",
 )
-#: The one stop whose message names the fitted result rather than the surface, because the
-#: result is what stores no weight model.  Accuracy over template uniformity: writing this
-#: like its five neighbours would attribute the missing artifact to the wrong object.
-_ESTIMATED_WEIGHT_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding cannot replay estimated observation weights; the fitted result "
-    "stores no weight model, target-population semantics, or regeneration rule. "
-    "docs/roadmap.md X82 part F tracks a replay that holds the supplied weights fixed and targets "
-    "the fit's weighted population.",
-    alternative=(
-        "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
-        "neither has a weight rule."
-    ),
-    roadmap="X82",
-)
-_CLUSTERED_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no source-backed choice among row-level, "
-    "cluster-level, and mixed latent causes for clustered fits. docs/roadmap.md X82 part F "
-    "tracks a latent level that the caller declares.",
-    alternative=(
-        "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
-        "neither has a cluster rule."
-    ),
-    roadmap="X82",
-)
 
 
 def _refuse_longitudinal(result: Any) -> Refusal | None:
@@ -236,20 +212,6 @@ def _refuse_longitudinal(result: Any) -> Refusal | None:
     return None
 
 
-def _refuse_multi_arm(result: Any) -> Refusal | None:
-    """Refuse a treatment that is neither binary nor a continuous dose."""
-    data = result.data
-    if data.treatment_kind == "vector":
-        # Each component takes its own perturbation law, so every categorical component
-        # must be binary, as a one-column treatment must.
-        if any(len(levels) > 2 for levels in data.component_levels):
-            return _MULTI_ARM_REFUSAL
-        return None
-    if not data.is_continuous_treatment and not data.is_binary_treatment:
-        return _MULTI_ARM_REFUSAL
-    return None
-
-
 def _refuse_missing_outcome(result: Any) -> Refusal | None:
     """Refuse a fit whose outcome is unobserved on some rows."""
     if result.data.has_missing_outcome:
@@ -271,20 +233,6 @@ def _refuse_intermediate(result: Any) -> Refusal | None:
     which every sensitivity surface reads for this boundary.
     """
     return _INTERMEDIATE_REFUSAL if declares_intermediate(result) else None
-
-
-def _refuse_estimated_weights(result: Any) -> Refusal | None:
-    """Refuse observation weights the fit estimated rather than received."""
-    if result.data.declares_estimated_weights:
-        return _ESTIMATED_WEIGHT_REFUSAL
-    return None
-
-
-def _refuse_clustered(result: Any) -> Refusal | None:
-    """Refuse a clustered fit, whose latent cause has no source-backed level."""
-    if result.data.cluster is not None:
-        return _CLUSTERED_REFUSAL
-    return None
 
 
 def _refuse_result_type(result: Any) -> Refusal | None:
@@ -499,12 +447,9 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
-    ("multi_arm", _refuse_multi_arm),
     ("missing_outcome", _refuse_missing_outcome),
     ("missing_treatment", _refuse_missing_treatment),
     ("intermediate", _refuse_intermediate),
-    ("estimated_weights", _refuse_estimated_weights),
-    ("clustered", _refuse_clustered),
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),
     ("binary_estimator", _refuse_binary_estimator),
@@ -614,7 +559,12 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
     from ..study import ParameterKey
 
     data = getattr(result, "data", None)
-    if data is None or not getattr(data, "has_arms", False) or not data.is_binary_treatment:
+    if (
+        data is None
+        or not getattr(data, "has_arms", False)
+        or data.is_continuous_treatment
+        or data.treatment_kind == "vector"
+    ):
         return ()
     estimates = getattr(result, "estimates", {})
     keys = getattr(result, "parameter_keys", {})
@@ -673,7 +623,7 @@ def _validate_binary_parameter_state(
 ) -> None:
     """Require one coherent binary parameter across every stored layer."""
     from ..study import CounterfactualMean
-    from ..targets.base import parameter_name
+    from ..targets.base import arm_alias, parameter_name
 
     target = key.estimand
     typed_estimand = identified.estimand
@@ -683,12 +633,18 @@ def _validate_binary_parameter_state(
 
     if target in _CONTRAST_TYPES and type(typed_estimand) is _CONTRAST_TYPES[target]:
         typed_contrast: Any = typed_estimand
-        expected_alias = parameter_name(target)
+        expected_alias = arm_alias(
+            target,
+            arm=key.value,
+            versus=key.reference,
+            collapse=result.data.is_binary_treatment,
+        )
         fitted_reference = result.data.arm_label(result.config.reference_arm)
         fitted_values = tuple(level for level in levels if level != fitted_reference)
+        # A multi-arm fit reports one contrast per non-reference arm, each against the
+        # fitted reference; a two-arm fit reports one.
         metadata_matches = (
-            len(fitted_values) == 1
-            and key.value == fitted_values[0]
+            key.value in fitted_values
             and key.reference == fitted_reference
             and typed_contrast.reference in (None, key.reference)
             and functional.reference == typed_contrast.reference
@@ -704,14 +660,16 @@ def _validate_binary_parameter_state(
             and key.reference is None
             and functional.reference is None
             and (
-                typed_estimand.treatment is None
+                # A multi-arm arm mean names its arm on the typed estimand, and an
+                # all-arms mean names none.
+                typed_estimand.treatment in (None, key.value)
                 if target == "ey"
                 else typed_estimand.treatment == key.value == expected_value
             )
         )
     elif target in _ATTRIBUTABLE_TYPES and type(typed_estimand) is _ATTRIBUTABLE_TYPES[target]:
         typed_attributable: Any = typed_estimand
-        expected_alias = parameter_name(target)
+        expected_alias = arm_alias(target, arm=key.value, collapse=result.data.is_binary_treatment)
         fitted_reference = result.data.arm_label(result.config.reference_arm)
         declared_reference = (
             levels[0] if typed_attributable.reference is None else typed_attributable.reference
@@ -1003,8 +961,8 @@ def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
 
     A duplicate, a name that is not a string, and a name that is neither a covariate nor a
     categorical column are malformed arguments.  Each one raises ``ValueError`` or
-    ``TypeError`` before any refusal.  A categorical column is a well-formed name, and
-    :func:`_calibration_refusal` refuses it.
+    ``TypeError`` before any refusal.  A categorical column and each of its generated
+    indicators are well-formed names; :func:`_calibration_refusal` refuses an indicator.
 
     Parameters
     ----------
@@ -1029,14 +987,30 @@ def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
             raise TypeError("benchmark_covariates must contain only column names")
         if name not in categorical and name not in data.covariate_names:
             raise ValueError(
-                f"benchmark covariate {name!r} is unavailable; numeric adjustment columns are "
-                f"{[column for column in data.covariate_names if column not in categorical]}"
+                f"benchmark covariate {name!r} is unavailable; adjustment covariates are "
+                f"{_benchmark_names(data)}"
             )
+    return names
+
+
+def _benchmark_names(data: Any) -> list[str]:
+    """The names a benchmark may take: numeric columns and logical categorical columns."""
+    sources = data.indicator_sources
+    names: list[str] = []
+    for column in data.covariate_names:
+        name = sources.get(column, column)
+        if name not in names:
+            names.append(name)
     return names
 
 
 def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
     """Return the refusal of the first requested covariate that cannot calibrate.
+
+    A categorical covariate calibrates as one block over every encoded indicator, so the
+    request names its logical column.  A generated indicator is one level of that block,
+    and benchmarking it alone does not define a covariate's strength, so it is refused with
+    the logical name.  A covariate constant on the positive-weight rows calibrates nothing.
 
     Parameters
     ----------
@@ -1048,26 +1022,32 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The refusal for a categorical or a constant covariate, or ``None`` when
+        The refusal for an indicator column or a constant covariate, or ``None`` when
         every named covariate can calibrate.
     """
     # Deferred because ``simulated_confounding`` imports this module at its own module
     # scope.  The weighted-statistics block stays beside the perturbation law that shares it.
-    from .simulated_confounding import _is_constant_under_weights
+    from .simulated_confounding import _block_columns, _is_constant_under_weights
 
-    categorical = _categorical_names(data)
+    sources = data.indicator_sources
     for name in names:
-        if name in categorical:
+        if name in sources:
             return Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
-                "zeroing one encoded column does not define a logical-covariate benchmark "
-                "(docs/roadmap.md X82 part F tracks a block calibration of the whole covariate).",
-                alternative="Name numeric benchmark covariates only.",
-                roadmap="X82",
+                RefusalReason.INVALID_DECLARATION,
+                f"simulated_confounding benchmarks a categorical covariate as one block of its "
+                f"indicators; {name!r} is one indicator of {sources[name]!r}.",
+                alternative=f"Name the logical covariate {sources[name]!r}.",
             )
-        column = data.covariates[:, data.covariate_names.index(name)]
-        if _is_constant_under_weights(column, data.weights):
+        block = _block_columns(data, name)
+        if not block:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"simulated_confounding cannot calibrate {name!r}: none of its encoded "
+                "indicators remains in the adjustment set",
+            )
+        if all(
+            _is_constant_under_weights(data.covariates[:, column], data.weights) for column in block
+        ):
             return Refusal(
                 RefusalReason.INVALID_DECLARATION,
                 f"simulated_confounding cannot calibrate constant covariate {name!r}",
@@ -1124,6 +1104,10 @@ def _validate_request(
     estimand: str,
     grid: ConfounderStrengthGrid,
     benchmark_covariates: Any,
+    *,
+    arm_pair: Any = None,
+    latent_level: Any = None,
+    latent_rho: Any = None,
 ) -> _ValidatedRequest:
     """Validate the complete supported boundary before a refit or random draw.
 
@@ -1154,7 +1138,278 @@ def _validate_request(
         raise ValueError("binary treatment strengths must be between 0 and 0.5")
     if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
         raise ValueError("binomial outcome strengths must be between 0 and 0.5")
-    return _validated_parameter(result, estimand, benchmark_covariates)
+    level, rho = _latent_level(data, grid, latent_level, latent_rho)
+    request = _validated_parameter(result, estimand, benchmark_covariates)
+    if data.treatment_kind == "vector":
+        arm_codes, component_pairs = None, _component_pairs(data, arm_pair)
+    else:
+        arm_codes, component_pairs = _arm_codes(data, request.key, arm_pair), ()
+    return replace(
+        request,
+        arm_codes=arm_codes,
+        component_pairs=component_pairs,
+        latent_level=level,
+        latent_rho=rho,
+    )
+
+
+def _component_pairs(data: Any, arm_pair: Any) -> tuple[tuple[str, tuple[float, float]], ...]:
+    """Resolve the pair each categorical component of more than two levels swaps.
+
+    A vector treatment declares ``arm_pair={component: (a, b)}`` for exactly the
+    categorical components with more than two levels.  A binary component has one pair
+    and a dose has none, so neither may be named.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of a vector-treatment fit.
+    arm_pair : mapping or None
+        The declared pairs of component levels.
+
+    Returns
+    -------
+    tuple of (str, tuple of float)
+        The level codes of each swapped pair, in component order.
+
+    Raises
+    ------
+    ValueError
+        If a component that needs a pair has none, or a pair is malformed.
+    """
+    needs = {
+        name: levels
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+        if len(levels) > 2
+    }
+    if arm_pair is None:
+        declared: dict[Any, Any] = {}
+    elif isinstance(arm_pair, Mapping):
+        declared = dict(arm_pair)
+    else:
+        raise ValueError(
+            "a vector treatment declares arm_pair= as a mapping from each categorical "
+            "component of more than two levels to the two levels it swaps"
+        )
+    if set(declared) != set(needs):
+        raise ValueError(
+            f"arm_pair= must name exactly the categorical components of more than two levels, "
+            f"{sorted(needs)}; got {sorted(map(str, declared))}"
+        )
+    out = []
+    for name in data.component_names:
+        if name not in needs:
+            continue
+        levels = tuple(needs[name])
+        pair = tuple(declared[name])
+        if len(pair) != 2 or pair[0] == pair[1] or any(level not in levels for level in pair):
+            raise ValueError(
+                f"arm_pair[{name!r}] names two different levels of {list(levels)}; got "
+                f"{declared[name]!r}"
+            )
+        out.append((name, (float(levels.index(pair[0])), float(levels.index(pair[1])))))
+    return tuple(out)
+
+
+def _arm_codes(data: Any, key: Any, arm_pair: Any) -> tuple[float, float] | None:
+    """Resolve the two arms that the pairwise swap of a multi-arm treatment exchanges.
+
+    A two-arm contrast declares its pair: the arm it reports and its reference.  Any other
+    parameter of a multi-arm fit needs ``arm_pair=(a, b)``, with ``a`` the arm the
+    induced association reads.  A two-arm treatment has one pair, so ``arm_pair`` may only
+    restate it there, and a dose or a vector treatment takes no pair.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of the fit.
+    key : ParameterKey
+        The structured key of the requested parameter.
+    arm_pair : tuple or None
+        The declared pair of arm labels.
+
+    Returns
+    -------
+    tuple of (float, float) or None
+        The arm codes ``(a, b)`` of a multi-arm treatment, else ``None``.
+
+    Raises
+    ------
+    ValueError
+        If the pair is missing on a multi-arm fit, names an unknown or repeated arm,
+        disagrees with the contrast it reports, or is given where no pair applies.
+    """
+    levels = tuple(data.treatment_levels)
+    multi_arm = (
+        data.has_arms
+        and data.treatment_kind != "vector"
+        and not data.is_continuous_treatment
+        and not data.is_binary_treatment
+    )
+    if arm_pair is not None:
+        if not multi_arm and not (data.has_arms and data.is_binary_treatment):
+            raise ValueError(
+                "arm_pair= names two arms of an arm-coded treatment; "
+                "this fit's treatment is not arm-coded"
+            )
+        pair = tuple(arm_pair)
+        if len(pair) != 2 or pair[0] == pair[1] or any(arm not in levels for arm in pair):
+            raise ValueError(
+                f"arm_pair= names two different arms of {list(levels)}; got {arm_pair!r}"
+            )
+    else:
+        pair = None
+    declared = (
+        (key.value, key.reference)
+        if key is not None
+        and key.axis == "arm"
+        and key.estimand in _CONTRAST_TYPES
+        and key.reference is not None
+        else None
+    )
+    if pair is not None and declared is not None and set(pair) != set(declared):
+        raise ValueError(
+            f"arm_pair={pair!r} disagrees with the contrast {key.alias!r}, which swaps {declared!r}"
+        )
+    if not multi_arm:
+        if pair is not None and set(pair) != set(levels):
+            raise ValueError(f"a two-arm treatment swaps {list(levels)}; got arm_pair={pair!r}")
+        return None
+    resolved = pair if pair is not None else declared
+    if resolved is None:
+        raise ValueError(
+            f"treatment {data.treatment_name!r} has {len(levels)} arms, and the pairwise swap "
+            "needs the two it exchanges: pass arm_pair=(a, b), with a the arm whose "
+            "association the cells report"
+        )
+    return (float(levels.index(resolved[0])), float(levels.index(resolved[1])))
+
+
+#: The levels a caller may declare for the latent cause.
+_LATENT_LEVELS: frozenset[str] = frozenset({"row", "cluster", "mixed"})
+
+
+def _latent_level(
+    data: Any, grid: ConfounderStrengthGrid, latent_level: Any, latent_rho: Any
+) -> tuple[Literal["row", "cluster", "mixed"], float | None]:
+    """Check the declared level of the latent cause against the fit's clusters.
+
+    A clustered fit declares the level, because no source fixes it (hard-stop review F9).
+    An unclustered fit has one level, ``"row"``.  A row-level or mixed latent flips or
+    shifts single rows, so on a treatment that is constant within every cluster it breaks
+    the cluster assignment the fit modelled.  That refusal applies only when a cell moves
+    the treatment: an outcome-only grid changes no treatment.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of the fit.
+    grid : ConfounderStrengthGrid
+        The declared strengths.
+    latent_level : str or None
+        The declared level.
+    latent_rho : float or None
+        The intra-cluster correlation of a ``"mixed"`` latent.
+
+    Returns
+    -------
+    tuple of (str, float or None)
+        The resolved level and correlation.
+
+    Raises
+    ------
+    ValueError
+        If the level is missing on a clustered fit, unknown, or inconsistent with the
+        correlation.
+    CapabilityError
+        If a row-level or mixed latent would move a cluster-constant treatment.
+    """
+    clustered = data.cluster is not None
+    if latent_level is None:
+        if clustered:
+            raise ValueError(
+                f"the fit is clustered on {data.cluster_name!r}, and no source fixes the level "
+                "of a simulated common cause there: declare latent_level='row', 'cluster' "
+                "or 'mixed' (with latent_rho=)"
+            )
+        latent_level = "row"
+    if latent_level not in _LATENT_LEVELS:
+        raise ValueError(
+            f"latent_level must be one of {sorted(_LATENT_LEVELS)}; got {latent_level!r}"
+        )
+    if not clustered and latent_level != "row":
+        raise ValueError(
+            f"latent_level={latent_level!r} needs a clustered fit; this fit declares no cluster"
+        )
+    if latent_level == "mixed":
+        if (
+            isinstance(latent_rho, bool)
+            or not isinstance(latent_rho, Real)
+            or not 0.0 < float(latent_rho) < 1.0
+        ):
+            raise ValueError(
+                "latent_level='mixed' needs latent_rho= strictly between 0 and 1, the "
+                f"intra-cluster correlation of the latent; got {latent_rho!r}"
+            )
+        rho: float | None = float(latent_rho)
+    else:
+        if latent_rho is not None:
+            raise ValueError(
+                "latent_rho= sets the correlation of latent_level='mixed'; "
+                f"got latent_level={latent_level!r}"
+            )
+        rho = None
+    moved_constant = (
+        _moved_cluster_constant_columns(data, grid)
+        if clustered and latent_level != "cluster"
+        else ()
+    )
+    if moved_constant:
+        raise CapabilityError(
+            f"simulated_confounding refuses latent_level={latent_level!r} with a nonzero "
+            f"treatment strength on {', '.join(map(repr, moved_constant))}: that treatment is "
+            f"constant within every cluster of {data.cluster_name!r}, and a latent that varies "
+            "within a cluster would move single rows of a cluster-level assignment.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Declare latent_level='cluster', or keep the strength of every cluster-level "
+                "treatment at zero."
+            ),
+        )
+    return latent_level, rho
+
+
+def _moved_cluster_constant_columns(data: Any, grid: ConfounderStrengthGrid) -> tuple[str, ...]:
+    """The treatment columns that hold one value per cluster and that some grid point moves.
+
+    A vector is read per component: a row-varying latent may move a component that varies
+    within clusters, but not a component that is constant within every cluster.
+    """
+    cluster = np.asarray(data.cluster)
+    n_clusters = np.unique(cluster).size
+    if (data.treatment_components is not None) != bool(grid.components):
+        return ()  # _check_component_grid refuses this grid shape
+    if grid.components:
+        values = np.asarray(data.treatment_components, dtype=float)
+        names = tuple(data.component_names)
+        moved = {
+            name
+            for point in grid.treatment_points
+            for name, value in zip(grid.components, point, strict=True)  # type: ignore[arg-type]
+            if value != 0.0
+        }
+    else:
+        values = np.asarray(data.treatment, dtype=float).reshape(data.n, 1)
+        names = (data.treatment_name,)
+        moved = (
+            {data.treatment_name} if any(value != 0.0 for value in grid.treatment_points) else set()
+        )
+    return tuple(
+        name
+        for name, column in zip(names, values.T, strict=True)
+        if name in moved
+        and np.unique(np.column_stack((cluster, column)), axis=0).shape[0] == n_clusters
+    )
 
 
 def _check_component_grid(data: Any, grid: ConfounderStrengthGrid) -> None:
@@ -1201,12 +1456,14 @@ def _validated_parameter(
     names = _calibration_names(data, benchmark_covariates)
     # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
     # binary, so exactly one of the two families holds here.
-    treatment_family: Literal["binary", "continuous", "vector"] = (
+    treatment_family: Literal["binary", "categorical", "continuous", "vector"] = (
         "vector"
         if data.treatment_kind == "vector"
         else "continuous"
         if data.is_continuous_treatment
         else "binary"
+        if data.is_binary_treatment
+        else "categorical"
     )
     identified = result.identified_effect
     functional = identified.functional
@@ -1224,7 +1481,7 @@ def _validated_parameter(
                 "reference intervention."
             ),
         )
-    if treatment_family != "binary" and estimand == "ate":
+    if treatment_family not in {"binary", "categorical"} and estimand == "ate":
         vacuous = _zero_delta_policy_means(result)
         admissible = [
             name
@@ -1241,7 +1498,7 @@ def _validated_parameter(
             f"or ate_policy[...] contrast alias, or an msm[...] coefficient alias; {detail}"
         )
     if estimand not in result.estimates:
-        if treatment_family == "binary":
+        if treatment_family in {"binary", "categorical"}:
             admissible = list(_eligible_binary_parameter_names(result))
         else:
             # A continuous fit can report the zero-delta natural-course mean, which the
@@ -1267,7 +1524,7 @@ def _validated_parameter(
         estimator = validate_fixed_replay(result, estimand, key)
     elif treatment_family == "binary" and key.estimand in INCREMENTAL_TARGETS:
         estimator = validate_incremental_replay(result, estimand, key)
-    elif treatment_family == "binary":
+    elif treatment_family in {"binary", "categorical"}:
         check_only_declared_axis(
             result,
             key,
@@ -1346,4 +1603,5 @@ def _validated_parameter(
         baseline_mask,
         key.stratum,
         conditioning_code,
+        key=key,
     )

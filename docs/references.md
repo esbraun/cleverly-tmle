@@ -2052,14 +2052,23 @@ sizes only the cluster sum is the delta-method variance of the row mean
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- Albert and Anderson (1984), *On the existence of maximum likelihood estimates in logistic
+  regression models*, Biometrika 71(1), 1–10. The paper classifies a sample as completely
+  separated, quasi-completely separated, or overlapping, and finds a finite maximum-likelihood fit
+  only under overlap. Konis (2007), *Linear programming algorithms for detecting separated data
+  in binary logistic regression models*, DPhil thesis, University of Oxford, gives the linear
+  programme that tests for separation. The simulated common-cause calibration applies that
+  programme to $K$ classes (`_classes_separate`). The witnesses in
+  `tests/unit/test_simulated_confounding_point_laws.py` check it on complete, quasi-complete and
+  one-class separation. No review in this project has read either source in full.
 - Carnegie, Harada and Dorie, R package [`treatSens`](https://github.com/vdorie/treatSens) 3.0
   (`DESCRIPTION` dated 2024-02-03), read on the `master` branch. The hard-stop review read
   `R/genU_contY.R`, `R/treatSensMLM.R` and `man/treatSens.Rd`. `treatSensMLM` declares the latent
   at the individual or the group level (`trt.level`, lines 4 to 7). `contYZU` in `R/genU_contY.R`
   draws one latent value per group for a group-level treatment (lines 37 to 84).
-  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. Roadmap item
-  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (b), cites it as a
-  design precedent for the latent level, not as a base.
+  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. The
+  [clustered point law](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+  cites it as a design precedent for the latent level, not as a base.
 - Qin and Yang, R package [`mediationsens`](https://cran.r-project.org/package=mediationsens)
   0.0.3, read in the CRAN reference manual. `sens()` simulates a pretreatment latent that enters
   the mediator and outcome models, and the treatment model when the treatment is not randomized.
@@ -2162,16 +2171,16 @@ sizes only the cluster sum is the delta-method variance of the row mean
   procedure. The abstract on page 1014 states that scope. The method encodes the impact of
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
-  latent treatment perturbation and no refit law for this surface. Roadmap item X82, part F, point laws (a),
-  cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
+  latent treatment perturbation and no refit law for this surface. The multi-arm point law of the
+  simulated common-cause surface cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
   2.3.1, Theorem 2.1 and Remark 2.
 - Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
   Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
   arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
   a bias correction from those models. That construction does not perturb the treatment and the
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
-  and a mixed latent cause for this surface. Roadmap item X82, part F, point laws (b), cites it as a negative
-  finding.
+  and a mixed latent cause for this surface. The clustered point law of the simulated common-cause surface
+  cites it as a negative finding.
 
 ## Negative controls
 
