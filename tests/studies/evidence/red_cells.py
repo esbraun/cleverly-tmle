@@ -475,6 +475,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "misspecification_control/ht_x_contrast__main_terms",
         "misspecification_control/ice_x_contrast__main_terms",
     ),
+    # The sanity phase of the longitudinal refutation study: 200 replications cannot put the
+    # 99% coverage limit above the 0.90 floor, so the truth gate is under-resolved by design.
+    # The S1 (SDR) row also reads an SE ratio of 0.927, a possible mild SE shortfall that the
+    # owner reads as a signal, not as resolution alone.
+    "X82-short-study-sanity": _keys(
+        "refuter-calibration-longitudinal",
+        "truth",
+        "cleverly-refute-longitudinal/end_of_study/ate",
+        "cleverly-refute-longitudinal/survival/ate",
+    ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
         "composite-missing-drtmle",

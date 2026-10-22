@@ -135,7 +135,8 @@ The test fails on four states.
 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) | 3 | adaptive-propensity IPTW |
 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
-| total | 208 | 37 studies |
+| [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) | 2 | longitudinal refutation verdict rules |
+| total | 210 | 38 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -348,6 +349,8 @@ same text as the "measured" column of its study page.
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_8000` | positive | its own rule | bias 0.000447, coverage 0.8949 to 0.9449, SE ratio 0.8812 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [omitted-variable bound plug-in standard error](omitted-variable-bound-plugin-standard-error.md) | property | `interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified` | positive | its own rule | coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, failures 32 of 10000 (complete case fails) | [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) |
 | [omitted-variable bound plug-in standard error](omitted-variable-bound-plugin-standard-error.md) | property | `interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified` | positive | failure accounting: worst case fails | coverage 0.9568 to 0.9667, SE ratio 1.0288 to 1.0683, failures 32 of 10000 (worst case fails) | [`X26-refusal-limited`](../../roadmap.md#red-cell-owners) |
+| [longitudinal refutation verdict rules](refuter-calibration-longitudinal.md) | truth | `cleverly-refute-longitudinal/end_of_study/ate` | cleverly-refute-longitudinal | its truth gate | bias -0.0303 to 0.0065, coverage 0.9150, SE ratio 0.9271 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
+| [longitudinal refutation verdict rules](refuter-calibration-longitudinal.md) | truth | `cleverly-refute-longitudinal/survival/ate` | cleverly-refute-longitudinal | its truth gate | bias -0.0068 to 0.0085, coverage 0.9450, SE ratio 0.9993 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |

@@ -1,0 +1,162 @@
+{
+  "schema_version": 2,
+  "study": "longitudinal refutation verdict rules",
+  "slug": "refuter-calibration-longitudinal",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-refute-longitudinal",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "e75b4fa503605a4392f16e8f44575e29d57bd985",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 200,
+    "n": 1000,
+    "seed": 20268253,
+    "resampling_seed": 20268254,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-refute-longitudinal": 0.01
+    },
+    "scenarios": {
+      "end_of_study": [
+        "ate"
+      ],
+      "survival": [
+        "ate"
+      ]
+    },
+    "nodes": 2,
+    "folds": {
+      "L1": 5,
+      "S1": 5,
+      "I1": 5,
+      "B1": 1,
+      "B2": 1,
+      "B3": 1
+    },
+    "refits": 20,
+    "size_trials": 200,
+    "power_trials": 50,
+    "size_pass": "rejections <= 17 of 200",
+    "power_pass": "detections >= 38 of 50",
+    "law_e_a1": "logit g1 = -0.2 + 0.6 W2 + 0.5 U",
+    "law_e_l2": "L2 = 0.5 W1 + 0.3 W2 + 0.5 A1 + N(0, 1)",
+    "law_e_a2": "logit g2 = -0.3 + 0.4 W1 - 0.3 W2 + 0.8 A1 + 0.5 L2",
+    "law_e_y": "Y = 0.5 W1 + 0.4 W2 + 0.5 A1 + 0.4 L2 + 0.5 A2 + N(0, 1)",
+    "law_e_controls": "NC = 0.5 W1 + 0.4 W2 + N(0, 1); NCU = NC + 1.25 U",
+    "law_s": "cleverly.datasets.make_longitudinal_survival (censoring on)",
+    "stale_share": {
+      "end_of_study": 0.1,
+      "survival": 0.4
+    },
+    "control_delta": 1.25,
+    "gformula_draws": 10,
+    "cells": {
+      "L1": {
+        "law": "survival",
+        "readings": [
+          "placebo",
+          "subset"
+        ],
+        "estimator": "ltmle"
+      },
+      "S1": {
+        "law": "end_of_study",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "sdr"
+      },
+      "I1": {
+        "law": "end_of_study",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "ipsi"
+      },
+      "B1": {
+        "law": "end_of_study",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "ice"
+      },
+      "B2": {
+        "law": "end_of_study",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "ipw"
+      },
+      "B3": {
+        "law": "end_of_study",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "gformula"
+      }
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/refuter_calibration_longitudinal.py": "64282bc9702dd371aa30c664be1bdfd8b7937d5ae0366ae473432994bef736ca",
+    "tests/studies/refuter_calibration_longitudinal_properties.py": "98e4ccda5d69bc14e3a62cde0c4b64f695c9e220d8db121af99512e599d762ab",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e16d6c2b2f60c44c2d2a5f3be7388f326521939904359dbacbcd6caf4ab60258",
+    "summary.csv": "fc6e7944d3877f2faab99574276c6e287817230a5c83406a353782cab68975c5",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "f4f29d492f10dbbf9b14f269252d0b48f92dcec47d240d4a859447b74b4070e9",
+    "property-replicates.parquet": "00c6f9b5300de9a9c5f78a9c2a1fea6bef1a9ddc2fc4b11ccacc9175ac774e51",
+    "properties.csv": "494981bc9d6a9400d9de52c90f7e465271379377f65828f9129724d30d88e987",
+    "cells.csv": "75b652ed8730ac2279d0f9579e1493869d8c4c93c336bdbbb3109d82e8ce07e3"
+  }
+}

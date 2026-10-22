@@ -28,7 +28,7 @@ covered configuration in one line.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import product
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -50,6 +50,7 @@ __all__ = [
     "check_scope_containment",
     "fit_configuration",
     "learner_fingerprint",
+    "method_axis",
     "resolve",
 ]
 
@@ -127,7 +128,8 @@ class FitConfiguration:
     Parameters
     ----------
     method : str
-        The fitted method, for example ``"TMLE"`` or ``"CTMLE"``.
+        The fitted method as :func:`method_axis` names it, for example ``"TMLE"``,
+        ``"CTMLE[greedy]"`` or ``"AdaptiveIPTW[one_step]"``.
     estimand_kind : str
         The parameter axis and estimand kind, for example ``"arm:ate"``.
     outcome_family : str
@@ -205,6 +207,38 @@ def event_count(data: Any) -> int | None:
     return min(counts)
 
 
+def method_axis(estimator: Any) -> str:
+    """Name the method scope axis of a point-treatment estimator.
+
+    The class name is not enough where one class runs estimators whose rules behave
+    differently. A ``CTMLE`` names its strategy, and an outcome-adaptive one also names its
+    design, for example ``"CTMLE[greedy]"`` or ``"CTMLE[oat:shared]"``. An ``AdaptiveIPTW``
+    names a form other than the default ``"targeted"``, as ``"AdaptiveIPTW[one_step]"``.
+    A registry row then covers only the variant its cells ran.
+
+    Parameters
+    ----------
+    estimator : object
+        The fitted estimator.
+
+    Returns
+    -------
+    str
+        The class name, with the variant in brackets where the class has variants.
+    """
+    name = type(estimator).__name__
+    kind = getattr(estimator, "_assessment_method", None)
+    if kind == "collaborative_tmle":
+        strategy = str(getattr(estimator, "strategy", ""))
+        if strategy == "oat":
+            strategy = f"oat:{getattr(estimator, 'oat_design', None)}"
+        return f"{name}[{strategy}]"
+    if kind == "adaptive_iptw":
+        form = str(getattr(estimator, "form", "targeted"))
+        return name if form == "targeted" else f"{name}[{form}]"
+    return name
+
+
 def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
     """Read the configuration of ``result`` for one estimand.
 
@@ -237,7 +271,14 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         used.append("treatment_learner")
     if not bool(np.all(data.observed)):
         used.append("missingness_learner")
-    learners = tuple(learner_fingerprint(getattr(estimator, name, None), n) for name in used)
+    fitted = [getattr(estimator, name, None) for name in used]
+    if getattr(estimator, "_assessment_method", None) == "adaptive_iptw":
+        # AdaptiveIPTW fits no outcome regression. Its reduced regression of the outcome on
+        # the fitted propensity takes ``reduced_outcome_learner``, else ``outcome_learner``.
+        reduced = getattr(estimator, "reduced_outcome_learner", None)
+        if reduced is not None:
+            fitted[0] = reduced
+    learners = tuple(learner_fingerprint(learner, n) for learner in fitted)
     if getattr(estimator, "cross_fit", True):
         cross_fitting = f"folds={int(getattr(estimator, 'n_folds', 0))}"
     else:
@@ -247,7 +288,7 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
     min_events = event_count(data)
     clusters = None if data.cluster is None else int(np.unique(data.cluster).size)
     return FitConfiguration(
-        method=type(estimator).__name__,
+        method=method_axis(estimator),
         estimand_kind=str(getattr(estimate, "name", estimand)),
         outcome_family=family,
         treatment_kind=str(data.treatment_kind),
@@ -283,6 +324,55 @@ def _longitudinal_event_count(data: Any) -> int | None:
     return min(count, int(events.size) - count)
 
 
+def _longitudinal_learners(estimator: Any, data: Any) -> tuple[Any, ...]:
+    """The learners whose fits move a longitudinal estimate, in a fixed order.
+
+    The targeted estimators fit the outcome, pseudo-outcome, treatment and censoring
+    regressions. An unset pseudo learner defaults to the outcome learner. The baselines fit
+    fewer. Sequential g-computation fits only its outcome
+    regressions, and its pseudo learner defaults to the outcome learner. Its mechanisms feed
+    the positivity diagnostics only. Sequential IPW fits only the mechanisms. The parametric
+    g-formula fits a covariate model per time-varying column, an outcome or hazard model,
+    and the natural-treatment models.
+    """
+    method = type(estimator).__name__
+    known = data.known_mechanisms
+    fits_treatment = known is None or not all(
+        known.treatment_at(time) is not None
+        for time in range(1, data.n_times + 1)
+        if not data.is_held_node(time)
+    )
+    mechanisms = []
+    if fits_treatment:
+        mechanisms.append(estimator.treatment_learner)
+    if data.has_censoring:
+        mechanisms.append(estimator.censoring_learner)
+    # An unset pseudo learner reads the outcome learner: g-computation uses it as it is, and
+    # the targeted estimators read its library as a regression.
+    pseudo = getattr(estimator, "pseudo_learner", None)
+    regressions = (
+        estimator.outcome_learner,
+        estimator.outcome_learner if pseudo is None else pseudo,
+    )
+    if method == "SequentialGComputation":
+        return regressions
+    if method == "SequentialIPW":
+        return tuple(mechanisms)
+    if method == "ParametricGFormula":
+        from ..learners import GLM
+
+        # ``None`` is the documented main-terms GLM default of each of these models.
+        def resolved(learner: Any) -> Any:
+            return GLM() if learner is None else learner
+
+        has_covariates = any(block.shape[1] for block in data.time_varying)
+        models = [resolved(estimator.covariate_learner)] if has_covariates else []
+        outcome = estimator.hazard_learner if data.is_survival else estimator.outcome_learner
+        models.append(resolved(outcome))
+        return (*models, *mechanisms)
+    return (*regressions, *mechanisms)
+
+
 def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     """Read the scope axes of a longitudinal fit for one estimand.
 
@@ -297,16 +387,9 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     estimate = result[estimand]
     n = int(data.n)
     known = data.known_mechanisms
-    used = ["outcome_learner", "pseudo_learner"]
-    if known is None or not all(
-        known.treatment_at(time) is not None
-        for time in range(1, data.n_times + 1)
-        if not data.is_held_node(time)
-    ):
-        used.append("treatment_learner")
-    if data.has_censoring:
-        used.append("censoring_learner")
-    learners = tuple(learner_fingerprint(getattr(estimator, name, None), n) for name in used)
+    learners = tuple(
+        learner_fingerprint(learner, n) for learner in _longitudinal_learners(estimator, data)
+    )
     folds = int(getattr(estimator, "n_folds", 1))
     kind = str(result.config.outcome_kind)
     if data.has_continuous_node:
@@ -595,6 +678,155 @@ DESCRIPTIVE_SENTENCE = (
     "report states no verdict."
 )
 
+#: The registered study that calibrated the longitudinal refutation rules (X82 SL).
+_LONGITUDINAL_STUDY = "refuter-calibration-longitudinal"
+
+#: Its declared thresholds, as the registry ``theory`` line states them (X82 plan 8.3 and 8.5).
+_GROSS_MISCALIBRATION = (
+    "Checked against gross miscalibration only: 200 trials, pass at no more than 17 "
+    "rejections. True size 0.05 passes with probability 0.988, 0.08 with 0.663, 0.10 with "
+    "0.285, and 0.15 with 0.004. Power: 50 trials of the same configuration under {defect}, "
+    "pass at no fewer than 38 detections."
+)
+
+#: The calibrated cells of the study: method, outcome family, cross-fitting, learner
+#: fingerprints, the law the sentence names, and the smallest event count of the size cell.
+_LONGITUDINAL_CELLS: Final[dict[str, tuple[str, str, str, tuple[str, ...], str, int | None]]] = {
+    "L1": (
+        "LTMLE",
+        "survival",
+        "folds=5",
+        ("GLM()",),
+        "the registered censored survival law, risk contrast at t = 2",
+        122,
+    ),
+    "S1": (
+        "SDR",
+        "gaussian",
+        "folds=5",
+        ("GLM(family='gaussian')", "GLM()"),
+        "the study's end-of-study law E",
+        None,
+    ),
+    "I1": (
+        "IPSI",
+        "gaussian",
+        "folds=5",
+        ("GLM(family='gaussian')", "GLM()"),
+        "the study's end-of-study law E, odds x2 against the natural course",
+        None,
+    ),
+    "B1": (
+        "SequentialGComputation",
+        "gaussian",
+        "off",
+        ("GLM(family='gaussian')",),
+        "the study's end-of-study law E",
+        None,
+    ),
+    "B2": (
+        "SequentialIPW",
+        "gaussian",
+        "off",
+        ("GLM()",),
+        "the study's end-of-study law E",
+        None,
+    ),
+    "B3": (
+        "ParametricGFormula",
+        "gaussian",
+        "off",
+        ("GLM()", "GLM(family='gaussian')"),
+        "the study's end-of-study law E, 10 simulation draws per unit",
+        None,
+    ),
+}
+
+#: The readings each instrument calibrates: rule, size reading, power readings, refit count,
+#: plan section, and the defect its power cell injects.
+_LONGITUDINAL_READINGS: Final[dict[str, tuple[str, str, tuple[str, ...], int, str, str]]] = {
+    "placebo": (
+        "t",
+        "placebo",
+        ("placebo_stale_rows",),
+        20,
+        "5.1.3",
+        "a stale-row placebo that keeps a declared share of recorded treatments",
+    ),
+    "subset": (
+        "rho",
+        "subset",
+        ("subset_half_se", "subset_double_se"),
+        20,
+        "5.3",
+        "a reported standard error halved and doubled",
+    ),
+    "negative_control_outcome": (
+        "z",
+        "negative_control",
+        ("negative_control_confounded",),
+        1,
+        "5.7",
+        "a control that also reads an unmeasured cause of the first treatment",
+    ),
+}
+
+
+def _longitudinal_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the X82 SL study's passing size and power cells license."""
+    rows: list[VerdictEvidence] = []
+    for instrument, (rule, size, powers, refits, section, defect) in _LONGITUDINAL_READINGS.items():
+        for cell, (method, family, folds, learners, law, events) in _LONGITUDINAL_CELLS.items():
+            if instrument == "negative_control_outcome" and family == "survival":
+                # ``refute`` refuses a negative-control outcome on a survival fit.
+                continue
+            # A negative-control reading is scoped by the control's own outcome family and
+            # event count, and the control of law E is Gaussian.
+            fitting = "five-fold cross-fitting" if folds == "folds=5" else "no cross-fitting"
+            rows.append(
+                VerdictEvidence(
+                    instrument=instrument,
+                    rule=rule,
+                    rung="L2",
+                    theory=(
+                        f"X82 plan {section}, 8.3 and 8.5. "
+                        + _GROSS_MISCALIBRATION.format(defect=defect)
+                    ),
+                    scope=CalibrationScope(
+                        methods=frozenset({method}),
+                        estimand_kinds=frozenset({"ate_regimen"}),
+                        outcome_families=frozenset({family}),
+                        treatment_kinds=frozenset({"discrete"}),
+                        learners=frozenset(learners),
+                        cross_fitting=frozenset({folds}),
+                        inference=frozenset({"influence_curve"}),
+                        known_mechanism=frozenset({False}),
+                        arms=frozenset({2}),
+                        replicates=frozenset({refits}),
+                        nodes=frozenset({2}),
+                        n_min=1000,
+                        covariates_per_row_max=0.003,
+                        min_event_count_min=events,
+                    ),
+                    sentence=(
+                        f"Calibrated against gross miscalibration on {law} at n = 1,000 with "
+                        f"two treatment nodes: {method}, GLM nuisances, {fitting}. A rule "
+                        "with true size 0.15 fails this check with probability above 0.99."
+                    ),
+                    study=(
+                        _LONGITUDINAL_STUDY,
+                        f"refuter_size/{cell}__{size}",
+                        *(f"refuter_power/{cell}__{power}" for power in powers),
+                    ),
+                )
+            )
+    return tuple(rows)
+
+
+#: The plasmode rows cover every fit, a clustered one included: the readings are exact
+#: whatever the cluster count, because whole clusters are the i.i.d. units of a draw.
+_PLASMODE_SCOPE = CalibrationScope(clusters_min=1)
+
 #: Rows that license a verdict. A row with ``exact=False`` is added by the registered study
 #: that measured its size and power, in the pull request that registers the study.
 VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
@@ -651,9 +883,10 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         theory=(
             "X82 plan 4.2.1 and 5.6. The plasmode draws are i.i.d. units from a law whose "
             "covariates are the empirical support, so the truth is an exact finite sum and "
-            "the bias and its Monte Carlo standard error are exact."
+            "the bias and its Monte Carlo standard error are exact. A clustered draw "
+            "resamples whole clusters, which are then the i.i.d. units."
         ),
-        scope=CalibrationScope.unrestricted(),
+        scope=_PLASMODE_SCOPE,
         sentence=(
             "On the plasmode law named here, the bias lies inside its equivalence band. "
             "The plasmode resembles your data and does not estimate its truth."
@@ -668,7 +901,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "X82 plan 4.2.1 and 5.6. The plasmode resamples the covariates, so the fit's "
             "standard error targets the unconditional variance across the i.i.d. draws."
         ),
-        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the standard-error ratio lies inside its "
             "equivalence band. The plasmode resembles your data and does not estimate its truth."
@@ -683,13 +916,14 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "X82 plan 4.2.1 and 5.6. The Clopper-Pearson interval of the coverage is exact "
             "given i.i.d. plasmode draws."
         ),
-        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the 95% interval coverage lies inside its "
             "equivalence band. The plasmode resembles your data and does not estimate its truth."
         ),
         exact=True,
     ),
+    *_longitudinal_rows(),
 )
 
 

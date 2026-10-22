@@ -80,7 +80,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._inference_status import InferenceStatus
+from .._inference_status import InferenceStatus, supplies_inference
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.delta import two_sided_pvalue
@@ -91,6 +91,8 @@ from ..utils.text import format_table
 from . import _interpretation
 from ._interpretation import FitConfiguration, Resolution, Rung
 from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
+from ._point_generated import PlasmodeLaw as _PlasmodeLaw
+from ._point_generated import PointTarget, TargetKind, arm_means, held_mixture, held_weights
 from ._readings import (
     DEFAULT_BAND_REPLICATES,
     BandReading,
@@ -110,11 +112,14 @@ from ._structural_refute import (
     structural_tests_refusal,
 )
 from .outcome_processes import (
+    BernoulliAdjustmentOutcome,
+    BoundedAdjustmentOutcome,
     GaussianAdjustmentOutcome,
     GaussianIndependentOutcome,
     GaussianNoise,
     LogisticHazardOutcome,
     MultinomialHazardOutcome,
+    arm_term,
 )
 from .simulation import ReplicationFailure
 
@@ -206,7 +211,10 @@ class BootstrapMeasurementError:
     Parameters
     ----------
     variables : tuple of str
-        Original logical adjustment-variable names to perturb.
+        Original logical adjustment-variable names to perturb. A point fit holds a declared
+        strata variable at its recorded values. A longitudinal fit perturbs a baseline or
+        node covariate at every node where it appears; a long panel's column ``l`` covers
+        ``l@1``, ``l@2`` and so on.
     numeric_noise : RelativeGaussianNoise
         Relative law for each selected numeric variable.
     categorical_change_probability : float
@@ -1103,15 +1111,6 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
-def _refuse_adaptive_iptw(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse an AdaptiveIPTW fit, for which no refutation is registered."""
-    from ..estimators.iptw import OPERATION_REFUSALS
-
-    if getattr(result, "fitted_method", None) == "adaptive_iptw":
-        return OPERATION_REFUSALS["refute"]
-    return None
-
-
 def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
     from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
@@ -1182,6 +1181,7 @@ _LONGITUDINAL_TESTS = (
     "future_treatment",
     "dummy_outcome",
     "simulated_outcome",
+    "bootstrap_measurement_error",
 )
 
 
@@ -1195,11 +1195,11 @@ def _refuse_longitudinal_tests(result: TMLEResult, request: _RefuteRequest) -> R
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"refutation test(s) {pending} have no longitudinal adapter yet. The longitudinal "
-        "plasmode and the measurement-error bootstrap are X82 work.",
+        "plasmode is X82 work.",
         alternative=(
             "The placebo, random_common_cause, subset, bootstrap_stability, "
-            "negative_control_outcome, future_treatment, dummy_outcome and simulated_outcome "
-            "tests run on this fit."
+            "negative_control_outcome, future_treatment, dummy_outcome, simulated_outcome "
+            "and bootstrap_measurement_error tests run on this fit."
         ),
         roadmap="X82",
     )
@@ -1788,7 +1788,6 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
-    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("structural_tests", _refuse_structural_tests),
@@ -1952,18 +1951,34 @@ def _classification_only_learner(learner: Any) -> Any | None:
     return learner if incompatible_candidates and all(incompatible_candidates) else None
 
 
+#: The point processes each generated test accepts. The independent test also accepts a
+#: Bernoulli or bounded declaration whose ``independent`` property holds.
+_INDEPENDENT_PROCESSES = (
+    GaussianIndependentOutcome,
+    BernoulliAdjustmentOutcome,
+    BoundedAdjustmentOutcome,
+)
+_ADJUSTMENT_PROCESSES = (
+    GaussianAdjustmentOutcome,
+    BernoulliAdjustmentOutcome,
+    BoundedAdjustmentOutcome,
+)
+
+
 def _validate_generated_process(process: Any, name: str) -> None:
-    expected = GaussianIndependentOutcome if name == "dummy_outcome" else GaussianAdjustmentOutcome
-    if type(process) is not expected:
+    accepted = _INDEPENDENT_PROCESSES if name == "dummy_outcome" else _ADJUSTMENT_PROCESSES
+    if type(process) not in accepted:
         raise CapabilityError(
             f"{name} has no registered effect derivation and family validation for "
-            f"{type(process).__name__}; use the exact registered {expected.__name__} declaration",
+            f"{type(process).__name__}; use one of the registered declarations "
+            f"{[kind.__name__ for kind in accepted]}",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if process.family != "gaussian":
+    if name == "dummy_outcome" and not process.independent:
         raise CapabilityError(
-            f"{name} has family={process.family!r}; only the Gaussian process family has "
-            "an implemented effect derivation",
+            f"dummy_outcome draws an outcome independent of everything, and this "
+            f"{type(process).__name__} reads the covariates or the treatment. Declare "
+            "effect=0 and adjustment_scale=0, or run it as simulated_outcome",
             reason=RefusalReason.INVALID_DECLARATION,
         )
 
@@ -2007,20 +2022,28 @@ def _resolve_arm_code(data: Any, endpoint: Any, role: str, name: str) -> float:
 def _validate_plasmode_eligibility(result: Any) -> None:
     """Refuse a plasmode on data whose generated law Part A does not build (plan 5.6)."""
     data = result.data
-    unsupported = [
-        reason
-        for present, reason in (
-            (data.cluster is not None, "clusters, which need whole-cluster resampling"),
+    if data.weights_name is not None:
+        raise CapabilityError(
+            "plasmode has no generated law for a fit with weights: rows drawn from the "
+            "unweighted empirical law that keep their weights describe a mixed law.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    observation = [
+        label
+        for present, label in (
+            (bool(getattr(data, "has_missing_outcome", False)), "a missing outcome"),
             (bool(getattr(data, "has_missing_treatment", False)), "a missing treatment"),
-            (data.strata is not None, "selected strata"),
-            (data.weights_name is not None, "weights, whose rows would mix two laws"),
+            (bool(getattr(data, "has_intermediate", False)), "an intermediate"),
         )
         if present
     ]
-    if unsupported:
+    if len(observation) > 1:
         raise CapabilityError(
-            f"plasmode has no generated law for a fit with {unsupported[0]}. Part A draws "
-            "independent units, a frozen treatment model, and the declared outcome process.",
+            f"plasmode has no generated law for a fit with {' and '.join(observation)}: each "
+            "frozen observation model reads (W, A) alone, so two of them together would "
+            "drop the dependence of one on the other.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
@@ -2200,6 +2223,26 @@ def _longitudinal_generated_target(
     if data.is_survival:
         return _survival_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
+    if not isinstance(process, (GaussianIndependentOutcome, GaussianAdjustmentOutcome)):
+        raise CapabilityError(
+            f"{name} on a longitudinal panel has a held-history truth for the Gaussian "
+            f"processes only; {type(process).__name__} has none.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    if getattr(process, "arm_effects", None) is not None:
+        raise CapabilityError(
+            f"{name} on a longitudinal panel adds its effect once per treated node; "
+            "arm_effects declares a point-treatment arm term. Declare effect= instead",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if getattr(process, "intermediate_effect", 0.0) or getattr(process, "cluster_sd", 0.0):
+        raise CapabilityError(
+            f"{name} on a longitudinal panel has no intermediate and no clustered plasmode; "
+            "intermediate_effect and cluster_sd declare point-treatment terms. Leave both 0",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     if data.family != process.family:
         raise CapabilityError(
             f"{name} cannot replace an original outcome family={data.family!r} with the "
@@ -2396,8 +2439,8 @@ def _survival_generated_target(
 
 def _validate_generated_eligibility(
     result: Any, estimand: str, process: Any, name: str
-) -> tuple[float, float] | _LongitudinalGenerated | _SurvivalGenerated:
-    """Refuse an ineligible generated-outcome request and resolve its contrast direction.
+) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated:
+    """Refuse an ineligible generated-outcome request and resolve its target.
 
     Parameters
     ----------
@@ -2412,9 +2455,9 @@ def _validate_generated_eligibility(
 
     Returns
     -------
-    tuple of float, float, or _LongitudinalGenerated or _SurvivalGenerated
-        Value and reference arm codes the parameter key contrasts, in that order. A
-        longitudinal fit returns its held-history target instead.
+    PointTarget, _LongitudinalGenerated or _SurvivalGenerated
+        The point target with its arm codes and population. A longitudinal fit returns its
+        held-history target instead.
 
     Raises
     ------
@@ -2460,8 +2503,9 @@ def _validate_generated_eligibility(
     if data.family != process.family:
         raise CapabilityError(
             f"{name} cannot replace an original outcome family={data.family!r} with the "
-            f"registered {process.family!r} process; the first catalog requires matching "
-            "Gaussian outcome configurations.",
+            f"registered {process.family!r} process {type(process).__name__}; declare the "
+            "process of the fit's family (Gaussian or bounded for a continuous outcome, "
+            "Bernoulli for a binary one).",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
@@ -2474,26 +2518,36 @@ def _validate_generated_eligibility(
             f"under the declared {process.family!r} process",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if getattr(estimator, "q_bounds", None) is not None:
+    q_bounds = getattr(estimator, "q_bounds", None)
+    bounded = isinstance(process, BoundedAdjustmentOutcome)
+    if q_bounds is not None and process.family == "gaussian" and not bounded:
         raise CapabilityError(
             f"{name} replaces the outcome with a draw from the registered Gaussian "
             "process, whose support is the whole real line, and this fit declares "
-            f"q_bounds={estimator.q_bounds!r}. The refit would scale the generated "
+            f"q_bounds={q_bounds!r}. The refit would scale the generated "
             "outcome into a range it is not confined to and report the refutation under "
-            "bounds the process does not satisfy. Leave q_bounds=None on the fit you "
-            "refute (Targeting(q_bounds=None)). A cross-fitted continuous fit has to "
-            "declare them, so refute a continuous outcome on a fit with cross_fit=False "
-            "(CrossFitting(enabled=False))",
+            "bounds the process does not satisfy. Declare a BoundedAdjustmentOutcome, "
+            "which draws inside the fit's q_bounds, or refute a fit with q_bounds=None "
+            "(Targeting(q_bounds=None)) and cross_fit=False (CrossFitting(enabled=False))",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    outcome_learner = getattr(estimator, "outcome_learner", None)
-    incompatible_learner = _classification_only_learner(outcome_learner)
-    if incompatible_learner is not None:
+    if bounded and q_bounds is None:
         raise CapabilityError(
-            f"{name} needs a regression-capable saved outcome learner for its Gaussian "
-            f"process; {type(incompatible_learner).__name__} is configured for classification",
+            f"{name} with a BoundedAdjustmentOutcome draws inside the fit's q_bounds, and "
+            "this fit declares none. Declare a GaussianAdjustmentOutcome for a fit with "
+            "q_bounds=None",
             reason=RefusalReason.INVALID_DECLARATION,
         )
+    if process.family == "gaussian":
+        outcome_learner = getattr(estimator, "outcome_learner", None)
+        incompatible_learner = _classification_only_learner(outcome_learner)
+        if incompatible_learner is not None:
+            raise CapabilityError(
+                f"{name} needs a regression-capable saved outcome learner for its continuous "
+                f"process; {type(incompatible_learner).__name__} is configured for "
+                "classification",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
     if getattr(functional, "longitudinal", False):
         raise CapabilityError(
             f"{name} has no longitudinal outcome process or sequential effect derivation.",
@@ -2501,27 +2555,27 @@ def _validate_generated_eligibility(
             alternative=NO_ALTERNATIVE,
             roadmap="X82",
         )
-    if not getattr(data, "is_binary_treatment", False):
+    if getattr(data, "is_continuous_treatment", False):
         raise CapabilityError(
-            f"{name} has no effect derivation for a non-binary treatment; the first "
-            "process catalog covers code one against code zero.",
+            f"{name} has no arm target on a continuous treatment; the arm-indexed truths "
+            "need declared arms.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
         )
-    if getattr(data, "has_intermediate", False) or functional.intermediate is not None:
+    has_intermediate = bool(getattr(data, "has_intermediate", False))
+    if getattr(process, "intermediate_effect", 0.0) and not has_intermediate:
         raise CapabilityError(
-            f"{name} has no controlled-direct-effect outcome process or effect derivation.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
+            f"{name} declares intermediate_effect={process.intermediate_effect:g}, and this "
+            "fit has no intermediate for it to read. Leave intermediate_effect at 0",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
-    if getattr(data, "has_missing_outcome", False):
+    if getattr(process, "cluster_sd", 0.0) and (name != "plasmode" or data.cluster is None):
         raise CapabilityError(
-            f"{name} has no missing-outcome process or observation-model effect derivation.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
+            f"{name} declares cluster_sd={process.cluster_sd:g}, which only the plasmode of a "
+            "clustered fit draws: the held design keeps every row and draws independent "
+            "noise. Leave cluster_sd at 0",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if functional.msm is not None or functional.axis == "msm":
         raise CapabilityError(
@@ -2544,16 +2598,32 @@ def _validate_generated_eligibility(
             f"{list(result.parameter_keys)}",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if key.estimand not in _ADDITIVE_MEAN_CONTRASTS:
-        kind = "ratio" if key.estimand in {"rr", "or"} else key.estimand
+    kind = _POINT_TARGET_KINDS.get(key.estimand)
+    if kind is None:
         raise CapabilityError(
-            f"{name} has no {kind} effect derivation.",
+            f"{name} has no {key.estimand} effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Choose an additive mean contrast (ate, att, or atc).",
+            alternative=(
+                "Choose an arm contrast (ate, att, atc), an arm level (ey, ey1, ey0), a "
+                "ratio (rr, or) or a natural-course target (ey_obs, par, paf)."
+            ),
+            roadmap="X82",
+        )
+    if key.estimand in ("att", "atc") and getattr(data, "has_missing_treatment", False):
+        # The held design knows neither the arm of an unrecorded row nor g(v | W), so it
+        # cannot sum the treated or the control population (part E plan review, R1).
+        raise CapabilityError(
+            f"{name} has no held-design truth for {key.estimand} on a fit with a missing "
+            "treatment: an unrecorded row's arm, and so the target population, is unknown.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
         )
     declared_estimand = getattr(getattr(identified, "estimand", None), "name", None)
-    if functional.target != key.estimand or declared_estimand != key.estimand:
+    expected_estimand = "ey" if key.estimand in ("ey1", "ey0") else key.estimand
+    if functional.intermediate is not None:
+        expected_estimand = "controlled_direct_effect"
+    if functional.target != key.estimand or declared_estimand != expected_estimand:
         raise CapabilityError(
             f"{name} found inconsistent registered target provenance: functional target "
             f"{functional.target!r}, identified estimand {declared_estimand!r}, and parameter "
@@ -2577,9 +2647,102 @@ def _validate_generated_eligibility(
             f"{name} needs the registered identification artifact for target {functional.target!r}",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    # The key names the contrast direction, and the process declares its effect for code
-    # one against code zero.  A fit reported against a non-default reference therefore
-    # declares the negated effect, and reading the key is the only way to see it.
+    if has_intermediate and functional.intermediate is None:
+        raise CapabilityError(
+            f"{name} found an intermediate on the data and none on the functional; the "
+            "controlled direct effect fixes it at a declared value",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    shared: dict[str, Any] = {
+        "outcome_bounds": _bounds_tuple(q_bounds) if bounded else None,
+        "stratum": _stratum_code(data, key, name),
+        "intermediate": (
+            None if functional.intermediate is None else float(result.intermediate_value)
+        ),
+    }
+    codes = tuple(float(code) for code in data.arm_codes)
+    if kind == "level":
+        endpoint = key.value
+        if endpoint is None:
+            endpoint = 1 if key.estimand == "ey1" else 0
+        value_code = _resolve_arm_code(data, endpoint, "the parameter key value", name)
+        target = PointTarget(
+            kind="level", population="all", value_code=value_code, reference_code=None, **shared
+        )
+    elif kind == "natural":
+        target = PointTarget(
+            kind="natural",
+            population="all",
+            value_code=None,
+            reference_code=None,
+            arms=codes,
+            **shared,
+        )
+    elif kind in ("par", "paf"):
+        # The key value of ``par`` and ``paf`` is the reference arm r of ``ey_obs - ey[r]``.
+        endpoint = key.value if key.value is not None else data.arm_codes[0]
+        value_code = _resolve_arm_code(data, endpoint, "the parameter key value", name)
+        target = PointTarget(
+            kind=kind,
+            population="all",
+            value_code=value_code,
+            reference_code=None,
+            arms=codes,
+            **shared,
+        )
+    else:
+        value_code, reference_code = _contrast_codes(data, key, name)
+        population = {"att": "value", "atc": "reference"}.get(key.estimand, "all")
+        target = PointTarget(
+            kind=kind,
+            population=population,  # type: ignore[arg-type]
+            value_code=value_code,
+            reference_code=reference_code,
+            **shared,
+        )
+    _validate_generated_law(target, process, data, name)
+    return target
+
+
+def _stratum_code(data: Any, key: Any, name: str) -> int | None:
+    """Return the code of the stratum a parameter key names, or ``None`` for every row."""
+    if key.stratum is None:
+        return None
+    levels = tuple(getattr(data, "strata_levels", ()))
+    if tuple(key.stratum) not in levels:
+        raise CapabilityError(
+            f"{name} found a parameter key for stratum {key.stratum!r}, which the data does "
+            f"not declare among {list(levels)}",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return levels.index(tuple(key.stratum))
+
+
+#: The point targets of the catalog and the functional of the arm levels each reads.
+_POINT_TARGET_KINDS: dict[str, TargetKind] = {
+    "ate": "difference",
+    "att": "difference",
+    "atc": "difference",
+    "ey": "level",
+    "ey1": "level",
+    "ey0": "level",
+    "rr": "rr",
+    "or": "or",
+    "ey_obs": "natural",
+    "par": "par",
+    "paf": "paf",
+}
+
+
+def _bounds_tuple(bounds: Any) -> tuple[float, float]:
+    return (float(bounds[0]), float(bounds[1]))
+
+
+def _contrast_codes(data: Any, key: Any, name: str) -> tuple[float, float]:
+    """Resolve the value and reference arm codes of a contrast key."""
+    # The key names the contrast direction, and the process declares its arm term per arm
+    # code. A fit reported against a non-default reference therefore has the negated
+    # effect, and reading the key is the only way to see it.
     reference_endpoint = key.reference
     reference_code = (
         float(data.arm_codes[0])
@@ -2605,6 +2768,67 @@ def _validate_generated_eligibility(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     return value_code, reference_code
+
+
+def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: str) -> None:
+    """Refuse a declared law that is not a law on these rows, before any refit.
+
+    Every arm mean must be admissible at every row: a risk in ``[0, 1]``, or a bounded mean
+    strictly inside ``q_bounds``. The plasmode resamples these rows, so the check covers it.
+    A ratio needs positive levels, and an odds ratio levels below 1.
+    """
+    covariates = np.asarray(data.covariates, dtype=float)
+    codes = tuple(float(code) for code in data.arm_codes)
+    # A process with an intermediate term is a law only if its mean is admissible at both
+    # values of the binary intermediate, since the held rows and the plasmode read both.
+    settings: tuple[float | None, ...] = (None,)
+    if getattr(data, "has_intermediate", False):
+        settings = (0.0, 1.0)
+    admissible = getattr(process, "admissible", None)
+    for setting in settings:
+        try:
+            means = arm_means(
+                process,
+                covariates,
+                codes,
+                data,
+                bounds=target.outcome_bounds,
+                intermediate=setting,
+            )
+        except ValueError as error:
+            raise CapabilityError(
+                f"{name} cannot evaluate {type(process).__name__} on this fit: {error}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            ) from error
+        if admissible is None:
+            continue
+        for code, values in means.items():
+            if not admissible(values, bounds=target.outcome_bounds):
+                place = "[0, 1]" if target.outcome_bounds is None else "inside q_bounds"
+                raise CapabilityError(
+                    f"{name} declares a {type(process).__name__} whose mean leaves {place} "
+                    f"on some row of arm {code:g}; the declaration is not a law on these "
+                    "rows. Lower adjustment_scale or move the intercept or effects",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+    if target.ratio or target.kind == "paf":
+        means = arm_means(
+            process,
+            covariates,
+            target.codes,
+            data,
+            bounds=target.outcome_bounds,
+            intermediate=target.intermediate,
+        )
+        levels = target.levels(means, held_weights(target, data), held_mixture(target, data))
+        upper = 1.0 if target.kind == "or" else np.inf
+        if not all(0.0 < level < upper for level in levels):
+            raise CapabilityError(
+                f"{name} has no {target.kind} truth under this declaration: a level "
+                f"{[round(level, 6) for level in levels]} it divides by is outside "
+                f"(0, {upper:g})",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
 
 
 def _run_empirical_refits(
@@ -2759,11 +2983,12 @@ def _validate_measurement_error_eligibility(
 ) -> Any:
     """Validate the complete bootstrap measurement-error request before refitting."""
     from ..data import CausalData
+    from ..longitudinal.data import LongitudinalData
 
-    data = getattr(result, "data", None)
-    if type(data) is not CausalData:
+    data: Any = getattr(result, "data", None)
+    if type(data) not in (CausalData, LongitudinalData):
         raise CapabilityError(
-            "bootstrap_measurement_error supports point-treatment CausalData results; "
+            "bootstrap_measurement_error supports CausalData and LongitudinalData results; "
             f"got result family {type(result).__name__} with data family {type(data).__name__}.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
@@ -2776,17 +3001,19 @@ def _validate_measurement_error_eligibility(
             "resampling='cluster' requires the data to carry cluster ids",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    selected_strata = set(declaration.variables).intersection(data.strata_names)
-    if selected_strata:
+    if type(data) is LongitudinalData:
+        _validate_node_measurement(data, declaration)
+        return data
+    if not _perturbed_variables(data, declaration):
         raise CapabilityError(
-            "bootstrap_measurement_error cannot perturb selected strata variables while "
-            f"preserving target metadata: {sorted(selected_strata)}.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
+            "bootstrap_measurement_error holds the strata variables at their recorded values, "
+            "so the reported strata keep their meaning, and this declaration names only "
+            f"strata variables {sorted(declaration.variables)}. No column is left to perturb.",
+            reason=RefusalReason.INVALID_DECLARATION,
             alternative=(
-                "Declare BootstrapMeasurementError(variables=...) with the adjustment "
-                "variables other than the strata."
+                "Declare BootstrapMeasurementError(variables=...) with at least one adjustment "
+                "variable other than the strata."
             ),
-            roadmap="X82",
         )
     encodings = _measurement_encodings(data)
     generated = data.indicator_sources
@@ -2807,7 +3034,7 @@ def _validate_measurement_error_eligibility(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     retained = set(data.covariate_names)
-    for name in declaration.variables:
+    for name in _perturbed_variables(data, declaration):
         encoding = encodings.get(name)
         if encoding is None:
             _validate_numeric_measurement_column(data, name)
@@ -2821,6 +3048,97 @@ def _validate_measurement_error_eligibility(
                 reason=RefusalReason.INVALID_DECLARATION,
             )
     return data
+
+
+def _perturbed_variables(data: Any, declaration: BootstrapMeasurementError) -> tuple[str, ...]:
+    """Return the declared variables a point draw perturbs: every one but the strata."""
+    held = set(getattr(data, "strata_names", ()))
+    return tuple(name for name in declaration.variables if name not in held)
+
+
+def _held_strata(data: Any, declaration: BootstrapMeasurementError) -> tuple[str, ...]:
+    """Return the declared strata variables, which a point draw holds at recorded values."""
+    held = set(getattr(data, "strata_names", ()))
+    return tuple(name for name in declaration.variables if name in held)
+
+
+def _node_columns(data: Any, name: str) -> tuple[tuple[int | None, int], ...]:
+    """Locate ``name`` in a panel: ``(None, j)`` for a baseline column, ``(t, j)`` at node t."""
+    places: list[tuple[int | None, int]] = []
+    if name in data.baseline_names:
+        places.append((None, data.baseline_names.index(name)))
+    for time, names in enumerate(data.time_varying_names):
+        for column, label in enumerate(names):
+            # A long panel names a time-varying column ``name@t`` at node t.
+            if label == name or label.rpartition("@")[0] == name:
+                places.append((time, column))
+    return tuple(places)
+
+
+def _node_values(data: Any, place: tuple[int | None, int]) -> np.ndarray:
+    time, column = place
+    block = data.baseline if time is None else data.time_varying[time]
+    return np.asarray(block[:, column], dtype=float)
+
+
+def _validate_node_measurement(data: Any, declaration: BootstrapMeasurementError) -> None:
+    """Refuse a panel declaration that names no perturbable covariate column."""
+    outcomes = set(getattr(data, "repeated_names", ())) | {data.outcome_name}
+    node_names = {
+        label.rpartition("@")[0] or label for names in data.time_varying_names for label in names
+    }
+    available = sorted(set(data.baseline_names).union(node_names).difference(outcomes))
+    for name in declaration.variables:
+        if name in outcomes:
+            raise CapabilityError(
+                f"bootstrap_measurement_error cannot perturb {name!r}: it is an outcome of "
+                "this panel. A later node reads it as a covariate, but the error would then "
+                "differ between the outcome and its copy",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        places = _node_columns(data, name)
+        if not places:
+            raise CapabilityError(
+                f"unknown covariate {name!r}; choose from the baseline and node covariates "
+                f"{available}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        for place in places:
+            values = _node_values(data, place)
+            finite = values[np.isfinite(values)]
+            where = "baseline" if place[0] is None else f"node {place[0] + 1}"
+            if finite.size and bool(np.all(np.isin(finite, (0.0, 1.0)))):
+                raise CapabilityError(
+                    f"bootstrap_measurement_error cannot perturb {name!r} at {where}: its "
+                    "values are all 0 or 1, and a panel carries no categorical metadata, so "
+                    "relative Gaussian noise would make a binary column real-valued",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+            if not finite.size or float(np.std(finite)) == 0.0:
+                raise CapabilityError(
+                    f"bootstrap_measurement_error cannot perturb {name!r} at {where}: the "
+                    "column is constant there, so its relative noise scale is zero",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+
+
+def _perturb_node_measurement(
+    data: Any, declaration: BootstrapMeasurementError, rng: np.random.Generator
+) -> Any:
+    """Perturb each declared panel column at every node where it appears.
+
+    The noise scale of each appearance is the relative scale times the column's standard
+    deviation at that node, on the rows where it is recorded. A missing value stays missing.
+    """
+    baseline = np.array(data.baseline, dtype=float, copy=True)
+    blocks = [np.array(block, dtype=float, copy=True) for block in data.time_varying]
+    for name in declaration.variables:
+        for time, column in _node_columns(data, name):
+            target = baseline if time is None else blocks[time]
+            values = target[:, column]
+            present = np.isfinite(values)
+            values[present] += declaration.numeric_noise.draw(rng, values[present])
+    return replace(data, baseline=baseline, time_varying=tuple(blocks))
 
 
 def _categorical_codes(data: Any, encoding: Any) -> np.ndarray:
@@ -2838,11 +3156,17 @@ def _categorical_codes(data: Any, encoding: Any) -> np.ndarray:
 def _perturb_measurement_error(
     data: Any, declaration: BootstrapMeasurementError, *, seed: int
 ) -> Any:
-    """Perturb sampled adjustment variables and rebuild complete categorical blocks."""
+    """Perturb sampled adjustment variables and rebuild complete categorical blocks.
+
+    A panel perturbs each declared column at every node where it appears. A point draw
+    holds the strata variables at their recorded values.
+    """
     rng = np.random.default_rng(seed)
+    if hasattr(data, "time_varying"):
+        return _perturb_node_measurement(data, declaration, rng)
     values = np.array(data.covariates, dtype=float, copy=True)
     encodings = _measurement_encodings(data)
-    for name in declaration.variables:
+    for name in _perturbed_variables(data, declaration):
         encoding = encodings.get(name)
         if encoding is None:
             column = data.covariate_names.index(name)
@@ -3034,6 +3358,27 @@ def _bootstrap_measurement_error_test(
     family = next(iter(families)) if len(families) == 1 else None
     if len(families) > 1:
         detail = f"successful refits reported inconsistent outcome families {sorted(families)}"
+    sentences = [_MEASUREMENT_ERROR_SENTENCE]
+    if hasattr(data, "time_varying"):
+        located = []
+        for name in declaration.variables:
+            nodes = [
+                "baseline" if time is None else f"node {time + 1}"
+                for time, _ in _node_columns(data, name)
+            ]
+            located.append(f"{name} at {', '.join(nodes)}")
+        sentences.append(
+            "The perturbation acts at every node where a declared column appears: "
+            + "; ".join(located)
+            + "."
+        )
+    else:
+        held = _held_strata(data, declaration)
+        if held:
+            sentences.append(
+                f"The strata variables {list(held)} keep their recorded values, so each "
+                "reported stratum keeps its rows."
+            )
     return RefutationTest(
         name="bootstrap_measurement_error",
         estimand=estimand,
@@ -3053,7 +3398,7 @@ def _bootstrap_measurement_error_test(
         requested_draws=n_replicates,
         resampling=design.resampling,
         rung="L0",
-        scope_sentence=_MEASUREMENT_ERROR_SENTENCE,
+        scope_sentence=" ".join(sentences),
     )
 
 
@@ -3062,33 +3407,6 @@ _MEASUREMENT_ERROR_SENTENCE = (
     "draws describe how far the estimate moves under that error, and the report states no "
     "verdict."
 )
-
-
-def _covariate_part_vanishes(
-    *, difference_contrast: bool, effect_varies_with_covariates: bool
-) -> bool:
-    """Return whether the covariate part of the target's influence curve is identically zero.
-
-    The held design fixes ``(W, A)`` and redraws ``Y``. Given the held ``W``, the part of the
-    influence curve that depends on ``W`` alone is fixed, so a correct estimator reads a
-    standard-error ratio above one and an over-covering interval (X82 plan 5.5.1, B2). That
-    part vanishes for a difference contrast of means (ATE, ATT, ATC) under an effect that
-    does not depend on ``W``. Only then do the held-design standard-error ratio and coverage
-    have the right reference.
-
-    Parameters
-    ----------
-    difference_contrast : bool
-        Whether the target is an additive contrast of two arm means.
-    effect_varies_with_covariates : bool
-        Whether the generated treatment effect ``tau(W)`` depends on the covariates.
-
-    Returns
-    -------
-    bool
-        ``True`` when the standard-error ratio and the coverage have an exact reference.
-    """
-    return difference_contrast and not effect_varies_with_covariates
 
 
 def _read_configuration(result: Any, estimand: str) -> FitConfiguration | None:
@@ -3113,134 +3431,84 @@ def _resolve(
     return _interpretation.resolve(instrument, rule, fit)
 
 
-#: The clip of a fitted plasmode treatment model on a fit that records no ``g`` bounds.
-_PLASMODE_G_BOUNDS = (0.01, 0.99)
-
-
-@dataclass(frozen=True)
-class _PlasmodeLaw:
-    """The point plasmode law of X82 plan 5.6, frozen once on the fitted data.
-
-    Each draw resamples ``n`` units from the empirical law of ``W``, draws ``A*`` from a
-    frozen treatment model, and draws ``Y*`` from the declared Gaussian process. The
-    adjustment function standardizes with the original data's centre and scale, so it is
-    the same function on every draw. The units are i.i.d. draws from a discrete law, so
-    the refit draws its own folds.
-
-    The treatment model is the declared known mechanism when the fit has one. Otherwise it
-    is a logistic regression of ``A`` on ``W`` fitted once and always clipped: to the fit's
-    ``g`` bounds, or to :data:`_PLASMODE_G_BOUNDS` when the fit records none. An unclipped
-    model can reach 0 or 1 under separation, and the law would then cause a positivity
-    failure the report blames on the estimator. Under the additive process every arm-mean
-    contrast equals the declared effect on this law exactly, whatever the treatment model
-    is. A weighted fit is refused, because rows drawn from the unweighted empirical law
-    that keep their weights describe a mixed law.
-    """
-
-    covariates: np.ndarray
-    treated: np.ndarray
-    known: np.ndarray | None
-    centre: np.ndarray
-    scale: np.ndarray
-    arm_codes: tuple[float, float]
-    bounds: tuple[float, float] | None
-
-    @classmethod
-    def fit(cls, result: Any) -> _PlasmodeLaw:
-        data = result.data
-        covariates = np.asarray(data.covariates, dtype=float)
-        codes = (float(data.arm_codes[0]), float(data.arm_codes[1]))
-        known = None
-        bounds: tuple[float, float] | None = None
-        if data.known_treatment is not None:
-            known = np.asarray(data.known_treatment.values, dtype=float)
-            # A known mechanism holds one column per arm in the order of ``arm_codes``.
-            if known.shape[1] != len(data.arm_codes):
-                raise RuntimeError("the known mechanism does not hold one column per arm")
-            treated = known[:, 1]
-        else:
-            from sklearn.linear_model import LogisticRegression
-
-            model = LogisticRegression(C=np.inf, max_iter=5000)
-            model.fit(covariates, np.asarray(data.treatment == codes[1], dtype=int))
-            treated = model.predict_proba(covariates)[:, 1]
-            recorded = getattr(getattr(result, "config", None), "g_bounds", None)
-            bounds = _PLASMODE_G_BOUNDS
-            if isinstance(recorded, tuple) and len(recorded) == 2:
-                bounds = (float(recorded[0]), float(recorded[1]))
-            treated = np.clip(treated, *bounds)
-        return cls(
-            covariates=covariates,
-            treated=np.asarray(treated, dtype=float),
-            known=known,
-            centre=np.mean(covariates, axis=0),
-            scale=np.std(covariates, axis=0),
-            arm_codes=codes,
-            bounds=bounds,
-        )
-
-    def adjustment(self, process: GaussianAdjustmentOutcome, rows: np.ndarray) -> np.ndarray:
-        """The declared adjustment function, standardized on the original data."""
-        return process.adjustment(self.covariates[rows], centre=self.centre, scale=self.scale)
-
-    def draw(self, data: Any, process: GaussianAdjustmentOutcome, *, seed: int) -> Any:
-        """Return one plasmode data set."""
-        rng = np.random.default_rng(seed)
-        n = self.covariates.shape[0]
-        for _ in range(1000):
-            rows = rng.integers(0, n, size=n)
-            arm = rng.random(n) < self.treated[rows]
-            if 0 < int(np.sum(arm)) < n:
-                break
-        else:  # pragma: no cover - a 1000-fold failure needs a share near 0 or 1
-            raise RuntimeError("the plasmode draw left one arm empty 1000 times")
-        treatment = np.where(arm, self.arm_codes[1], self.arm_codes[0])
-        noise = process.noise.draw(rng, n)
-        outcome = self.adjustment(process, np.asarray(rows)) + process.effect * treatment + noise
-        sample = data.subset(rows).with_treatment(treatment)
-        if self.known is not None:
-            from ..data.known_mechanism import KnownMechanism
-
-            sample = replace(sample, known_treatment=KnownMechanism(self.known[rows], "array"))
-        return sample.with_outcome(np.asarray(outcome, dtype=float), family=process.family)
-
-
 def _generated_outcome_test(
     result: Any,
     *,
     name: str,
     estimand: str,
     original: float,
-    process: GaussianIndependentOutcome | GaussianAdjustmentOutcome,
+    process: Any,
     bands: EquivalenceBands,
     n_replicates: int,
     root_seed: int,
-    value_code: float,
-    reference_code: float,
     fit: FitConfiguration | None,
-    target: _LongitudinalGenerated | _SurvivalGenerated | None = None,
+    target: PointTarget | _LongitudinalGenerated | _SurvivalGenerated,
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
     plasmode = name == "plasmode"
-    if target is not None:
+    ratio = isinstance(target, PointTarget) and target.ratio
+    law: _PlasmodeLaw | None = None
+    if not isinstance(target, PointTarget):
         held = target
 
         def replacement(_replicate: int, seed: int) -> Any:
             return held.draw(data, seed=seed, name=name)
 
+        declared_effect = float(held.truth)
+        covariate_part = bool(held.covariate_part)
     elif plasmode:
-        assert isinstance(process, GaussianAdjustmentOutcome)
         law = _PlasmodeLaw.fit(result)
-        adjusted = process
+        frozen = law
+        means, weights, mixture = frozen.means(process, data, target)
 
         def replacement(_replicate: int, seed: int) -> Any:
-            return law.draw(data, adjusted, seed=seed)
+            return frozen.draw(data, process, seed=seed, target=target)
 
+        declared_effect = target.truth(means, weights, mixture)
+        # The plasmode resamples W, so its SE ratio and coverage have the unconditional
+        # reference for every target (plan 5.6) and need no covariate-part check.
+        covariate_part = True
     else:
+        covariates = np.asarray(data.covariates, dtype=float)
+        terms = arm_term(
+            process, data.treatment, arm_codes=data.arm_codes, levels=data.treatment_levels
+        )
+        if data.has_intermediate:
+            # The held design keeps Z, and the process adds gamma * Z with no arm interaction.
+            terms = terms + float(process.intermediate_effect) * np.asarray(
+                data.intermediate, dtype=float
+            )
+        observed = process.mean(covariates, terms, bounds=target.outcome_bounds)
+        unrecorded = ~np.asarray(data.treatment_recorded, dtype=bool)
+        first_recorded = int(np.flatnonzero(~unrecorded)[0])
 
         def replacement(_replicate: int, seed: int) -> Any:
-            return data.with_outcome(process.draw(data, seed=seed), family=process.family)
+            drawn = process.sample(
+                np.random.default_rng(seed), observed, bounds=target.outcome_bounds
+            )
+            if np.any(unrecorded):
+                # An unrecorded row's outcome is never read, but a Gaussian fit scales the
+                # outcome by its range over every row. Copying a recorded row's value keeps
+                # that range a function of the recorded rows (part E plan review, R2).
+                drawn = np.where(unrecorded, drawn[first_recorded], drawn)
+            return data.with_outcome(drawn, family=process.family)
+
+        means = arm_means(
+            process,
+            covariates,
+            target.codes,
+            data,
+            bounds=target.outcome_bounds,
+            intermediate=target.intermediate,
+        )
+        weights = held_weights(target, data)
+        mixture = held_mixture(target, data)
+        # The truth is the sample-conditional functional of the held rows. The held design
+        # reads the SE ratio and coverage only where the covariate part of the curve is
+        # identically 0 on this law, which the law itself decides (plan 5.5.1).
+        declared_effect = target.truth(means, weights, mixture)
+        covariate_part = target.covariate_part_vanishes(means, weights, mixture)
 
     records, failures = _run_empirical_refits(
         result,
@@ -3249,16 +3517,25 @@ def _generated_outcome_test(
         replacement=replacement,
         expected_family=process.family,
     )
+    if ratio:
+        # A ratio reads on the log scale, where its standard error is reported. A refit with
+        # a nonpositive ratio has no log and joins the retained failures.
+        kept = [item for item in records if item.estimate > 0.0]
+        failures = failures + tuple(
+            ReplicationFailure(
+                replicate=item.replicate,
+                seed=item.seed,
+                error_type="ValueError",
+                message="refitted ratio is not positive, so it has no log-scale reading",
+            )
+            for item in records
+            if not item.estimate > 0.0
+        )
+        records = tuple(kept)
     values = tuple(item.estimate for item in records)
     errors = tuple(item.std_error for item in records)
-    # The additive treatment term makes the arm contrast linear in the code difference, so
-    # the declared effect is the process effect signed by the key's own direction. A
-    # longitudinal target carries its own sample-conditional truth.
-    declared_effect = (
-        float(process.known_effect * (value_code - reference_code))
-        if target is None
-        else target.truth
-    )
+    scaled = tuple(float(np.log(value)) for value in values) if ratio else values
+    reference_value = float(np.log(declared_effect)) if ratio else declared_effect
     families = {item.family for item in records}
     family = next(iter(families)) if len(families) == 1 else None
 
@@ -3273,27 +3550,21 @@ def _generated_outcome_test(
             f"{len(failures)} refit(s) failed and failure_policy='fail' keeps every failure; "
             "the equivalence readings need every draw"
         )
-    elif len(values) < _MINIMUM_BAND_DRAWS or float(np.std(values, ddof=1)) <= 0.0:
+    elif len(scaled) < _MINIMUM_BAND_DRAWS or float(np.std(scaled, ddof=1)) <= 0.0:
         detail = (
             f"only {len(values)} usable draw(s), or draws that do not vary; the equivalence "
             "intervals are undefined"
         )
     else:
-        shown = band_readings(values, errors, declared_effect, bands)
-        # A difference contrast under a constant effect has a zero covariate part, which is
-        # every contrast and process this test accepts. A process whose effect varies with
-        # the covariates would fail this guard and read bias only.
-        # The plasmode resamples W, so its SE ratio and coverage have the unconditional
-        # reference for every target (plan 5.6) and need no covariate-part check.
-        covariate_part = plasmode or (
-            target.covariate_part
-            if target is not None
-            else _covariate_part_vanishes(
-                difference_contrast=True, effect_varies_with_covariates=False
-            )
-        )
+        shown = band_readings(scaled, errors, reference_value, bands)
+        # A fit whose status withholds an interval has no standard error or coverage to
+        # read; its plug-in spread is a diagnostic (X82 plan, matrix notes 8 and 15).
+        status = result[estimand].inference
+        interval = supplies_inference(status)
         by_rule = {"bias": "bias_band", "se_ratio": "se_ratio_band", "coverage": "coverage_band"}
-        readings = tuple(reading for reading in shown if reading.name == "bias" or covariate_part)
+        readings = tuple(
+            reading for reading in shown if reading.name == "bias" or (covariate_part and interval)
+        )
         calibrated = len(values) >= bands.minimum_draws
         licensed_inside: list[bool] = []
         for reading in readings:
@@ -3324,10 +3595,17 @@ def _generated_outcome_test(
             f"[{reading.band[0]:g}, {reading.band[1]:g}]"
             for reading in readings
         )
-        if not covariate_part:
+        if ratio:
+            detail += "; on the log scale"
+        if not interval:
+            detail += (
+                "; standard-error ratio and coverage withheld (the fit reports no interval: "
+                f"{status})"
+            )
+        elif not covariate_part:
             detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
         design = "the held design"
-        if target is not None:
+        if not isinstance(target, PointTarget):
             design = "the held history"
             if target.shares:
                 detail += "; uncensored share by node " + ", ".join(
@@ -3338,16 +3616,28 @@ def _generated_outcome_test(
                 if isinstance(target, _SurvivalGenerated)
                 else _HELD_HISTORY_SENTENCE
             )
-        if plasmode:
+        if law is not None:
             clip = (
                 "a known mechanism"
                 if law.bounds is None
                 else f"a frozen treatment model clipped to [{law.bounds[0]:g}, {law.bounds[1]:g}]"
             )
-            design = f"resampled covariates and {clip}"
+            if len(law.arm_codes) > 2:
+                clip += f", smallest arm probability {law.floor:.3g}"
+            for model in law.observation_models:
+                clip += f", a frozen {model} model"
+            units = "covariates"
+            if law.clusters is not None:
+                units = "whole clusters"
+                cluster_sd = float(getattr(process, "cluster_sd", 0.0))
+                if cluster_sd > 0.0:
+                    units += f" with a cluster intercept of SD {cluster_sd:g}"
+            design = f"resampled {units} and {clip}"
+        precision = getattr(process, "precision", None)
+        law_name = process.name if precision is None else f"{process.name} (phi {precision:g})"
         sentences.append(
-            f"Generated law: {process.name}, {len(values)} draws on {design}, "
-            f"effect {declared_effect:.5g}."
+            f"Generated law: {law_name}, {len(values)} draws on {design}, "
+            f"truth {declared_effect:.5g}."
         )
     return RefutationTest(
         name=name,
@@ -3393,6 +3683,26 @@ _HELD_HISTORY_SENTENCE = (
     "held-design reference. Coverage also needs a correct censoring model, so the report "
     "prints the uncensored share at each node."
 )
+
+
+def _reported_spread(status: InferenceStatus) -> str:
+    """The short name of the fit's standard error in a placebo label, at its status."""
+    return "reported SE" if supplies_inference(status) else "plug-in SE"
+
+
+def _plugin_reference_clause(status: InferenceStatus) -> str:
+    """The clause that marks a sampling reference built from a diagnostic spread.
+
+    A fit whose status withholds an interval reports ``plugin_std_error`` only. A reference
+    built from it is a description, and the registry covers no withheld status.
+    """
+    if supplies_inference(status):
+        return ""
+    return (
+        "; the fit reports no interval, so the reference uses the plug-in spread of its "
+        "curve, a diagnostic"
+    )
+
 
 _PLACEBO_SENTENCE = (
     "This reads whether the estimator returns the null when treatment is independent of "
@@ -3492,8 +3802,14 @@ def _control_estimator(
     that declares bounds for its own outcome, takes the control's observed range, which is
     the usual TMLE choice (Gruber and van der Laan 2010). An in-sample fit with no bounds
     keeps none. The report prints the bounds it set. A continuous control on a fit whose
-    outcome learner is a classifier regresses with the fit's pseudo-outcome learner.
+    outcome learner is a classifier regresses with the fit's pseudo-outcome learner. An
+    :class:`~cleverly.estimators.AdaptiveIPTW` weights the observed control and scales no
+    outcome, so it refits unchanged and takes no bounds.
     """
+    from ..estimators.iptw import AdaptiveIPTW
+
+    if isinstance(estimator, AdaptiveIPTW):
+        return estimator, None
     declared = getattr(estimator, "q_bounds", None)
     cross_fitted = bool(getattr(estimator, "cross_fit", True)) and (
         int(getattr(estimator, "n_folds", 1) or 1) > 1
@@ -3862,14 +4178,21 @@ def refute(
     future_treatment_node : int
         The node ``t``. The test regresses the control on the treatment at ``t + 1``,
         adjusted for that treatment's history, on the units at risk at ``t + 1``.
-    dummy_outcome : GaussianIndependentOutcome, LogisticHazardOutcome or None
-        Independent process declaration. ``None`` uses the default Gaussian declaration. A
-        survival fit takes a hazard with ``effect=0`` and ``adjustment_scale=0``, and a
-        competing-risk fit takes a multinomial hazard with every effect 0.
-    simulated_outcome : GaussianAdjustmentOutcome, LogisticHazardOutcome or None
-        Adjustment-dependent process. ``None`` uses the default Gaussian declaration. A
-        survival fit takes a :class:`LogisticHazardOutcome`, and a competing-risk fit takes
-        a :class:`MultinomialHazardOutcome`.
+    dummy_outcome : object or None
+        Independent process declaration: a :class:`GaussianIndependentOutcome`, or a
+        Bernoulli or bounded process with ``effect=0`` and ``adjustment_scale=0``. ``None``
+        uses the default Gaussian declaration. A survival fit takes a hazard with
+        ``effect=0`` and ``adjustment_scale=0``, and a competing-risk fit takes a
+        multinomial hazard with every effect 0.
+    simulated_outcome : object or None
+        Adjustment-dependent process, which ``simulated_outcome`` and ``plasmode`` draw. A
+        point fit takes a :class:`GaussianAdjustmentOutcome`, a
+        :class:`BernoulliAdjustmentOutcome` or a :class:`BoundedAdjustmentOutcome` of its
+        outcome family. It covers arm contrasts, arm levels, ratios, ``ey_obs``, ``par``
+        and ``paf``, on fits with strata, missing outcomes, a missing treatment or an
+        intermediate. ``None`` uses the default Gaussian declaration. A survival fit takes a
+        :class:`LogisticHazardOutcome`, and a competing-risk fit takes a
+        :class:`MultinomialHazardOutcome`.
     outcome_bands : EquivalenceBands
         Equivalence bands applied to the generated-outcome readings.
     bootstrap_measurement_error : BootstrapMeasurementError or None
@@ -4138,7 +4461,12 @@ def refute(
                     statistic_pvalue=None if reading is None else reading.pvalue,
                     extras=()
                     if reading is None or reading.scale_ratio is None
-                    else (("mean reported SE over SD of the draws", reading.scale_ratio),),
+                    else (
+                        (
+                            f"mean {_reported_spread(status)} over SD of the draws",
+                            reading.scale_ratio,
+                        ),
+                    ),
                 )
             )
 
@@ -4245,6 +4573,7 @@ def refute(
                         f"{'on the log scale ' if is_ratio else ''}against "
                         f"{'nan' if reading_s is None else format(reading_s.reference_sd, '.5g')} "
                         f"from sampling {size} of {units} units alone"
+                        + _plugin_reference_clause(status)
                     ),
                     standard_errors=tuple(se for _, se in fits),
                     spread_kind="log" if is_ratio else "reported",
@@ -4341,13 +4670,6 @@ def refute(
             )
 
         elif name in _GENERATED_TESTS:
-            resolved = contrasts[name]
-            target: _LongitudinalGenerated | _SurvivalGenerated | None = None
-            codes: tuple[float, float] = (0.0, 0.0)
-            if isinstance(resolved, (_LongitudinalGenerated, _SurvivalGenerated)):
-                target = resolved
-            else:
-                codes = resolved
             outcomes.append(
                 _generated_outcome_test(
                     result,
@@ -4358,10 +4680,8 @@ def refute(
                     bands=outcome_bands,
                     n_replicates=replicate_count,
                     root_seed=seed,
-                    value_code=codes[0],
-                    reference_code=codes[1],
                     fit=fit,
-                    target=target,
+                    target=contrasts[name],
                 )
             )
         elif name == "bootstrap_stability":

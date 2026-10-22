@@ -3777,8 +3777,15 @@ def implementation(key: str) -> str:
         raise Undescribed(f"no description for implementation {key!r}") from None
 
 
-def scenario(key: str) -> str:
-    """The law a scenario samples."""
+#: Scenario descriptions that one study scopes, by ``(slug, scenario)``. A study whose
+#: recorded scenario key another study already describes names its own law here.
+STUDY_SCENARIOS: dict[tuple[str, str], str] = {}
+
+
+def scenario(key: str, *, slug: str | None = None) -> str:
+    """The law a scenario samples, read from the study's own entry first."""
+    if slug is not None and (slug, key) in STUDY_SCENARIOS:
+        return STUDY_SCENARIOS[slug, key]
     try:
         return SCENARIOS[key]
     except KeyError:
@@ -4812,3 +4819,63 @@ def _adaptive_cells() -> None:
 
 
 _adaptive_cells()
+
+
+def _refuter_calibration_cells() -> None:
+    """The longitudinal refutation study (X82 SL): its laws, families and 40 cells."""
+    slug = "refuter-calibration-longitudinal"
+    STUDY_SCENARIOS[(slug, "end_of_study")] = (
+        "law E, two nodes, a Gaussian outcome and a time-varying confounder; `SDR` at five folds"
+    )
+    STUDY_SCENARIOS[(slug, "survival")] = (
+        "law S, the registered censored survival law, risk at t = 2; `LTMLE` at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-longitudinal"] = (
+        "`cleverly` fit that the longitudinal refutation rules read"
+    )
+    PROPERTIES["refuter_size"] = (
+        "under its null a refutation rule rejects in no more than 17 of 200 trials"
+    )
+    PROPERTIES["refuter_power"] = (
+        "a refutation rule detects a declared defect in at least 38 of 50 trials"
+    )
+    fits = {
+        "L1": "LTMLE, law S",
+        "S1": "SDR, law E",
+        "I1": "IPSI at odds x2, law E",
+        "B1": "SequentialGComputation, law E",
+        "B2": "SequentialIPW, law E",
+        "B3": "ParametricGFormula, law E",
+    }
+    size = "no more than 17 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    readings = {
+        "placebo": "the placebo t rule against the exact Markov null",
+        "subset": "the subset rho rule, both tails",
+        "negative_control": "the negative-control z rule on a valid control",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo t rule, with a declared share of stale rows",
+        "subset_half_se": "the subset rho rule, at the reported SE halved",
+        "subset_double_se": "the subset rho rule, at the reported SE doubled",
+        "negative_control_confounded": (
+            "the negative-control z rule, on a control that reads an unmeasured cause of A1"
+        ),
+    }
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, fit in fits.items():
+        for reading, words in readings.items():
+            if cell == "L1" and reading == "negative_control":
+                continue
+            table[("refuter_size", f"{cell}__{reading}")] = (f"{fit}: {words}", size)
+        for defect, words in defects.items():
+            if cell == "L1" and defect.startswith("negative_control"):
+                continue
+            table[("refuter_power", f"{cell}__{defect}")] = (f"{fit}: {words}", power)
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_calibration_cells()
