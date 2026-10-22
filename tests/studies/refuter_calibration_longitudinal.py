@@ -30,10 +30,18 @@ standard normal, ``W2`` is Bernoulli(0.5), and ``U`` is an unmeasured standard n
 
 ``U`` reads ``A1`` and nothing that the fit targets. It drives the treatment and the confounded
 negative control only. ``A1`` reads ``W`` only through the binary ``W2``, so a main-terms
-logistic GLM of ``A1`` on ``(W1, W2)`` is saturated in the law with ``U`` integrated out. The
-other GLMs are correctly specified: ``A2`` is logistic in its history, ``L2`` and ``Y`` are
-linear, and so the iterated regression of ``Y`` on ``(W, A1)`` is linear too. The contrast
-``always`` against ``never`` is 1.2 exactly. Each sample carries two Gaussian negative
+logistic GLM of ``A1`` on ``(W1, W2)`` is saturated in the law with ``U`` integrated out.
+``A2`` is logistic in its history, and ``L2`` and ``Y`` are linear. So every mechanism GLM is
+correctly specified, and for a static regimen the iterated regression of ``Y`` on ``(W, A1)``
+is linear too: S1, B1 and B3 fit correctly specified outcome models. The contrast ``always``
+against ``never`` is 1.2 exactly.
+
+**I1's iterated regression is misspecified.** Under the odds tilt the node-1 regression is
+``E[sum_a2 q(a2 | H2) Q2(H2, a2) | W, A1]``, and the tilted ``q`` is an expit of ``L2``, so it
+is not linear in ``(W, A1)``. The mechanisms stay correct, so the placebo null and the valid
+control stay exact through double robustness. The influence-curve SE of a fit with a
+misspecified outcome model and an estimated mechanism can be conservative, and the subset rule
+reads both tails. This is the realistic IPSI configuration, so the cell stays. Each sample carries two Gaussian negative
 controls:
 
 - ``NC``, a valid control: the outcome's baseline part ``0.5 W1 + 0.4 W2`` plus ``N(0, 1)``,
@@ -75,7 +83,8 @@ other baselines are the in-sample estimators their evidence page describes. The 
 in each cell's recorded configuration.
 
 **The g-formula's Monte Carlo size** (plan 8.7) is the shipped default of 10 histories per unit.
-A fit at another ``n_draws`` is outside the cell's scope.
+A fit at another ``n_draws`` is outside the cell's scope. The simulation error enters the
+subset refits' scatter and not the reported SE, so B3's subset ``rho`` may sit slightly above 1.
 
 **Size cells.** 200 trials. A reading passes when it rejects in at most 17 trials.
 
@@ -106,7 +115,8 @@ records the one configuration of each cell and the range of its event count.
 
 **Red reading** (declared before the run). A size red is a defect suspect until diagnosed. A red
 with no defect goes to reporting with an owner, and the rule's registry row stays descriptive.
-No rerun buys a pass. A power red with no defect means the defect was sized too small for this
+No rerun buys a pass. A red I1 subset cell has one pre-identified cause, the conservative SE of
+the misspecified iterated regression above. It goes to diagnosis, which tests that cause first. A power red with no defect means the defect was sized too small for this
 cell's configuration; it keeps the rule descriptive and goes to reporting.
 """
 

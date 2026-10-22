@@ -107,3 +107,12 @@ def test_a_targeted_fit_records_every_regression_and_its_mechanism(pseudo: Any) 
     # An unset pseudo learner defaults to the outcome learner, read as a regression.
     expected_pseudo = "GLM(family='gaussian')" if pseudo is None else "LinearRegression()"
     assert learners == ("GLM(family='gaussian')", expected_pseudo, "GLM()")
+
+
+def test_no_shipped_registry_row_reads_a_learner_fingerprint() -> None:
+    # The fingerprint change cannot move a shipped verdict's resolution while every shipped
+    # row leaves the learner axis unrestricted. A row that restricts it must be calibrated
+    # on the corrected fingerprints.
+    from cleverly.validation._interpretation import VERDICT_EVIDENCE
+
+    assert all(row.scope.learners is None for row in VERDICT_EVIDENCE)

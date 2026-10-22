@@ -26,6 +26,10 @@ unmeasured `U` that drives the first treatment and the confounded control only. 
 registered censored survival law of `cleverly.datasets.make_longitudinal_survival`. The module
 docstring of `tests/studies/refuter_calibration_longitudinal.py` states both laws.
 
+On law E every mechanism GLM and every static-regimen outcome GLM is correctly specified.
+IPSI's iterated regression under the odds tilt is not linear, so I1's outcome model is
+misspecified. A red I1 subset cell has that pre-identified cause, and it goes to diagnosis.
+
 L1 reads no negative control. The shipped `refute` refuses a negative-control outcome on a
 survival fit, because no replacement keeps the risk sets.
 

@@ -214,6 +214,9 @@ class TestConfiguration:
         assert configuration["nodes"] == 2
         assert len(configuration["learners"].split(" | ")) == learners
         assert "default-library" not in configuration["learners"]
+        # Plan 5.13 admits the subset and control verdicts only on an influence-curve
+        # interval; a plug-in-only spread would leave every row descriptive.
+        assert configuration["inference"] == "influence_curve"
 
     @staticmethod
     def _rows(configurations: Mapping[str, Sequence[Mapping[str, object]]]) -> pd.DataFrame:
