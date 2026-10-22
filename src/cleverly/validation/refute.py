@@ -57,6 +57,11 @@ The tests, and what a reading means:
     the estimate moves under that error.  A draw that fails to sample, perturb, or refit is
     retained as a failure rather than raised, because a bootstrap draw fails per sample.
 
+``bootstrap_stability``
+    Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
+    original fold and every refit reuses the original fit's seeds, so the shift of the mean
+    against the original fit carries no fold or seed noise.  The report is descriptive.
+
 Each test refits the model, so a full run costs several times a single fit.
 """
 
@@ -67,11 +72,11 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-from scipy import stats
 
 from .._inference_status import InferenceStatus
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
+from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -1004,6 +1009,7 @@ _KNOWN_TESTS = (
     "dummy_outcome",
     "simulated_outcome",
     "bootstrap_measurement_error",
+    "bootstrap_stability",
 )
 _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 #: The refutations whose refit sees a different row set from the fit's own. ``subset`` drops
@@ -1013,10 +1019,10 @@ _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 #: bootstrap refuses a supplied plan outright. Every other test here replaces or perturbs a
 #: column and keeps each row in its position, which is what makes a supplied
 #: :class:`~cleverly.SplitPlan` still apply.
-_ROW_SET_TESTS = ("subset", "bootstrap_measurement_error")
+_ROW_SET_TESTS = ("subset", "bootstrap_measurement_error", "bootstrap_stability")
 #: ``subset`` refits on the original fold labels of the drawn units, so a supplied plan
 #: labels the refit's rows by position and the test does not refuse it.
-_PLAN_REFUSING_TESTS = ("bootstrap_measurement_error",)
+_PLAN_REFUSING_TESTS = ("bootstrap_measurement_error", "bootstrap_stability")
 _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2, "random_common_cause": 3}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
@@ -1201,6 +1207,10 @@ def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal
     # Read defensively: a stub result without a configuration meets the later rules.
     if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
         return None
+    # The placebo law makes every rule's value ``E[Y]``, so a relearned rule does not move
+    # its target (X82 plan 5.1.1). Only the placebo may refit a learned-rule fit.
+    if all(name == "placebo" for name in request.tests):
+        return None
     return LEARNED_RULE_REFIT_REFUSAL
 
 
@@ -1222,6 +1232,22 @@ def _target_declaration(result: TMLEResult, estimand: str) -> Any:
     return TARGETS.get(target)
 
 
+def _is_learned_rule_fit(result: Any) -> bool:
+    return getattr(getattr(result, "config", None), "parameter_axis", None) == "learned_rule"
+
+
+def _learned_rule_reference(data: Any) -> float:
+    """Return the weighted mean of the observed outcomes, the placebo value of any rule.
+
+    Under the placebo law the value of every rule, learned or fixed, is ``E[Y]``, and this
+    mean estimates it. It is constant across permutations, so the ``t`` rule applies
+    unchanged. A weighted fit weights it, because the fit's own value is weighted (X82 plan
+    5.1.1). A learned-rule fit refuses missing outcomes (F27), so every outcome is observed.
+    """
+    observed = np.asarray(data.observed, dtype=bool)
+    return float(np.average(data.outcome[observed], weights=data.weights[observed]))
+
+
 def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the reported-scale no-effect value of a registered parameter, if defined."""
     declaration = _target_declaration(result, estimand)
@@ -1236,6 +1262,80 @@ def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
     return None
 
 
+@dataclass(frozen=True)
+class _MSMReference:
+    """The placebo value of one MSM coefficient, and whether it is exact.
+
+    ``exact`` holds when the coefficient is 0 for every function of the covariates the
+    placebo law can put in the outcome regression. Otherwise ``value`` is the projection
+    of the fitted regression ``E[Y | W]``, a computed number and not an exact null.
+    """
+
+    value: float
+    exact: bool
+
+
+def _msm_reference(result: Any, estimand: str) -> _MSMReference | None:
+    """Return the placebo reference of a point-treatment MSM coefficient, or ``None``.
+
+    Under the placebo law ``m(a, W) = q(W)`` for every arm ``a`` (X82 plan 5.1.4). The
+    coefficient is the weighted projection ``M^-1 sum_i w_i sum_j h_ij phi_ij q_i / n`` of
+    ``q``. A coefficient is exactly 0 when its row of ``M^-1 sum_j h_ij phi_ij`` vanishes on
+    every unit, whatever ``q`` is. That holds for a product weight and a tensor design whose
+    arm factor contains an intercept, and the identity link keeps the projection linear. The
+    check reads the realised arrays, so it needs no declaration of the structure. Any other
+    coefficient takes the projection of the fitted mixture ``sum_a g(a | W) Qbar(a, W)``.
+    """
+    from ..msm import solve_projection
+
+    if getattr(getattr(result, "config", None), "parameter_axis", None) != "msm":
+        return None
+    nuisance = getattr(result, "nuisance", None)
+    model = getattr(nuisance, "msm", None)
+    fluctuation = getattr(result, "fluctuations", {}).get("msm")
+    if nuisance is None or model is None or fluctuation is None or model.dose_values:
+        return None
+    labels = [f"msm[{term}]" for term in model.terms]
+    if estimand not in labels:
+        return None
+    column = labels.index(estimand)
+    design = np.asarray(model.design, dtype=float)
+    weights = np.asarray(model.weights, dtype=float)
+    sampling = np.asarray(result.data.weights, dtype=float)
+    if model.link == "identity":
+        normal = np.einsum("i,ij,ijp,ijq->pq", sampling, weights, design, design)
+        rows = np.einsum("i,ij,ijp->pi", sampling, weights, design)
+        operator = np.linalg.solve(normal, rows)
+        if np.max(np.abs(operator[column])) <= 1e-9 * max(1.0, float(np.max(np.abs(operator)))):
+            return _MSMReference(0.0, True)
+    arms = model.arms
+    targeted = fluctuation.targeted
+    propensity = nuisance.propensity
+    mixture = sum(
+        np.asarray(propensity.arm(arm), dtype=float)
+        * np.asarray(nuisance.scaler.unscale_level(targeted.arms[arm]), dtype=float)
+        for arm in arms
+    )
+    predictions = np.repeat(np.asarray(mixture, dtype=float)[:, None], len(arms), axis=1)
+    beta = solve_projection(design, weights, predictions, sampling, str(model.link)).beta
+    return _MSMReference(float(beta[column]), False)
+
+
+def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
+    """Return the value the placebo reads the refit against, or ``None`` when it has none.
+
+    A contrast has its fixed no-effect value. A learned-rule level reads against the outcome
+    mean, because the placebo law gives every rule that value. An MSM coefficient reads
+    against its placebo projection (:func:`_msm_reference`).
+    """
+    if _is_learned_rule_fit(result) and estimand in result.estimates:
+        return _learned_rule_reference(result.data)
+    reference = _msm_reference(result, estimand)
+    if reference is not None:
+        return reference.value
+    return _no_effect_null(result, estimand)
+
+
 def _no_effect_difference(value: float, null: float) -> float:
     """Return the signed difference on the estimate's inference scale."""
     if null == 1.0:
@@ -1246,7 +1346,13 @@ def _no_effect_difference(value: float, null: float) -> float:
 def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse null-effect tests on parameters with no fixed reported-scale null."""
     chosen = [name for name in request.tests if name in ("placebo", "negative_control_outcome")]
-    if not chosen or _no_effect_null(result, request.estimand) is not None:
+    chosen = [
+        name
+        for name in chosen
+        if (_placebo_null if name == "placebo" else _no_effect_null)(result, request.estimand)
+        is None
+    ]
+    if not chosen:
         return None
     keys = getattr(result, "parameter_keys", {})
     key = keys.get(request.estimand) if keys else None
@@ -1363,6 +1469,17 @@ def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest)
     return None
 
 
+def _refuse_stability_eligibility(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse ``bootstrap_stability`` on a fit whose data it cannot resample, or on one draw."""
+    if "bootstrap_stability" not in request.tests:
+        return None
+    try:
+        _validate_stability_eligibility(result, request.draws)
+    except CapabilityError as error:
+        return error.refusal
+    return None
+
+
 def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a measurement-error draw budget below its rule's floor."""
     if "bootstrap_measurement_error" not in request.tests:
@@ -1409,6 +1526,7 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("measurement_declaration", _refuse_measurement_declaration),
     ("measurement_rule", _refuse_measurement_rule),
     ("measurement_eligibility", _refuse_measurement_eligibility),
+    ("stability_eligibility", _refuse_stability_eligibility),
     ("measurement_budget", _refuse_measurement_budget),
     ("generated_budget", _refuse_generated_budget),
 )
@@ -2051,6 +2169,9 @@ class _CopyFolds:
         self._design = design
         self._draws = draws
         self._index: dict[int, np.ndarray] = {}
+        #: Repeat seeds of the original fit that every refit reuses, or ``None`` to let the
+        #: refit draw its own.
+        self.frozen_seeds: Sequence[int] | None = None
 
     def sample(self, replicate: int) -> Any:
         index, codes = self._design.indices(self._data, self._draws[replicate])
@@ -2060,7 +2181,104 @@ class _CopyFolds:
 
     def options(self, replicate: int) -> dict[str, Any]:
         sliced = _sliced_folds(self._result, self._index[replicate])
-        return {} if sliced is None else {"frozen_folds": sliced}
+        options: dict[str, Any] = {} if sliced is None else {"frozen_folds": sliced}
+        if self.frozen_seeds is not None:
+            options["frozen_seeds"] = self.frozen_seeds
+        return options
+
+
+def _validate_stability_eligibility(result: Any, n_replicates: int) -> Any:
+    """Validate a ``bootstrap_stability`` request before it refits."""
+    from ..data import CausalData
+
+    data = getattr(result, "data", None)
+    if type(data) is not CausalData:
+        raise CapabilityError(
+            "bootstrap_stability supports point-treatment CausalData results; "
+            f"got result family {type(result).__name__} with data family {type(data).__name__}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="X82",
+        )
+    if n_replicates < 2:
+        raise CapabilityError(
+            f"bootstrap_stability was asked for {n_replicates} draw(s); a spread needs at least 2",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return data
+
+
+def _bootstrap_stability_test(
+    result: Any,
+    *,
+    estimand: str,
+    original: float,
+    n_replicates: int,
+    root_seed: int,
+    is_ratio: bool = False,
+) -> RefutationTest:
+    """Refit on bootstrap resamples that keep each unit's fold, and describe the spread.
+
+    The original fit is the same-seed full-data baseline: every refit reuses its repeat
+    seeds and each copy of a unit keeps the unit's original fold, so the shift of the mean
+    against the original fit carries no fold or seed noise. No theorem covers a refit
+    bootstrap of a cross-fitted estimator, so the report stays descriptive (X82 plan 5.4).
+    A ratio reads on the log scale, with a geometric mean, as ``subset`` does.
+
+    A fit given ``split_plan=`` refuses this test. The frozen folds could carry the plan's
+    labels the way ``subset`` does, which is a possible extension.
+    """
+    data = _validate_stability_eligibility(result, n_replicates)
+    design = _bootstrap_design(
+        data, n_replicates=n_replicates, resampling="auto", random_state=root_seed
+    )
+    draw_by_replicate = {draw.replicate: draw for draw in design.draws}
+    folds = _CopyFolds(result, data, design, draw_by_replicate)
+    repeats = getattr(result, "repeats", None)
+    folds.frozen_seeds = [item.seed for item in repeats] if repeats else None
+    records, failures = _run_empirical_refits(
+        result,
+        estimand=estimand,
+        draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        replacement=lambda replicate, seed: folds.sample(replicate),
+        refit_options=folds.options,
+        expected_family=data.family,
+        retain_preparation_failures=True,
+    )
+    values = tuple(item.estimate for item in records)
+    scaled = np.log(values) if is_ratio else np.asarray(values, dtype=float)
+    centre = float(np.log(original)) if is_ratio else float(original)
+    shift = float(np.mean(scaled) - centre) if values else float("nan")
+    spread = float(np.std(scaled, ddof=1)) if len(values) > 1 else float("nan")
+    scale = " on the log scale" if is_ratio else ""
+    return RefutationTest(
+        name="bootstrap_stability",
+        estimand=estimand,
+        original=original,
+        values=values,
+        expectation=f"spread {spread:.4g}{scale} around the original fit",
+        passed=None,
+        detail=(
+            f"{len(values)} of {n_replicates} resample refits succeeded; the mean moved "
+            f"{shift:.4g}{scale} from the same-seed full-data fit"
+        ),
+        standard_errors=tuple(item.std_error for item in records),
+        failures=failures,
+        requested_draws=n_replicates,
+        resampling=design.resampling,
+        rung="L0",
+        scope_sentence=_STABILITY_SENTENCE,
+        extras=(("shift against the original fit", shift),),
+        mean_kind="geometric" if is_ratio else "arithmetic",
+        spread_kind="log" if is_ratio else "reported",
+    )
+
+
+_STABILITY_SENTENCE = (
+    "The draws describe how far the estimate moves under resampling of units that keep their "
+    "folds. No result covers a refit bootstrap of a cross-fitted estimator, so the report "
+    "states no verdict. The subset test is the calibrated stability check."
+)
 
 
 def _bootstrap_measurement_error_test(
@@ -2537,6 +2755,8 @@ def refute(
 
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)
+    placebo_null = _placebo_null(result, estimand)
+    msm_reference = _msm_reference(result, estimand)
     estimate_scale = getattr(result[estimand], "scale", None)
     declaration = _target_declaration(result, estimand)
     is_ratio = (estimate_scale or getattr(declaration, "scale", None)) == "ratio"
@@ -2592,7 +2812,7 @@ def refute(
             replicate_count = n_replicates
         elif name in _GENERATED_TESTS:
             replicate_count = DEFAULT_OUTCOME_REPLICATES
-        elif name == "bootstrap_measurement_error":
+        elif name in ("bootstrap_measurement_error", "bootstrap_stability"):
             replicate_count = _DEFAULT_MEASUREMENT_REPLICATES
         elif name == "random_common_cause":
             replicate_count = _DEFAULT_NOISE_REPLICATES
@@ -2600,14 +2820,24 @@ def refute(
             replicate_count = _DEFAULT_PERTURBATION_REPLICATES
         mean_kind: Literal["arithmetic", "geometric"] = "geometric" if is_ratio else "arithmetic"
         if name == "placebo":
-            assert no_effect_null is not None
+            assert placebo_null is not None
             fits = [refit(_placebo_data(data, rng, placebo_mode)) for _ in range(replicate_count)]
             values = tuple(psi for psi, _ in fits)
-            if replicate_count < 2:
+            learned = _is_learned_rule_fit(result)
+            # A learned-rule level and an MSM coefficient read on their reported scale; only
+            # a registered contrast can sit on the log scale.
+            direct = learned or msm_reference is not None
+            computed = msm_reference is not None and not msm_reference.exact
+            if replicate_count < 2 or computed:
+                # A computed projection is one offset shared by all draws and estimated from
+                # the same data, so the t reference does not hold for it (X82 plan 5.1.4).
                 reading = None
             else:
                 reading = placebo_reading(
-                    [_no_effect_difference(psi, no_effect_null) for psi in values],
+                    [
+                        psi - placebo_null if direct else _no_effect_difference(psi, placebo_null)
+                        for psi in values
+                    ],
                     std_error=std_error,
                     plugin_std_errors=[se for _, se in fits],
                     scale=original,
@@ -2617,7 +2847,14 @@ def refute(
             if reading is not None and resolution.licensed:
                 passed = not reading.rejects
             mean = float(np.exp(np.mean(np.log(values)))) if is_ratio else float(np.mean(values))
-            if reading is None:
+            if computed:
+                detail = (
+                    f"{mean_kind} mean placebo estimate {mean:+.5g} beside the computed "
+                    f"projection {placebo_null:.5g} of the fitted outcome regression. This "
+                    "coefficient has no exact placebo value under this design and weight, so "
+                    "the report states no verdict"
+                )
+            elif reading is None:
                 detail = "one placebo draw carries no spread, so the t statistic is undefined"
             elif reading.kind == "constant_zero":
                 detail = (
@@ -2627,8 +2864,18 @@ def refute(
             else:
                 detail = (
                     f"{mean_kind} mean placebo estimate {mean:+.5g} against the exact null "
-                    f"{no_effect_null:g}; the t statistic of the {replicate_count} draws is "
+                    f"{placebo_null:g}; the t statistic of the {replicate_count} draws is "
                     f"{reading.t:+.4g} on {reading.df} degrees of freedom"
+                )
+            if learned:
+                detail += (
+                    f". The reference is the outcome mean {placebo_null:.5g}, the value of "
+                    "every rule under the placebo law"
+                )
+            if msm_reference is not None and msm_reference.exact:
+                detail += (
+                    ". The weight and the design separate the arm from the covariates, so the "
+                    "coefficient is exactly 0 under the placebo law"
                 )
             if data.known_treatment is not None:
                 detail += ". The refit keeps a known mechanism: the placebo law's own arm shares"
@@ -2638,7 +2885,7 @@ def refute(
                     estimand=estimand,
                     original=original,
                     values=values,
-                    expectation=f"~ {no_effect_null:g}",
+                    expectation=f"~ {placebo_null:g}",
                     passed=passed,
                     detail=detail,
                     standard_errors=tuple(se for _, se in fits),
@@ -2771,7 +3018,7 @@ def refute(
             control_se = refitted[estimand].plugin_std_error
             deviation = _no_effect_difference(value, no_effect_null)
             z = deviation / control_se if control_se > 0 else float("nan")
-            pvalue = float(2.0 * stats.norm.sf(abs(z))) if np.isfinite(z) else float("nan")
+            pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
             # The control's own outcome family and event count are the scope axes of a
             # negative-control reading, not the primary outcome's.
             control_fit = (
@@ -2819,6 +3066,17 @@ def refute(
                     value_code=contrasts[name][0],
                     reference_code=contrasts[name][1],
                     fit=fit,
+                )
+            )
+        elif name == "bootstrap_stability":
+            outcomes.append(
+                _bootstrap_stability_test(
+                    result,
+                    estimand=estimand,
+                    original=original,
+                    n_replicates=replicate_count,
+                    root_seed=seed,
+                    is_ratio=is_ratio,
                 )
             )
         else:

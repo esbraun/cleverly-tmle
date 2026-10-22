@@ -606,6 +606,7 @@ class TestTheRefuteRowResolvesEachRequest:
             "measurement_declaration",
             "measurement_rule",
             "measurement_eligibility",
+            "stability_eligibility",
             "measurement_budget",
             "generated_budget",
         ]
@@ -1089,6 +1090,10 @@ PRE_REFIT_REQUESTS: dict[str, tuple[str, dict[str, Any]]] = {
             ),
             "measurement_error_rule": FOUR_DRAWS,
         },
+    ),
+    "stability_eligibility": (
+        "study",
+        {"tests": ("bootstrap_stability",), "n_replicates": 1},
     ),
     "measurement_budget": (
         "study",

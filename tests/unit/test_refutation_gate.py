@@ -7,6 +7,7 @@ because Part A ships no row whose rule needs a study.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from itertools import combinations
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_binary_outcome
+from cleverly.exceptions import CapabilityError
 from cleverly.validation import BootstrapMeasurementError, EmpiricalInclusionRule, refute
 from cleverly.validation import _interpretation as interpretation
 from cleverly.validation._interpretation import (
@@ -760,6 +762,268 @@ class TestBootstrapFoldRule:
         monkeypatch.setattr(_CopyFolds, "options", lambda self, replicate: {})
         _, counter = self._run()
         assert all("frozen_folds" not in options for options in counter.kwargs)
+
+
+class TestBootstrapStability:
+    def _run(self, **options: Any) -> tuple[Any, _CountingEstimator, Any]:
+        result = _binary_fit(cross_fit=True, n=200)
+        counter = _CountingEstimator(result.estimator)
+        result = replace(result, estimator=counter)
+        report = refute(
+            result, tests=("bootstrap_stability",), n_replicates=4, random_state=5, **options
+        )
+        return result, counter, report
+
+    def test_it_is_opt_in_and_descriptive(self) -> None:
+        assert "bootstrap_stability" not in DEFAULT_TESTS
+        _, _, report = self._run()
+        test = report["bootstrap_stability"]
+        assert test.passed is None
+        assert test.rung == "L0"
+        assert len(test.values) == 4
+
+    def test_every_refit_reuses_the_original_seeds_and_folds(self) -> None:
+        result, counter, _ = self._run()
+        seeds = [item.seed for item in result.repeats]
+        for options in counter.kwargs:
+            assert list(options["frozen_seeds"]) == seeds
+            assert len(options["frozen_folds"]) == len(result.repeats)
+
+    def test_the_shift_is_the_mean_against_the_original_fit(self) -> None:
+        _, _, report = self._run()
+        test = report["bootstrap_stability"]
+        shift = dict(test.extras)["shift against the original fit"]
+        assert shift == pytest.approx(np.mean(test.values) - test.original)
+
+    def test_a_ratio_reads_on_the_log_scale(self) -> None:
+        from cleverly import RiskRatio
+
+        frame, _ = make_binary_outcome(n=200, seed=3)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+        )
+        result = study.identify(RiskRatio()).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+        )
+        estimand = next(name for name in result.estimates if name.startswith("rr"))
+        test = refute(
+            result,
+            estimand=estimand,
+            tests=("bootstrap_stability",),
+            n_replicates=4,
+            random_state=5,
+        )["bootstrap_stability"]
+        shift = dict(test.extras)["shift against the original fit"]
+        expected = np.mean(np.log(test.values)) - np.log(test.original)
+        assert shift == pytest.approx(expected)
+        assert test.mean_kind == "geometric" and test.spread_kind == "log"
+
+    def test_one_draw_is_refused(self) -> None:
+        result = _binary_fit(cross_fit=True, n=200)
+        with pytest.raises(CapabilityError, match="at least 2"):
+            refute(result, tests=("bootstrap_stability",), n_replicates=1, random_state=5)
+
+
+class TestLearnedRulePlacebo:
+    """The placebo law makes every rule's value ``E[Y]`` (X82 plan 5.1.1)."""
+
+    @staticmethod
+    def _fit() -> Any:
+        from tests.unit import _learned_rule_support as support
+
+        return support.fit()
+
+    def test_the_placebo_reads_the_value_against_the_outcome_mean(self) -> None:
+        from tests.unit import _learned_rule_support as support
+
+        result = self._fit()
+        report = refute(
+            result, estimand=support.NAME, tests=("placebo",), n_replicates=4, random_state=1
+        )
+        test = report["placebo"]
+        mean = float(np.mean(result.data.outcome))
+        assert test.expectation == f"~ {mean:g}"
+        assert "outcome mean" in test.detail
+
+    def test_every_other_test_still_refuses_a_learned_rule_fit(self) -> None:
+        from tests.unit import _learned_rule_support as support
+
+        result = self._fit()
+        for name in ("random_common_cause", "subset"):
+            with pytest.raises(CapabilityError, match="relearns the rule"):
+                refute(result, estimand=support.NAME, tests=("placebo", name))
+
+    def test_the_reference_is_exact_over_every_permutation(self) -> None:
+        """An IPW value of a fixed rule, with the marginal ``g``, averages to the weighted mean."""
+        import itertools
+        from types import SimpleNamespace
+
+        from cleverly.validation.refute import _learned_rule_reference
+
+        y = np.array([1.0, 0.0, 2.0, 3.0, 1.5, 0.5])
+        w = np.array([1.0, 2.0, 1.0, 3.0, 1.0, 2.0])
+        a = np.array([1.0, 0.0, 1.0, 0.0, 1.0, 1.0])
+        rule = np.array([1.0, 1.0, 0.0, 0.0, 1.0, 0.0])
+        share = {1.0: a.mean(), 0.0: 1.0 - a.mean()}
+        values = []
+        for perm in set(itertools.permutations(a)):
+            permuted = np.array(perm)
+            g = np.array([share[rule[i]] for i in range(6)])
+            values.append(np.sum(w * (permuted == rule) * y / g) / np.sum(w))
+        data = SimpleNamespace(outcome=y, weights=w, observed=np.ones(6, dtype=bool))
+        assert np.mean(values) == pytest.approx(_learned_rule_reference(data))
+        # The mutation: an unweighted mean of a weighted fit is not the placebo value.
+        assert np.mean(values) != pytest.approx(float(np.mean(y)))
+
+
+def _msm_stub(design: np.ndarray, weights: np.ndarray, q: np.ndarray, mass: np.ndarray) -> Any:
+    """A finite law as an MSM fit: rows are support points, ``mass`` their probability."""
+    from types import SimpleNamespace
+
+    from cleverly.msm import MSMSet
+
+    arms = (0.0, 1.0)
+    terms = tuple(f"t{index}" for index in range(design.shape[2]))
+    model = MSMSet(terms, design, weights, arms)  # type: ignore[arg-type]
+    nuisance = SimpleNamespace(
+        msm=model,
+        propensity=SimpleNamespace(arm=lambda arm: np.full(len(q), 0.5)),
+        scaler=SimpleNamespace(unscale_level=lambda values: values),
+    )
+    targeted = SimpleNamespace(arms={0.0: q, 1.0: q})
+    return SimpleNamespace(
+        config=SimpleNamespace(parameter_axis="msm"),
+        nuisance=nuisance,
+        fluctuations={"msm": SimpleNamespace(targeted=targeted)},
+        data=SimpleNamespace(weights=mass),
+    )
+
+
+class TestMSMPlacebo:
+    """Under the placebo law ``m(a, W) = q(W)`` for every arm (X82 plan 5.1.4)."""
+
+    V = np.array([-1.0, 0.0, 0.5, 2.0])
+    MASS = np.array([0.1, 0.4, 0.3, 0.2])
+    Q = np.array([0.2, 0.9, -0.4, 1.3])
+
+    def _design(self, columns: Callable[[float, np.ndarray], list[np.ndarray]]) -> np.ndarray:
+        return np.stack([np.column_stack(columns(a, self.V)) for a in (0.0, 1.0)], axis=1)
+
+    def test_a_tensor_design_with_a_product_weight_is_exactly_zero(self) -> None:
+        from cleverly.validation.refute import _msm_reference
+
+        design = self._design(lambda a, v: [np.ones_like(v), np.full_like(v, a), v, a * v])
+        weights = np.outer(1.0 + (self.V > 0), [0.6, 1.8])
+        stub = _msm_stub(design, weights, self.Q, self.MASS)
+        for term in ("t1", "t3"):
+            reference = _msm_reference(stub, f"msm[{term}]")
+            assert reference is not None and reference.exact and reference.value == 0.0
+        # The covariate terms carry the projection of q, so they are not claimed exact.
+        assert not _msm_reference(stub, "msm[t2]").exact
+
+    def test_a_design_without_the_arm_intercept_has_a_computed_nonzero_null(self) -> None:
+        from cleverly.validation.refute import _msm_reference
+
+        design = self._design(lambda a, v: [np.ones_like(v), np.full_like(v, a), a * v])
+        weights = np.ones((4, 2))
+        stub = _msm_stub(design, weights, self.Q, self.MASS)
+        reference = _msm_reference(stub, "msm[t2]")
+        assert reference is not None and not reference.exact
+        # Independent weighted least squares over the enumerated (unit, arm) cells.
+        rows = design.reshape(8, 3)
+        target = np.repeat(self.Q, 2)
+        root = np.sqrt(np.repeat(self.MASS, 2))
+        beta = np.linalg.lstsq(rows * root[:, None], target * root, rcond=None)[0]
+        assert reference.value == pytest.approx(beta[2], abs=1e-12)
+        # The mutation: reading this coefficient against 0 would be wrong by beta[2].
+        assert abs(beta[2]) > 0.1
+
+    def test_a_non_product_weight_loses_the_exact_zero(self) -> None:
+        from cleverly.validation.refute import _msm_reference
+
+        design = self._design(lambda a, v: [np.ones_like(v), np.full_like(v, a), v])
+        weights = np.column_stack([np.ones(4), 1.0 + self.V**2])
+        stub = _msm_stub(design, weights, self.Q, self.MASS)
+        assert not _msm_reference(stub, "msm[t1]").exact
+
+    def test_a_real_fit_reads_the_treatment_coefficient_at_zero(self) -> None:
+        from tests.unit._simulated_confounding_support import _fit_msm
+
+        result = _fit_msm()
+        exact = refute(
+            result, estimand="msm[treatment]", tests=("placebo",), n_replicates=4, random_state=1
+        )["placebo"]
+        assert exact.expectation == "~ 0"
+        assert exact.statistic is not None
+        computed = refute(
+            result, estimand="msm[baseline]", tests=("placebo",), n_replicates=4, random_state=1
+        )["placebo"]
+        assert computed.passed is None and computed.statistic is None
+        assert "computed projection" in computed.detail
+
+    def test_a_computed_reference_states_no_verdict_under_a_covering_row(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The gate, not only the reference: a covering row must not license a computed null.
+
+        The mutation is a version that builds the ``t`` reading against the computed
+        projection. That version prints a verdict here and fails. The exact-zero fit under
+        the same row is the positive control: the row does license the ``t`` rule.
+        """
+        from cleverly import MSMProjection
+        from cleverly.msm import MSM
+        from tests.unit._simulated_confounding_support import _estimate, _fit_msm, _study
+
+        row = _covering_row("placebo", "t")
+        row = replace(
+            row,
+            scope=replace(
+                row.scope, methods=frozenset({"TMLE"}), estimand_kinds=frozenset({"msm[treatment]"})
+            ),
+        )
+        monkeypatch.setattr(interpretation, "VERDICT_EVIDENCE", (row,))
+        model = MSM(
+            design=lambda a, w: np.column_stack(
+                [
+                    np.ones(len(w)),
+                    np.full(len(w), float(a == 1)),
+                    float(a == 1) * np.asarray(w["W"]),
+                ]
+            ),
+            terms=("intercept", "treatment", "treated_w"),
+            design_kind="known",
+        )
+        computed = refute(
+            _estimate(_study(), MSMProjection(model)),
+            estimand="msm[treatment]",
+            tests=("placebo",),
+            n_replicates=4,
+            random_state=1,
+        )["placebo"]
+        assert computed.passed is None and computed.statistic is None
+        exact = refute(
+            _fit_msm(),
+            estimand="msm[treatment]",
+            tests=("placebo",),
+            n_replicates=4,
+            random_state=1,
+        )["placebo"]
+        assert exact.passed is not None and exact.rung == "L2"
+
+    def test_the_negative_control_still_refuses_an_msm_coefficient(self) -> None:
+        from tests.unit._simulated_confounding_support import _fit_msm
+
+        result = _fit_msm()
+        with pytest.raises(CapabilityError, match="no universal null"):
+            refute(
+                result,
+                estimand="msm[treatment]",
+                tests=("negative_control_outcome",),
+                negative_control_outcome=np.zeros(result.data.n),
+            )
 
 
 class TestSubsetFoldSlice:
