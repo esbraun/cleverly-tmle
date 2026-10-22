@@ -19,6 +19,7 @@ from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
+from cleverly.validation import refute
 from tests.documents import ROOT
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -38,6 +39,7 @@ UNPRINTED_DECIMALS = {
     f"for the 1:10:1 slope: {_PROBE}/sweep.log",
     "0.01": f"the true-g threshold, share below it 0.0112 for medium or high: "
     f"{_PROBE}/shortfall.log",
+    "0.927": "the simulated_outcome SE ratio at n_replicates=400, a review probe recorded in the body of pull request 435",
     "0.734": "half the stored ate[high vs low], 1.4681 / 2, checked in check()",
 }
 
@@ -310,3 +312,137 @@ def check(namespace: dict[str, Any]) -> None:
     # "The slope's confidence-limit value is descriptive."
     assert robustness["msm[assigned contacts]"]["limit_licensed"] is False
     assert "limit_licensed" not in robustness["ate[high vs low]"]
+    _check_refutation(namespace)
+    _check_stress_surface(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 13: the placebo, subset, noise and generated-outcome readings of the slope."""
+    trend, slope = namespace["trend_result"], namespace["SLOPE"]
+    original = trend[slope].psi
+    refutation = namespace["refutation"]
+    tests = {test.name: test for test in refutation.tests}
+    assert list(tests) == ["placebo", "subset", "random_common_cause"]
+    for test in tests.values():
+        # "No check prints a verdict": no registry row covers an MSM coefficient on three arms.
+        assert test.passed is None and test.rung == "L0"
+        assert len(test.values) == 20 and test.original == pytest.approx(original)
+    assert refutation.passed is None
+    assert "This fit differs on method 'TMLE'" in tests["placebo"].scope_sentence
+    # The placebo reading: exact null 0, mean -0.00029724, spread 0.008957, t -0.1484 (p = 0.884).
+    placebo = tests["placebo"]
+    values = np.asarray(placebo.values)
+    assert placebo.expectation == "~ 0"
+    assert round(float(values.mean()), 8) == -0.00029724
+    assert round(float(values.std(ddof=1)), 6) == 0.008957
+    assert round(float(placebo.statistic), 4) == -0.1484
+    assert round(float(placebo.statistic_pvalue), 3) == 0.884
+    assert round(float(np.mean(placebo.standard_errors) / values.std(ddof=1)), 4) == 0.9241
+    # The placebo mean sits far below the original slope; the no-intercept refit below is the
+    # witness that the exact reference needs its stated conditions.
+    assert abs(values.mean()) < 0.05 * original
+    # The reference is exact only for the stated conditions. Without an intercept the line
+    # through three equal means is not flat, so the placebo reference is a computed value.
+    no_intercept = (
+        namespace["study"]
+        .identify(
+            MSMProjection(
+                MSM(
+                    design=lambda arm, data: np.full(
+                        (len(data), 1), namespace["CONTACTS_30D"][arm]
+                    ),
+                    terms=("assigned contacts",),
+                    design_kind="known",
+                )
+            )
+        )
+        .estimate(method=namespace["method"])
+    )
+    nonzero = refute(
+        no_intercept,
+        estimand="msm[assigned contacts]",
+        tests=("placebo",),
+        n_replicates=10,
+    ).tests[0]
+    assert nonzero.expectation != "~ 0" and nonzero.passed is None
+    intercept = refute(
+        trend, estimand="msm[(intercept)]", tests=("placebo",), n_replicates=10
+    ).tests[0]
+    assert intercept.expectation != "~ 0"
+    # The subset reading: 2100 of 3000 patients, scatter 0.0063258 against 0.0056268, 1.1242.
+    subset = tests["subset"]
+    scatter = float(np.std(subset.values, ddof=1))
+    reference = float(trend[slope].std_error * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
+    assert round(scatter, 7) == 0.0063258 and round(reference, 7) == 0.0056268
+    assert round(scatter / reference, 4) == 1.1242
+    assert round(float(subset.statistic_pvalue), 3) == 0.391
+    # The noise reading: a nonzero, small paired shift in standard errors.
+    noise = tests["random_common_cause"]
+    shift = (np.asarray(noise.values) - original) / trend[slope].std_error
+    assert 0.0 < abs(shift.mean()) < 0.01 and round(float(shift.mean()), 6) == -0.001259
+    assert round(float(np.std(shift, ddof=1)), 5) == 0.04875
+
+    # The generated laws declare the Step 2 means, so their true slope is the Step 9 projection.
+    generated = {test.name: test for test in namespace["generated"].tests}
+    assert list(generated) == ["dummy_outcome", "simulated_outcome", "plasmode"]
+    projection = namespace["projection"]
+    truth = {"dummy_outcome": 0.0, "simulated_outcome": projection[1], "plasmode": projection[1]}
+    means = {"dummy_outcome": -0.00038784, "simulated_outcome": 0.26313, "plasmode": 0.2654}
+    for name, test in generated.items():
+        assert test.passed is None and test.rung == "L1" and len(test.values) == 20
+        assert test.declared_effect == pytest.approx(truth[name], abs=1e-12)
+        assert (
+            round(float(np.mean(test.values)), 8 if name == "dummy_outcome" else 5) == means[name]
+        )
+        # "All nine readings print outside": 20 draws leave every interval across a band edge.
+        assert len(test.readings) == 3 and not any(reading.inside for reading in test.readings)
+    assert f"{projection[1]:.5f}" == "0.26571"
+    by_name = {
+        name: {reading.name: reading.estimate for reading in test.readings}
+        for name, test in generated.items()
+    }
+    assert round(by_name["dummy_outcome"]["bias"], 5) == -0.02972
+    assert round(by_name["simulated_outcome"]["bias"], 4) == -0.3191
+    assert round(by_name["simulated_outcome"]["se_ratio"], 3) == 1.366
+    assert round(by_name["plasmode"]["se_ratio"], 2) == 1.14
+    inside_points = sum(
+        reading.band[0] <= reading.estimate <= reading.band[1]
+        for test in generated.values()
+        for reading in test.readings
+    )
+    assert inside_points == 5, "the reading counts five point values inside their bands"
+
+
+def _check_stress_surface(namespace: dict[str, Any]) -> None:
+    """Step 14: the grid cells, the benchmark scale, and the stated movements."""
+    surface, trend = namespace["surface"], namespace["trend_result"]
+    slope = trend[namespace["SLOPE"]]
+    frame = surface.to_frame()
+    assert list(zip(frame["treatment_strength"], frame["outcome_strength"], strict=True)) == [
+        (0.0, 0.0),
+        (0.0, 0.9),
+        (0.1, 0.0),
+        (0.1, 0.9),
+        (0.3, 0.0),
+        (0.3, 0.9),
+    ]
+    # The anchor cell is the original fit.
+    assert frame["displacement"].iloc[0] == 0.0
+    assert frame["estimate"].iloc[0] == pytest.approx(slope.psi, abs=1e-12)
+    moves = (frame["displacement"] / slope.std_error).round(2).tolist()
+    assert moves == [0.0, -1.44, -8.98, -9.15, -19.74, -19.33]
+    assert frame["estimate"].min() > 0.0 and round(float(frame["estimate"].min()), 4) == 0.0991
+    association = frame["induced_treatment_association"].round(4).tolist()
+    assert association == [0.0372, 0.0372, -0.0393, -0.0393, -0.1027, -0.1027]
+    # A treatment swap moves the slope by misclassification: its movement dwarfs the outcome cell.
+    assert abs(frame["displacement"].iloc[2]) > 5 * abs(frame["displacement"].iloc[1])
+    strength = {(item.covariate, item.role): item.strength for item in surface.calibrations}
+    assert round(strength[("discharge_risk", "treatment")], 3) == 0.300
+    assert round(strength[("discharge_risk", "outcome")], 3) == 0.916
+    assert round(strength[("age", "treatment")], 3) == 0.276
+    assert round(strength[("age", "outcome")], 3) == -0.361
+    assert round(slope.std_error, 4) == 0.0086
+    # The slope has no E-value: the E-value reads an arm contrast.
+    with pytest.raises(Exception, match="arm contrast"):
+        trend.sensitivity.evalue(estimand=namespace["SLOPE"])
+    assert "estimand kind" in namespace["robustness"]["msm[assigned contacts]"]["limit_sentence"]
