@@ -103,8 +103,11 @@ The cell name gives the configuration, then the reading.
 All 27 property cells pass. The size cells reject in 5 to 14 of 200 trials, below the limit of 17.
 The power cells detect their defect in 44 to 50 of 50 trials, above the floor of 38. The registry
 `VERDICT_EVIDENCE` therefore holds one row for each of the 12 size readings. Each row's scope is
-the configuration that its cells recorded in `cells.csv`. A negative-control row reads the event
-count of the binary control, which the registry test recomputes from the declared draws.
+the configuration that its cells recorded in `cells.csv`.
+
+A negative-control row reads the event
+count of the binary control. Its floor is the larger of its two cells' smallest counts, and the
+registry test recomputes it from the declared draws.
 
 `tests/unit/test_refuter_calibration_point_registry.py` checks each scope against the passing cells
 of the committed run.

@@ -847,9 +847,11 @@ _BOOSTER = (
 
 #: The calibrated cells of the SP study: method, outcome family, learner fingerprints,
 #: inference, whether the mechanism is declared known, the fit the sentence names, the
-#: smallest arm event count of the outcome over the cell's trials, and that of the binary
-#: negative control. ``cells.csv`` records every axis but the control's event count, which
-#: ``tests/unit/test_refuter_calibration_point_registry.py`` recomputes from the draws.
+#: smallest arm event count of the outcome over the cell's trials, and the floor of the binary
+#: negative-control readings. That floor is the larger of two minima, so the row lies inside
+#: both of its cells: the valid control over the 200 size trials and the confounded control
+#: over the 50 power trials. ``cells.csv`` records neither, so
+#: ``tests/unit/test_refuter_calibration_point_registry.py`` recomputes both from the draws.
 _POINT_CELLS: Final[
     dict[str, tuple[str, str, tuple[str, ...], str, bool, str, int | None, int | None]]
 ] = {
@@ -871,7 +873,7 @@ _POINT_CELLS: Final[
         False,
         "TMLE, logistic GLM nuisances",
         54,
-        47,
+        74,
     ),
     "T3": (
         "TMLE",
@@ -901,7 +903,7 @@ _POINT_CELLS: Final[
         True,
         "DR-TMLE with a declared treatment mechanism, a logistic GLM outcome",
         54,
-        53,
+        78,
     ),
     "D2": (
         "DRTMLE",

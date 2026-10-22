@@ -47,17 +47,19 @@ def _rows() -> list[VerdictEvidence]:
 
 
 @functools.cache
-def _control_events(name: str) -> int:
-    """The smallest arm event count of the binary negative control over the cell's trials.
+def _control_events(name: str, column: str = "NC", trials: int = study.SIZE_TRIALS) -> int:
+    """The smallest arm event count of a binary negative control over the cell's trials.
 
     ``refute`` scopes a negative-control reading by the control's own event count, which
-    ``cells.csv`` does not record. The draws are deterministic, so the count is recomputed.
+    ``cells.csv`` does not record. The draws are deterministic, so the count is recomputed:
+    the valid control ``NC`` over the size trials, and the confounded control ``NCU`` over
+    the power trials.
     """
     counts = []
-    for trial in range(study.SIZE_TRIALS):
+    for trial in range(trials):
         frame = properties._draw(name, trial)
         for arm in (0.0, 1.0):
-            control = frame.loc[frame["A"] == arm, "NC"].to_numpy()
+            control = frame.loc[frame["A"] == arm, column].to_numpy()
             events = int(np.count_nonzero(control > 0.5))
             counts += [events, control.size - events]
     return min(counts)
@@ -83,6 +85,8 @@ def _cells() -> dict[str, CalibrationCell]:
         events = recorded["min_event_count_min"]
         if events == "":
             count = None
+        elif reading == "negative_control_confounded":
+            count = _control_events(name, "NCU", study.POWER_TRIALS)
         elif instrument == "negative_control":
             count = _control_events(name)
         else:
@@ -123,10 +127,13 @@ def test_the_study_registers_one_row_per_size_reading() -> None:
 
 
 def test_the_negative_control_floors_are_the_recomputed_counts() -> None:
+    # The floor is the larger of the size cell's and the power cell's minimum, so the row
+    # covers no fit with fewer control events than either cell ran.
     for name, values in _POINT_CELLS.items():
-        control_events = values[-1]
         if "negative_control" in study.CELLS[name].readings and values[1] == "binomial":
-            assert control_events == _control_events(name)
+            size = _control_events(name)
+            power = _control_events(name, "NCU", study.POWER_TRIALS)
+            assert values[-1] == max(size, power)
 
 
 @pytest.mark.parametrize("row", _rows(), ids=lambda row: f"{row.instrument}-{row.study[1]}")

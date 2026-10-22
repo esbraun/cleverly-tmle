@@ -479,7 +479,9 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # 99% coverage limit above the 0.90 floor, so the truth gate is under-resolved by design.
     # The S1 (SDR) row also reads an SE ratio of 0.927, a possible mild SE shortfall that the
     # owner reads as a signal, not as resolution alone.
-    # The point study's sanity phase is the same design at n = 2,000 (X82 SP).
+    # The point study's sanity phase is the same design at n = 2,000 (X82 SP). At 200
+    # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
+    # binary row cannot resolve its SE-ratio screen.
     "X82-short-study-sanity": (
         *_keys(
             "refuter-calibration-longitudinal",
