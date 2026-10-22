@@ -11,8 +11,11 @@ import re
 from typing import Any
 
 import numpy as np
+import pytest
 
 from cleverly.datasets import navigation_protocol
+from cleverly.exceptions import CapabilityError
+from cleverly.sensitivity import evalue_from_rr, omitted_variable_bounds
 from tests.studies.oat_per_arm_laws import BINARY_ACTIVE
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -27,6 +30,7 @@ NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/collaborative-tmle-oat/summary.log"
 _TRUTH = "reviews/notebook-review/probes/collaborative-tmle-oat/truth.log"
+_REFUTE = "reviews/notebook-review/probes/collaborative-tmle-refuters/probe.log"
 
 # Integer counts the readings quote, which the decimal gate does not read:
 # 1,857, 1,881 and 1,963 of 2,000 draws come from _PROBE.
@@ -47,6 +51,7 @@ UNPRINTED_DECIMALS = {
     "4.12": f"population nu2 without staffing (4.122): {_TRUTH}",
     "0.193": f"ordinary TMLE mean share of g outside (0.1, 0.9) (0.1933): {_PROBE}",
     "0.0002": f"OAT C-TMLE mean share of g outside (0.1, 0.9) (0.0002): {_PROBE}",
+    "1.01": f"both placebo ratios of mean reported SE over SD (1.012, 1.010), 400 refits: {_REFUTE}",
 }
 
 
@@ -86,6 +91,10 @@ def _check_committed_sources() -> None:
         (r"without staffing", 4.12),
     ):
         assert round(_probe(rf"^{label}: nu2 = ([\d.]+)$", _TRUTH)[0], 2) == value
+    # "about 1.01": the 400-refit placebo ratios of both fits, from the refutation probe.
+    for name, ratio in (("tmle", 1.012), ("oat", 1.010)):
+        (probed,) = _probe(rf"^{name} placebo t -[\d.]+ mean se / sd ([\d.]+);", _REFUTE)
+        assert probed == ratio and round(probed, 2) == 1.01
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -176,7 +185,133 @@ def check(namespace: dict[str, Any]) -> None:
     stored = stored_output(NOTEBOOK, "assessment")
     assert "unavailable" not in stored and "not_applicable" not in stored
 
-    # Step 10: the bound on the declared set, with nu2 above the 4 of a g near one half.
+    # Step 11: the bound on the declared set, with nu2 above the 4 of a g near one half.
     elements, robustness = namespace["elements"], namespace["robustness"]
     assert elements.nu2 > 6.0
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
+    _check_refutation(namespace)
+    _check_evalue(namespace)
+    _check_stress_surface(namespace)
+    _check_bound_limit(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 10: three descriptive refits of each fit, and the checks the page says it skips."""
+    refutations, fits = namespace["refutations"], namespace["fits"]
+    assert list(refutations) == list(fits)
+    for name, fit in fits.items():
+        report = refutations[name]
+        tests = {test.name: test for test in report.tests}
+        assert list(tests) == ["placebo", "random_common_cause", "subset"]
+        original = fit["ate"].psi
+        for test in tests.values():
+            # "No check prints a verdict": no registry row covers either fit.
+            assert test.passed is None and test.rung == "L0"
+            assert len(test.values) == 20 and test.original == pytest.approx(original)
+        assert report.passed is None
+        # A nonzero witness: a placebo that kept the observed offers would return the original
+        # estimate, so the null reading would sit near 0.15 and not near zero.
+        values = np.asarray(tests["placebo"].values)
+        assert abs(values.mean()) < 0.1 * original
+        assert tests["placebo"].statistic_pvalue > 0.05
+        # The standard errors of the placebo refits are shorter than the draws' spread, as the
+        # reading says of its 20 draws.
+        assert np.mean(tests["placebo"].standard_errors) < values.std(ddof=1)
+        # "Both reported standard errors are on the scale that the refits show".
+        se = fit["ate"].std_error
+        reference = float(se * np.sqrt(1 / 0.7 - 1))
+        scatter = float(np.std(tests["subset"].values, ddof=1))
+        assert 0.8 < scatter / reference < 1.0
+        shift = (np.asarray(tests["random_common_cause"].values) - original) / se
+        assert 0.0 < abs(shift.mean()) < 0.05
+    stored = stored_output(NOTEBOOK, "refutation")
+    assert "This fit differs on method 'TMLE'" in stored
+    assert "This fit differs on method 'CTMLE[oat:per_arm]'" in stored
+    # The page says the registry holds one C-TMLE point row, the greedy placebo cell C1.
+    from cleverly.validation import _interpretation as registry
+
+    c_tmle_rows = [
+        row
+        for row in registry.VERDICT_EVIDENCE
+        if any(method.startswith("CTMLE") for method in row.scope.methods or ())
+        and row.scope.outcome_families == frozenset({"binomial"})
+    ]
+    assert [(row.instrument, sorted(row.scope.methods or ())) for row in c_tmle_rows] == [
+        ("placebo", ["CTMLE[greedy]"])
+    ]
+    assert all(row.scope.n_min == 2000 for row in c_tmle_rows)
+    # "The data hold the five columns of Step 2 and no other measure", and no generated outcome
+    # of the page's family runs at the default count beyond what the page states.
+    assert list(namespace["frame"].columns) == [
+        "transition_success",
+        "transition_navigation",
+        "baseline_readiness",
+        "coordination_need",
+        "navigator_staffing",
+    ]
+    with pytest.raises(ValueError, match="negative_control_outcome"):
+        namespace["refute"](namespace["collaborative"], tests=("negative_control_outcome",))
+
+
+def _check_evalue(namespace: dict[str, Any]) -> None:
+    """Step 11: the E-value of each fit is the retargeted risk ratio's, with the page's scope."""
+    for name, fit in namespace["fits"].items():
+        value = fit.sensitivity.evalue()
+        assert value.estimand == "rr" and not value.approximate
+        assert value.risk_ratio > 1.0 and 1.0 < value.risk_ratio_ci[0] < value.risk_ratio
+        assert value.point == pytest.approx(evalue_from_rr(value.risk_ratio), rel=1e-12)
+        # The limit is the E-value of the interval end nearest the null.
+        assert value.limit == pytest.approx(evalue_from_rr(value.risk_ratio_ci[0]), rel=1e-12)
+        assert 1.0 < value.limit < value.point
+        # "Derived ... no nuisance model was refit": the retargeted ratio of two arm means.
+        assert value.source_estimand == "ate"
+        # The note under the OAT fit only: no registered calibration covers its limit.
+        assert (value.limit_reading is not None) == (name == "OAT C-TMLE")
+    stored = stored_output(NOTEBOOK, "evalue")
+    assert stored.count("No calibration covers this configuration") == 1
+    assert stored.index("OAT C-TMLE") < stored.index("No calibration covers this configuration")
+
+
+def _check_stress_surface(namespace: dict[str, Any]) -> None:
+    """Step 11: the stress surface induces no confounding at this nearly balanced offer."""
+    surfaces = namespace["surfaces"]
+    treated_share = float(namespace["frame"]["transition_navigation"].mean())
+    assert 0.45 < treated_share < 0.55
+    for name, surface in surfaces.items():
+        cells = surface.to_frame()
+        assert len(cells) == 16
+        zero = cells[(cells["treatment_strength"] == 0.0) & (cells["outcome_strength"] == 0.0)]
+        assert float(zero["displacement"].iloc[0]) == 0.0
+        # "The printed associations stay between -0.0071 and 0.0122 in every cell."
+        association = cells["induced_treatment_association"]
+        assert association.min() == pytest.approx(-0.0071, abs=5e-5)
+        assert association.max() == pytest.approx(0.0122, abs=5e-5)
+        assert abs(association).max() < 0.05
+        # The outcome-only column moves the estimate further as the strength grows.
+        column = cells[cells["treatment_strength"] == 0.0].sort_values("outcome_strength")
+        movement = column["displacement"].to_numpy()
+        assert (np.diff(movement) < 0).all()
+        original = namespace["fits"][name]["ate"].psi
+        if name == "TMLE":
+            assert abs(movement[-1]) > original
+        else:
+            assert 0.5 * original < abs(movement[-1]) < original
+    assert (
+        surfaces["TMLE"].to_frame()["induced_treatment_association"].to_numpy()
+        == surfaces["OAT C-TMLE"].to_frame()["induced_treatment_association"].to_numpy()
+    ).all()
+    calibration = surfaces["TMLE"].calibration_frame().set_index(["covariate", "role"])["strength"]
+    assert calibration[("baseline_readiness", "outcome")] == pytest.approx(0.4267, abs=5e-5)
+    assert calibration[("navigator_staffing", "treatment")] == pytest.approx(0.3727, abs=5e-5)
+    assert calibration.max() < 0.5
+
+
+def _check_bound_limit(namespace: dict[str, Any]) -> None:
+    """Step 11: the bound refuses the per-arm OAT fit even under the declaration."""
+    collaborative = namespace["collaborative"]
+    with pytest.raises(CapabilityError, match="per-arm"):
+        omitted_variable_bounds(collaborative, "ate", assume_consistent_mechanism=True)
+    with pytest.raises(CapabilityError, match="assume_consistent_mechanism=True"):
+        omitted_variable_bounds(collaborative, "ate")
+    # The ordinary TMLE fit gives the bound the page reads.
+    assert omitted_variable_bounds(namespace["tmle"], "ate").lower < namespace["tmle"]["ate"].psi
