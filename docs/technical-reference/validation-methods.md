@@ -2310,6 +2310,10 @@ the ATT or ATC population by the frozen probability of that population's arm.
 | `ey_obs` | the mean of `m(A, W)` at each row's own arm | three readings when `m(A, W)` is constant over the rows; else bias only |
 | `par` | `ey_obs` minus the level of the reference arm `r` | three readings when `m(A, W) - m(r, W)` is constant over the rows; else bias only |
 | `paf` | `par` divided by `ey_obs` | three readings when `m(A, W)` and `m(r, W)` are constant over the rows; else bias only |
+| `ey_regime` | the mean of `sum_a q(a \| W) m(a, W)`, with `q` the declared regime | three readings when that sum is constant over the rows; else bias only |
+| `ate_regime` | `ey_regime` of the value regime minus that of the reference regime | three readings when the difference of the two sums is constant over the rows; else bias only |
+| `ey_ipsi`, `ate_ipsi` | as `ey_regime` and `ate_regime`, with `q` the tilt of the true mechanism | refused. The plasmode reads them |
+| `msm` | one coefficient of the projection of `m(a, W)` onto the working model | three readings when the coefficient's covariate part is constant over the rows; else bias only |
 
 The code reads the constancy from the generated law. A Gaussian process and an identity link have
 a constant arm contrast. A logit link with a nonzero effect does not. The plasmode reads all three
@@ -2322,6 +2326,25 @@ rows cover every point target, so no study is needed.
 The held-design truth of `ey_obs`, `par` and `paf` reads the held arm of each row. The plasmode
 truth reads the frozen arm probabilities. A stratum target, such as `ate[S=1]`, sums over the
 rows of its stratum only.
+
+The intervention targets need the law `q(a | W)` of the arms at each row. The table gives its
+source.
+
+| intervention | `q(a \| W)` | held design | plasmode |
+| --- | --- | --- | --- |
+| `Static`, `Rule`, known `Stochastic` regime | the declared density, evaluated on the fitted rows | yes | yes, on the support points |
+| `Incremental` tilt with factors `f` | `f_a g(a \| W) / sum_b f_b g(b \| W)` (Kennedy 2019) | no, because the held design does not know the true `g` | yes, with the frozen treatment model as `g` |
+
+An MSM coefficient solves the working-model normal equations of `cleverly.msm` with `m(a, W)` in
+place of the outcome regression. `Projection` in `validation/_point_generated.py` solves them by
+its own Gauss-Newton iteration for the identity, log and logit links. The covariate part of a
+coefficient is `e_j' M^-1 sum_a h m' phi (m(a, W) - m(a, V; beta))`. Under a Gaussian process and
+the linear model `MSM.linear()`, the slope's part is 0 at every row, so the slope reads
+all three. The intercept's part is `f(W)` minus its mean, so the intercept reads bias only.
+
+Modified treatment policies, risk-ratio tilts and learned rules have no generated truth. A
+request for one is refused with roadmap id
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
 
 The held design keeps every observation indicator and the intermediate `Z`. The draw replaces
 the outcome only, so a missing outcome stays missing at random. The table gives the rules for
@@ -2853,8 +2876,9 @@ check every condition in the table before the operation refits anything. Each ro
 | a treatment that is not binary | code one against code zero |
 | an intermediate node or a controlled direct effect | no intermediate node |
 | a fit with missing outcomes | complete outcomes |
-| an MSM functional or the `msm` axis | the `arm` axis |
-| an intervention-indexed functional | the `arm` axis with no declared interventions |
+| a modified-policy, risk-ratio-tilt or learned-rule axis | the `arm`, `regime`, `ipsi` or `msm` axis |
+| an `ipsi` target in the held design | the plasmode |
+| an MSM with a link other than identity, log or logit | one of those three links |
 | a parameter key that is not a structured `ParameterKey` | a structured key for the selected estimand |
 | a ratio estimand, or any other non-additive contrast | `ate`, `att`, or `atc` |
 | disagreement between the functional target, the identified estimand, and the parameter key | one estimand named by all three |
