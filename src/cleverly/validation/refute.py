@@ -57,6 +57,12 @@ The tests, and what a reading means:
     the estimate moves under that error.  A draw that fails to sample, perturb, or refit is
     retained as a failure rather than raised, because a bootstrap draw fails per sample.
 
+``plasmode``
+    Resample units from the empirical law of the covariates, draw treatment from a frozen
+    model and the outcome from the ``simulated_outcome`` declaration, then refit.  The truth
+    is a finite sum over the support points, so bias, standard-error ratio and coverage are
+    read against their equivalence bands.
+
 ``bootstrap_stability``
     Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
     original fold and every refit reuses the original fit's seeds, so the shift of the mean
@@ -352,13 +358,19 @@ class GaussianAdjustmentOutcome:
         """Return the recorded Gaussian noise declaration."""
         return self.noise
 
-    def adjustment(self, covariates: Any) -> np.ndarray:
+    def adjustment(self, covariates: Any, *, centre: Any = None, scale: Any = None) -> np.ndarray:
         """Evaluate the declared adjustment function.
 
         Parameters
         ----------
         covariates : array-like
             Covariate matrix with one row per observation.
+        centre : array-like or None
+            Column centres to standardize with. ``None`` uses the rows' own means.
+        scale : array-like or None
+            Column scales to standardize with. ``None`` uses the rows' own standard
+            deviations. The plasmode passes the original data's centre and scale, so the
+            function is the same on every resample.
 
         Returns
         -------
@@ -366,8 +378,8 @@ class GaussianAdjustmentOutcome:
             Adjustment value for each row.
         """
         values = np.asarray(covariates, dtype=float)
-        center = np.mean(values, axis=0)
-        scale = np.std(values, axis=0)
+        center = np.mean(values, axis=0) if centre is None else np.asarray(centre, dtype=float)
+        scale = np.std(values, axis=0) if scale is None else np.asarray(scale, dtype=float)
         active = scale > 0.0
         if not np.any(active):
             return np.zeros(values.shape[0], dtype=float)
@@ -1010,8 +1022,9 @@ _KNOWN_TESTS = (
     "simulated_outcome",
     "bootstrap_measurement_error",
     "bootstrap_stability",
+    "plasmode",
 )
-_GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
+_GENERATED_TESTS = ("dummy_outcome", "simulated_outcome", "plasmode")
 #: The refutations whose refit sees a different row set from the fit's own. ``subset`` drops
 #: rows, so the count changes; ``bootstrap_measurement_error`` resamples with replacement
 #: through :meth:`~cleverly.inference.bootstrap._BootstrapDesign.sample`, so the count is
@@ -1023,7 +1036,12 @@ _ROW_SET_TESTS = ("subset", "bootstrap_measurement_error", "bootstrap_stability"
 #: ``subset`` refits on the original fold labels of the drawn units, so a supplied plan
 #: labels the refit's rows by position and the test does not refuse it.
 _PLAN_REFUSING_TESTS = ("bootstrap_measurement_error", "bootstrap_stability")
-_CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2, "random_common_cause": 3}
+_CHILD_SEED_TAGS = {
+    "dummy_outcome": 1,
+    "simulated_outcome": 2,
+    "random_common_cause": 3,
+    "plasmode": 4,
+}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
 
@@ -1163,7 +1181,8 @@ class _RefuteRequest:
         Parameters
         ----------
         name : str
-            ``"dummy_outcome"`` or ``"simulated_outcome"``.
+            ``"dummy_outcome"``, ``"simulated_outcome"`` or ``"plasmode"``. The plasmode
+            draws its outcome from the ``simulated_outcome`` declaration.
 
         Returns
         -------
@@ -1691,6 +1710,29 @@ def _resolve_arm_code(data: Any, endpoint: Any, role: str, name: str) -> float:
     )
 
 
+def _validate_plasmode_eligibility(result: Any) -> None:
+    """Refuse a plasmode on data whose generated law Part A does not build (plan 5.6)."""
+    data = result.data
+    unsupported = [
+        reason
+        for present, reason in (
+            (data.cluster is not None, "clusters, which need whole-cluster resampling"),
+            (bool(getattr(data, "has_missing_treatment", False)), "a missing treatment"),
+            (data.strata is not None, "selected strata"),
+            (data.weights_name is not None, "weights, whose rows would mix two laws"),
+        )
+        if present
+    ]
+    if unsupported:
+        raise CapabilityError(
+            f"plasmode has no generated law for a fit with {unsupported[0]}. Part A draws "
+            "independent units, a frozen treatment model, and the declared outcome process.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+
+
 def _validate_generated_eligibility(
     result: Any, estimand: str, process: Any, name: str
 ) -> tuple[float, float]:
@@ -1718,6 +1760,8 @@ def _validate_generated_eligibility(
         If the fit, the estimand, or the process has no registered effect derivation.
     """
     _validate_generated_process(process, name)
+    if name == "plasmode":
+        _validate_plasmode_eligibility(result)
     from ..study import (
         BackdoorMeanContrast,
         ExplicitAdjustmentProvider,
@@ -2401,6 +2445,98 @@ def _resolve(
     return _interpretation.resolve(instrument, rule, fit)
 
 
+#: The clip of a fitted plasmode treatment model on a fit that records no ``g`` bounds.
+_PLASMODE_G_BOUNDS = (0.01, 0.99)
+
+
+@dataclass(frozen=True)
+class _PlasmodeLaw:
+    """The point plasmode law of X82 plan 5.6, frozen once on the fitted data.
+
+    Each draw resamples ``n`` units from the empirical law of ``W``, draws ``A*`` from a
+    frozen treatment model, and draws ``Y*`` from the declared Gaussian process. The
+    adjustment function standardizes with the original data's centre and scale, so it is
+    the same function on every draw. The units are i.i.d. draws from a discrete law, so
+    the refit draws its own folds.
+
+    The treatment model is the declared known mechanism when the fit has one. Otherwise it
+    is a logistic regression of ``A`` on ``W`` fitted once and always clipped: to the fit's
+    ``g`` bounds, or to :data:`_PLASMODE_G_BOUNDS` when the fit records none. An unclipped
+    model can reach 0 or 1 under separation, and the law would then cause a positivity
+    failure the report blames on the estimator. Under the additive process every arm-mean
+    contrast equals the declared effect on this law exactly, whatever the treatment model
+    is. A weighted fit is refused, because rows drawn from the unweighted empirical law
+    that keep their weights describe a mixed law.
+    """
+
+    covariates: np.ndarray
+    treated: np.ndarray
+    known: np.ndarray | None
+    centre: np.ndarray
+    scale: np.ndarray
+    arm_codes: tuple[float, float]
+    bounds: tuple[float, float] | None
+
+    @classmethod
+    def fit(cls, result: Any) -> _PlasmodeLaw:
+        data = result.data
+        covariates = np.asarray(data.covariates, dtype=float)
+        codes = (float(data.arm_codes[0]), float(data.arm_codes[1]))
+        known = None
+        bounds: tuple[float, float] | None = None
+        if data.known_treatment is not None:
+            known = np.asarray(data.known_treatment.values, dtype=float)
+            # A known mechanism holds one column per arm in the order of ``arm_codes``.
+            if known.shape[1] != len(data.arm_codes):
+                raise RuntimeError("the known mechanism does not hold one column per arm")
+            treated = known[:, 1]
+        else:
+            from sklearn.linear_model import LogisticRegression
+
+            model = LogisticRegression(C=np.inf, max_iter=5000)
+            model.fit(covariates, np.asarray(data.treatment == codes[1], dtype=int))
+            treated = model.predict_proba(covariates)[:, 1]
+            recorded = getattr(getattr(result, "config", None), "g_bounds", None)
+            bounds = _PLASMODE_G_BOUNDS
+            if isinstance(recorded, tuple) and len(recorded) == 2:
+                bounds = (float(recorded[0]), float(recorded[1]))
+            treated = np.clip(treated, *bounds)
+        return cls(
+            covariates=covariates,
+            treated=np.asarray(treated, dtype=float),
+            known=known,
+            centre=np.mean(covariates, axis=0),
+            scale=np.std(covariates, axis=0),
+            arm_codes=codes,
+            bounds=bounds,
+        )
+
+    def adjustment(self, process: GaussianAdjustmentOutcome, rows: np.ndarray) -> np.ndarray:
+        """The declared adjustment function, standardized on the original data."""
+        return process.adjustment(self.covariates[rows], centre=self.centre, scale=self.scale)
+
+    def draw(self, data: Any, process: GaussianAdjustmentOutcome, *, seed: int) -> Any:
+        """Return one plasmode data set."""
+        rng = np.random.default_rng(seed)
+        n = self.covariates.shape[0]
+        for _ in range(1000):
+            rows = rng.integers(0, n, size=n)
+            arm = rng.random(n) < self.treated[rows]
+            if 0 < int(np.sum(arm)) < n:
+                break
+        else:  # pragma: no cover - a 1000-fold failure needs a share near 0 or 1
+            raise RuntimeError("the plasmode draw left one arm empty 1000 times")
+        treatment = np.where(arm, self.arm_codes[1], self.arm_codes[0])
+        noise = process.noise.draw(rng, n)
+        outcome = self.adjustment(process, np.asarray(rows)) + process.effect * treatment + noise
+        sample = data.subset(rows).with_treatment(treatment)
+        if self.known is not None:
+            from ..data.known_mechanism import KnownMechanism
+
+            sample = replace(sample, known_treatment=KnownMechanism(self.known[rows], "array"))
+        return sample.with_outcome(np.asarray(outcome, dtype=float), family=process.family)
+
+
 def _generated_outcome_test(
     result: Any,
     *,
@@ -2417,13 +2553,25 @@ def _generated_outcome_test(
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
+    plasmode = name == "plasmode"
+    if plasmode:
+        assert isinstance(process, GaussianAdjustmentOutcome)
+        law = _PlasmodeLaw.fit(result)
+        adjusted = process
+
+        def replacement(_replicate: int, seed: int) -> Any:
+            return law.draw(data, adjusted, seed=seed)
+
+    else:
+
+        def replacement(_replicate: int, seed: int) -> Any:
+            return data.with_outcome(process.draw(data, seed=seed), family=process.family)
+
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple(enumerate(seeds)),
-        replacement=lambda _replicate, seed: data.with_outcome(
-            process.draw(data, seed=seed), family=process.family
-        ),
+        replacement=replacement,
         expected_family=process.family,
     )
     values = tuple(item.estimate for item in records)
@@ -2455,7 +2603,9 @@ def _generated_outcome_test(
         # A difference contrast under a constant effect has a zero covariate part, which is
         # every contrast and process this test accepts. A process whose effect varies with
         # the covariates would fail this guard and read bias only.
-        covariate_part = _covariate_part_vanishes(
+        # The plasmode resamples W, so its SE ratio and coverage have the unconditional
+        # reference for every target (plan 5.6) and need no covariate-part check.
+        covariate_part = plasmode or _covariate_part_vanishes(
             difference_contrast=True, effect_varies_with_covariates=False
         )
         by_rule = {"bias": "bias_band", "se_ratio": "se_ratio_band", "coverage": "coverage_band"}
@@ -2463,7 +2613,12 @@ def _generated_outcome_test(
         calibrated = len(values) >= bands.minimum_draws
         licensed_inside: list[bool] = []
         for reading in readings:
-            resolution = _resolve("generated_outcome", by_rule[reading.name], fit, len(values))
+            resolution = _resolve(
+                "plasmode" if plasmode else "generated_outcome",
+                by_rule[reading.name],
+                fit,
+                len(values),
+            )
             if resolution.licensed and calibrated:
                 licensed_inside.append(reading.inside)
                 sentences.append(resolution.sentence)
@@ -2487,8 +2642,16 @@ def _generated_outcome_test(
         )
         if not covariate_part:
             detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
+        design = "the held design"
+        if plasmode:
+            clip = (
+                "a known mechanism"
+                if law.bounds is None
+                else f"a frozen treatment model clipped to [{law.bounds[0]:g}, {law.bounds[1]:g}]"
+            )
+            design = f"resampled covariates and {clip}"
         sentences.append(
-            f"Generated law: {process.name}, {len(values)} draws on the held design, "
+            f"Generated law: {process.name}, {len(values)} draws on {design}, "
             f"effect {declared_effect:.5g}."
         )
     return RefutationTest(

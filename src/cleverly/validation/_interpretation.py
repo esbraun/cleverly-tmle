@@ -555,6 +555,52 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         ),
         exact=True,
     ),
+    VerdictEvidence(
+        instrument="plasmode",
+        rule="bias_band",
+        rung="L2",
+        theory=(
+            "X82 plan 4.2.1 and 5.6. The plasmode draws are i.i.d. units from a law whose "
+            "covariates are the empirical support, so the truth is an exact finite sum and "
+            "the bias and its Monte Carlo standard error are exact."
+        ),
+        scope=CalibrationScope.unrestricted(),
+        sentence=(
+            "On the plasmode law named here, the bias lies inside its equivalence band. "
+            "The plasmode resembles your data and does not estimate its truth."
+        ),
+        exact=True,
+    ),
+    VerdictEvidence(
+        instrument="plasmode",
+        rule="se_ratio_band",
+        rung="L2",
+        theory=(
+            "X82 plan 4.2.1 and 5.6. The plasmode resamples the covariates, so the fit's "
+            "standard error targets the unconditional variance across the i.i.d. draws."
+        ),
+        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        sentence=(
+            "On the plasmode law named here, the standard-error ratio lies inside its "
+            "equivalence band. The plasmode resembles your data and does not estimate its truth."
+        ),
+        exact=True,
+    ),
+    VerdictEvidence(
+        instrument="plasmode",
+        rule="coverage_band",
+        rung="L2",
+        theory=(
+            "X82 plan 4.2.1 and 5.6. The Clopper-Pearson interval of the coverage is exact "
+            "given i.i.d. plasmode draws."
+        ),
+        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        sentence=(
+            "On the plasmode law named here, the 95% interval coverage lies inside its "
+            "equivalence band. The plasmode resembles your data and does not estimate its truth."
+        ),
+        exact=True,
+    ),
 )
 
 
@@ -570,7 +616,8 @@ def resolve(
     Parameters
     ----------
     instrument : str
-        The refutation test name, or ``"generated_outcome"`` for the two generated tests.
+        The refutation test name, or ``"generated_outcome"`` for the two held-design
+        generated tests.
     rule : str
         The reading.
     fit : FitConfiguration or None
