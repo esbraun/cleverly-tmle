@@ -380,7 +380,7 @@ def fit_iptw_missing_treatment() -> Any:
 def fit_iptw_missing_treatment_crossfit() -> Any:
     """An AdaptiveIPTW composite fit with a missing treatment, cross-fitted."""
     return (
-        _iptw(cross_fit=True, n_folds=2)
+        _iptw(cross_fit=True, n_folds=3)
         .fit(
             _with_missing_treatment(_linear_frame()),
             outcome="Y",

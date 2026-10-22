@@ -874,15 +874,17 @@ M-estimation of the GLM score and the IPTW equation computes it.
 
 The base result is the projection
 theorem for an estimating function that is unbiased over a parametric nuisance model. WP302,
-Section 2.1, states it for the untargeted IPTW. The verifier simulation of the plan gave a
-projected standard error ratio of 0.97 to 1.00 and a coverage of 0.942 to 0.949.
+Section 2.1, states it for the untargeted IPTW. A planning simulation outside the repository gave
+a projected standard error ratio of 0.97 to 1.00 and a coverage of 0.942 to 0.949. No repository
+artifact records it yet.
 
 | part | request | step |
 | --- | --- | --- |
 | (a) | an interval under a declared parametric mechanism | the curve that includes the estimation term of the mechanism, derived for a main-terms GLM |
 | (b) | a status for each parameter, in place of one status for each fit | a per-parameter status table (`PARAMETER_STATUSES`). A fit that mixes a known and an estimated key could then report an interval for the known key. Today a fit has one status, and a user fits the known keys on their own |
 
-Acceptance: an exact-law witness of the term with a nonzero value; a `Q_r`-basis misspecification
+Acceptance: a contract row on the AdaptiveIPTW page; an exact-law witness of the term with a
+nonzero value; a `Q_r`-basis misspecification
 term or a full stacked sandwich; a registered coverage study with its own calibration cells. The
 item does not cover super learners or cross-fitting. Readiness: post-beta. The record of the
 status names this item as `reopened_by`.
@@ -2277,9 +2279,10 @@ names this item. A C-TMLE selector fit takes `working_mechanism_plugin`, which
 `generated_design_plugin`, which [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference)
 holds.
 
-`AdaptiveIPTW` cross-fits the composite with the same pooled reduced regression, so it shares term
-[B]. It reports point estimates only there. Point consistency does not need term [B] to vanish at
-the root-n rate. [X53](#x53-missing-outcome-cv-tmle-variants) part (c) holds the construction of
+`AdaptiveIPTW` cross-fits the composite with a fold-wise reduced regression on leave-two-folds-out
+designs, so term [B] does not arise there. Its own open condition is continuity of the reduced fit
+in the pooled $\epsilon$ ([S5](technical-reference/adaptive-iptw.md#contract)). It reports point
+estimates only there. [X53](#x53-missing-outcome-cv-tmle-variants) part (c) holds the construction of
 the composite mechanism from out-of-fold factor fits. `AdaptiveIPTW` cites it for that mechanism
 only.
 

@@ -2440,7 +2440,8 @@ implementation provenance and the origin of the one-step form.
 - van der Laan (2014), *Int. J. Biostat.* 10(1):29-57, the published version of WP302. The article
   is unread. This repository cites no locator from it.
 - Williamson, Forbes and White (2014), *Statistics in Medicine*, DOI 10.1002/sim.5991. Section 3.3:
-  a sandwich variance that ignores an estimated propensity is conservative.
+  for plain IPTW with a parametric propensity, a sandwich variance that ignores the estimated
+  propensity is typically conservative.
 - Ertefaie, Hejazi and van der Laan, arXiv:2005.11303v2, p. 2: the targeted IPW estimator "has
   been shown to suffer from issues of irregularity". The Biometrics version appears under
   [longitudinal references](#longitudinal-survival-and-marginal-structural-models).

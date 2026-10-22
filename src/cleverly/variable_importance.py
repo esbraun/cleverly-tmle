@@ -286,8 +286,12 @@ def variable_importance(
         # The outcome-scale refusal of every fit comes before the status, as the fold
         # policy does.
         template._refuse_unbounded_cross_fitted_scale(candidate_data)
+        # The status reads the estimand the fit below reports, not the template's own list.
+        fitted_estimator = copy(template)
+        fitted_estimator.estimands = estimand
         refuse_inference(
-            template._inference_status(candidate_data), operation="variable_importance()"
+            fitted_estimator._inference_status(candidate_data),
+            operation="variable_importance()",
         )
         prepared[candidate] = (adjustment_set, candidate_data)
     fits: dict[str, TMLEResult] = {}

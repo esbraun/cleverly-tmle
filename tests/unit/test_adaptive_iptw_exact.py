@@ -676,14 +676,63 @@ class TestW12RangeRule:
         estimator = AdaptiveIPTW(estimands=[name])
         means = {0.0: (value, np.zeros(3)), 1.0: (0.4, np.zeros(3))}
         solved = [
-            SimpleNamespace(spec=SimpleNamespace(owner=0.0, owner_name="0")),
-            SimpleNamespace(spec=SimpleNamespace(owner=1.0, owner_name="1")),
+            SimpleNamespace(spec=SimpleNamespace(owner=0.0, owner_name="0"), scale=np.ones(1)),
+            SimpleNamespace(spec=SimpleNamespace(owner=1.0, owner_name="1"), scale=np.ones(1)),
         ]
         monkeypatch.setattr(iptw_module, "_owner_values", lambda *args, **kwargs: means)
         with pytest.raises(DataError, match=text):
             estimator._apply_range_rule(fitted.data, (name,), solved, None)
         means[0.0] = (0.5, np.zeros(3))
         assert estimator._apply_range_rule(fitted.data, (name,), solved, None) == (name,)
+
+    @staticmethod
+    def _all_event_sample(flip: bool = False) -> pd.DataFrame:
+        """Every treated row has ``Y = 1``; with ``flip``, one treated row has ``Y = 0``."""
+        rng = np.random.default_rng(7)
+        n = 400
+        w = rng.normal(size=n)
+        a = (rng.random(n) < expit(0.5 * w)).astype(float)
+        y = np.where(a == 1.0, 1.0, (rng.random(n) < 0.4).astype(float))
+        if flip:
+            y[np.flatnonzero(a == 1.0)[0]] = 0.0
+        return pd.DataFrame({"W": w, "A": a, "Y": y})
+
+    def _all_event_fit(self, estimands: Any, *, flip: bool = False) -> Any:
+        return s.fit_arm(
+            self._all_event_sample(flip),
+            weights=None,
+            estimands=estimands,
+            g_bounds=(0.001, 0.999),
+            tol=1e-10,
+            treatment_learner=LogisticRegression(),
+            regressor=LinearRegression(),
+        )
+
+    def test_an_all_event_arm_is_refused_at_the_fit_s_resolution(self) -> None:
+        """X21-impl-review-2 m1: rounding put this arm mean at ``1 - 6.5e-11``, inside (0, 1).
+
+        The margin is ``tol`` times the score scale.  For this arm the score is the arm mean
+        minus 1, so the test checks the mean against the margin the rule uses.
+        """
+        arms = self._all_event_fit(("ey1", "ey0"))
+        fluctuation = next(iter(arms.repeats[0].fluctuations.values()))
+        column = list(fluctuation.names).index("1")
+        margin = 1e-10 * float(fluctuation.score_scale[column])
+        # The arm's score is its mean minus 1, so the solved score sets the distance.
+        assert arms.estimates["ey1"].psi - 1.0 == pytest.approx(
+            float(fluctuation.score[column]), abs=1e-14
+        )
+        assert abs(arms.estimates["ey1"].psi - 1.0) <= margin
+        with pytest.raises(DataError, match=r"outside \(0, 1\) at the fit's resolution"):
+            self._all_event_fit(("or",))
+        with pytest.warns(DataWarning, match="dropped"):
+            result = self._all_event_fit(None)
+        assert "or" not in result.estimates and "ey1" in result.estimates
+        # The control: one treated row without the event moves the mean off the boundary
+        # by about 1 / n, far beyond the margin, so the odds ratio is reported.
+        moved = self._all_event_fit(("ey1", "or"), flip=True)
+        assert 1.0 - moved.estimates["ey1"].psi > 1e-3
+        assert "or" in moved.estimates
 
 
 # --------------------------------------------------------------------------------------- W13

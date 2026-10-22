@@ -105,7 +105,10 @@ N_MA_CF = 7_000
 N_VL = 2_000
 
 #: Degrees of the reduced regression's polynomial basis in ``logit g`` (capped at the number of
-#: distinct values minus one, which is the saturated regression).
+#: distinct training values minus one).  The cap is the saturated regression in sample and
+#: for a known mechanism.  A cross-fitted estimated mechanism gives each fold up to
+#: ``(N_FOLDS - 1) m`` leave-two-out values near the ``m`` cell values, so the cap does not bind
+#: and the fit is not saturated.
 DEGREE = {
     "p": 1,
     "st": 1,

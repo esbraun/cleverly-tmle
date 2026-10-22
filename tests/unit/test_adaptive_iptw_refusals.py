@@ -1,6 +1,6 @@
 r"""Refusals of AdaptiveIPTW: the message, the type, the code and the absence of a learner fit.
 
-The ids follow the plan: R1, R2b, R3, R4, R8 to R13, R16, R17, R19 and R20, and the range rule.
+The ids follow the plan: R1, R2b, R3, R4, R8 to R13, R16, R17, R19, R20 and R21, and the range rule.
 R2, R5 to R7 and R18 are deleted, and their ids are not reused. Each refusal that runs before a
 learner leaves zero fits on a spy learner. The tests also pin the shared missing-treatment gate:
 ``"adaptive_iptw"`` is in its method tuple and is exempt from the ``cross_fit`` branch, and the
@@ -323,7 +323,7 @@ class TestRegimeRefusals:
         return [Static(0, name="never"), Static(1, name="always")]
 
     def test_r17_a_cross_fitted_regime_with_a_missing_outcome_is_refused(self) -> None:
-        estimator = _estimator(interventions=self._regimes(), cross_fit=True, n_folds=2)
+        estimator = _estimator(interventions=self._regimes(), cross_fit=True, n_folds=3)
         with pytest.raises(CapabilityError) as raised:
             _fit(estimator, sweep._missing_frame(), delta="Delta")
         _assert_refusal(
@@ -332,7 +332,7 @@ class TestRegimeRefusals:
         _no_fits()
 
     def test_r17_a_cross_fitted_regime_with_a_missing_treatment_is_refused(self) -> None:
-        estimator = _estimator(interventions=self._regimes(), cross_fit=True, n_folds=2)
+        estimator = _estimator(interventions=self._regimes(), cross_fit=True, n_folds=3)
         frame = sweep._with_missing_treatment(sweep._linear_frame())
         with pytest.raises(CapabilityError) as raised:
             _fit(estimator, frame, covariates=["W1", "W2"], treatment_delta="DeltaA")
@@ -349,7 +349,7 @@ class TestRegimeRefusals:
         ).single()
         assert in_sample.estimates
         arms = _fit(
-            _estimator(cross_fit=True, n_folds=2),
+            _estimator(cross_fit=True, n_folds=3),
             frame,
             covariates=["W1", "W2"],
             treatment_delta="DeltaA",
@@ -386,13 +386,31 @@ class TestRegimeRefusals:
                 interventions=[self._stochastic()],
                 cross_fit=False,
                 simultaneous=False,
-                n_folds=2,
+                n_folds=3,
                 random_state=0,
             ),
             frame,
             covariates=["W1", "W2"],
         ).single()
         assert default.estimates
+
+
+# ------------------------------------------------------------------------------------ R21
+
+
+class TestFoldCountRefusal:
+    def test_r21_two_folds_are_refused_before_a_fit(self) -> None:
+        """The fold-wise reduced regression leaves two folds out, so it needs three."""
+        with pytest.raises(MethodConfigurationError) as raised:
+            _fit(_estimator(cross_fit=True, n_folds=2), sweep._linear_frame(), covariates=["W1"])
+        _assert_refusal(raised.value, module.R21, code=RefusalReason.INVALID_DECLARATION)
+        _no_fits()
+
+    def test_r21_does_not_apply_in_sample_or_at_three_folds(self) -> None:
+        frame = sweep._linear_frame()
+        in_sample = _fit(_estimator(cross_fit=False, n_folds=2), frame, covariates=["W1"])
+        three = _fit(_estimator(cross_fit=True, n_folds=3), frame, covariates=["W1"])
+        assert in_sample.single().estimates and three.single().estimates
 
 
 # --------------------------------------------------------------------- R20 and the gate
@@ -451,7 +469,7 @@ class TestMissingTreatmentGate:
     ) -> None:
         data = _prepared(frame)
         for cross_fit in (False, True):
-            estimator = _estimator(cross_fit=cross_fit, n_folds=2)
+            estimator = _estimator(cross_fit=cross_fit, n_folds=3)
             assert missing_treatment_refusal(estimator, data, ("ey1", "ey0")) is None
         generic = _estimator()
         generic._assessment_method = "other"  # type: ignore[assignment]
@@ -472,7 +490,7 @@ class TestMissingTreatmentGate:
         unrecorded = int(frame["DeltaA"].eq(0.0).sum())
         shared = {
             "cross_fit": True,
-            "n_folds": 2,
+            "n_folds": 3,
             "treatment_learner": LogisticRegression(max_iter=1000),
             "missingness_learner": LogisticRegression(max_iter=1000),
             "simultaneous": False,

@@ -1557,12 +1557,25 @@ class AdaptiveIPTWMethod(TMLEMethod):
 
     Examples
     --------
-    >>> from cleverly import AdaptiveIPTWMethod
-    >>> method = AdaptiveIPTWMethod(form="one_step")
-    >>> method.name, method.form
-    ('adaptive_iptw', 'one_step')
-    >>> sorted(method.estimator_kwargs())[:3]
-    ['alpha', 'alpha_sig', 'bootstrap_resampling']
+    >>> from cleverly import ATE, AdaptiveIPTWMethod, CausalStudy, ModelSpec, PointTreatment
+    >>> from cleverly.datasets import make_nonlinear_ate
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> frame, _ = make_nonlinear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=["W1", "W2", "W3", "W4"]
+    ...     ),
+    ... )
+    >>> models = ModelSpec(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     method=AdaptiveIPTWMethod(models=models), cross_fit=False, random_state=0
+    ... )
+    >>> sorted(result.estimates), result.inference_status
+    (['ate'], 'estimated_mechanism_plugin')
     """
 
     _ratio_refusal: ClassVar[Refusal | None] = Refusal(

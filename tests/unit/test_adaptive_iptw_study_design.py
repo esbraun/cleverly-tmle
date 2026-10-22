@@ -46,11 +46,16 @@ from __future__ import annotations
 
 import functools
 import math
+import warnings
 from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
+from cleverly.estimators import AdaptiveIPTW
 from tests import discrete_law_composite as composite_law
 from tests.studies import adaptive_iptw_laws as laws
 from tests.studies import adaptive_iptw_properties as properties
@@ -184,7 +189,12 @@ def specs() -> dict[str, Spec]:
 
 #: Where each ``(scene, fit)`` that reads a bias gets its ``b``: a population, ``None`` for a
 #: learner whose limit is the true mechanism (the loop starts at its fixed point, so ``b = 0``
-#: exactly), or ``"flexible"`` for the boosted learner, which has no closed limit.
+#: exactly), or ``"flexible"`` for the boosted learner, which has no closed limit.  ``b`` is
+#: the population limit at the declared size.  It does not model the generated-design term of a
+#: cross-fitted reduced regression with an estimated mechanism.  That term is why a
+#: cross-fitted fit trains fold ``k``'s regression on leave-two-folds-out designs (Rev4.0).
+#: Under the pooled designs of run 1 the term was about 0.4 SD at law WT
+#: (``X21-red-cell-diagnosis.md``, plans repository).
 SOURCES: dict[tuple[str, str], str | None] = {
     ("p_correct", "p_correct"): "p_correct",
     ("p_rate", "p_rate"): "p_rate",
@@ -835,7 +845,9 @@ class TestIdentifiability:
         assert counts["cn_obs"] == 6 and counts["cn_zero"] == 3
         assert counts["ma_arm0"] == counts["ma_arm1"] == 3
         assert counts["c_l1_arm1"] == counts["c_l3_arm0"] == 3
-        # The degree caps at distinct - 1, which is the saturated regression.
+        # The degree caps at distinct - 1, which is the saturated regression in sample and for
+        # a known mechanism.  A cross-fitted estimated mechanism trains each fold on up to
+        # (N_FOLDS - 1) * distinct leave-two-out values, so there the cap does not saturate.
         assert min(study.DEGREE["cn"], counts["cn_obs"] - 1) == counts["cn_obs"] - 1
 
     def test_n_ma_cf_is_the_smallest_multiple_of_500_that_clears_the_threshold_with_margin(
@@ -1016,3 +1028,77 @@ class TestRecord:
         for cell in properties.declared_cells():
             truth = cell.dgp.truth()
             assert cell.estimand in truth, (cell.property, cell.cell)
+
+
+# ------------------------------------------------------------------------ convergence is reported
+
+
+class TestConvergenceAccounting:
+    """A fit that stops at ``max_iter`` keeps its rows, and the summary counts it."""
+
+    def test_the_row_columns_read_every_fluctuation(self) -> None:
+        def fluctuation(n_iter: int, converged: bool) -> SimpleNamespace:
+            return SimpleNamespace(n_iter=n_iter, converged=converged)
+
+        result = SimpleNamespace(
+            repeats=[
+                SimpleNamespace(
+                    fluctuations={"a": fluctuation(3, True), "b": fluctuation(7, False)}
+                )
+            ]
+        )
+        assert properties.convergence(result) == {"rounds": 7, "converged": 0}
+        result.repeats[0].fluctuations["b"] = fluctuation(2, True)
+        assert properties.convergence(result) == {"rounds": 3, "converged": 1}
+
+    def test_a_capped_fit_reports_itself_unconverged(self) -> None:
+        """Nonzero witness on the shipped estimator: one round against the study's ``tol``.
+
+        Cross-fitted, so the loop does not start at its fixed point: an in-sample cell frequency
+        already solves the score, and its fit takes no round.
+        """
+        rng = np.random.default_rng(3)
+        w = rng.integers(0, 3, size=400)
+        a = rng.binomial(1, np.array([0.3, 0.55, 0.75])[w])
+        y = rng.binomial(1, 0.2 + 0.2 * w / 2 + 0.1 * a)
+        frame = pd.DataFrame({"Y": y.astype(float), "A": a.astype(float), "W": w.astype(float)})
+
+        def fit(max_iter: int) -> Any:
+            return AdaptiveIPTW(
+                treatment_learner=laws.CellFrequency(),
+                reduced_outcome_learner=laws.DesignBasisGLM(1),
+                cross_fit=True,
+                n_folds=3,
+                random_state=0,
+                g_bounds=study.G_BOUNDS,
+                max_iter=max_iter,
+                tol=study.TOL,
+                estimands=["ey1"],
+            )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            capped = fit(1).fit(frame, outcome="Y", treatment="A", covariates=["W"]).single()
+            free = (
+                fit(study.MAX_ITER)
+                .fit(frame, outcome="Y", treatment="A", covariates=["W"])
+                .single()
+            )
+        assert properties.convergence(capped) == {"rounds": 1, "converged": 0}
+        assert properties.convergence(free)["converged"] == 1
+
+    def test_the_summary_counts_a_nonconverged_fit_and_old_rows_add_no_column(self) -> None:
+        rows = pd.DataFrame(
+            {
+                "property": ["bias"] * 4,
+                "cell": ["x", "x", "y", "y"],
+                "rounds": [3, 100, 2, 4],
+                "converged": [1, 0, 1, 1],
+            }
+        )
+        summary = pd.DataFrame({"property": ["bias", "bias"], "cell": ["x", "y"]})
+        read = properties.convergence_reading(summary, rows)
+        assert read["nonconverged_fits"].tolist() == [1.0, 0.0]
+        assert read["max_rounds"].tolist() == [100.0, 4.0]
+        old = properties.convergence_reading(summary, rows.drop(columns=["rounds", "converged"]))
+        assert list(old.columns) == ["property", "cell"]

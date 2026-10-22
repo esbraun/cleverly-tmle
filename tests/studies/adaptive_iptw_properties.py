@@ -42,6 +42,13 @@ mechanism scene of law WT, CL or ST also fits the estimated mechanism on its fir
 **Failures.**  A replicate that raises is not redrawn.  It costs each cell of its scene one
 replicate, and the accounting judges each cell at :data:`FAILURE_BOUND`
 (``docs/development/method-benchmarking.md``).
+
+**Convergence.**  Every row also records the fit it reads: ``rounds``, the largest number of
+tilt rounds over the fit's keys, and ``converged``, 1 when every key met ``tol``.  A fit that
+stops at ``max_iter`` is not dropped.  It keeps its rows, and :func:`convergence_reading`
+reports ``nonconverged_fits`` and ``max_rounds`` per cell.  No verdict reads either column, so
+a cell can pass with a nonconverged fit, and the summary table shows it.  Rows written before
+these columns existed give a summary without them.
 """
 
 from __future__ import annotations
@@ -108,6 +115,10 @@ SPREAD_FAMILY = "spread"
 BIAS_FAMILIES = ("bias", LADDER_FAMILY)
 
 _Key = tuple[str, int, int]
+
+#: The per-row convergence columns, and the reported summary columns they give.
+CONVERGENCE_COLUMNS = ("rounds", "converged")
+CONVERGENCE_SUMMARY = ("nonconverged_fits", "max_rounds")
 
 
 # ------------------------------------------------------------------------------------ streams
@@ -244,6 +255,29 @@ _WRITERS = {
 }
 
 
+def convergence(result: Any) -> dict[str, int]:
+    """The :data:`CONVERGENCE_COLUMNS` of one fit, over every fluctuation it ran.
+
+    Parameters
+    ----------
+    result : CausalResult
+        One fit of :data:`~tests.studies.canonical_adaptive_iptw.FITS`.
+
+    Returns
+    -------
+    dict
+        ``rounds``, the largest ``n_iter``, and ``converged``, 1 when every fluctuation
+        converged.
+    """
+    fluctuations = [
+        fluctuation for repeat in result.repeats for fluctuation in repeat.fluctuations.values()
+    ]
+    return {
+        "rounds": max((int(item.n_iter) for item in fluctuations), default=0),
+        "converged": int(all(bool(item.converged) for item in fluctuations)),
+    }
+
+
 def fit_drawn(key: _Key, frame: pd.DataFrame, *, budget: int | None = None) -> list[dict[str, Any]]:
     """The rows of one scene draw: every fit the scene runs on it, and every cell they fill.
 
@@ -271,17 +305,17 @@ def fit_drawn(key: _Key, frame: pd.DataFrame, *, budget: int | None = None) -> l
         warnings.simplefilter("ignore")
         for fit, requested in _active(scene, replicate, cap):
             result = study.FITS[fit](frame, scene.n, seed)
+            diagnostics = convergence(result)
             for reader in _BY_FIT[(name, fit)]:
-                rows.append(
-                    _WRITERS[reader.kind](
-                        reader,
-                        result,
-                        truth,
-                        replicate=replicate,
-                        n=scene.n,
-                        requested=requested,
-                    )
+                row = _WRITERS[reader.kind](
+                    reader,
+                    result,
+                    truth,
+                    replicate=replicate,
+                    n=scene.n,
+                    requested=requested,
                 )
+                rows.append({**row, **diagnostics})
     return rows
 
 
@@ -448,6 +482,42 @@ def spread_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.loc[index, "property_passed"] = True
 
 
+def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """Report the nonconverged fits and the largest round count of each cell.
+
+    The columns are reported and decide no verdict.  Rows without :data:`CONVERGENCE_COLUMNS`,
+    such as those of run 1, leave the summary unchanged.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary.
+    rows : pandas.DataFrame
+        The replication rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``summary`` with :data:`CONVERGENCE_SUMMARY` filled where the rows carry them.
+    """
+    if not set(CONVERGENCE_COLUMNS) <= set(rows.columns):
+        return summary
+    out = summary.copy()
+    for column in CONVERGENCE_SUMMARY:
+        out[column] = math.nan
+    for index in out.index:
+        group = rows.loc[
+            (rows["property"] == out.loc[index, "property"])
+            & (rows["cell"] == out.loc[index, "cell"])
+        ]
+        kept = group.loc[group["converged"].notna()]
+        if kept.empty:
+            continue
+        out.loc[index, "nonconverged_fits"] = float((kept["converged"] == 0).sum())
+        out.loc[index, "max_rounds"] = float(kept["rounds"].max())
+    return out
+
+
 def ladder_rate(rows: pd.DataFrame, columns: Any) -> dict[str, Any]:
     """The fitted slope of the empirical SD of the ``rate`` fit on the size, as a summary row."""
     return fitted_rate_row(
@@ -484,7 +554,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     bias_verdicts(summary)
     spread_reading(summary, rows)
     rates.append(ladder_rate(rows, summary.columns))
-    return finish(summary, rates)
+    return convergence_reading(finish(summary, rates), rows)
 
 
 # --------------------------------------------------------------------------------- the rules
@@ -541,6 +611,8 @@ __all__ = [
     "PROPERTY_CELLS",
     "PROPERTY_RULES",
     "PROPERTY_WITNESS",
+    "convergence",
+    "convergence_reading",
     "declared_cells",
     "fit_keys",
     "generate_property_rows",

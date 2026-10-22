@@ -322,7 +322,7 @@ class TestCrossFittedContinuousOutcome:
                     treatment_learner=LogisticRegression(max_iter=1000),
                     reduced_outcome_learner=LinearRegression(),
                     cross_fit=True,
-                    n_folds=2,
+                    n_folds=3,
                     simultaneous=False,
                     random_state=0,
                 )
@@ -387,7 +387,7 @@ class TestKeywordInventoryApplies:
 
     def test_random_state_fixes_the_cross_fit_split(self, frame: pd.DataFrame) -> None:
         def fit(seed: int) -> Any:
-            return _run(_base(cross_fit=True, n_folds=2, random_state=seed), frame)
+            return _run(_base(cross_fit=True, n_folds=3, random_state=seed), frame)
 
         same = fit(1), fit(1)
         other = fit(2)
@@ -395,9 +395,9 @@ class TestKeywordInventoryApplies:
         assert abs(same[0].estimates["ey1"].psi - other.estimates["ey1"].psi) > 1e-9
 
     def test_n_folds_sets_the_split(self, frame: pd.DataFrame) -> None:
-        two = _run(_base(cross_fit=True, n_folds=2), frame)
         three = _run(_base(cross_fit=True, n_folds=3), frame)
-        assert two.config.n_folds == 2 and three.config.n_folds == 3
+        four = _run(_base(cross_fit=True, n_folds=4), frame)
+        assert three.config.n_folds == 3 and four.config.n_folds == 4
 
     def test_estimands_selects_the_reported_targets(self, frame: pd.DataFrame) -> None:
         result = _run(_base(estimands=["ey1"]), frame)
@@ -464,7 +464,7 @@ class TestKeywordInventoryApplies:
         self, frame: pd.DataFrame
     ) -> None:
         with pytest.raises(MethodConfigurationError, match="stratify_folds='treatment'"):
-            _run(_base(cross_fit=True, n_folds=2, stratify_folds="treatment"), frame)
+            _run(_base(cross_fit=True, n_folds=3, stratify_folds="treatment"), frame)
 
     def test_learner_folds_applies_to_a_library_learner(self, frame: pd.DataFrame) -> None:
         result = _run(_base(learner_folds=3), frame)

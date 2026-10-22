@@ -27,7 +27,11 @@ polynomial of ``logit`` of the key's mechanism: a logistic regression for an ind
 least squares for a stochastic-regime key.  The degree is the plan's basis: 1 for law P and
 for the strata, 2 to 5 for the finite-support laws, 3 elsewhere.  On a law whose mechanism
 takes fewer than ``degree + 1`` values, the degree stops at the number of values minus one,
-which is the saturated regression.  The learner is neither a classifier nor a regressor in
+which is the saturated regression.  That holds for an in-sample fit and for a known
+mechanism.  A cross-fitted fit with an estimated mechanism trains fold ``k``'s regression on
+leave-two-folds-out designs: each of the other ``K - 1`` folds contributes its own ``m``
+values, clustered near the ``m`` cell values.  The capped polynomial then smooths over those
+clusters and is not saturated.  The learner is neither a classifier nor a regressor in
 the scikit-learn sense, so the refusal R19 (a classifier on a stochastic regime) does not
 read it.
 
@@ -251,8 +255,11 @@ class DesignBasisGLM(BaseEstimator):
     The first design column is the key's mechanism :math:`g`.  The learner standardizes
     ``x = logit(g)`` on the training rows, expands it to a polynomial of degree
     ``min(degree, distinct - 1)`` and fits an unpenalized logistic regression when the target
-    holds only 0 and 1, and least squares otherwise.  With the cap, a mechanism that takes
-    ``m`` values gets the saturated regression on those ``m`` values.
+    holds only 0 and 1, and least squares otherwise.  With the cap, a training design that
+    takes ``m`` values gets the saturated regression on those ``m`` values.  A cross-fitted
+    fold with an estimated mechanism trains on up to ``(K - 1) m`` values (the leave-two-out
+    designs of :func:`cleverly.estimators._nuisance.fit_fold_mechanisms`), so there the fit is
+    a smoother over clusters, not the saturated regression.
 
     Parameters
     ----------

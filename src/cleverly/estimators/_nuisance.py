@@ -64,6 +64,7 @@ if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes 
 __all__ = [
     "CompanionEstimates",
     "DrawInference",
+    "FoldMechanisms",
     "InnerDesigns",
     "KnownPropensity",
     "NuisanceEstimates",
@@ -74,6 +75,7 @@ __all__ = [
     "UnfittedPropensity",
     "cross_fit_companion",
     "cross_fit_predictions",
+    "fit_fold_mechanisms",
     "fit_inner_designs",
     "fit_nuisances",
     "fit_on_rows",
@@ -503,6 +505,34 @@ class CompanionEstimates:
 
 
 @dataclass(frozen=True)
+class FoldMechanisms:
+    r"""Leave-two-folds-out mechanisms, one full-length slab entry per outer fold.
+
+    Entry ``k`` holds, at row ``j`` in fold ``m != k``, the prediction of a model fitted on
+    ``assignment`` outside ``{k, m}``, and at fold ``k``'s own rows the production model
+    ``g^{(-k)}``.  So entry ``k`` at a training row of fold ``k`` never saw fold ``k`` and
+    never saw that row, which is the property the fold-wise reduced regression of
+    :class:`~cleverly.AdaptiveIPTW` needs.  The layout is :class:`InnerDesigns`', for the
+    mechanisms the fold-wise construction reads: the treatment mechanism, the treatment
+    observation mechanism and the outcome observation mechanism.  Built by
+    :func:`fit_fold_mechanisms`.
+
+    Parameters
+    ----------
+    propensity : ndarray or None
+        ``(K, n, C)``, untruncated, or ``None`` when no treatment mechanism was fitted.
+    treatment_observation : ndarray or None
+        ``(K, n)``, ``P(Delta_A = 1 | W)``, or ``None``.
+    missingness : ndarray or None
+        ``(K, n, C')``, the outcome observation mechanism, or ``None``.
+    """
+
+    propensity: FloatArray | None = None
+    treatment_observation: FloatArray | None = None
+    missingness: FloatArray | None = None
+
+
+@dataclass(frozen=True)
 class NuisanceEstimates:
     """Cross-fitted nuisance predictions and the diagnostics that came with them.
 
@@ -648,6 +678,33 @@ class NuisanceEstimates:
     #: :func:`fit_nuisances`'s ``probe_doses``: the boundary and the last moved dose of a
     #: population-target tuned cap (X40 part (e2)).  Empty on every other fit.
     outcome_probes: dict[str, FloatArray] = field(default_factory=dict)
+    #: Leave-two-folds-out mechanisms, or ``None`` for every fit that did not ask for them --
+    #: which is every fit but a cross-fitted :class:`~cleverly.AdaptiveIPTW`.  See
+    #: :class:`FoldMechanisms` and :meth:`at_fold`.
+    fold_mechanisms: FoldMechanisms | None = None
+
+    def at_fold(self, fold: int) -> NuisanceEstimates:
+        """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
+
+        A construction that composes the mechanism factors (the composite mechanism, the
+        response probability at the realised arm) then reads fold ``fold``'s leave-two-out
+        design at every row.  Raises when the fit kept no :attr:`fold_mechanisms`.
+        """
+        slab = self.fold_mechanisms
+        if slab is None:
+            raise ValueError("this fit kept no fold mechanisms; see fit_fold_mechanisms")
+        changes: dict[str, Any] = {"fold_mechanisms": None}
+        if slab.propensity is not None:
+            changes["propensity"] = type(self.propensity)(
+                np.asarray(slab.propensity[fold], dtype=float), self.propensity.arms
+            )
+        if slab.treatment_observation is not None:
+            changes["treatment_observation"] = np.asarray(
+                slab.treatment_observation[fold], dtype=float
+            )
+        if slab.missingness is not None:
+            changes["missingness"] = np.asarray(slab.missingness[fold], dtype=float)
+        return replace(self, **changes)
 
     def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
         """The same nuisances with every tilt re-evaluated at the ``(n, K)`` ``mechanism``.
@@ -2500,6 +2557,145 @@ def fit_inner_designs(
             InitialFit(regression["observed"], {arm: regression[f"arm{arm}"] for arm in arms})
         )
     return InnerDesigns(outcome=tuple(outcomes), propensity=tuple(propensities))
+
+
+def fit_fold_mechanisms(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    *,
+    treatment_learner: Learner | None,
+    missingness_learner: Learner | None,
+    n_jobs: int = 1,
+) -> FoldMechanisms:
+    r"""Refit each mechanism once per outer fold ``k``, leaving fold ``k`` out as well.
+
+    The construction of :func:`fit_inner_designs`, for the mechanisms rather than for the
+    treatment mechanism and the outcome regression: passing ``fit_mask`` without fold
+    ``k``'s rows makes fold ``m``'s model train on ``train(m) ∩ complement(k)``, which is
+    leave-two-folds-out, and fold ``k``'s own model is the production one.  Entry ``k`` of
+    each slab is then the design that fold ``k``'s reduced regression trains on: at a row
+    of fold ``m != k`` it comes from a model that saw neither fold ``k`` nor that row.
+
+    Why not fold ``k``'s production model evaluated at its own training rows: for an
+    adaptive learner those are in-sample predictions, and fold ``k``'s rows are evaluated
+    out of sample, so the regression would train and predict at two designs that differ in
+    distribution (the covariate shift :func:`~cleverly.estimators.reduced.fit_reduced`
+    rejects per-outer-fold designs for).
+
+    A declared known treatment mechanism is not refitted, as in :func:`fit_inner_designs`.
+    ``treatment_learner=None`` skips the treatment mechanism (the natural-course key reads
+    none).  A mechanism the fit did not estimate gets no slab.
+
+    **Cost is ``K`` times the mechanism fitting**: ``K (K - 1)`` further models of each
+    estimated mechanism, paid once at the initial fit.  The targeting loop tilts the slabs
+    and refits no mechanism.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, not a composite view.
+    nuisance : NuisanceEstimates
+        The production nuisances; its split and arms are reused.
+    treatment_learner : Learner or None
+        The resolved treatment learner, or ``None``.
+    missingness_learner : Learner or None
+        The resolved observation learner, or ``None``.
+    n_jobs : int
+        Parallel jobs per fold loop.
+
+    Returns
+    -------
+    FoldMechanisms
+        The leave-two-folds-out slabs.
+    """
+    folds = nuisance.folds
+    if folds.is_single:
+        raise ValueError("leave-two-folds-out mechanisms need an outer split")
+    if folds.n_folds < 3:
+        raise ValueError(
+            "leave-two-folds-out mechanisms leave two folds out at a time, so they need at "
+            f"least three folds; this fit has {folds.n_folds}"
+        )
+    arms = nuisance.arms
+    assignment = np.asarray(folds.assignment)
+    groups = data.cluster
+    recorded = data.treatment_recorded if data.has_missing_treatment else None
+    fill = data.arm_codes[0] if recorded is not None else None
+    eligible = np.ones(data.n, dtype=bool) if recorded is None else np.asarray(recorded, bool)
+    estimated_treatment = (
+        treatment_learner is not None
+        and nuisance.fits_treatment
+        and not isinstance(nuisance.propensity, KnownPropensity)
+    )
+    propensity: list[FloatArray] = []
+    observation: list[FloatArray] = []
+    missingness: list[FloatArray] = []
+    for fold in range(folds.n_folds):
+        without = assignment != fold
+        if estimated_treatment:
+            assert treatment_learner is not None
+            mechanism, _ = cross_fit_predictions(
+                treatment_learner,
+                data.mechanism_covariates,
+                data.treatment,
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs={"g": data.mechanism_covariates},
+                fit_mask=eligible & without,
+                groups=groups,
+                clip=(0.0, 1.0),
+                classes=arms,
+                n_jobs=n_jobs,
+            )
+            propensity.append(mechanism["g"])
+        if nuisance.treatment_observation is not None:
+            assert missingness_learner is not None and recorded is not None
+            seen, _ = cross_fit_predictions(
+                missingness_learner,
+                data.covariates,
+                np.asarray(recorded, dtype=float),
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs={"pi_a": data.covariates},
+                fit_mask=without,
+                groups=groups,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
+            observation.append(seen["pi_a"])
+        if nuisance.missingness is not None:
+            assert missingness_learner is not None
+            design = (
+                data.missingness_design()
+                if fill is None
+                else data.treatment_design(missing_as=fill)
+            )
+            response, _ = cross_fit_predictions(
+                missingness_learner,
+                design,
+                data.observed.astype(float),
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs=_mechanism_designs(data, arms, None, design),
+                fit_mask=eligible & without,
+                groups=groups,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
+            missingness.append(_mechanism_columns(response, arms, None))
+    known = (
+        np.stack([nuisance.propensity.values] * folds.n_folds)
+        if isinstance(nuisance.propensity, KnownPropensity)
+        else None
+    )
+    return FoldMechanisms(
+        propensity=np.stack(propensity) if propensity else known,
+        treatment_observation=np.stack(observation) if observation else None,
+        missingness=np.stack(missingness) if missingness else None,
+    )
 
 
 def _retained_covariates(

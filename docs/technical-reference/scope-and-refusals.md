@@ -263,7 +263,8 @@ estimator. The ids follow the numbering of that test module.
 | R17 | a regime with missing data and `cross_fit=True` | `CapabilityError`, `implementation_gap` | [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (b). Pass `cross_fit=False` |
 | R19 | a classifier as the reduced learner of a stochastic regime | `MethodConfigurationError`, `invalid_declaration` | the regression target $g^*(a \mid W) Y$ is not binary |
 | R20 | a known treatment mechanism with a declared missing treatment | the shipped refusal, `invalid_declaration` | the known $P(A = a \mid W)$ cancels from the composite mechanism, so it adds nothing |
-| range rule | `rr`, `or` or `paf` requested when a Horvitz-Thompson mean leaves its domain | `DataError`, `invalid_declaration` | raised after targeting. The default report and `estimands="all"` drop the target and warn with `DataWarning` |
+| R21 | `cross_fit=True` with `n_folds` below 3 | `MethodConfigurationError`, `invalid_declaration` | the fold-wise reduced regression needs designs from models that left out two folds. Pass `n_folds=3` or more, or `cross_fit=False` |
+| range rule | `rr`, `or` or `paf` requested when a Horvitz-Thompson mean leaves its domain, or lies within `tol` times its score scale of a boundary | `DataError`, `invalid_declaration` | raised after targeting. The default report and `estimands="all"` drop the target and warn with `DataWarning` |
 | status | a standard error, an interval or a p-value on a fit with an estimated mechanism | `CapabilityError`, `inference_gap` | the status `estimated_mechanism_plugin`, reopened by [X36](../roadmap.md#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) |
 
 An operation on the result refuses by name as well.

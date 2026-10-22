@@ -375,11 +375,17 @@ class CellClassifier(BaseEstimator, ClassifierMixin):
 
 
 class SolveKeyLog:
-    """Records every ``AdaptiveIPTW._solve_key`` call of a fit: the key, mechanism and folds."""
+    """Records every ``AdaptiveIPTW._solve_key`` call of a fit: the key, mechanism and folds.
+
+    ``slabs`` holds a cross-fitted key's ``(K, n)`` fold-wise design slab: entry ``k`` is
+    fold ``k``'s mechanism at its own rows and a leave-two-folds-out mechanism elsewhere.
+    """
 
     def __init__(self) -> None:
         self.names: list[str] = []
         self.mechanisms: dict[str, np.ndarray] = {}
+        self.slabs: dict[str, np.ndarray] = {}
+        self.solved: dict[str, Any] = {}
         self.assignment: np.ndarray | None = None
 
     def __enter__(self) -> SolveKeyLog:
@@ -388,13 +394,25 @@ class SolveKeyLog:
         original = AdaptiveIPTW._solve_key
         log = self
 
-        def spy(self: Any, data: Any, nuisance: Any, spec: Any, mechanism: Any, *rest: Any) -> Any:
+        def spy(
+            self: Any,
+            data: Any,
+            nuisance: Any,
+            spec: Any,
+            mechanism: Any,
+            *rest: Any,
+            **named: Any,
+        ) -> Any:
             log.names.append(spec.name)
             log.mechanisms[spec.name] = np.array(mechanism, dtype=float, copy=True)
+            if named.get("fold_mechanism") is not None:
+                log.slabs[spec.name] = np.array(named["fold_mechanism"], dtype=float, copy=True)
             folds = getattr(nuisance, "folds", None)
             if folds is not None and folds.n_folds > 1:
                 log.assignment = np.array(folds.assignment, copy=True)
-            return original(self, data, nuisance, spec, mechanism, *rest)
+            solved = original(self, data, nuisance, spec, mechanism, *rest, **named)
+            log.solved[spec.name] = solved
+            return solved
 
         self._patch = (AdaptiveIPTW, original)
         AdaptiveIPTW._solve_key = spy  # type: ignore[method-assign]
@@ -415,33 +433,44 @@ def tilt_loop_with_fold_regression(
     max_rounds: int = 100,
     bounds: tuple[float, float] = (0.0, 1.0),
     clip: tuple[float, float] | None = (0.0, 1.0),
+    slab: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """The test-side targeting loop with a linear reduced regression on ``[1, g]``.
 
     A binary outcome makes the shipped reduced regression a probability, so ``clip`` bounds the
     prediction to ``[0, 1]``. Pass ``None`` for a continuous outcome.
 
-    With ``assignment`` the regression of each fold is fitted on the other folds' rows with
-    ``indicator == 1`` and evaluated on the held-out rows, as a cross-fitted fit does. Without
-    it, the regression is fitted on all rows. The tilt is pooled over all rows.
+    Without ``assignment`` the regression is fitted on all rows.  With ``assignment`` the loop is
+    the fold-wise construction and needs ``slab``, ``(K, n)``: fold ``k``'s regression is fitted
+    on the other folds' rows with ``indicator == 1`` at ``slab[k]`` and evaluated at
+    ``slab[k]``; each row reads its own fold's entry, whose round-0 value is ``g0``.  The one
+    ``eps`` is pooled over all rows, and every entry ``k`` moves along fold ``k``'s own
+    ``h_k = qr_k / slab[k]``.
     """
     lo, hi = bounds
     g = np.clip(np.asarray(g0, dtype=float), lo, hi)
     mask = indicator > 0.0
-    folds = np.zeros(len(g), dtype=int) if assignment is None else np.asarray(assignment)
+    n = len(g)
+    rows = np.arange(n)
+    if assignment is not None and slab is None:
+        raise ValueError("a cross-fitted reference loop needs the fold-wise design slab")
+    folds = np.zeros(n, dtype=int) if assignment is None else np.asarray(assignment)
+    designs = g[None, :].copy() if assignment is None else np.clip(np.array(slab, float), lo, hi)
+    designs[folds, rows] = g
 
-    def regress(design: np.ndarray) -> np.ndarray:
-        out = np.empty(len(design))
-        for fold in np.unique(folds):
-            held = folds == fold
-            train = mask & (~held if assignment is not None else np.ones(len(g), dtype=bool))
+    def regress(slab_now: np.ndarray) -> np.ndarray:
+        out = np.empty_like(slab_now)
+        for fold in range(slab_now.shape[0]):
+            train = mask & (folds != fold if assignment is not None else np.ones(n, dtype=bool))
+            design = slab_now[fold]
             x = np.column_stack([np.ones(train.sum()), design[train]])
             beta, *_ = np.linalg.lstsq(x, target[train], rcond=None)
-            out[held] = beta[0] + beta[1] * design[held]
+            out[fold] = beta[0] + beta[1] * design
         return out if clip is None else np.clip(out, clip[0], clip[1])
 
-    weight = np.ones(len(g))
-    qr = regress(g)
+    weight = np.ones(n)
+    qr_slab = regress(designs)
+    qr = qr_slab[folds, rows]
     qr0 = qr
     steps: list[float] = []
     for _ in range(max_rounds):
@@ -451,7 +480,9 @@ def tilt_loop_with_fold_regression(
             break
         eps = tilt_root(indicator, g, h, weight, None if bounds == (0.0, 1.0) else bounds)
         steps.append(eps)
-        g = np.clip(expit(logit(g) + eps * h), lo, hi)
-        qr = regress(g)
+        designs = np.clip(expit(logit(designs) + eps * qr_slab / designs), lo, hi)
+        g = designs[folds, rows]
+        qr_slab = regress(designs)
+        qr = qr_slab[folds, rows]
     psi = float(np.mean(indicator * target / g))
-    return {"g": g, "qr": qr, "qr0": qr0, "eps": steps, "psi": psi}
+    return {"g": g, "qr": qr, "qr0": qr0, "eps": steps, "psi": psi, "slab": designs}

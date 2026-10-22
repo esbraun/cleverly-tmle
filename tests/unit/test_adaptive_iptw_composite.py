@@ -7,7 +7,8 @@ mechanism and the targeting loop in numpy from the law tables and compare them w
 the shipped loop reads and returns.
 
 * W6: the in-sample composite key, with fixed wrong factors so that the score is not zero.
-* W17: the cross-fitted composite key, with saturated factor learners refitted on each fold.
+* W17: the cross-fitted composite key on three folds, with saturated factor learners refitted on
+  each fold and on each pair of folds left out (the fold-wise reduced regression).
 """
 
 from __future__ import annotations
@@ -159,6 +160,8 @@ def _factor_composite(frame: pd.DataFrame, train: np.ndarray, rows: np.ndarray) 
 
 
 class TestW17CompositeCrossFitted:
+    """The cross-fitted composite key on three folds, with the fold-wise reduced regression."""
+
     @pytest.fixture(scope="class")
     def run(self) -> tuple[Any, s.SolveKeyLog]:
         log = s.SolveKeyLog()
@@ -168,7 +171,7 @@ class TestW17CompositeCrossFitted:
             treatment_learner=s.CellClassifier(),
             missingness_learner=s.CellClassifier(),
             cross_fit=True,
-            n_folds=2,
+            n_folds=3,
         )
         return result, log
 
@@ -177,9 +180,26 @@ class TestW17CompositeCrossFitted:
         assignment = log.assignment
         assert assignment is not None
         out = np.empty((len(frame), 2))
-        for fold in (0, 1):
+        for fold in range(3):
             held = assignment == fold
             out[held] = _factor_composite(frame, ~held, held)[held]
+        return out
+
+    def _leave_two_out(self, log: s.SolveKeyLog) -> np.ndarray:
+        """``(K, n, 2)``: entry ``k`` at fold ``m != k`` from factors fitted outside ``{k, m}``."""
+        frame = LAW.frame()
+        assignment = log.assignment
+        assert assignment is not None
+        own = self._oof_composite(log)
+        out = np.empty((3, len(frame), 2))
+        for fold in range(3):
+            for other in range(3):
+                rows = assignment == other
+                if other == fold:
+                    out[fold][rows] = own[rows]
+                    continue
+                train = (assignment != fold) & (assignment != other)
+                out[fold][rows] = _factor_composite(frame, train, rows)[rows]
         return out
 
     def test_every_fold_holds_every_cell(self, run: tuple[Any, s.SolveKeyLog]) -> None:
@@ -188,7 +208,7 @@ class TestW17CompositeCrossFitted:
         assert log.assignment is not None
         cells = frame[["W", "A", "DeltaA", "Delta"]].fillna(-1).astype(float)
         keys = cells.apply(tuple, axis=1)
-        for fold in (0, 1):
+        for fold in range(3):
             assert set(keys[log.assignment == fold]) == set(keys)
 
     @pytest.mark.parametrize("column", [0, 1])
@@ -205,6 +225,22 @@ class TestW17CompositeCrossFitted:
         assert np.max(np.abs(oof - full)) > 1e-3
 
     @pytest.mark.parametrize("column", [0, 1])
+    def test_the_training_designs_are_leave_two_folds_out(
+        self, run: tuple[Any, s.SolveKeyLog], column: int
+    ) -> None:
+        """Entry ``k`` at a training row comes from factors that saw neither fold ``k`` nor it."""
+        _, log = run
+        expected = self._leave_two_out(log)[:, :, column]
+        assert np.max(np.abs(log.slabs[str(column)] - expected)) < 1e-15
+        # The nonzero witness: fold k's own factors at its training rows (in sample) differ.
+        frame = LAW.frame()
+        assert log.assignment is not None
+        for fold in range(3):
+            train = log.assignment != fold
+            in_sample = _factor_composite(frame, train, train)[:, column]
+            assert np.max(np.abs(in_sample[train] - expected[fold][train])) > 1e-3
+
+    @pytest.mark.parametrize("column", [0, 1])
     def test_the_shipped_value_equals_the_test_side_cross_fitted_loop(
         self, run: tuple[Any, s.SolveKeyLog], column: int
     ) -> None:
@@ -212,7 +248,8 @@ class TestW17CompositeCrossFitted:
         frame = LAW.frame()
         indicator, target = _indicator_and_target(frame, float(column))
         g0 = self._oof_composite(log)[:, column]
-        ref = s.tilt_loop_with_fold_regression(indicator, target, g0, log.assignment)
+        slab = self._leave_two_out(log)[:, :, column]
+        ref = s.tilt_loop_with_fold_regression(indicator, target, g0, log.assignment, slab=slab)
         assert result.estimates[f"ey{column}"].psi == pytest.approx(ref["psi"], abs=1e-10)
         shipped = result.extra["adaptive_iptw"].epsilon[str(column)]
         assert shipped[0] == pytest.approx(ref["eps"][0], abs=1e-10)

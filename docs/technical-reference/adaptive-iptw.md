@@ -93,8 +93,10 @@ Horvitz-Thompson value, the tilt steps, the rounds and the stop reason.
 Contrasts, ratios, `ey_obs`, `par` and `paf` come from the shipped target machinery over the arm
 means. A Horvitz-Thompson mean is not a substitution estimator. A binary-outcome mean can leave
 $(0, 1)$. A request for `rr`, `or` or `paf` raises `DataError` after targeting when a mean it
-needs leaves its domain. The default report and `estimands="all"` drop that target instead, and
-the fit warns with `DataWarning`.
+needs leaves its domain. The test has a margin of `tol` times the summed score scale of the arm's
+keys. For an arm whose observed outcomes are all 1, the score is the mean minus 1. So the fit does
+not resolve that mean closer to 1 than the margin. The default report and `estimands="all"` drop
+that target instead, and the fit warns with `DataWarning`.
 
 ## Contract
 
@@ -104,7 +106,7 @@ the fit warns with `DataWarning`.
 | reduced regression | $Q_{r,0} = E_0(Y \mid A = 1, g_0(W))$. The estimator $Q_{r,n}$ regresses $Y$ on $g_n(W)$ among the rows with $A = 1$, and treats $g_n$ as a fixed covariate |
 | targeting | WP302 fits one logistic step with the covariate $H_n = Q_{r,n} / g_n$. The loop above refits $Q_r$ on $g^*$ and steps again. Lemma 2 states its result for any $H_n$ consistent for $H_0$ and any $g^*_n$ that solves $P_n D_{H_n}(g^*_n) = 0$. So the converged loop is covered |
 | influence curve | $IC = D(g_0) - \psi_0 - H_0 (A - g_0)$, evaluated at the final nuisances. The sign of the last term is minus. [The three defects of WP302](#three-defects-of-wp302) record the printed sign |
-| one-step form | $\psi_{os} = P_n D(g_n) - P_n D_{H_n}(g_n)$ at the initial $(g_n, Q_{r,n})$. WP302 does not state it. The `drtmle` vignette, lines 1317-1323, and `R/adaptive_iptw.R`, lines 208-215, give the form. The exact identity $P_0 D(g) - P_0 D_{Q_r/g}(g) - \psi_0 = P_0[(Q_{r,0,g} - Q_r)(g_0 - g)/g]$ holds, with $Q_{r,0,g} = E_0(Y \mid A = a, g_0(W), g(W))$. So the remainder is second order, and the curve is the Theorem 1 curve |
+| one-step form | $\psi_{os} = P_n D(g_n) - P_n D_{H_n}(g_n)$ at the initial $(g_n, Q_{r,n})$. WP302 does not state it. The `drtmle` vignette, lines 1317-1323, and `R/adaptive_iptw.R`, lines 208-215, give the form. The exact identity $P_0 D(g) - P_0 D_{Q_r/g}(g) - \psi_0 = P_0[(Q_{r,0,g} - Q_r)(g_0 - g)/g]$ holds, with $Q_{r,0,g} = E_0(Y \mid A = 1, g_0(W), g(W))$. The remainder is second order under H1, and identically 0 under H2. Otherwise it carries the linear term of [the validity condition](#the-validity-condition), so the one-step form takes the same H2 rule |
 | data-adaptive choices | Theorem 1 takes $g_n$ as any estimator. It names the super learner with cross-validated weights as its example, on pp. 4-7. So learner selection inside $g_n$ supports the point estimate. The interval needs the condition below |
 
 The steps from Theorem 1 to each key kind are standard steps of the roadmap
@@ -117,8 +119,8 @@ consequence for the interval.
 | S1 | an indicator reduction to $1\{A = a\}$ for each arm | all arms | known mechanism only |
 | S2 | a fixed-dimension stack of the arm curves. Contrasts, ratios, `par` and `paf` follow by linearity and the delta method. Complete-data `ey_obs` is the sample mean with curve $Y - EY$ | all targets | known mechanism only |
 | S3 | the composite indicator $\Delta_A \Delta 1\{A = a\}$ with the composite mechanism, under the missing-at-random identification of the composite contract | arm keys, in sample and cross-fitted | none. The response factor is estimated |
-| S4 | a known mechanism: Theorem 1 at $g_n = g_0$. The tilt is $O_P(n^{-1/2})$ and the remainders are $O_P(1/n)$ | complete data | yes |
-| S5 | cross-fitting. Theorem 1 assumes a Donsker class. With `cross_fit=True`, the reduced regression is the pooled DR-TMLE `qr` family | all keys with a point estimate | known mechanism only, with condition (S) open |
+| S4 | a known mechanism: Theorem 1 at $g_n = g_0$. The tilt is $O_P(n^{-1/2})$ and the remainders are $o_P(n^{-1/2})$ under C2 | complete data | yes |
+| S5 | cross-fitting. Theorem 1 assumes a Donsker class. With `cross_fit=True`, fold $k$ fits its own $Q_r$ on designs from mechanism models that never saw fold $k$, and one pooled $\epsilon$ tilts every fold | all keys with a point estimate | known mechanism only, with the $\epsilon$-path condition below open |
 | S6 | observation weights: Theorem 1 on the weight-tilted law, by the chain rule for a known weight. The curve is $(w / P_n w)(D - \psi - D_g)$ | all keys | known mechanism only |
 | S7 | clusters: the same result with independent clusters as the units and cluster-summed curves | all keys | known mechanism only, with the shipped few-cluster rules |
 | S8 | baseline strata: Theorem 1 inside each fixed stratum, then a stack | all keys | known mechanism only |
@@ -126,11 +128,28 @@ consequence for the interval.
 | S10 | the natural-course mean: $\Delta$ is the treatment, $(A, W)$ is the covariate, and $\pi(A, W)$ is the mechanism | with `delta=`, in sample and cross-fitted | none. $\pi$ is estimated |
 | S11 | a known stochastic regime: one key per arm with $T = g^*(a \mid W) Y$, summed by linearity | as S9 | known mechanism, complete data |
 
-S5 reuses the argument of [DR-TMLE targeting](dr-tmle/targeting.md). That page states that
-condition (S) is open and that the pooled construction is supported but not shown. `AdaptiveIPTW`
-inherits both statements unchanged. A cross-fitted key with missing data shares the open pooled
-term [B] of that page. It reports a point only. Point consistency needs the mechanism and $Q_r$ to
-converge. It does not need term [B] to vanish at the root-n rate.
+S5 uses a fold-wise construction. Fold $k$ fits its reduced regression $Q_{r,k}$ on the rows of
+the other folds. At a row of fold $m \ne k$, the design is $g^{(-k,-m)}(W)$, from a mechanism
+model fitted without folds $k$ and $m$. At the rows of fold $k$, the design is the production
+$g^{(-k)}(W)$. So no row of fold $k$ reaches $Q_{r,k}$ through a generated design. Term [B] of
+[DR-TMLE targeting](dr-tmle/targeting.md) is the term that this design removes.
+
+The targeting solves one pooled $\epsilon$ at each row's own fold. The step then moves each fold's
+designs along that fold's own covariate $Q_{r,k} / g_k$, from the first step on. This is the
+cross-validated TMLE shape: fold-specific initial fits and one pooled fluctuation (Zheng and van
+der Laan (2011), Sections 2 and 2.1, pages 2 to 6). After the first step, fold $k$ reaches
+$Q_{r,k}$ only through $\epsilon$, a parameter of fixed dimension. The interval argument then needs
+the reduced fit to be continuous in $\epsilon$ for a fixed training set. That is condition (S) of
+the DR-TMLE page, restricted to a one-dimensional path. This page does not prove it, so it stays
+open. A key with an estimated mechanism reports a point only. Point consistency needs the
+mechanism and $Q_r$ to converge.
+
+The leave-two-out designs cost $K(K - 1)$ further fits of each estimated mechanism factor, one for
+each ordered pair of folds. The default `n_folds=10` gives 90. The construction needs at least
+three folds, so a cross-fitted fit with `n_folds=2` is refused (R21). The X21 run-1 diagnosis
+measured the pooled design that this replaced. On law WT at $n = 2{,}000$, its bias was about 0.4
+SD. That diagnosis is planning evidence outside the repository.
+`tests/unit/test_adaptive_iptw_foldwise.py` pins the construction.
 
 The inherited conditions are as follows.
 
@@ -150,7 +169,8 @@ the untargeted $g_n$, so its error is first order in $\lVert g_n - g_0 \rVert$.
 `reduced_outcome_learner=` fits $Q_r$. When it is `None`, the fit uses `outcome_learner=` and then
 the default regression Super Learner. A selecting learner is outside conditions (E) and (S) under
 the default `cross_fit=True`. Use a fixed-basis learner of the one-dimensional covariate $g$. A
-cross-fitted fit refits $Q_r$ once per fold, round and key.
+cross-fitted fit refits $Q_r$ once per fold, round and key. With an estimated mechanism, it also
+fits the $K(K - 1)$ leave-two-out mechanism models of S5 once per fit.
 
 ## When an interval is reported
 
@@ -190,11 +210,11 @@ When the term does not vanish, the effect depends on the learner.
 
 | mechanism | effect on the Theorem 1 interval | source |
 | --- | --- | --- |
-| correct parametric $g$ | the curve is $IC - c' I^{-1} S$, the residual after projection on the GLM score. The Theorem 1 standard error is conservative | verifier simulation: standard error ratio 1.08 to 1.11, coverage 0.96 to 0.97 |
-| a learner whose error breaks the level sets of $g_0$, with error of order $r_n$ | a bias of order $r_n$ at first order | verifier simulation: bias over SD from -0.61 to -1.25 at n = 1,000 to 64,000, coverage 0.93 to 0.82 |
+| correct parametric $g$ | the curve is $IC - c' I^{-1} S$, the residual after projection on the GLM score. The Theorem 1 standard error is conservative | a planning simulation outside the repository. The study cell `spread/parametric_q_ne_qr` (law VL1, logistic $g$) reports the same ratio |
+| a learner whose error breaks the level sets of $g_0$, with error of order $r_n$ | a bias of order $r_n$ at first order | a planning simulation outside the repository. The study cell `bias/ey1__level_set_breaking` (law VL1) measures the bias as a control |
 
-Williamson, Forbes and White (2014), Section 3.3, show that a sandwich variance which ignores an
-estimated propensity is conservative. Ertefaie, Hejazi and van der Laan, arXiv:2005.11303v2, p. 2, say that the targeted IPW
+Williamson, Forbes and White (2014), Section 3.3, show that for plain IPTW with a parametric
+propensity, a sandwich variance which ignores the estimated propensity is typically conservative. Ertefaie, Hejazi and van der Laan, arXiv:2005.11303v2, p. 2, say that the targeted IPW
 estimator "has been shown to suffer from issues of irregularity".
 Benkeser, Cai and van der Laan, arXiv:1901.05056v1, Appendix F, condition (v), treat the
 mirror-image term of the doubly robust case. They assume smoothness for it explicitly.
@@ -244,7 +264,7 @@ holds the projected variance for a declared parametric mechanism.
 
 | defect | where | correction |
 | --- | --- | --- |
-| the influence curve prints the term $H_0 (A - g_0)$ with a plus sign | the Theorem 1 display on p. 6 and Section 2.1 on p. 7 | the sign is minus. The proof preamble on p. 26 gives $P_0(D(g_n) - D(g_0)) \approx -(\Psi^r_1(g_n) - \Psi^r_1(g_0))$, and Lemma 2 gives the difference. WP302 p. 7 says the curve is the efficient influence function of $E Y(1)$ for the reduced data $(g_0(W), A, Y)$, and that function has the minus sign. `drtmle` `cov.t` uses `eval_Diptw - eval_Diptw_g`. A Monte Carlo SD of 0.78 for arm 1 matches the minus form (0.762) and not the plus form (1.228) |
+| the influence curve prints the term $H_0 (A - g_0)$ with a plus sign | the Theorem 1 display on p. 6 and Section 2.1 on p. 7 | the sign is minus. The proof preamble on p. 26 gives $P_0(D(g_n) - D(g_0)) \approx -(\Psi^r_1(g_n) - \Psi^r_1(g_0))$, and Lemma 2 gives the difference. WP302 p. 7 says the curve is the efficient influence function of $E Y(1)$ for the reduced data $(g_0(W), A, Y)$, and that function has the minus sign. `drtmle` `cov.t` uses `eval_Diptw - eval_Diptw_g`. `tests/unit/test_adaptive_iptw_exact.py::TestW3CurveSign` pins the fitted curve SD at the closed-form minus value (arm 1, 0.7623) and away from the plus value (1.228) |
 | the gloss on p. 6 says that the second and third conditions again require $g_n$ to converge at rate $o(n^{-1/4})$ | p. 6, after the displays | false for the second condition. The term is linear in $g_n - g_0$, and no rate makes it small |
 | Section 2.1 claims that a correct parametric model in the library makes all the consistency and second-order conditions hold | p. 7 | false when $Q_0 \ne Q_{r,0}$. The residual after projection on the score is not the Theorem 1 curve |
 
@@ -304,7 +324,8 @@ against `drtmle` are pending.
 | instrument | what it checks | what it cannot see |
 | --- | --- | --- |
 | `tests/unit/test_adaptive_iptw_exact.py` | on exact finite laws, the shipped value, tilt steps and score equal values computed in the test from the law tables, for the arm keys, the one-step form, the weights, the bound and the constant design. A GLM reduced regression separates the refit from the one-step | the truth at a fitted learner |
-| `tests/unit/test_adaptive_iptw_composite.py` | the composite mechanism and its targeting equal the test-side product, in sample with wrong factors and cross-fitted | the pooled term [B] |
+| `tests/unit/test_adaptive_iptw_composite.py` | the composite mechanism and its targeting equal the test-side product, in sample with wrong factors and cross-fitted, and the cross-fitted training designs are leave-two-folds-out | the $\epsilon$-path condition of S5 |
+| `tests/unit/test_adaptive_iptw_foldwise.py` | fold $k$'s reduced regression ignores fold $k$'s treatment and outcome, at round 0 and on a design grid in every round with the $\epsilon$ history replayed. The shipped loop equals a test-side fold-wise loop, and an adaptive mechanism learner trains on leave-two-out designs. A pooled design fails each check | the $\epsilon$-path condition of S5 |
 | `tests/unit/test_adaptive_iptw_regimes.py` | the deterministic, stochastic and natural-course keys, the strata and the clusters equal test-side values | cross-fitted regimes with missing data, which are refused |
 | `tests/unit/test_adaptive_iptw_status.py` | each status of a construction, the withheld accessors, and the validity identity with a nonzero term | the size of the term at a fitted nuisance |
 | `tests/unit/test_adaptive_iptw_refusals.py`, `_api.py`, `_surface.py`, `_support.py` | each refusal text and code, the keyword inventory, every public call, and the support key | coverage |

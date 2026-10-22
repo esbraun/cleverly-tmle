@@ -348,3 +348,29 @@ class TestW19ValidityIdentity:
         reason = STATUS_RECORDS[PLUGIN].reason
         assert "linear" in reason
         assert "function of the true g" in reason
+
+
+class TestVariableImportanceReadsTheFittedEstimand:
+    """X21-impl-review-2 m2: the preflight reads the estimand the fit reports.
+
+    An ``["ey_obs"]`` template has the closed form, but ``variable_importance`` fits ``ate``,
+    which has an estimated mechanism.  The refusal arrives before any learner is fitted.
+    """
+
+    @pytest.mark.parametrize("template", [["ey_obs"], ["ate"]])
+    def test_the_refusal_arrives_before_the_first_learner_is_fitted(
+        self, template: list[str]
+    ) -> None:
+        from tests.unit._inference_status_support import assert_variable_importance_refuses
+        from tests.unit._natural_course_support import NeverFit
+
+        NeverFit.calls = 0
+        estimator = AdaptiveIPTW(
+            estimands=template,
+            treatment_learner=NeverFit(),
+            reduced_outcome_learner=NeverFit(),
+            cross_fit=False,
+        )
+        assert_variable_importance_refuses(
+            PLUGIN, known_mechanism.point_frame(), estimator=estimator, covariates=["W1", "W2"]
+        )

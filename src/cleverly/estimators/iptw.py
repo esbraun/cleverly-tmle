@@ -78,7 +78,7 @@ from ..exceptions import (
 )
 from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import Fluctuation
-from ..fluctuation.mechanism import solve_bounded_mechanism
+from ..fluctuation.mechanism import apply_mechanism_tilt, solve_bounded_mechanism
 from ..fluctuation.submodel import Submodel
 from ..inference.influence import (
     ArmMean,
@@ -94,7 +94,7 @@ from ..learners.super_learner import SuperLearnerDiagnostics
 from ..targets import TARGETS, TargetContext, _off_axis_reason, parameter_stem, targets_for
 from ..targets.base import READS_SINK, stratum_alias
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
-from ._nuisance import NuisanceEstimates, UnfittedOutcome
+from ._nuisance import NuisanceEstimates, UnfittedOutcome, fit_fold_mechanisms
 from ._option_support import point_option_conditions
 from ._strata import (
     check_stratified_targets,
@@ -246,6 +246,13 @@ R17 = Refusal(
     alternative="Pass cross_fit=False (CrossFitting(enabled=False) on a method). The in-sample "
     "fit reports point estimates.",
     roadmap="X81",
+)
+
+R21 = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "A cross-fitted AdaptiveIPTW trains fold k's reduced regression on designs from models that "
+    "left out fold k and the training row's own fold, so it needs at least three folds.",
+    alternative="Pass n_folds=3 or more, or cross_fit=False.",
 )
 
 R19 = Refusal(
@@ -777,6 +784,61 @@ def _owner_values(
     return out
 
 
+def _tilt_fold_slab(
+    slab: FloatArray,
+    covariates: FloatArray,
+    epsilon: FloatArray,
+    *,
+    bounds: tuple[float, float],
+    assignment: IntArray,
+    production: FloatArray,
+) -> FloatArray:
+    r"""Move every fold's mechanism slab by one pooled fluctuation, each along its own covariate.
+
+    ``slab`` is ``(K, n)``: entry ``k`` is the design fold ``k``'s reduced regression reads,
+    fold ``k``'s own mechanism at its rows and a leave-two-folds-out mechanism elsewhere
+    (:class:`~cleverly.estimators._nuisance.FoldMechanisms`).  ``covariates`` is
+    ``(K, n, p)``: entry ``k`` is fold ``k``'s clever covariate :math:`H_k` at entry ``k``
+    of the slab.  The one ``epsilon`` the pooled score solved moves entry ``k`` along
+    :math:`H_k`, by :func:`~cleverly.fluctuation.mechanism.apply_mechanism_tilt` with
+    ``bounds``.  Tilting entry ``k`` along the production covariate instead would carry the
+    other folds' regressions, and so fold ``k``'s own rows, into fold ``k``'s next design.
+    The first step already reads :math:`H_k`, from the round-0 regressions.
+
+    Each row's own fold entry is then set to ``production``, the array the solver returned,
+    so the score, the estimate and the slab read one mechanism at every own-fold entry.
+
+    Parameters
+    ----------
+    slab : ndarray
+        ``(K, n)``, each fold's design before the step.
+    covariates : ndarray
+        ``(K, n, p)``, each fold's covariate at its slab entry.
+    epsilon : ndarray
+        ``(p,)``, the pooled fluctuation.
+    bounds : tuple of float
+        The truncation of the key's mechanism.
+    assignment : ndarray
+        ``(n,)``, each row's outer fold.
+    production : ndarray
+        ``(n,)``, the tilted production mechanism.
+
+    Returns
+    -------
+    ndarray
+        ``(K, n)``, the slab after the step.
+    """
+    moved = np.stack(
+        [
+            apply_mechanism_tilt(entry, covariate, epsilon, bounds=bounds)
+            for entry, covariate in zip(slab, covariates, strict=True)
+        ]
+    )
+    rows = np.arange(moved.shape[1])
+    moved[np.asarray(assignment), rows] = np.asarray(production, dtype=float)
+    return moved
+
+
 class AdaptiveIPTW(TMLE):
     r"""Adaptive-propensity IPTW for a discrete treatment.
 
@@ -824,7 +886,7 @@ class AdaptiveIPTW(TMLE):
     ...     treatment_learner=LogisticRegression(),
     ...     reduced_outcome_learner=LinearRegression(),
     ...     estimands=["ey1", "ey0", "ate"],
-    ...     n_folds=2,
+    ...     n_folds=3,
     ...     random_state=1,
     ... ).fit(frame, outcome="y", treatment="a", covariates=["w"]).single()
     >>> result.inference_status
@@ -949,6 +1011,8 @@ class AdaptiveIPTW(TMLE):
             raise CapabilityError.from_refusal(R17)
         if self.interventions:
             self._check_regime_learner(data)
+        if self.cross_fit and int(self.n_folds) < 3:
+            raise MethodConfigurationError.from_refusal(R21)
 
     def _check_regime_learner(self, data: CausalData) -> None:
         """R19: a classifier cannot regress the transformed outcome of a stochastic regime."""
@@ -1040,18 +1104,41 @@ class AdaptiveIPTW(TMLE):
         # runs: ``retarget`` and the sensitivity sweeps read the cached nuisances for other
         # targets, and an unfitted mechanism would make them fail.
         natural_course = _is_natural_course(data, config.estimands)
-        return (
-            self._fit_nuisances(
-                data,
-                folds,
-                scaler,
-                intermediate_value,
-                seed=seed,
-                fit_treatment=not natural_course,
-                fit_outcome=False,
-            ),
-            {},
+        nuisance = self._fit_nuisances(
+            data,
+            folds,
+            scaler,
+            intermediate_value,
+            seed=seed,
+            fit_treatment=not natural_course,
+            fit_outcome=False,
         )
+        if folds.is_single:
+            return nuisance, {}
+        # The fold-wise reduced regression trains fold k on leave-two-folds-out designs
+        # (F1 of the X21 run-1 diagnosis), fitted once here from the same resolved learners.
+        observing = data.has_missing_outcome or data.has_missing_treatment
+        slabs = fit_fold_mechanisms(
+            data,
+            nuisance,
+            treatment_learner=(
+                None
+                if natural_course
+                else self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
+            ),
+            missingness_learner=(
+                self._resolve_learner(
+                    self.missingness_learner,
+                    task="classification",
+                    fallback=self.treatment_learner,
+                    seed=seed,
+                )
+                if observing
+                else None
+            ),
+            n_jobs=self.n_jobs,
+        )
+        return replace(nuisance, fold_mechanisms=slabs), {}
 
     # ------------------------------------------------------------------- specs
 
@@ -1166,8 +1253,19 @@ class AdaptiveIPTW(TMLE):
         mechanism: FloatArray,
         bounds: tuple[float, float],
         learner: Learner,
+        fold_mechanism: FloatArray | None = None,
     ) -> _Solved:
-        """Target one key: tilt, refit the reduced regression on the tilt, repeat."""
+        """Target one key: tilt, refit the reduced regression on the tilt, repeat.
+
+        ``fold_mechanism`` is the ``(K, n)`` slab of a cross-fitted fit: entry ``k`` is fold
+        ``k``'s mechanism at its own rows and a leave-two-folds-out mechanism at every other
+        row (:class:`~cleverly.estimators._nuisance.FoldMechanisms`).  The key then takes the
+        fold-wise construction: fold ``k``'s reduced regression trains on its training rows
+        at entry ``k`` and predicts at fold ``k``'s rows, the one ``epsilon`` is solved at
+        each row's own fold, and :func:`_tilt_fold_slab` moves
+        entry ``k`` along fold ``k``'s own covariate.  No row of fold ``k`` then reaches fold
+        ``k``'s regression.  ``None`` is the in-sample loop.
+        """
         n = data.n
         weights = np.asarray(data.weights, dtype=float)
         lower, upper = float(bounds[0]), float(bounds[1])
@@ -1177,15 +1275,22 @@ class AdaptiveIPTW(TMLE):
         fit_mask = indicator > 0.0
         diagnostics: list[SuperLearnerDiagnostics] = []
         constant = False
+        foldwise = fold_mechanism is not None and not nuisance.folds.is_single
+        own = np.asarray(nuisance.folds.assignment) if foldwise else None
+        rows = np.arange(n)
+        # The fold-wise state: each fold's mechanism and regression at every row.  The own-fold
+        # entries are the production arrays, so the score and the estimate read exactly them.
+        slab: FloatArray | None = None
+        slab_regression: FloatArray | None = None
 
         def covariate(regression: FloatArray, g: FloatArray) -> FloatArray:
             return (regression / g)[:, None] * blocks
 
         def fit(design: FloatArray) -> FloatArray:
-            nonlocal constant
+            nonlocal constant, slab_regression
             task = spec.task
             constant_folds: list[int] | None = [] if task == "classification" else None
-            values, _ = _reduced_column(
+            values, at_folds = _reduced_column(
                 learner,
                 design=design,
                 target=target,
@@ -1199,12 +1304,18 @@ class AdaptiveIPTW(TMLE):
                 n_jobs=self.n_jobs,
                 diagnostics=diagnostics,
                 constant_folds=constant_folds,
+                fold_designs=None if slab is None else list(slab),
             )
-            constant = constant or _constant_design(design, fit_mask, data, nuisance.folds)
+            slab_regression = at_folds
+            constant = constant or _constant_design(design, fit_mask, data, nuisance.folds, slab)
             return values
 
         everywhere = _everywhere(n)
         g = np.clip(np.asarray(mechanism, dtype=float), lower, upper)
+        if foldwise:
+            assert fold_mechanism is not None and own is not None
+            slab = np.clip(np.asarray(fold_mechanism, dtype=float), lower, upper)
+            slab[own, rows] = g
         g_initial = g.copy()
         regression = fit(g)
         regression_initial = regression
@@ -1220,6 +1331,21 @@ class AdaptiveIPTW(TMLE):
             fluctuation = solve_bounded_mechanism(indicator, g, h, weights, bounds=(lower, upper))
             g = np.asarray(fluctuation.propensity, dtype=float)
             steps.append(np.asarray(fluctuation.epsilon, dtype=float))
+            if slab is not None:
+                assert slab_regression is not None and own is not None
+                slab = _tilt_fold_slab(
+                    slab,
+                    np.stack(
+                        [
+                            covariate(fold_q, fold_g)
+                            for fold_g, fold_q in zip(slab, slab_regression, strict=True)
+                        ]
+                    ),
+                    np.asarray(fluctuation.epsilon, dtype=float),
+                    bounds=(lower, upper),
+                    assignment=own,
+                    production=g,
+                )
             failure = fluctuation.failure
             regression = fit(g)
             h = covariate(regression, g)
@@ -1302,35 +1428,76 @@ class AdaptiveIPTW(TMLE):
         # this call's bounds, so a retarget at new bounds cannot read a stale one.
         propensity: FloatArray | None = None
         arm_bounds = mean_bounds
+        # The fold-wise construction reads each fold's mechanism at every row (F1 of the X21
+        # run-1 diagnosis).  A fit in sample, or one that kept no fold mechanisms, has none.
+        by_fold = (
+            [nuisance.at_fold(fold) for fold in range(nuisance.folds.n_folds)]
+            if nuisance.fold_mechanisms is not None and not nuisance.folds.is_single
+            else None
+        )
+        fold_propensity: FloatArray | None = None
         if any(spec.arm_weights is not None for spec in specs):
             if route == "composite":
                 state = composite_state(data, nuisance, g_bounds=mean_bounds, nuisance_bound=floor)
                 fit_data = state.data
                 arm_bounds = state.bounds
                 propensity = np.asarray(state.nuisance.propensity.bounded(arm_bounds), dtype=float)
+                if by_fold is not None:
+                    fold_propensity = np.stack(
+                        [
+                            composite_state(
+                                data, each, g_bounds=mean_bounds, nuisance_bound=floor
+                            ).nuisance.propensity.bounded(arm_bounds)
+                            for each in by_fold
+                        ]
+                    )
             else:
                 fit_data = data
                 propensity = np.asarray(nuisance.propensity.bounded(mean_bounds), dtype=float)
+                if by_fold is not None:
+                    fold_propensity = np.stack(
+                        [each.propensity.bounded(mean_bounds) for each in by_fold]
+                    )
         else:
             fit_data = data
         learners = {task: self._reduced_learner(task) for task in {spec.task for spec in specs}}
 
         solved: list[_Solved] = []
+        top = float(np.nextafter(1.0, 0.0))
+        realised = np.asarray(data.treatment, float)
         for spec in specs:
+            fold_mechanism: FloatArray | None = None
             if spec.arm_weights is not None:
                 assert propensity is not None
                 mechanism = np.sum(propensity * spec.arm_weights, axis=1)
+                if fold_propensity is not None:
+                    fold_mechanism = np.sum(fold_propensity * spec.arm_weights[None], axis=2)
                 bounds = arm_bounds
                 source = fit_data
             else:
-                pi = nuisance.missingness_at_realised_arm(np.asarray(data.treatment, float))
+                pi = nuisance.missingness_at_realised_arm(realised)
                 if pi is None:
                     raise RuntimeError("the natural-course key needs the fitted response model")
-                mechanism = np.clip(pi, floor, float(np.nextafter(1.0, 0.0)))
-                bounds = (float(floor), float(np.nextafter(1.0, 0.0)))
+                mechanism = np.clip(pi, floor, top)
+                if by_fold is not None:
+                    fold_pi = [each.missingness_at_realised_arm(realised) for each in by_fold]
+                    if any(each is None for each in fold_pi):
+                        raise RuntimeError(
+                            "the natural-course key needs every fold's response model"
+                        )
+                    fold_mechanism = np.clip(np.stack(fold_pi), floor, top)  # type: ignore[arg-type]
+                bounds = (float(floor), top)
                 source = data
             solved.append(
-                self._solve_key(source, nuisance, spec, mechanism, bounds, learners[spec.task])
+                self._solve_key(
+                    source,
+                    nuisance,
+                    spec,
+                    mechanism,
+                    bounds,
+                    learners[spec.task],
+                    fold_mechanism=fold_mechanism,
+                )
             )
 
         self._warn_on_cap(solved)
@@ -1383,6 +1550,12 @@ class AdaptiveIPTW(TMLE):
         leave ``(0, 1)``. An explicit request for ``rr``, ``or`` or ``paf`` raises
         :class:`~cleverly.exceptions.DataError`. A default or ``"all"`` list drops the target
         and warns, so a default fit on a small sample still returns its arm means.
+
+        The boundary test has a margin of ``tol`` times the summed score scale of the owner's
+        keys. For an arm whose observed outcomes are all 1, the reduced regression is 1 and the
+        targeted score is ``P_n[I / g*] - 1``, which is the arm mean minus 1. The loop stops
+        when that score is at most ``tol`` times its scale, so the fit does not resolve the mean
+        closer than the margin to the boundary. Without the margin, rounding decides the rule.
         """
         guarded = [name for name in requested if parameter_stem(name) in _RANGE_STEMS]
         if not guarded or data.family != "binomial" or regimes is not None:
@@ -1390,6 +1563,10 @@ class AdaptiveIPTW(TMLE):
         weights = np.asarray(data.weights, dtype=float)
         means = _owner_values(solved, self.form, weights, None)
         labels = {item.spec.owner: item.spec.owner_name for item in solved}
+        margins: dict[float | None, float] = {}
+        for item in solved:
+            owner = item.spec.owner
+            margins[owner] = margins.get(owner, 0.0) + self.tol * float(np.sum(item.scale))
         failures: dict[str, str] = {}
         for name in guarded:
             stem = parameter_stem(name)
@@ -1399,12 +1576,14 @@ class AdaptiveIPTW(TMLE):
                     continue
                 if stem == "paf" and owner is not None and owner != self._reference_arm(data):
                     continue
-                inside = psi > 0.0 if domain == "positive" else 0.0 < psi < 1.0
+                margin = margins[owner]
+                inside = psi > margin if domain == "positive" else margin < psi < 1.0 - margin
                 if not inside:
                     owner_label = NATURAL_COURSE_KEY if owner is None else labels[owner]
                     where = "which is not positive" if domain == "positive" else "outside (0, 1)"
                     failures[name] = (
-                        f"AdaptiveIPTW estimated E[Y({owner_label})] = {psi:.6g}, {where}. "
+                        f"AdaptiveIPTW estimated E[Y({owner_label})] = {psi:.12g}, {where} "
+                        f"at the fit's resolution of {margin:.2g} (tol times the score scale). "
                         "A Horvitz-Thompson mean is not confined to the outcome's range, so "
                         f"{name} is undefined on this sample. Request ate and the arm means, "
                         "or use TMLE, whose substitution means stay in (0, 1)"
@@ -1413,8 +1592,9 @@ class AdaptiveIPTW(TMLE):
         if not failures:
             return requested
         # Only the default report and ``"all"`` drop a target that is undefined on the
-        # sample. A call that names the target, including a ``retarget`` to other names,
-        # raises, so a report never silently omits a name the caller asked for.
+        # sample. A call whose names differ from the default list raises, so a report never
+        # silently omits a name the caller asked for. A ``retarget`` that names exactly the
+        # default list is treated as the default and drops with the warning.
         defaulted = (self.estimands is None or self.estimands == "all") and tuple(
             requested
         ) == self._resolved_names(data, refuse_outside=False)
@@ -1721,14 +1901,24 @@ def _is_classifier(learner: Any) -> bool:
         return False
 
 
-def _constant_design(design: FloatArray, mask: BoolArray, data: CausalData, folds: Folds) -> bool:
-    """Whether the design is one value on the fit rows of the sample or of a training fold."""
+def _constant_design(
+    design: FloatArray,
+    mask: BoolArray,
+    data: CausalData,
+    folds: Folds,
+    fold_designs: FloatArray | None = None,
+) -> bool:
+    """Whether the design is one value on the fit rows of the sample or of a training fold.
+
+    With ``fold_designs``, the ``(K, n)`` fold-wise slab, training fold ``k`` reads entry ``k``.
+    """
     values = np.asarray(design, dtype=float)
     if folds.is_single:
         rows = np.flatnonzero(mask)
         return bool(rows.size and np.all(values[rows] == values[rows][0]))
-    for train, _ in folds:
+    for index, (train, _) in enumerate(folds):
         rows = train[mask[train]]
-        if rows.size and np.all(values[rows] == values[rows][0]):
+        here = values if fold_designs is None else np.asarray(fold_designs[index], dtype=float)
+        if rows.size and np.all(here[rows] == here[rows][0]):
             return True
     return False

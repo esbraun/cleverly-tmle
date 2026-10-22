@@ -30,8 +30,9 @@ method comes with a capability reason.
 `AdaptiveIPTWMethod` selects the adaptive-propensity IPTW estimator for a point-treatment
 functional. It fits no outcome regression. Its `reduced_outcome_learner` fits the regression of
 the outcome on the fitted propensity, and it falls back to `models.outcome_learner`. The estimator
-reports a point estimate for every supported fit. It reports a standard error, an interval and a
-p-value only when the treatment probabilities are declared and the data are complete.
+reports a point estimate for every supported fit. The arm means and the targets built from them
+report a standard error, an interval and a p-value only when the treatment probabilities are
+declared and the data are complete.
 [Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract and the
 reason.
 
