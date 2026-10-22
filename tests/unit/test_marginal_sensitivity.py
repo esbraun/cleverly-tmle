@@ -629,7 +629,7 @@ def test_a_collaborative_fit_is_refused() -> None:
         .fit(binary_frame(), outcome="Y", treatment="A", covariates=["W1", "W2"])
         .single()
     )
-    refused_with(fit, "implementation_gap", "X87")
+    refused_with(fit, "implementation_gap", "X82")
 
 
 def test_a_multi_arm_fit_is_refused() -> None:
@@ -637,12 +637,12 @@ def test_a_multi_arm_fit_is_refused() -> None:
     rng = np.random.default_rng(2)
     frame = frame.assign(A=rng.integers(0, 3, size=len(frame)))
     fit = binary_fit(frame)
-    refused_with(fit, "implementation_gap", "X87")
+    refused_with(fit, "implementation_gap", "X82")
 
 
 def test_a_weighted_fit_is_refused() -> None:
     frame = gaussian_frame().assign(wt=np.linspace(0.5, 1.5, 400))
-    refused_with(gaussian_fit(frame, weights="wt"), "implementation_gap", "X87")
+    refused_with(gaussian_fit(frame, weights="wt"), "implementation_gap", "X82")
 
 
 def test_a_fit_without_influence_curve_inference_is_refused() -> None:
@@ -654,7 +654,7 @@ def test_a_fit_without_influence_curve_inference_is_refused() -> None:
     refused_with(fit, "inference_gap", refusal.roadmap)
 
 
-@pytest.mark.parametrize(("family", "owner"), [("longitudinal", "X87"), ("structural", "X87")])
+@pytest.mark.parametrize(("family", "owner"), [("longitudinal", "F16"), ("structural", None)])
 def test_other_families_are_refused(family: str, owner: str) -> None:
     class Stub:
         assessment_family = family
@@ -665,3 +665,4 @@ def test_other_families_are_refused(family: str, owner: str) -> None:
 
 def test_the_module_names_one_owner() -> None:
     assert marginal_module._OWNER == "X87"
+    assert marginal_module._PART_H2 == "X82"

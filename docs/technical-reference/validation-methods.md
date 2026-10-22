@@ -766,6 +766,7 @@ movement, which is additive for a difference and logarithmic for a ratio.
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
 | simulated common cause | no unmeasured confounding | estimate displacement across a declared strength grid, on the additive scale or the log scale | a supported latent perturbation family and plausible declared strengths |
 | E-value | no unmeasured confounding | the equal-strength threshold for treatment and outcome confounder associations that explains away the effect | a risk-ratio scale |
+| marginal sensitivity model bounds | no unmeasured confounding | bounds on the arm means and the ATE when `U` moves the odds of treatment by at most $\Gamma$ | Tan's model on the treatment odds |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
 
@@ -2169,6 +2170,108 @@ The registry has no `evalue_limit` row, so each of these limits prints as descri
 `EValue.limit_reading` holds the resolution, and `EValue.limit_descriptive` is true. A `DRTMLE`
 fit with an estimated mechanism also states that its remainder is linear in the mechanism error.
 A registered coverage study adds one row for the configuration it measured.
+
+### Marginal sensitivity model bounds
+
+**How.** [`sensitivity/marginal.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/marginal.py)
+bounds the arm means and the ATE of a two-arm fit under the marginal sensitivity model of Tan
+(2006, Section 4.2, eq. (9)). The parameter $\Gamma \ge 1$ bounds the factor by which an
+unobserved $U$ moves the odds of treatment, given $W$:
+
+$$
+\Gamma^{-1} \le \frac{P(A = 1 \mid W, U) / P(A = 0 \mid W, U)}{e(W) / (1 - e(W))} \le \Gamma .
+$$
+
+$\Gamma = 1$ is no unmeasured confounding. Call `result.sensitivity.marginal_bounds(gamma=...)` or
+`cleverly.sensitivity.marginal_sensitivity_bounds(result, gamma=...)`.
+
+| term | definition |
+| --- | --- |
+| $\tau$ | $\Gamma / (1 + \Gamma)$ for an upper bound, $1 / (1 + \Gamma)$ for a lower bound |
+| $q(W)$ | the $\tau$-quantile of $Y$ given $A = 1$ and $W$ |
+| $\varphi_\Gamma(u)$ | $\Gamma u_+ - \Gamma^{-1} u_-$ |
+| $R(q)$ | $q + \varphi_\Gamma(Y - q)$ |
+| $\rho(W)$ | $E[R(q) \mid A = 1, W]$, the largest value of $E[Y(1) \mid A = 0, W]$ that the model allows |
+
+The model allows $E[Y(1) \mid A = 0, W] = E[wY \mid A = 1, W]$ for any weight $w$ in
+$[\Gamma^{-1}, \Gamma]$ with conditional mean one. The largest such value is a linear program.
+Its dual is $\min_q \, q + E[\varphi_\Gamma(Y - q) \mid A = 1, W]$, and the $\tau$-quantile solves
+it.
+
+Any other $q$ gives a larger value, so it gives a valid bound that is not sharp. These
+statements hold for a continuous and for a binary outcome. The upper bound of $E[Y(1)]$ is
+$E[AY + (1 - A)\rho(W)]$. The lower bound applies the same step to $-Y$. Arm 0 exchanges the arms.
+
+| quantity | value |
+| --- | --- |
+| upper bound of the ATE | upper bound of $E[Y(1)]$ minus lower bound of $E[Y(0)]$ |
+| lower bound of the ATE | lower bound of $E[Y(1)]$ minus upper bound of $E[Y(0)]$ |
+| bounds at $\Gamma = 1$ | the cross-fitted AIPW estimate |
+
+The arm-mean bounds are sharp. The ATE set is the componentwise difference, and this page makes
+no sharpness claim for it.
+
+**Estimator.** The bound is the cross-fitted mean of
+$AY + (1 - A)\hat\rho(W) + A\,\frac{1 - \hat e(W)}{\hat e(W)}\bigl(R(\hat q) - \hat\rho(W)\bigr)$.
+
+| nuisance | continuous outcome | binary outcome |
+| --- | --- | --- |
+| $\hat e$ | the fit's out-of-fold propensity, bounded at its `g_bounds` | the same |
+| $\hat q$ | a quantile regression on $W$ among the arm, cross-fitted on the fit's folds | $1\{\hat\mu > 1 - \tau\}$ |
+| $\hat\rho$ | $\hat\mu / \Gamma + (1 - 1/\Gamma)\,\hat c$. $\hat\mu$ is the fit's out-of-fold outcome regression, and $\hat c$ regresses $q + (Y - q)_+ / (1 - \tau)$ on $W$ | $\min(\Gamma\hat\mu, 1 - (1 - \hat\mu)/\Gamma)$ |
+
+For each predicted fold, the quantile trains on one half of the other folds, and the tail
+regression trains on the other half. So no training pseudo-outcome reads a quantile fitted on
+its own row. The authors' code uses the same split (`DVDS.R`, `semiadaptive = FALSE`). The
+default quantile learner selects a linear quantile regression or a shallow boosted quantile
+regression by out-of-fold pinball loss. The default tail learner selects a linear regression or
+a shallow booster by out-of-fold squared loss. `quantile_learner=` and `pseudo_outcome_learner=`
+replace them. A fit with fewer than three folds gets its own five-fold split for these regressions.
+
+| property | condition |
+| --- | --- |
+| valid bound | $\hat e$ is consistent, or both $\hat\mu$ and $\hat c$ are consistent |
+| sharp bound | also, $\hat q$ converges to the quantile. For a binary outcome, $\hat\mu$ puts little mass near $1 - \tau$ (a margin condition) |
+| second-order quantile error | the outcome is continuous at the quantile, so the derivative of $E[R(q) \mid A = 1, W]$ in $q$ is zero there |
+
+The formulas match the authors' replication code for Dorn, Guo and Kallus,
+[`CausalML/DoublyValidDoublySharpSensitivity`](https://github.com/CausalML/DoublyValidDoublySharpSensitivity)
+at `26cbbf6e`, `simplified_dvds.R` (`phi.continuous`, `dvds.binary`). This page cites no theorem
+of that paper, because the published version was not read.
+
+**Interval.** The set interval is $[\text{lower} - z\,\text{se}_-, \text{upper} + z\,\text{se}_+]$
+with $z = \Phi^{-1}(1 - (1 - \text{level})/2)$. By the union bound it covers the identified set
+with asymptotic probability at least `level`. Each standard error is the variance of the side's
+influence curve, summed within clusters on a clustered fit. A fit with `repeats > 1` applies the
+median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
+narrower and is not shipped.
+
+**Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain zero.
+`limit_breakdown` reads the set interval. An arm mean has no null, so both are `None`.
+
+**Scope.**
+
+| fit | result |
+| --- | --- |
+| `TMLE` (CV-TMLE included) or `DRTMLE`, two arms, Gaussian or binary outcome | ships; clusters and repeats are supported |
+| more than two arms, weights, strata, missing outcomes, `CTMLE`, `AdaptiveIPTW` | `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part H2 |
+| a controlled direct effect, a missing treatment | `implementation_gap`, [X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| a longitudinal fit | `implementation_gap`, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
+| a continuous treatment, a policy, a regime, an MSM, a structural nested mean model | `different_estimand` |
+| a fit whose estimate has no influence-curve inference | `inference_gap` |
+
+**Evidence.** `tests/unit/test_marginal_sensitivity.py` solves the linear program on a finite law
+with `scipy.optimize.linprog`. On the same law, rows in exact proportion to the probabilities make
+the estimator's mean equal to the population value. The binary branch and the continuous branch,
+with oracle nuisances, each reproduce the sharp bound to `rtol=1e-12`. Mutation controls move the
+quantile to the other side, change the correction weight to $1/\hat e$, and replace both
+nuisances. Each moves the value off the sharp bound. At $\Gamma = 1$ the bounds equal an
+independent AIPW computation.
+
+**Confidence limits.** The limits resolve through the evidence registry with the instrument
+`msm_bound_limit`. The rule is `continuous` or `binary`, with `+clustered` on a clustered fit. The
+registry has no `msm_bound_limit` row, so the limits print as descriptive until study SH
+registers its coverage cells.
 
 ### Missingness tilt and tipping gamma
 

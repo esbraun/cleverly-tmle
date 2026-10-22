@@ -41,8 +41,9 @@ of :math:`E[R(q) \mid A = 1, W]` in :math:`q` vanishes at the quantile of a cont
 outcome, so the quantile error enters at second order.  :math:`\hat\rho` is
 :math:`\hat\mu / \Gamma + (1 - 1/\Gamma)\hat c` with :math:`\hat\mu` the fit's out-of-fold
 outcome regression and :math:`\hat c` a regression of the tail pseudo-outcome
-:math:`q + (Y - q)_+ / (1 - \tau)`.  The pseudo-outcome of each training row reads a quantile
-fitted without that row's fold, so an overfitted quantile cannot bias it.  On a binary
+:math:`q + (Y - q)_+ / (1 - \tau)`.  For each predicted fold, the quantile trains on one
+half of the other folds and the tail regression on the other half, as the authors' code
+does, so an overfitted quantile cannot bias a training pseudo-outcome.  On a binary
 outcome both nuisances are closed forms of :math:`\hat\mu`:
 :math:`\hat q = 1\{\hat\mu > 1 - \tau\}` and
 :math:`\hat\rho^+ = \min(\Gamma\hat\mu, 1 - (1 - \hat\mu)/\Gamma)`.  These are the formulas of
@@ -93,11 +94,17 @@ FloatArray = np.ndarray
 #: ``"continuous"`` or ``"binary"``, with ``"+clustered"`` on a clustered fit.
 MSM_BOUND_INSTRUMENT = "msm_bound_limit"
 
+#: The default grid of the sensitivity parameter.
+DEFAULT_GAMMA_GRID = (1.0, 1.5, 2.0)
+
 #: The fold count of the bound's own split when the fit was not cross-fitted.
 _IN_SAMPLE_FOLDS = 5
 
-#: The roadmap row of the compositions part H refuses.
+#: The roadmap row of the compositions with no known calculation.
 _OWNER = "X87"
+
+#: The roadmap row of the compositions X82 part H2 adds.
+_PART_H2 = "X82"
 
 #: The fitted methods whose stored mechanism estimates ``P(A | W)``.
 _FULL_MECHANISM_METHODS = frozenset({"tmle", "drtmle"})
@@ -245,10 +252,19 @@ class MarginalSensitivityBounds:
 # Refusals
 
 
-def _gap(condition: str) -> Refusal:
+def _gap(condition: str, roadmap: str = _OWNER) -> Refusal:
     return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP, condition, alternative=NO_ALTERNATIVE, roadmap=_OWNER
+        RefusalReason.IMPLEMENTATION_GAP, condition, alternative=NO_ALTERNATIVE, roadmap=roadmap
     )
+
+
+#: The refusal on a structural nested mean model fit.
+STRUCTURAL_REFUSAL = Refusal(
+    RefusalReason.DIFFERENT_ESTIMAND,
+    "the marginal sensitivity model bounds an arm mean of a point treatment. A structural "
+    "nested mean model reports a blip parameter, which is a different functional.",
+    alternative=NO_ALTERNATIVE,
+)
 
 
 def marginal_bound_refusal(result: Any) -> Refusal | None:
@@ -270,15 +286,13 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
     family = getattr(result, "assessment_family", "point")
     if family == "longitudinal":
         return _gap(
-            "the marginal sensitivity model bounds are derived for a point treatment. A "
-            "longitudinal analogue gives population bounds only (Tan 2025), with no sample "
-            "estimator."
+            "the marginal sensitivity model bounds are derived for a point treatment. The "
+            "longitudinal analogue of Tan (2025) gives population bounds only, with no sample "
+            "estimator.",
+            "F16",
         )
     if family == "structural":
-        return _gap(
-            "the marginal sensitivity model bounds are derived for an arm mean of a point "
-            "treatment, not for a structural nested mean model."
-        )
+        return STRUCTURAL_REFUSAL
     data = result.data
     config = result.config
     if getattr(config, "continuous_treatment", False) or getattr(data, "policies", None):
@@ -299,7 +313,8 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
     if method not in _FULL_MECHANISM_METHODS:
         return _gap(
             f"a {method} fit stores a selected or targeted treatment mechanism, and the bound "
-            "divides by an estimate of P(A | W). A refit of the full mechanism is the step."
+            "divides by an estimate of P(A | W). A refit of the full mechanism is the step.",
+            _PART_H2,
         )
     if getattr(data, "intermediate", None) is not None:
         return _gap(
@@ -312,13 +327,15 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             "observation, which no read source defines."
         )
     if bool(np.any(~np.asarray(data.observed, dtype=bool))):
-        return _gap("the bounds on a fit with missing outcomes are not implemented yet.")
+        return _gap("the bounds on a fit with missing outcomes are not implemented yet.", _PART_H2)
     if not data.is_binary_treatment:
-        return _gap("the bounds on a treatment with more than two arms are not implemented yet.")
+        return _gap(
+            "the bounds on a treatment with more than two arms are not implemented yet.", _PART_H2
+        )
     if data.weights_name is not None:
-        return _gap("the bounds on a weighted fit are not implemented yet.")
+        return _gap("the bounds on a weighted fit are not implemented yet.", _PART_H2)
     if getattr(data, "strata", None) is not None:
-        return _gap("the stratum-conditional bounds are not implemented yet.")
+        return _gap("the stratum-conditional bounds are not implemented yet.", _PART_H2)
     if data.family not in ("gaussian", "binomial"):
         return Refusal(
             RefusalReason.DIFFERENT_ESTIMAND,
@@ -390,43 +407,6 @@ def _pinball(y: FloatArray, q: FloatArray, tau: float) -> float:
     return float(np.mean(np.maximum(tau * u, (tau - 1.0) * u)))
 
 
-def _fit_predict(learner: Any, x: FloatArray, y: FloatArray, train: Any, test: Any) -> FloatArray:
-    model = clone(learner).fit(x[train], y[train])
-    return np.asarray(model.predict(x[test]), dtype=float)
-
-
-def _out_of_fold(
-    learner: Any, x: FloatArray, y: FloatArray, rows: Any, assignment: Any, n_folds: int
-) -> FloatArray:
-    """Predictions on every row from a fit on ``rows`` outside the row's fold."""
-    out = np.empty(x.shape[0], dtype=float)
-    for k in range(n_folds):
-        test = assignment == k
-        out[test] = _fit_predict(learner, x, y, rows & ~test, test)
-    return out
-
-
-def _select(
-    candidates: dict[str, Any],
-    x: FloatArray,
-    y: FloatArray,
-    rows: Any,
-    assignment: Any,
-    n_folds: int,
-    loss: Callable[[FloatArray, FloatArray], float],
-) -> tuple[str, Any, FloatArray]:
-    """The candidate with the lower out-of-fold loss on ``rows``, and its predictions."""
-    best: tuple[str, Any, FloatArray] | None = None
-    best_risk = np.inf
-    for name, learner in candidates.items():
-        predictions = _out_of_fold(learner, x, y, rows, assignment, n_folds)
-        risk = loss(y[rows], predictions[rows])
-        if risk < best_risk:
-            best, best_risk = (name, learner, predictions), risk
-    assert best is not None
-    return best
-
-
 # ---------------------------------------------------------------------------------------
 # One side of one arm
 
@@ -485,55 +465,61 @@ def _continuous_side(
         return _Side(sign * value, sign * (summand - value))
     tau = gamma / (1.0 + gamma)
     rows = treated > 0.5
-    if quantile_learner is None:
-        q_candidates = _default_quantile_candidates(tau, seed)
-    else:
-        q_candidates = {"quantile_learner": quantile_learner(tau)}
-    q_name, q_model, q_hat = _select(
-        q_candidates,
-        x,
-        y_s,
-        rows,
-        assignment,
-        n_folds,
-        lambda target, fitted: _pinball(target, fitted, tau),
-    )
+    n = y.shape[0]
 
     def tail(q: FloatArray, target: FloatArray) -> FloatArray:
         return q + np.maximum(target - q, 0.0) / (1.0 - tau)
 
-    # The training pseudo-outcome of fold j, for the fit that predicts fold k, reads a
-    # quantile fitted outside {j, k}: no training row's pseudo-outcome sees its own quantile.
+    # For fold k the other folds split by parity of their order: the quantile trains on
+    # one half and the tail regression on the other, so no training pseudo-outcome reads a
+    # quantile fitted on its own row. This is the split of the authors' code
+    # (``DVDS.R``, ``semiadaptive = FALSE``).
+    halves = []
+    for k in range(n_folds):
+        others = assignment[assignment != k]
+        order = np.where(others > k, others - 1, others)
+        first = np.zeros(n, dtype=bool)
+        first[assignment != k] = order % 2 == 0
+        second = (assignment != k) & ~first
+        halves.append((assignment == k, first, second))
+
+    if quantile_learner is None:
+        q_candidates = _default_quantile_candidates(tau, seed)
+    else:
+        q_candidates = {"quantile_learner": quantile_learner(tau)}
+    q_name: str | None = None
+    q_hat = np.empty(n, dtype=float)
+    q_second: list[FloatArray] = []
+    best_risk = np.inf
+    for name, learner in q_candidates.items():
+        held_out = np.empty(n, dtype=float)
+        on_second: list[FloatArray] = []
+        for test, first, second in halves:
+            model = clone(learner).fit(x[rows & first], y_s[rows & first])
+            held_out[test] = model.predict(x[test])
+            on_second.append(np.asarray(model.predict(x[rows & second]), dtype=float))
+        risk = _pinball(y_s[rows], held_out[rows], tau)
+        if risk < best_risk:
+            q_name, q_hat, q_second, best_risk = name, held_out, on_second, risk
+
     c_candidates = (
         _default_mean_candidates(seed)
         if pseudo_outcome_learner is None
         else {"pseudo_outcome_learner": pseudo_outcome_learner}
     )
-    nested: dict[int, FloatArray] = {}
-    for k in range(n_folds):
-        pseudo = np.full(y.shape[0], np.nan)
-        for j in range(n_folds):
-            if j == k:
-                continue
-            fold_j = assignment == j
-            train = rows & (assignment != k) & ~fold_j
-            pseudo[fold_j] = tail(_fit_predict(q_model, x, y_s, train, fold_j), y_s[fold_j])
-        nested[k] = pseudo
     c_name: str | None = None
-    c_hat = np.empty(y.shape[0], dtype=float)
+    c_hat = np.empty(n, dtype=float)
     best_risk = np.inf
     for name, learner in c_candidates.items():
-        predictions = np.empty(y.shape[0], dtype=float)
-        risk_terms: list[FloatArray] = []
-        for k in range(n_folds):
-            test = assignment == k
-            train = rows & ~test
-            predictions[test] = _fit_predict(learner, x, nested[k], train, test)
-            # The held-out loss reads fold k's pseudo-outcome from a quantile fitted
-            # outside fold k, as the evaluation does.
-            held = rows & test
-            risk_terms.append((tail(q_hat[held], y_s[held]) - predictions[held]) ** 2)
-        risk = float(np.mean(np.concatenate(risk_terms)))
+        predictions = np.empty(n, dtype=float)
+        for (test, _first, second), q_on_second in zip(halves, q_second, strict=True):
+            train = rows & second
+            target = tail(q_on_second, y_s[train])
+            model = clone(learner).fit(x[train], target)
+            predictions[test] = model.predict(x[test])
+        # The held-out loss reads each row's pseudo-outcome from the quantile fitted
+        # without its fold, as the evaluation does.
+        risk = float(np.mean((tail(q_hat[rows], y_s[rows]) - predictions[rows]) ** 2))
         if risk < best_risk:
             c_name, c_hat, best_risk = name, predictions, risk
     rho = mu_s / gamma + (1.0 - 1.0 / gamma) * c_hat
@@ -585,7 +571,9 @@ def _draw_sides(
     nuisance = repeat.nuisance
     folds = nuisance.folds
     seed = int(repeat.seed) if repeat.seed is not None else 0
-    if folds.n_folds < 2:
+    if folds.n_folds < 3:
+        # The quantile and the tail regression each train on one half of the folds outside
+        # the predicted fold, which needs at least three folds.
         from ..learners.crossfit import make_folds
 
         folds = make_folds(
@@ -649,9 +637,9 @@ def _limit_reading(result: TMLEResult, outcome_kind: str, estimand: str) -> Reso
 
 def marginal_sensitivity_bounds(
     result: TMLEResult,
-    gamma: float | Sequence[float],
+    gamma: float | Sequence[float] = DEFAULT_GAMMA_GRID,
     *,
-    estimand: str = "ate",
+    estimand: str | None = None,
     level: float = 0.95,
     quantile_learner: QuantileFactory | None = None,
     pseudo_outcome_learner: Any = None,
@@ -662,11 +650,12 @@ def marginal_sensitivity_bounds(
     ----------
     result : TMLEResult
         A fitted two-arm ``TMLE`` or ``DRTMLE`` result with a Gaussian or binary outcome.
-    gamma : float or sequence of float
+    gamma : float or sequence of float, default=DEFAULT_GAMMA_GRID
         The sensitivity parameter :math:`\\Gamma \\ge 1` (Tan's :math:`\\Lambda`), or a grid.
         :math:`\\Gamma = 1` reproduces the cross-fitted AIPW estimate.
-    estimand : str, default="ate"
-        ``"ate"`` or an arm mean such as ``"ey1"``.
+    estimand : str or None, default=None
+        ``"ate"`` or an arm mean such as ``"ey1"``. ``None`` bounds the ATE, which every
+        two-arm fit defines, whatever estimands the fit reported.
     level : float, default=0.95
         The coverage level of the set interval.
     quantile_learner : callable, optional
@@ -723,6 +712,7 @@ def marginal_sensitivity_bounds(
     if not 0.0 < level < 1.0:
         raise ValueError(f"level must lie in (0, 1); got {level!r}")
     grid = _gammas(gamma)
+    estimand = "ate" if estimand is None else estimand
     arm, versus = _estimand_arms(result, estimand)
     cluster = result.data.cluster
     z = float(norm.ppf(1.0 - (1.0 - level) / 2.0))

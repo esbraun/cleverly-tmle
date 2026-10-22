@@ -1774,7 +1774,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     )
     assert list(sections) == ["Returned results", "Checks", "Not run"]
 
-    assert len(battery.to_frame()) == 15
+    assert len(battery.to_frame()) == 16
     assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
     assert "poorly calibrated" not in text
     assert "not run by default because it retargets the fit" not in text
