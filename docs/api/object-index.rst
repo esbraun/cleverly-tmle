@@ -144,6 +144,8 @@ categorized API tables.
    cleverly.assessment.SensitivityFacade
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
+   cleverly.sensitivity.MarginalSensitivityBounds
+   cleverly.sensitivity.MarginalSensitivityRow
    cleverly.sensitivity.SensitivityElements
    cleverly.sensitivity.BenchmarkResult
    cleverly.sensitivity.ConfounderStrengthGrid
@@ -159,6 +161,7 @@ categorized API tables.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
+   cleverly.sensitivity.marginal_sensitivity_bounds
    cleverly.sensitivity.simulated_confounding
    cleverly.assessment.DiagnosticsFacade
    cleverly.validation.ScoreCheck

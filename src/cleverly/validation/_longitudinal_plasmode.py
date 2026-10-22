@@ -8,9 +8,10 @@ column whose values are 0 and 1, and Gaussian linear for any other column. The t
 the fit's ``g`` bounds, and the censoring after node ``t`` from a logistic model on
 ``(W, L_1, ..., L_t, A_1, ..., A_t)``. Each model is fitted on the units present at the node.
 The outcome is a declared Gaussian process that reads ``W``, the treatments and, through
-``history_effect``, the time-varying columns. On a survival or competing-risk fit, a declared
-hazard draws the event at each node after the censoring, and reads the history through its own
-``history_effect``.
+``history_effect``, the time-varying columns. A repeated outcome draws ``Y_t`` at every node,
+and that draw is the copy that opens the history of node ``t + 1``. On a survival or
+competing-risk fit, a declared hazard draws the event at each node after the censoring, and
+reads the history through its own ``history_effect``.
 
 The truth is the sequential g-formula of that law under the declared regimen, with no
 censoring. When every time-varying column is binary and the branches number at most
@@ -87,6 +88,14 @@ class _Linear:
         return np.asarray(design @ self.coef + self.intercept, dtype=float)
 
 
+@dataclass(frozen=True)
+class _OutcomeCopy:
+    """The copy of ``Y_{t-1}`` that opens the block of node ``t`` of a repeated outcome."""
+
+
+_Covariate = _Logistic | _Linear | _OutcomeCopy
+
+
 def _binary(values: np.ndarray) -> bool:
     finite = values[np.isfinite(values)]
     return bool(finite.size) and bool(np.all((finite == 0.0) | (finite == 1.0)))
@@ -120,7 +129,7 @@ class LongitudinalPlasmodeLaw:
     """
 
     support: Any
-    covariates: tuple[tuple[_Logistic | _Linear, ...], ...]
+    covariates: tuple[tuple[_Covariate, ...], ...]
     mechanisms: tuple[_Logistic, ...]
     censoring: tuple[_Logistic | None, ...]
     lower: float
@@ -149,7 +158,8 @@ class LongitudinalPlasmodeLaw:
         blocks = [np.asarray(block, dtype=float) for block in data.time_varying]
         treatment = np.asarray(data.treatment, dtype=float)
         uncensored = np.asarray(data.uncensored, dtype=bool)
-        covariates: list[tuple[_Logistic | _Linear, ...]] = []
+        covariates: list[tuple[_Covariate, ...]] = []
+        repeated = tuple(data.repeated_names)
         mechanisms: list[_Logistic] = []
         censoring: list[_Logistic | None] = []
         for node in range(nodes):
@@ -157,8 +167,13 @@ class LongitudinalPlasmodeLaw:
             rows = ~np.isnan(treatment[:, node])
             earlier = [baseline[rows], *(block[rows] for block in blocks[:node])]
             earlier.append(treatment[rows, :node])
-            models: list[_Logistic | _Linear] = []
+            models: list[_Covariate] = []
             for column in range(blocks[node].shape[1]):
+                names = data.time_varying_names[node]
+                if repeated and node and names[column] == repeated[node - 1]:
+                    # The drawn outcome of the previous node, not a frozen model.
+                    models.append(_OutcomeCopy())
+                    continue
                 design = np.column_stack([*earlier, blocks[node][rows, :column]])
                 values = blocks[node][rows, column]
                 if _binary(values):
@@ -217,9 +232,9 @@ class LongitudinalPlasmodeLaw:
         rows : ndarray
             The support row of each history.
         blocks : list of ndarray
-            The time-varying columns of each history, one block per node.
+            The time-varying columns of each history, one block per node through ``t``.
         treatment : ndarray
-            ``(m, T)`` treatment codes of each history.
+            ``(m, t)`` treatment codes of each history through node ``t``.
 
         Returns
         -------
@@ -233,10 +248,14 @@ class LongitudinalPlasmodeLaw:
         mean += process.adjustment(baseline, centre=self.centre, scale=self.scale)
         mean += float(process.effect) * np.sum(treatment, axis=1)
         history_effect = float(getattr(process, "history_effect", 0.0))
-        if history_effect and self.history_centre.size:
-            flat = np.column_stack(blocks)
+        columns = sum(block.shape[1] for block in blocks)
+        if history_effect and columns:
+            # A repeated outcome at node t reads the columns of nodes 1 to t.
             mean += standardized_sum(
-                flat, history_effect, centre=self.history_centre, scale=self.history_scale
+                np.column_stack(blocks),
+                history_effect,
+                centre=self.history_centre[:columns],
+                scale=self.history_scale[:columns],
             )
         return mean
 
@@ -301,10 +320,12 @@ class LongitudinalPlasmodeLaw:
         hits = np.zeros((rows.size, nodes), dtype=int)
         survival = bool(data.is_survival)
         causes = int(process.causes) if survival else 0
+        outcomes = np.zeros((rows.size, nodes))
         baseline = np.asarray(data.baseline, dtype=float)[rows]
         # Every unit draws a whole history; the exits mask it afterwards.
         for node in range(nodes):
-            block = self._draw_block(node, baseline, blocks, treatment[:, :node], rng)
+            previous = outcomes[:, node - 1] if node else None
+            block = self._draw_block(node, baseline, blocks, treatment[:, :node], rng, previous)
             blocks.append(block)
             history = np.column_stack([baseline, *blocks, treatment[:, :node]])
             propensity = self._propensity(node, history)
@@ -320,21 +341,25 @@ class LongitudinalPlasmodeLaw:
                 )
                 edges = np.cumsum(probabilities, axis=1)
                 hits[:, node] = np.sum(rng.random(rows.size)[:, None] >= edges, axis=1)
+            elif data.repeated is not None or node == nodes - 1:
+                mean = self.outcome_mean(process, rows, blocks, treatment[:, : node + 1])
+                noise = process.noise.draw(rng, rows.size) - float(process.noise.mean)
+                outcomes[:, node] = mean + noise
         base = replace(data.subset(rows), time_varying=tuple(blocks), treatment=treatment)
         kept = np.logical_and.accumulate(stays, axis=1)
         if survival:
             return _with_drawn_events(base, kept, hits, causes)
-        mean = self.outcome_mean(process, rows, blocks, treatment)
-        outcome = mean + process.noise.draw(rng, rows.size) - float(process.noise.mean)
         # A unit censored before a node holds no covariate or treatment there.
         reached = np.column_stack([np.ones(rows.size, dtype=bool), kept[:, :-1]])
         held = [np.where(reached[:, [node]], block, np.nan) for node, block in enumerate(blocks)]
+        observed = np.where(kept, outcomes, np.nan)
         return replace(
             base,
             time_varying=tuple(held),
             treatment=np.where(reached, treatment, np.nan),
             uncensored=kept,
-            outcome=np.where(kept[:, -1], outcome, np.nan),
+            outcome=observed[:, -1],
+            repeated=None if data.repeated is None else observed,
         )
 
     def _draw_block(
@@ -344,9 +369,13 @@ class LongitudinalPlasmodeLaw:
         blocks: list[np.ndarray],
         treatment: np.ndarray,
         rng: np.random.Generator,
+        previous: np.ndarray | None = None,
     ) -> np.ndarray:
         columns: list[np.ndarray] = []
         for model in self.covariates[node]:
+            if isinstance(model, _OutcomeCopy):
+                columns.append(np.asarray(previous, dtype=float))
+                continue
             design = np.column_stack([baseline, *blocks, treatment, *columns])
             if isinstance(model, _Logistic):
                 columns.append((rng.random(baseline.shape[0]) < model.probability(design)) * 1.0)
@@ -406,6 +435,8 @@ class LongitudinalPlasmodeLaw:
         # probability and its risk of the cause so far.
         alive = np.ones(rows.size)
         risk = np.zeros(rows.size)
+        # A repeated outcome's draw at node t opens the history of node t + 1.
+        previous = np.zeros(rows.size)
         baseline = np.asarray(data.baseline, dtype=float)
         blocks: list[np.ndarray] = []
         treatment = np.zeros((rows.size, 0))
@@ -413,6 +444,9 @@ class LongitudinalPlasmodeLaw:
         for node in range(nodes):
             block_columns: list[np.ndarray] = []
             for model in self.covariates[node]:
+                if isinstance(model, _OutcomeCopy):
+                    block_columns.append(previous)
+                    continue
                 design = np.column_stack([baseline[rows], *blocks, treatment, *block_columns])
                 if isinstance(model, _Logistic) and exact:
                     p = model.probability(design)
@@ -420,9 +454,9 @@ class LongitudinalPlasmodeLaw:
                     level = np.concatenate([np.ones(rows.size), np.zeros(rows.size)])
                     weight = np.concatenate([weight * p, weight * (1.0 - p)])
                     rows, blocks, treatment, block_columns = _expand(
-                        index, rows, blocks, treatment, [*block_columns, alive, risk]
+                        index, rows, blocks, treatment, [*block_columns, alive, risk, previous]
                     )
-                    *block_columns, alive, risk = block_columns
+                    *block_columns, alive, risk, previous = block_columns
                     block_columns.append(level)
                 elif isinstance(model, _Logistic):
                     block_columns.append((rng.random(rows.size) < model.probability(design)) * 1.0)
@@ -437,8 +471,8 @@ class LongitudinalPlasmodeLaw:
                 index = np.concatenate([np.arange(rows.size)] * 2)
                 code = np.concatenate([np.ones(rows.size), np.zeros(rows.size)])
                 weight = np.concatenate([weight * density, weight * (1.0 - density)])
-                rows, blocks, treatment, (alive, risk) = _expand(
-                    index, rows, blocks, treatment, [alive, risk]
+                rows, blocks, treatment, (alive, risk, previous) = _expand(
+                    index, rows, blocks, treatment, [alive, risk, previous]
                 )
             else:
                 code = (rng.random(rows.size) < density) * 1.0
@@ -448,10 +482,13 @@ class LongitudinalPlasmodeLaw:
                 probabilities = process.probabilities(shift, np.sum(treatment, axis=1))
                 risk = risk + alive * probabilities[:, cause]
                 alive = alive * (1.0 - probabilities.sum(axis=1))
+            elif data.repeated is not None and node < nodes - 1:
+                level = self.outcome_mean(process, rows, blocks, treatment)
+                previous = level + process.noise.draw(rng, rows.size) - float(process.noise.mean)
             keep = weight > 0.0
             rows, weight, treatment = rows[keep], weight[keep], treatment[keep]
             blocks = [block[keep] for block in blocks]
-            alive, risk = alive[keep], risk[keep]
+            alive, risk, previous = alive[keep], risk[keep], previous[keep]
         value = risk if survival else self.outcome_mean(process, rows, blocks, treatment)
         per_point = np.bincount(rows, weights=weight * value, minlength=data.n)
         mean = float(np.mean(per_point))
@@ -546,6 +583,8 @@ def _histories(
         events["event"] = np.zeros_like(base.event)
     if base.cause_event is not None:
         events["cause_event"] = np.zeros_like(base.cause_event)
+    if base.repeated is not None:
+        events["repeated"] = np.zeros_like(base.repeated)
     return replace(
         base,
         time_varying=tuple(filled),

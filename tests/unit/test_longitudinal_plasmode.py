@@ -251,7 +251,6 @@ class TestRefusals:
     @pytest.mark.parametrize(
         ("override", "structure"),
         [
-            ({"repeated": np.zeros((1, 1))}, "a repeated outcome"),
             ({"treatment_held": True}, "a held baseline decision"),
             ({"n_decisions": 1}, "a node without a treatment decision"),
             ({"known_mechanisms": object()}, "a declared known mechanism"),
