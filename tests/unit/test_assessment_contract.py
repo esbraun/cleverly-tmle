@@ -52,7 +52,6 @@ from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
     _LONGITUDINAL_REFUSAL,
-    _MULTI_ARM_REFUSAL,
     _fit_wide_refusal,
 )
 from cleverly.sensitivity.positivity import positivity_report
@@ -444,31 +443,27 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     assert str(direct_refusal.value) == reason.message()
 
 
-def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # type: ignore[no-untyped-def]
+def test_multi_arm_simulated_confounding_capability_names_an_estimand(  # type: ignore[no-untyped-def]
     multi_arm_result,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _MULTI_ARM_REFUSAL
+    """The pairwise swap (X82 part F (a)) admits a multi-arm fit, one contrast at a time.
+
+    The row is available, and it asks for the estimand as well as the grid, because a
+    multi-arm fit reports one contrast per non-reference arm and the surface cannot pick a
+    default alias.  The facade and the free function agree on a named contrast.
+    """
     capability = multi_arm_result.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    # A multi-arm fit reports one estimate per arm, so the surface cannot pick a default
-    # alias. The row must ask for the estimand as well as the grid.
+    assert capability.available
     assert capability.requires_arguments == ("grid", "estimand")
-    assert _fit_wide_refusal(multi_arm_result) == reason
-    forbid_draw_and_refit(monkeypatch, multi_arm_result.estimator)
-    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-    # Both routes, because multi-arm is the case that regressed once. The facade read the
-    # capability row and the direct call read the guard, and only the guard refused.
-    with pytest.raises(CapabilityError) as facade_refusal:
-        multi_arm_result.sensitivity.simulated_confounding(grid=grid)
-    assert str(facade_refusal.value) == (
-        "sensitivity 'simulated_confounding' is unavailable: " + reason.message()
+    assert _fit_wide_refusal(multi_arm_result) is None
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
+    alias = next(name for name in multi_arm_result.estimates if name.startswith("ate["))
+    direct = simulated_confounding(multi_arm_result, alias, grid=grid, random_state=3)
+    facade = multi_arm_result.sensitivity.simulated_confounding(
+        estimand=alias, grid=grid, random_state=3
     )
-    with pytest.raises(CapabilityError) as direct_refusal:
-        simulated_confounding(multi_arm_result, grid=grid)
-    assert str(direct_refusal.value) == reason.message()
+    assert [cell.estimate for cell in facade.cells] == [cell.estimate for cell in direct.cells]
+    assert direct.arm_pair is not None
 
 
 def test_an_ambiguous_evalue_row_says_it_is_deferred_rather_than_passed(  # type: ignore[no-untyped-def]
@@ -849,7 +844,6 @@ def test_a_facade_that_substitutes_nothing_defers_a_sole_eligible_name(att_resul
     [
         ("longitudinal_result", "benchmark"),
         ("longitudinal_result", "simulated_confounding"),
-        ("multi_arm_result", "simulated_confounding"),
     ],
 )
 def test_a_row_this_fit_refuses_outright_records_no_invocation(  # type: ignore[no-untyped-def]
