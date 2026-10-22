@@ -794,3 +794,21 @@ class TestTheLimitReading:
         selection = evalue_module._select_evalue(result, name)
         assert selection.features[:2] == ("cde", "stratum")
         assert re.fullmatch(r"cde\+stratum(\+\w+)?", "+".join(selection.features))
+
+
+def test_a_missing_treatment_with_a_missing_outcome_refuses_the_standardized_path() -> None:
+    """The plug-in reads ``E[Y^k | A, W]`` on a row whose outcome is missing.
+
+    A row whose treatment is also unrecorded has no ``A`` to read, so the path refuses
+    before any regression runs. Control: the same request with every treatment recorded
+    answers (``TestTheMissingAtRandomScale``).
+    """
+    from tests.unit._capability_sweep_support import fit_tmle_missing_treatment_weights
+
+    result = fit_tmle_missing_treatment_weights()
+    assert result.data.has_missing_outcome and result.data.has_missing_treatment
+    row = result.sensitivity.capability("evalue")
+    assert row.status is AssessmentStatus.UNAVAILABLE
+    assert "treatment is not recorded" in row.reason
+    with pytest.raises(CapabilityError, match="treatment is not recorded"):
+        evalue_module.evalue(result, "ate")

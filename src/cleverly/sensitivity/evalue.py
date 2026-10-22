@@ -676,6 +676,19 @@ def _select_branch(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if result.config.family == "gaussian" and key.estimand in {"ate", "att", "atc"}:
         # With a response mechanism the branch standardizes by a missing-at-random
         # plug-in of the population standard deviation (``_features`` names it).
+        if result.data.has_missing_outcome and result.data.has_missing_treatment:
+            raise _EValueRefusal(
+                AssessmentStatus.UNAVAILABLE,
+                "the standardized E-value divides by the population sd(Y), and its "
+                "missing-at-random plug-in reads E[Y^k | A, W] on every row whose outcome "
+                "is missing; a row whose treatment is not recorded has no A to read.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Fit a binomial outcome and call evalue(result, 'rr'), or fit the "
+                    "rows whose treatment is recorded."
+                ),
+                roadmap="X82",
+            )
         return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(

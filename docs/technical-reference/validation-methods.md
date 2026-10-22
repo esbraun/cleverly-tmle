@@ -1779,7 +1779,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
 | binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes CV evaluation |
 | Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
-| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | standardize by the missing-at-random plug-in of the population `sd(Y)` and mark the result approximate. The plug-in fits one more outcome regression, so the default assessment defers it |
+| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | standardize by the missing-at-random plug-in of the population `sd(Y)` and mark the result approximate. The plug-in fits one more outcome regression, so the default assessment defers it. A fit that also misses treatments reports `unavailable`, because an unrecorded row has no $A$ for the regression |
 | a contrast within a baseline stratum, from `strata=` | apply the path of the marginal contrast to the stratum's rows. The derived risk ratio and the standardizing `sd(Y)` read the stratum |
 | two reported risks at one horizon of a `TimeToEvent` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator, kind="rr")` and mark the result exact. Both regimens must be static |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
