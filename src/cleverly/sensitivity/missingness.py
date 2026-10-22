@@ -358,7 +358,6 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
     """
     if _tilt_targets(result):
         return None
-    shift = result.nuisance.policies is not None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt re-mixes the arm means and their contrasts and ratios, the "
@@ -367,7 +366,7 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
         alternative=(
             "Use truncation_curve(mechanism=True) for sensitivity to the missingness bound."
         ),
-        roadmap="X57" if shift else "X82",
+        roadmap="X57",
     )
 
 
@@ -806,7 +805,9 @@ def _tilted_natural_course(
     mechanism at the received arm, which is the column the natural-course clever
     covariate divides by.  The plug-in replaces the empirical ``Delta Y`` of the observed
     rows by its regression, :math:`\pi \bar Q^*`, so the curve passes through the
-    reported estimate at :math:`\gamma = 0`.  The two forms estimate one functional.
+    reported estimate at :math:`\gamma = 0`.  The two forms estimate one functional, and
+    they differ by :math:`P_n[\Delta\{Y - \bar Q^*(A, W)\}]`, which does not depend on
+    :math:`\gamma`.  The regression form is the other curve shifted by that constant.
     """
     data = result.data
     missingness = tilt_missingness(repeat.nuisance, result.config.missingness_bound)
