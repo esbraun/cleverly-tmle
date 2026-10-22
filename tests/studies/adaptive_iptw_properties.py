@@ -375,7 +375,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
         draw=_draw,
     )
     rows = pd.DataFrame([row for result in outcomes for row in result])
-    return rows.reindex(columns=list(REPLICATE_COLUMNS)).sort_values(
+    return rows.reindex(columns=[*REPLICATE_COLUMNS, *CONVERGENCE_COLUMNS]).sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
 

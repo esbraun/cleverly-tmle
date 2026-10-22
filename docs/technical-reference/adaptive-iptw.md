@@ -142,15 +142,22 @@ cross-validated TMLE shape: fold-specific initial fits and one pooled fluctuatio
 der Laan (2011), Sections 2 and 2.1, pages 2 to 6).
 
 After the first step, fold $k$ reaches
-$Q_{r,k}$ only through $\epsilon$, a parameter of fixed dimension. The interval argument then needs
-the reduced fit to be continuous in $\epsilon$ for a fixed training set. That is condition (S) of
-the DR-TMLE page, restricted to a one-dimensional path. This page does not prove it, so it stays
+$Q_{r,k}$ only through the steps $\epsilon_1, \dots, \epsilon_r$, at most `max_iter` of them,
+one coordinate for each step and block. The interval argument then needs the reduced fit to be
+continuous in those steps for a fixed training set. That is condition (S) of the DR-TMLE page,
+restricted to that finite-dimensional path. This page does not prove it, so it stays
 open. A key with an estimated mechanism reports a point only. Point consistency needs the
 mechanism and $Q_r$ to converge.
 
 The leave-two-out designs cost $K(K - 1)$ further fits of each estimated mechanism factor, one for
 each ordered pair of folds. The default `n_folds=10` gives 90. The construction needs at least
-three folds, so a cross-fitted fit with `n_folds=2` is refused (R21). The X21 run-1 diagnosis
+three folds, so a cross-fitted fit with `n_folds=2` is refused (R21).
+
+A drawn split in which two
+folds hold every trainable row of a class that an estimated factor needs is refused with a
+`DataError` before any learner runs. The classes are each arm, both values of $\Delta$ and both
+values of $\Delta_A$, counted over the rows outside the pair. More folds do not help, so use more
+data or `cross_fit=False`. The X21 run-1 diagnosis
 measured the pooled design that this replaced. On law WT at $n = 2{,}000$, its bias was about 0.4
 SD. That diagnosis is planning evidence outside the repository.
 `tests/unit/test_adaptive_iptw_foldwise.py` pins the construction.
@@ -329,7 +336,8 @@ against `drtmle` are pending.
 | --- | --- | --- |
 | `tests/unit/test_adaptive_iptw_exact.py` | on exact finite laws, the shipped value, tilt steps and score equal values computed in the test from the law tables, for the arm keys, the one-step form, the weights, the bound and the constant design. A GLM reduced regression separates the refit from the one-step | the truth at a fitted learner |
 | `tests/unit/test_adaptive_iptw_composite.py` | the composite mechanism and its targeting equal the test-side product, in sample with wrong factors and cross-fitted, and the cross-fitted training designs are leave-two-folds-out | the $\epsilon$-path condition of S5 |
-| `tests/unit/test_adaptive_iptw_foldwise.py` | fold $k$'s reduced regression ignores fold $k$'s treatment and outcome, at round 0 and on a design grid in every round with the $\epsilon$ history replayed. The shipped loop equals a test-side fold-wise loop, and an adaptive mechanism learner trains on leave-two-out designs. A pooled design fails each check | the $\epsilon$-path condition of S5 |
+| `tests/unit/test_adaptive_iptw_untrainable.py` | a pair of folds that holds every row of an arm, of a $\Delta$ value or of a $\Delta_A$ value is refused with zero learner fits | none |
+| `tests/unit/test_adaptive_iptw_foldwise.py` | fold $k$'s reduced regression ignores fold $k$'s treatment and outcome, at round 0 and on a design grid in every round with the $\epsilon$ history replayed, for the arm keys and for the natural-course key with $\Delta$. The shipped loop equals a test-side fold-wise loop, and an adaptive mechanism learner trains on leave-two-out designs. A pooled design fails each check | the $\epsilon$-path condition of S5 |
 | `tests/unit/test_adaptive_iptw_regimes.py` | the deterministic, stochastic and natural-course keys, the strata and the clusters equal test-side values | cross-fitted regimes with missing data, which are refused |
 | `tests/unit/test_adaptive_iptw_status.py` | each status of a construction, the withheld accessors, and the validity identity with a nonzero term | the size of the term at a fitted nuisance |
 | `tests/unit/test_adaptive_iptw_refusals.py`, `_api.py`, `_surface.py`, `_support.py` | each refusal text and code, the keyword inventory, every public call, and the support key | coverage |

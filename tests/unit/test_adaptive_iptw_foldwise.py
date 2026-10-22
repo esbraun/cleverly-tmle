@@ -231,7 +231,12 @@ class GridRecorder(LinearRegression):
 
 
 def _replayed_run(
-    frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch, replay: list[np.ndarray] | None
+    frame: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+    replay: list[np.ndarray] | None,
+    *,
+    estimands: tuple[str, ...] = ("ey1",),
+    fit_kwargs: dict[str, Any] | None = None,
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
     """One ``ey1`` fit for :data:`ROUNDS` rounds.  With ``replay``, each step takes that epsilon.
 
@@ -254,6 +259,7 @@ def _replayed_run(
     GridRecorder.log = []
     estimator = AdaptiveIPTW(
         treatment_learner=s.CellClassifier(),
+        missingness_learner=s.CellClassifier(),
         reduced_outcome_learner=GridRecorder(),
         cross_fit=True,
         n_folds=FOLDS,
@@ -263,11 +269,11 @@ def _replayed_run(
         max_iter=ROUNDS,
         simultaneous=False,
         random_state=0,
-        estimands=["ey1"],
+        estimands=list(estimands),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"])
+        estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], **(fit_kwargs or {}))
     monkeypatch.undo()
     return list(GridRecorder.log), steps
 
@@ -301,3 +307,54 @@ class TestFoldFunctionsUnderAReplayedEpsilon:
                 assert np.max(np.abs(old - new)) > 1e-3, (index // FOLDS, index % FOLDS)
         # The steps move the functions, so the later rounds test more than round 0.
         assert np.max(np.abs(before[FOLDS * ROUNDS] - before[0])) > 1e-4
+
+
+class TestNaturalCourseSlabIgnoresItsOwnFold:
+    """The natural-course key's design is the response probability at the realised arm.
+
+    Its slab is built from the leave-two-folds-out response models.  Replacing the slab with
+    the production probability puts fold ``k``'s own Delta back into fold ``k``'s regression.
+    """
+
+    def test_fold_zero_s_function_ignores_fold_zero_delta_and_y_in_every_round(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        frame = _frame()
+        rng = np.random.default_rng(5)
+        frame["Delta"] = rng.binomial(1, np.array([0.6, 0.75, 0.9])[frame["W"].astype(int)])
+        frame["Delta"] = frame["Delta"].astype(float)
+        kwargs = {"delta": "Delta"}
+        log = s.SolveKeyLog()
+        with log, warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            AdaptiveIPTW(
+                treatment_learner=s.CellClassifier(),
+                missingness_learner=s.CellClassifier(),
+                reduced_outcome_learner=LinearRegression(),
+                cross_fit=True,
+                n_folds=FOLDS,
+                stratify_folds="none",
+                simultaneous=False,
+                random_state=0,
+                estimands=["ey_obs"],
+            ).fit(frame, outcome="Y", treatment="A", covariates=["W"], **kwargs)
+        assert log.assignment is not None
+        held = log.assignment == 0
+        before, steps = _replayed_run(
+            frame, monkeypatch, None, estimands=("ey_obs",), fit_kwargs=kwargs
+        )
+        assert len(steps) == ROUNDS and len(before) == FOLDS * (ROUNDS + 1)
+        moved = frame.copy()
+        for column in ("Delta", "Y"):
+            moved.loc[held, column] = 1.0 - moved.loc[held, column]
+        after, replayed = _replayed_run(
+            moved, monkeypatch, steps, estimands=("ey_obs",), fit_kwargs=kwargs
+        )
+        assert len(after) == len(before)
+        assert all(np.array_equal(a, b) for a, b in zip(steps, replayed, strict=True))
+        for index, (old, new) in enumerate(zip(before, after, strict=True)):
+            if index % FOLDS == 0:
+                assert np.max(np.abs(old - new)) < 1e-12, index // FOLDS
+            else:
+                # The nonzero witness: folds 1 and 2 train on fold 0's rows.
+                assert np.max(np.abs(old - new)) > 1e-3, (index // FOLDS, index % FOLDS)

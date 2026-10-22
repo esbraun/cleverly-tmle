@@ -509,13 +509,13 @@ class FoldMechanisms:
     r"""Leave-two-folds-out mechanisms, one full-length slab entry per outer fold.
 
     Entry ``k`` holds, at row ``j`` in fold ``m != k``, the prediction of a model fitted on
-    ``assignment`` outside ``{k, m}``, and at fold ``k``'s own rows the production model
-    ``g^{(-k)}``.  So entry ``k`` at a training row of fold ``k`` never saw fold ``k`` and
-    never saw that row, which is the property the fold-wise reduced regression of
-    :class:`~cleverly.AdaptiveIPTW` needs.  The layout is :class:`InnerDesigns`', for the
-    mechanisms the fold-wise construction reads: the treatment mechanism, the treatment
-    observation mechanism and the outcome observation mechanism.  Built by
-    :func:`fit_fold_mechanisms`.
+    ``assignment`` outside ``{k, m}``, and at fold ``k``'s own rows a refit of the production
+    model ``g^{(-k)}``, which ``_solve_key`` replaces with the production array.  So entry
+    ``k`` at a training row of fold ``k`` never saw fold ``k`` and never saw that row, which is
+    the property the fold-wise reduced regression of :class:`~cleverly.AdaptiveIPTW` needs.
+    The layout is :class:`InnerDesigns`', for the mechanisms the fold-wise construction reads:
+    the treatment mechanism, the treatment observation mechanism and the outcome observation
+    mechanism.  Built by :func:`fit_fold_mechanisms`.
 
     Parameters
     ----------
@@ -2572,7 +2572,8 @@ def fit_fold_mechanisms(
     The construction of :func:`fit_inner_designs`, for the mechanisms rather than for the
     treatment mechanism and the outcome regression: passing ``fit_mask`` without fold
     ``k``'s rows makes fold ``m``'s model train on ``train(m) ∩ complement(k)``, which is
-    leave-two-folds-out, and fold ``k``'s own model is the production one.  Entry ``k`` of
+    leave-two-folds-out, and fold ``k``'s own model is a refit of the production one,
+    which :func:`~cleverly.estimators.reduced._foldwise_column` never reads.  Entry ``k`` of
     each slab is then the design that fold ``k``'s reduced regression trains on: at a row
     of fold ``m != k`` it comes from a model that saw neither fold ``k`` nor that row.
 

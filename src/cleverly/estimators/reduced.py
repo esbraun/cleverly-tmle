@@ -879,8 +879,8 @@ def _reduced_column(
     Fold ``k`` trains on its training rows at entry ``k`` and predicts at entry ``k``, so no
     row of fold ``k`` reaches fold ``k``'s regression through another fold's design.  The
     second return is then the ``(K, n)`` slab of each fold's regression at every row, and
-    ``design`` must equal each row's own fold entry.  ``training`` and ``companion`` must be
-    ``None`` with it.
+    ``design`` is not read there, because the entries of ``fold_designs`` stand in for it.
+    ``training`` and ``companion`` must be ``None`` with it.
     """
     if fold_designs is not None and (training is not None or companion is not None):
         raise ValueError("fold_designs excludes the nested and companion constructions")

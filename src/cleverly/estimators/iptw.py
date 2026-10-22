@@ -839,6 +839,87 @@ def _tilt_fold_slab(
     return moved
 
 
+def refuse_untrainable_mechanism_pairs(
+    data: CausalData, folds: Sequence[Folds], *, treatment: bool
+) -> None:
+    r"""Refuse a split in which two folds hold every trainable row of a class a mechanism needs.
+
+    The fold-wise reduced regression refits each estimated mechanism on the rows outside
+    folds ``k`` and ``m``, for every pair of outer folds. A refit that sees one class cannot
+    be fitted by a classifier, or silently returns a constant design. The check runs after
+    the folds are drawn and before any learner is fitted. A cluster is one unit, because a
+    fold holds whole clusters.
+
+    ============================ ==============================================
+    estimated factor             rows outside the pair must hold
+    ============================ ==============================================
+    treatment                    every arm among the treatment-recorded rows
+    outcome observation          both values of ``Delta`` among those rows
+    treatment observation        both values of ``DeltaA``
+    ============================ ==============================================
+
+    This check is distinct from the DR-TMLE leave-two-out check, which reads arm, observed
+    outcome and baseline stratum; the two may merge later.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    folds : sequence of Folds
+        The drawn splits, one per repeat.
+    treatment : bool
+        Whether the treatment mechanism is estimated (false for a known mechanism or the
+        natural-course mean).
+
+    Raises
+    ------
+    DataError
+        If the rows outside some pair of folds lack a class of an estimated factor.
+    """
+    recorded = (
+        np.asarray(data.treatment_recorded, dtype=bool)
+        if data.has_missing_treatment
+        else np.ones(data.n, dtype=bool)
+    )
+    observed = np.asarray(data.observed, dtype=bool)
+    treated = np.asarray(data.treatment)
+    # (factor, class label, rows the class is counted over, per-row class value)
+    needs: list[tuple[str, str, BoolArray, np.ndarray]] = []
+    if treatment and data.known_treatment is None:
+        for arm in np.unique(treated[recorded]):
+            needs.append(("treatment", f"arm {arm:g}", recorded, treated == arm))
+    if data.has_missing_outcome:
+        for value in (True, False):
+            needs.append(
+                ("outcome observation", f"Delta = {int(value)}", recorded, observed == value)
+            )
+    if data.has_missing_treatment:
+        everywhere = np.ones(data.n, dtype=bool)
+        for value in (True, False):
+            needs.append(
+                ("treatment observation", f"DeltaA = {int(value)}", everywhere, recorded == value)
+            )
+    if not needs:
+        return
+    for repeat, draw in enumerate(folds):
+        if draw.is_single or draw.n_folds < 3:
+            continue
+        assignment = np.asarray(draw.assignment)
+        for first in range(draw.n_folds):
+            for second in range(first + 1, draw.n_folds):
+                outside = (assignment != first) & (assignment != second)
+                for factor, label, region, indicator in needs:
+                    if not np.any(outside & region & indicator):
+                        raise DataError(
+                            f"cross-fitted AdaptiveIPTW refits the {factor} mechanism on the rows "
+                            f"outside each pair of folds, and the rows outside folds {first} and "
+                            f"{second} (repeat {repeat}) hold no row with {label}, so the "
+                            "mechanism cannot be fitted there. Fewer folds do not help, because "
+                            "the fit needs at least three. Supply more data, or pass "
+                            "cross_fit=False to fit in sample."
+                        )
+
+
 class AdaptiveIPTW(TMLE):
     r"""Adaptive-propensity IPTW for a discrete treatment.
 
@@ -1072,6 +1153,9 @@ class AdaptiveIPTW(TMLE):
         super()._preflight_training_support(data, estimands, folds)
         if any(draw.is_single for draw in folds):
             return
+        refuse_untrainable_mechanism_pairs(
+            data, folds, treatment=not _is_natural_course(data, estimands)
+        )
         regimes = self._regimes(data, None)  # type: ignore[arg-type]
         for spec in self._specs(data, estimands, regimes):
             support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [

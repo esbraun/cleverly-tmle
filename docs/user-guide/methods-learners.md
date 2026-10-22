@@ -36,6 +36,10 @@ declared and the data are complete.
 [Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract and the
 reason.
 
+A cross-fitted fit refits each estimated mechanism once for each ordered pair of folds, so
+`n_folds=10` adds 90 fits per estimated factor. With the default learner library, a fit takes 30 to
+120 seconds, so pass explicit learners or `cross_fit=False` when the cost matters.
+
 ```python
 from cleverly import AdaptiveIPTWMethod
 

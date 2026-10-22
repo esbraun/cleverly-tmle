@@ -1102,3 +1102,26 @@ class TestConvergenceAccounting:
         assert read["max_rounds"].tolist() == [100.0, 4.0]
         old = properties.convergence_reading(summary, rows.drop(columns=["rounds", "converged"]))
         assert list(old.columns) == ["property", "cell"]
+
+
+class TestConvergenceColumnsReachTheOutput:
+    """The declared path keeps ``rounds`` and ``converged`` from the fit to the summary."""
+
+    @pytest.fixture(scope="class")
+    def rows(self) -> pd.DataFrame:
+        return properties.generate_property_rows(n_jobs=1, budget=1)
+
+    def test_the_rows_keep_the_two_columns_after_the_reindex(self, rows: pd.DataFrame) -> None:
+        assert set(properties.CONVERGENCE_COLUMNS) <= set(rows.columns)
+        assert rows["rounds"].notna().all() and rows["converged"].isin([0, 1]).all()
+
+    def test_the_summary_reading_takes_them_from_the_generated_rows(
+        self, rows: pd.DataFrame
+    ) -> None:
+        """A budget of one leaves a cell below two survivors, so the reading runs on its own."""
+        cells = rows[["property", "cell"]].drop_duplicates().reset_index(drop=True)
+        read = properties.convergence_reading(cells, rows)
+        for column in properties.CONVERGENCE_SUMMARY:
+            assert column in read.columns
+        assert read["max_rounds"].notna().all()
+        assert (read["nonconverged_fits"] >= 0).all()
