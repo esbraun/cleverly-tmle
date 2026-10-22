@@ -132,6 +132,14 @@ class TestDataRefusals:
         )
         _no_fits()
 
+    def test_r4_an_intermediate_learner_is_refused_before_any_learner(self) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            _estimator(intermediate_learner=LinearRegression())
+        _assert_refusal(
+            raised.value, module.R4, code=RefusalReason.IMPLEMENTATION_GAP, roadmap="F5"
+        )
+        _no_fits()
+
     def test_r4_is_the_shipped_blocker_the_study_reports(self) -> None:
         from cleverly import CausalStudy, ControlledDirectEffect, PointTreatment
 

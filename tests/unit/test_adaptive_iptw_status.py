@@ -240,6 +240,39 @@ class TestW18StatusRouting:
             assert len(estimate.ci) == 2
         assert "experimental" in result.summary()
 
+    def test_k_a_retarget_from_a_closed_form_estimator_withholds_inference(self) -> None:
+        """The status follows the names a call reports, not the constructor's list (B1)."""
+        frame = sweep._linear_frame()
+        settings: dict[str, Any] = {
+            "treatment_learner": LogisticRegression(max_iter=1000),
+            "reduced_outcome_learner": LinearRegression(),
+            "cross_fit": False,
+            "simultaneous": False,
+            "random_state": 0,
+            "estimands": ["ey_obs"],
+        }
+        estimator = AdaptiveIPTW(**settings)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fitted = estimator.fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
+            ).single()
+            assert_reports_inference(fitted)
+            names = ["ey1", "ate"]
+            estimates, _ = estimator.retarget(fitted.data, fitted.nuisance, estimands=names)
+        assert set(estimates) == set(names)
+        for estimate in estimates.values():
+            for name in ("std_error", "ci", "pvalue"):
+                with pytest.raises(CapabilityError) as raised:
+                    getattr(estimate, name)
+                assert STATUS_RECORDS[PLUGIN].reason in str(raised.value)
+            assert np.isfinite(estimate.plugin_std_error)
+        # The reverse call stays on the closed form: it reports the observed mean with inference.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            back, _ = estimator.retarget(fitted.data, fitted.nuisance, estimands=["ey_obs"])
+        assert np.isfinite(back["ey_obs"].std_error)
+
     def test_estimated_weights_on_complete_data_leave_a_closed_form_alone(self) -> None:
         result = _point_fit(known=False, estimands=["ey_obs"], weights="wt", weights_estimated=True)
         assert_reports_inference(result)

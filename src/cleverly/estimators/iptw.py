@@ -400,6 +400,8 @@ def settings_refusal(setting: Callable[[str], Any]) -> tuple[type[Exception], Re
         return CapabilityError, axis_refusal("incremental=")
     if setting("msm") is not None:
         return CapabilityError, target_refusal("an MSM")
+    if setting("intermediate_learner") is not None:
+        return CapabilityError, R4
     for keyword in _OUTCOME_KEYWORDS:
         if setting(keyword) != _DEFAULTS[keyword]:
             return MethodConfigurationError, keyword_refusal(keyword)
@@ -873,9 +875,9 @@ class AdaptiveIPTW(TMLE):
     def _missing_data_route(self, data: CausalData, estimands: tuple[str, ...]) -> str:
         return iptw_missing_data_route(data, estimands)
 
-    def _closed_form_only(self, data: CausalData) -> bool:
-        """Whether the request is the complete-data ``ey_obs`` alone, which reads no key."""
-        names = self.estimands
+    @staticmethod
+    def _closed_form_only(data: CausalData, names: Any) -> bool:
+        """Whether the reported names are the complete-data ``ey_obs`` alone, which reads no key."""
         return (
             not data.has_missing_outcome
             and isinstance(names, (list, tuple))
@@ -891,24 +893,33 @@ class AdaptiveIPTW(TMLE):
             and not data.has_missing_treatment
         )
 
-    def _inference_status(self, data: CausalData) -> InferenceStatus:
+    def _inference_status(
+        self, data: CausalData, estimands: Sequence[str] | None = None
+    ) -> InferenceStatus:
         """Withhold inference when any reported key has an estimated mechanism.
 
         A key has a known mechanism only on complete data that declares the treatment
-        probabilities. A complete-data ``ey_obs`` alone reads no key. The configuration and
-        the prepared data decide it, and no fitted quantity.
+        probabilities. A complete-data ``ey_obs`` alone reads no key. The names being
+        reported and the prepared data decide it, and no fitted quantity. A fit and a
+        ``retarget`` call pass the names they report, so a ``retarget`` to other names
+        does not inherit the status of the constructor's list.
 
         Parameters
         ----------
         data : CausalData
             The prepared data.
+        estimands : sequence of str, optional
+            The names the call reports. The constructor's ``estimands`` when omitted.
 
         Returns
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
         """
-        if self._closed_form_only(data):
+        names: Any = self.estimands
+        if estimands is not None:
+            names = tuple(str(name) for name in estimands)
+        if self._closed_form_only(data, names):
             return super()._inference_status(data)
         estimated = not self._has_known_keys(data)
         return precedent_status(
@@ -955,6 +966,24 @@ class AdaptiveIPTW(TMLE):
         self._check_iptw(data)
         return super()._preflight_fit_configuration(data)
 
+    def _resolved_names(self, data: CausalData, *, refuse_outside: bool) -> tuple[str, ...]:
+        """The names the constructor's ``estimands`` resolves to on this data.
+
+        The default list and ``"all"`` keep the mean-group names, and ``"all"`` on a missing
+        outcome drops the natural-course stems. An explicit list that names a target outside
+        the group is refused when ``refuse_outside`` holds.
+        """
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        if self._axis == "arm":
+            outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
+            if self.estimands is None or self.estimands == "all":
+                estimands = tuple(name for name in estimands if name in MEAN_GROUP_ESTIMANDS)
+            elif outside and refuse_outside:
+                raise CapabilityError.from_refusal(target_refusal(", ".join(outside)))
+            if data.has_missing_outcome and self.estimands == "all":
+                estimands = tuple(name for name in estimands if name not in _NATURAL_STEMS)
+        return tuple(estimands)
+
     def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve the mean-group targets, or the regime targets, and refuse the rest.
 
@@ -965,15 +994,7 @@ class AdaptiveIPTW(TMLE):
         self._refuse_fold_policy()
         self._refuse_undeclared_functions()
         check_stratified_targets(data, incremental=False, msm=None)
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
-        if self._axis == "arm":
-            outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
-            if self.estimands is None or self.estimands == "all":
-                estimands = tuple(name for name in estimands if name in MEAN_GROUP_ESTIMANDS)
-            elif outside:
-                raise CapabilityError.from_refusal(target_refusal(", ".join(outside)))
-            if data.has_missing_outcome and self.estimands == "all":
-                estimands = tuple(name for name in estimands if name not in _NATURAL_STEMS)
+        estimands = self._resolved_names(data, refuse_outside=True)
         conditions: list[Refusal] = list(point_option_conditions(self, data))
         return Preflight(estimands, tuple(conditions))
 
@@ -1015,6 +1036,9 @@ class AdaptiveIPTW(TMLE):
         seed: int | None = None,
     ) -> tuple[NuisanceEstimates, dict[str, Any]]:
         """Fit the treatment and missingness mechanisms, and no outcome regression."""
+        # A complete-data ``ey_obs`` alone reads no mechanism, yet its treatment learner still
+        # runs: ``retarget`` and the sensitivity sweeps read the cached nuisances for other
+        # targets, and an unfitted mechanism would make them fail.
         natural_course = _is_natural_course(data, config.estimands)
         return (
             self._fit_nuisances(
@@ -1315,7 +1339,7 @@ class AdaptiveIPTW(TMLE):
         estimates, stratum_of = self._assemble(data, nuisance, solved, requested, level, reference)
         record = self._record(data, nuisance, solved, route)
         group = "regime" if regimes is not None else "mean"
-        status = self._inference_status(data)
+        status = self._inference_status(data, requested)
         cluster_reference = (
             None
             if data.cluster is None
@@ -1388,7 +1412,13 @@ class AdaptiveIPTW(TMLE):
                     break
         if not failures:
             return requested
-        if self.estimands is None or self.estimands == "all":
+        # Only the default report and ``"all"`` drop a target that is undefined on the
+        # sample. A call that names the target, including a ``retarget`` to other names,
+        # raises, so a report never silently omits a name the caller asked for.
+        defaulted = (self.estimands is None or self.estimands == "all") and tuple(
+            requested
+        ) == self._resolved_names(data, refuse_outside=False)
+        if defaulted:
             warnings.warn(
                 f"AdaptiveIPTW dropped {sorted(failures)} from the default report: "
                 + next(iter(failures.values())),

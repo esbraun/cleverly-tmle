@@ -1288,8 +1288,7 @@ its run.
 | (a) | the natural-course, PAR and PAF bootstrap with missing outcomes, in sample | the bootstrap of a smooth M-estimator, Tang and Westling (2024), arXiv:2404.03064v2, Theorem 3.4 | finite-dimensional nuisances, read off the fit's own learners, as in the [plug-in learner rule](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule); a registered study |
 | (b) | the HAL-TMLE bootstrap | Cai and van der Laan (2020), arXiv:1905.10299, Section 3.6, Theorem 4 | in sample; a HAL learner, which does not ship; $C$ fixed at the selected value; a per-replicate update |
 | (c) | the model-based targeted bootstrap | Coyle (2017), Berkeley dissertation, Section 1.4 and Appendix A.3, Theorem 9 (thesis numbering). The book chapter of Coyle and van der Laan (2018) was not read | resampling from the targeted fit, with Super Learner and TMLE refitted and retargeted on each sample. Theorem 9 needs the efficient score solved to the order it states, a negligible remainder, a uniform Donsker class, and $L_2$ convergence of $D^*$. The local read records that order as $o_P(1/n)$, and the row confirms it against Theorem 9 before it ships. The nuisance rates $o_P(n^{-1/4})$ under the targeted fit, positivity and bounded sectional variation come from Lemma 2 and Corollary 1, for the treatment-specific mean only. Other targets need their own rate lemma |
-
-| (d) | `n_bootstrap=` with `AdaptiveIPTW` and a known mechanism | a bootstrap of the targeted propensity, with the propensity refitted and retargeted on each sample |
+| (d) | `n_bootstrap=` with `AdaptiveIPTW` and a known mechanism | no read source derives a bootstrap of the targeted propensity | the propensity refitted and retargeted on each sample; a registered study |
 
 [F2](#f2-targeted-bootstrap-inference) keeps bootstrap consistency with data-adaptive or
 cross-fitted nuisances. Acceptance: a registered coverage study for each part.
@@ -2309,7 +2308,8 @@ estimated weights with a guard. [X51](#x51-c-tmle-point-estimates-for-further-ta
 C-TMLE point estimates for the natural course, regimes, discrete-arm MSMs, a selector missing
 treatment, clusters, and the omitted-variable bound.
 [X62](#x62-other-dr-tmle-and-c-tmle-compositions) holds the other compositions that a natural
-extension carries. This item keeps the compositions below.
+extension carries. This item keeps the compositions below. The refusal of the `AdaptiveIPTW`
+controlled direct effect names this item too.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
@@ -2321,6 +2321,7 @@ extension carries. This item keeps the compositions below.
 | DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt and incremental | asymptotic | Benkeser, Carone, van der Laan and Gilbert (2017), PMC5793673, Section 4, name other parameters as future work. Díaz et al., arXiv:2006.01366v4, Theorem 2, assumes that the regime does not depend on $P$ |
 | DR-TMLE controlled direct effect and longitudinal functionals | asymptotic | Benkeser et al. (2017), Section 1, name interventions at several time points as future work |
 | DR-TMLE on a continuous dose, with its evaluation companion and its nested construction | asymptotic | reduced regressions that condition on a conditional density in place of an arm probability. No read source derives them |
+| AdaptiveIPTW controlled direct effect | asymptotic | the controlled direct effect fixes an intermediate variable. van der Laan (2012), WP302, Theorem 1, gives the targeting for one treatment mechanism. No read source derives the reduced regression for the treatment and the intermediate mechanism together |
 | DR-TMLE combined with C-TMLE | asymptotic | a reduced regression conditions on the collaborative $\hat g$. The reduced-dimension correction needs $\hat g \to g_0$, which C-TMLE does not give |
 | a partial `guard` on the randomized missing-outcome DR-TMLE | asymptotic | the shipped algorithm targets the treatment, observation and outcome correction blocks jointly. No read source gives a result for a subset of the three blocks |
 | DR-TMLE with `targeting_scheme="fold"` or `cv_evaluation=True` | asymptotic | each fold's reduced regressions and alternation, and a corrected curve under fold-wise evaluation. No read source gives a fold-evaluated DR-TMLE, as F27 records for the learned-rule value |

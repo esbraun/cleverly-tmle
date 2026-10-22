@@ -21,6 +21,7 @@ the first tilt step and the curve with the test-side loop, and the counts of spy
 from __future__ import annotations
 
 import warnings
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -29,7 +30,9 @@ import pytest
 from scipy.special import expit, logit
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.exceptions import DataError
+from cleverly.estimators import AdaptiveIPTW
+from cleverly.estimators import iptw as iptw_module
+from cleverly.exceptions import DataError, DataWarning
 from tests.unit import _adaptive_iptw_support as s
 
 TOL = 1e-10
@@ -129,12 +132,12 @@ class TestW1bFiniteSampleUnderAGLM:
         y = rng.binomial(1, expit(0.2 * a - w1 + 2.0 * w1 * w2)).astype(float)
         return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Y": y, "g1": g})
 
-    def test_the_shipped_fit_equals_the_test_side_irls_loop(self) -> None:
+    @classmethod
+    def _fit(cls, frame: pd.DataFrame, form: str = "targeted") -> Any:
         from cleverly.estimators import AdaptiveIPTW
 
-        frame = self._draw()
         g1 = frame["g1"].to_numpy()
-        result = (
+        return (
             AdaptiveIPTW(
                 reduced_outcome_learner=s.LogitGLM(),
                 estimands=["ey1"],
@@ -144,6 +147,7 @@ class TestW1bFiniteSampleUnderAGLM:
                 max_iter=200,
                 simultaneous=False,
                 random_state=0,
+                form=form,
             )
             .fit(
                 frame,
@@ -154,6 +158,39 @@ class TestW1bFiniteSampleUnderAGLM:
             )
             .single()
         )
+
+    def test_the_one_step_equals_the_test_side_value_at_the_initial_mechanism(self) -> None:
+        """W4 (b) on a non-saturated regression, where the one-step differs from the targeted
+        value: ``mean(I Y / g) - mean(Qr (I - g) / g)`` with ``Qr`` fitted at the initial ``g``.
+        """
+        frame = self._draw()
+        g1 = frame["g1"].to_numpy()
+        indicator = (frame["A"].to_numpy() == 1).astype(float)
+        y = frame["Y"].to_numpy()
+        ones = np.ones(len(frame))
+        qr = s.design_logit_regression(g1, y, indicator > 0, ones)
+        expected = float(np.mean(indicator * y / g1) - np.mean(qr * (indicator - g1) / g1))
+        naive = float(np.mean(indicator * y / g1))
+        one_step = self._fit(frame, form="one_step")
+        targeted = self._fit(frame)
+        assert _record(one_step).one_step["1"][0] == pytest.approx(expected, abs=1e-7)
+        assert one_step.estimates["ey1"].psi == pytest.approx(expected, abs=1e-7)
+        assert _record(targeted).one_step["1"][0] == pytest.approx(expected, abs=1e-7)
+        # The nonzero witnesses: the test-side targeted value at g* and the naive value are
+        # both far from the one-step value, so a one-step left at g* or at the naive mean fails.
+        at_target = s.fixed_point(
+            indicator, y, g1, ones, regress=s.design_logit_regression, tolerance=1e-13
+        )["psi"]
+        assert abs(expected - at_target) > 1e-4  # measured gap 1.4e-3
+        assert abs(expected - naive) > 1e-3
+        # The curve of the one-step form has mean zero on the sample.
+        curve = np.asarray(one_step.influence_curves["ey1"], dtype=float)
+        assert abs(np.mean(curve)) < 1e-12
+
+    def test_the_shipped_fit_equals_the_test_side_irls_loop(self) -> None:
+        frame = self._draw()
+        g1 = frame["g1"].to_numpy()
+        result = self._fit(frame)
         weight = np.ones(len(frame))
         indicator = (frame["A"].to_numpy() == 1).astype(float)
         target = frame["Y"].to_numpy()
@@ -551,9 +588,11 @@ class TestW12RangeRule:
     """A ratio target is refused when a Horvitz-Thompson mean leaves its range.
 
     The plan builds a sample with ``psi_1 > 1``. A search over constructed samples found no
-    converged fit with ``psi_1 > 1``: at the fixed point the Horvitz-Thompson mean of a binary
-    outcome stays in ``[0, 1]`` up to the tolerance. The test uses the other side of the same
-    rule, an arm that has no event, so ``psi_0 = 0`` is not positive and not in ``(0, 1)``.
+    converged fit with ``psi > 1`` beyond the tolerance: at the fixed point the Horvitz-Thompson
+    mean of a binary outcome stays in ``[0, 1]`` up to rounding. It is not found at
+    convergence, and the claim goes no further. The lower side uses an arm that has no event,
+    so ``psi_0 = 0`` is not positive and not in ``(0, 1)``. The upper side sets the means by
+    hand, so a rounding of ``1 - 1e-12`` cannot decide the test.
     """
 
     @staticmethod
@@ -587,6 +626,64 @@ class TestW12RangeRule:
         result = self._fit(("ate",))
         assert "ate" in result.estimates
         assert result.estimates["ate"].psi == pytest.approx(arms.estimates["ey1"].psi, abs=1e-12)
+
+    def test_a_default_or_all_report_drops_the_undefined_targets_with_a_warning(self) -> None:
+        """The plan raises for ``"all"``. The code drops, because neither list names a target.
+
+        An explicit list that names ``rr``, ``or`` or ``paf`` raises (the test above).
+        """
+        for estimands, dropped in ((None, ["or", "rr"]), ("all", ["or", "paf", "rr"])):
+            with pytest.warns(DataWarning, match="dropped") as caught:
+                result = self._fit(estimands)
+            message = " ".join(str(w.message) for w in caught if "dropped" in str(w.message))
+            assert str(dropped) in message
+            assert not set(dropped) & set(result.estimates)
+            # The kept estimates are the arm means and ate, equal to the explicit fit.
+            kept = self._fit(("ey1", "ey0", "ate"))
+            for name in ("ey1", "ey0", "ate"):
+                assert result.estimates[name].psi == pytest.approx(
+                    kept.estimates[name].psi, abs=1e-12
+                )
+
+    def test_a_retarget_that_names_an_undefined_target_raises_on_a_default_estimator(self) -> None:
+        """A name in a ``retarget`` call is a request, even when the constructor used the default."""
+        sample = self._sample()
+        estimator = AdaptiveIPTW(
+            estimands=None,
+            treatment_learner=LogisticRegression(C=100),
+            reduced_outcome_learner=LogisticRegression(),
+            cross_fit=False,
+            g_bounds=(0.001, 0.999),
+            tol=1e-12,
+            max_iter=200,
+            simultaneous=False,
+            random_state=0,
+        )
+        with pytest.warns(DataWarning):
+            fitted = estimator.fit(sample, outcome="Y", treatment="A", covariates=["W"]).single()
+        with pytest.raises(DataError, match="not positive"):
+            estimator.retarget(fitted.data, fitted.nuisance, estimands=["rr"])
+
+    @pytest.mark.parametrize(
+        ("name", "value", "text"), [("or", 1.2, "outside"), ("rr", -0.1, "not")]
+    )
+    def test_a_mean_above_one_or_below_zero_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, name: str, value: float, text: str
+    ) -> None:
+        """The upper side of the rule, with the mean set by the test (a converged fit stays in
+        ``[0, 1]`` up to the tolerance, so a sample cannot reach it)."""
+        fitted = self._fit(("ey1", "ey0"))
+        estimator = AdaptiveIPTW(estimands=[name])
+        means = {0.0: (value, np.zeros(3)), 1.0: (0.4, np.zeros(3))}
+        solved = [
+            SimpleNamespace(spec=SimpleNamespace(owner=0.0, owner_name="0")),
+            SimpleNamespace(spec=SimpleNamespace(owner=1.0, owner_name="1")),
+        ]
+        monkeypatch.setattr(iptw_module, "_owner_values", lambda *args, **kwargs: means)
+        with pytest.raises(DataError, match=text):
+            estimator._apply_range_rule(fitted.data, (name,), solved, None)
+        means[0.0] = (0.5, np.zeros(3))
+        assert estimator._apply_range_rule(fitted.data, (name,), solved, None) == (name,)
 
 
 # --------------------------------------------------------------------------------------- W13
