@@ -683,8 +683,8 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     if family == "point" and _method(result) == "adaptive_iptw":
-        # AdaptiveIPTW fits no outcome regression and retargets no cached propensity, so
-        # these two rows carry the record the operation function raises.
+        # AdaptiveIPTW retargets no cached propensity, so this row carries the record the
+        # operation function raises.
         from .estimators.iptw import OPERATION_REFUSALS
 
         rows = tuple(
@@ -694,7 +694,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 status=AssessmentStatus.UNAVAILABLE,
                 refusal=OPERATION_REFUSALS[row.operation],
             )
-            if row.operation in ("truncation_curve", "refute")
+            if row.operation == "truncation_curve"
             else row
             for row in rows
         )

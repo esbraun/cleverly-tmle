@@ -50,6 +50,7 @@ __all__ = [
     "check_scope_containment",
     "fit_configuration",
     "learner_fingerprint",
+    "method_axis",
     "resolve",
 ]
 
@@ -127,7 +128,8 @@ class FitConfiguration:
     Parameters
     ----------
     method : str
-        The fitted method, for example ``"TMLE"`` or ``"CTMLE"``.
+        The fitted method as :func:`method_axis` names it, for example ``"TMLE"``,
+        ``"CTMLE[greedy]"`` or ``"AdaptiveIPTW[one_step]"``.
     estimand_kind : str
         The parameter axis and estimand kind, for example ``"arm:ate"``.
     outcome_family : str
@@ -205,6 +207,38 @@ def event_count(data: Any) -> int | None:
     return min(counts)
 
 
+def method_axis(estimator: Any) -> str:
+    """Name the method scope axis of a point-treatment estimator.
+
+    The class name is not enough where one class runs estimators whose rules behave
+    differently. A ``CTMLE`` names its strategy, and an outcome-adaptive one also names its
+    design, for example ``"CTMLE[greedy]"`` or ``"CTMLE[oat:shared]"``. An ``AdaptiveIPTW``
+    names a form other than the default ``"targeted"``, as ``"AdaptiveIPTW[one_step]"``.
+    A registry row then covers only the variant its cells ran.
+
+    Parameters
+    ----------
+    estimator : object
+        The fitted estimator.
+
+    Returns
+    -------
+    str
+        The class name, with the variant in brackets where the class has variants.
+    """
+    name = type(estimator).__name__
+    kind = getattr(estimator, "_assessment_method", None)
+    if kind == "collaborative_tmle":
+        strategy = str(getattr(estimator, "strategy", ""))
+        if strategy == "oat":
+            strategy = f"oat:{getattr(estimator, 'oat_design', None)}"
+        return f"{name}[{strategy}]"
+    if kind == "adaptive_iptw":
+        form = str(getattr(estimator, "form", "targeted"))
+        return name if form == "targeted" else f"{name}[{form}]"
+    return name
+
+
 def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
     """Read the configuration of ``result`` for one estimand.
 
@@ -237,7 +271,14 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         used.append("treatment_learner")
     if not bool(np.all(data.observed)):
         used.append("missingness_learner")
-    learners = tuple(learner_fingerprint(getattr(estimator, name, None), n) for name in used)
+    fitted = [getattr(estimator, name, None) for name in used]
+    if getattr(estimator, "_assessment_method", None) == "adaptive_iptw":
+        # AdaptiveIPTW fits no outcome regression. Its reduced regression of the outcome on
+        # the fitted propensity takes ``reduced_outcome_learner``, else ``outcome_learner``.
+        reduced = getattr(estimator, "reduced_outcome_learner", None)
+        if reduced is not None:
+            fitted[0] = reduced
+    learners = tuple(learner_fingerprint(learner, n) for learner in fitted)
     if getattr(estimator, "cross_fit", True):
         cross_fitting = f"folds={int(getattr(estimator, 'n_folds', 0))}"
     else:
@@ -247,7 +288,7 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
     min_events = event_count(data)
     clusters = None if data.cluster is None else int(np.unique(data.cluster).size)
     return FitConfiguration(
-        method=type(estimator).__name__,
+        method=method_axis(estimator),
         estimand_kind=str(getattr(estimate, "name", estimand)),
         outcome_family=family,
         treatment_kind=str(data.treatment_kind),
