@@ -1075,6 +1075,31 @@ def test_readers_report_the_combined_estimates() -> None:
     assert "split noise" not in str(single.summary())
 
 
+def test_refute_reruns_every_draw_with_its_own_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stored template reproduces a repeated fit, and ``refute`` reuses every draw seed."""
+    from cleverly.validation import refute
+
+    result = _fit("ltmle", repeats=3)
+    seeds = [draw.seed for draw in result.repeats]
+    again = result.estimator.refit(result.data, frozen_seeds=seeds)
+    for name in result:
+        assert again[name].psi == result[name].psi
+    contrast = next(name for name in result if "vs" in name)
+    seen: list[dict[str, Any]] = []
+    template = type(result.estimator).refit
+
+    def spy(self: Any, data: Any, **options: Any) -> Any:
+        seen.append(options)
+        return template(self, data, **options)
+
+    monkeypatch.setattr(type(result.estimator), "refit", spy)
+    report = refute(
+        result, estimand=contrast, tests=("random_common_cause",), n_replicates=2, random_state=0
+    )
+    assert len(report["random_common_cause"].values) == 2
+    assert [list(options["frozen_seeds"]) for options in seen] == [seeds, seeds]
+
+
 def test_unavailable_capabilities_keep_their_reason() -> None:
     repeated = _fit("ltmle", repeats=3)
     single = _fit("ltmle")
@@ -1369,6 +1394,7 @@ _READERS = _witness("test_readers_report_the_combined_estimates")
 _READ_THROUGH = _witness("test_read_through_fields_are_draw_zero")
 _STUDY = _witness("test_causal_study_band_under_repeats_uses_the_median_rule")
 _ASSESS = _witness("test_validate_and_assess_run_on_a_repeated_fit")
+_REFUTE = _witness("test_refute_reruns_every_draw_with_its_own_seed")
 
 #: The dataclass fields and public members of ``LongitudinalResult``.
 RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
@@ -1390,6 +1416,7 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "method": _STUDY,
     "parameter_keys": _STUDY,
     "fitted_method": _witness(EACH_DRAW, "sdr"),
+    "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
     "bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
     "repeats": _witness(EACH_DRAW, "ltmle"),
@@ -1442,7 +1469,7 @@ CAPABILITIES: dict[str, tuple[str, str, str | None]] = {
     "score_equations": _witness("test_score_rows_cover_every_draw"),
     "truncation_curve": _witness("test_truncation_curve_follows_every_draw"),
     "corrections": _UNAVAILABLE,
-    "refute": _UNAVAILABLE,
+    "refute": _REFUTE,
     **dict.fromkeys(SENSITIVITY_ROUTES, _UNAVAILABLE),
 }
 
@@ -1484,6 +1511,7 @@ STUDY_FIELDS: dict[str, tuple[str, str, str | None]] = {
     "identified_effect": _STUDY,
     "method": _STUDY,
     "parameter_keys": _STUDY,
+    "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
 }
 

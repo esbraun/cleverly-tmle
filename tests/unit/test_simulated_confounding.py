@@ -2144,17 +2144,16 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
         simulated_confounding(result, grid=_grid())
 
 
-def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
+def test_real_mar_fit_refuses_a_moved_treatment_before_calibration_draw_or_refit(
     mar_result: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """X82 part F (e): the fit-wide stop is gone; a moved treatment needs the declaration."""
     reason = _MISSING_OUTCOME_REFUSAL
     forbid_draw_and_refit(monkeypatch, mar_result.estimator)
+    assert _fit_wide_refusal(mar_result) is None
     capability = mar_result.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    assert _fit_wide_refusal(mar_result) == reason
+    assert capability.available
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
             mar_result,
@@ -2165,33 +2164,27 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
     assert str(refusal.value) == reason.message()
 
 
-def test_fit_wide_refusals_have_one_order_and_match_assessment(
+def test_a_controlled_direct_effect_refuses_a_moved_treatment_before_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """X82 part F (f): no fit-wide stop; a moved treatment meets the intermediate stop."""
     base = _fit(weight_scale=1.0)
     intermediate = level_only(column_only(base))
     observed = intermediate.data.observed.copy()
     observed[0] = False
     missing = replace(intermediate, data=replace(intermediate.data, observed=observed))
-    cases = (
-        ("missing_outcome", missing, _MISSING_OUTCOME_REFUSAL),
-        ("intermediate", intermediate, _INTERMEDIATE_REFUSAL),
-    )
     forbid_draw_and_refit(monkeypatch, base.estimator)
-    for name, result, reason in cases:
-        capability = result.sensitivity.capability("simulated_confounding")
-        assert not capability.available, name
-        assert capability.status is AssessmentStatus.UNAVAILABLE, name
-        assert capability.refusal == reason, name
-        assert _fit_wide_refusal(result) == reason, name
+    for name, result in (("missing_outcome", missing), ("intermediate", intermediate)):
+        assert _fit_wide_refusal(result) is None, name
         with pytest.raises(CapabilityError) as refusal:
             simulated_confounding(
                 result,
                 grid=_grid(),
                 benchmark_covariates=("W1",),
                 random_state=29,
+                observation_reads=("W1",) if name == "missing_outcome" else None,
             )
-        assert str(refusal.value) == reason.message(), name
+        assert str(refusal.value) == _INTERMEDIATE_REFUSAL.message(), name
 
 
 def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
@@ -2202,7 +2195,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
     longitudinal or multi-arm rules, whose fits are a different shape, and it cannot reach
     the twelve rules that assume their predecessors passed. The table is the introspection
     contract those rules share, and ``docs/technical-reference/validation-methods.md``
-    quotes the six missing-science names in this relative order, so a silent reordering
+    quotes the three missing-science names in this relative order, so a silent reordering
     must fail here.
 
     ``result_type`` is second because every later rule reads the result's fields directly.
@@ -2216,9 +2209,6 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "adaptive_iptw",
         "learned_rule",
         "risk_ratio_tilt",
-        "missing_outcome",
-        "missing_treatment",
-        "intermediate",
         "missing_estimator",
         "repeat_provenance",
         "binary_estimator",
@@ -2241,9 +2231,9 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
 #: the constants would otherwise have nowhere in the suite.
 _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
     (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
-    (_MISSING_OUTCOME_REFUSAL, "identified missing-outcome refit semantics"),
-    (_MISSING_TREATMENT_REFUSAL, "identified missing-treatment refit semantics"),
-    (_INTERMEDIATE_REFUSAL, "controlled-direct-effect contrast contract"),
+    (_MISSING_OUTCOME_REFUSAL, "moves the treatment of a missing-outcome fit"),
+    (_MISSING_TREATMENT_REFUSAL, "moves a declared missing treatment"),
+    (_INTERMEDIATE_REFUSAL, "holds the treatment of a controlled-direct-effect fit"),
 )
 
 
@@ -2268,9 +2258,9 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
 #: A declarable law cites X82; a part that stays in the research queue cites its F row.
 _REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
     (_LONGITUDINAL_REFUSAL, ("X82", "F13")),
-    (_MISSING_OUTCOME_REFUSAL, ("X82", "F12")),
-    (_MISSING_TREATMENT_REFUSAL, ("X82", "F12")),
-    (_INTERMEDIATE_REFUSAL, ("X82", "F15")),
+    (_MISSING_OUTCOME_REFUSAL, ("F12",)),
+    (_MISSING_TREATMENT_REFUSAL, ("F12",)),
+    (_INTERMEDIATE_REFUSAL, ("F15",)),
 )
 
 
@@ -2291,7 +2281,7 @@ def test_a_missing_treatment_fit_refuses_before_calibration_draw_or_refit(
     result = replace(base, data=replace(base.data, treatment_observed=recorded))
     assert result.data.has_missing_treatment
     forbid_draw_and_refit(monkeypatch, base.estimator)
-    assert _fit_wide_refusal(result) == _MISSING_TREATMENT_REFUSAL
+    assert _fit_wide_refusal(result) is None
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(result, grid=_grid(), random_state=29)
     assert str(refusal.value) == _MISSING_TREATMENT_REFUSAL.message()

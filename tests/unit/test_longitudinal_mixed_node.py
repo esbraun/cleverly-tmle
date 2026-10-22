@@ -547,6 +547,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.with_treatment"): "a mixed node is refused first",
     (
         "longitudinal/estimator.py",
         "ParametricGFormula._refuse_design",
@@ -577,6 +578,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    ("validation/_markov_placebo.py", "MarkovKernel.fit"): "a mixed node is refused first",
     (
         "validation/longitudinal.py",
         "_ipsi_node_row",
