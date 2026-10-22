@@ -64,6 +64,7 @@ from cleverly.estimators._nuisance import (
     Propensity,
     fit_inner_designs,
 )
+from cleverly.estimators._strata import refuse_untrainable_leave_two_out
 from cleverly.estimators.reduced import ReducedSet, fit_reduced
 from cleverly.estimators.targeting import ONE_STEP_FOLDWISE_REFUSAL
 from cleverly.exceptions import CapabilityError, RefusalReason
@@ -1249,3 +1250,17 @@ class TestEachSlabHoldsTheProductionStateAtItsOwnFold:
         )
         assert refits >= 2
         assert worst == 0.0
+
+
+class TestALeaveTwoOutComplementMustTrainEveryArm:
+    """A pair of folds that holds every row of an arm leaves its slab nothing to fit."""
+
+    def test_such_a_split_is_refused_by_name(self) -> None:
+        data = causal_data()
+        treated = np.asarray(data.treatment, dtype=float) == 1.0
+        assignment = np.where(treated, np.arange(data.n) % 2, np.arange(data.n) % FOLDS)
+        with pytest.raises(ValueError, match="folds 0 and 1 together hold every trainable row"):
+            refuse_untrainable_leave_two_out(data, Folds(assignment, FOLDS))
+
+    def test_a_split_that_spreads_each_arm_passes(self) -> None:
+        refuse_untrainable_leave_two_out(causal_data(), _folds())

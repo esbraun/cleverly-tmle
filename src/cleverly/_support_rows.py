@@ -802,6 +802,13 @@ def _t_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit line of a stacked DR-TMLE row whose evidence ran the pooled reduced regressions.
+LEAK = (
+    "Pooled reduced regressions: R drtmle cvFolds parity. X83 measured the fold leak "
+    "against the foldwise default."
+)
+
+
 def _d_rows() -> tuple[SupportRow, ...]:
     """DR-TMLE (``D`` rows)."""
     dr = ("drtmle",)
@@ -813,7 +820,10 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             cells=["both_correct", "outcome_correct", "treatment_correct"],
-            limits=["The one-inconsistent-nuisance cells are red (RM18)."],
+            limits=[
+                "The one-inconsistent-nuisance cells are red (RM18).",
+                LEAK,
+            ],
         ),
         point_row(
             "D02",
@@ -823,7 +833,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
-            limits=["The boundary and one-sided-bias cells are red (RM18)."],
+            limits=["The boundary and one-sided-bias cells are red (RM18).", LEAK],
         ),
         point_row(
             "D03",
@@ -833,7 +843,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["strata"],
             cells=["stratified_both_correct"],
-            limits=["Two truth cells and the small-stratum cell are red (X8)."],
+            limits=["Two truth cells and the small-stratum cell are red (X8).", LEAK],
         ),
         point_row(
             "D04",
@@ -842,6 +852,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             dependence="clustered",
+            options={"reduced_crossfit": "foldwise"},
             cells=["unequal_informative"],
         ),
         point_row(
@@ -852,6 +863,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="t",
             kinds=_WALD_T,
+            options={"reduced_crossfit": "foldwise"},
             cells=["few_cluster_reference"],
         ),
     ]
@@ -896,6 +908,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             engine=dr,
             splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
             cells=["q_wrong_g_glm_cf"],
         ),
         point_row(
@@ -965,7 +978,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
         ),
     ]
     return _merged(
-        rows, {"D01": ["D01", "D07.estimated_g_stacked"], "D06.qg": ["D06.qg", "D07.known_g"]}
+        rows, {"D06.qg": ["D06.qg", "D07.known_g"]}
     )
 
 

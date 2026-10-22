@@ -968,7 +968,7 @@ def _d_cases() -> tuple[RowCase, ...]:
     )
     add(
         _case(
-            "D01",
+            "D07.estimated_g_stacked",
             "drtmle-one-wrong",
             "q_wrong_g_glm_cf",
             _ST + "drtmle_one_wrong.py:452",

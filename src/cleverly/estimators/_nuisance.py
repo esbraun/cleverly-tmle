@@ -286,7 +286,7 @@ class KnownPropensity(Propensity):
     :attr:`~cleverly.data.CausalData.known_treatment`, and every arithmetic accessor is the
     inherited one, so a fit that divides by this mechanism runs the same targeting step, the
     same curve and the same truncation rule as a fit that divides by an estimate.  What the
-    type records is where the values came from.  Two readers branch on it: the nested
+    type records is where the values came from.  Two readers branch on it: the leave-two-out
     DR-TMLE designs, which reuse a known mechanism in every fold rather than refit it, and
     :attr:`NuisanceEstimates.treatment_mechanism`, which the summary and the reports read.
 
@@ -332,9 +332,9 @@ class InnerDesigns:
 
     Entry ``k`` holds, at row ``j`` in fold ``m``, the prediction of a model fitted on
     ``assignment ∉ {k, m}``.  So it never saw outer fold ``k``, and it never saw row ``j``
-    either -- both properties at once, which is what the nested reduced regression needs and
+    either -- both properties at once, which is what the foldwise reduced regression needs and
     what neither an independent split nor per-outer-fold designs give.  The ``m = k`` slice
-    is the production model and is never read: the nested construction takes its
+    is the production model and is never read: the foldwise construction takes its
     **evaluation** designs from the production arrays exactly as the pooled one does, and
     differs only in what fold ``k``'s reduced regression **trains** on.
 
@@ -1388,7 +1388,7 @@ def _check_arm_training(
     arm : float
         The arm code.
     left_out : int or None
-        The outer fold a nested fit also leaves out, or ``None``.
+        The outer fold a leave-two-out fit also leaves out, or ``None``.
 
     Raises
     ------
@@ -1460,7 +1460,7 @@ def _fit_outcome_by_arm(
     remedy : str
         The sentences a fold with no trainable rows closes its error with.
     left_out : int or None
-        The outer fold a nested fit also leaves out, for the error message.
+        The outer fold a leave-two-out fit also leaves out, for the error message.
 
     Returns
     -------
@@ -2357,9 +2357,9 @@ def fit_inner_designs(
     missingness or intermediate model here and no shift or incremental set: a
     :class:`~cleverly.DRTMLE` refuses ``intermediate=`` and the other parameter axes by
     name, while its supported ``delta=`` surface requires ``cross_fit=False`` and therefore
-    cannot enter this nested construction.
+    cannot enter this foldwise construction.
 
-    ``outcome_by_arm=True`` fits the nested outcome regressions per arm
+    ``outcome_by_arm=True`` fits the leave-two-out outcome regressions per arm
     (``_fit_outcome_by_arm``): each inner model of arm ``a`` trains on the rows of arm
     ``a`` outside the two left-out folds.
 
@@ -2371,7 +2371,8 @@ def fit_inner_designs(
     """
     if data.is_continuous_treatment:
         raise CapabilityError(
-            "the nested construction reads a per-arm mechanism, and a continuous dose has none.",
+            "the foldwise construction reads a per-arm mechanism, and a continuous dose has "
+            "none.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit TMLE on the continuous dose.",
             roadmap="F5",
@@ -2379,7 +2380,7 @@ def fit_inner_designs(
     folds = nuisance.folds
     if folds.n_folds < 3:
         raise ValueError(
-            "the nested construction leaves two folds out at a time, so it needs at least "
+            "the foldwise construction leaves two folds out at a time, so it needs at least "
             f"three; this fit has {folds.n_folds}. Pass n_folds=3 or more, or "
             "reduced_crossfit='pooled'."
         )

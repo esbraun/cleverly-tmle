@@ -210,6 +210,7 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
             # The canonical DR-TMLE study's bounds: the reduced treatment regression is
             # fitted, not exact, and 1e-9 let one curve entry reach 4.7e5.
             g_bounds=DRTMLE_G_BOUNDS,
+            reduced_crossfit="foldwise",
         )
         return DRTMLE(**settings).fit(frame, **roles).single()["ate"]
     raise KeyError(fit)

@@ -161,7 +161,7 @@ from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
 from ._nuisance import NuisanceEstimates, fit_inner_designs
-from ._strata import refuse_untrainable_stratum_folds
+from ._strata import refuse_untrainable_leave_two_out, refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
     COMPOSITE_EVALUATION_REFUSAL,
@@ -401,21 +401,18 @@ class DRTMLE(TMLE):
         the **same nuisances** -- the same data, the same ``random_state`` -- since the
         initial fits are all either route has in common.
     reduced_crossfit:
-        How fold ``k``'s reduced regressions get their **training** rows' design and target:
-        ``"pooled"`` (default) reuses the primary split as it stands, and ``"nested"`` takes
-        them from primary models fitted with fold ``k`` left out as well.  **A diagnostic
-        keyword rather than a tuning one**, exactly as ``update_order`` is, and for the same
-        kind of reason: the diagnostic asks whether the cheap construction's
-        induced dependence is higher order, the argument for it needs one quantity to
-        vanish, and that quantity *is* the difference between these two.  So the expensive
-        one exists to be measured rather than to be used.
+        Where fold ``k``'s reduced regressions train on a cross-fitted fit.
+        ``"foldwise"`` (default) trains them on slab ``k``: leave-two-out primary arrays
+        at the other folds' rows, tilted along slab ``k``'s own covariates at the pooled
+        ``epsilon``.  No array in the slab saw fold ``k``.  ``"pooled"`` trains them on
+        the other folds' production arrays, which is R ``drtmle``'s ``cvFolds``
+        construction: fold ``k``'s data reach its own reduced regressions through those
+        rows (X83 measured +0.23 SD of ATE bias against foldwise at n = 2,000).
+        ``docs/technical-reference/dr-tmle/targeting.md`` gives the argument.
 
-        It is refused below ``n_folds=3`` and under ``cross_fit=False`` -- there is no
-        complement to leave a fold out of -- and, with ``targeting="one_step"``, by name.
-        It costs `K` times the primary nuisance fitting, paid once; what actually dominates
-        is that the nested reductions are noisier, so equation (10)'s near-singular solve
-        takes more rounds.  Measured at 1.3x to 17x a pooled fit's wall clock over four
-        draws, on two of which it reached the outer cap.
+        Foldwise is refused below ``n_folds=3`` and with ``targeting="one_step"``.  It
+        costs ``K`` times the primary nuisance fitting, paid once.  In sample there is
+        one fold, so both settings run the same path.
     evaluation:
         An independent draw -- a dataframe or a prepared
         :class:`~cleverly.data.CausalData` -- at which this fit's nuisances are **also**
@@ -511,8 +508,8 @@ class DRTMLE(TMLE):
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
     * ``targeting="one_step"`` with ``reduced_crossfit="foldwise"`` at a non-empty ``guard``,
-      on cost rather than on derivation: the nested designs would move by each of the
-      one-step walk's adaptive steps;
+      on cross-fitted fits, on cost rather than on derivation: the slabs would move by each
+      of the one-step walk's adaptive steps;
     * combining with :class:`~cleverly.CTMLE`.  A reduced regression conditions on
       :math:`\\hat g` *as a covariate*, and C-TMLE's :math:`\\hat g` is deliberately not an
       estimate of :math:`g_0`; and C-TMLE scores its path by the loss of the targeted
@@ -843,9 +840,11 @@ class DRTMLE(TMLE):
             # After the fold draw and before any learner: each stratum's reduced
             # regressions train inside the stratum, on every training complement.
             refuse_untrainable_stratum_folds(data, folds)
+        if self._foldwise():
+            refuse_untrainable_leave_two_out(data, folds)
         route = missing_data_route(self, data)
         # A declared known mechanism is read off the data by the nuisance fit, which then
-        # fits no treatment learner.  The nested designs reuse it in every fold.
+        # fits no treatment learner.  The leave-two-out designs reuse it in every fold.
         base = self._fit_nuisances(
             data,
             folds,

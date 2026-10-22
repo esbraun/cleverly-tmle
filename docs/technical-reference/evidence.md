@@ -194,7 +194,7 @@ construct a different estimator, so the registered full-method equivalence artif
 `tests/unit/test_drtmle_crossfit.py::TestTheCanonicalSourceCVContract` pins the last three choices
 on 101 rows over folds of sizes 34, 34, and 33; both the equal-fold plug-in and cross-validated
 variance are nonzero mutations there. The same module's training-row and longhand cell-mean tests
-pin the first choice for both pooled and nested reduced fits. This is structural implementation
+pin the first choice for both pooled and foldwise reduced fits. This is structural implementation
 provenance rather than R numerical parity. It does not establish a published cross-fitted theorem,
 and it supplies no corrected fold-aggregation result for `targeting_scheme="fold"` or
 `cv_evaluation=True`; both refusals remain pinned in `tests/unit/test_drtmle_fit.py`.

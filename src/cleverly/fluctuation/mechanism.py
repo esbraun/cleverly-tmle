@@ -120,11 +120,10 @@ __all__ = [
 
 #: One item of ``carry`` on this side: a further mechanism moved by the same tilt.
 #:
-#: A bare array takes the **production** covariate, which is what the nested
-#: reduced-regression construction wants -- its fold-free copies describe the same rows.  A
-#: ``(base, covariate)`` pair takes one of its own, which is what an evaluation companion
-#: needs: :math:`Q_r/g^*` at rows the fit never saw is a different array at the same
-#: :math:`\epsilon`.  The counterpart of
+#: A bare array takes the **production** covariate.  A ``(base, covariate)`` pair takes one
+#: of its own, which is what an evaluation companion and a foldwise DR-TMLE slab need:
+#: :math:`Q_r/g^*` at rows the fit never saw, or built from another fold's reduced
+#: regressions, is a different array at the same :math:`\epsilon`.  The counterpart of
 #: :data:`~cleverly.fluctuation.iterative.CarryItem` on the outcome side.
 MechanismCarry: TypeAlias = "FloatArray | tuple[FloatArray, FloatArray]"
 

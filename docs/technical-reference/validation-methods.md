@@ -232,7 +232,7 @@ call then each raise `CapabilityError`.
 | test | configuration | outcome |
 | --- | --- | --- |
 | `TestGuardedTruncationUsesCachedNuisanceReplay` in `tests/unit/test_capability_row_predicates.py` | a stratified fold policy | the curve runs, and the three surfaces agree |
-| `TestTheGuardedCurveReadsItsReductionSettings` in `tests/unit/test_summary_and_message_accuracy.py` | `targeting="one_step"` with `reduced_crossfit="nested"` | the three surfaces refuse |
+| `TestTheGuardedCurveReadsItsReductionSettings` in `tests/unit/test_summary_and_message_accuracy.py` | `targeting="one_step"` on a foldwise fit | the three surfaces refuse |
 | `TestTheGuardedCurveReadsItsReductionSettings` | a changed `guard`, `reduction` or `reduced_crossfit` | the three surfaces refuse |
 
 `mechanism=None` sweeps the observation mechanism on a fit that estimates no treatment law, and

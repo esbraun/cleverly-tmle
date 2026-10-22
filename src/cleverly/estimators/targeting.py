@@ -1652,10 +1652,10 @@ class _Companion:
 def _split_carried(
     carried: Sequence[Any], inner: tuple[Any, ...] | None
 ) -> tuple[tuple[Any, ...] | None, tuple[Any, ...]]:
-    """The nested construction's carried arrays and the companion's, in the order passed.
+    """The foldwise slabs' carried arrays and the companion's, in the order passed.
 
     One place splits them, so that a solve which passes both cannot be read back as though
-    the companion's slabs were fold-free designs -- which every array here would survive,
+    the companion's arrays were the foldwise slabs -- which every array here would survive,
     since both are the same type and the same length.
     """
     if inner is None:
@@ -1664,7 +1664,7 @@ def _split_carried(
 
 
 def _combine(inner: tuple[Any, ...] | None, companion: tuple[Any, ...]) -> tuple[Any, ...]:
-    """What goes in as ``carry``: the nested arrays first, then the companion's."""
+    """What goes in as ``carry``: the foldwise slabs first, then the companion's."""
     return tuple(() if inner is None else inner) + companion
 
 

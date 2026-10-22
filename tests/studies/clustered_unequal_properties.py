@@ -198,6 +198,7 @@ def _informative_fit(kind: str, drawn: Any) -> tuple[Any, float]:
             # The canonical DR-TMLE study's bounds: the reduced treatment regression is
             # fitted, not exact, and 1e-9 let one curve entry reach 4.7e5.
             g_bounds=DRTMLE_G_BOUNDS,
+            reduced_crossfit="foldwise",
         )
         result = (
             DRTMLE(**settings)

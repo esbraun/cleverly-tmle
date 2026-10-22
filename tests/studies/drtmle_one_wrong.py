@@ -427,6 +427,8 @@ def fit(frame: pd.DataFrame, name: str) -> Any:
         "reduced_outcome_learner": CubicLeastSquares(),
         "reduced_treatment_learner": CubicLogistic(),
         "cross_fit": setting.cross_fit,
+        # Read only by the cross-fitted cells; in sample both settings run one path.
+        "reduced_crossfit": "foldwise",
         "estimands": ESTIMANDS,
         "simultaneous": False,
         "g_bounds": G_BOUNDS,
@@ -656,6 +658,7 @@ CONFIGURATION = {
     "reduced_learners": "cubic polynomials in the raw scalar design: least squares for the "
     "reduced outcome regression, Newton logistic with ridge 1e-8 for the reduced mechanism",
     "cross_fit": "False, except the q_wrong_g_glm_cf cells (the shipped default folds)",
+    "reduced_crossfit": "foldwise (read only by the q_wrong_g_glm_cf cells)",
     "settings": {name: vars(setting) for name, setting in SETTINGS.items()},
 }
 
