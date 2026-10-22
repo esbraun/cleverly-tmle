@@ -2477,8 +2477,9 @@ def _bootstrap_stability_test(
 
 _STABILITY_SENTENCE = (
     "The draws describe how far the estimate moves under resampling of units that keep their "
-    "folds. No result covers a refit bootstrap of a cross-fitted estimator, so the report "
-    "states no verdict. The subset test is the calibrated stability check."
+    "folds. Copy-fold resampling trains on fewer distinct units, so the spread tends to exceed "
+    "the standard error. No result covers a refit bootstrap of a cross-fitted estimator, so "
+    "the report states no verdict. The subset test is the calibrated stability check."
 )
 
 
@@ -2965,6 +2966,33 @@ def _subset_draw(
     return np.flatnonzero(np.isin(data.cluster, chosen)), units, size
 
 
+def _placebo_positivity_gap(result: Any, kernel: MarkovKernel) -> str | None:
+    """Name a static regimen that the placebo kernel never draws, or return ``None``.
+
+    The exact null needs ``K(a) > 0`` for each regimen the fit evaluates (X82 plan 5.1.2).
+    The check reads static regimens on an all-categorical panel. A dynamic regimen or a dose
+    node has no single trajectory to read.
+    """
+    from ..longitudinal.regimen import Regimen
+
+    if not all(kernel.categorical):
+        return None
+    data = result.data
+    for regimen in getattr(result.config, "regimens", ()):
+        if type(regimen) is not Regimen:
+            continue
+        encoded = data.encode_assignment(np.asarray(regimen.values, dtype=object), regimen.label)
+        codes = tuple(int(code) for code in encoded[0])
+        if kernel.trajectory_probability(codes) == 0.0:
+            return (
+                f"the Markov kernel of the observed treatments gives regimen "
+                f"{regimen.label!r} probability 0, because no unit follows one of its "
+                "transitions. The placebo law then has no support for the regimen, so no "
+                "placebo refit runs"
+            )
+    return None
+
+
 def _intermediate_option(result: Any) -> dict[str, Any]:
     """The ``intermediate_value`` a point refit holds fixed; a longitudinal fit has none."""
     if not hasattr(result, "intermediate_value"):
@@ -3199,6 +3227,24 @@ def refute(
         mean_kind: Literal["arithmetic", "geometric"] = "geometric" if is_ratio else "arithmetic"
         if name == "placebo":
             assert placebo_null is not None
+            gap = None if kernel is None else _placebo_positivity_gap(result, kernel)
+            if gap is not None:
+                # A regimen the kernel never draws has no placebo value to refit toward,
+                # so the test reports the reason and runs no refit (X82 plan 5.1.2).
+                outcomes.append(
+                    RefutationTest(
+                        name=name,
+                        estimand=estimand,
+                        original=original,
+                        values=(),
+                        expectation="no exact value",
+                        passed=None,
+                        detail=gap,
+                        rung="L0",
+                        scope_sentence=_PLACEBO_SENTENCE,
+                    )
+                )
+                continue
             fits = [
                 refit(_placebo_data(data, rng, placebo_mode, kernel))
                 for _ in range(replicate_count)

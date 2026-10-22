@@ -23,9 +23,12 @@ node                      draw
 previous node             treatment equals the drawn one: the empirical transition
                           frequency
 ``t >= 2``, continuous    the node-``t`` treatment of a donor whose node-``t - 1``
-previous node             dose is nearest to the drawn one, ties drawn uniformly
+previous node             dose is nearest in value to the drawn one
 held node                 the decision drawn at node 1
 ========================  ========================================================
+
+Between two distinct doses equally near the drawn one, the lower dose is taken. Among the donors
+that hold the chosen previous treatment, one is drawn uniformly.
 
 A donor is a unit with a recorded treatment at both nodes. A categorical value that no donor
 holds draws from the node-``t`` marginal of the units at risk. The donor is chosen without
@@ -277,6 +280,25 @@ class MarkovKernel:
             out[index] = cache[value]
         return out
 
+    def trajectory_probability(self, codes: tuple[int, ...]) -> float:
+        """The kernel probability of one unmasked trajectory, on an all-categorical panel.
+
+        Parameters
+        ----------
+        codes : tuple of int
+            One level code per node.
+
+        Returns
+        -------
+        float
+            The product of the node laws along ``codes``.
+        """
+        probability = float(self.node_law(1, np.zeros(1))[0, codes[0]])
+        for time in range(2, self.n_times + 1):
+            law = self.node_law(time, np.asarray([float(codes[time - 2])]))
+            probability *= float(law[0, codes[time - 1]])
+        return probability
+
     def trajectory_law(self) -> tuple[tuple[tuple[int, ...], float], ...]:
         """Every unmasked trajectory and its probability, on an all-categorical panel.
 
@@ -290,14 +312,10 @@ class MarkovKernel:
                 "a dose node has no finite trajectory law",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
-        out: list[tuple[tuple[int, ...], float]] = []
-        for codes in product(*(range(levels) for levels in self.levels)):
-            probability = float(self.node_law(1, np.zeros(1))[0, codes[0]])
-            for time in range(2, self.n_times + 1):
-                law = self.node_law(time, np.asarray([float(codes[time - 2])]))
-                probability *= float(law[0, codes[time - 1]])
-            out.append((tuple(codes), probability))
-        return tuple(out)
+        return tuple(
+            (tuple(codes), self.trajectory_probability(tuple(codes)))
+            for codes in product(*(range(levels) for levels in self.levels))
+        )
 
     def placebo(self, data: Any, rng: np.random.Generator) -> FloatArray:
         """Draw the masked placebo treatment matrix of ``data``.
@@ -355,6 +373,9 @@ def placebo_known_mechanisms(data: Any, kernel: MarkovKernel, placebo: FloatArra
         if declared is None:
             nodes.append(None)
             continue
+        # ``known_node_mechanisms`` refuses a continuous node, so a declared node always
+        # holds level codes and has a law per level.
+        assert kernel.categorical[time - 1], time
         previous = placebo[:, time - 2] if time >= 2 else np.zeros(data.n)
         law = kernel.node_law(time, previous)
         law[np.isnan(placebo[:, time - 1])] = np.nan

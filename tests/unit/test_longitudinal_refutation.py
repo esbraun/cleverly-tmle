@@ -497,3 +497,55 @@ def test_the_kernel_reads_no_covariate() -> None:
     for codes, probability in first.trajectory_law():
         counts[codes] += probability
     assert sum(counts.values()) == pytest.approx(1.0)
+
+
+class TestPlaceboPositivity:
+    @staticmethod
+    def _stand_in(blocked: bool) -> tuple[Any, MarkovKernel]:
+        from cleverly.longitudinal.regimen import Regimen
+
+        rng = np.random.default_rng(7)
+        n = 200
+        a1 = rng.integers(0, 2, n).astype(float)
+        a2 = rng.integers(0, 2, n).astype(float)
+        if blocked:
+            # No unit treated at node 1 stays treated at node 2.
+            a2 = np.where(a1 == 1.0, 0.0, a2)
+        frame = pd.DataFrame({"W": rng.normal(size=n), "A1": a1, "A2": a2, "Y": rng.normal(size=n)})
+        data = LongitudinalData.from_frame(
+            frame, outcome="Y", treatment=["A1", "A2"], baseline=["W"], time_varying=[[], []]
+        )
+        regimens = (Regimen("always", (1, 1)), Regimen("never", (0, 0)))
+        stand_in = SimpleNamespace(data=data, config=SimpleNamespace(regimens=regimens))
+        return stand_in, MarkovKernel.fit(data)
+
+    def test_a_regimen_the_kernel_never_draws_is_named(self) -> None:
+        from cleverly.validation.refute import _placebo_positivity_gap
+
+        stand_in, kernel = self._stand_in(blocked=True)
+        assert kernel.trajectory_probability((1, 1)) == 0.0
+        gap = _placebo_positivity_gap(stand_in, kernel)
+        assert gap is not None
+        assert "'always'" in gap
+
+    def test_a_panel_with_every_transition_has_no_gap(self) -> None:
+        from cleverly.validation.refute import _placebo_positivity_gap
+
+        stand_in, kernel = self._stand_in(blocked=False)
+        assert _placebo_positivity_gap(stand_in, kernel) is None
+
+    def test_the_trajectory_probability_is_the_law(self) -> None:
+        _, kernel = self._stand_in(blocked=False)
+        for codes, probability in kernel.trajectory_law():
+            assert kernel.trajectory_probability(codes) == probability
+
+
+def test_each_noise_column_joins_its_own_node_block(fitted: Any) -> None:
+    """A node's noise column sits in that node's block, measured before its treatment."""
+    data = fitted.data
+    values = np.arange(data.n * data.n_times, dtype=float).reshape(data.n, data.n_times)
+    names = [f"_noise_node_{time}" for time in range(1, data.n_times + 1)]
+    noisy = data.with_node_covariates(values, names)
+    for time, block in enumerate(noisy.time_varying_names, start=1):
+        assert block[-1] == names[time - 1]
+        assert block[:-1] == data.time_varying_names[time - 1]

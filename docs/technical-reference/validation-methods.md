@@ -2040,7 +2040,9 @@ policy then has the value `E[Q_1(W)]`, and every policy contrast is exactly 0.
 | `t >= 2`, continuous previous node | the node-`t` treatment of the donor with the nearest previous dose |
 | held decision | the node-1 draw |
 
-A treatment that is constant within each cluster draws one trajectory per cluster. A node that
+The exact null needs a positive kernel probability for each regimen. When `K` gives a static
+regimen probability 0, the placebo prints that reason and runs no refit. A treatment that is
+constant within each cluster draws one trajectory per cluster. A node that
 the fit declares known keeps a known mechanism, which is the law of `K` given the drawn previous
 treatment. A vector node with a continuous component has no kernel, and the placebo refuses it.
 A parametric g-formula fit refuses `noise_nodes=True`, because the forward simulation would need a
