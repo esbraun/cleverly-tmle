@@ -2287,9 +2287,10 @@ control at the quantile of the other side moves it by $O(\delta)$.
 A parametrized test refuses each composition in the scope table before a learner fits.
 
 **Confidence limits.** The limits resolve through the evidence registry with the instrument
-`msm_bound_limit`. The rule is `continuous` or `binary`, with `+clustered` on a clustered fit. The
-registry has no `msm_bound_limit` row, so the limits print as descriptive until study SH
-registers its coverage cells.
+`msm_bound_limit`. The rule is `continuous` or `binary`. A continuous outcome with a
+caller-supplied quantile or tail learner adds `+custom_learners`, and a clustered fit adds
+`+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
+until study SH registers its coverage cells.
 
 ### Missingness tilt and tipping gamma
 
