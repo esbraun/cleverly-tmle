@@ -1992,7 +1992,9 @@ case.
 
 The plasmode follows Franklin et al. (2014). Each draw takes `n` units from the empirical law of
 `W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once and
-clipped to the `g` bounds of the fit. A fit with no recorded bounds uses `[0.01, 0.99]`. It draws `Y` from the `simulated_outcome` declaration, with
+clipped to the `g` bounds of the fit. A fit with no recorded bounds uses `[0.01, 0.99]`.
+
+The plasmode draws `Y` from the `simulated_outcome` declaration, with
 the adjustment function standardized on the original data. The truth is a finite sum over the `n`
 support points, so all three readings have an exact reference.
 
