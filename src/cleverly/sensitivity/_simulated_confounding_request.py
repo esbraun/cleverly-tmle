@@ -38,9 +38,11 @@ from ._simulated_confounding_common import (
     check_only_declared_axis,
     check_registered_target,
     check_replay_declaration,
+    declares_replay,
     fixed_axis,
     fixed_key_axis,
     point_study_or_refuse,
+    replay_classes,
 )
 from ._simulated_confounding_fixed import fixed_replay_refusal, validate_fixed_replay
 from ._simulated_confounding_incremental import (
@@ -242,18 +244,23 @@ def _refuse_learned_rule(result: Any) -> Refusal | None:
 
 
 def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
-    """Refuse a risk-ratio tilt fit, whose replay declares no reading of its policy."""
+    """Refuse a risk-ratio tilt fit, which carries no backdoor identification to read.
+
+    The tilt can be fitted only directly with ``TMLE(policies=[RiskRatioTilt(...)])``, and
+    no typed study request reports it, so its result records no identified effect.  X85
+    adds the typed requests and, with them, the policy-reading replay.
+    """
     if result.config.parameter_axis != "rr_tilt":
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
-        "ate_rr_tilt): the tilt is a known randomized rule on the natural treatment, and the "
-        "replay declares no reading of that rule on a perturbed draw.",
+        "ate_rr_tilt): a risk-ratio tilt has no typed study request, so no fit carries the "
+        "backdoor identification this check reads.",
         alternative=(
             "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
         ),
-        roadmap="X82",
+        roadmap="X85",
     )
 
 
@@ -284,25 +291,21 @@ def _refuse_repeat_provenance(result: Any) -> Refusal | None:
 
 
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
-    """Refuse a binary fit made by an estimator this surface cannot replay.
+    """Refuse a binary fit whose estimator class declares no simulated-confounding replay.
 
-    An :class:`~cleverly.estimators.AdaptiveIPTW` fit replays as the others do: each cell
-    refits the stored estimator on the perturbed data (X82 part I). A declared known
-    mechanism travels to the cell as the exact mechanism of the flipped treatment.
+    An :class:`~cleverly.estimators.AdaptiveIPTW` fit declares it: each cell refits the
+    stored estimator on the perturbed data (X82 part I). A declared known mechanism travels
+    to the cell as the exact mechanism of the flipped treatment.
     """
-    from ..estimators.ctmle import CTMLE
-    from ..estimators.drtmle import DRTMLE
-    from ..estimators.iptw import AdaptiveIPTW
-    from ..estimators.tmle import TMLE
-
     estimator = result.estimator
-    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE, AdaptiveIPTW}:
+    if result.data.has_arms and not declares_replay(estimator):
+        names = ", ".join(replay_classes())
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding supports ordinary TMLE, collaborative TMLE, "
-            "complete-outcome DR-TMLE, and adaptive-propensity IPTW; got "
-            f"{type(estimator).__name__}.",
-            alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
+            "simulated_confounding replays a binary fit of a point estimator whose class "
+            f"declares simulated_confounding_replay = True ({names}); "
+            f"got {type(estimator).__name__}.",
+            alternative=f"Fit the data with one of {names} and replay that fit.",
             roadmap="X82",
         )
     return None

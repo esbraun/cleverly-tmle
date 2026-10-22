@@ -1517,19 +1517,21 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
-| binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
-| binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
+| binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; any intervention whose density is declared known, frozen per row |
+| binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; any link registered in `cleverly.msm.LINKS`, with fixed projection measure |
 | binary | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
 | continuous | one explicitly named marginal or baseline-stratum `ey_policy[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
 Every row accepts fixed probability weights under its listed estimators.
 
+A binary row admits an estimator whose class declares `simulated_confounding_replay = True`. `TMLE`, `CTMLE`, `DRTMLE` and `AdaptiveIPTW` declare it. `tests/unit/test_simulated_confounding_gate.py` collects every declaring class and checks a zero-strength refit and one nonzero cell for each.
+
 An `AdaptiveIPTW` cell refits the stored estimator on the perturbed data (X82 part I). On a fit
 with a declared mechanism, a cell that flips the treatment declares the mechanism of the flipped
 treatment, $(1-k_A)\,g(a\mid W)+k_A\,g(1-a\mid W)$. The flip reads only the latent, so that
 is the exact mechanism of the cell, and the refit keeps its interval. A regime or MSM of an
-`AdaptiveIPTW` fit is refused, as for every estimator other than exact ordinary TMLE.
+`AdaptiveIPTW` fit is refused ([X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (d)).
 `tests/unit/test_adaptive_iptw_refute.py` holds the zero-strength reproduction, a nonzero cell,
 and the check that a known-mechanism cell equals a direct fit with the flipped mechanism.
 
@@ -1803,8 +1805,10 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 **Refusals.** `_FIT_WIDE_RULES`, in
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
-walks that table and returns the first reason that applies. Three missing-science stops apply
-in this order: longitudinal, learned-rule, and risk-ratio tilt fits. The longitudinal stop applies
+walks that table and returns the first reason that applies.
+
+Three named stops apply in this order: longitudinal, learned-rule, and risk-ratio tilt fits. The first two wait on a declared law.
+The tilt stop waits on a typed study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). The longitudinal stop applies
 the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
 point rule. Each one has a row in the
 refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
@@ -1836,7 +1840,7 @@ execution name the same stop for all fifteen. A fit that reaches the `provider` 
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the three fit-wide missing-science stops and the three grid stops, plus the estimands and compositions the
+The rows below record the three fit-wide named stops and the three grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1846,14 +1850,13 @@ of the roadmap also has a part that waits on published theory, as the
 | --- | --- | --- |
 | a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
 | a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
-| a risk-ratio tilt fit | `implementation_gap` | the replay declares no reading of the tilt rule on a perturbed draw. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (d) |
+| a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves the treatment of a controlled direct effect | `implementation_gap` | a flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. The intermediate and outcome axes run. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
 | identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (a) |
-| a custom intervention type | `implementation_gap` | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (b) |
+| a binary fit under an estimator class that does not declare `simulated_confounding_replay = True` | `implementation_gap` | the surface refits the stored estimator, and the declaration states that its `refit` refits every nuisance. The class itself must declare it, so a subclass does not inherit it. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (e) |
 | a regime, incremental target, or MSM under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for regimes and MSMs, and [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) for incremental targets |
 | continuous-treatment C-TMLE and DR-TMLE | `implementation_gap` | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | PAR or PAF under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks a score or correction for these observed-law contrasts. See [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (h), which depends on [X50](../roadmap.md#x50-further-dr-tmle-compositions), [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) and [X62](../roadmap.md#x62-other-dr-tmle-and-c-tmle-compositions) |
