@@ -231,7 +231,7 @@ class TestPlasmodeLaw:
         law = PlasmodeLaw.fit(result)
         process = BernoulliAdjustmentOutcome(intercept=-0.3, effect=0.8, adjustment_scale=1.2)
         target = PointTarget("difference", "value", 1.0, 0.0)
-        means, weights = law.means(process, result.data, target)
+        means, weights, _ = law.means(process, result.data, target)
         exact = target.truth(means, weights)
         # Monte Carlo of the law itself: units drawn from the support, arms from the frozen g.
         rng = np.random.default_rng(11)
