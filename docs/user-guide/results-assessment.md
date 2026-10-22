@@ -484,6 +484,12 @@ A derived ratio can have a different output alias, such as `rr`.
 For a default odds-ratio source, the row keeps `estimand=None` because an explicit alias chooses the approximation.
 The returned E-value records that source in `source_estimand`.
 
+On a `TimeToEvent` fit, name two reported risks at one horizon, numerator first:
+`result.sensitivity.evalue(("risk_regimen[a1 @ t=2]", "risk_regimen[a0 @ t=2]"))`.
+Some configurations have no coverage study for their confidence limit yet. The
+[E-value reference](../technical-reference/validation-methods.md#e-value)
+lists them. Each prints its confidence-limit E-value as descriptive, and `EValue.limit_descriptive` is true.
+
 The omitted-confounding row says "at the default strengths" when you omit both strength arguments.
 It names the omitted strength when you supply only one. The effective arguments retain both numeric values.
 
@@ -1010,8 +1016,8 @@ source conventions for numeric covariates. It does not change the declared grid.
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
 check is one ordered list, and it stops at the first boundary your fit meets. Six stops wait on
-published theory: longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and
-clustered fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+a declared law: longitudinal, learned-rule, risk-ratio tilt, missing-outcome, missing-treatment,
+and intermediate fits. Twelve provenance and shape stops read the result type, the replay estimator, the
 repeat provenance, the outcome family, the observation weights, and the identification metadata.
 The result-type stop runs second, because every later stop reads a field that only a
 point-treatment result declares.
@@ -1023,8 +1029,21 @@ fit whose backdoor provenance is not a registered explicit adjustment set. Its r
 [technical reference](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 lists the twelve stops in order. Each refusal occurs before calibration, a latent draw, or a refit.
 
-Estimated-weight replay needs the fitted weight model, target-population semantics, and a
-regeneration rule. The fitted result does not store that contract.
+A multi-arm fit swaps the two arms of one declared pair, and other arms keep their rows. A
+contrast alias such as `ate[high vs low]` declares the pair. Any other parameter needs
+`arm_pair=("high", "low")`. A vector treatment names a pair for each categorical component with
+more than two levels.
+
+A clustered fit needs `latent_level`. Pass `"row"`, `"cluster"`, or `"mixed"` with `latent_rho`.
+A treatment that is constant within every cluster accepts only `"cluster"` when a cell moves the
+treatment.
+
+Estimated observation weights stay fixed on their rows. Each cell then targets the weighted
+population of the original fit. The replay does not regenerate the weights.
+
+A categorical benchmark covariate calibrates as one block of its indicators. Name the logical
+covariate, not one indicator. Every binary calibration uses an unpenalized logistic fit. A fit that
+separates the classes reports a `nan` strength, and `summary()` counts those rows.
 
 A fixed-weight collaborative fit reruns its selector or outcome-adaptive treatment fit at each
 cell. It uses the normalized row weights in every nuisance fit, loss, penalty, targeting step, and
@@ -1035,8 +1054,7 @@ collaborative surface makes no numerical parity claim with those implementations
 
 Missing-outcome replay needs a joint law for the response indicator, treatment, and outcome.
 Holding the response indicator fixed can break missing at random after treatment changes.
-Intermediate and longitudinal fits need their own ordered latent laws. Clustered fits need a
-source-backed choice among row-level, cluster-level, and mixed latent causes.
+Intermediate and longitudinal fits need their own ordered latent laws.
 
 A combined call excludes refits and retargets by default. A row skipped for cost alone names the
 flag that would run it. A row that also needs a choice names the choice instead. Longitudinal

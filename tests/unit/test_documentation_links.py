@@ -341,26 +341,13 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
     )
 
 
-def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
-    """The E-value on a controlled direct effect names the item that holds its missing result.
-
-    The source scan below reads each line of ``evalue.py``, and a citation split across two
-    string literals would pass it. This reads the text the caller receives.
-    """
-    from cleverly.sensitivity.evalue import _DIRECT_EFFECT_REFUSAL
-
-    cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL.message())
-    assert cited == ["X82"]
-    assert set(cited) <= set(ROADMAP_ITEMS)
-
-
 def test_the_plugin_limit_refusal_cites_a_roadmap_item_that_exists() -> None:
     """The plug-in bound's refused limits name the item that holds the missing derivation.
 
-    Read from the text the caller receives, for the reason the E-value test above gives.  A
-    learner clause carries the stem's F26 sentence and the record names F26.  A fold clause
-    carries neither, because F26 does not track a declared model that failed a numerical
-    check.
+    Read from the text the caller receives: a source scan reads each line, and a citation split
+    across two string literals would pass it.  A learner clause carries the stem's F26 sentence
+    and the record names F26.  A fold clause carries neither, because F26 does not track a
+    declared model that failed a numerical check.
     """
     from cleverly.sensitivity._mechanism_stack import _refusal
 

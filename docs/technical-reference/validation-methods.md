@@ -1200,6 +1200,28 @@ $Y' = Y-k_YU$. Binomial outcomes use the same tail-flip construction as binary t
 Flip strengths range from zero through 0.5. Continuous treatment strengths are signed finite
 coefficients.
 
+**Point laws of X82 part F.** Four fit shapes take a declared law. The table gives each law
+and the test module that checks it.
+
+| fit | law | witness |
+| --- | --- | --- |
+| a multi-arm treatment | the binary tail flip applied to the two arms of a declared pair $(a, b)$: rows of arm $a$ in the tail move to $b$, and rows of $b$ move to $a$. Other arms keep their rows. A contrast alias such as `ate[a vs b]` declares the pair. Any other parameter takes `arm_pair=(a, b)`. A known mechanism becomes $(1-s)g_a + s g_b$ for arm $a$, the mirror for arm $b$, and $g$ elsewhere. The association reads the indicator of arm $a$ on the rows in arm $a$ or $b$ | `test_simulated_confounding_point_laws.py`: the pair order gives identical cells, the third arm keeps its rows, and a one-way swap and a cycle through every arm fail those checks |
+| a vector treatment with a categorical component of more than two levels | the same swap on that component, declared as `arm_pair={component: (a, b)}` | `test_vector_simulated_confounding.py::test_a_three_level_component_swaps_its_declared_pair_and_keeps_its_third_level` |
+| a clustered fit | the caller declares `latent_level`. `"row"` draws one latent per row. `"cluster"` draws one per cluster. `"mixed"` draws $\sqrt{\rho}\,U_c + \sqrt{1-\rho}\,e$ with a declared `latent_rho`, so each latent stays standard normal. A treatment column that is constant within every cluster refuses `"row"` and `"mixed"` when a cell moves that column. A vector reads each component alone. An outcome-only grid runs at every level | `test_simulated_confounding_point_laws.py`: a cluster latent is constant within each cluster, the mixed latent equals its declared composition, and an outcome-only row latent leaves the treatment unchanged. `test_vector_simulated_confounding.py`: a moved cluster-level flag refuses, and a moved dose runs |
+| a categorical benchmark covariate | one block over every encoded indicator. A binary target uses the class-prediction change of an unpenalized logistic fit when the whole block is set to its mean. A Gaussian target uses $R \cdot \mathrm{sd}$, with $R$ the multiple correlation of the block. An indicator name is refused with its logical covariate | `test_simulated_confounding_point_laws.py`: a different reference level gives the same strength to $10^{-8}$, and the default L2 fit does not |
+| estimated observation weights | every cell holds the supplied weights on their rows, so it targets the fit's weighted population $E[w\,h(W, A', Y')]$. `weights_estimated` records the declaration | `test_simulated_confounding_point_laws.py`: on a saturated binary law each cell equals the weighted plug-in, and the unweighted plug-in differs by more than $10^{-3}$ |
+
+Every binary calibration uses the unpenalized fit, numeric covariates included, so one report
+reads one fit. Complete or quasi-complete separation leaves no maximum-likelihood fit (Albert and
+Anderson 1984). The surface tests for it with the linear programme of Konis (2007), extended to
+$K$ classes. A separated fit reports a `nan` strength. A fit that stops at its iteration limit
+also reports `nan`, with its own method text. `summary()` counts both kinds of row. A block
+strength is unsigned and a numeric Gaussian strength is signed, and `summary()` says so.
+
+Hartman and Huang (2024) place a latent inside the weight model. The estimated-weight law does not
+do that, and regenerated weights would define a population that the fit never targeted. The
+[hard-stop review](hard-stop-review.md) records both verdicts (row F11).
+
 **Target populations.** The surface accepts one exact reported alias. Structured parameter metadata
 identifies its arms, policy, and baseline stratum. The following contracts distinguish its populations.
 
@@ -1623,15 +1645,14 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 **Refusals.** `_FIT_WIDE_RULES`, in
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
-walks that table and returns the first reason that applies. Eight missing-science stops apply
-in this order: longitudinal, learned-rule, multi-arm, missing-outcome, missing-treatment,
-intermediate, estimated-weight, and clustered fits. Each one has a row in the refusal table below,
-and each one carries a roadmap item. F12 tracks the missing-treatment stop with the
-missing-outcome stop.
+walks that table and returns the first reason that applies. Six missing-science stops apply
+in this order: longitudinal, learned-rule, risk-ratio tilt, missing-outcome, missing-treatment,
+and intermediate fits. Each one has a row in the refusal table below, and each one carries a roadmap item. F12
+tracks the missing-treatment stop with the missing-outcome stop.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
 The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
-field that only a `TMLEResult` declares. The other eleven follow the clustered stop. The table
+field that only a `TMLEResult` declares. The other eleven follow the intermediate stop. The table
 below gives all twelve in contract order.
 
 | rule | refuses |
@@ -1651,11 +1672,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all twenty. A fit that reaches the `provider` stop reports
+execution name the same stop for all eighteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the eight missing-science stops, plus the estimands and compositions the
+The rows below record the six missing-science stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1665,12 +1686,10 @@ of the roadmap also has a part that waits on published theory, as the
 | --- | --- | --- |
 | a longitudinal result | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). One time-fixed latent on an uncensored terminal-outcome fit is not written yet. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, longitudinal latent. |
 | a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
-| multi-arm treatment | `implementation_gap` | a swap of the two arms of a declared pairwise contrast is the declared law. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (a) |
+| a risk-ratio tilt fit | `implementation_gap` | the replay declares no reading of the tilt rule on a perturbed draw. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (d) |
 | a missing outcome | `implementation_gap` | a response mechanism that reads the covariates only keeps missing at random given the perturbed treatment. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (e). A mechanism that reads the treatment breaks it. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a declared missing treatment | `implementation_gap` | as the missing-outcome row. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (e) and [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a controlled direct effect, or any fit that carries an intermediate variable | `implementation_gap` | the outcome axis and an intermediate axis that holds the treatment are declared laws. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (f). A flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
-| estimated observation weights | `implementation_gap` | a replay that holds the supplied weights fixed targets the fit's weighted population. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (d) |
-| a clustered fit | `implementation_gap` | the caller declares a row-level, cluster-level, or mixed latent cause. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (b) |
 | identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (a) |
@@ -1681,7 +1700,8 @@ of the roadmap also has a part that waits on published theory, as the
 | `NaturalCourseMean`, reported as `ey_obs` | `invalid_declaration` | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | `invalid_declaration` | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_policy[...]` contrast that uses this policy as its reference is still accepted |
 | an incremental mean at multiplier one | `invalid_declaration` | its mean is $E[Y]$. Contrasts with this reference remain supported |
-| a categorical benchmark covariate | `implementation_gap` | a block calibration over every encoded column of the covariate, fitted unpenalized. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (c) |
+| a row-level or mixed latent that moves a treatment constant within every cluster | `invalid_declaration` | the latent varies within a cluster, so it would move single rows of a cluster-level assignment. `latent_level="cluster"` and an outcome-only grid run |
+| a generated indicator of a categorical covariate as a benchmark | `invalid_declaration` | one indicator does not define a covariate's strength. The message names the logical covariate, which calibrates as a block |
 
 Some rows above record an upstream limit rather than a surface limit. The identified effect's
 method catalog refuses unsupported variant targets at `estimate()`, before it builds an estimator.
@@ -1703,7 +1723,8 @@ the ordinary TMLE, which `guard=()` is.
 | regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |
 
 The surface also refuses a constant benchmark covariate. That check reads the requested covariate
-rather than the fitted result, so it sits outside the fit-wide table.
+rather than the fitted result, so it sits outside the fit-wide table. The latent-level checks read
+the request too.
 
 `simulated_confounding_refusal` returns the refusal of one request before any draw. It reads the
 fit-wide table and then the parameter and calibration checks that the call runs. The capability
@@ -1712,7 +1733,7 @@ row reads it for each request, with the request's `benchmark_covariates` held fi
 | request | row |
 | --- | --- |
 | a refused parameter, such as `ey_obs` or a zero-delta policy mean | `unavailable`, with the call's sentence |
-| a categorical or a constant benchmark covariate | `unavailable`, with the call's sentence |
+| a categorical indicator or a constant benchmark covariate | `unavailable`, with the call's sentence |
 | no `estimand` on a natural-course fit | `unavailable`, because no reported parameter runs |
 | a malformed argument | unchanged. The call raises `ValueError` or `TypeError` |
 
@@ -1775,25 +1796,34 @@ The selected path depends on the reported contrast and retained artifacts.
 | request | E-value path |
 | --- | --- |
 | reported risk ratio | use it directly and mark the result exact |
-| unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
+| unambiguous default binary marginal ATE or odds ratio from `TMLE`, `CTMLE` or `DRTMLE` | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE and CV evaluation |
+| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes CV evaluation |
 | Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
-| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
+| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | standardize by the missing-at-random plug-in of the population `sd(Y)` and mark the result approximate. The plug-in fits one more outcome regression, so the default assessment defers it. A fit that also misses treatments reports `unavailable`, because an unrecorded row has no $A$ for the regression |
+| a contrast within a baseline stratum, from `strata=` | apply the path of the marginal contrast to the stratum's rows. The derived risk ratio and the standardizing `sd(Y)` read the stratum |
+| two reported risks at one horizon of a `TimeToEvent` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator, kind="rr")` and mark the result exact. Both regimens must be static |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G holds the per-arm bound |
+| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | take the path of the same request without the intermediate variable, then invert the per-arm product below. A result that names only the column or only the level reports `unavailable` |
+| a `TimeToEvent` fit without an explicit pair | report `deferred` and name the reported risks |
+| any other longitudinal fit, or a `TimeToEvent` pair with a dynamic regimen or with two horizons | report `unavailable` and name [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) or [F34](../roadmap.md#f34-e-values-beyond-the-total-population-arm-contrast) |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-`_select_evalue` in `cleverly.sensitivity.evalue` runs three fit-wide checks before it resolves
-the estimand. A longitudinal fit and a controlled-direct-effect fit report `unavailable`. A fit
-with a continuous treatment reports `not_applicable`. The checks run in this order. So a
-continuous-treatment fit with an intermediate variable reports `not_applicable`. A request for
-`ey1` on a controlled-direct-effect fit reports `unavailable`, and a multi-arm
-controlled-direct-effect fit does not defer.
+`_select_evalue` in `cleverly.sensitivity.evalue` runs four fit-wide checks before it resolves
+the estimand. The table gives them in the order they run.
+
+| check | status |
+| --- | --- |
+| a longitudinal fit, other than a `TimeToEvent` pair | `unavailable`, or `deferred` on a `TimeToEvent` fit |
+| a continuous treatment | `not_applicable` |
+| a learned-rule fit | `unavailable` |
+| a result that names only one half of an intermediate variable | `unavailable` |
+
+So a continuous-treatment fit with an intermediate variable reports `not_applicable`.
 
 The status refusal follows the `not_applicable` check of the request. A request for `ey1` on a
 collaborative fit therefore still reports `not_applicable`. Several eligible contrasts require an
@@ -1833,12 +1863,34 @@ It then applies the common-outcome square-root approximation before calculating 
 The resulting conversion is $RR \approx \exp((1.81 / 2)d) = \exp(0.905d)$.
 This retains an approximate analysis, not an exact continuous-outcome risk ratio.
 
-This package has no implemented E-value bound for its fitted controlled direct effect and
-confounding model. That fit invokes assumptions about treatment-outcome and
-intermediate-outcome confounding (`estimators/direct_effect.py`, assumptions 2 and 3).
-The ordinary conversion does not by itself quantify sensitivity for that target.
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G holds the specialization: the bias
-splits into one bounding factor per arm, and the E-value inverts their product. `tests/unit/test_evalue_direct_effect_refusals.py` pins the refusal.
+#### Controlled direct effect
+
+A fit with `intermediate=` reports the risk ratio of arms $a$ and $a'$ at the fixed level $z$. The
+bias of that ratio splits into one factor per arm. The split is an identity. Ding and VanderWeele
+(2016), arXiv:1507.03984v1, eAppendix Proposition A.2, bounds each factor by its own bounding
+factor. Smith, Mathur and VanderWeele (2021), arXiv:2005.02908v1, Result 1, uses the same per-arm
+product.
+
+| term | definition |
+| --- | --- |
+| treated-arm strength | $\sup_u P(u \mid A = a, Z = z, W) / P(u \mid W)$. It mixes the association of $U$ with $A$ and with $Z$ |
+| control-arm strength | $\sup_u P(u \mid W) / P(u \mid A = a', Z = z, W)$, the reciprocal direction |
+| outcome strength | one $RR_{UY}$ for each arm |
+| conditions | $Y_{az} \perp A \mid W, U$ and $Y_{az} \perp Z \mid A, W, U$; $U$ is a baseline latent that $A$ does not affect; positivity given $(W, U)$; no confounder of $Z$ and $Y$ that $A$ affects |
+| inversion | with four equal strengths the product is $BF(E, E)^2$, so the E-value is the ordinary E-value of $\sqrt{RR}$ |
+
+The square root comes after the path's own conversion. An odds ratio therefore enters as
+$OR^{1/4}$, and a Gaussian contrast as $\exp(0.905d)^{1/2}$. The confidence limit takes the root
+of the limit nearest the null. The report states the four strengths and the conditions. The
+derived risk ratio passes the fitted level of $Z$ to the retarget.
+
+`tests/unit/test_evalue_part_g.py` checks the bound on two finite laws. On the first law each
+per-arm factor alone, and the treated factor squared, is below the bias, and the product bounds it.
+The second law explains its ratio away with every strength at most 9. The per-arm E-value of that
+ratio is 4.76, and an inversion without the square root asks for 13.6.
+
+VanderWeele (2010) assumes that the latent confounds only the intermediate and the outcome, so it is
+context and not the base. The table below lists the other sources that the review read.
 
 | source, and the version read | what it covers | what it does not cover |
 | --- | --- | --- |
@@ -1867,6 +1919,25 @@ A weighted fit standardizes by the weighted outcome standard deviation.
 The estimate targets the population the observation weights describe, and the standardizing scale describes the same population.
 The weighted form divides by the reliability-weight correction $\sum w - \sum w^2 / \sum w$.
 That correction is $n - 1$ when every weight is one, so an unweighted fit reports the plain sample standard deviation.
+
+#### Confidence limits without coverage evidence
+
+Five configurations print a confidence-limit E-value that no registered study covers yet. Each
+report asks the evidence registry before it prints, with the instrument `evalue_limit` and one rule
+per configuration. Two configurations on one fit join with `+`, for example `cde+stratum`.
+
+| rule | configuration |
+| --- | --- |
+| `cde` | a controlled direct effect |
+| `stratum` | a contrast within a baseline stratum |
+| `response_sd` | the standardized path with a response mechanism |
+| `derived_collaborative_tmle`, `derived_drtmle` | the derived risk ratio of a `CTMLE` or `DRTMLE` fit |
+| `time_to_event` | the risk ratio of a `TimeToEvent` pair |
+
+The registry has no `evalue_limit` row, so each of these limits prints as descriptive.
+`EValue.limit_reading` holds the resolution, and `EValue.limit_descriptive` is true. A `DRTMLE`
+fit with an estimated mechanism also states that its remainder is linear in the mechanism error.
+A registered coverage study adds one row for the configuration it measured.
 
 ### Missingness tilt and tipping gamma
 

@@ -50,14 +50,11 @@ from cleverly.sensitivity import (
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
-    _CLUSTERED_REFUSAL,
-    _ESTIMATED_WEIGHT_REFUSAL,
     _FIT_WIDE_RULES,
     _INTERMEDIATE_REFUSAL,
     _LONGITUDINAL_REFUSAL,
     _MISSING_OUTCOME_REFUSAL,
     _MISSING_TREATMENT_REFUSAL,
-    _MULTI_ARM_REFUSAL,
     _TMLE_ONLY_TARGETS,
     _fit_wide_refusal,
 )
@@ -2048,7 +2045,9 @@ def _manual_weighted_binary_calibration(result: Any, role: str, index: int) -> f
     scaler = StandardScaler().fit(result.data.covariates, sample_weight=result.data.weights)
     design = scaler.transform(result.data.covariates)
     target = result.data.treatment if role == "treatment" else result.data.outcome
-    model = LogisticRegression(max_iter=1000).fit(design, target, sample_weight=result.data.weights)
+    model = LogisticRegression(C=np.inf, max_iter=1000).fit(
+        design, target, sample_weight=result.data.weights
+    )
     baseline = model.predict(design)
     removed = design.copy()
     removed[:, index] = 0.0
@@ -2112,10 +2111,6 @@ def test_fixed_weight_continuous_calibration_uses_weighted_correlation_and_scale
 @pytest.mark.parametrize(
     ("case", "message"),
     [
-        ("estimated", "cannot replay estimated observation weights"),
-        ("drtmle-estimated", "cannot replay estimated observation weights"),
-        ("collaborative-estimated", "cannot replay estimated observation weights"),
-        ("cluster", "clustered fits"),
         ("kind", "fixed probability weights only"),
         ("name", "column and WeightSpec names disagree"),
         ("unnamed", "without a declared weight column"),
@@ -2126,26 +2121,8 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
     case: str,
     message: str,
 ) -> None:
-    method = {
-        "collaborative-estimated": "collaborative_tmle",
-        "drtmle-estimated": "drtmle",
-    }.get(case, "tmle")
-    result = _fit(
-        method=method,
-        weight_scale=1.0,
-        weights_estimated=case
-        in {
-            "estimated",
-            "drtmle-estimated",
-            "collaborative-estimated",
-        },
-    )
-    if case == "cluster":
-        result = replace(
-            result,
-            data=replace(result.data, cluster=np.arange(result.data.n), cluster_name="id"),
-        )
-    elif case == "kind":
+    result = _fit(weight_scale=1.0)
+    if case == "kind":
         result = replace(
             result,
             data=replace(
@@ -2197,30 +2174,14 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
 def test_fit_wide_refusals_have_one_order_and_match_assessment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base = _fit(weight_scale=1.0, weights_estimated=True)
-    cluster_data = replace(
-        base.data,
-        weight_spec=replace(base.data.weight_spec, estimated=False),
-        cluster=np.arange(base.data.n),
-        cluster_name="id",
-    )
-    clustered = replace(base, data=cluster_data)
-    estimated = replace(
-        clustered,
-        data=replace(
-            clustered.data,
-            weight_spec=replace(clustered.data.weight_spec, estimated=True),
-        ),
-    )
-    intermediate = level_only(column_only(estimated))
+    base = _fit(weight_scale=1.0)
+    intermediate = level_only(column_only(base))
     observed = intermediate.data.observed.copy()
     observed[0] = False
     missing = replace(intermediate, data=replace(intermediate.data, observed=observed))
     cases = (
         ("missing_outcome", missing, _MISSING_OUTCOME_REFUSAL),
         ("intermediate", intermediate, _INTERMEDIATE_REFUSAL),
-        ("estimated_weights", estimated, _ESTIMATED_WEIGHT_REFUSAL),
-        ("clustered", clustered, _CLUSTERED_REFUSAL),
     )
     forbid_draw_and_refit(monkeypatch, base.estimator)
     for name, result, reason in cases:
@@ -2260,12 +2221,9 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "result_type",
         "learned_rule",
         "risk_ratio_tilt",
-        "multi_arm",
         "missing_outcome",
         "missing_treatment",
         "intermediate",
-        "estimated_weights",
-        "clustered",
         "missing_estimator",
         "repeat_provenance",
         "binary_estimator",
@@ -2288,12 +2246,9 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
 #: the constants would otherwise have nowhere in the suite.
 _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
     (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
-    (_MULTI_ARM_REFUSAL, "no category-valued perturbation law for a multi-arm treatment"),
     (_MISSING_OUTCOME_REFUSAL, "identified missing-outcome refit semantics"),
     (_MISSING_TREATMENT_REFUSAL, "identified missing-treatment refit semantics"),
     (_INTERMEDIATE_REFUSAL, "controlled-direct-effect contrast contract"),
-    (_ESTIMATED_WEIGHT_REFUSAL, "cannot replay estimated observation weights"),
-    (_CLUSTERED_REFUSAL, "row-level, cluster-level, and mixed latent causes"),
 )
 
 
@@ -2318,12 +2273,9 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
 #: A declarable law cites X82; a part that stays in the research queue cites its F row.
 _REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
     (_LONGITUDINAL_REFUSAL, ("X82", "F13")),
-    (_MULTI_ARM_REFUSAL, ("X82",)),
     (_MISSING_OUTCOME_REFUSAL, ("X82", "F12")),
     (_MISSING_TREATMENT_REFUSAL, ("X82", "F12")),
     (_INTERMEDIATE_REFUSAL, ("X82", "F15")),
-    (_ESTIMATED_WEIGHT_REFUSAL, ("X82",)),
-    (_CLUSTERED_REFUSAL, ("X82",)),
 )
 
 
@@ -3282,10 +3234,10 @@ def test_failed_refits_and_arm_loss_remain_visible(
 def _prediction_change_fraction(design: Any, target: Any, index: int) -> float:
     """Restate the class-prediction-change rule without the function under test.
 
-    Fit a logistic model on the scaled design, zero one column, and report the fraction
-    of rows whose predicted class changes.
+    Fit an unpenalized logistic model on the scaled design, zero one column, and report
+    the fraction of rows whose predicted class changes.
     """
-    model = LogisticRegression(max_iter=1000)
+    model = LogisticRegression(C=np.inf, max_iter=1000)
     model.fit(design, target)
     baseline = model.predict(design)
     removed = np.array(design, copy=True)
@@ -3319,12 +3271,12 @@ def test_numeric_calibration_matches_the_declared_formulas(
     assert rows["treatment"].strength == pytest.approx(expected_treatment, rel=1e-12)
     assert rows["treatment"].strength == pytest.approx(
         _binary_calibration(
-            design, gaussian_result.data.treatment, index, gaussian_result.data.weights
-        ),
+            design, gaussian_result.data.treatment, [index], gaussian_result.data.weights
+        )[0],
         rel=1e-12,
     )
     assert rows["treatment"].family == "binomial"
-    assert rows["treatment"].method == "logistic class-prediction change fraction"
+    assert rows["treatment"].method == "unpenalized logistic class-prediction change fraction"
     assert rows["outcome"].strength == pytest.approx(expected_outcome, rel=1e-12)
     assert abs(rows["outcome"].strength) > 0.0
     assert rows["outcome"].family == "gaussian"
@@ -3353,7 +3305,7 @@ def test_binomial_outcome_calibration_uses_the_class_prediction_rule(
 
     assert surface.outcome_family == "binomial"
     assert rows["outcome"].family == "binomial"
-    assert rows["outcome"].method == "logistic class-prediction change fraction"
+    assert rows["outcome"].method == "unpenalized logistic class-prediction change fraction"
     assert rows["outcome"].method != "signed standardized marginal coefficient"
     assert rows["outcome"].strength == pytest.approx(expected_outcome, rel=1e-12)
     assert rows["outcome"].strength == pytest.approx(0.15)
@@ -3865,10 +3817,8 @@ def test_a_named_reconstruction_failure_refuses_and_an_unnamed_one_is_raised(
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ("multi-arm", "category-valued perturbation law"),
         ("missing", "missing-outcome"),
         ("intermediate", "controlled-direct-effect"),
-        ("cluster", "clustered"),
         ("no-estimator", "replayable"),
         ("estimator", "supports ordinary TMLE"),
         ("outcome-family", "outcome family"),
@@ -3894,16 +3844,12 @@ def test_unsupported_compositions_are_refused_before_refit(
 ) -> None:
     result = gaussian_result
     data = result.data
-    if change == "multi-arm":
-        data = replace(data, treatment_levels=(0, 1, 2))
-    elif change == "missing":
+    if change == "missing":
         observed = data.observed.copy()
         observed[0] = False
         data = replace(data, observed=observed)
     elif change == "intermediate":
         data = with_intermediate_column(data)
-    elif change == "cluster":
-        data = replace(data, cluster=np.arange(data.n), cluster_name="id")
     elif change == "no-estimator":
         result = replace(result, estimator=None)
     elif change == "estimator":
@@ -3967,10 +3913,10 @@ def test_unsupported_compositions_are_refused_before_refit(
     [
         (
             "categorical",
-            ("G",),
+            ("W1",),
             CapabilityError,
-            r"categorical covariate 'G'; .*\(docs/roadmap\.md X82 part F tracks a block calibration "
-            r"of the whole covariate\)\. Name numeric benchmark covariates only",
+            r"benchmarks a categorical covariate as one block of its indicators; 'W1' is one "
+            r"indicator of 'G'\. Name the logical covariate 'G'",
         ),
         ("constant", ("W1",), CapabilityError, "constant covariate"),
         ("non-string", ("W1", 1), TypeError, "only column names"),
@@ -3992,7 +3938,7 @@ def test_invalid_calibrations_are_refused_before_refit(
     if change == "categorical":
         data = replace(
             data,
-            encodings=(CategoricalEncoding("G", ("a", "b"), "a", ("G_b",)),),
+            encodings=(CategoricalEncoding("G", ("a", "b", "c"), "a", ("W1", "G_c")),),
         )
     elif change == "constant":
         covariates = data.covariates.copy()
@@ -4743,25 +4689,6 @@ def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
             estimand=alias,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
-    assert calls == []
-
-
-def test_multi_arm_refusal_precedes_the_latent_draw(
-    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    result = replace(
-        gaussian_result,
-        data=replace(gaussian_result.data, treatment_levels=(0, 1, 2)),
-    )
-    calls = _record_refits(result, monkeypatch)
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-
-    def forbidden_seed(_: int) -> int:
-        raise AssertionError("latent seed requested before multi-arm refusal")
-
-    monkeypatch.setattr(module, "_latent_child_seed", forbidden_seed)
-    with pytest.raises(CapabilityError, match="category-valued perturbation law"):
-        simulated_confounding(result, grid=_grid())
     assert calls == []
 
 
