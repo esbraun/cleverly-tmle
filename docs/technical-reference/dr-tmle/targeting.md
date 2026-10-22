@@ -297,7 +297,26 @@ The foldwise construction keeps two second-order terms.
 | `targeting_scheme="fold"` | refused. The foldwise construction is pooled in the tilt |
 | in sample | `cross_fit=False` has one fold and no complement, so both settings run one in-sample path |
 
-COSTLINE
+### Cost of the foldwise construction
+
+The foldwise construction fits each primary nuisance once more for every pair of folds. With
+`n_folds=K` that is `K(K − 1)/2` extra fits of each primary learner. Pass explicit learners and
+fewer folds when the default learner library is too slow.
+
+The table gives one measurement. The setting is the `both_correct` law of
+`tests/studies/canonical_drtmle.py` at n = 500, the default learner library, the default 10 folds,
+and one core.
+
+| phase | `"pooled"` | `"foldwise"` |
+| --- | --- | --- |
+| initial nuisance fits | about 80 s | about 910 s (45 leave-two-out pairs) |
+| first refit of the reduced regressions | 192 s | 195 s |
+| one outer round after the first | not measured | about 200 s |
+
+The foldwise fit did not exit on tolerance within 30 outer rounds (cap `max_outer=50`). Each round
+refits the default reduced learners on every slab. The pooled fit had not finished after 2 hours
+on a shared machine either, so the round count is a property of the default reduced learners, not
+of the construction. The `drtmle-foldwise` study passes explicit reduced learners for this reason.
 
 ## Where the truncations are
 
