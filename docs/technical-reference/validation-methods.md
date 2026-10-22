@@ -2232,7 +2232,21 @@ The plasmode draws `Y` from the `simulated_outcome` declaration, with the covari
 standardized on the original data. The truth is a finite sum over the `n` support points, so all
 three readings have an exact reference.
 
-The plasmode refuses clusters, strata, weights and a missing treatment.
+The plasmode draws each observation process of the fit from a frozen logistic model with the
+same clip. The table lists the models.
+
+| fit structure | plasmode draw | truth |
+| --- | --- | --- |
+| missing outcome | `Delta*` given `(W, A*)` | unchanged: the outcome is missing at random given `(W, A)` |
+| missing treatment | the recording indicator given `W`. The treatment model is fitted on the recorded rows | unchanged |
+| intermediate | `Z*` given `(W, A*)` | the contrast at the declared value of `Z` |
+| clusters | whole clusters with replacement. Each drawn copy gets its own cluster id | unchanged: each support point has expected count 1 in a draw |
+| baseline strata | each unit keeps its stratum | the sum over the support points of the stratum |
+
+A Gaussian process with `cluster_sd > 0` adds one mean-zero intercept to each drawn cluster, so
+no truth changes. The plasmode refuses weights, because rows drawn from the unweighted
+empirical law that keep their weights describe a mixed law. It also refuses a fit with two of the
+three observation processes, because each frozen model reads `(W, A)` only.
 `tests/unit/test_plasmode_refutation.py` holds the witness and a mutation that keeps `W` fixed.
 
 #### Generated point outcomes
@@ -2265,6 +2279,9 @@ the ATT or ATC population by the frozen probability of that population's arm.
 | `att`, `atc` | the same mean over the rows of arm `v` (`att`) or arm `r` (`atc`) | the same rule |
 | `ey`, `ey1`, `ey0` | the mean of `m(a, W)` | three readings when `m(a, W)` is constant over the rows; else bias only |
 | `rr`, `or` | the ratio of the two levels, or of their odds | three readings when both levels are constant over the rows; else bias only. The readings use the log scale |
+| `ey_obs` | the mean of `m(A, W)` at each row's own arm | three readings when `m(A, W)` is constant over the rows; else bias only |
+| `par` | `ey_obs` minus the level of the reference arm `r` | three readings when `m(A, W) - m(r, W)` is constant over the rows; else bias only |
+| `paf` | `par` divided by `ey_obs` | three readings when `m(A, W)` and `m(r, W)` are constant over the rows; else bias only |
 
 The code reads the constancy from the generated law. A Gaussian process and an identity link have
 a constant arm contrast. A logit link with a nonzero effect does not. The plasmode reads all three
@@ -2274,10 +2291,31 @@ A ratio reads `log psi` with the fit's log-scale standard error against
 `log T`. A refit with a ratio that is not positive is a retained failure. The six exact registry
 rows cover every point target, so no study is needed.
 
-A held-design `att` or `atc` on a fit with a missing treatment is refused. An unrecorded row's arm
-is unknown, so the population is unknown. A continuous treatment has no arm target and is refused.
+The held-design truth of `ey_obs`, `par` and `paf` reads the held arm of each row. The plasmode
+truth reads the frozen arm probabilities. A stratum target, such as `ate[S=1]`, sums over the
+rows of its stratum only.
+
+The held design keeps every observation indicator and the intermediate `Z`. The draw replaces
+the outcome only, so a missing outcome stays missing at random. The table gives the rules for
+each structure.
+
+| structure | rule |
+| --- | --- |
+| controlled direct effect | each process adds `intermediate_effect * z` inside its link, with no arm interaction. The truth sets `z` to the declared value of the effect. A Gaussian contrast is then `c(v) - c(r)` |
+| missing treatment | an unrecorded row takes the generated outcome of the first recorded row. A Gaussian fit scales the outcome by its range over every row, so the copy keeps that range a function of the recorded rows |
+
+`TestUnrecordedRows` in `tests/unit/test_generated_observation.py` shows that `tmle`, `drtmle`
+and `adaptive_iptw` give a bitwise equal estimate when these rows take other values inside the
+range. A value outside the range moves the `tmle` estimate.
+
+A held-design `att` or `atc` on a fit
+with a missing treatment is refused. An unrecorded row's arm is unknown, so the population is
+unknown. A continuous treatment has no arm target and is refused.
 `tests/unit/test_generated_point_families.py` checks each truth against a closed form. It also
 holds a mutation for the contrast direction, the population, the weights and the ratio scale.
+`tests/unit/test_generated_observation.py` does the same for the natural-course targets, the
+intermediate value and the stratum mask. Its mutations drop the stratum mask, set the wrong
+intermediate value, and hide the clusters from the refit.
 
 The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
 default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.
