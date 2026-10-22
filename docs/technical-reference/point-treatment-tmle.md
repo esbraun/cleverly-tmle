@@ -1303,13 +1303,13 @@ table gives its fields.
 is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model, and the saved
 folds, learner templates and seeds replay it.
 
-A refit relearns the rules, so `refute` reads `unavailable`, and the full-refit bootstrap and
-`repeats` above 1 refuse. `simulated_confounding` runs, because its replay holds each row's
-realized rule and the folds fixed. The [simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface) states that reading.
+A refit relearns the rules, so the full-refit bootstrap and `repeats` above 1 refuse.
+`simulated_confounding` and the `refute` tests that change no covariate value hold each row's realized rule fixed.
+The [simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface) states that reading.
+`bootstrap_measurement_error` perturbs a covariate, so it refuses ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (p)).
 
 The other sensitivity analyses read `unavailable`, because the package does not implement them for this target.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n) holds the omitted-variable bound.
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o), holds `refute`.
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the
 E-value and the missingness tilt. The support report and `truncation_curve` run, because they read the same
 rules.

@@ -20,13 +20,14 @@ enters.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..exceptions import NO_ALTERNATIVE, CapabilityError, DataError, Refusal, RefusalReason
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from .base import RegimeSet
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -46,6 +47,8 @@ __all__ = [
     "FrozenLearnedRule",
     "LearnedRule",
     "LearnedRuleRecord",
+    "freeze_learned_rule",
+    "frozen_rule_replay",
     "learned_rule_configuration_refusal",
     "learned_rule_record",
     "learned_rule_scheme_refusal",
@@ -112,12 +115,15 @@ LEARNED_RULE_TILT_REFUSAL = (
 #: Why a refutation refuses a learned-rule fit.
 LEARNED_RULE_REFIT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "A refutation refits the learned-rule value, and a refit relearns the rule inside each "
-    "training fold. The refitted estimate therefore has a different target, and its "
-    "comparison with the reported estimate is not defined. X82 part F in docs/roadmap.md "
-    "tracks a refutation that freezes the fold rules.",
-    alternative=NO_ALTERNATIVE,
-    roadmap="X82",
+    "bootstrap_measurement_error perturbs a covariate of a learned-rule fit. The refit holds "
+    "the realized rule of each original row fixed, and the fit keeps no fold rule that "
+    "assigns a perturbed covariate row. X11 (p) in docs/roadmap.md tracks a replay that "
+    "keeps the fold rules themselves.",
+    alternative=(
+        "refute(result, estimand=..., tests=('placebo', 'random_common_cause', 'subset', "
+        "'bootstrap_stability')) holds the realized rules fixed."
+    ),
+    roadmap="X11",
 )
 
 _X11 = "X11 ({part}) in docs/roadmap.md"
@@ -236,6 +242,47 @@ class FrozenLearnedRule(LearnedRule):
             The rule of the selected rows.
         """
         return FrozenLearnedRule(self.name, self.treat[np.asarray(rows, dtype=int)])
+
+
+def freeze_learned_rule(result: Any) -> FrozenLearnedRule:
+    """Return the realized fold rules of a learned-rule fit, one value per row.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A learned-rule fit.
+
+    Returns
+    -------
+    FrozenLearnedRule
+        The rule of the fit under its own name. ``treat`` is ``True`` where the row's fold
+        rule assigns the higher arm code.
+    """
+    values = np.asarray(result.nuisance.regimes.values[:, 1, 0], dtype=float) > 0.5
+    return FrozenLearnedRule(result.estimator.learned_rule.name, values)
+
+
+def frozen_rule_replay(estimator: Any, rule: FrozenLearnedRule, rows: Any = None) -> Any:
+    """Return a copy of a learned-rule estimator that evaluates the frozen rule.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator of the learned-rule fit.
+    rule : FrozenLearnedRule
+        The realized rules of the original rows.
+    rows : numpy.ndarray or None
+        The original row of each refit row, for a subset or a resample. ``None`` keeps
+        every original row in place.
+
+    Returns
+    -------
+    TMLE
+        The replay estimator.
+    """
+    replay = copy.copy(estimator)
+    replay.learned_rule = rule if rows is None else rule.rows(rows)
+    return replay
 
 
 def _rule_treat(nuisance: NuisanceEstimates, rule: LearnedRule) -> np.ndarray:

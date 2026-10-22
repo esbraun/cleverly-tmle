@@ -9,14 +9,18 @@ confounding of the value of these fixed rules, not of the learned-rule procedure
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 import numpy as np
 
 from .._refusal import RefusalReason
 from ..exceptions import CapabilityError
-from ..interventions.learned import FrozenLearnedRule, LearnedRule, LearnedRuleRecord
+from ..interventions.learned import (
+    LearnedRule,
+    LearnedRuleRecord,
+    freeze_learned_rule,
+    frozen_rule_replay,
+)
 from ._simulated_confounding_common import (
     check_alias,
     check_only_declared_axis,
@@ -26,22 +30,6 @@ from ._simulated_confounding_common import (
 )
 
 LEARNED_RULE_TARGETS = frozenset({"ey_learned_rule"})
-
-
-def frozen_rule_values(result: Any) -> np.ndarray:
-    """Return the realized rule of every row of a learned-rule fit.
-
-    Parameters
-    ----------
-    result : TMLEResult
-        A learned-rule fit.
-
-    Returns
-    -------
-    numpy.ndarray
-        One boolean per row: ``True`` where the row's fold rule assigns the higher arm code.
-    """
-    return np.asarray(result.nuisance.regimes.values[:, 1, 0], dtype=float) > 0.5
 
 
 def validate_learned_rule_replay(result: Any, estimand: str, key: Any) -> tuple[Any, tuple[Any]]:
@@ -98,6 +86,4 @@ def validate_learned_rule_replay(result: Any, estimand: str, key: Any) -> tuple[
     ):
         raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     check_alias(result, estimand, key, estimand if key.stratum is None else key.alias, error)
-    replay = copy.copy(estimator)
-    replay.learned_rule = FrozenLearnedRule(rule.name, frozen_rule_values(result))
-    return replay, (nuisance.folds,)
+    return frozen_rule_replay(estimator, freeze_learned_rule(result)), (nuisance.folds,)

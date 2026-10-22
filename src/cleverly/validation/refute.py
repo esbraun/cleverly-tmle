@@ -136,6 +136,7 @@ from .simulation import ReplicationFailure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
+    from ..interventions.learned import FrozenLearnedRule
 
 __all__ = [
     "DEFAULT_OUTCOME_REPLICATES",
@@ -1123,15 +1124,20 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
 
 
 def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
+    """Refuse a covariate perturbation of a learned-rule fit, which has no frozen rule value.
+
+    ``random_common_cause``, ``subset`` and ``bootstrap_stability`` refit with each row's
+    realized fold rule held fixed (X82 part F4), because none of them changes a covariate
+    value. The placebo law makes every rule's value ``E[Y]``, so the placebo refits as the
+    fit did (X82 plan 5.1.1). The generated-outcome and negative-control tests meet their
+    own later rules.
+    """
     from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
 
     # Read defensively: a stub result without a configuration meets the later rules.
     if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
         return None
-    # The placebo law makes every rule's value ``E[Y]``, so a relearned rule does not move
-    # its target (X82 plan 5.1.1). Only the placebo may refit a learned-rule fit.
-    if all(name == "placebo" for name in request.tests):
+    if "bootstrap_measurement_error" not in request.tests:
         return None
     return LEARNED_RULE_REFIT_REFUSAL
 
@@ -1467,6 +1473,17 @@ def _target_declaration(result: TMLEResult, estimand: str) -> Any:
 
 def _is_learned_rule_fit(result: Any) -> bool:
     return getattr(getattr(result, "config", None), "parameter_axis", None) == "learned_rule"
+
+
+def _frozen_rule(result: Any) -> FrozenLearnedRule | None:
+    """The realized fold rules of a learned-rule fit, or ``None`` for any other fit.
+
+    A refit that changes no covariate value holds these rules fixed, so it estimates the
+    value of the fit's own rules and not of rules relearned on the refit data (X82 part F4).
+    """
+    from ..interventions.learned import freeze_learned_rule
+
+    return freeze_learned_rule(result) if _is_learned_rule_fit(result) else None
 
 
 def _learned_rule_reference(data: Any) -> float:
@@ -2964,6 +2981,7 @@ def _run_empirical_refits(
     expected_family: str,
     retain_preparation_failures: bool = False,
     refit_options: Callable[[int], dict[str, Any]] | None = None,
+    refit_estimator: Callable[[int], Any] | None = None,
 ) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
     """Run, validate, and retain empirical refits through one failure contract.
 
@@ -2989,6 +3007,10 @@ def _run_empirical_refits(
     refit_options : callable or None
         Maps a replicate index to extra keyword arguments of the refit, for example the
         frozen fold labels of a resample.
+    refit_estimator : callable or None
+        Maps a replicate index to the estimator that refits it, for example the frozen
+        rules of a learned-rule fit on the rows of a resample. ``None`` refits with
+        ``result.estimator``.
 
     Returns
     -------
@@ -3016,7 +3038,8 @@ def _run_empirical_refits(
             )
             continue
         try:
-            refitted = result.estimator.refit(
+            estimator = result.estimator if refit_estimator is None else refit_estimator(replicate)
+            refitted = estimator.refit(
                 prepared,
                 **_intermediate_option(result),
                 random_state=child_seed,
@@ -3335,6 +3358,10 @@ class _CopyFolds:
         sample = self._data.subset(index)
         return sample if codes is None else replace(sample, cluster=codes)
 
+    def rows(self, replicate: int) -> np.ndarray:
+        """The original row of each row of the sample drawn for ``replicate``."""
+        return self._index[replicate]
+
     def options(self, replicate: int) -> dict[str, Any]:
         sliced = _sliced_folds(self._result, self._index[replicate])
         options: dict[str, Any] = {} if sliced is None else {"frozen_folds": sliced}
@@ -3395,12 +3422,22 @@ def _bootstrap_stability_test(
     folds.frozen_seeds = [item.seed for item in repeats] if repeats else None
     if is_structural(result):
         folds.frozen_seeds = structural_fit_seeds(result)
+    from ..interventions.learned import frozen_rule_replay
+
+    frozen = _frozen_rule(result)
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
         replacement=lambda replicate, seed: folds.sample(replicate),
         refit_options=folds.options,
+        refit_estimator=(
+            None
+            if frozen is None
+            else lambda replicate: frozen_rule_replay(
+                result.estimator, frozen, folds.rows(replicate)
+            )
+        ),
         expected_family=data.family,
         retain_preparation_failures=True,
     )
@@ -4422,19 +4459,34 @@ def refute(
     panel = longitudinal or structural
     kernel = MarkovKernel.fit(data) if panel and "placebo" in requested else None
 
+    from ..interventions.learned import frozen_rule_replay
+
+    frozen_rule = _frozen_rule(result)
+
     def refit(
         replacement: Any,
         *,
         seed: int = seed,
         frozen_folds: Sequence[Any] | None = None,
         frozen_seeds: Sequence[int] | None = None,
+        rule_rows: np.ndarray | None = None,
+        hold_rule: bool = False,
     ) -> tuple[float, float]:
+        """Refit ``replacement``; ``hold_rule`` holds a learned-rule fit's realized rules.
+
+        ``rule_rows`` gives the original row of each row of ``replacement`` on a subset.
+        """
         options: dict[str, Any] = {}
         if frozen_folds is not None:
             options["frozen_folds"] = frozen_folds
         if frozen_seeds is not None:
             options["frozen_seeds"] = frozen_seeds
-        refitted = estimator.refit(
+        fitter = (
+            estimator
+            if frozen_rule is None or not hold_rule
+            else frozen_rule_replay(estimator, frozen_rule, rule_rows)
+        )
+        refitted = fitter.refit(
             replacement,
             **_intermediate_option(result),
             random_state=seed,
@@ -4609,6 +4661,7 @@ def refute(
                     seed=fit_seed,
                     frozen_folds=noise_folds,
                     frozen_seeds=repeat_seeds,
+                    hold_rule=True,
                 )
                 for index in range(replicate_count)
             ]
@@ -4620,7 +4673,10 @@ def refute(
             extras = [("spread of the paired differences (SE units)", shift_sd)]
             if seed_spread:
                 child = _generated_child_seeds(seed, name, replicate_count)
-                base_fits = [refit(data, seed=child[index]) for index in range(replicate_count)]
+                base_fits = [
+                    refit(data, seed=child[index], hold_rule=True)
+                    for index in range(replicate_count)
+                ]
                 _, _, seed_only = paired_shift(
                     [on_scale(psi) for psi, _ in base_fits],
                     [on_scale(psi) for psi, _ in base_fits],
@@ -4658,7 +4714,12 @@ def refute(
                 # at the Jacobian floor part way through the test refuses it first.
                 raise CapabilityError.from_refusal(thin)
             fits = [
-                refit(data.subset(index), frozen_folds=_sliced_folds(result, index))
+                refit(
+                    data.subset(index),
+                    frozen_folds=_sliced_folds(result, index),
+                    rule_rows=index,
+                    hold_rule=True,
+                )
                 for index, _, _ in drawn
             ]
             values = tuple(psi for psi, _ in fits)

@@ -580,11 +580,11 @@ class TestTheStudyRefusesTheSameRows:
 
 
 class TestTheAssessmentRows:
-    """A refit relearns the rules, so no refutation or bound runs.
+    """No bound and no covariate-perturbing refutation runs on a learned-rule fit.
 
     Each such row reads unavailable, and each call refuses with the same sentence.
-    Simulated confounding runs, because its replay freezes the fold rules (X82 part F4).  The
-    summarize rows and ``truncation_curve`` run; the capability sweep
+    Simulated confounding and the other refutations run, because their replay holds the
+    realized fold rules (X82 part F4).  The summarize rows and ``truncation_curve`` run; the capability sweep
     (``tests/unit/test_capability_row_sweep.py``, kind ``learned_rule``) pins that.
     """
 
@@ -592,12 +592,13 @@ class TestTheAssessmentRows:
     def result(self) -> Any:
         return support.fit()
 
-    def test_refute_reads_unavailable_and_refuses(self, result: Any) -> None:
+    def test_refute_refuses_only_a_covariate_perturbation(self, result: Any) -> None:
+        """X82 part F4 holds the realized rules; a perturbed covariate has no rule value."""
         row = result.diagnostics.capability("refute")
-        assert not row.available and row.refusal == LEARNED_RULE_REFIT_REFUSAL
-        assert "X82 part F in docs/roadmap.md tracks a refutation that freezes" in row.reason
-        with pytest.raises(CapabilityError, match="relearns the rule"):
-            refute(result, estimand=support.NAME, tests=("random_common_cause",))
+        assert row.refusal != LEARNED_RULE_REFIT_REFUSAL
+        assert "X11 (p) in docs/roadmap.md" in LEARNED_RULE_REFIT_REFUSAL.message()
+        with pytest.raises(CapabilityError, match="perturbs a covariate"):
+            refute(result, estimand=support.NAME, tests=("bootstrap_measurement_error",))
 
     @pytest.mark.parametrize(
         ("operation", "item"),

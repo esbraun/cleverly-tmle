@@ -20,10 +20,9 @@ import pytest
 
 from cleverly import CausalStudy, LearnedRuleValue, PointTreatment
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions.learned import FrozenLearnedRule
+from cleverly.interventions.learned import FrozenLearnedRule, freeze_learned_rule
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import _simulated_confounding_request as request_module
-from cleverly.sensitivity._simulated_confounding_learned import frozen_rule_values
 from tests.unit import _learned_rule_support as support
 from tests.unit._confounding_support import replacement as _replacement
 
@@ -155,7 +154,7 @@ def test_inconsistent_fold_metadata_is_refused() -> None:
 
 def test_the_frozen_rule_checks_its_rows() -> None:
     result = _fit()
-    rule = FrozenLearnedRule("learned rule", frozen_rule_values(result))
+    rule = freeze_learned_rule(result)
     assert rule.name == result.estimator.learned_rule.name
     subset = rule.rows(np.array([2, 0, 0]))
     assert subset.treat.tolist() == [rule.treat[2], rule.treat[0], rule.treat[0]]

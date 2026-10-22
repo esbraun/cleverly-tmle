@@ -2752,7 +2752,7 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `learned_rule` | any test except `placebo` on a learned-rule fit, whose refit relearns the rules and so changes the target. The placebo law gives every rule the value `E[Y]`, so the placebo reads the learned-rule level against the weighted mean of the outcome. The default `refute` row reads `unavailable` for the fit |
+| 2 | `learned_rule` | `bootstrap_measurement_error` on a learned-rule fit. It perturbs a covariate, and the fit keeps no fold rule that assigns a perturbed row. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (p) |
 | 3 | `estimand` | an estimand that the fit did not report |
 | 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
 | 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
@@ -2764,6 +2764,13 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | 11 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
 | 12 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
 | 13 | `generated_budget` | a generated-outcome draw count below 10 |
+
+On a learned-rule fit, `random_common_cause`, `subset` and `bootstrap_stability` hold the realized rule of each original row fixed.
+A subset or a resample carries the rule of each kept row, so a duplicated row carries it twice.
+Each refit then estimates the value of the fit's own rules, as the [learned-rule replay](#simulated-common-cause-stress-surface) does.
+The placebo refits as the fit did, because the placebo law gives every rule the value `E[Y]`.
+The placebo reads the learned-rule level against the weighted mean of the outcome.
+`tests/unit/test_refute_learned_rule.py` recomputes each refit by hand and relearns the rule as a mutation control.
 
 Rules 7, 10 and 11 call the validators that the tests run, so the table copies no check. The argument
 check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
