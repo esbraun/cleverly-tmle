@@ -39,6 +39,7 @@ UNPRINTED_DECIMALS = {
     f"for the 1:10:1 slope: {_PROBE}/sweep.log",
     "0.01": f"the true-g threshold, share below it 0.0112 for medium or high: "
     f"{_PROBE}/shortfall.log",
+    "0.927": "the simulated_outcome SE ratio at n_replicates=400, a review probe recorded in the body of pull request 435",
     "0.734": "half the stored ate[high vs low], 1.4681 / 2, checked in check()",
 }
 
@@ -337,7 +338,8 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert round(float(placebo.statistic), 4) == -0.1484
     assert round(float(placebo.statistic_pvalue), 3) == 0.884
     assert round(float(np.mean(placebo.standard_errors) / values.std(ddof=1)), 4) == 0.9241
-    # A nonzero witness: a placebo that kept the observed cadence returns the original slope.
+    # The placebo mean sits far below the original slope; the no-intercept refit below is the
+    # witness that the exact reference needs its stated conditions.
     assert abs(values.mean()) < 0.05 * original
     # The reference is exact only for the stated conditions. Without an intercept the line
     # through three equal means is not flat, so the placebo reference is a computed value.
