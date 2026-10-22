@@ -800,6 +800,58 @@ class TestBootstrapStability:
             refute(result, tests=("bootstrap_stability",), n_replicates=1, random_state=5)
 
 
+class TestLearnedRulePlacebo:
+    """The placebo law makes every rule's value ``E[Y]`` (X82 plan 5.1.1)."""
+
+    @staticmethod
+    def _fit() -> Any:
+        from tests.unit import _learned_rule_support as support
+
+        return support.fit()
+
+    def test_the_placebo_reads_the_value_against_the_outcome_mean(self) -> None:
+        from tests.unit import _learned_rule_support as support
+
+        result = self._fit()
+        report = refute(
+            result, estimand=support.NAME, tests=("placebo",), n_replicates=4, random_state=1
+        )
+        test = report["placebo"]
+        mean = float(np.mean(result.data.outcome))
+        assert test.expectation == f"~ {mean:g}"
+        assert "outcome mean" in test.detail
+
+    def test_every_other_test_still_refuses_a_learned_rule_fit(self) -> None:
+        from tests.unit import _learned_rule_support as support
+
+        result = self._fit()
+        for name in ("random_common_cause", "subset"):
+            with pytest.raises(CapabilityError, match="relearns the rule"):
+                refute(result, estimand=support.NAME, tests=("placebo", name))
+
+    def test_the_reference_is_exact_over_every_permutation(self) -> None:
+        """An IPW value of a fixed rule, with the marginal ``g``, averages to the weighted mean."""
+        import itertools
+        from types import SimpleNamespace
+
+        from cleverly.validation.refute import _learned_rule_reference
+
+        y = np.array([1.0, 0.0, 2.0, 3.0, 1.5, 0.5])
+        w = np.array([1.0, 2.0, 1.0, 3.0, 1.0, 2.0])
+        a = np.array([1.0, 0.0, 1.0, 0.0, 1.0, 1.0])
+        rule = np.array([1.0, 1.0, 0.0, 0.0, 1.0, 0.0])
+        share = {1.0: a.mean(), 0.0: 1.0 - a.mean()}
+        values = []
+        for perm in set(itertools.permutations(a)):
+            permuted = np.array(perm)
+            g = np.array([share[rule[i]] for i in range(6)])
+            values.append(np.sum(w * (permuted == rule) * y / g) / np.sum(w))
+        data = SimpleNamespace(outcome=y, weights=w, observed=np.ones(6, dtype=bool))
+        assert np.mean(values) == pytest.approx(_learned_rule_reference(data))
+        # The mutation: an unweighted mean of a weighted fit is not the placebo value.
+        assert np.mean(values) != pytest.approx(float(np.mean(y)))
+
+
 class TestSubsetFoldSlice:
     def test_the_refit_keeps_each_drawn_units_original_fold(self) -> None:
         result = _binary_fit(cross_fit=True, n=300)

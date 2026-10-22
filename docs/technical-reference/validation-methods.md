@@ -2059,7 +2059,7 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `learned_rule` | a learned-rule fit, whose refit relearns the rules and so changes the target. The `refute` row reads `unavailable` for the whole fit |
+| 2 | `learned_rule` | any test except `placebo` on a learned-rule fit, whose refit relearns the rules and so changes the target. The placebo law gives every rule the value `E[Y]`, so the placebo reads the learned-rule level against the weighted mean of the outcome. The default `refute` row reads `unavailable` for the fit |
 | 3 | `estimand` | an estimand that the fit did not report |
 | 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, an MSM coefficient, or a target with no registered null |
 | 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |

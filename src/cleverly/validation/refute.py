@@ -1207,6 +1207,10 @@ def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal
     # Read defensively: a stub result without a configuration meets the later rules.
     if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
         return None
+    # The placebo law makes every rule's value ``E[Y]``, so a relearned rule does not move
+    # its target (X82 plan 5.1.1). Only the placebo may refit a learned-rule fit.
+    if all(name == "placebo" for name in request.tests):
+        return None
     return LEARNED_RULE_REFIT_REFUSAL
 
 
@@ -1228,8 +1232,30 @@ def _target_declaration(result: TMLEResult, estimand: str) -> Any:
     return TARGETS.get(target)
 
 
+def _is_learned_rule_fit(result: Any) -> bool:
+    return getattr(getattr(result, "config", None), "parameter_axis", None) == "learned_rule"
+
+
+def _learned_rule_reference(data: Any) -> float:
+    """Return the weighted mean of the observed outcomes, the placebo value of any rule.
+
+    Under the placebo law the value of every rule, learned or fixed, is ``E[Y]``, and this
+    mean estimates it. It is constant across permutations, so the ``t`` rule applies
+    unchanged. A weighted fit weights it, because the fit's own value is weighted (X82 plan
+    5.1.1). A learned-rule fit refuses missing outcomes (F27), so every outcome is observed.
+    """
+    observed = np.asarray(data.observed, dtype=bool)
+    return float(np.average(data.outcome[observed], weights=data.weights[observed]))
+
+
 def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
-    """Return the reported-scale no-effect value of a registered parameter, if defined."""
+    """Return the reported-scale no-effect value of a registered parameter, if defined.
+
+    A learned-rule level has no constant null. Its placebo reference is the outcome mean
+    (:func:`_learned_rule_reference`).
+    """
+    if _is_learned_rule_fit(result) and estimand in result.estimates:
+        return _learned_rule_reference(result.data)
     declaration = _target_declaration(result, estimand)
     if declaration is None:
         return None
@@ -2711,11 +2737,17 @@ def refute(
             assert no_effect_null is not None
             fits = [refit(_placebo_data(data, rng, placebo_mode)) for _ in range(replicate_count)]
             values = tuple(psi for psi, _ in fits)
+            learned = _is_learned_rule_fit(result)
             if replicate_count < 2:
                 reading = None
             else:
                 reading = placebo_reading(
-                    [_no_effect_difference(psi, no_effect_null) for psi in values],
+                    [
+                        psi - no_effect_null
+                        if learned
+                        else _no_effect_difference(psi, no_effect_null)
+                        for psi in values
+                    ],
                     std_error=std_error,
                     plugin_std_errors=[se for _, se in fits],
                     scale=original,
@@ -2737,6 +2769,11 @@ def refute(
                     f"{mean_kind} mean placebo estimate {mean:+.5g} against the exact null "
                     f"{no_effect_null:g}; the t statistic of the {replicate_count} draws is "
                     f"{reading.t:+.4g} on {reading.df} degrees of freedom"
+                )
+            if learned:
+                detail += (
+                    f". The reference is the outcome mean {no_effect_null:.5g}, the value of "
+                    "every rule under the placebo law"
                 )
             if data.known_treatment is not None:
                 detail += ". The refit keeps a known mechanism: the placebo law's own arm shares"
