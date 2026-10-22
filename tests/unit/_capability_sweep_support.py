@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -948,11 +949,16 @@ class Kind:
     refits : bool
         Whether ``refit()`` runs on the result's own data, so ``refit_nuisances`` reads
         true. Every fit in this version refits, and a reconfigured kind is one it refuses.
+    declines : str
+        A regular expression for a refusal that a sample statistic causes. A row cannot
+        read the statistic before its call, so the sweep accepts a decline whose text
+        matches. The empty string accepts no decline.
     """
 
     fit: Callable[[], Any]
     must_run: frozenset[str]
     refits: bool = True
+    declines: str = ""
 
     def build(self) -> Any:
         """A fresh copy of this kind's result, which shares the fit and nothing it reported.
@@ -966,8 +972,13 @@ class Kind:
         return dataclasses.replace(_fitted(self.fit))
 
 
-def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
-    return Kind(fit, frozenset(must_run), refits)
+def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True, declines: str = "") -> Kind:
+    return Kind(fit, frozenset(must_run), refits, declines)
+
+
+#: The doubly robust nu^2 of a continuous-dose shift is often negative, because the
+#: binned density gives a poor Riesz representer (X82 part G2c). The bound refuses it.
+NEGATIVE_NU2 = r"the 'doubly_robust' estimator of nu\^2 returned -"
 
 
 #: The rows that read a fit's own nuisances and scores.
@@ -1059,9 +1070,9 @@ KINDS: dict[str, Kind] = {
     "reconfigured_stratified": _kind(
         reconfigured_stratified, *_READ, "truncation_curve", *_BOUND, refits=False
     ),
-    # A shift fit answers no bound row.
+    # A shift fit answers no bound row: its doubly robust nu^2 is negative.
     "reconfigured_unbounded_scale": _kind(
-        unbounded_scale, *_READ, "truncation_curve", refits=False
+        unbounded_scale, *_READ, "truncation_curve", refits=False, declines=NEGATIVE_NU2
     ),
     "reconfigured_unbounded_scale_ate": _kind(
         unbounded_scale_ate, *_READ, "truncation_curve", *_BOUND, refits=False
@@ -1144,7 +1155,7 @@ def sweep_arguments(result: Any) -> dict[str, dict[str, Any]]:
     return arguments
 
 
-def problems(result: Any, arguments: dict[str, dict[str, Any]]) -> list[str]:
+def problems(result: Any, arguments: dict[str, dict[str, Any]], declines: str = "") -> list[str]:
     """Every way a row of ``result`` and its call disagree under ``arguments``.
 
     Four checks. ``assess`` with every cost paid must return a report: any exception is a
@@ -1152,7 +1163,8 @@ def problems(result: Any, arguments: dict[str, dict[str, Any]]) -> list[str]:
     No item may carry :data:`DECLINED`, which marks a row that said available and a call
     that refused. No item may stay deferred, since ``arguments`` supplies every argument a
     row named. And every row that the request resolves as available must run as a direct
-    call with the same arguments. An empty list is agreement.
+    call with the same arguments. An empty list is agreement. A refusal whose text matches
+    ``declines``, the kind's sample-statistic refusal, is not a problem.
     """
     try:
         report = result.assess(
@@ -1163,7 +1175,7 @@ def problems(result: Any, arguments: dict[str, dict[str, Any]]) -> list[str]:
     found = []
     items = (*report.validation.items, *report.diagnostics.items, *report.sensitivity.items)
     for item in items:
-        if DECLINED in (item.detail or ""):
+        if DECLINED in (item.detail or "") and not _accepted(declines, item.detail):
             found.append(f"{item.name} declined: {item.detail}")
         if item.status is AssessmentStatus.DEFERRED:
             found.append(f"{item.name} is still deferred: {item.detail}")
@@ -1179,8 +1191,14 @@ def problems(result: Any, arguments: dict[str, dict[str, Any]]) -> list[str]:
             try:
                 getattr(facade, declared.operation)(**request)
             except CapabilityError as error:
+                if _accepted(declines, str(error)):
+                    continue
                 found.append(f"{declared.operation} reads available, and its call raised {error}")
     return found
+
+
+def _accepted(declines: str, text: str | None) -> bool:
+    return bool(declines) and re.search(declines, text or "") is not None
 
 
 #: The statuses of an item whose operation did not answer.
@@ -1189,7 +1207,7 @@ _OMITTED = frozenset(
 )
 
 
-def sweep(result: Any) -> list[str]:
+def sweep(result: Any, declines: str = "") -> list[str]:
     """:func:`problems` under :func:`sweep_arguments`, for a result nobody has asked yet.
 
     Reading the rows to fill their arguments is part of the sweep, so an exception there
@@ -1199,7 +1217,7 @@ def sweep(result: Any) -> list[str]:
         arguments = sweep_arguments(result)
     except Exception as error:
         return [f"reading the rows raised {type(error).__name__}: {error}"]
-    return problems(result, arguments)
+    return problems(result, arguments, declines)
 
 
 def ran(result: Any, arguments: dict[str, dict[str, Any]]) -> frozenset[str]:
@@ -1400,7 +1418,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M8": Mutation(
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
-        frozenset({"split_plan"}),
+        # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
+        frozenset({"split_plan", "regime", "regime+missing"}),
         _RAISED.format("benchmark") + "benchmark cannot drop every covariate",
     ),
     "M9": Mutation(

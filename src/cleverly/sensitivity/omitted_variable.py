@@ -3032,7 +3032,8 @@ def robustness_value(
         At a non-inferential status, also the
         status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``, and
         ``"limit_refusal"`` in place of the confidence-limit value when the mechanism does not
-        qualify. On a fit with a second mechanism or a stratum parameter, also
+        qualify. When :attr:`SensitivityBounds.features` is not empty, such as on a fit
+        with a second mechanism, a stratum, a regime, a shift, or an MSM coefficient, also
         ``"limit_licensed"`` and ``"limit_sentence"``, which mark the limit descriptive.
 
     Raises
