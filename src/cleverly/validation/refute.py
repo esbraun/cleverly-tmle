@@ -211,7 +211,10 @@ class BootstrapMeasurementError:
     Parameters
     ----------
     variables : tuple of str
-        Original logical adjustment-variable names to perturb.
+        Original logical adjustment-variable names to perturb. A point fit holds a declared
+        strata variable at its recorded values. A longitudinal fit perturbs a baseline or
+        node covariate at every node where it appears; a long panel's column ``l`` covers
+        ``l@1``, ``l@2`` and so on.
     numeric_noise : RelativeGaussianNoise
         Relative law for each selected numeric variable.
     categorical_change_probability : float
@@ -1187,6 +1190,7 @@ _LONGITUDINAL_TESTS = (
     "future_treatment",
     "dummy_outcome",
     "simulated_outcome",
+    "bootstrap_measurement_error",
 )
 
 
@@ -1200,11 +1204,11 @@ def _refuse_longitudinal_tests(result: TMLEResult, request: _RefuteRequest) -> R
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"refutation test(s) {pending} have no longitudinal adapter yet. The longitudinal "
-        "plasmode and the measurement-error bootstrap are X82 work.",
+        "plasmode is X82 work.",
         alternative=(
             "The placebo, random_common_cause, subset, bootstrap_stability, "
-            "negative_control_outcome, future_treatment, dummy_outcome and simulated_outcome "
-            "tests run on this fit."
+            "negative_control_outcome, future_treatment, dummy_outcome, simulated_outcome "
+            "and bootstrap_measurement_error tests run on this fit."
         ),
         roadmap="X82",
     )
@@ -2989,11 +2993,12 @@ def _validate_measurement_error_eligibility(
 ) -> Any:
     """Validate the complete bootstrap measurement-error request before refitting."""
     from ..data import CausalData
+    from ..longitudinal.data import LongitudinalData
 
-    data = getattr(result, "data", None)
-    if type(data) is not CausalData:
+    data: Any = getattr(result, "data", None)
+    if type(data) not in (CausalData, LongitudinalData):
         raise CapabilityError(
-            "bootstrap_measurement_error supports point-treatment CausalData results; "
+            "bootstrap_measurement_error supports CausalData and LongitudinalData results; "
             f"got result family {type(result).__name__} with data family {type(data).__name__}.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
@@ -3006,17 +3011,19 @@ def _validate_measurement_error_eligibility(
             "resampling='cluster' requires the data to carry cluster ids",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    selected_strata = set(declaration.variables).intersection(data.strata_names)
-    if selected_strata:
+    if type(data) is LongitudinalData:
+        _validate_node_measurement(data, declaration)
+        return data
+    if not _perturbed_variables(data, declaration):
         raise CapabilityError(
-            "bootstrap_measurement_error cannot perturb selected strata variables while "
-            f"preserving target metadata: {sorted(selected_strata)}.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
+            "bootstrap_measurement_error holds the strata variables at their recorded values, "
+            "so the reported strata keep their meaning, and this declaration names only "
+            f"strata variables {sorted(declaration.variables)}. No column is left to perturb.",
+            reason=RefusalReason.INVALID_DECLARATION,
             alternative=(
-                "Declare BootstrapMeasurementError(variables=...) with the adjustment "
-                "variables other than the strata."
+                "Declare BootstrapMeasurementError(variables=...) with at least one adjustment "
+                "variable other than the strata."
             ),
-            roadmap="X82",
         )
     encodings = _measurement_encodings(data)
     generated = data.indicator_sources
@@ -3037,7 +3044,7 @@ def _validate_measurement_error_eligibility(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     retained = set(data.covariate_names)
-    for name in declaration.variables:
+    for name in _perturbed_variables(data, declaration):
         encoding = encodings.get(name)
         if encoding is None:
             _validate_numeric_measurement_column(data, name)
@@ -3051,6 +3058,97 @@ def _validate_measurement_error_eligibility(
                 reason=RefusalReason.INVALID_DECLARATION,
             )
     return data
+
+
+def _perturbed_variables(data: Any, declaration: BootstrapMeasurementError) -> tuple[str, ...]:
+    """Return the declared variables a point draw perturbs: every one but the strata."""
+    held = set(getattr(data, "strata_names", ()))
+    return tuple(name for name in declaration.variables if name not in held)
+
+
+def _held_strata(data: Any, declaration: BootstrapMeasurementError) -> tuple[str, ...]:
+    """Return the declared strata variables, which a point draw holds at recorded values."""
+    held = set(getattr(data, "strata_names", ()))
+    return tuple(name for name in declaration.variables if name in held)
+
+
+def _node_columns(data: Any, name: str) -> tuple[tuple[int | None, int], ...]:
+    """Locate ``name`` in a panel: ``(None, j)`` for a baseline column, ``(t, j)`` at node t."""
+    places: list[tuple[int | None, int]] = []
+    if name in data.baseline_names:
+        places.append((None, data.baseline_names.index(name)))
+    for time, names in enumerate(data.time_varying_names):
+        for column, label in enumerate(names):
+            # A long panel names a time-varying column ``name@t`` at node t.
+            if label == name or label.rpartition("@")[0] == name:
+                places.append((time, column))
+    return tuple(places)
+
+
+def _node_values(data: Any, place: tuple[int | None, int]) -> np.ndarray:
+    time, column = place
+    block = data.baseline if time is None else data.time_varying[time]
+    return np.asarray(block[:, column], dtype=float)
+
+
+def _validate_node_measurement(data: Any, declaration: BootstrapMeasurementError) -> None:
+    """Refuse a panel declaration that names no perturbable covariate column."""
+    outcomes = set(getattr(data, "repeated_names", ())) | {data.outcome_name}
+    node_names = {
+        label.rpartition("@")[0] or label for names in data.time_varying_names for label in names
+    }
+    available = sorted(set(data.baseline_names).union(node_names).difference(outcomes))
+    for name in declaration.variables:
+        if name in outcomes:
+            raise CapabilityError(
+                f"bootstrap_measurement_error cannot perturb {name!r}: it is an outcome of "
+                "this panel. A later node reads it as a covariate, but the error would then "
+                "differ between the outcome and its copy",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        places = _node_columns(data, name)
+        if not places:
+            raise CapabilityError(
+                f"unknown covariate {name!r}; choose from the baseline and node covariates "
+                f"{available}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        for place in places:
+            values = _node_values(data, place)
+            finite = values[np.isfinite(values)]
+            where = "baseline" if place[0] is None else f"node {place[0] + 1}"
+            if finite.size and bool(np.all(np.isin(finite, (0.0, 1.0)))):
+                raise CapabilityError(
+                    f"bootstrap_measurement_error cannot perturb {name!r} at {where}: its "
+                    "values are all 0 or 1, and a panel carries no categorical metadata, so "
+                    "relative Gaussian noise would make a binary column real-valued",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+            if not finite.size or float(np.std(finite)) == 0.0:
+                raise CapabilityError(
+                    f"bootstrap_measurement_error cannot perturb {name!r} at {where}: the "
+                    "column is constant there, so its relative noise scale is zero",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+
+
+def _perturb_node_measurement(
+    data: Any, declaration: BootstrapMeasurementError, rng: np.random.Generator
+) -> Any:
+    """Perturb each declared panel column at every node where it appears.
+
+    The noise scale of each appearance is the relative scale times the column's standard
+    deviation at that node, on the rows where it is recorded. A missing value stays missing.
+    """
+    baseline = np.array(data.baseline, dtype=float, copy=True)
+    blocks = [np.array(block, dtype=float, copy=True) for block in data.time_varying]
+    for name in declaration.variables:
+        for time, column in _node_columns(data, name):
+            target = baseline if time is None else blocks[time]
+            values = target[:, column]
+            present = np.isfinite(values)
+            values[present] += declaration.numeric_noise.draw(rng, values[present])
+    return replace(data, baseline=baseline, time_varying=tuple(blocks))
 
 
 def _categorical_codes(data: Any, encoding: Any) -> np.ndarray:
@@ -3068,11 +3166,17 @@ def _categorical_codes(data: Any, encoding: Any) -> np.ndarray:
 def _perturb_measurement_error(
     data: Any, declaration: BootstrapMeasurementError, *, seed: int
 ) -> Any:
-    """Perturb sampled adjustment variables and rebuild complete categorical blocks."""
+    """Perturb sampled adjustment variables and rebuild complete categorical blocks.
+
+    A panel perturbs each declared column at every node where it appears. A point draw
+    holds the strata variables at their recorded values.
+    """
     rng = np.random.default_rng(seed)
+    if hasattr(data, "time_varying"):
+        return _perturb_node_measurement(data, declaration, rng)
     values = np.array(data.covariates, dtype=float, copy=True)
     encodings = _measurement_encodings(data)
-    for name in declaration.variables:
+    for name in _perturbed_variables(data, declaration):
         encoding = encodings.get(name)
         if encoding is None:
             column = data.covariate_names.index(name)
@@ -3264,6 +3368,27 @@ def _bootstrap_measurement_error_test(
     family = next(iter(families)) if len(families) == 1 else None
     if len(families) > 1:
         detail = f"successful refits reported inconsistent outcome families {sorted(families)}"
+    sentences = [_MEASUREMENT_ERROR_SENTENCE]
+    if hasattr(data, "time_varying"):
+        located = []
+        for name in declaration.variables:
+            nodes = [
+                "baseline" if time is None else f"node {time + 1}"
+                for time, _ in _node_columns(data, name)
+            ]
+            located.append(f"{name} at {', '.join(nodes)}")
+        sentences.append(
+            "The perturbation acts at every node where a declared column appears: "
+            + "; ".join(located)
+            + "."
+        )
+    else:
+        held = _held_strata(data, declaration)
+        if held:
+            sentences.append(
+                f"The strata variables {list(held)} keep their recorded values, so each "
+                "reported stratum keeps its rows."
+            )
     return RefutationTest(
         name="bootstrap_measurement_error",
         estimand=estimand,
@@ -3283,7 +3408,7 @@ def _bootstrap_measurement_error_test(
         requested_draws=n_replicates,
         resampling=design.resampling,
         rung="L0",
-        scope_sentence=_MEASUREMENT_ERROR_SENTENCE,
+        scope_sentence=" ".join(sentences),
     )
 
 
