@@ -44,7 +44,6 @@ from cleverly.interventions.learned import (
     LEARNED_RULE_BOUND_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
     LEARNED_RULE_EVALUE_REFUSAL,
-    LEARNED_RULE_REFIT_REFUSAL,
     LEARNED_RULE_REMEDY,
     LEARNED_RULE_TILT_REFUSAL,
 )
@@ -55,7 +54,7 @@ from cleverly.sensitivity import evalue
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.missingness import fit_wide_tilt_refusal
 from cleverly.sensitivity.omitted_variable import fit_wide_bound_refusal
-from cleverly.validation.refute import refute
+from cleverly.validation.refute import refute_refusal
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
@@ -592,13 +591,10 @@ class TestTheAssessmentRows:
     def result(self) -> Any:
         return support.fit()
 
-    def test_refute_refuses_only_a_covariate_perturbation(self, result: Any) -> None:
-        """X82 part F4 holds the realized rules; a perturbed covariate has no rule value."""
-        row = result.diagnostics.capability("refute")
-        assert row.refusal != LEARNED_RULE_REFIT_REFUSAL
-        assert "X11 (p) in docs/roadmap.md" in LEARNED_RULE_REFIT_REFUSAL.message()
-        with pytest.raises(CapabilityError, match="perturbs a covariate"):
-            refute(result, estimand=support.NAME, tests=("bootstrap_measurement_error",))
+    def test_no_refit_test_meets_a_learned_rule_stop(self, result: Any) -> None:
+        """X82 part F4 holds the realized rules on every refit of the fit."""
+        tests = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
+        assert refute_refusal(result, estimand=support.NAME, tests=tests) is None
 
     @pytest.mark.parametrize(
         ("operation", "item"),

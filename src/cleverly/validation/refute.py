@@ -1123,25 +1123,6 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
-def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a covariate perturbation of a learned-rule fit, which has no frozen rule value.
-
-    ``random_common_cause``, ``subset`` and ``bootstrap_stability`` refit with each row's
-    realized fold rule held fixed (X82 part F4), because none of them changes a covariate
-    value. The placebo law makes every rule's value ``E[Y]``, so the placebo refits as the
-    fit did (X82 plan 5.1.1). The generated-outcome and negative-control tests meet their
-    own later rules.
-    """
-    from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
-
-    # Read defensively: a stub result without a configuration meets the later rules.
-    if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
-        return None
-    if "bootstrap_measurement_error" not in request.tests:
-        return None
-    return LEARNED_RULE_REFIT_REFUSAL
-
-
 def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
     if request.estimand in result.estimates:
@@ -1816,7 +1797,6 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
-    ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("structural_tests", _refuse_structural_tests),
     ("longitudinal_tests", _refuse_longitudinal_tests),
@@ -3497,6 +3477,11 @@ def _bootstrap_measurement_error_test(
     )
     draw_by_replicate = {draw.replicate: draw for draw in design.draws}
     folds = _CopyFolds(result, data, design, draw_by_replicate)
+    from ..interventions.learned import frozen_rule_replay
+
+    # A learned-rule fit holds each source unit's realized rule, the rule at its true
+    # covariates, so every refit targets the value of the fit's own rules (X82 part F4).
+    frozen = _frozen_rule(result)
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
@@ -3505,6 +3490,13 @@ def _bootstrap_measurement_error_test(
             folds.sample(replicate), declaration, seed=seed
         ),
         refit_options=folds.options,
+        refit_estimator=(
+            None
+            if frozen is None
+            else lambda replicate: frozen_rule_replay(
+                result.estimator, frozen, folds.rows(replicate)
+            )
+        ),
         expected_family=data.family,
         # A cluster or stratum bootstrap draw can hold too few rows to subset, and that is
         # a property of the draw rather than of the request. ``run_bootstrap`` drops such a

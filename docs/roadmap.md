@@ -1034,7 +1034,6 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 | (l) clusters | `id=` | a cluster as the unit, with the few-cluster rules of [F28](#f28-finite-sample-limits-of-clustered-intervals) | natural extension |
 | (m) baseline strata | `strata=` | a finite partition, after [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) | natural extension |
 | (n) the omitted-variable bound | the bound on a learned-rule fit | the bound of the frozen fold rules after [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part G. Its limits need $\sigma^2$ and $\nu^2$ asymptotically linear under C3, or the row ships the point bound only | natural extension |
-| (p) the measurement-error refutation | `refute(tests=("bootstrap_measurement_error",))` on a learned-rule fit | keep each fold's fitted rule, so a perturbed covariate row has a rule value. The fit now keeps the realized rule of each row only | natural extension |
 
 Part (h) is not the training-fold update that the [Eligibility](#eligibility) section names as new
 theory. Montoya and co-authors fit the update on the validation rows, and the package already ships
@@ -1702,7 +1701,7 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 | part | request | step | readiness |
 | --- | --- | --- | --- |
 | (o) simulated confounding, shipped | `simulated_confounding` on a learned-rule fit | each cell refits on the fit's folds with every row's realized fold rule held fixed (`FrozenLearnedRule`), with the $1/V$ fold weights. It reads as confounding of the value of these fixed rules. See [learned rules](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) | natural extension |
-| (o) `refute`, shipped | `random_common_cause`, `subset` and `bootstrap_stability` on a learned-rule fit | the same frozen-rule replay. A subset or resampled draw carries each kept row's rule value. The generated-outcome tests wait on part E (c), and `bootstrap_measurement_error` on [X11](#x11-learned-policy-follow-ups) part (p) | natural extension |
+| (o) `refute`, shipped | `random_common_cause`, `subset`, `bootstrap_stability` and `bootstrap_measurement_error` on a learned-rule fit | the same frozen-rule replay. A subset or resampled draw carries each kept row's rule value. The generated-outcome tests wait on part E (c) | natural extension |
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 

@@ -39,7 +39,6 @@ __all__ = [
     "LEARNED_RULE_BOUND_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
     "LEARNED_RULE_EVALUE_REFUSAL",
-    "LEARNED_RULE_REFIT_REFUSAL",
     "LEARNED_RULE_REMEDY",
     "LEARNED_RULE_TILT_REFUSAL",
     "RULE_CLASS",
@@ -110,20 +109,6 @@ LEARNED_RULE_EVALUE_REFUSAL = (
 LEARNED_RULE_TILT_REFUSAL = (
     f"{_LEARNED_RULE_TARGET}. A learned-rule fit refuses missing outcomes before any "
     "learner, so it has no observation mechanism to tilt (F27 in docs/roadmap.md)"
-)
-
-#: Why a refutation refuses a learned-rule fit.
-LEARNED_RULE_REFIT_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "bootstrap_measurement_error perturbs a covariate of a learned-rule fit. The refit holds "
-    "the realized rule of each original row fixed, and the fit keeps no fold rule that "
-    "assigns a perturbed covariate row. X11 (p) in docs/roadmap.md tracks a replay that "
-    "keeps the fold rules themselves.",
-    alternative=(
-        "refute(result, estimand=..., tests=('placebo', 'random_common_cause', 'subset', "
-        "'bootstrap_stability')) holds the realized rules fixed."
-    ),
-    roadmap="X11",
 )
 
 _X11 = "X11 ({part}) in docs/roadmap.md"

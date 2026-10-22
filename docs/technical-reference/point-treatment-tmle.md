@@ -1304,9 +1304,8 @@ is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model
 folds, learner templates and seeds replay it.
 
 A refit relearns the rules, so the full-refit bootstrap and `repeats` above 1 refuse.
-`simulated_confounding` and the `refute` tests that change no covariate value hold each row's realized rule fixed.
+`simulated_confounding` and the `refute` tests that refit hold each row's realized rule fixed.
 The [simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface) states that reading.
-`bootstrap_measurement_error` perturbs a covariate, so it refuses ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (p)).
 
 The other sensitivity analyses read `unavailable`, because the package does not implement them for this target.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n) holds the omitted-variable bound.

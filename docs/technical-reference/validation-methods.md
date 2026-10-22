@@ -2752,27 +2752,27 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `learned_rule` | `bootstrap_measurement_error` on a learned-rule fit. It perturbs a covariate, and the fit keeps no fold rule that assigns a perturbed row. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (p) |
-| 3 | `estimand` | an estimand that the fit did not report |
-| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
-| 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
-| 6 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
-| 7 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
-| 8 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
-| 9 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
-| 10 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
-| 11 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
-| 12 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
-| 13 | `generated_budget` | a generated-outcome draw count below 10 |
+| 2 | `estimand` | an estimand that the fit did not report |
+| 3 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
+| 4 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
+| 5 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
+| 6 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
+| 7 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
+| 8 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
+| 9 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
+| 10 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
+| 11 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
+| 12 | `generated_budget` | a generated-outcome draw count below 10 |
 
-On a learned-rule fit, `random_common_cause`, `subset` and `bootstrap_stability` hold the realized rule of each original row fixed.
+On a learned-rule fit, `random_common_cause`, `subset`, `bootstrap_stability` and `bootstrap_measurement_error` hold the realized rule of each original row fixed.
 A subset or a resample carries the rule of each kept row, so a duplicated row carries it twice.
+The measurement-error draw perturbs the covariates after the resample, so each unit keeps the rule at its recorded covariates.
 Each refit then estimates the value of the fit's own rules, as the [learned-rule replay](#simulated-common-cause-stress-surface) does.
 The placebo refits as the fit did, because the placebo law gives every rule the value `E[Y]`.
 The placebo reads the learned-rule level against the weighted mean of the outcome.
 `tests/unit/test_refute_learned_rule.py` recomputes each refit by hand and relearns the rule as a mutation control.
 
-Rules 7, 10 and 11 call the validators that the tests run, so the table copies no check. The argument
+Rules 6, 9 and 10 call the validators that the tests run, so the table copies no check. The argument
 check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
 any refit when that array is absent.
 

@@ -1,9 +1,11 @@
 """X82 part F4: refutations of a learned-rule fit that hold the realized rules fixed.
 
-``random_common_cause``, ``subset`` and ``bootstrap_stability`` change no covariate value, so
-each refit evaluates the fit's own fold rules: one realized rule per original row.  A subset
-or a resample carries each kept row's rule, a duplicated row twice.  Each test below
-recomputes the refits by hand, and a mutation control that relearns the rule fails the check.
+``random_common_cause``, ``subset``, ``bootstrap_stability`` and
+``bootstrap_measurement_error`` refit with the fit's own fold rules: one realized rule per
+source unit.  A subset or a resample carries each kept unit's rule, a duplicated unit twice.
+The measurement-error draw perturbs the covariates after the resample, so each unit keeps
+the rule at its true covariates, which is the original target.  Each test below recomputes
+the refits by hand or records them, and a mutation control that relearns the rule fails it.
 """
 
 from __future__ import annotations
@@ -17,10 +19,10 @@ import numpy as np
 import pytest
 
 from cleverly import CausalStudy, LearnedRuleValue, PointTreatment
-from cleverly.exceptions import CapabilityError
 from cleverly.interventions import learned
-from cleverly.interventions.learned import LEARNED_RULE_REFIT_REFUSAL, FrozenLearnedRule
+from cleverly.interventions.learned import FrozenLearnedRule
 from cleverly.validation import refute
+from cleverly.validation.refute import BootstrapMeasurementError, EmpiricalInclusionRule
 from tests.unit import _learned_rule_support as support
 
 # ``cleverly.validation.refute`` names the function, so read the module by its path.
@@ -64,9 +66,9 @@ def _relearn(estimator: Any, rule: Any, rows: Any = None) -> Any:
     return estimator
 
 
-def test_the_refute_row_has_no_learned_rule_stop() -> None:
-    row = _fit().diagnostics.capability("refute")
-    assert row.refusal != LEARNED_RULE_REFIT_REFUSAL
+def test_no_refit_test_meets_a_learned_rule_stop() -> None:
+    names = ("random_common_cause", "subset", "bootstrap_stability")
+    assert refute_module.refute_refusal(_fit(), estimand=support.NAME, tests=names) is None
 
 
 def test_random_common_cause_refits_hold_the_rules_and_the_folds() -> None:
@@ -85,6 +87,17 @@ def test_random_common_cause_refits_hold_the_rules_and_the_folds() -> None:
         ]
         manual.append(refit[support.NAME].psi)
     assert list(test.values) == pytest.approx(manual, abs=1e-12)
+
+
+def test_a_relearning_noise_refit_fails_the_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: a noise refit that relearns the rule leaves the hand refits."""
+    result = _fit()
+    held = refute(result, estimand=support.NAME, tests=("random_common_cause",), n_replicates=2)
+    monkeypatch.setattr(learned, "frozen_rule_replay", _relearn)
+    relearned = refute(
+        result, estimand=support.NAME, tests=("random_common_cause",), n_replicates=2
+    )
+    assert relearned.tests[0].values != pytest.approx(held.tests[0].values, abs=1e-6)
 
 
 def test_subset_refits_carry_each_kept_rows_rule(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,8 +122,20 @@ def test_subset_refits_carry_each_kept_rows_rule(monkeypatch: pytest.MonkeyPatch
     assert relearned.tests[0].values != pytest.approx(manual, abs=1e-6)
 
 
-def test_bootstrap_refits_carry_a_duplicated_rows_rule_twice(
-    monkeypatch: pytest.MonkeyPatch,
+#: The measurement-error options of a four-draw run: the registered rule at the smallest
+#: floor its alpha admits, and noise on the covariate the rule reads.
+_MEASUREMENT: dict[str, Any] = {
+    "bootstrap_measurement_error": BootstrapMeasurementError(variables=("W1",)),
+    "measurement_error_rule": EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "options"),
+    [("bootstrap_stability", {}), ("bootstrap_measurement_error", _MEASUREMENT)],
+)
+def test_bootstrap_refits_carry_a_duplicated_units_rule_twice(
+    monkeypatch: pytest.MonkeyPatch, name: str, options: dict[str, Any]
 ) -> None:
     result = _fit()
     seen: list[tuple[np.ndarray, Any]] = []
@@ -122,20 +147,14 @@ def test_bootstrap_refits_carry_a_duplicated_rows_rule_twice(
         return built
 
     monkeypatch.setattr(learned, "frozen_rule_replay", recording)
-    report = refute(result, estimand=support.NAME, tests=("bootstrap_stability",), n_replicates=3)
+    report = refute(result, estimand=support.NAME, tests=(name,), n_replicates=4, **options)
     (test,) = report.tests
-    assert len(test.values) == 3 and len(seen) == 3
+    assert len(test.values) == 4 and len(seen) == 4
     treat = _treat(result)
     for rows, rule in seen:
         assert np.unique(rows).size < rows.size
         assert np.array_equal(rule.treat, treat[rows])
+    # Mutation control: a resample refit that relearns the rule gives other values.
     monkeypatch.setattr(learned, "frozen_rule_replay", _relearn)
-    relearned = refute(
-        result, estimand=support.NAME, tests=("bootstrap_stability",), n_replicates=3
-    )
+    relearned = refute(result, estimand=support.NAME, tests=(name,), n_replicates=4, **options)
     assert relearned.tests[0].values != pytest.approx(test.values, abs=1e-6)
-
-
-def test_a_covariate_perturbation_is_refused_by_name() -> None:
-    with pytest.raises(CapabilityError, match=r"X11 \(p\)"):
-        refute(_fit(), estimand=support.NAME, tests=("bootstrap_measurement_error",))
