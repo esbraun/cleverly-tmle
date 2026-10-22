@@ -13,7 +13,9 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly import CapabilityError
 from cleverly.datasets import navigation_protocol
+from cleverly.validation import GaussianAdjustmentOutcome, refute
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     ROOT,
@@ -347,9 +349,163 @@ def check(namespace: dict[str, Any]) -> None:
     for cell in cells:
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
-    # "An outcome strength ... moves the score outside its declared range of 0 to 1": the
-    # witness for why the grid has no outcome axis.
+    # The grid has no outcome axis because the fit declares q_bounds: the outcome strength of
+    # such a fit is a coefficient on the logit scale of the score.
     assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
-    latent = np.random.default_rng(surface.latent_seed).normal(size=len(namespace["frame"]))
-    perturbed = namespace["frame"]["transition_score"].to_numpy() - 0.5 * latent
-    assert perturbed.min() < 0.0 or perturbed.max() > 1.0
+    assert "bounded outcome law: logit on [0, 1]" in stored_output(NOTEBOOK, "sensitivity")
+    _check_refutation(namespace)
+    _check_generated(namespace)
+    _check_bound_and_surfaces(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 14: the placebo, subset and noise checks of the screen, and the stated limits."""
+    regimes = namespace["regime_result"]
+    screen_report, all_report = namespace["screen_refutation"], namespace["offer_all_refutation"]
+    assert screen_report.estimand == SCREEN and all_report.estimand == OFFER_ALL
+    tests = {test.name: test for test in screen_report.tests}
+    assert list(tests) == ["placebo", "subset", "random_common_cause"]
+    original = regimes[SCREEN].psi
+    for test in (*tests.values(), all_report["placebo"]):
+        # "No check prints a verdict": no registry row covers a TMLE regime contrast.
+        assert test.passed is None and test.rung == "L0" and len(test.values) == 20
+    assert screen_report.passed is None and all_report.passed is None
+    placebo = tests["placebo"]
+    values = np.asarray(placebo.values)
+    assert round(float(values.mean()), 7) == 0.0009427
+    assert round(float(placebo.statistic), 4) == 0.7714
+    assert round(float(placebo.statistic_pvalue), 2) == 0.45
+    assert round(float(np.mean(placebo.standard_errors) / values.std(ddof=1)), 3) == 0.884
+    # A nonzero witness: a placebo that kept the observed offers would return the estimate.
+    assert abs(values.mean()) < 0.1 * original
+    offer_all = np.asarray(all_report["placebo"].values)
+    assert round(float(offer_all.mean()), 7) == 0.0020341
+    assert round(float(all_report["placebo"].statistic), 3) == 1.272
+    assert abs(offer_all.mean()) < 0.1 * regimes[OFFER_ALL].psi
+    subset = np.asarray(tests["subset"].values)
+    reference = float(regimes[SCREEN].std_error * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
+    assert round(float(np.std(subset, ddof=1)), 7) == 0.0026376
+    assert round(reference, 7) == 0.0031383
+    shift = (np.asarray(tests["random_common_cause"].values) - original) / regimes[SCREEN].std_error
+    assert 0.0 < abs(shift.mean()) < 0.05 and round(float(shift.mean()), 5) == -0.02674
+    assert round(float(np.std(shift, ddof=1)), 4) == 0.1597
+    stored = stored_output(NOTEBOOK, "refute-regimes")
+    assert "This fit differs on method 'TMLE'" in stored
+    # The limit: `prior_utilization` is an adjustment column, so a control that equals it is
+    # refused, and the frame holds no other pre-offer measure.
+    frame = namespace["frame"]
+    with pytest.raises(CapabilityError, match="equals the adjustment column"):
+        refute(
+            regimes,
+            estimand=SCREEN,
+            tests=("negative_control_outcome",),
+            negative_control_outcome=frame["prior_utilization"].to_numpy(),
+            negative_control_kind="pre_treatment",
+            n_replicates=5,
+        )
+
+
+def _check_generated(namespace: dict[str, Any]) -> None:
+    """Step 15: the generated outcomes, each at 10 draws, and the limits that the page states."""
+    expected = (
+        ("screen_generated", "simulated_outcome", SCREEN, 0.049828, 0.051083),
+        ("nudge_plasmode", "plasmode", "ate_ipsi[double odds vs current odds]", 0.016329, 0.016364),
+        ("raise_generated", "simulated_outcome", CAPPED, 0.24367, 0.24717),
+    )
+    for name, test_name, estimand, truth, mean in expected:
+        report = namespace[name]
+        test = report[test_name]
+        assert report.estimand == estimand
+        # "No reading prints a verdict ... 10 draws are below the calibrated minimum of 400."
+        assert test.passed is None and test.rung == "L1" and len(test.values) == 10
+        assert round(float(test.declared_effect), 5 if truth > 0.1 else 6) == truth
+        assert round(float(np.mean(test.values)), 5 if truth > 0.1 else 6) == mean
+        # "Each mean of the refits lies close to its truth": a nonzero witness against a mean
+        # that sat at the real-data estimate, which differs from every generated truth.
+        assert abs(np.mean(test.values) - truth) < 0.05 * abs(truth) + 0.01
+        assert (
+            abs(
+                truth
+                - namespace[
+                    {
+                        "screen_generated": "regime_result",
+                        "nudge_plasmode": "incremental_result",
+                        "raise_generated": "shift_result",
+                    }[name]
+                ][estimand].psi
+            )
+            > 0.005
+        )
+    assert "10 draws are below the calibrated minimum of 400" in stored_output(
+        NOTEBOOK, "generated"
+    )
+    # The limits of the step table.
+    regimes, incremental = namespace["regime_result"], namespace["incremental_result"]
+    shift = namespace["shift_result"]
+    with pytest.raises(CapabilityError, match="registered Gaussian process"):
+        refute(
+            regimes,
+            estimand=SCREEN,
+            tests=("simulated_outcome",),
+            simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
+            n_replicates=10,
+        )
+    with pytest.raises(CapabilityError, match="no truth for an incremental tilt"):
+        refute(
+            incremental,
+            estimand="ate_ipsi[double odds vs current odds]",
+            tests=("simulated_outcome",),
+            simulated_outcome=namespace["bounded"],
+            n_replicates=10,
+        )
+    with pytest.raises(CapabilityError, match="no law of a continuous treatment"):
+        refute(
+            shift,
+            estimand=CAPPED,
+            tests=("plasmode",),
+            simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
+            n_replicates=10,
+        )
+
+
+def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
+    """Step 16: the regime bound, its refusals, and the stress surfaces of the other two."""
+    regimes = namespace["regime_result"]
+    text = stored_output(NOTEBOOK, "bound")
+    for name, bias, bounds, rv, rva in (
+        (SCREEN, "0.006909", "[0.10782, 0.12163]", "0.3938", "0.3647"),
+        (OFFER_ALL, "0.0099309", "[0.16125, 0.18111]", "0.4050", "0.3777"),
+    ):
+        assert f"bias <= {bias}" in text and f"bias-adjusted bounds:  {bounds}" in text
+        assert f"RV   = {rv}" in text and f"RVa  = {rva}" in text
+        # A nonzero witness: the default strength moves the estimate, but not to zero.
+        assert 0.0 < float(bias) < regimes[name].psi
+        assert "cf_y = 0.03, cf_d = 0.03, rho = 1" in text
+    assert "No calibration covers this configuration" in text
+    assert "ate_regime[coin vs always]" in text
+    for call in (
+        lambda: namespace["incremental_result"].sensitivity.omitted_confounding(
+            estimand="ate_ipsi[double odds vs current odds]"
+        ),
+        lambda: namespace["shift_result"].sensitivity.omitted_confounding(estimand=CAPPED),
+    ):
+        with pytest.raises(CapabilityError):
+            call()
+    for call in (
+        lambda: regimes.sensitivity.evalue(estimand=SCREEN),
+        lambda: namespace["incremental_result"].sensitivity.evalue(
+            estimand="ate_ipsi[double odds vs current odds]"
+        ),
+        lambda: namespace["shift_result"].sensitivity.evalue(estimand=CAPPED),
+    ):
+        with pytest.raises(Exception, match="E-value"):
+            call()
+    # The nudge and raise surfaces: the flip moves each estimate down, by the stored amounts.
+    stored = stored_output(NOTEBOOK, "sensitivity-other")
+    assert "nudge: movement -6.4 standard errors" in stored
+    assert "raise: movement -0.9 standard errors" in stored
+    for key in ("nudge_surface", "raise_surface"):
+        flipped = max(namespace[key].cells, key=lambda cell: cell.treatment_strength)
+        zero = min(namespace[key].cells, key=lambda cell: cell.treatment_strength)
+        assert flipped.estimate < zero.estimate
+        assert flipped.outcome_strength == 0.0 and flipped.failure is None
