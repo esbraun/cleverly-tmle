@@ -188,6 +188,28 @@ def study_module_hashes(record: StudyRecord) -> dict[str, str]:
     }
 
 
+#: The ``configuration`` keys that :func:`write_manifest` writes from the record. A caller's
+#: ``configuration`` may not name one, because the spread would replace the record's value.
+RECORD_CONFIGURATION_KEYS: frozenset[str] = frozenset(
+    {
+        "replicates",
+        "n",
+        "scenario_n",
+        "seed",
+        "resampling_seed",
+        "scenario_seed_owners",
+        "publication_policy",
+        "truth_varies_by_replicate",
+        "paired_role",
+        "failure_bound",
+        "accepted_reference_failure",
+        "scenarios",
+        "reference_scenarios",
+        "margins",
+    }
+)
+
+
 def write_manifest(
     path: Path,
     record: StudyRecord,
@@ -205,7 +227,16 @@ def write_manifest(
     metadata, and the digest of each reference source as declared at this run
     (``declared_sources_sha256``).  No test gates those digests: a comparator fix made while
     the runs are pending changes bytes that never ran.
+
+    A ``configuration`` key in :data:`RECORD_CONFIGURATION_KEYS` raises ``ValueError``: the
+    record owns that key, and a second value would replace the record's value unseen.
     """
+    collisions = sorted(RECORD_CONFIGURATION_KEYS & set(configuration or {}))
+    if collisions:
+        raise ValueError(
+            f"{record.slug}: the configuration names {collisions}, which the record owns; "
+            "rename the key or set the value on the record"
+        )
     pending = record.comparator_state == "pending"
     files = tuple(reference_files)
     payload: dict[str, Any] = {

@@ -11,6 +11,18 @@ family also includes Kennedy's incremental estimator `IPSI`. An incremental inte
 one odds factor for each level of a treatment with three or more levels, at a point treatment and
 at a node of `IPSI`. The registered study [categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md) covers the support rows `T35` at a point treatment and `G43` over time. Any other such fit, for example with weights, clusters or a `delta=` argument, is labelled `experimental`.
 
+A point-treatment functional also has the adaptive-propensity IPTW estimator, `AdaptiveIPTW`.
+It reads the treatment and missingness mechanisms and a reduced regression of the outcome on the
+fitted propensity, and it fits no outcome regression. It reports a point estimate for every
+supported fit. The arm means and the targets built from them report an interval only when the
+treatment probabilities are declared and the data are complete. A fit with an estimated mechanism
+takes the status `estimated_mechanism_plugin`.
+
+[Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract. Its
+evidence label is "Python property evidence, with comparator runs pending". An estimate reads
+`supported` when a support row of the [registered study](../technical-reference/method-evidence/adaptive-iptw.md)
+covers its configuration, and `experimental` otherwise.
+
 | longitudinal estimator | reads | interval |
 | --- | --- | --- |
 | `LTMLE` | outcome regressions and mechanisms, with a fluctuation | the influence curve |

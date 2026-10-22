@@ -241,6 +241,44 @@ fit warns, reports `converged=False`, and `score_check()` fails it.
 [Stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) gives the
 text.
 
+### AdaptiveIPTW refusals
+
+`AdaptiveIPTW` and `AdaptiveIPTWMethod` raise every refusal in the first table before any learner
+fits, except the range rule. A spy learner shows zero `fit` calls in
+`tests/unit/test_adaptive_iptw_refusals.py`. The [contract page](adaptive-iptw.md) states the
+estimator. The ids follow the numbering of that test module.
+
+| id | refused | class and code | where |
+| --- | --- | --- | --- |
+| R1 | a treatment that is not arm-coded, including a deterministic regime on a continuous dose | `CapabilityError`, `api_redirection` | use `TMLE` with `policies=[Shift(...)]` |
+| R2b | `incremental=`, `learned_rule=` or `policies=` | `CapabilityError`, `api_redirection` | use `TMLE` |
+| R3 | `att`, `atc` or an MSM | `CapabilityError`, `api_redirection` | use `TMLE` |
+| R4 | `intermediate=`, or a non-default `intermediate_learner=` | `CapabilityError`, `implementation_gap` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions). No weighting of `AdaptiveIPTW` is derived for a controlled direct effect |
+| R8 | `targeting_scheme="fold"` | `MethodConfigurationError`, `implementation_gap` | [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (d) |
+| R9 | `cv_evaluation=True` | `MethodConfigurationError`, `implementation_gap` | [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (d) |
+| R10 | `n_bootstrap` above 0, or a non-default `bootstrap_resampling` | `MethodConfigurationError`, `inference_gap` | [X55](../roadmap.md#x55-bootstrap-extensions) part (d). Pass `treatment_probabilities=` for a Wald interval |
+| R11 | `form` other than `"targeted"` or `"one_step"` | `ValueError` | `form must be 'targeted' or 'one_step'; got {form!r}` |
+| R12 | longitudinal data, or `estimator_kwargs(longitudinal=True)` | `MethodConfigurationError`, `api_redirection` | use `SequentialIPW` (`method="ipw"`) |
+| R13 | a non-default `fluctuation`, `q_bounds`, `alpha`, `target_weights`, `step_size`, `targeting="one_step"`, `outcome_by_arm`, `iterate`, `stopping`, `step_bound`, `step_search`, `ratio` or `density_bins`; `outcome_learner=` together with `reduced_outcome_learner=` | `MethodConfigurationError`, `invalid_declaration` | the estimator fits no outcome regression, so the keyword does not apply |
+| R16 | `repeats` above 1 | `MethodConfigurationError`, `implementation_gap` | [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (a) |
+| R17 | a regime with missing data and `cross_fit=True` | `CapabilityError`, `implementation_gap` | [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (b). Pass `cross_fit=False` |
+| R19 | a classifier as the reduced learner of a stochastic regime | `MethodConfigurationError`, `invalid_declaration` | the regression target $g^*(a \mid W) Y$ is not binary |
+| R20 | a known treatment mechanism with a declared missing treatment | the shipped refusal, `invalid_declaration` | the known $P(A = a \mid W)$ cancels from the composite mechanism, so it adds nothing |
+| R21 | `cross_fit=True` with `n_folds` below 3 | `MethodConfigurationError`, `invalid_declaration` | the fold-wise reduced regression needs designs from models that left out two folds. Pass `n_folds=3` or more, or `cross_fit=False` |
+| range rule | `rr`, `or` or `paf` requested when a Horvitz-Thompson mean leaves its domain, or lies within `tol` times its score scale of a boundary | `DataError`, `invalid_declaration` | raised after targeting. The default report and `estimands="all"` drop the target and warn with `DataWarning` |
+| status | a standard error, an interval or a p-value on a fit with an estimated mechanism | `CapabilityError`, `inference_gap` | the status `estimated_mechanism_plugin`, reopened by [X36](../roadmap.md#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) |
+
+An operation on the result refuses by name as well.
+
+| operation | code | where |
+| --- | --- | --- |
+| `validate` | `api_redirection` | use `diagnostics.nuisance_models()` |
+| `diagnostics.truncation_curve` | `implementation_gap` | [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (c) |
+| `diagnostics.refute` | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
+| `sensitivity.omitted_confounding`, `robustness_value`, `elements`, `benchmark`, `contour` | `api_redirection` | use `TMLE`. The bound needs an outcome regression |
+| `sensitivity.simulated_confounding` | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
+| `sensitivity.missingness`, `tipping_gamma` | `api_redirection` | use `TMLE`. Each tilts an outcome regression |
+
 ### Experimental compositions
 
 A composition that no study covers, and whose code computes the requested quantity, runs. The

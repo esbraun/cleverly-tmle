@@ -1224,6 +1224,15 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
+def _refuse_adaptive_iptw(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse an AdaptiveIPTW fit, for which no refutation is registered."""
+    from ..estimators.iptw import OPERATION_REFUSALS
+
+    if getattr(result, "fitted_method", None) == "adaptive_iptw":
+        return OPERATION_REFUSALS["refute"]
+    return None
+
+
 def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
     from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
@@ -1684,6 +1693,7 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
+    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("longitudinal_tests", _refuse_longitudinal_tests),

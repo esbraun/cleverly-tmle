@@ -123,11 +123,13 @@ An **estimated** weight is where that stops.  The argument above for the ordinar
 estimator is that the interval conditions on the weights, which ``weights_estimated=``
 declares.  That argument is about :math:`D^*`, and nothing read here derives the reduced
 regressions of a random tilt.  So a ``DRTMLE`` fit with a non-empty ``guard`` and
-``weights_estimated=True`` reports its point estimate under the ``"estimated_weight_plugin"``
-status: ``ci``, ``pvalue`` and ``std_error`` raise, and ``plugin_std_error`` and
-``plugin_interval`` keep the diagnostic.  ``guard=()`` fits the ordinary TMLE and keeps its
-interval.  X50 in ``docs/roadmap.md`` holds the fixed-weight DR-TMLE curve that would
-reopen it.
+``weights_estimated=True`` takes the ``"estimated_weight_plugin"`` status.  The status is
+shown: ``ci``, ``pvalue`` and ``std_error`` return the plug-in values with the weights held
+fixed, and the estimate carries the ``experimental`` label.  ``guard=()`` fits the ordinary
+TMLE and keeps its interval.  An ``AdaptiveIPTW`` fit with a known treatment mechanism and
+weights declared estimated takes the same status, because its curve rests on the reduced
+regression of the weighted law.  X50 in ``docs/roadmap.md`` holds the fixed-weight DR-TMLE
+curve that would reopen it.
 
 Normalisation
 -------------
@@ -664,10 +666,11 @@ def estimand_lines(report: WeightReport) -> list[str]:
             "rows and renormalises the weights it was handed, never re-deriving them, so "
             "its intervals condition on the fitted weights too. Closing it needs the weight "
             "model in the resampling loop, outside this package. A DRTMLE fit with a "
-            "non-empty guard reports no interval on estimated weights: the conditioning "
+            "non-empty guard, and an AdaptiveIPTW fit with a known treatment mechanism, show "
+            "an interval on estimated weights under the experimental label: the conditioning "
             "argument concerns D* and not the reduced regressions, so the fit takes the "
             f"estimated_weight_plugin status, and {_ESTIMATED_WEIGHT_REOPEN} in "
-            "docs/roadmap.md reopens it."
+            "docs/roadmap.md holds the result that reopens it."
         )
     lines.append(
         "Complex designs: stratification and finite-population corrections are ignored "

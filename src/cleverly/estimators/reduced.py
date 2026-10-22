@@ -80,6 +80,7 @@ from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import bound
 from ..utils.parallel import map_parallel
 from ._nuisance import (
+    _CROSS_FIT_REMEDY,
     CompanionEstimates,
     InnerDesigns,
     NuisanceEstimates,
@@ -844,6 +845,8 @@ def _reduced_column(
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
     companion_strata: IntArray | None = None,
+    constant_folds: list[int] | None = None,
+    fold_designs: Sequence[FloatArray] | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """One reduced regression, out of fold, on a one- or two-column design.
 
@@ -865,7 +868,22 @@ def _reduced_column(
     and at its companion rows (``companion_strata``), and stitched.  A stratum's equations
     (9) and (10) then condition on ``(g_n(W), S)``, so they separate by stratum as the
     blocks that solve them do.  Without strata the path is the pooled one, unchanged.
+
+    ``constant_folds`` is :func:`~cleverly.estimators._nuisance.cross_fit_companion`'s list of
+    training folds whose positive-weight rows hold one binary target value, which then fit no
+    learner.  ``None``, the default of every caller but :class:`~cleverly.AdaptiveIPTW`, fits
+    the learner on every fold.
+
+    ``fold_designs`` is the fold-wise construction of :class:`~cleverly.AdaptiveIPTW`: one
+    design per outer fold at **every** row, entry ``k`` being fold ``k``'s own mechanism.
+    Fold ``k`` trains on its training rows at entry ``k`` and predicts at entry ``k``, so no
+    row of fold ``k`` reaches fold ``k``'s regression through another fold's design.  The
+    second return is then the ``(K, n)`` slab of each fold's regression at every row, and
+    ``design`` is not read there, because the entries of ``fold_designs`` stand in for it.
+    ``training`` and ``companion`` must be ``None`` with it.
     """
+    if fold_designs is not None and (training is not None or companion is not None):
+        raise ValueError("fold_designs excludes the nested and companion constructions")
     if data.strata is not None:
         return _stratified_column(
             learner,
@@ -881,6 +899,8 @@ def _reduced_column(
             n_jobs=n_jobs,
             diagnostics=diagnostics,
             companion_strata=companion_strata,
+            constant_folds=constant_folds,
+            fold_designs=fold_designs,
         )
     return _pooled_column(
         learner,
@@ -895,6 +915,8 @@ def _reduced_column(
         clip=clip,
         n_jobs=n_jobs,
         diagnostics=diagnostics,
+        constant_folds=constant_folds,
+        fold_designs=fold_designs,
     )
 
 
@@ -913,10 +935,15 @@ def _stratified_column(
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
     companion_strata: IntArray | None,
+    constant_folds: list[int] | None = None,
+    fold_designs: Sequence[FloatArray] | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """:func:`_reduced_column` fitted inside each baseline stratum, then stitched."""
     assert data.strata is not None
     strata = np.asarray(data.strata)
+    if fold_designs is not None:
+        # The fold-wise slab covers the fit's own rows, so its strata are the fit's.
+        companion_strata = strata
     if companion is not None and companion_strata is None:
         raise ValueError("a stratified reduced regression needs the companion rows' strata")
     mask = (
@@ -940,6 +967,8 @@ def _stratified_column(
                 clip=clip,
                 n_jobs=n_jobs,
                 diagnostics=diagnostics,
+                constant_folds=constant_folds,
+                fold_designs=fold_designs,
             )
         except ValueError as error:
             # The preflight checks the outer training complements only.  A nested fold inside
@@ -962,6 +991,85 @@ def _stratified_column(
     return out, slab
 
 
+def _foldwise_column(
+    learner: Learner,
+    *,
+    fold_designs: Sequence[FloatArray],
+    target: FloatArray,
+    fit_mask: BoolArray | None,
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    task: Task,
+    clip: tuple[float, float] | None,
+    n_jobs: int,
+    diagnostics: list[SuperLearnerDiagnostics],
+    constant_folds: list[int] | None = None,
+) -> tuple[FloatArray, FloatArray]:
+    """One reduced regression per outer fold, each at the fold's own mechanism.
+
+    Fold ``k`` fits on its training rows at ``fold_designs[k]`` and predicts at
+    ``fold_designs[k]`` on every row.  The returned column holds each row's own fold entry,
+    and the slab holds every fold's regression at every row, ``(K, n)``.  Under the pooled
+    construction a training row of fold ``j`` carries fold ``j``'s design, which another
+    fold's data fitted, so fold ``k``'s own rows reach fold ``k``'s regression through it.
+    Here fold ``k``'s regression is a function of fold ``k``'s training rows alone.
+
+    ``constant_folds`` keeps the convention of
+    :func:`~cleverly.estimators._nuisance.cross_fit_companion`: a training fold whose
+    positive-weight rows hold one binary target value fits no learner and predicts that
+    value, and its one-based index is appended.
+    """
+    folds = nuisance.folds
+    if folds.is_single:
+        raise ValueError("the fold-wise reduced regression needs an outer split")
+    if len(fold_designs) != folds.n_folds:
+        raise ValueError("fold_designs needs one design per outer fold")
+    target_values = np.asarray(target, dtype=float)
+    weights = np.asarray(data.weights, dtype=float)
+    n = target_values.shape[0]
+    mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
+    if constant_folds is not None and task != "classification":
+        raise ValueError("constant_folds applies to a binary target only")
+
+    def clipped(values: FloatArray) -> FloatArray:
+        return values if clip is None else np.clip(values, clip[0], clip[1])
+
+    def one_value(rows: IntArray) -> float | None:
+        if constant_folds is None:
+            return None
+        values = np.unique(target_values[rows[weights[rows] > 0.0]])
+        return float(values[0]) if values.size == 1 else None
+
+    def run_fold(
+        index: int, train: IntArray, test: IntArray
+    ) -> tuple[int, IntArray, FloatArray, Any, bool]:
+        rows = train[mask[train]]
+        if rows.size == 0:
+            raise ValueError(
+                f"a cross-fitting fold has no trainable rows for a nuisance model. "
+                f"{_CROSS_FIT_REMEDY}"
+            )
+        matrix = _as_reduced_design(fold_designs[index])
+        value = one_value(rows)
+        if value is not None:
+            return index, test, clipped(np.full(n, value, dtype=float)), None, True
+        model = fit_on_rows(learner, matrix, target_values, weights, rows, task, data.cluster)
+        values = clipped(np.asarray(predict_mean(model, matrix, task), dtype=float))
+        return index, test, values, getattr(model, "diagnostics_", None), False
+
+    jobs = [(index, train, test) for index, (train, test) in enumerate(folds)]
+    out = np.empty(n, dtype=float)
+    slab = np.empty((folds.n_folds, n), dtype=float)
+    for index, test, values, fitted, constant in map_parallel(run_fold, jobs, n_jobs=n_jobs):
+        slab[index] = values
+        out[test] = values[test]
+        if constant and constant_folds is not None:
+            constant_folds.append(index + 1)
+        if fitted is not None:
+            diagnostics.append(fitted)
+    return out, slab
+
+
 def _pooled_column(
     learner: Learner,
     *,
@@ -976,8 +1084,24 @@ def _pooled_column(
     clip: tuple[float, float] | None,
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
+    constant_folds: list[int] | None = None,
+    fold_designs: Sequence[FloatArray] | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """:func:`_reduced_column` on every fitting row, without strata."""
+    if fold_designs is not None:
+        return _foldwise_column(
+            learner,
+            fold_designs=fold_designs,
+            target=target,
+            fit_mask=fit_mask,
+            data=data,
+            nuisance=nuisance,
+            task=task,
+            clip=clip,
+            n_jobs=n_jobs,
+            diagnostics=diagnostics,
+            constant_folds=constant_folds,
+        )
     matrix = _as_reduced_design(design)
     elsewhere = None if companion is None else [_as_reduced_design(each) for each in companion]
     if training is not None:
@@ -1007,6 +1131,7 @@ def _pooled_column(
         groups=data.cluster,
         clip=clip,
         n_jobs=n_jobs,
+        constant_folds=constant_folds,
     )
     diagnostics.extend(fitted)
     return predictions["values"], (None if elsewhere is None else at_companion["values"])

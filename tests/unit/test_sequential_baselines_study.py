@@ -30,7 +30,11 @@ from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.exceptions import CapabilityError, MethodConfigurationError
 from cleverly.longitudinal import SequentialGComputation, SequentialIPW
 from cleverly.longitudinal.estimator import BASELINE_MSM_REFUSAL, baseline_cross_fit_refusal
-from cleverly.methods import BASELINE_POINT_REFUSAL, baseline_no_fluctuation_refusal
+from cleverly.methods import (
+    BASELINE_POINT_REFUSAL,
+    IPW_POINT_REFUSAL,
+    baseline_no_fluctuation_refusal,
+)
 from cleverly.msm import MSM
 
 PAIR = {"always": 1, "never": 0}
@@ -116,7 +120,9 @@ def test_baselines_are_unavailable_on_a_point_functional() -> None:
     methods = {record.name: record for record in effect.available_methods()}
     for name in ("gcomp", "ipw"):
         assert not methods[name].available
-        assert methods[name].refusal == BASELINE_POINT_REFUSAL
+        assert methods[name].refusal == (
+            IPW_POINT_REFUSAL if name == "ipw" else BASELINE_POINT_REFUSAL
+        )
         with pytest.raises(CapabilityError, match="point-treatment functional"):
             effect.estimate(method=name)
 
@@ -143,7 +149,9 @@ def test_baseline_methods_default_to_in_sample(method_class: type) -> None:
     assert method.estimator_kwargs(longitudinal=True)["n_folds"] == 1
     with pytest.raises(MethodConfigurationError) as raised:
         method.estimator_kwargs()
-    assert raised.value.refusal == BASELINE_POINT_REFUSAL
+    assert raised.value.refusal == (
+        IPW_POINT_REFUSAL if method_class is IPWMethod else BASELINE_POINT_REFUSAL
+    )
 
 
 @pytest.mark.parametrize("method_class", [GComputationMethod, IPWMethod])

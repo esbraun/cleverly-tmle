@@ -332,7 +332,7 @@ def _capability(
             methods
             if methods is not None
             else (
-                ("tmle", "collaborative_tmle", "drtmle")
+                POINT_METHODS
                 if family == "point"
                 else ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula")
             )
@@ -351,6 +351,11 @@ def _capability(
     )
 
 
+#: The fitted methods that declare a point-treatment operation by default, and the same
+#: methods with AdaptiveIPTW, which declares the operations it supports one by one.
+POINT_METHODS = ("tmle", "collaborative_tmle", "drtmle")
+POINT_METHODS_WITH_IPTW = (*POINT_METHODS, "adaptive_iptw")
+
 # This is intentionally data rather than branches hidden inside the facade.  Contract tests
 # check both directions: every operation covers every family, and no declaration names a
 # family or operation that the public result surface no longer exposes.
@@ -360,6 +365,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "point",
         artifacts=("fitted analytic mechanism", "targeting weights"),
         interpretation="arm, regimen, shift, or incremental support for the identified functional",
+        methods=POINT_METHODS_WITH_IPTW,
     ),
     _capability(
         "nuisance_models",
@@ -373,12 +379,14 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation=(
             "held-out nuisance fit, collaborative selection, and descriptive split spread"
         ),
+        methods=POINT_METHODS_WITH_IPTW,
     ),
     _capability(
         "score_equations",
         "point",
         artifacts=("targeting state", "influence curves"),
         interpretation="the score equations the selected method actually solved",
+        methods=POINT_METHODS_WITH_IPTW,
     ),
     _capability(
         "corrections",
@@ -582,6 +590,22 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 refusal=NATURAL_COURSE_SUPPORT_REFUSAL,
             )
             if row.operation == "support"
+            else row
+            for row in rows
+        )
+    if family == "point" and _method(result) == "adaptive_iptw":
+        # AdaptiveIPTW fits no outcome regression and retargets no cached propensity, so
+        # these two rows carry the record the operation function raises.
+        from .estimators.iptw import OPERATION_REFUSALS
+
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                refusal=OPERATION_REFUSALS[row.operation],
+            )
+            if row.operation in ("truncation_curve", "refute")
             else row
             for row in rows
         )
@@ -4212,6 +4236,7 @@ class SensitivityFacade(_CapabilityFacade):
             _family(self._result),
             artifacts=("structured arm contrast", "ratio or derivation artifacts"),
             interpretation="minimum risk-ratio association needed to explain away an effect",
+            methods=POINT_METHODS_WITH_IPTW if _family(self._result) == "point" else None,
             available=available,
             status=status,
             refusal=refusal,

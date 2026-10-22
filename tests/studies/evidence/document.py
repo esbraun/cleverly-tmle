@@ -595,6 +595,13 @@ def measured(row: Any) -> str:
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
         )
+    if family == "spread":
+        # A diagnostic of a plug-in curve: the ratio of its standard error to the empirical
+        # spread, and the coverage of its interval.  No margin reads either one.
+        return (
+            f"plug-in SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        )
     if family == "binding_witness":
         # The two shares the witness reads.
         return (
@@ -670,6 +677,9 @@ _BIAS_GATED = frozenset(
         "weight_necessity",
         "blip_feature_control",
         "bound_necessity",
+        # X21: the estimated-mechanism bias cells, and the bias of the cube-root-rate ladder.
+        "bias",
+        "root_n_points",
     }
 )
 

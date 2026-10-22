@@ -59,6 +59,7 @@ from .inference import ParameterEstimate
 from .learners import SplitPlan, SuperLearner
 from .longitudinal import Repeated
 from .methods import (
+    AdaptiveIPTWMethod,
     CollaborativeTMLEMethod,
     CrossFitting,
     DRTMLEMethod,
@@ -119,6 +120,7 @@ __all__ = [
     "ATC",
     "ATE",
     "ATT",
+    "AdaptiveIPTWMethod",
     "AssessmentCapability",
     "AssessmentReport",
     "AssessmentStatus",
