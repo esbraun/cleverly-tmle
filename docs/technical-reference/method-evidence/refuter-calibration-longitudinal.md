@@ -2,7 +2,7 @@
 
 This study calibrates three decision rules that `cleverly.refute` prints on a longitudinal fit.
 Each rule reads a refutation statistic and rejects at the 0.05 level. The
-[verdicts and evidence](../validation-methods.md#verdicts-and-evidence) section of the validation
+[refutation operations](../validation-methods.md#refutation-operations) section of the validation
 reference defines each statistic.
 
 | rule | reading | rejects when |
