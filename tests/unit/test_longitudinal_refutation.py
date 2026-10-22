@@ -438,7 +438,7 @@ class TestAdapter:
         nothing = SimpleNamespace(
             assessment_family="longitudinal", data=SimpleNamespace(has_mixed_node=False)
         )
-        assert _refuse_placebo_kernel(nothing, request) is None  # type: ignore[arg-type]
+        assert _refuse_placebo_kernel(nothing, request) is None
 
     def test_a_history_dependent_support_refuses_the_placebo(self) -> None:
         request = _RefuteRequest(estimand=CONTRAST, tests=("placebo",))
@@ -450,13 +450,13 @@ class TestAdapter:
             )
 
         refusal = _refuse_placebo_kernel(
-            stand_in(Support(0.0, lambda h: 6.0 + h["W"])),  # type: ignore[arg-type]
+            stand_in(Support(0.0, lambda h: 6.0 + h["W"])),
             request,
         )
         assert refusal is not None
         assert refusal.roadmap == "X82"
-        assert _refuse_placebo_kernel(stand_in(Support(0.0, 6.0)), request) is None  # type: ignore[arg-type]
-        assert _refuse_placebo_kernel(stand_in(None), request) is None  # type: ignore[arg-type]
+        assert _refuse_placebo_kernel(stand_in(Support(0.0, 6.0)), request) is None
+        assert _refuse_placebo_kernel(stand_in(None), request) is None
 
     def test_noise_nodes_is_refused_on_the_parametric_g_formula(self, frame: pd.DataFrame) -> None:
         result: Any = ParametricGFormula(
