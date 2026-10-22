@@ -1,0 +1,94 @@
+{
+  "schema_version": 2,
+  "study": "E-value limit coverage",
+  "slug": "evalue-limit-coverage",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-evalue-limit",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "9f3beb00bf8fdd8191db1ac3c27fff222e66ee73",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20262311,
+    "resampling_seed": 20262312,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-evalue-limit": 0.01
+    },
+    "scenarios": {
+      "E3": [
+        "rr[V=0]",
+        "rr[V=1]",
+        "rr[V=2]"
+      ],
+      "E4": [
+        "rr_t5"
+      ]
+    },
+    "E3": "stratified_law (V in {0, 1, 2}, binary W-levels, binary Y); in-sample TMLE with logistic outcome and treatment GLMs, strata=['V'], estimands ('rr',), as canonical-stratified-tmle fits",
+    "E4": "the 'survival' law of point-treatment-survival; LTMLE on the TimeToEvent container with unpenalized logistic hazards, as point-treatment-survival-hazard fits; the ratio risk_regimen[arm1 @ t=5] / risk_regimen[arm0 @ t=5]",
+    "primary_row": "the reported risk-ratio interval, on the log scale",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/evalue_limit_coverage.py": "a23cfb1e568f5ed02a170d2b59439549f8d905d354b36dd7460996fd9cfabf81",
+    "tests/studies/evalue_limit_coverage_properties.py": "296ceaef42f35432f8958a4c6f5d0ffef7be1e308d679beee76ed3d4f2f8464a",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/canonical_stratified_tmle.py": "03eb6078535c1a2838390a402ded0cc0a222485ae14fce48724f94b2a8c8d7d6",
+    "tests/studies/canonical_point_survival.py": "290d9ee0efd175df4ebe4ea774b937058b0c05ebc8d592c78ae86c3600e8fec8",
+    "tests/studies/canonical_point_survival_hazard.py": "704257f43927b81036ecb4a64a956c8be18cf679c2f75998460627a6b2900dc5",
+    "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "2385b0ad58e80e7de2d30ae89393280c025648f6fe08391ae9a66e9231bf8de4",
+    "summary.csv": "e1ee37debfe5ae7359098c41c557bb331ec9dbdb9f5679c6651fd0f05c781bb9",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "d56757cc2b5a507eb904d08e5cc242cb6ce7c2f9aa33c243e6a584f300a5209b",
+    "property-replicates.parquet": "edf0ab24721afa8b2f9bacbf8dd77e32264b61a7a07d12f4c536a4d4e04d88c9",
+    "properties.csv": "4e627bf068ad605970a85a11d172d29f8805b34ae999a159953488582b007670",
+    "cells.csv": "2a1dbf019b130a24c4be560a106d7cfd4b4e928b985be9855fc8622dcf2f14ea"
+  }
+}

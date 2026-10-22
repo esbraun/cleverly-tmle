@@ -586,6 +586,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
+    if "response_mask_necessity" in record.property_cells:
+        declared["margin:response_mask_displacement"] = (
+            record.properties().RESPONSE_MASK_DISPLACEMENT
+        )
     # Two studies use the family name.  The DR-TMLE studies compare a closed score with the
     # initial score, and their cells end in ``closed_score``.  A study with a corrected and an
     # uncorrected arm publishes the displacement of the pair instead.

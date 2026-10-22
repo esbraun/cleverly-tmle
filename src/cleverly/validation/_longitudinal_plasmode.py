@@ -6,14 +6,18 @@ frozen on the fitted panel. At node ``t`` each time-varying column ``L_t`` comes
 column whose values are 0 and 1, and Gaussian linear for any other column. The treatment
 ``A_t`` comes from a logistic model on ``(W, L_1, ..., L_t, A_1, ..., A_{t-1})``, clipped to
 the fit's ``g`` bounds, and the censoring after node ``t`` from a logistic model on
-``(W, L_1, ..., L_t, A_1, ..., A_t)``. The outcome is a declared Gaussian process that reads
-``W``, the treatments and, through ``history_effect``, the time-varying columns.
+``(W, L_1, ..., L_t, A_1, ..., A_t)``. Each model is fitted on the units present at the node.
+The outcome is a declared Gaussian process that reads ``W``, the treatments and, through
+``history_effect``, the time-varying columns. On a survival or competing-risk fit, a declared
+hazard draws the event at each node after the censoring, and reads the history through its own
+``history_effect``.
 
 The truth is the sequential g-formula of that law under the declared regimen, with no
 censoring. When every time-varying column is binary and the branches number at most
 ``MAX_BRANCHES`` per support point, it enumerates every branch of every history, so the truth
-is exact. Otherwise it averages ``N`` simulated histories per support
-point and reports the Monte Carlo standard error.
+is exact. Otherwise it averages ``N`` simulated histories per support point and reports the
+Monte Carlo standard error. A survival truth integrates the event out: each history carries its
+survival probability, so only ``L`` and ``A`` branch.
 """
 
 from __future__ import annotations
@@ -98,7 +102,7 @@ class LongitudinalPlasmodeLaw:
         The fitted panel. Its baseline rows are the support points.
     covariates : tuple of tuple
         Per node, one frozen model per time-varying column, in column order.
-    treatment : tuple of _Logistic
+    mechanisms : tuple of _Logistic
         Per node, the frozen model of ``P(A_t = 1 | H_t)``.
     censoring : tuple of _Logistic or None
         Per node, the frozen model of ``P(uncensored after t | H_t, A_t)``, or ``None``
@@ -117,7 +121,7 @@ class LongitudinalPlasmodeLaw:
 
     support: Any
     covariates: tuple[tuple[_Logistic | _Linear, ...], ...]
-    treatment: tuple[_Logistic, ...]
+    mechanisms: tuple[_Logistic, ...]
     censoring: tuple[_Logistic | None, ...]
     lower: float
     centre: np.ndarray
@@ -149,7 +153,8 @@ class LongitudinalPlasmodeLaw:
         mechanisms: list[_Logistic] = []
         censoring: list[_Logistic | None] = []
         for node in range(nodes):
-            rows = np.ones(data.n, dtype=bool) if node == 0 else uncensored[:, node - 1]
+            # The units present at the node: uncensored, and with no event, before it.
+            rows = ~np.isnan(treatment[:, node])
             earlier = [baseline[rows], *(block[rows] for block in blocks[:node])]
             earlier.append(treatment[rows, :node])
             models: list[_Logistic | _Linear] = []
@@ -174,7 +179,7 @@ class LongitudinalPlasmodeLaw:
         return cls(
             support=data,
             covariates=tuple(covariates),
-            treatment=tuple(mechanisms),
+            mechanisms=tuple(mechanisms),
             censoring=tuple(censoring),
             lower=lower,
             centre=np.mean(baseline, axis=0),
@@ -195,7 +200,7 @@ class LongitudinalPlasmodeLaw:
         The count is the bound before any zero-weight branch is pruned: two levels for each
         time-varying column and each treatment node.
         """
-        columns = sum(len(node) for node in self.covariates) + len(self.treatment)
+        columns = sum(len(node) for node in self.covariates) + len(self.mechanisms)
         return self.binary and 2**columns <= MAX_BRANCHES
 
     # ---------------------------------------------------------------- the outcome
@@ -235,6 +240,38 @@ class LongitudinalPlasmodeLaw:
             )
         return mean
 
+    def hazard_shift(self, process: Any, rows: np.ndarray, blocks: list[np.ndarray]) -> np.ndarray:
+        """Return ``f(W) + history_effect * h_t`` of a hazard at the node after ``blocks``.
+
+        Parameters
+        ----------
+        process : LogisticHazardOutcome or MultinomialHazardOutcome
+            The declared hazard.
+        rows : ndarray
+            The support row of each history.
+        blocks : list of ndarray
+            The time-varying columns of nodes 1 to ``t``.
+
+        Returns
+        -------
+        ndarray
+            The shift of the log-odds of each history at node ``t``.
+        """
+        baseline = np.asarray(self.support.baseline, dtype=float)[rows]
+        shift = standardized_sum(
+            baseline, process.adjustment_scale, centre=self.centre, scale=self.scale
+        )
+        history_effect = float(process.history_effect)
+        columns = sum(block.shape[1] for block in blocks)
+        if history_effect and columns:
+            shift = shift + standardized_sum(
+                np.column_stack(blocks),
+                history_effect,
+                centre=self.history_centre[:columns],
+                scale=self.history_scale[:columns],
+            )
+        return shift
+
     # ---------------------------------------------------------------- the draw
 
     def draw(self, process: Any, *, seed: int, name: str) -> Any:
@@ -243,7 +280,7 @@ class LongitudinalPlasmodeLaw:
         Parameters
         ----------
         process : object
-            The declared outcome process.
+            The declared outcome process, or the declared hazard of a survival fit.
         seed : int
             The child seed of this draw.
         name : str
@@ -257,12 +294,15 @@ class LongitudinalPlasmodeLaw:
         rng = np.random.default_rng(seed)
         data = self.support
         rows = np.asarray(rng.integers(0, data.n, size=data.n))
-        nodes = len(self.treatment)
+        nodes = len(self.mechanisms)
         blocks: list[np.ndarray] = []
         treatment = np.zeros((rows.size, nodes))
-        kept = np.ones((rows.size, nodes), dtype=bool)
-        alive = np.ones(rows.size, dtype=bool)
+        stays = np.ones((rows.size, nodes), dtype=bool)
+        hits = np.zeros((rows.size, nodes), dtype=int)
+        survival = bool(data.is_survival)
+        causes = int(process.causes) if survival else 0
         baseline = np.asarray(data.baseline, dtype=float)[rows]
+        # Every unit draws a whole history; the exits mask it afterwards.
         for node in range(nodes):
             block = self._draw_block(node, baseline, blocks, treatment[:, :node], rng)
             blocks.append(block)
@@ -272,15 +312,23 @@ class LongitudinalPlasmodeLaw:
             model = self.censoring[node]
             if model is not None:
                 acted = np.column_stack([history, treatment[:, node]])
-                stay = rng.random(rows.size) < model.probability(acted)
-                alive &= stay
-            kept[:, node] = alive
+                stays[:, node] = rng.random(rows.size) < model.probability(acted)
+            if survival:
+                dose = np.sum(treatment[:, : node + 1], axis=1)
+                probabilities = process.probabilities(
+                    self.hazard_shift(process, rows, blocks), dose
+                )
+                edges = np.cumsum(probabilities, axis=1)
+                hits[:, node] = np.sum(rng.random(rows.size)[:, None] >= edges, axis=1)
+        base = replace(data.subset(rows), time_varying=tuple(blocks), treatment=treatment)
+        kept = np.logical_and.accumulate(stays, axis=1)
+        if survival:
+            return _with_drawn_events(base, kept, hits, causes)
         mean = self.outcome_mean(process, rows, blocks, treatment)
         outcome = mean + process.noise.draw(rng, rows.size) - float(process.noise.mean)
         # A unit censored before a node holds no covariate or treatment there.
         reached = np.column_stack([np.ones(rows.size, dtype=bool), kept[:, :-1]])
         held = [np.where(reached[:, [node]], block, np.nan) for node, block in enumerate(blocks)]
-        base = data.subset(rows)
         return replace(
             base,
             time_varying=tuple(held),
@@ -308,26 +356,37 @@ class LongitudinalPlasmodeLaw:
         return np.column_stack(columns) if columns else np.zeros((baseline.shape[0], 0))
 
     def _propensity(self, node: int, history: np.ndarray) -> np.ndarray:
-        probability = self.treatment[node].probability(history)
+        probability = self.mechanisms[node].probability(history)
         return np.clip(probability, self.lower, 1.0 - self.lower)
 
     # ---------------------------------------------------------------- the truth
 
     def truth(
-        self, process: Any, regimen: Any, *, draws: int | None, seed: int = 0
+        self,
+        process: Any,
+        regimen: Any,
+        *,
+        draws: int | None,
+        seed: int = 0,
+        horizon: int | None = None,
+        cause: int = 0,
     ) -> tuple[float, float]:
         """Return the g-formula value of ``regimen`` and its Monte Carlo standard error.
 
         Parameters
         ----------
         process : object
-            The declared outcome process.
+            The declared outcome process, or the declared hazard of a survival fit.
         regimen : Regimen or DynamicRegimen
             The regimen, evaluated on each history by the package's plan resolver.
         draws : int or None
             Histories per support point, or ``None`` to enumerate every branch.
         seed : int
             The seed of a Monte Carlo truth.
+        horizon : int or None
+            The last node of a survival risk. ``None`` reads every node.
+        cause : int
+            The column of the cause whose risk a competing-risk truth reads.
 
         Returns
         -------
@@ -338,14 +397,20 @@ class LongitudinalPlasmodeLaw:
         if draws is None and not self.enumerable:
             raise ValueError("this law has more branches than the truth enumerates")
         rng = np.random.default_rng(seed)
+        survival = bool(data.is_survival)
         count = 1 if draws is None else int(draws)
+        nodes = len(self.mechanisms) if horizon is None else int(horizon)
         rows = np.repeat(np.arange(data.n), count)
         weight = np.full(rows.size, 1.0 / count)
+        # The event of a survival law is integrated out: each history carries its survival
+        # probability and its risk of the cause so far.
+        alive = np.ones(rows.size)
+        risk = np.zeros(rows.size)
         baseline = np.asarray(data.baseline, dtype=float)
         blocks: list[np.ndarray] = []
         treatment = np.zeros((rows.size, 0))
         exact = draws is None
-        for node in range(len(self.treatment)):
+        for node in range(nodes):
             block_columns: list[np.ndarray] = []
             for model in self.covariates[node]:
                 design = np.column_stack([baseline[rows], *blocks, treatment, *block_columns])
@@ -355,8 +420,9 @@ class LongitudinalPlasmodeLaw:
                     level = np.concatenate([np.ones(rows.size), np.zeros(rows.size)])
                     weight = np.concatenate([weight * p, weight * (1.0 - p)])
                     rows, blocks, treatment, block_columns = _expand(
-                        index, rows, blocks, treatment, block_columns
+                        index, rows, blocks, treatment, [*block_columns, alive, risk]
                     )
+                    *block_columns, alive, risk = block_columns
                     block_columns.append(level)
                 elif isinstance(model, _Logistic):
                     block_columns.append((rng.random(rows.size) < model.probability(design)) * 1.0)
@@ -371,22 +437,50 @@ class LongitudinalPlasmodeLaw:
                 index = np.concatenate([np.arange(rows.size)] * 2)
                 code = np.concatenate([np.ones(rows.size), np.zeros(rows.size)])
                 weight = np.concatenate([weight * density, weight * (1.0 - density)])
-                rows, blocks, treatment, _ = _expand(index, rows, blocks, treatment, [])
+                rows, blocks, treatment, (alive, risk) = _expand(
+                    index, rows, blocks, treatment, [alive, risk]
+                )
             else:
                 code = (rng.random(rows.size) < density) * 1.0
             treatment = np.column_stack([treatment, code])
+            if survival:
+                shift = self.hazard_shift(process, rows, blocks)
+                probabilities = process.probabilities(shift, np.sum(treatment, axis=1))
+                risk = risk + alive * probabilities[:, cause]
+                alive = alive * (1.0 - probabilities.sum(axis=1))
             keep = weight > 0.0
             rows, weight, treatment = rows[keep], weight[keep], treatment[keep]
             blocks = [block[keep] for block in blocks]
-        mean = self.outcome_mean(process, rows, blocks, treatment)
-        per_point = np.bincount(rows, weights=weight * mean, minlength=data.n)
-        value = float(np.mean(per_point))
+            alive, risk = alive[keep], risk[keep]
+        value = risk if survival else self.outcome_mean(process, rows, blocks, treatment)
+        per_point = np.bincount(rows, weights=weight * value, minlength=data.n)
+        mean = float(np.mean(per_point))
         if exact:
-            return value, 0.0
+            return mean, 0.0
         # Each support point's mean has variance s_i^2 / N; the truth averages n of them.
-        square = np.bincount(rows, weights=weight * mean**2, minlength=data.n)
+        square = np.bincount(rows, weights=weight * value**2, minlength=data.n)
         within = np.maximum(square - per_point**2, 0.0) * count / max(count - 1, 1)
-        return value, float(np.sqrt(np.sum(within) / count) / data.n)
+        return mean, float(np.sqrt(np.sum(within) / count) / data.n)
+
+
+def _with_drawn_events(base: Any, kept: np.ndarray, hits: np.ndarray, causes: int) -> Any:
+    """The drawn panel with each unit's first observed event, and its exits masked.
+
+    ``hits[i, t]`` is the drawn cause index at node ``t``, or ``causes`` for no event. An event
+    counts at the first node at which the unit is still at risk and stays uncensored.
+    """
+    n, nodes = kept.shape
+    event = np.zeros((n, nodes), dtype=bool)
+    cause_event = np.zeros((n, nodes, max(causes, 1)), dtype=bool)
+    at_risk = np.ones(n, dtype=bool)
+    for node in range(nodes):
+        hit = at_risk & kept[:, node] & (hits[:, node] < causes)
+        for index in range(causes):
+            cause_event[hit & (hits[:, node] == index), node:, index] = True
+        event[hit, node:] = True
+        at_risk &= kept[:, node] & ~hit
+    competing = base.cause_event is not None
+    return base.with_events(event, kept, cause_event if competing else None)
 
 
 def _expand(
@@ -446,10 +540,17 @@ def _histories(
     codes = np.zeros((rows.size, nodes))
     codes[:, : treatment.shape[1]] = treatment
     base = data.subset(rows)
+    # No simulated history has had an event: the truth integrates the event out.
+    events = {}
+    if base.event is not None:
+        events["event"] = np.zeros_like(base.event)
+    if base.cause_event is not None:
+        events["cause_event"] = np.zeros_like(base.cause_event)
     return replace(
         base,
         time_varying=tuple(filled),
         treatment=codes,
         uncensored=np.ones((rows.size, nodes), dtype=bool),
         outcome=np.zeros(rows.size),
+        **events,
     )

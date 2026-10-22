@@ -734,12 +734,10 @@ def covering_row(rule: str) -> VerdictEvidence:
 class TestTheLimitReading:
     """Every part G confidence limit resolves through the registry, one rule each."""
 
-    def test_every_configuration_is_descriptive_on_the_shipped_registry(
+    def test_every_test_fit_is_descriptive_on_the_shipped_registry(
         self, cde_fits: dict[str, Any], survival_fit: Any
     ) -> None:
-        assert not [
-            row for row in interpretation.VERDICT_EVIDENCE if row.instrument == "evalue_limit"
-        ]
+        # The shipped rows need n >= 2,000 and the studies' learners; these fits have neither.
         for rule, call in every_part_g_configuration(cde_fits, survival_fit).items():
             report = call()
             assert report.limit_reading is not None, rule

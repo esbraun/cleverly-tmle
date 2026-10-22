@@ -164,6 +164,7 @@ not change the package version.
 | after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
+| beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
@@ -1580,7 +1581,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
 | C | the longitudinal refute adapter, shipped. Part C1 ships the Markov placebo, `random_common_cause` with `noise_nodes`, `subset`, and `bootstrap_stability`. Part C2 ships the negative-control outcome, its pre-treatment form, and the future-treatment control. These are descriptive. Part C3 ships the held-history generated outcomes on end-of-study, repeated, survival and competing-risk fits, descriptive until a longitudinal study registers its rows | the exact enumeration of a two-node panel, and a nonzero witness for each control |
 | D | the held-design generated outcomes, the future-treatment control, and the measurement-error bootstrap of the structural nested mean model. Part D ships the `structural` assessment family, one declaration per operation, and the placebo, `random_common_cause`, `subset`, `bootstrap_stability`, and `negative_control_outcome` tests, all descriptive | a nonzero witness for each control, and an exact effect for each generated process |
-| E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Part E2 ships missing outcomes, missing treatments, controlled direct effects, `ey_obs`, PAR, PAF, strata, and the clustered plasmode. Part E5 ships the measurement-error bootstrap on panels and on strata variables. Part E3 ships regimes, incremental tilts, modified treatment policies, and MSM coefficients. Part E4 ships the longitudinal plasmode of an end-of-study panel. Risk-ratio tilts, the continuous-dose plasmode, the DR-TMLE estimated-index witness, and the survival, competing-risk and repeated-outcome plasmode remain | the effect of each process computed exactly, judged by the bands of A1 |
+| E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Part E2 ships missing outcomes, missing treatments, controlled direct effects, `ey_obs`, PAR, PAF, strata, and the clustered plasmode. Part E5 ships the measurement-error bootstrap on panels and on strata variables. Part E3 ships regimes, incremental tilts, modified treatment policies, and MSM coefficients. Part E4 ships the longitudinal plasmode of an end-of-study, survival or competing-risk panel. Risk-ratio tilts, the continuous-dose plasmode, the DR-TMLE estimated-index witness, and the repeated-outcome plasmode remain | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
 | H | marginal sensitivity model bounds. Part H1 ships the two-arm ATE and arm means of a `TMLE` or `DRTMLE` fit with a Gaussian or binary outcome, clusters and repeats, descriptive until study SH registers its rows. Part H2 adds multi-arm treatments under the one-against-rest model, ATT and ATC, risk and odds ratios, weights, strata, missing outcomes, and `CTMLE` and `AdaptiveIPTW` fits through a refit of the full mechanism | the linear program of the model solved on a finite law, and a mutation control for each nuisance |
@@ -1773,6 +1774,37 @@ refuses a tilt fit.
 Acceptance: the typed requests reproduce the direct fit; the replay at zero strength reproduces the
 estimate; on a finite law, a cell equals a hand application of the rule to the perturbed treatment.
 
+### X86. Refutation and sensitivity checks in every tutorial notebook
+
+Each notebook under `docs/examples/` shows the X82 checks that fit its design and estimand, and only
+those. A check that the fit refuses is not run. The notebook states the limit in one sentence with
+its roadmap id, as `docs/development/example-notebooks.md` requires. No cell prints a refusal.
+Each item is one pull request that edits one notebook and its
+`tests/unit/tutorial_semantics/` module.
+
+| item | notebook | what it adds | waits on |
+| --- | --- | --- | --- |
+| (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
+| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | (0), SP, SG |
+| (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
+| (b) | `cross-fitting.ipynb` | fold noise beside the shift, the clustered plasmode, `bootstrap_stability`, and the bound under the median rule | (0), SP, SG |
+| (c) | `collaborative-tmle.ipynb` | `refute`, the risk-ratio E-value, and the bound under `assume_consistent_mechanism=True` | (0), SP, SG |
+| (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
+| (e) | `msm-projections.ipynb` | the MSM tensor placebo, generated truths of the coefficients, and the slope replay | (0), SP, SG |
+| (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
+| (g) | `longitudinal-survival.ipynb` | the longitudinal checks on a `RegimeContrast` fit, and held-history generated outcomes | (0) |
+| (i) | `sequential-pricing.ipynb` | the longitudinal checks on the renewal and revenue contrasts | (0) |
+| (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
+
+SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers
+the fit, so a notebook that runs before SP or SG lands would commit readings that the registry
+later changes.
+
+Acceptance: every new call runs and no cell prints a refusal; every verdict, limit and scope
+sentence in the prose matches the committed output; the notebook executes; the fast suite and the
+docs build pass; the fast-tier cell time stays within 1.5 times its time before the item, or the
+pull request states the increase; an implementation review approves.
+
 ### X87. Marginal sensitivity model bounds that need a second sensitivity parameter
 
 `sensitivity.marginal_sensitivity_bounds` refuses the requests below. The marginal sensitivity
@@ -1784,7 +1816,6 @@ second mechanism, and no read source defines it. A longitudinal fit is refused u
 | --- | --- | --- |
 | (a) | a controlled direct effect | a bound on the confounding of the intermediate and the outcome, with its own parameter |
 | (b) | a missing treatment | a joint model of `U` on the treatment and on its observation |
-| (c) | a longitudinal fit | a sample estimator of the population bounds of Tan (2025), which leaves the estimator open |
 
 Acceptance: a read source for each bound; the linear program of the joint model solved on a finite
 law; a registered coverage study for each interval.

@@ -2146,7 +2146,7 @@ def _refuse_longitudinal_plasmode(name: str, structure: str) -> None:
     if name == "plasmode":
         raise CapabilityError(
             f"the longitudinal plasmode has no draw for {structure}. It draws an end-of-study "
-            "panel with binary treatment nodes.",
+            "or survival panel with binary treatment nodes.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="dummy_outcome and simulated_outcome run on the held history.",
             roadmap="X82",
@@ -2232,22 +2232,27 @@ def _longitudinal_plasmode_target(
     for present, structure in structures:
         if present:
             _refuse_longitudinal_plasmode(name, structure)
-    label, _cause, _horizon = _held_parameter(result, estimand, name)
+    label, cause, horizon = _held_parameter(result, estimand, name)
     regimens = {regimen.label: regimen for regimen in result.config.regimens}
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
+    # A survival risk reads the nodes through its horizon, and the cause of its parameter.
+    reading: dict[str, int] = {}
+    if data.is_survival:
+        reading["horizon"] = horizon
+        reading["cause"] = 0 if cause is None else list(data.cause_labels).index(cause)
     draws: int | None = None
     if not law.enumerable:
         # Size N so the Monte Carlo error is at most 2% of the fit's standard error (plan 6).
         pilot = sum(
-            law.truth(process, regimens[part], draws=PILOT_DRAWS, seed=index)[1] ** 2
+            law.truth(process, regimens[part], draws=PILOT_DRAWS, seed=index, **reading)[1] ** 2
             for index, part in enumerate(parts)
         )
         allowed = MONTE_CARLO_SHARE * float(result[estimand].plugin_std_error)
         needed = PILOT_DRAWS * pilot / allowed**2 if allowed > 0.0 else float(MAX_DRAWS)
         draws = int(min(max(np.ceil(needed), PILOT_DRAWS), MAX_DRAWS))
     levels = [
-        law.truth(process, regimens[part], draws=draws, seed=1000 + index)
+        law.truth(process, regimens[part], draws=draws, seed=1000 + index, **reading)
         for index, part in enumerate(parts)
     ]
     truth = levels[0][0] - levels[1][0] if len(levels) == 2 else levels[0][0]
@@ -2336,7 +2341,9 @@ def _longitudinal_generated_target(
     """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
     data = result.data
     if data.is_survival:
-        _refuse_longitudinal_plasmode(name, "a survival or competing-risk fit")
+        if name == "plasmode":
+            _validate_hazard_process(data, process, name)
+            return _longitudinal_plasmode_target(result, estimand, process, name)
         return _survival_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
     if not isinstance(process, (GaussianIndependentOutcome, GaussianAdjustmentOutcome)):
@@ -2501,11 +2508,8 @@ def _hazard_adjustment(process: Any, data: Any) -> np.ndarray:
     return standardized_sum(np.asarray(data.baseline, dtype=float), process.adjustment_scale)
 
 
-def _survival_generated_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _SurvivalGenerated:
-    """Refuse a hazard a survival fit cannot read, else build its sample-conditional truth."""
-    data = result.data
+def _validate_hazard_process(data: Any, process: Any, name: str) -> None:
+    """Refuse a declaration that is not the hazard of the fit's outcome."""
     competing = bool(data.is_competing)
     expected = MultinomialHazardOutcome if competing else LogisticHazardOutcome
     if type(process) is not expected:
@@ -2524,6 +2528,21 @@ def _survival_generated_target(
         raise CapabilityError(
             f"{name} declares {process.causes} cause(s), and the fit has "
             f"{len(data.cause_labels)}: {list(data.cause_labels)}",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+
+
+def _survival_generated_target(
+    result: Any, estimand: str, process: Any, name: str
+) -> _SurvivalGenerated:
+    """Refuse a hazard a survival fit cannot read, else build its sample-conditional truth."""
+    data = result.data
+    _validate_hazard_process(data, process, name)
+    if process.history_effect:
+        raise CapabilityError(
+            f"{name} keeps the held covariate history, whose law under a regimen is unknown, "
+            "so a hazard that reads it has no held-history truth. Leave history_effect at 0, "
+            "or run tests=('plasmode',), which draws the history from frozen models",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     known = getattr(data, "known_mechanisms", None)
@@ -2942,7 +2961,7 @@ def _refuse_continuous_point_target(functional: Any, process: Any, name: str) ->
             "a frozen treatment model, and a continuous dose has no frozen model yet.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=(
-                "Run tests=('generated_outcome',), whose held design reads each row's held "
+                "Run tests=('simulated_outcome',), whose held design reads each row's held "
                 "dose as its natural dose."
             ),
             roadmap="X82",
