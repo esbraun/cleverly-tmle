@@ -42,6 +42,7 @@ UNPRINTED_DECIMALS = dict.fromkeys(
         "-0.0580",
         "-0.1568",
         "0.0398",
+        "0.0400",
     ),
     f"a value of the review probe log, {_PROBE_NAME}",
 )
