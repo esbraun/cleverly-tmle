@@ -585,7 +585,9 @@ class TestTheGuardedCurveReadsItsReductionSettings:
     def test_a_refused_reduction_setting_refuses_every_surface(self) -> None:
         # The fit is foldwise at three folds, so the one-step refusal answers.
         result = sweep.reconfigured(sweep.fit_drtmle(), targeting="one_step")
-        assert self._refused_everywhere(result) == self._PREFIX + ONE_STEP_FOLDWISE_REFUSAL.message()
+        assert (
+            self._refused_everywhere(result) == self._PREFIX + ONE_STEP_FOLDWISE_REFUSAL.message()
+        )
 
     @pytest.mark.parametrize(
         ("configuration", "named"),
