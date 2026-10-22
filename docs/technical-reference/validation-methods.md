@@ -1561,8 +1561,8 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; any intervention whose density is declared known, frozen per row |
-| binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; any link registered in `cleverly.msm.LINKS`, with fixed projection measure |
-| binary | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
+| binary, multi-arm, or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; any link registered in `cleverly.msm.LINKS`, with fixed projection measure |
+| binary or multi-arm | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
 | continuous | one explicitly named marginal or baseline-stratum `ey_policy[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
@@ -1626,6 +1626,9 @@ stochastic-regime, and MSM studies validate the unchanged estimator paths.
 The estimator rebuilds $q_\delta=\delta g/(\delta g+1-g)$ and retains its mechanism targeting contribution.
 The surface therefore compares the same multiplier rule under different fitted laws.
 It does not preserve the original intervention probabilities.
+
+The summary states this reading on its `incremental reading` line.
+On a multi-arm fit, $q_\delta(a \mid W) = \delta_a g(a \mid W) / \sum_b \delta_b g(b \mid W)$, and the cells swap the declared `arm_pair`.
 Kennedy (2019), equation (1) and Corollaries 1–2, supplies the parameter and influence curve.
 The [source audit](../references.md#sensitivity-analysis) separates that result from the qualitative perturbation.
 
@@ -1633,6 +1636,28 @@ A multiplier-one mean equals the natural-course mean and is refused before a ran
 A contrast against that reference remains supported. Means and contrasts report additive movement.
 The operation validates every stored repeat against its own initial, untruncated propensity predictions.
 It checks intervention names, multipliers, densities, clever weights, derivatives, and the reference.
+
+**Learned rules.** A refit of a learned-rule fit relearns the rule inside each training fold.
+A perturbed refit would then estimate the value of other rules.
+
+The replay keeps the outer folds of the fit.
+It also keeps the realized rule $d_v(W_i)$ of each row, which `result.nuisance.regimes` stores.
+The perturbation changes no covariate, so each frozen rule value stays defined.
+Each cell evaluates $\sum_v V^{-1} n_v^{-1} \sum_{i \in v} \bar Q(d_v(W_i), W_i)$ on the perturbed table.
+The weights are the $1/V$ fold weights of the learned-rule record.
+The [learned-rule contract](point-treatment-tmle.md#learned-rules) defines this target.
+
+The summary states the reading on its `learned-rule reading` line.
+A cell reads confounding of the value of these fixed rules, not of the learned-rule procedure.
+`FrozenLearnedRule`, in `src/cleverly/interventions/learned.py`, carries the frozen values.
+
+| check | witness in `tests/unit/test_simulated_confounding_learned_rule.py` |
+| --- | --- |
+| zero strength | the cell equals the reported estimate exactly |
+| nonzero cells | each cell equals a manual frozen-rule refit of its perturbed table |
+| frozen rules | a perturbed refit keeps every row's rule and the folds, and a relearning refit changes some rules |
+| fold weights | on folds of 81 and 80 rows, the cell equals the mean of the fold values and not the row-weighted mean |
+| mutation controls | a replay that relearns the rule, or that redraws the folds, fails the nonzero cell check |
 
 **Nonlinear and continuous MSMs.** The surface preserves built-in identity, log, and logit links.
 It invokes the existing complete projection and targeting solver in each cell.
@@ -1657,6 +1682,7 @@ Outcome diagnostics remain available; integration-grid positions never become tr
 | --- | --- |
 | `tests/unit/test_simulated_confounding_incremental.py` | nonzero complete refits, mechanism rebuilding, natural-course refusals, repeated provenance, and persisted assessment |
 | `tests/unit/test_simulated_confounding_msm.py` | built-in links, fixed quadrature, observed-dose rebuilding, support masks, and corrupted cached arrays |
+| `tests/unit/test_simulated_confounding_off_axis.py` | on a saturated finite law, a multi-arm incremental cell, a stratum incremental cell and a multi-arm MSM coefficient each equal the hand g-formula on the refitted table. A frozen-mechanism control misses the incremental cell. A stratum continuous-MSM cell equals a manual refit |
 | existing incremental and MSM estimator tests | unchanged targeting, influence curves, and projections |
 
 These are deterministic diagnostic checks, not new repeated-sampling or interval claims.
@@ -1850,7 +1876,7 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
 walks that table and returns the first reason that applies.
 
-Three named stops apply in this order: longitudinal, learned-rule, and risk-ratio tilt fits. The first two wait on a declared law.
+Two named stops apply in this order: longitudinal and risk-ratio tilt fits. The longitudinal stop waits on a declared law.
 The tilt stop waits on a typed study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). The longitudinal stop applies
 the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
 point rule. Each one has a row in the
@@ -1858,7 +1884,7 @@ refusal table below, and each one carries a roadmap item. The missing-outcome, m
 and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
-The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
+The `result_type` stop runs second, before the risk-ratio tilt stop, because every later rule reads a
 field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
 below gives all twelve in contract order.
 
@@ -1879,11 +1905,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all fifteen. A fit that reaches the `provider` stop reports
+execution name the same stop for all fourteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the three fit-wide named stops and the three grid stops, plus the estimands and compositions the
+The rows below record the two fit-wide named stops and the three grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1892,7 +1918,6 @@ of the roadmap also has a part that waits on published theory, as the
 | refused | code | why |
 | --- | --- | --- |
 | a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
-| a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
 | a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
@@ -2785,20 +2810,27 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `learned_rule` | any test except `placebo` on a learned-rule fit, whose refit relearns the rules and so changes the target. The placebo law gives every rule the value `E[Y]`, so the placebo reads the learned-rule level against the weighted mean of the outcome. The default `refute` row reads `unavailable` for the fit |
-| 3 | `estimand` | an estimand that the fit did not report |
-| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
-| 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
-| 6 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
-| 7 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
-| 8 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
-| 9 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
-| 10 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
-| 11 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
-| 12 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
-| 13 | `generated_budget` | a generated-outcome draw count below 10 |
+| 2 | `estimand` | an estimand that the fit did not report |
+| 3 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
+| 4 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
+| 5 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
+| 6 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
+| 7 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
+| 8 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
+| 9 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
+| 10 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
+| 11 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
+| 12 | `generated_budget` | a generated-outcome draw count below 10 |
 
-Rules 7, 10 and 11 call the validators that the tests run, so the table copies no check. The argument
+On a learned-rule fit, `random_common_cause`, `subset`, `bootstrap_stability` and `bootstrap_measurement_error` hold the realized rule of each original row fixed.
+A subset or a resample carries the rule of each kept row, so a duplicated row carries it twice.
+The measurement-error draw perturbs the covariates after the resample, so each unit keeps the rule at its recorded covariates.
+Each refit then estimates the value of the fit's own rules, as the [learned-rule replay](#simulated-common-cause-stress-surface) does.
+The placebo refits as the fit did, because the placebo law gives every rule the value `E[Y]`.
+The placebo reads the learned-rule level against the weighted mean of the outcome.
+`tests/unit/test_refute_learned_rule.py` recomputes each refit by hand and relearns the rule as a mutation control.
+
+Rules 6, 9 and 10 call the validators that the tests run, so the table copies no check. The argument
 check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
 any refit when that array is absent.
 

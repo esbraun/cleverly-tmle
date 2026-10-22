@@ -1692,7 +1692,7 @@ reading of the strengths. No part makes an interval claim.
 | (d), moved to [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) | a risk-ratio tilt fit | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the replay reads. X85 adds the requests and the replay |
 | (e), shipped | a binary replay under any point estimator whose class declares `simulated_confounding_replay = True` | a refit of the stored estimator on each perturbed draw, with a zero-strength reproduction witness for each estimator. An enumeration test runs every declaring class |
 | (g), shipped | a fixed-policy replay under a declaring class | as part (e). X50 and X51 hold the DR-TMLE and C-TMLE regimes and MSMs |
-| (i) | a binary replay of a parameter off the arm axis, and a continuous replay of a parameter off the policy axis | the replay applied to the refit of that parameter, with a declared reading for each parameter. A parameter that reads $g$ follows part (d) |
+| (i), shipped | a binary replay of a parameter off the arm axis, and a continuous replay of a parameter off the policy axis | the replay applied to the refit of that parameter, with a declared reading for each parameter. A multi-arm incremental target swaps the declared arm pair, and each cell refits the mechanism that the odds tilt reads. A known stochastic regime on a continuous dose has no estimator, and [X64](#x64-intervention-and-policy-declarations) holds it |
 
 Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness for each part.
 
@@ -1700,7 +1700,8 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 
 | part | request | step | readiness |
 | --- | --- | --- | --- |
-| (o) simulated confounding and `refute` | either on a learned-rule fit | a new fold-evaluated replay path with the fold rules frozen. It reads as confounding of the value of these fixed rules | natural extension |
+| (o) simulated confounding, shipped | `simulated_confounding` on a learned-rule fit | each cell refits on the fit's folds with every row's realized fold rule held fixed (`FrozenLearnedRule`), with the $1/V$ fold weights. It reads as confounding of the value of these fixed rules. See [learned rules](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) | natural extension |
+| (o) `refute`, shipped | `random_common_cause`, `subset`, `bootstrap_stability` and `bootstrap_measurement_error` on a learned-rule fit | the same frozen-rule replay. A subset or resampled draw carries each kept row's rule value. The generated-outcome tests wait on part E (c) | natural extension |
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 

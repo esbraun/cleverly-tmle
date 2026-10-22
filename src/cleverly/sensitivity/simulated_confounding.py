@@ -427,6 +427,24 @@ class SimulatedConfoundingResult:
             )
             + (
                 (
+                    "incremental reading: every cell refits the treatment mechanism, and the odds "
+                    "tilt reads that refitted mechanism, so a cell moves the intervention with "
+                    "the confounding",
+                )
+                if self.estimand.startswith(("ey_ipsi[", "ate_ipsi["))
+                else ()
+            )
+            + (
+                (
+                    "learned-rule reading: every cell refits on the fit's folds with each row's "
+                    "realized fold rule held fixed, so a cell reads confounding of the value of "
+                    "these fixed rules, not of the learned-rule procedure",
+                )
+                if self.estimand.startswith("ey_learned_rule[")
+                else ()
+            )
+            + (
+                (
                     "treatment mechanism: known on the data; each cell that flips the treatment "
                     "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
                     if self.arm_pair is None
@@ -1756,9 +1774,9 @@ def simulated_confounding(
     Complete refits rebuild intervention densities from the refitted treatment mechanism
     and retain its targeting contribution. Movement includes this intervention change.
     A multiplier-one mean is the natural course and is refused before a draw; contrasts
-    against that reference remain supported. All these extensions use exact ordinary TMLE
-    only. Incremental
-    targets and nonlinear or continuous MSMs refuse baseline strata upstream.
+    against that reference remain supported. A multi-arm incremental target swaps the
+    declared ``arm_pair``. All these extensions use exact ordinary TMLE only, and each
+    accepts a baseline stratum.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
@@ -1964,6 +1982,11 @@ def simulated_confounding(
                 replacement,
                 intermediate_value=result.intermediate_value,
                 random_state=refit_seed,
+                **(
+                    {}
+                    if request.frozen_folds is None
+                    else {"frozen_folds": list(request.frozen_folds)}
+                ),
             )
             # ``inference.influence.median_estimates`` drops a name that is absent from any
             # draw, so ``refitted[estimand]`` would raise "was not requested" for an estimand

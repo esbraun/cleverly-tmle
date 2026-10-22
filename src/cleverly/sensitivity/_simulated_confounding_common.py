@@ -79,6 +79,9 @@ def replay_classes() -> tuple[str, ...]:
     return tuple(found)
 
 
+#: The axes whose functional declares its interventions.
+_INTERVENTION_AXES = frozenset({"policy", "regime", "ipsi", "learned_rule"})
+
 _AXIS_SLOTS = {
     "arm": (),
     "policy": ("policies",),
@@ -86,6 +89,7 @@ _AXIS_SLOTS = {
     "regime": ("interventions",),
     "msm": ("msm",),
     "ipsi": ("incremental",),
+    "learned_rule": ("learned_rule",),
 }
 
 
@@ -201,8 +205,8 @@ def check_only_declared_axis(
         or functional.axis != axis
         or functional.horizons is not None
         or (functional.intermediate is not None and not (intermediate and axis == "arm"))
-        or any(getattr(estimator, slot) for slot in slots if slot not in allowed)
-        or (bool(functional.interventions) != (axis in {"policy", "regime", "ipsi"}))
+        or any(getattr(estimator, slot, None) for slot in slots if slot not in allowed)
+        or (bool(functional.interventions) != (axis in _INTERVENTION_AXES))
         or (functional.msm is not None) != (axis == "msm")
         or any(getattr(key, slot) is not None for slot in ("regimen", "cause", "horizon"))
         or (axis != "msm" and key.term is not None)
