@@ -692,9 +692,42 @@ class TestDefaultCost:
         refute(result, tests=("random_common_cause",), seed_spread=True, random_state=1)
         assert counter.calls > 20  # the opt-in path costs more, so the default must not use it
 
+    def test_a_default_set_with_the_dummy_outcome_would_fail(self) -> None:
+        result = _linear_ate_fit(ATE())
+        counter = _CountingEstimator(result.estimator)
+        result = replace(result, estimator=counter)
+        refute(result, tests=("dummy_outcome",), n_replicates=30, random_state=1)
+        assert counter.calls > 20  # so the dummy outcome must stay out of the default set
+
     def test_the_generated_outcome_tests_are_not_default(self) -> None:
         assert "dummy_outcome" not in DEFAULT_TESTS
         assert "simulated_outcome" not in DEFAULT_TESTS
+
+
+class TestBootstrapFoldRule:
+    def test_every_copy_of_a_unit_keeps_the_original_units_fold(self) -> None:
+        from cleverly.validation.refute import _bootstrap_design, _CopyFolds
+
+        result = _binary_fit(cross_fit=True, n=200)
+        data = result.data
+        design = _bootstrap_design(data, n_replicates=3, resampling="iid", random_state=4)
+        draws = {draw.replicate: draw for draw in design.draws}
+        folds = _CopyFolds(result, data, design, draws)
+        original = np.asarray(result.repeats[0].folds.assignment)
+        for replicate in draws:
+            sample = folds.sample(replicate)
+            index, _ = design.indices(data, draws[replicate])
+            assert sample.n == index.size
+            frozen = folds.options(replicate)["frozen_folds"]
+            assert len(frozen) == len(result.repeats)
+            _, expected = np.unique(original[index], return_inverse=True)
+            np.testing.assert_array_equal(frozen[0].assignment, expected)
+            # The mutation: a refit that redrew folds would split copies of one unit apart.
+            copies = np.flatnonzero(np.bincount(index, minlength=200) > 1)
+            assert copies.size > 0
+            for unit in copies:
+                positions = np.flatnonzero(index == unit)
+                assert len(set(frozen[0].assignment[positions])) == 1
 
 
 class TestSubsetFoldSlice:

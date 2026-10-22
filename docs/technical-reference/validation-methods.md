@@ -1973,7 +1973,7 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
 | `dummy_outcome` | draws independent Gaussian noise and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
 | `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the same three readings, against the declared effect | adjustment and treatment terms in the full pipeline |
-| `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
+| `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 
 The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
 default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.
