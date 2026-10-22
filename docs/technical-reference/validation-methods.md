@@ -2559,6 +2559,11 @@ that it fits on the panel once and then holds fixed. The table gives the model o
 | `A_t` | logistic, clipped to the fit's `g` bounds | `W`, `L_1` to `L_t`, and `A_1` to `A_{t-1}` |
 | censoring after node `t` | logistic | `W`, `L_1` to `L_t`, and `A_1` to `A_t` |
 | outcome | `mu + f(W) + effect * (A_1 + ... + A_T) + history_effect * h(L) + e` | `h` is the root-count standardized sum of every time-varying column |
+| event at node `t` of a survival or competing-risk fit | the declared hazard, with `history_effect * h_t` added to each log-odds | `h_t` is the same sum over the columns of nodes 1 to `t` |
+
+Each model fits on the units present at its node. Such a unit is uncensored and has no event
+before the node. The draw orders a node as `L_t`, `A_t`, `C_t` and then the event, as the
+container does.
 
 The truth is the sequential g-formula of the frozen law under the regimen, with no censoring.
 The table gives the two forms of the truth.
@@ -2573,6 +2578,10 @@ fit's standard error, with `N` at most 2,048. The report prints `N` and that sta
 bias and coverage readings add that standard error to each interval in quadrature. The plasmode
 resamples `W`, so every target reads all three readings.
 
+A survival truth at horizon `h` is the mean of `sum_{t <= h} S(t - 1) p_j(t)` over the histories,
+where `S` is the probability of no event through a node. The truth carries `S` on each history,
+so only `L` and `A` branch.
+
 Only the plasmode reads `history_effect`. The held design keeps `L`, whose law under a regimen
 it does not know, so `simulated_outcome` refuses a nonzero `history_effect`. A point fit also
 refuses it.
@@ -2586,12 +2595,17 @@ R = 400 on that panel, and a contrast passes on a panel with a Gaussian `L_2`.
 Two tests in the same file lower the limits. Past the branch limit, the truth samples. At a draw
 cap of 4, the bias interval widens.
 
+`tests/unit/test_survival_plasmode.py` works the same g-formula for a survival hazard that reads
+`L_2`. It checks static regimens, a rule, each horizon, and both causes of a competing-risk fit to
+`1e-12`. The naive truth differs by more than 0.01. A survival contrast passes at R = 400 with
+n = 1,500. The mean of 40 competing-risk refits lies within four standard errors of the truth.
+
 The table gives the panels that the plasmode refuses, with roadmap id
 [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
 
 | panel | reason |
 | --- | --- |
-| a survival, competing-risk, or repeated outcome | the draw has no event or repeated-outcome process yet |
+| a repeated outcome | the draw has no repeated-outcome process yet |
 | a held baseline decision, or a node with no treatment decision | the draw draws one treatment at each node |
 | a declared known mechanism | the frozen model replaces the declared one |
 | a clustered or weighted panel | resampled rows do not carry the cluster or weight law |
@@ -2628,13 +2642,14 @@ A survival or competing-risk fit replaces its events, not one outcome. Its decla
 
 | fit | declaration | event probability at node `t` for a unit at risk |
 | --- | --- | --- |
-| survival | `LogisticHazardOutcome(intercept, effect, adjustment_scale)` | `expit(intercept + f(W) + effect * d_t)` |
-| competing risks | `MultinomialHazardOutcome(intercepts, effects, adjustment_scale)` | `exp(eta_j) / (1 + sum_k exp(eta_k))` for cause `j`, with `eta_j = intercepts[j] + f(W) + effects[j] * d_t` |
+| survival | `LogisticHazardOutcome(intercept, effect, adjustment_scale, history_effect)` | `expit(intercept + f(W) + effect * d_t)` |
+| competing risks | `MultinomialHazardOutcome(intercepts, effects, adjustment_scale, history_effect)` | `exp(eta_j) / (1 + sum_k exp(eta_k))` for cause `j`, with `eta_j = intercepts[j] + f(W) + effects[j] * d_t` |
 
 `d_t` is the number of treated decision nodes up to `t`. The cause probabilities and the
 probability of no event sum to 1, which independent per-cause logistic hazards do not ensure.
 `dummy_outcome` needs a hazard with every effect 0 and `adjustment_scale=0`. The default Gaussian
-declarations are refused on these fits.
+declarations are refused on these fits. The held design refuses a nonzero `history_effect`, which
+only the plasmode reads.
 
 The draw recodes the exit before it draws the events (X82 plan 5.5.2).
 
