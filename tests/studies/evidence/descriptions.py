@@ -3784,7 +3784,7 @@ _FOLDWISE_POSITIVE = (
 STUDY_ARMS[(_FOLDWISE_SLUG, "multi_arm_drtmle")] = "medium-versus-high ATE of the three-arm law"
 for (_family, _arm, _base), _words in {
     ("fold_locality", "ate", "foldwise"): (
-        "only the treatment mechanism is correct, n = 1,500, ten folds; each fold's reduced "
+        "only the treatment mechanism is correct, n = 1,000, ten folds; each fold's reduced "
         "regressions train on leave-two-out designs",
         "bias interval inside the equivalence margin",
     ),

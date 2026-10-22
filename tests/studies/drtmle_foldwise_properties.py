@@ -6,8 +6,8 @@ Every cell fits ``ate`` with ``cross_fit=True`` and, except the leak control, th
 =========================================  =========  =====  ========  ===============================  ================
 cell                                       role       n      R         configuration                    planning (SD)
 =========================================  =========  =====  ========  ===============================  ================
-``fold_locality/ate__foldwise``            positive   1,500  8,000 F   ``treatment_correct``            0.102 +/- 0.022
-``fold_locality/ate__pooled``              control    1,500  8,000 F   the same draw, ``"pooled"``      0.317 +/- 0.022
+``fold_locality/ate__foldwise``            positive   1,000  4,400     ``treatment_correct``            0.140 +/- 0.022
+``fold_locality/ate__pooled``              control    1,000  4,400     the same draw, ``"pooled"``      0.396 +/- 0.022
 ``double_robustness/ate__benkeser_order``  positive   3,000  1,600     ``update_order="benkeser"``      0.072 +/- 0.035 P
 ``double_robustness/ate__bivariate``       positive   3,000  4,000     ``reduction="bivariate"``        0.110 +/- 0.035 P
 ``double_robustness/ate__bivariate_oc``    positive   3,000  1,600     the same, ``outcome_correct``    0.030 +/- 0.050
@@ -22,22 +22,19 @@ cell                                       role       n      R         configura
 =========================================  =========  =====  ========  ===============================  ================
 
 The primary phase (:mod:`tests.studies.drtmle_foldwise`) is the tenth unit: three regimes at
-n = 3,000, R = 8,000 F.  Its planning values are ``treatment_correct`` ``ate`` 0.099 +/- 0.025 P,
-``ey0`` -0.044, ``ey1`` 0.091 (pilot ``tc3000``, 1,200 replications); ``outcome_correct`` 0.028,
--0.018, 0.018 +/- 0.050 (P1); ``both_correct`` 0.066, -0.097, -0.003 +/- 0.035
-(``canonical-drtmle`` pooled).  ``P`` marks a posterior of the pooled ``treatment_correct``
-regime (``tau`` bound 0.038, pooled mean 0.093).  ``F`` marks a unit in :data:`FALLBACK`: no
-budget up to :data:`CEILING` reaches its share, and the ceiling stands in its place.  The
-primary unit fails on the coverage clause of the P1 ``outcome_correct`` rows (pass 0.988 at
-8,000).  The leak unit fails on its pooled control, whose bias sits 0.067 SD outside the margin
-(pass 0.934 at 8,000).  At these budgets the family-wise predictive pass is about 0.90, below
-the 0.95 target.
+n = 3,000, R = 6,000.  Its planning values are ``treatment_correct`` ``ate`` 0.099 +/- 0.025 P,
+``ey0`` -0.044, ``ey1`` 0.091 (pilot ``tc3000``, 1,200 replications); ``outcome_correct`` 0.114,
+-0.090, 0.063 +/- 0.035 (pilot ``oc3000``, 800 replications); ``both_correct`` 0.066, -0.097,
+-0.003 +/- 0.035 (``canonical-drtmle`` pooled).  ``P`` marks a posterior of the pooled
+``treatment_correct`` regime (``tau`` bound 0.038, pooled mean 0.093).  Every unit reaches its
+share, so :data:`FALLBACK` is empty.  At these budgets the family-wise predictive pass is about
+0.963.
 
 The paper-law cells fit one regime of the ``canonical-drtmle`` law each.  Under
 ``treatment_correct`` the outcome GLM omits ``W1 W2`` and the mechanism is correct; that is the
-regime where the fold leak shows (pilot ``leak1500``: pooled ``+0.317`` SD, fold-wise ``+0.102``
-SD at n = 1,500, 2,000 replications).  Each ``treatment_correct`` variant changes one setting of the primary fit
-(review F6, F10, F11).  ``ate__bivariate_oc`` fits the bivariate reduction under
+regime where the fold leak shows (pilot ``leak1000``: pooled ``+0.396`` SD, fold-wise ``+0.140``
+SD at n = 1,000, 2,000 replications).  Each ``treatment_correct`` variant changes one setting of
+the primary fit (review F6, F10, F11).  ``ate__bivariate_oc`` fits the bivariate reduction under
 ``outcome_correct``, where the mechanism is wrong and equation (10)'s slab tilt of the single
 bivariate reduced mechanism is load bearing.  ``ate__both_wrong`` is the double-robustness
 control: both nuisances are misspecified, so its bias must fall outside the margin.  The
@@ -62,13 +59,22 @@ plan section 7.4 needs for the RM18 re-read.  Replications 600 and above continu
 stream.
 
 **The leak control** (``fold_locality``, the shared necessity rule).  One draw per replication
-is fitted twice, fold-wise and pooled, at n = 1,500.  The fold-wise row must keep its bias
+is fitted twice, fold-wise and pooled, at n = 1,000.  The fold-wise row must keep its bias
 inside the equivalence margin and the pooled row must establish its bias outside it.  The joint
 clause is the paired displacement ``|mean(pooled) - mean(foldwise)| / sd(foldwise)``, which must
 reach :data:`FOLD_LOCALITY_DISPLACEMENT`.  A study whose fold-wise path were wired as pooled
 reads a displacement of exactly zero, so it fails.  The control does not separate the slab's
 tilt (C2) from the leave-two-out designs (C1); plan section 7.3 leaves C2 to the unit mutation
 tests.
+
+**Why the leak control sits at n = 1,000.**  The leak is a second-order term, ``O(1 / n)`` in the
+estimate, while the error SD is ``O(n ** -0.5)``.  The standardized leak therefore grows as n
+shrinks, which moves the pooled control away from the margin.  At n = 1,500 the pooled row read
+``+0.317`` SD (pilot 3, 2,000 replications), only 0.067 SD outside the margin, and no budget up
+to :data:`CEILING` sized the unit.  At n = 1,000 it reads ``+0.396`` SD and the fold-wise row
+``+0.140`` SD, so each side has about 0.11 to 0.15 SD of headroom.  The ratio 0.396 / 0.317 =
+1.25 is close to ``sqrt(1.5) = 1.22``.  The leak pair is planned from pilot 4 alone; no pilot
+at another n is pooled into it.
 
 **Red-row reading, declared before the run.**  The policy is ``gated``.  A red positive row is a
 defect suspect: diagnose it, fix it, and re-run under a fresh declaration.  A failing control is
@@ -95,10 +101,7 @@ above its floor whose predictive pass reaches the unit share ``0.95 ** (1 / len(
 **Fallback, declared before the run.**  A unit that no budget up to :data:`CEILING` sizes is
 listed in :data:`FALLBACK`.  Its remedy is a larger n for the failing positive arm, planned from
 a pilot at that n.  The margin is never widened.  :func:`assert_sized` refuses a run while
-:data:`FALLBACK` is not empty.  Neither unit now in it has a theory-justified larger n.  The
-primary n is the claim's n, and its binding rows are the n = 2,000 P1 coverages, which a pilot
-at n = 3,000 would plan.  The leak unit fails on its pooled control, and a larger n shrinks the
-leak toward the margin rather than away from it.
+:data:`FALLBACK` is not empty.  It is empty at the declared budgets.
 """
 
 from __future__ import annotations
@@ -138,7 +141,7 @@ from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 PAPER_N = 3_000
-LEAK_N = 1_500
+LEAK_N = 1_000
 MULTI_ARM_N = 2_000
 STRATIFIED_N = 2_000
 #: The nuisance regime of the leak pair and of the ``treatment_correct`` variants.
@@ -169,6 +172,9 @@ _PILOT_A = "x83 sizing pilot, reviews/x83/pilot2/pilot_a.csv"
 _PILOT_B = "x83 sizing pilot, reviews/x83/pilot2/pilot_b.csv"
 #: The extension pilot of the three units pilot 2 could not size, same code and columns.
 _PILOT_C = "x83 sizing pilot, reviews/x83/pilot3/pilot_c"
+#: The pilot of the leak pair at n = 1,000 and of the primary ``outcome_correct`` rows at
+#: n = 3,000, same code and columns.
+_PILOT_D = "x83 sizing pilot, reviews/x83/pilot4/pilot_d"
 
 
 @dataclass(frozen=True)
@@ -210,10 +216,8 @@ class Pilot:
 _ONE = ((1.0,),)
 _ATE_EY = ("ate", "ey0", "ey1")
 
-#: The planning summary of every gated row.  The primary ``outcome_correct`` rows are the X83
-#: probe P1 (``reviews/x83/p1``, n = 2,000), unscaled to n = 3,000.  The primary
-#: ``both_correct`` rows and the both-wrong control read the committed ``canonical-drtmle``
-#: pooled rows at n = 3,000; P1 read fold-wise ``|bias|`` below pooled ``|bias|`` in every regime
+#: The planning summary of every gated row.  The primary ``both_correct`` rows and the both-wrong control read the committed ``canonical-drtmle``
+#: pooled rows at n = 3,000; the X83 probe P1 read fold-wise ``|bias|`` below pooled ``|bias|`` in every regime
 #: and estimand, so a pooled value is an upper planning value for its fold-wise row.
 PILOTS: Mapping[str, Pilot] = {
     "primary/treatment_correct": Pilot(
@@ -226,13 +230,13 @@ PILOTS: Mapping[str, Pilot] = {
         coverage=(0.9392, 0.9442, 0.9483),
     ),
     "primary/outcome_correct": Pilot(
-        "X83 probe P1, reviews/x83/p1/r_outcome_correct_foldwise_*.csv, n = 2,000",
-        400,
+        f"{_PILOT_D}_oc3000.csv r < 800, cell oc3000",
+        800,
         _ATE_EY,
-        (0.0270, -0.0182, 0.0170),
-        ((1.0, -0.6694, 0.6334), (-0.6694, 1.0, 0.1509), (0.6334, 0.1509, 1.0)),
-        se_ratio=(1.0335, 0.9675, 1.0442),
-        coverage=(0.9500, 0.9375, 0.9625),
+        (0.1138, -0.0901, 0.0628),
+        ((1.0, -0.6567, 0.6829), (-0.6567, 1.0, 0.1025), (0.6829, 0.1025, 1.0)),
+        se_ratio=(0.9712, 0.9726, 0.9692),
+        coverage=(0.9462, 0.9450, 0.9412),
     ),
     "primary/both_correct": Pilot(
         "canonical-drtmle summary.csv and replicates.parquet, pooled, n = 3,000",
@@ -244,11 +248,11 @@ PILOTS: Mapping[str, Pilot] = {
         coverage=(0.94375, 0.9575, 0.9425),
     ),
     "fold_locality": Pilot(
-        f"{_PILOT_A} r < 400 and {_PILOT_C}_leak.csv r 400 to 1,999, cell leak1500",
+        f"{_PILOT_D}_leak1000.csv r < 2,000, cell leak1000",
         2_000,
         ("foldwise", "pooled"),
-        (0.1023, 0.3170),
-        ((1.0, 0.8659), (0.8659, 1.0)),
+        (0.1403, 0.3956),
+        ((1.0, 0.8544), (0.8544, 1.0)),
         controls=("pooled",),
     ),
     "benkeser_order": Pilot(f"{_PILOT_A}, cell benkeser_order", 400, ("ate",), (0.0364,), _ONE),
@@ -291,11 +295,11 @@ REGIME = ("primary/treatment_correct", "benkeser_order", "bivariate", "k5", "spl
 
 #: The leak pilot's ``sd(pooled error) / sd(foldwise error)``, which turns the two rows'
 #: standardized biases into the paired displacement: ``|ratio * b_pooled - b_foldwise|``.  The
-#: pilot's displacement is ``0.230``, with per-replication SD ``0.533``.
-LEAK_SPREAD_RATIO = 1.0494
+#: pilot's displacement is ``0.266``, with per-replication SD ``0.547``.
+LEAK_SPREAD_RATIO = 1.0260
 
-#: The declared joint threshold of the leak control.  The pilot's ``0.230 +/- 0.012`` sits
-#: eleven of its standard errors above it; a construction wired as pooled reads exactly zero.
+#: The declared joint threshold of the leak control.  The pilot's ``0.266 +/- 0.012`` sits
+#: thirteen of its standard errors above it; a construction wired as pooled reads exactly zero.
 FOLD_LOCALITY_DISPLACEMENT = 0.10
 
 #: The stratified ``treatment_correct`` rows of ``pilot_b.csv`` (200 replications, one draw
@@ -527,8 +531,8 @@ def family_pass(budgets: Mapping[str, int] | None = None) -> float:
 
 #: The declared budgets, each the output of :func:`budget`.
 BUDGETS: Mapping[str, int] = {
-    "primary": 8_000,
-    "fold_locality": 8_000,
+    "primary": 6_000,
+    "fold_locality": 4_400,
     "benkeser_order": 1_600,
     "bivariate": 4_000,
     "bivariate_oc": 1_600,
@@ -540,7 +544,7 @@ BUDGETS: Mapping[str, int] = {
 }
 
 #: The units no budget up to :data:`CEILING` sizes, each the output of :func:`budget`.
-FALLBACK: tuple[str, ...] = ("primary", "fold_locality")
+FALLBACK: tuple[str, ...] = ()
 
 
 def assert_sized() -> None:

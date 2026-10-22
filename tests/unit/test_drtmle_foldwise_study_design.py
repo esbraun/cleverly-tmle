@@ -150,9 +150,9 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
     pilots = properties.PILOTS
     assert {name: pilots[name].bias for name in pilots} == {
         "primary/treatment_correct": (0.1032, -0.0469, 0.0939),
-        "primary/outcome_correct": (0.0270, -0.0182, 0.0170),
+        "primary/outcome_correct": (0.1138, -0.0901, 0.0628),
         "primary/both_correct": (0.0659, -0.0969, -0.0035),
-        "fold_locality": (0.1023, 0.3170),
+        "fold_locality": (0.1403, 0.3956),
         "benkeser_order": (0.0364,),
         "bivariate": (0.1427,),
         "bivariate_oc": (0.0298,),
@@ -165,6 +165,7 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
     assert {name: pilots[name].replicates for name in pilots} == {
         **dict.fromkeys(pilots, 400),
         "primary/treatment_correct": 1_200,
+        "primary/outcome_correct": 800,
         "primary/both_correct": 800,
         "fold_locality": 2_000,
         "both_wrong": 800,
@@ -212,8 +213,8 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
             unsized.append(unit)
     assert tuple(unsized) == properties.FALLBACK
     assert properties.BUDGETS == {
-        "primary": 8_000,
-        "fold_locality": 8_000,
+        "primary": 6_000,
+        "fold_locality": 4_400,
         "benkeser_order": 1_600,
         "bivariate": 4_000,
         "bivariate_oc": 1_600,
@@ -223,7 +224,7 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
         "multi_arm": 3_600,
         "stratified": 3_200,
     }
-    assert properties.FALLBACK == ("primary", "fold_locality")
+    assert properties.FALLBACK == ()
     assert properties.BUDGETS["primary"] >= properties.PRIMARY_FLOOR
     assert set(properties.GROUPS) | {"primary", "multi_arm"} == set(properties.UNITS)
     for name, group in properties.GROUPS.items():
@@ -231,11 +232,15 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
         assert properties.UNITS[name][0] == (name,)
 
 
-def test_the_family_wise_predictive_pass_is_pinned_and_below_target() -> None:
-    """The fallback is open: the declared budgets do not reach the family-wise 0.95."""
+def test_the_family_wise_predictive_pass_reaches_the_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     value = properties.family_pass()
-    assert value == pytest.approx(0.897, abs=0.003)
-    assert value < properties.STUDY_TARGET
+    assert value == pytest.approx(0.963, abs=0.003)
+    assert value >= properties.STUDY_TARGET
+    properties.assert_sized()
+    # The guard is live: an open fallback refuses the run.
+    monkeypatch.setattr(properties, "FALLBACK", ("fold_locality",))
     with pytest.raises(RuntimeError, match="fallback"):
         properties.assert_sized()
 
@@ -252,7 +257,7 @@ def test_the_unit_rule_is_monotone_and_reads_every_clause(
         kept = tuple(c for c in properties.CLAUSES if c != clause)
         assert properties.unit_pass("primary", 2_000, kept) > full, clause
     assert properties.unit_pass("fold_locality", 2_000, ("displacement",)) == 1.0
-    monkeypatch.setattr(properties, "FOLD_LOCALITY_DISPLACEMENT", 0.230)
+    monkeypatch.setattr(properties, "FOLD_LOCALITY_DISPLACEMENT", 0.266)
     assert properties.unit_pass("fold_locality", 2_000, ("displacement",)) < 0.6
     # The control rows read the discrimination clause: a positive reading of them fails.
     assert properties.unit_pass("both_wrong", 400) == 1.0
@@ -301,14 +306,14 @@ def test_the_leak_control_is_declared_and_its_threshold_resolves_the_pilot() -> 
     assert leak.threshold == properties.FOLD_LOCALITY_DISPLACEMENT == 0.10
     foldwise, pooled = properties.PILOTS["fold_locality"].bias
     displacement = properties.LEAK_SPREAD_RATIO * pooled - foldwise
-    assert displacement == pytest.approx(0.2304, abs=5e-4)
+    assert displacement == pytest.approx(0.2656, abs=5e-4)
     assert 0.0 < leak.threshold < displacement / 2
-    # Eleven pilot standard errors (0.533 / sqrt(2000)) between the threshold and the pilot.
-    assert (displacement - leak.threshold) / (0.533 / np.sqrt(2000)) > 10
+    # Thirteen pilot standard errors (0.547 / sqrt(2000)) between the threshold and the pilot.
+    assert (displacement - leak.threshold) / (0.547 / np.sqrt(2000)) > 13
     fits = {cell: (role, fit) for _, cell, role, fit in properties.GROUPS["fold_locality"].fits}
     assert fits["ate__foldwise"] == ("positive", runner.Fit())
     assert fits["ate__pooled"] == ("control", runner.Fit(reduced_crossfit="pooled"))
-    assert properties.GROUPS["fold_locality"].n == properties.LEAK_N == 1_500
+    assert properties.GROUPS["fold_locality"].n == properties.LEAK_N == 1_000
     assert properties.GROUPS["fold_locality"].scenario == "treatment_correct"
 
 

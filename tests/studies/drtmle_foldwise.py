@@ -32,12 +32,11 @@ module declares ``FAILURE_BOUND = 0.01``, in the form ``docs/development/method-
 audit and an active propensity bound each count as a failed replicate.
 
 **Cost.**  The sizing pilots' seconds per fit, on four busy cores: primary 3.8 (``tc3000``,
-taken for all three regimes and for the both-wrong control), leak pair 5.8 for both fits,
-``benkeser_order`` 4.2, ``bivariate`` 3.3, ``bivariate_oc`` 3.0, ``k5`` 1.8, ``spline_reduced``
-17.9, multi-arm 1.6, stratified 11.8.  At the declared budgets that is about 73 CPU-hours: 25.3
-primary, 12.9 leak, 14.0 spline, 10.5 stratified, and 10 for the other cells.  The two units in
-the property module's ``FALLBACK`` hold their budget at the 8,000 ceiling and carry 38 of the
-73 hours.  A run is refused while that tuple is not empty.
+taken for ``both_correct`` and the both-wrong control too) and 3.3 (``oc3000``), leak pair 5.3
+for both fits at n = 1,000, ``benkeser_order`` 4.2, ``bivariate`` 3.3, ``bivariate_oc`` 3.0,
+``k5`` 1.8, ``spline_reduced`` 17.9, multi-arm 1.6, stratified 11.8.  At the declared budgets
+that is about 59 CPU-hours: 18.3 primary, 6.5 leak, 14.0 spline, 10.5 stratified, and 10 for
+the other cells.
 
 **Declared before any run:** the budgets and seeds of this module and of the property module,
 ``publication_policy="gated"``, and the reading the property module states.
@@ -78,11 +77,9 @@ ESTIMANDS = canonical.ESTIMANDS
 REGISTERED_REPLICATES = canonical.PRIMARY_REPLICATES
 
 #: The primary budget per scenario, the output of the arm-pooled joint predictive rule
-#: (:mod:`tests.studies.drtmle_foldwise_properties`, "Sizes").  No budget up to 8,000 reaches
-#: the primary unit's share of the family-wise 0.95, so the unit is in that module's
-#: ``FALLBACK`` and the ceiling stands here.  The rows ``r < 800`` pair with
+#: (:mod:`tests.studies.drtmle_foldwise_properties`, "Sizes").  The rows ``r < 800`` pair with
 #: ``canonical-drtmle``.
-PRIMARY_REPLICATES = 8_000
+PRIMARY_REPLICATES = 6_000
 
 #: The share of a cell's replicates that a run may lose, declared before the first run.
 FAILURE_BOUND = 0.01
