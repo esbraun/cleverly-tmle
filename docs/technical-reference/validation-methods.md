@@ -2277,6 +2277,7 @@ the ATT or ATC population by the frozen probability of that population's arm.
 | `ey_regime` | the mean of `sum_a q(a \| W) m(a, W)`, with `q` the declared regime | three readings when that sum is constant over the rows; else bias only |
 | `ate_regime` | `ey_regime` of the value regime minus that of the reference regime | three readings when the difference of the two sums is constant over the rows; else bias only |
 | `ey_ipsi`, `ate_ipsi` | as `ey_regime` and `ate_regime`, with `q` the tilt of the true mechanism | refused. The plasmode reads them |
+| `ey_policy`, `ate_policy` | as `ey_regime` and `ate_regime`, with `q` the policy applied to the natural treatment | three readings when the sum, or the difference of the two sums, is constant over the rows; else bias only |
 | `msm` | one coefficient of the projection of `m(a, W)` onto the working model | three readings when the coefficient's covariate part is constant over the rows; else bias only |
 
 The code reads the constancy from the generated law. A Gaussian process and an identity link have
@@ -2298,6 +2299,8 @@ source.
 | --- | --- | --- | --- |
 | `Static`, `Rule`, known `Stochastic` regime | the declared density, evaluated on the fitted rows | yes | yes, on the support points |
 | `Incremental` tilt with factors `f` | `f_a g(a \| W) / sum_b f_b g(b \| W)` (Kennedy 2019) | no, because the held design does not know the true `g` | yes, with the frozen treatment model as `g` |
+| modified treatment policy `d` on arms | `sum_s P(A = s \| W) T(s -> a \| W)`, with `T` the probability that `d` moves arm `s` to arm `a` (Díaz et al. 2023, Section 4) | yes, with the held arm of each row as `A` | yes, with the frozen treatment model as `P(A = s \| W)` |
+| modified treatment policy `d` on a continuous dose | the branch probability on the dose `d(A, W)` of each branch | yes, with the held dose of each row as `A` | no, because the plasmode has no frozen law of a dose |
 
 An MSM coefficient solves the working-model normal equations of `cleverly.msm` with `m(a, W)` in
 place of the outcome regression. `Projection` in `validation/_point_generated.py` solves them by
@@ -2306,9 +2309,21 @@ coefficient is `e_j' M^-1 sum_a h m' phi (m(a, W) - m(a, V; beta))`. Under a Gau
 the linear model `MSM.linear()`, the slope's part is 0 at every row, so the slope reads
 all three. The intercept's part is `f(W)` minus its mean, so the intercept reads bias only.
 
-Modified treatment policies, risk-ratio tilts and learned rules have no generated truth. A
-request for one is refused with roadmap id
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
+A shift `a + delta` under a Gaussian process has the contrast `effect * delta` at every row, so
+`ate_policy` against the natural course reads all three. A cap that keeps some rows at their own
+dose makes the contrast vary over the rows, so the target reads bias only.
+`tests/unit/test_generated_policies.py` checks both cases and a randomized policy.
+
+The refit draws a new outcome, so a policy that reads the outcome law cannot apply. The table
+gives the policy requests that are refused, and the roadmap id of each.
+
+| request | refusal | roadmap |
+| --- | --- | --- |
+| a policy target on a fit with a missing treatment, in the held design | the held design reads the held arm as the natural arm. An unrecorded row has none | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) |
+| a cap that a tuner such as `DoseQuantile` resolves | the truth applies the declared map. A tuned cap has no map until a fit resolves it | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) |
+| `arm_effects` on a continuous treatment | a dose has no arms. The scalar `effect` gives the term `effect * dose` | none. Declare `effect` |
+| a risk-ratio tilt | the tilt reads the true mechanism, so only a plasmode can read it. That plasmode is not built | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part E (c) |
+| a learned rule | no generated truth | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 
 The held design keeps every observation indicator and the intermediate `Z`. The draw replaces
 the outcome only, so a missing outcome stays missing at random. The table gives the rules for

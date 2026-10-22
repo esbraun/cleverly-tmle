@@ -63,7 +63,9 @@ The tests, and what a reading means:
     is a finite sum over the support points, so bias, standard-error ratio and coverage are
     read against their equivalence bands.  Arm targets, regimes and MSM coefficients have an
     exact truth in both designs.  An incremental tilt reads the true treatment mechanism, so
-    only the plasmode, whose frozen model is that mechanism, reads it.
+    only the plasmode, whose frozen model is that mechanism, reads it.  A modified treatment
+    policy moves the natural treatment: the held design reads each row's held arm or dose,
+    and the plasmode of an arm treatment reads its frozen model.
 
 ``bootstrap_stability``
     Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
@@ -2577,13 +2579,7 @@ def _validate_generated_eligibility(
             roadmap="X82",
         )
     if getattr(data, "is_continuous_treatment", False):
-        raise CapabilityError(
-            f"{name} has no arm target on a continuous treatment; the arm-indexed truths "
-            "need declared arms.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
-        )
+        _refuse_continuous_point_target(functional, process, name)
     has_intermediate = bool(getattr(data, "has_intermediate", False))
     if getattr(process, "intermediate_effect", 0.0) and not has_intermediate:
         raise CapabilityError(
@@ -2602,9 +2598,10 @@ def _validate_generated_eligibility(
     if axis not in _POINT_TARGET_AXES or (axis == "arm" and functional.interventions):
         raise CapabilityError(
             f"{name} has no outcome process or effect derivation for the {axis!r} axis. "
-            "The generated laws cover arm targets, regimes, incremental tilts and MSM "
-            "coefficients; modified treatment policies, risk-ratio tilts and learned rules "
-            "have no generated truth yet.",
+            "The generated laws cover arm targets, regimes, incremental tilts, modified "
+            "treatment policies and MSM coefficients. A risk-ratio tilt reads the true "
+            "treatment mechanism, so only a plasmode can read it, and that plasmode is not "
+            "built yet; learned rules have no generated truth yet.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
@@ -2624,6 +2621,17 @@ def _validate_generated_eligibility(
                 "mechanism of its generated law."
             ),
         )
+    if axis == "policy" and name != "plasmode" and getattr(data, "has_missing_treatment", False):
+        # A policy moves each row's natural arm, and the held design reads the held arm as
+        # that natural arm. An unrecorded row has none.
+        raise CapabilityError(
+            f"{name} has no held-design truth for a modified treatment policy on a fit with "
+            "a missing treatment: the policy moves each row's natural treatment, and an "
+            "unrecorded row's treatment is unknown.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
     key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
         raise CapabilityError(
@@ -2639,8 +2647,8 @@ def _validate_generated_eligibility(
             alternative=(
                 "Choose an arm contrast (ate, att, atc), an arm level (ey, ey1, ey0), a "
                 "ratio (rr, or), a natural-course target (ey_obs, par, paf), a regime "
-                "target (ey_regime, ate_regime), an incremental target (ey_ipsi, ate_ipsi) "
-                "or an MSM coefficient (msm)."
+                "target (ey_regime, ate_regime), an incremental target (ey_ipsi, ate_ipsi), "
+                "a policy target (ey_policy, ate_policy) or an MSM coefficient (msm)."
             ),
             roadmap="X82",
         )
@@ -2714,14 +2722,18 @@ def _validate_generated_eligibility(
             **shared,
         )
     elif kind in ("intervention", "intervention_difference"):
+        if axis == "policy":
+            laws = _policy_laws(result, functional, key, name)
+        else:
+            laws = _intervention_laws(result, functional, key, name)
+        laws.setdefault("arms", codes)
         target = PointTarget(
             kind=kind,
             population="all",
             value_code=None,
             reference_code=None,
-            arms=codes,
             **shared,
-            **_intervention_laws(result, functional, key, name),
+            **laws,
         )
     elif kind == "msm":
         target = PointTarget(
@@ -2790,11 +2802,137 @@ _POINT_TARGET_KINDS: dict[str, TargetKind] = {
     "ate_regime": "intervention_difference",
     "ey_ipsi": "intervention",
     "ate_ipsi": "intervention_difference",
+    "ey_policy": "intervention",
+    "ate_policy": "intervention_difference",
     "msm": "msm",
 }
 
 #: The parameter axes whose targets have a point generated law (part E3).
-_POINT_TARGET_AXES = ("arm", "regime", "ipsi", "msm")
+_POINT_TARGET_AXES = ("arm", "regime", "ipsi", "policy", "msm")
+
+
+def _refuse_continuous_point_target(functional: Any, process: Any, name: str) -> None:
+    """Refuse a continuous-treatment request that has no generated truth (part E3b).
+
+    The held design has a policy truth on a continuous treatment, because each row's held
+    dose is its natural dose. An arm target has no arms to sum over. The plasmode would need
+    a frozen law of the dose, which part E3b does not draw.
+    """
+    if functional.axis != "policy":
+        raise CapabilityError(
+            f"{name} has no {functional.axis!r} target on a continuous treatment; the "
+            "arm-indexed truths need declared arms. A modified treatment policy has a "
+            "held-design truth on a continuous treatment.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    if name == "plasmode":
+        raise CapabilityError(
+            f"{name} has no law of a continuous treatment: the plasmode draws each arm from "
+            "a frozen treatment model, and a continuous dose has no frozen model yet.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Run tests=('generated_outcome',), whose held design reads each row's held "
+                "dose as its natural dose."
+            ),
+            roadmap="X82",
+        )
+    if getattr(process, "arm_effects", None) is not None:
+        raise CapabilityError(
+            f"{name} declares arm_effects on a continuous treatment, which has no arms. "
+            "Declare the scalar effect, whose term is effect times the dose",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+
+
+def _policy_laws(result: Any, functional: Any, key: Any, name: str) -> dict[str, Any]:
+    """Return the value and reference laws of a modified treatment policy (part E3b).
+
+    On an arm treatment each law is the policy's transition ``T[i, s, a]``, the probability
+    that the policy moves natural arm ``s`` to arm ``a`` at row ``i``. On a continuous
+    treatment each branch of a policy gets its own code, the code's dose at each row is the
+    branch applied to the held dose, and the law puts the branch's probability on that code.
+    """
+    from ..interventions.policy import discrete_assignments, lazy_frame, policy_branches
+
+    data = result.data
+    declared: tuple[Any, ...] = tuple(functional.interventions)
+    labels = [str(policy.name) for policy in declared]
+    reference = key.reference if key.estimand == "ate_policy" else None
+    if key.value not in labels or (reference is not None and reference not in labels):
+        raise CapabilityError(
+            f"{name} found a parameter key for {key.value!r} against {reference!r}, which "
+            f"the declared policies {labels} do not name",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    wanted = [key.value] if reference is None else [key.value, reference]
+    policies = {str(policy.name): policy for policy in declared}
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {column: data.covariates[:, j] for j, column in enumerate(data.covariate_names)}
+        )
+    )
+    try:
+        if data.is_continuous_treatment:
+            return _continuous_policy_laws(policies, wanted, data, frame, policy_branches)
+        levels = tuple(data.treatment_levels)
+        rows = np.ones(data.n, dtype=bool)
+        laws: dict[str, Any] = {}
+        for label in wanted:
+            transition = np.zeros((data.n, len(levels), len(levels)), dtype=float)
+            assignments = discrete_assignments(policies[label], levels, frame, rows)
+            for probability, assigned in assignments:
+                np.add.at(
+                    transition,
+                    (np.arange(data.n)[:, None], np.arange(len(levels))[None, :], assigned),
+                    probability,
+                )
+            laws[label] = InterventionLaw(label, transition=transition)
+    except CapabilityError as error:
+        raise CapabilityError(
+            f"{name} cannot evaluate the declared policy on the fitted rows: {error}",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        ) from error
+    return {
+        "value_law": laws[key.value],
+        "reference_law": None if reference is None else laws[reference],
+    }
+
+
+def _continuous_policy_laws(
+    policies: dict[str, Any],
+    wanted: list[str],
+    data: Any,
+    frame: Any,
+    policy_branches: Any,
+) -> dict[str, Any]:
+    """Return the branch codes, their doses, and the laws of continuous-dose policies."""
+    held = np.asarray(data.treatment, dtype=float)
+    doses: dict[float, np.ndarray] = {}
+    columns: dict[str, list[tuple[float, float]]] = {}
+    for label in wanted:
+        columns[label] = []
+        for probability, branch in policy_branches(policies[label]):
+            code = float(len(doses))
+            doses[code] = np.asarray(branch.assign(held, frame), dtype=float).reshape(-1)
+            columns[label].append((code, float(probability)))
+    arms = tuple(doses)
+    laws: dict[str, InterventionLaw] = {}
+    for label in wanted:
+        values = np.zeros((data.n, len(arms)), dtype=float)
+        for code, probability in columns[label]:
+            values[:, arms.index(code)] = probability
+        laws[label] = InterventionLaw(label, values=values)
+    reference = wanted[1] if len(wanted) > 1 else None
+    return {
+        "arms": arms,
+        "doses": doses,
+        "value_law": laws[wanted[0]],
+        "reference_law": None if reference is None else laws[reference],
+    }
 
 
 def _intervention_laws(result: Any, functional: Any, key: Any, name: str) -> dict[str, Any]:
@@ -2913,6 +3051,10 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
     """
     covariates = np.asarray(data.covariates, dtype=float)
     codes = tuple(float(code) for code in data.arm_codes)
+    if target.doses is not None:
+        # A continuous treatment has no arms. Its codes are the policy branches, and the
+        # law must be admissible at the dose each branch assigns.
+        codes = target.codes
     # A process with an intermediate term is a law only if its mean is admissible at both
     # values of the binary intermediate, since the held rows and the plasmode read both.
     settings: tuple[float | None, ...] = (None,)
@@ -2928,6 +3070,7 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
                 data,
                 bounds=target.outcome_bounds,
                 intermediate=setting,
+                doses=target.doses,
             )
         except ValueError as error:
             raise CapabilityError(
@@ -2953,6 +3096,7 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
             data,
             bounds=target.outcome_bounds,
             intermediate=target.intermediate,
+            doses=target.doses,
         )
         levels = target.levels(means, held_weights(target, data), held_mixture(target, data))
         upper = 1.0 if target.kind == "or" else np.inf
@@ -3635,6 +3779,7 @@ def _generated_outcome_test(
             data,
             bounds=target.outcome_bounds,
             intermediate=target.intermediate,
+            doses=target.doses,
         )
         weights = held_weights(target, data)
         mixture = held_mixture(target, data)
