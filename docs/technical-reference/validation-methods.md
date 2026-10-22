@@ -2385,8 +2385,12 @@ fits no bootstrap and no simultaneous band. `refute()` refits it with the origin
 repeat seeds. The `refute` row reads the `rerun_configuration` slot of `replayability()`. That slot needs
 the stored copy and the regimen and MSM declarations, and it does not need seeded learners. The
 table lists the tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
-and the survival, competing-risk, repeated-outcome, and MSM fits. Each test prints its numbers
-with `passed=None`, because no registry row covers a longitudinal fit (X82 plan section 7).
+and the survival, competing-risk, repeated-outcome, and MSM fits.
+
+A test prints a verdict only
+on a fit inside a calibrated scope. Every other test prints its numbers with `passed=None`. The
+[longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) calibrates
+the placebo, subset and negative-control rules on six configurations.
 
 | test | longitudinal draw | reference |
 | --- | --- | --- |
@@ -2645,7 +2649,9 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `dummy_outcome`, `simulated_outcome` | bias band | `L2` on a point fit, at 400 draws or more |
 | `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more. Not printed on a fit whose status withholds an interval |
 | `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
-| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` | t, rho, paired shift, z | descriptive until a registered study adds a row |
+| `placebo`, `subset` on a longitudinal fit | t, rho | `L2` on the six configurations of the [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md): `LTMLE`, `SDR`, `IPSI` and the three baselines, two nodes, GLM nuisances, $n \ge 1000$ |
+| `negative_control_outcome` on a longitudinal fit | z | `L2` on the five end-of-study configurations of the same study, for a Gaussian control |
+| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
 in [0.85, 1.15], and a coverage in [0.88, 0.99]. A reading passes when its 95% interval lies inside

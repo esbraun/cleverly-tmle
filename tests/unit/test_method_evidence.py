@@ -993,6 +993,20 @@ class TestPublishedVerdicts:
                 f"endpoints: bias {endpoint}, SE ratio {row.se_ratio}"
             )
 
+        refuter = published.loc[published["property"].isin({"refuter_size", "refuter_power"})]
+        if not refuter.empty:
+            declared = study.runner()
+            for row in refuter.itertuples():
+                count = round(row.rejection_rate * row.replicates)
+                expected = (
+                    count <= declared.SIZE_MAX_REJECTIONS
+                    if row.property == "refuter_size"
+                    else count >= declared.POWER_MIN_DETECTIONS
+                )
+                assert bool(row.passed) is expected, (
+                    f"{row.cell} publishes passed={row.passed} against its own count {count}"
+                )
+
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
@@ -1593,6 +1607,10 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X82 SL: each size row answers to its own rejection count and each power row to its
+        # own detection count (checked below against the study's declared thresholds).
+        "refuter_size",
+        "refuter_power",
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",
@@ -2936,19 +2954,23 @@ class TestThePublishedTestTables:
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""
         data = _artifacts(study.slug)
+
+        def scenario(key: str) -> str:
+            return descriptions.scenario(key, slug=study.slug)
+
         undescribed: list[str] = []
         for frame, resolvers in (
             (
                 data["performance"],
                 (
                     ("implementation", descriptions.implementation),
-                    ("scenario", descriptions.scenario),
+                    ("scenario", scenario),
                     ("estimand", descriptions.estimand),
                 ),
             ),
             (
                 data["equivalence"],
-                (("scenario", descriptions.scenario), ("estimand", descriptions.estimand)),
+                (("scenario", scenario), ("estimand", descriptions.estimand)),
             ),
         ):
             for column, resolve in resolvers:
