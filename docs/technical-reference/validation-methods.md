@@ -894,14 +894,14 @@ reads the treatment mechanism as consistent, which is the assumption of the publ
 | --- | --- | --- |
 | centre | the fit's estimate | the fit's estimate |
 | $\sigma^2$ | the fit's targeted outcome regression | the fit's targeted outcome regression |
-| the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds |
+| the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
 | limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
 | a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
 
 The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
 keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
 assumption, the summary prints it, and `to_dict()` adds it. On another fit the keyword raises
-`ValueError`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
+`ValueError`. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
 takes the median of the draws' point bounds.
 
 `tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the

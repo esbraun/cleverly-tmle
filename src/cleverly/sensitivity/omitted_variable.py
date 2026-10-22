@@ -646,14 +646,26 @@ def _consistent_mechanism_limits(method: str) -> MechanismRefusal:
     )
 
 
-def _consistent_mechanism_assumption(method: str) -> str:
+def _lasso_fit(result: TMLEResult) -> bool:
+    """Whether a collaborative fit selected its mechanism on a lasso penalty path."""
+    selection = result.extra.get("ctmle")
+    return isinstance(selection, CTMLESelection) and selection.strategy == "lasso"
+
+
+def _consistent_mechanism_assumption(result: TMLEResult) -> str:
     """The sentence a consistent-mechanism point bound prints beside its numbers."""
-    source = (
-        "the fit's primary treatment mechanism"
-        if method == "drtmle"
-        else "one refit of the fit's treatment learner on every mechanism covariate, not the "
-        "selected mechanism"
-    )
+    if result.fitted_method == "drtmle":
+        source = "the fit's primary treatment mechanism"
+    elif _lasso_fit(result):
+        source = (
+            "one refit of the lasso path's unpenalized member (lambda = 0) on every mechanism "
+            "covariate, not the selected mechanism"
+        )
+    else:
+        source = (
+            "one refit of the fit's treatment learner on every mechanism covariate, not the "
+            "selected mechanism"
+        )
     return (
         "assume_consistent_mechanism=True: this point bound assumes no unmeasured confounding "
         f"beyond the stated strengths and a consistent treatment mechanism. Its representer "
@@ -666,16 +678,20 @@ def _full_mechanism(result: TMLEResult, repeat: RepeatFit) -> Any:
 
     A C-TMLE fit conditions its mechanism on a selected function of the covariates.  The
     bound under an assumed consistent mechanism reads the mechanism on every covariate, which
-    the fit never estimated, so it is fitted here once per draw.
+    the fit never estimated, so it is fitted here once per draw.  A lasso fit never uses
+    ``treatment_learner`` for its candidates, so its full mechanism is the path's own
+    unpenalized member: :class:`~cleverly.learners._l1_logistic.L1Logistic` at
+    ``lambda = 0``, on the ``glmnet`` objective the path solves.
     """
     from ..estimators._nuisance import Propensity, cross_fit_predictions
+    from ..learners._l1_logistic import L1Logistic
     from ..learners.super_learner import resolve_learner
 
     estimator = result.estimator
     data = result.data
     nuisance = repeat.nuisance
     learner = resolve_learner(
-        estimator.treatment_learner,
+        L1Logistic(0.0) if _lasso_fit(result) else estimator.treatment_learner,
         task="classification",
         n_folds=estimator.learner_folds,
         random_state=repeat.seed,
@@ -707,7 +723,11 @@ def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> 
     _resolved_nu2_estimator(nu2_estimator)
     method = getattr(result, "fitted_method", None)
     rules = dict(_FIT_WIDE_BOUND_RULES)
-    if method not in CONSISTENT_MECHANISM_METHODS or rules[method](result) is None:
+    lifted = rules[method](result) if method in CONSISTENT_MECHANISM_METHODS else None
+    if lifted is _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL:
+        # A fit that selects nothing is the ordinary TMLE fit, so the redirection stands.
+        raise CapabilityError.from_refusal(lifted)
+    if lifted is None:
         raise ValueError(
             "assume_consistent_mechanism=True lifts the bound's refusal of a DRTMLE fit and of "
             "a selecting CTMLE fit, and this fit meets neither. Omit the argument."
@@ -734,7 +754,7 @@ def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> 
             roadmap="X82",
         )
     parameter = resolve_parameter(result, estimand)
-    limits = _consistent_mechanism_limits(method)
+    limits = _consistent_mechanism_limits(str(method))
     draws = []
     for repeat in result.repeats:
         if method == "collaborative_tmle":
@@ -2081,9 +2101,7 @@ def omitted_variable_bounds(
         features=elements.features,
         limit_reading=_limit_reading(result, estimand, elements.features),
         assumption=(
-            _consistent_mechanism_assumption(result.fitted_method)
-            if assume_consistent_mechanism
-            else None
+            _consistent_mechanism_assumption(result) if assume_consistent_mechanism else None
         ),
     )
 

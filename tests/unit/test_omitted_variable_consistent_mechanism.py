@@ -25,6 +25,7 @@ import pytest
 from cleverly.datasets import make_binary_outcome, make_instrument
 from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
+from cleverly.learners._l1_logistic import L1Logistic
 from cleverly.sensitivity import omitted_variable as ov
 from cleverly.sensitivity.omitted_variable import (
     contour_data,
@@ -200,6 +201,67 @@ class TestTheCTMLEPointBound:
         with pytest.raises(CapabilityError, match="missing treatment") as raised:
             _bound(collaborative)
         assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+
+
+class TestTheLassoFullMechanism:
+    """A lasso fit never uses ``treatment_learner``: its full mechanism is the path's own."""
+
+    @pytest.fixture(scope="class")
+    def lasso_pair(self) -> tuple[Any, Any]:
+        frame, _ = make_instrument(n=600, seed=44)
+        plain = _fit(
+            fast_tmle(**IN_SAMPLE, estimands=("ate",), treatment_learner=L1Logistic(0.0)), frame
+        )
+        lasso = _fit(
+            CTMLE(
+                **FAST_KWARGS,
+                **IN_SAMPLE,
+                estimands=("ate",),
+                strategy="lasso",
+                lambdas=(0.2, 0.05, 0.02, 0.0),
+            ),
+            frame,
+        )
+        return plain, lasso
+
+    def test_the_refit_is_the_unpenalized_member(self, lasso_pair: tuple[Any, Any]) -> None:
+        plain, lasso = lasso_pair
+        assert fit_wide_bound_refusal(lasso) is ov._CTMLE_BOUND_REFUSAL
+        assert _elements(lasso).nu2 == pytest.approx(
+            sensitivity_elements(plain, "ate").nu2, rel=1e-8
+        )
+        bound = _bound(lasso)
+        assert bound.assumption is not None and "lambda = 0" in bound.assumption
+
+    def test_refitting_the_treatment_learner_moves_nu2(
+        self, lasso_pair: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the declared ``treatment_learner`` is another mechanism."""
+        plain, lasso = lasso_pair
+        monkeypatch.setattr(ov, "_lasso_fit", lambda result: False)
+        assert _elements(lasso).nu2 != pytest.approx(
+            sensitivity_elements(plain, "ate").nu2, rel=1e-6
+        )
+
+
+def test_a_fit_that_selects_nothing_keeps_its_redirection() -> None:
+    """The keyword lifts the selection refusal only; this fit is the ordinary TMLE fit."""
+    frame, _ = make_instrument(n=600, seed=44)
+    nothing = _fit(
+        CTMLE(
+            **FAST_KWARGS,
+            **IN_SAMPLE,
+            estimands=("ate",),
+            strategy="learners",
+            treatment_candidates=[],
+        ),
+        frame,
+    )
+    refusal = fit_wide_bound_refusal(nothing)
+    assert refusal is ov._CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
+    with pytest.raises(CapabilityError) as raised:
+        _bound(nothing)
+    assert raised.value.refusal == refusal
 
 
 class TestTheLimitsRefuse:
