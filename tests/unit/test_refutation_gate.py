@@ -19,8 +19,8 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_binary_outcome
+from cleverly.validation import BootstrapMeasurementError, EmpiricalInclusionRule, refute
 from cleverly.validation import _interpretation as interpretation
-from cleverly.validation import refute
 from cleverly.validation._interpretation import (
     CalibrationCell,
     CalibrationScope,
@@ -728,6 +728,38 @@ class TestBootstrapFoldRule:
             for unit in copies:
                 positions = np.flatnonzero(index == unit)
                 assert len(set(frozen[0].assignment[positions])) == 1
+
+    @staticmethod
+    def _run(monkeypatch: pytest.MonkeyPatch | None = None) -> tuple[Any, _CountingEstimator]:
+        result = _binary_fit(cross_fit=True, n=200)
+        counter = _CountingEstimator(result.estimator)
+        result = replace(result, estimator=counter)
+        refute(
+            result,
+            tests=("bootstrap_measurement_error",),
+            bootstrap_measurement_error=BootstrapMeasurementError(("W1",)),
+            measurement_error_rule=EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
+            n_replicates=4,
+            random_state=5,
+        )
+        return result, counter
+
+    def test_the_estimator_receives_the_original_folds_of_the_copied_rows(self) -> None:
+        result, counter = self._run()
+        assert len(counter.kwargs) == 4
+        for options in counter.kwargs:
+            frozen = options["frozen_folds"]
+            assert len(frozen) == len(result.repeats)
+            assert frozen[0].n == result.data.n
+
+    def test_dropping_the_fold_options_leaves_no_frozen_folds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cleverly.validation.refute import _CopyFolds
+
+        monkeypatch.setattr(_CopyFolds, "options", lambda self, replicate: {})
+        _, counter = self._run()
+        assert all("frozen_folds" not in options for options in counter.kwargs)
 
 
 class TestSubsetFoldSlice:

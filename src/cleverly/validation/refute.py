@@ -126,7 +126,6 @@ _DEFAULT_MEASUREMENT_REPLICATES = 100
 #: placebo and subset therefore refit 20 times (``t`` with 19 degrees of freedom), which is
 #: the count the short studies calibrate.
 _DEFAULT_PERTURBATION_REPLICATES = 20
-CALIBRATED_PERTURBATION_REPLICATES = _DEFAULT_PERTURBATION_REPLICATES
 
 #: The random-common-cause report refits each noise draw under the original fit's seed, so the
 #: original fit is the paired baseline and the report costs one refit per draw.
