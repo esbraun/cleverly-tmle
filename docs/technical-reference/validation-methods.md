@@ -2499,7 +2499,7 @@ and the survival, competing-risk, repeated-outcome, and MSM fits.
 A test prints a verdict only
 on a fit inside a calibrated scope. Every other test prints its numbers with `passed=None`. The
 [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) calibrates
-the placebo, subset and negative-control rules on six configurations.
+the placebo, subset and negative-control rules on seven configurations.
 
 | test | longitudinal draw | reference |
 | --- | --- | --- |
@@ -2683,8 +2683,11 @@ control gives `|z| > 6`.
 A `StructuralNestedMean` result declares the `structural` assessment family. It keeps a copy of
 its settings, its one outer split, and its fit seed in `result.config.fit_seed`. An unseeded fit
 draws that seed once and uses it for the split and for every ensemble that inherits a seed.
-`refute()` runs the five tests below. Each test prints its numbers with `passed=None`, because no
-registry row covers a structural fit yet.
+`refute()` runs the five tests below. The placebo, subset and negative-control rules print a
+verdict on a fit inside the SN1 scope of the
+[longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md). That scope
+is the regimen contrast, intercept-only blips fitted with GLM nuisances, five folds, two nodes, and
+$n \ge 1000$. Every other reading prints its numbers with `passed=None`.
 
 | test | structural draw | reference |
 | --- | --- | --- |
@@ -2758,8 +2761,8 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `dummy_outcome`, `simulated_outcome` | bias band | `L2` on a point fit, at 400 draws or more |
 | `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more. Not printed on a fit whose status withholds an interval |
 | `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
-| `placebo`, `subset` on a longitudinal fit | t, rho | `L2` on the six configurations of the [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md): `LTMLE`, `SDR`, `IPSI` and the three baselines, two nodes, GLM nuisances, $n \ge 1000$ |
-| `negative_control_outcome` on a longitudinal fit | z | `L2` on the five end-of-study configurations of the same study, for a Gaussian control |
+| `placebo`, `subset` on a longitudinal fit | t, rho | `L2` on the seven configurations of the [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md): `LTMLE`, `SDR`, `IPSI`, the three baselines and `StructuralNestedMean`, two nodes, GLM nuisances, $n \ge 1000$ |
+| `negative_control_outcome` on a longitudinal fit | z | `L2` on the six end-of-study configurations of the same study, for a Gaussian control |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio

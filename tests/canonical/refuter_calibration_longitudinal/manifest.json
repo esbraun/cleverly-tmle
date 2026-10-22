@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-refute-longitudinal",
       "cleverly_version": "0.1.5",
-      "cleverly_commit": "e75b4fa503605a4392f16e8f44575e29d57bd985",
+      "cleverly_commit": "1d54083183b878e7e4f17efc864d96a6ab1797f9",
       "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.5.4",
@@ -40,7 +40,8 @@
       "I1": 5,
       "B1": 1,
       "B2": 1,
-      "B3": 1
+      "B3": 1,
+      "SN1": 5
     },
     "refits": 20,
     "size_trials": 200,
@@ -112,6 +113,15 @@
           "negative_control"
         ],
         "estimator": "gformula"
+      },
+      "SN1": {
+        "law": "end_of_study",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "snmm"
       }
     },
     "property_failure_bound": 0.01,
@@ -142,7 +152,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/refuter_calibration_longitudinal.py": "64282bc9702dd371aa30c664be1bdfd8b7937d5ae0366ae473432994bef736ca",
+    "tests/studies/refuter_calibration_longitudinal.py": "66e50415ba88b080eac1e935aa88065575a46f315b728a2bfce5ff32a9fcf8f8",
     "tests/studies/refuter_calibration_longitudinal_properties.py": "98e4ccda5d69bc14e3a62cde0c4b64f695c9e220d8db121af99512e599d762ab",
     "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
     "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
@@ -155,8 +165,8 @@
     "summary.csv": "fc6e7944d3877f2faab99574276c6e287817230a5c83406a353782cab68975c5",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "f4f29d492f10dbbf9b14f269252d0b48f92dcec47d240d4a859447b74b4070e9",
-    "property-replicates.parquet": "00c6f9b5300de9a9c5f78a9c2a1fea6bef1a9ddc2fc4b11ccacc9175ac774e51",
-    "properties.csv": "494981bc9d6a9400d9de52c90f7e465271379377f65828f9129724d30d88e987",
-    "cells.csv": "75b652ed8730ac2279d0f9579e1493869d8c4c93c336bdbbb3109d82e8ce07e3"
+    "property-replicates.parquet": "2b7f01a86cc94d08a4f58b534d4973f7d93590cc4cf2e81191712796fb306c2b",
+    "properties.csv": "68046594351d3e74bc5380393fa60214425a5ffed9a3537b987e3977c49e0d6b",
+    "cells.csv": "e597d9844d87c485154f17e86e873a485a0625cc4e485b71eb5ee5ed268de222"
   }
 }

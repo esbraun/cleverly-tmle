@@ -740,6 +740,15 @@ _LONGITUDINAL_CELLS: Final[dict[str, tuple[str, str, str, tuple[str, ...], str, 
         "the study's end-of-study law E, 10 simulation draws per unit",
         None,
     ),
+    # X82 follow-up SD. The resolved regression learner is the Gaussian outcome GLM.
+    "SN1": (
+        "StructuralNestedMean",
+        "gaussian",
+        "folds=5",
+        ("GLM(family='gaussian')", "GLM()"),
+        "the study's end-of-study law E, intercept-only blips",
+        None,
+    ),
 }
 
 #: The readings each instrument calibrates: rule, size reading, power readings, refit count,

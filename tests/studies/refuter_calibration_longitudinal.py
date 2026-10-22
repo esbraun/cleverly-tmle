@@ -18,7 +18,7 @@ The X82 plan (rev 5, sections 7.2 and 8.1 to 8.6, plans repository) declares the
 cell checks that a rule is not grossly miscalibrated on one configuration. It does not certify
 size to two decimals.
 
-**Law E** (end of study, cells S1, I1, B1, B2, B3). Two nodes and no censoring. ``W1`` is
+**Law E** (end of study, cells S1, I1, B1, B2, B3, SN1). Two nodes and no censoring. ``W1`` is
 standard normal, ``W2`` is Bernoulli(0.5), and ``U`` is an unmeasured standard normal.
 
 .. code-block:: text
@@ -71,12 +71,20 @@ B2    ``SequentialIPW`` (Hajek), GLM, in sample                   E            p
                                                                                control
 B3    ``ParametricGFormula``, GLM models, 10 draws per unit       E            placebo, subset,
                                                                                control
+SN1   ``StructuralNestedMean``, intercept blips, GLM nuisances,    E            placebo, subset,
+      five folds                                                               control
 ====  ==========================================================  ===========  =====================
 
 **L1 reads no negative control.** The plan's cell lists one, but the C2 code refuses a
 negative-control outcome on a survival fit (``refute.py``, ``_refuse_negative_control_design``):
 no replacement keeps the risk sets. That refusal is the shipped behavior, so no survival row
 of the control rule can exist yet.
+
+**SN1** (X82 follow-up SD) fits the linear structural nested mean model with intercept-only
+blips. It is correctly specified on law E: the node-2 blip is 0.5 and the node-1 blip is
+``0.5 + 0.4 x 0.5 = 0.7``, so the contrast is 1.2. The nuisance ``E[A2 | W, A1]`` is not
+logistic-linear once ``L2`` is integrated out. The point stays consistent, because every
+remainder term holds the error of the own-node treatment model.
 
 **The baselines run in sample.** ``ParametricGFormula`` requires ``n_folds = 1``, and the two
 other baselines are the in-sample estimators their evidence page describes. The fold count is
@@ -145,6 +153,7 @@ from cleverly.longitudinal import (
     ParametricGFormula,
     SequentialGComputation,
     SequentialIPW,
+    StructuralNestedMean,
 )
 from cleverly.validation import refute
 from cleverly.validation._interpretation import fit_configuration
@@ -260,6 +269,7 @@ CELLS: dict[str, Cell] = {
     "B1": Cell("end_of_study", READINGS_ALL, "ice"),
     "B2": Cell("end_of_study", READINGS_ALL, "ipw"),
     "B3": Cell("end_of_study", READINGS_ALL, "gformula"),
+    "SN1": Cell("end_of_study", READINGS_ALL, "snmm"),
 }
 
 PROPERTY_CELLS = {
@@ -310,7 +320,15 @@ STUDY = StudyRecord(
 
 CONFIGURATION = {
     "nodes": 2,
-    "folds": {"L1": N_FOLDS, "S1": N_FOLDS, "I1": N_FOLDS, "B1": 1, "B2": 1, "B3": 1},
+    "folds": {
+        "L1": N_FOLDS,
+        "S1": N_FOLDS,
+        "I1": N_FOLDS,
+        "B1": 1,
+        "B2": 1,
+        "B3": 1,
+        "SN1": N_FOLDS,
+    },
     "refits": REFITS,
     "size_trials": SIZE_TRIALS,
     "power_trials": POWER_TRIALS,
@@ -418,17 +436,27 @@ def confounded_contrast(cell: str, delta: float = CONTROL_DELTA) -> float:
     ``g(W2)`` to ``q(W2) = k g / (k g + 1 - g)``, so its contrast against the natural course is
     ``delta E_W2[(q - g)(E[U | W2, 1] - E[U | W2, 0])]``. The node-2 tilt does not move the
     control, which is free of ``A2`` given ``(W, A1)``.
+
+    The structural nested mean fit (SN1) reads the control's node-1 intercept blip. Its
+    g-estimating equation weights each stratum by ``g (1 - g)``, so its contrast is
+    ``delta E_W2[g (1 - g) gap] / E_W2[g (1 - g)]``. The node-2 blip is 0.
     """
     means = a1_posterior_means()
     total = 0.0
+    weight = 0.0
     for w2 in (0, 1):
         gap = means[(w2, 1)] - means[(w2, 0)]
+        g = a1_propensity(w2)
         if CELLS[cell].estimator == "ipsi":
-            g = a1_propensity(w2)
             q = 2.0 * g / (2.0 * g + 1.0 - g)
             gap *= q - g
-        total += 0.5 * gap
-    return delta * total
+        if CELLS[cell].estimator == "snmm":
+            total += 0.5 * g * (1.0 - g) * gap
+            weight += 0.5 * g * (1.0 - g)
+        else:
+            total += 0.5 * gap
+            weight += 0.5
+    return delta * total / weight
 
 
 def truth(law: str) -> float:
@@ -515,6 +543,17 @@ def estimator(cell: Cell, seed: int) -> Any:
         )
     if cell.estimator == "ipw":
         return SequentialIPW(REGIMENS, reference=REFERENCE, treatment_learner=GLM(), **common)
+    if cell.estimator == "snmm":
+        # Intercept-only blips, the default features. ``regression_learner`` is unset, so it
+        # resolves to the outcome learner.
+        return StructuralNestedMean(
+            REGIMENS,
+            reference=REFERENCE,
+            outcome_learner=gaussian,
+            treatment_learner=GLM(),
+            n_folds=N_FOLDS,
+            **common,
+        )
     if cell.estimator == "gformula":
         return ParametricGFormula(
             REGIMENS,
