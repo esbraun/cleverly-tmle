@@ -211,7 +211,10 @@ class BootstrapMeasurementError:
     Parameters
     ----------
     variables : tuple of str
-        Original logical adjustment-variable names to perturb.
+        Original logical adjustment-variable names to perturb. A point fit holds a declared
+        strata variable at its recorded values. A longitudinal fit perturbs a baseline or
+        node covariate at every node where it appears; a long panel's column ``l`` covers
+        ``l@1``, ``l@2`` and so on.
     numeric_noise : RelativeGaussianNoise
         Relative law for each selected numeric variable.
     categorical_change_probability : float
