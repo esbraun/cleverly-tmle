@@ -279,6 +279,55 @@ def _longitudinal_event_count(data: Any) -> int | None:
     return min(count, int(events.size) - count)
 
 
+def _longitudinal_learners(estimator: Any, data: Any) -> tuple[Any, ...]:
+    """The learners whose fits move a longitudinal estimate, in a fixed order.
+
+    The targeted estimators fit the outcome, pseudo-outcome, treatment and censoring
+    regressions. An unset pseudo learner defaults to the outcome learner. The baselines fit
+    fewer. Sequential g-computation fits only its outcome
+    regressions, and its pseudo learner defaults to the outcome learner. Its mechanisms feed
+    the positivity diagnostics only. Sequential IPW fits only the mechanisms. The parametric
+    g-formula fits a covariate model per time-varying column, an outcome or hazard model,
+    and the natural-treatment models.
+    """
+    method = type(estimator).__name__
+    known = data.known_mechanisms
+    fits_treatment = known is None or not all(
+        known.treatment_at(time) is not None
+        for time in range(1, data.n_times + 1)
+        if not data.is_held_node(time)
+    )
+    mechanisms = []
+    if fits_treatment:
+        mechanisms.append(estimator.treatment_learner)
+    if data.has_censoring:
+        mechanisms.append(estimator.censoring_learner)
+    # An unset pseudo learner reads the outcome learner: g-computation uses it as it is, and
+    # the targeted estimators read its library as a regression.
+    pseudo = getattr(estimator, "pseudo_learner", None)
+    regressions = (
+        estimator.outcome_learner,
+        estimator.outcome_learner if pseudo is None else pseudo,
+    )
+    if method == "SequentialGComputation":
+        return regressions
+    if method == "SequentialIPW":
+        return tuple(mechanisms)
+    if method == "ParametricGFormula":
+        from ..learners import GLM
+
+        # ``None`` is the documented main-terms GLM default of each of these models.
+        def resolved(learner: Any) -> Any:
+            return GLM() if learner is None else learner
+
+        has_covariates = any(block.shape[1] for block in data.time_varying)
+        models = [resolved(estimator.covariate_learner)] if has_covariates else []
+        outcome = estimator.hazard_learner if data.is_survival else estimator.outcome_learner
+        models.append(resolved(outcome))
+        return (*models, *mechanisms)
+    return (*regressions, *mechanisms)
+
+
 def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     """Read the scope axes of a longitudinal fit for one estimand.
 
@@ -293,16 +342,9 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     estimate = result[estimand]
     n = int(data.n)
     known = data.known_mechanisms
-    used = ["outcome_learner", "pseudo_learner"]
-    if known is None or not all(
-        known.treatment_at(time) is not None
-        for time in range(1, data.n_times + 1)
-        if not data.is_held_node(time)
-    ):
-        used.append("treatment_learner")
-    if data.has_censoring:
-        used.append("censoring_learner")
-    learners = tuple(learner_fingerprint(getattr(estimator, name, None), n) for name in used)
+    learners = tuple(
+        learner_fingerprint(learner, n) for learner in _longitudinal_learners(estimator, data)
+    )
     folds = int(getattr(estimator, "n_folds", 1))
     kind = str(result.config.outcome_kind)
     if data.has_continuous_node:
