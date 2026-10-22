@@ -296,6 +296,7 @@ def fit_cleverly(frame: pd.DataFrame, configuration: str = "both_correct") -> An
             tol=1e-10,
             random_state=0,
             guard=("Q", "g"),
+            reduced_crossfit=CONFIGURATION["reduced_crossfit"],
         )
         .fit(frame, outcome="Y", treatment="A", covariates=list(COVARIATES), strata=["V"])
         .single()

@@ -346,7 +346,7 @@ class Fluctuation:
         Further initial fits moved along the **same** submodel by the **same** steps, in
         the order they were passed as ``carry``.  Empty on every fit that did not ask for
         one, which is every fit but a
-        :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``.
+        :class:`~cleverly.DRTMLE` with ``reduced_crossfit="foldwise"``.
 
         It exists because a step sequence cannot be reconstructed from its endpoint.  The
         solve applies :func:`apply_logistic` once per Newton step and shrinks after each,

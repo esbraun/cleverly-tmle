@@ -66,7 +66,7 @@ drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
 X57 = "docs/roadmap.md X57"
 COVARIATES = ["W1", "W2", "W3", "W4", "S"]
 DOSES = (-1.0, 0.0, 1.0, 2.0)
-NESTED = "targeting='one_step' and reduced_crossfit='nested' are not combined"
+NESTED = "targeting='one_step' and reduced_crossfit='foldwise' are not combined"
 #: Every non-empty ``guard``, each of which gives the ``mean`` group reduced regressions.
 GUARDS = [("Q", "g"), ("Q",), ("g",)]
 #: What a ``NeverFit`` learner raises when a request reaches it.
@@ -352,7 +352,7 @@ class TestTheOneStepNestedComposition:
     @staticmethod
     def build(**extra: Any) -> DRTMLE:
         settings = drtmle_spies(cross_fit=True, n_folds=3, q_bounds=(-30.0, 30.0))
-        return DRTMLE(reduced_crossfit="nested", estimands=("ate",), **settings, **extra)
+        return DRTMLE(reduced_crossfit="foldwise", estimands=("ate",), **settings, **extra)
 
     @pytest.mark.parametrize("guard", [("Q", "g"), ("Q",)])
     def test_the_fit_refuses_it_before_any_learner(self, guard: tuple[str, ...]) -> None:
@@ -480,7 +480,7 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         "ctmle_estimand='par' has no selector criterion",
     ),
     "DRTMLE evaluation= with repeats=": (
-        lambda: DRTMLE(evaluation=strata_frame(), repeats=2, cross_fit=True, n_folds=2),
+        lambda: DRTMLE(evaluation=strata_frame(), repeats=2, cross_fit=True, n_folds=3),
         "evaluation= and repeats= are not combined",
     ),
     "DRTMLE msm=": (
@@ -557,13 +557,13 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         lambda: DRTMLE(
             randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
         ).fit(_trial(120), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
-        "missing-outcome DRTMLE supports the published pooled construction only",
+        "missing-outcome DRTMLE supports the published construction only",
     ),
     "DRTMLE missing outcomes, three arms, evaluation=": (
         lambda: DRTMLE(
             randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
         ).fit(_three_arms(), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
-        "missing-outcome DRTMLE supports the published pooled construction only",
+        "missing-outcome DRTMLE supports the published construction only",
     ),
     "DRTMLE missing outcomes, three arms, partial guard": (
         lambda: DRTMLE(randomized=True, guard=("Q",), estimands=("ate",), **drtmle_spies()).fit(
@@ -627,7 +627,7 @@ class TestSupportedNeighboursStillFit:
         estimator = DRTMLE(
             guard=(),
             targeting="one_step",
-            reduced_crossfit="nested",
+            reduced_crossfit="foldwise",
             estimands=("ate",),
             **settings,
         )

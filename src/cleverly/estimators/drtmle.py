@@ -245,6 +245,11 @@ class ReducedFit:
         :func:`~cleverly.estimators.composite.missing_data_route` names it.  On
         ``"composite"`` the reductions are the complete-data ones on the composite
         indicator, and ``g_bounds`` is the composite mechanism's bounds.
+    reduced_crossfit:
+        Where each fold's reduced regressions trained.  ``"foldwise"`` on the fold's own
+        slab, ``"pooled"`` on the other folds' production designs (R ``drtmle``'s
+        ``cvFolds`` construction), and ``"in_sample"`` on an in-sample fit or one that
+        fitted no reduced regression.
     """
 
     guard: tuple[str, ...]
@@ -253,6 +258,7 @@ class ReducedFit:
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = field(default_factory=dict)
     missingness_bound: float | None = None
     missing_data: str = "complete"
+    reduced_crossfit: str = "in_sample"
 
     def describe(self) -> str:
         """Return the line that :meth:`~cleverly.TMLEResult.summary` prints for this fit.
@@ -260,8 +266,9 @@ class ReducedFit:
         Returns
         -------
         str
-            The method, the guard and the fitted reduction. An empty guard fits no
-            reduced regression, so its line names no reduction.
+            The method, the guard, the fitted reduction and, on a cross-fitted fit, where
+            the reduced regressions trained. An empty guard fits no reduced regression, so
+            its line names no reduction.
         """
         if not self.guard:
             return (
@@ -269,6 +276,8 @@ class ReducedFit:
                 "is the ordinary TMLE"
             )
         line = f"DR-TMLE: guard {', '.join(self.guard)}; {self.reduction} reduction"
+        if self.reduced_crossfit != "in_sample":
+            line += f"; {self.reduced_crossfit} reduced regressions"
         if self.missing_data == "composite":
             line += "; composite indicator Delta_A * Delta * 1{A = a}"
         return line
@@ -493,7 +502,7 @@ class DRTMLE(TMLE):
       axes -- each is a different score equation with no reduced-dimension derivation;
     * ``intermediate=``, whose mechanism factor would sit inside the reduced regressions;
     * a missing treatment beside ``randomized=True`` or ``treatment_probabilities=``, and
-      ``evaluation=`` or ``reduced_crossfit="nested"`` on the composite construction.  The
+      ``evaluation=`` or ``reduced_crossfit="foldwise"`` on the composite construction.  The
       shared gate in :func:`~cleverly.estimators.composite.missing_treatment_refusal` names
       every composition a missing treatment refuses;
     * ``delta=`` with ``cross_fit=True``, at every ``guard`` including ``guard=()``. The
@@ -501,7 +510,7 @@ class DRTMLE(TMLE):
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
-    * ``targeting="one_step"`` with ``reduced_crossfit="nested"`` at a non-empty ``guard``,
+    * ``targeting="one_step"`` with ``reduced_crossfit="foldwise"`` at a non-empty ``guard``,
       on cost rather than on derivation: the nested designs would move by each of the
       one-step walk's adaptive steps;
     * combining with :class:`~cleverly.CTMLE`.  A reduced regression conditions on
@@ -935,6 +944,15 @@ class DRTMLE(TMLE):
                     diagnostics,
                     missingness_bound=config.missingness_bound if missing_outcome else None,
                     missing_data=route,
+                    # Read off the fitted nuisances for the same reason: the slabs exist
+                    # exactly when the foldwise construction ran.
+                    reduced_crossfit=(
+                        "foldwise"
+                        if base.inner is not None
+                        else "pooled"
+                        if self.cross_fit
+                        else "in_sample"
+                    ),
                 )
             },
         )

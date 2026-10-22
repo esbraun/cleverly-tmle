@@ -20,6 +20,7 @@ from cleverly import (
     CapabilityError,
     CausalStudy,
     CollaborativeTMLEMethod,
+    DRTMLEMethod,
     OddsRatio,
     ParameterKey,
     PointTreatment,
@@ -85,7 +86,13 @@ def _learners(**overrides: object) -> dict[str, object]:
 
 
 def _raw(engine: type = TMLE, **overrides: object):
-    """An unfitted estimator built directly, bypassing ``CausalStudy``."""
+    """An unfitted estimator built directly, bypassing ``CausalStudy``.
+
+    A DR-TMLE takes the pooled reduced regressions, because the two folds of
+    :func:`_learners` are fewer than the foldwise default needs.
+    """
+    if engine is DRTMLE:
+        overrides.setdefault("reduced_crossfit", "pooled")
     return engine(**_learners(**overrides))
 
 
@@ -1395,7 +1402,8 @@ def test_correction_participation_is_stamped_independently_of_extra(guard):
         # The collaborative case left when ``oat`` took a status. Its status refusal
         # arrives before this one, which
         # ``test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status`` pins.
-        ("drtmle", {}),
+        # Two folds, so the pooled construction: foldwise needs three.
+        (DRTMLEMethod(reduced_crossfit="pooled"), {}),
         ("tmle", {"cv_evaluation": True}),
     ],
 )
@@ -2174,6 +2182,8 @@ def _drtmle(**overrides: object):
         "reduced_treatment_learner": LogisticRegression(max_iter=1000),
         "estimands": ("ey1", "ey0", "ate"),
         "n_folds": 2,
+        # Two folds, so the pooled construction: foldwise needs three.
+        "reduced_crossfit": "pooled",
         "random_state": 3,
         "simultaneous": False,
     }

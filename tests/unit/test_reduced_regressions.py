@@ -108,7 +108,7 @@ def fitted(
     folds: Folds | None = None,
     reduction: str = "univariate",
 ) -> ReducedSet:
-    reduced, _, _ = fit_reduced(
+    reduced, _, _, _ = fit_reduced(
         causal_data() if data is None else data,
         nuisances(g_hat, q_hat, folds=folds),
         regression_learner=CellMeans(),
@@ -185,7 +185,7 @@ class TestTheResidualIsOnTheScaledOutcome:
     def test_relabelling_the_outcome_leaves_qr_exactly_where_it_was(self) -> None:
         data, nuisance = self._relabelled()
         assert not nuisance.scaler.is_identity, "the relabelling must not be a no-op"
-        reduced, _, _ = fit_reduced(
+        reduced, _, _, _ = fit_reduced(
             data,
             nuisance,
             regression_learner=CellMeans(),
@@ -205,7 +205,7 @@ class TestTheResidualIsOnTheScaledOutcome:
     def test_the_two_reduced_mechanisms_do_not_read_the_outcome_at_all(self) -> None:
         """So relabelling cannot move them, which is what says the above is about ``Qr``."""
         data, nuisance = self._relabelled()
-        reduced, _, _ = fit_reduced(
+        reduced, _, _, _ = fit_reduced(
             data,
             nuisance,
             regression_learner=CellMeans(),
@@ -299,7 +299,7 @@ class TestTheClipIsPerRegression:
                 p = self.predict(x)
                 return np.column_stack([1.0 - p, p])
 
-        reduced, _, _ = fit_reduced(
+        reduced, _, _, _ = fit_reduced(
             causal_data(),
             nuisances(WRONG_G, WRONG_Q),
             regression_learner=OutOfRange(),
@@ -482,7 +482,7 @@ class TestTheRefusals:
             scaler=OutcomeScaler(0.0, 1.0),
             folds=Folds.single(data.n),
         )
-        reduced, _, _ = fit_reduced(
+        reduced, _, _, _ = fit_reduced(
             data,
             wider,
             regression_learner=CellMeans(),
@@ -499,7 +499,7 @@ class TestTheRefusals:
                 data.n_arms,
             )
         )
-        bivariate, diagnostics, _ = fit_reduced(
+        bivariate, diagnostics, _, _ = fit_reduced(
             data,
             wider,
             regression_learner=CellMeans(),
@@ -531,7 +531,7 @@ class TestFamilySelection:
             return original(*args, **kwargs)
 
         monkeypatch.setattr(reduced_module, "_reduced_column", counted)
-        refitted, diagnostics, _ = fit_reduced(
+        refitted, diagnostics, _, _ = fit_reduced(
             causal_data(),
             current,
             regression_learner=CellMeans(),
@@ -559,7 +559,7 @@ class TestFamilySelection:
             return original(*args, **kwargs)
 
         monkeypatch.setattr(reduced_module, "_reduced_column", counted)
-        refitted, diagnostics, _ = fit_reduced(
+        refitted, diagnostics, _, _ = fit_reduced(
             causal_data(),
             current,
             regression_learner=CellMeans(),

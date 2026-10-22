@@ -600,7 +600,7 @@ class NuisanceEstimates:
     reduced: ReducedSet | MissingOutcomeReducedSet | None = None
     #: Fold-free copies of the primary nuisances, or ``None`` for every fit that did not
     #: ask for them -- which is every fit but a :class:`~cleverly.DRTMLE` with
-    #: ``reduced_crossfit="nested"``.  Carried here rather than in that estimator for the
+    #: ``reduced_crossfit="foldwise"``.  Carried here rather than in that estimator for the
     #: reason ``reduced`` is: :func:`~cleverly.estimators.reduced.fit_reduced` takes a whole
     #: :class:`NuisanceEstimates` and reads ``folds`` off it, so the designs and the split
     #: they were built against cannot come apart.  See :class:`InnerDesigns`.

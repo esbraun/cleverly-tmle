@@ -314,7 +314,7 @@ def _finite_frame(n: int = 600, seed: int = 11) -> pd.DataFrame:
         pytest.param(lambda **kw: _drtmle(**kw), id="drtmle"),
         pytest.param(lambda **kw: _drtmle(cross_fit=True, n_folds=4, **kw), id="cv_drtmle"),
         pytest.param(
-            lambda **kw: _drtmle(cross_fit=True, n_folds=4, reduced_crossfit="nested", **kw),
+            lambda **kw: _drtmle(cross_fit=True, n_folds=4, reduced_crossfit="foldwise", **kw),
             id="nested_drtmle",
         ),
         pytest.param(lambda **kw: _tmle(n_bootstrap=4, estimands=("ate",), **kw), id="bootstrap"),

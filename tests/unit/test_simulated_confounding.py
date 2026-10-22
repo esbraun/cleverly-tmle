@@ -150,6 +150,8 @@ def _fit(
         configured_method = _collaborative_method(overrides=collaborative_kwargs)
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
+            # Two folds, so the pooled construction: foldwise needs three.
+            reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
@@ -206,6 +208,8 @@ def _fit_binary_mean(
         )
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
+            # Two folds, so the pooled construction: foldwise needs three.
+            reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
@@ -253,6 +257,8 @@ def _fit_ratio(
         )
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
+            # Two folds, so the pooled construction: foldwise needs three.
+            reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )

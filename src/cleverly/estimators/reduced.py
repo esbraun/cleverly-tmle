@@ -1048,7 +1048,7 @@ def _pooled_column(
     matrix = _as_reduced_design(design)
     elsewhere = None if companion is None else [_as_reduced_design(each) for each in companion]
     if training is not None:
-        return _nested_column(
+        return _slab_column(
             learner,
             matrix=matrix,
             training=training,
@@ -1079,7 +1079,7 @@ def _pooled_column(
     return predictions["values"], (None if elsewhere is None else at_companion["values"])
 
 
-def _nested_column(
+def _slab_column(
     learner: Learner,
     *,
     matrix: FloatArray,

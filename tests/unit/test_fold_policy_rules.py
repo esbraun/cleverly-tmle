@@ -1246,7 +1246,7 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
             random_state=seed_stranding_rows(n, n_folds, treated),
             simultaneous=False,
             estimands=["ate"],
-            reduced_crossfit="nested",
+            reduced_crossfit="foldwise",
         )
         with pytest.raises(ValueError) as raised:
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])

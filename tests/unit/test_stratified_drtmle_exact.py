@@ -349,7 +349,7 @@ def test_a_nested_reduction_solves_every_block(frame: pd.DataFrame) -> None:
     """The nested construction fits each stratum's reductions on the nested designs."""
     result = (
         DRTMLE(
-            reduced_crossfit="nested",
+            reduced_crossfit="foldwise",
             estimands=("ey", "ate"),
             outcome_learner=ArmOutcome(),
             treatment_learner=WOnlyTreatment(2),

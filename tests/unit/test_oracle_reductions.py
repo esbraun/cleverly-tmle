@@ -180,7 +180,7 @@ class OracleReductionDRTMLE(DRTMLE):
         bounds = nuisance.reduced.g_bounds
         return replace(
             spec,
-            refit=lambda current, families: (_oracle_set(current, bounds, self.reduction), ()),
+            refit=lambda current, families: (_oracle_set(current, bounds, self.reduction), (), ()),
         )
 
 

@@ -203,7 +203,7 @@ class MechanismFluctuation:
     #: Further mechanisms moved by the **same** tilt at the **same** ``epsilon``, in the
     #: order they were passed as ``carry``, and truncated exactly when :attr:`propensity`
     #: was.  Empty on every fit that did not ask for one --
-    #: :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"`` is the only caller.
+    #: :class:`~cleverly.DRTMLE` with ``reduced_crossfit="foldwise"`` is the only caller.
     #: Nothing here reads them: they take the tilt and contribute nothing to it.
     carried: tuple[FloatArray, ...] = ()
     converged: bool = True

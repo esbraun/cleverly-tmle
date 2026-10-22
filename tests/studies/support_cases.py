@@ -961,7 +961,7 @@ def _d_cases() -> tuple[RowCase, ...]:
             "canonical-drtmle",
             "both_correct",
             _ST + "canonical_drtmle.py:362",
-            _drtmle(**stacked),
+            _drtmle(reduced_crossfit="pooled", **stacked),
             {},
             ATE,
         )
@@ -983,7 +983,7 @@ def _d_cases() -> tuple[RowCase, ...]:
             "canonical-multi-arm-drtmle",
             "multi_arm_binary_drtmle",
             _ST + "canonical_multi_arm_drtmle.py:249",
-            _drtmle(reference=0.0, **stacked),
+            _drtmle(reference=0.0, reduced_crossfit="pooled", **stacked),
             {"arms": 3},
             THREE,
         )
@@ -994,7 +994,7 @@ def _d_cases() -> tuple[RowCase, ...]:
             "canonical-stratified-drtmle",
             "stratified_both_correct",
             _ST + "canonical_stratified_drtmle.py:282",
-            _drtmle(**stacked),
+            _drtmle(reduced_crossfit="pooled", **stacked),
             {"strata": True},
             ("ey", "ate"),
         )
