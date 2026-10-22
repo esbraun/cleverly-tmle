@@ -1714,7 +1714,7 @@ The omitted-variable bound of a fit with a response mechanism, a missing treatme
 variable, a baseline stratum, or `repeats` above 1 has shipped. Its confidence limits print as descriptive until a
 registered study covers them
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
-The bound of a regime mean, a basic shift mean, and an identity-link MSM coefficient has shipped,
+The bound of a regime mean, a shift mean on declared dose atoms, and an identity-link MSM coefficient has shipped,
 with descriptive limits. The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
 `assume_consistent_mechanism=True`, with no limits
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
@@ -1731,6 +1731,7 @@ Newey, Sharma and Syrgkanis (2026) gives the bias of a linear functional.
 | an MSM with a continuous dose | the representer and the Gram matrix at the quadrature doses |
 | an MSM with a link other than `"identity"` | a bound for a coefficient that is not linear in the regression |
 | a randomized, fold-tuned, or joint policy set | the combination of the component representers |
+| a shift on a continuous dose | a representer for a fitted dose density, and a guarantee that $\hat\nu^2$ is positive |
 
 Each contract names the representer, the $\nu^2$ estimator, and its influence curve. The evidence
 needs an exact finite-support law, as `tests/unit/test_omitted_variable_axes.py` has for the

@@ -27,6 +27,7 @@ MSM ``j``          :math:`e_j^\top M^{-1} \Delta h(A, V) \varphi(A, V) / (g \pi)
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -242,6 +243,24 @@ class TestTheRieszIdentityOnAnExactLaw:
 
         monkeypatch.setattr(ov, "_axis_m_alpha", unweighted)
         gap, _ = identity_gap(regime_fit, estimand, alpha0)
+        assert gap > 1e-3
+
+    def test_the_shift_reads_the_shifted_dose(
+        self, shift_fit: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: an ``m`` read at the observed dose, not at ``d(A, W)``, fails."""
+        estimand = "ey_policy[+1]"
+        alpha0 = shift_representers()[estimand]
+        original = ov._m_alpha
+
+        def at_observed(parameter: Any, submodel: Any, *args: Any, **kwargs: Any) -> np.ndarray:
+            if parameter.group == "mtp":
+                observed = np.asarray(submodel.observed, dtype=float)
+                submodel = replace(submodel, arms=dict.fromkeys(submodel.arms, observed))
+            return original(parameter, submodel, *args, **kwargs)
+
+        monkeypatch.setattr(ov, "_m_alpha", at_observed)
+        gap, _ = identity_gap(shift_fit, estimand, alpha0)
         assert gap > 1e-3
 
 

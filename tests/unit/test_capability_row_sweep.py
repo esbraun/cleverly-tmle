@@ -37,21 +37,13 @@ from tests.unit._capability_sweep_support import (
 def test_every_row_a_request_resolves_available_answers_it(kind: str) -> None:
     result = KINDS[kind].build()
     arguments = sweep_arguments(result)
-    assert problems(result, arguments, KINDS[kind].declines) == []
+    assert problems(result, arguments) == []
     # The nonzero witness: the rows this kind must run did run.
     answered = ran(result, arguments)
     assert KINDS[kind].must_run <= answered
     if result.assessment_family == "point":
         # A fit passed the refit preflight, and a reconfigured kind is one it refuses.
         assert replayability(result).refit_nuisances is KINDS[kind].refits
-
-
-@pytest.mark.parametrize("kind", [name for name, kind in KINDS.items() if kind.declines])
-def test_an_accepted_decline_happens(kind: str) -> None:
-    """The nonzero witness for ``declines``: the kind meets its refusal, and only that one."""
-    found = sweep(KINDS[kind].build())
-    assert found
-    assert all(re.search(KINDS[kind].declines, problem) for problem in found)
 
 
 def test_each_build_is_a_fresh_copy_of_one_fit() -> None:
@@ -105,7 +97,7 @@ class TestEachMutationRestoresAMismatch:
         # can hide it.
         result = KINDS[kind].build()
         mutation.apply(monkeypatch)
-        found = sweep(result, KINDS[kind].declines)
+        found = sweep(result)
         if kind in mutation.fails_on:
             # The failure is the mutated component's, and not a stale seam's.
             signed = [problem for problem in found if re.search(mutation.signature, problem)]

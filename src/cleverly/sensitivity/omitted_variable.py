@@ -435,7 +435,32 @@ def _refuse_axis_configuration(result: Any, axis: str) -> Refusal | None:
                 "a randomized, fold-tuned or joint policy set mixes components whose "
                 "representers the bound does not combine",
             )
+        if policies is not None and not _atomic_policy_doses(result.data, policies.shifted):
+            return _axis_gap(
+                "modified-policy mean",
+                "a policy on a continuous dose reads a fitted conditional density, and the "
+                "bound has no derived Riesz representer or nu^2 guarantee for it; declare "
+                "dose_atoms that hold every observed and shifted dose",
+            )
     return None
+
+
+def _atomic_policy_doses(data: Any, shifted: np.ndarray) -> bool:
+    """Whether every observed dose and every shifted dose is a declared dose atom.
+
+    The bound's representer for a shift is the density ratio of the induced law over the
+    fitted law.  On a dose that the atoms carry, that ratio is a ratio of point masses.
+    """
+    atoms = np.asarray(getattr(data, "dose_atoms", ()), dtype=float)
+    if atoms.size == 0:
+        return False
+    treatment = np.asarray(data.treatment, dtype=float)
+    observed = getattr(data, "treatment_observed", None)
+    if observed is not None:
+        treatment = treatment[np.asarray(observed, dtype=bool)]
+    doses = np.concatenate([treatment.reshape(-1), np.asarray(shifted, dtype=float).reshape(-1)])
+    doses = doses[np.isfinite(doses)]
+    return bool(np.all(np.isin(doses, atoms)))
 
 
 def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:

@@ -809,6 +809,7 @@ matching capability row therefore carry one reason.
 | an `rr_tilt` parameter axis | an implementation. A risk-ratio tilt mean is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | an `msm` axis with a continuous dose or a link other than `"identity"` | a representer. A continuous dose reads the treatment density at quadrature doses, and under another link the coefficient is not linear in the outcome regression |
 | a `policy` axis with a randomized, fold-tuned, or joint policy set | a combination of the component representers |
+| a `policy` axis on a continuous dose, where an observed or a shifted dose is not a declared dose atom | a derived representer for a fitted dose density, and a guarantee for $\hat\nu^2$. On a binned density, the doubly robust $\hat\nu^2$ is often negative |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
@@ -862,7 +863,7 @@ the clever covariate.
 | axis | parameter | representer $\alpha$ | $m(O, \alpha)$ | feature |
 | --- | --- | --- | --- | --- |
 | `regime` | `ey_regime`, `ate_regime` | $g^\star_r(A \mid W) / g(A \mid W)$, over $\pi$ and $q_z$ where the fit has them | $\sum_a g^\star_r(a \mid W) \alpha(a, W)$ | `regime` |
-| `policy` | `ey_policy`, `ate_policy` | the shift's density ratio $h_s(A, W)$ | $\alpha(d_s(A, W), W)$, at the dose the policy assigns | `shift` |
+| `policy` | `ey_policy`, `ate_policy` | the shift's ratio of dose probabilities $h_s(A, W)$, on declared dose atoms | $\alpha(d_s(A, W), W)$, at the dose the policy assigns | `shift` |
 | `msm` | `msm[term]` | $e_j^\top M^{-1} h(A, V) \varphi(A, V) / g(A \mid W)$ | $\sum_a e_j^\top M^{-1} h(a, V) \varphi(a, V) \alpha(a, W)$ | `msm` |
 
 $M = P_n \sum_a h \varphi \varphi^\top$ is the observation-weighted Gram matrix that the
@@ -874,9 +875,11 @@ $z = M^{-1} K b$. Here $K$ is the matrix with $\nu^2 = b^\top K b$. The term is 
 of a marginal MSM, because each row's Gram contribution is $M$. The package derives this term,
 and no cited source gives it.
 
-A shift representer reads the fitted dose density. On a continuous dose, the binned density can
-put the doubly robust $\hat\nu^2$ below zero, and the call then refuses as it does on any fit.
-`nu2_estimator="plugin"` still reports the point bound.
+A shift representer is a ratio of dose probabilities. The bound covers a shift only when
+`dose_atoms` holds every observed dose and every shifted dose. A shift on a continuous dose refuses
+with `implementation_gap` under both estimators of $\nu^2$.
+`test_a_continuous_dose_shift_is_refused` in `tests/unit/test_omitted_variable_refusals.py` checks
+the refusal.
 
 `benchmark()` refits without the named covariates. The refit evaluates the declared regime,
 policy, or working model again. When a dropped covariate changes or breaks that declaration, the

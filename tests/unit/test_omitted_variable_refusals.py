@@ -373,19 +373,22 @@ class TestEachReasonNamesTheMissingResult:
         assert "part of the estimand" in reason
         assert "well posed" not in reason
 
-    @pytest.mark.parametrize("fixture", ["shift_fit", "msm_fit"])
-    def test_a_real_shift_or_msm_fit_is_admitted(
-        self, request: pytest.FixtureRequest, fixture: str
-    ) -> None:
-        """Nonzero control: X82 part G covers these axes, so no fit-wide rule refuses them.
+    def test_a_real_msm_fit_is_admitted(self, msm_fit: Any) -> None:
+        """Nonzero control: X82 part G covers this axis, so no fit-wide rule refuses it."""
+        assert fit_wide_bound_refusal(msm_fit) is None
+        for name in msm_fit.estimates:
+            assert sensitivity_elements(msm_fit, name).nu2 > 0, name
 
-        The plug-in second moment is positive for every parameter.  The doubly robust one
-        can fall below zero on a binned dose density, which its own refusal reports.
-        """
-        result = request.getfixturevalue(fixture)
-        assert fit_wide_bound_refusal(result) is None
-        for name in result.estimates:
-            assert sensitivity_elements(result, name, nu2_estimator="plugin").nu2 > 0, name
+    @pytest.mark.parametrize("nu2_estimator", ["doubly_robust", "plugin"])
+    def test_a_continuous_dose_shift_is_refused(self, shift_fit: Any, nu2_estimator: str) -> None:
+        """The dose has no atoms, so the shift's representer is a fitted density ratio."""
+        refusal = fit_wide_bound_refusal(shift_fit)
+        assert refusal is not None
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert "continuous dose" in refusal.message()
+        assert "dose_atoms" in refusal.message()
+        with pytest.raises(CapabilityError, match="continuous dose"):
+            sensitivity_elements(shift_fit, "ey_policy[+0.5]", nu2_estimator=nu2_estimator)
 
     def test_a_non_identity_msm_names_its_link(self, msm_logit_fit: Any) -> None:
         refusal = fit_wide_bound_refusal(msm_logit_fit)
