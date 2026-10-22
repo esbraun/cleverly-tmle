@@ -2538,6 +2538,10 @@ def benchmark(
 
     Note this is a genuine refit, so it costs about as much as the original fit.
 
+    On a fit with ``repeats`` above one, each of ``sigma2`` and ``nu2`` is the median of that
+    moment over the draws, taken separately for the full fit and for the refit.  The two
+    medians need not come from one draw.
+
     Parameters
     ----------
     result : TMLEResult

@@ -867,6 +867,9 @@ the draws as the table states. One draw reproduces the shipped bound exactly.
 | `benchmark()` | the medians of $\sigma^2$ and $\nu^2$ over draws, before and after the refit |
 | `sensitivity_elements()` | one draw, named by `repeat=`. A bare request refuses, and its capability row requires `repeat` |
 
+On several draws, `max_bias` is the median of $B_r$, and a bound is not $\psi \mp S$ times that
+median. Read each bound from the result, and do not recompute it from `max_bias`.
+
 The standard error rule is the one that
 [`repeats`](cv-tmle.md#variations) applies to the estimate. Chernozhukov et al.
 (2018, equation 3.14) give it. The rule assumes that $\hat\sigma^2$ and $\hat\nu^2$ are

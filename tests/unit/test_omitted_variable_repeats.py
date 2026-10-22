@@ -135,6 +135,21 @@ class TestTheMedianRule:
         assert mutated != pytest.approx(float(np.median([b.lower for b in single_bounds])))
 
 
+def test_at_zero_strength_the_limits_are_the_reported_interval(repeated: Any) -> None:
+    """Consistency witness: the combined bound degenerates to the reported estimate.
+
+    At ``cf_y = cf_d = 0`` each edge is the draw's estimate, so the median rule of the
+    limits is the median rule of the estimate, which the fit reports.
+    """
+    bound = omitted_variable_bounds(repeated, "ate", cf_y=0.0, cf_d=0.0)
+    estimate = repeated["ate"]
+    quantile = ov._one_sided_quantile(bound.level)
+    error = float(np.sqrt(estimate.variance))
+    assert bound.lower == pytest.approx(estimate.psi, rel=1e-12)
+    assert bound.ci_lower == pytest.approx(estimate.psi - quantile * error, rel=1e-12)
+    assert bound.ci_upper == pytest.approx(estimate.psi + quantile * error, rel=1e-12)
+
+
 class TestTheRobustnessValuesSolveTheCombinedBound:
     def test_the_point_value_moves_the_median_bound_to_the_null(self, repeated: Any) -> None:
         rv = robustness_value(repeated, "ate")["rv"]
