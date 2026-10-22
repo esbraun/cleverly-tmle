@@ -1896,6 +1896,10 @@ class BenchmarkResult:
     random_state : int or None
         Seed this benchmark ran under.  Pass it back to :func:`benchmark` to obtain the
         benchmark again.  ``None`` only on a record built without a seed.
+    features : tuple of str
+        The second mechanisms and the stratum that the representer carries, as
+        :attr:`SensitivityElements.features` names them.  On such a fit ``cf_d`` measures a
+        joint strength, and :meth:`summary` says so.
 
     Attributes
     ----------
@@ -1920,6 +1924,7 @@ class BenchmarkResult:
     #: carrying no seed would otherwise give a different answer to the same question and
     #: cache the first one.
     random_state: int | None = None
+    features: tuple[str, ...] = ()
 
     @property
     def gain_y(self) -> float:
@@ -1951,7 +1956,7 @@ class BenchmarkResult:
         dict
             A JSON-compatible mapping of every reported field.
         """
-        return {
+        values: dict[str, Any] = {
             "estimand": self.estimand,
             "covariates": ", ".join(self.covariates),
             "cf_y": self.cf_y,
@@ -1963,6 +1968,9 @@ class BenchmarkResult:
             "psi_long": self.psi_long,
             "psi_short": self.psi_short,
         }
+        if self.features:
+            values["features"] = "+".join(self.features)
+        return values
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -1986,10 +1994,16 @@ class BenchmarkResult:
                 ),
                 "",
                 f"implied cf_y = {self.cf_y:.4f}, cf_d = {self.cf_d:.4f}, rho = {self.rho:.4f}",
+                *self._joint_lines(),
                 *self._clip_lines(),
                 f"the estimate moved by {self.delta_psi:+.5g} when these covariates were dropped",
             ]
         )
+
+    def _joint_lines(self) -> list[str]:
+        """The joint-strength sentence, on a fit whose representer carries a second mechanism."""
+        joint = joint_strength_sentence(self.features)
+        return [] if joint is None else [joint]
 
     def _clip_lines(self) -> list[str]:
         """One line for each gain that the record clips at 1."""
@@ -2239,6 +2253,7 @@ def benchmark(
         nu2_long=long_elements.nu2,
         nu2_short=short_elements.nu2,
         random_state=seed,
+        features=long_elements.features,
     )
 
 

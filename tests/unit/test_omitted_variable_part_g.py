@@ -190,7 +190,7 @@ def response_fit(*, oracle: bool = False) -> Any:
 
 def intermediate_fits(*, oracle: bool = False) -> Any:
     settings = oracle_learners() if oracle else learners()
-    return TMLE(estimands=("ey1", "ey0", "ate"), **settings).fit(
+    return TMLE(estimands=("ey1", "ey0", "ate", "att", "atc"), **settings).fit(
         exact_frame(intermediate=True),
         outcome="Y",
         treatment="A",
@@ -311,15 +311,24 @@ def response_representers(frame: pd.DataFrame, weights: np.ndarray) -> dict[str,
     }
 
 
-def intermediate_representers(frame: pd.DataFrame, level: float) -> dict[str, np.ndarray]:
+def intermediate_representers(
+    frame: pd.DataFrame, level: float, weights: np.ndarray
+) -> dict[str, np.ndarray]:
     c = _columns(frame)
+    a, g = c["A"], c["g"]
     z = frame["Z"].to_numpy()
     qz = QZ[c["w"]] if level == 1.0 else 1.0 - QZ[c["w"]]
-    arm = {
-        k: c["D"] * (c["A"] == k) * (z == level) / (c["g"][:, k] * c["pi"][:, k] * qz[:, k])
-        for k in (0, 1)
+    kept = (c["D"] * (z == level))[:, None] / (c["pi"] * qz)
+    arm = {k: (a == k) * kept[:, k] / g[:, k] for k in (0, 1)}
+    p1 = float(np.average(a, weights=weights))
+    p0 = 1.0 - p1
+    return {
+        "ey1": arm[1],
+        "ey0": arm[0],
+        "ate": arm[1] - arm[0],
+        "att": ((a == 1) * kept[:, 1] - (a == 0) * kept[:, 0] * g[:, 1] / g[:, 0]) / p1,
+        "atc": ((a == 1) * kept[:, 1] * g[:, 0] / g[:, 1] - (a == 0) * kept[:, 0]) / p0,
     }
-    return {"ey1": arm[1], "ey0": arm[0], "ate": arm[1] - arm[0]}
 
 
 def composite_representers() -> dict[str, np.ndarray]:
@@ -381,12 +390,13 @@ class TestTheRieszIdentityOnAnExactLaw:
         assert gap < RTOL
 
     @pytest.mark.parametrize("level", [0.0, 1.0])
-    @pytest.mark.parametrize("estimand", ["ey1", "ey0", "ate"])
+    @pytest.mark.parametrize("estimand", ["ey1", "ey0", "ate", "att", "atc"])
     def test_an_intermediate_at_each_level(
         self, intermediate: Any, level: float, estimand: str
     ) -> None:
         result = intermediate[level]
-        alpha0 = intermediate_representers(exact_frame(intermediate=True), level)[estimand]
+        frame = exact_frame(intermediate=True)
+        alpha0 = intermediate_representers(frame, level, result.data.weights)[estimand]
         gap, error = identity_gap(result, estimand, alpha0)
         assert error > 0.1
         assert gap < RTOL
@@ -427,7 +437,9 @@ def oracle_cases(oracle: dict[str, Any]) -> list[tuple[str, Any, str, np.ndarray
         frame = exact_frame(intermediate=True)
         cases += [
             (f"intermediate-{level:g}-{name}", oracle["intermediate"][level], name, alpha0)
-            for name, alpha0 in intermediate_representers(frame, level).items()
+            for name, alpha0 in intermediate_representers(
+                frame, level, oracle["intermediate"][level].data.weights
+            ).items()
         ]
     cases += [
         (f"composite-{name}", oracle["composite"], name, alpha0)
@@ -484,7 +496,8 @@ class TestTheOracleRepresenter:
         import cleverly.estimators.targeting as targeting
 
         result = oracle["intermediate"][1.0]
-        alpha0 = intermediate_representers(exact_frame(intermediate=True), 1.0)["ate"]
+        frame = exact_frame(intermediate=True)
+        alpha0 = intermediate_representers(frame, 1.0, result.data.weights)["ate"]
         original = targeting.clever_covariate_inputs
 
         def unselected(*args: Any, **kwargs: Any) -> Any:
@@ -769,3 +782,6 @@ def test_the_benchmark_refits_a_response_fit() -> None:
     assert record.psi_short != record.psi_long
     bound = ov.omitted_variable_bounds(result, "ate", benchmark=record)
     assert bound.features == ("response",)
+    assert record.features == ("response",)
+    assert "joint strength over the treatment mechanism and the response" in record.summary()
+    assert record.to_dict()["features"] == "response"

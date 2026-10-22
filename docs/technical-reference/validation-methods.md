@@ -836,11 +836,11 @@ mechanism $g_{c,a}$ is the one that the
 
 Each functional is linear in the regression on the rows that $R$ marks, so Theorem 2 of the cited
 paper covers it. Only $R$ and the representer differ from the shipped bound. On complete data
-$R = 1$, and each quantity equals the shipped one.
+$R = 1$, and each quantity equals the shipped one. The bias reads $Y$ only where $R = 1$, so $c_Y$
+is the share of the residual variation of $Y$ on those rows.
 
 On the first three rows, $c_D$ measures a joint strength over the treatment mechanism and a second
-mechanism. The summary names that second mechanism as the response, recording, or intermediate
-mechanism. `benchmark()` refits every mechanism without the named covariates, so it measures the
+mechanism. The summaries of the bound and of the `benchmark()` record name that second mechanism. `benchmark()` refits every mechanism without the named covariates, so it measures the
 same joint strength. The curve of $\nu^2$ in a stratum carries the influence of the share $p$, as
 the [standard error](#standard-error-of-the-omitted-variable-bound) states. Under
 `nu2_estimator="plugin"` these fits report the point bounds. Their limits refuse with the key
