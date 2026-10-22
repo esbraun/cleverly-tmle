@@ -2145,8 +2145,8 @@ def _zero_one_levels(levels: Sequence[object]) -> bool:
 def _refuse_longitudinal_plasmode(name: str, structure: str) -> None:
     if name == "plasmode":
         raise CapabilityError(
-            f"the longitudinal plasmode has no draw for {structure}. It draws an end-of-study "
-            "or survival panel with binary treatment nodes.",
+            f"the longitudinal plasmode has no draw for {structure}. It draws an end-of-study, "
+            "repeated-outcome or survival panel with binary treatment nodes.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="dummy_outcome and simulated_outcome run on the held history.",
             roadmap="X82",
@@ -2215,7 +2215,6 @@ def _longitudinal_plasmode_target(
 
     data = result.data
     structures = (
-        (data.repeated is not None, "a repeated outcome"),
         (bool(data.treatment_held), "a held baseline decision"),
         (int(data.n_decisions) != int(data.n_times), "a node without a treatment decision"),
         (data.known_mechanisms is not None, "a declared known mechanism"),
@@ -2236,10 +2235,12 @@ def _longitudinal_plasmode_target(
     regimens = {regimen.label: regimen for regimen in result.config.regimens}
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
-    # A survival risk reads the nodes through its horizon, and the cause of its parameter.
+    # A survival risk or a repeated mean reads the nodes through its horizon, and a risk
+    # reads the cause of its parameter.
     reading: dict[str, int] = {}
-    if data.is_survival:
+    if data.is_survival or data.repeated is not None:
         reading["horizon"] = horizon
+    if data.is_survival:
         reading["cause"] = 0 if cause is None else list(data.cause_labels).index(cause)
     draws: int | None = None
     if not law.enumerable:
