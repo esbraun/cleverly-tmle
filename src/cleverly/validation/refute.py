@@ -2942,7 +2942,7 @@ def _refuse_continuous_point_target(functional: Any, process: Any, name: str) ->
             "a frozen treatment model, and a continuous dose has no frozen model yet.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=(
-                "Run tests=('generated_outcome',), whose held design reads each row's held "
+                "Run tests=('simulated_outcome',), whose held design reads each row's held "
                 "dose as its natural dose."
             ),
             roadmap="X82",
