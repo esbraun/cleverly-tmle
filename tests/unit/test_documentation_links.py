@@ -331,9 +331,9 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
 
     # The negative control.  A rule table read through the wrong attribute, or a citation
     # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
-    # The floor is five: the rules cite X47, X48, F12, F13 and F15, because RM43 moved the
-    # F8, F9, F10 and F11 citations into the one row X47.
-    assert len(cited) >= 5, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
+    # The floor is four: the rules cite X82, F12, F13 and F15, because RM43 moved the
+    # F8, F9, F10 and F11 citations into one row, and X82 absorbed X47 and X48.
+    assert len(cited) >= 4, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
     missing = sorted(item for item in cited if item not in ROADMAP_ITEMS)
     assert not missing, (
         f"refusal messages cite roadmap item(s) docs/roadmap.md does not declare: {missing}. "
@@ -350,7 +350,7 @@ def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
     from cleverly.sensitivity.evalue import _DIRECT_EFFECT_REFUSAL
 
     cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL.message())
-    assert cited == ["X49"]
+    assert cited == ["X82"]
     assert set(cited) <= set(ROADMAP_ITEMS)
 
 

@@ -138,7 +138,7 @@ def stratum_refusal(result: TMLEResult, estimand: str, analysis: str) -> Refusal
             f"Ask for {marginal!r} to assess the marginal parameter, or fit the stratum as "
             f"its own study."
         ),
-        roadmap="X65",
+        roadmap="X82",
     )
 
 

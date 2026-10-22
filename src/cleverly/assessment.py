@@ -478,7 +478,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             RefusalReason.IMPLEMENTATION_GAP,
             "no evidence-backed longitudinal perturbation/refit adapter is implemented.",
             alternative=NO_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         ),
         interpretation="behavior under longitudinal data perturbations",
     ),
@@ -1571,7 +1571,7 @@ def _tipping_natural_course_refusal(
         f"arm-specific: {natural} read the natural-course mean, which needs a "
         "natural-course sensitivity parameter that is not implemented.",
         alternative=f"Choose an explicit estimand from {list(candidates)}.",
-        roadmap="X65",
+        roadmap="X82",
     )
 
 
