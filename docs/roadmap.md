@@ -238,7 +238,7 @@ It moved each part that an established method or a natural extension carries to 
 | investigation | kept claim | kind of missing argument | current boundary | details |
 | --- | --- | --- | --- | --- |
 | Missing-outcome simulated-confounding replay | a replay of the stored estimator when the response or treatment-observation mechanism reads the treatment | identification | outcome-axis cells on recorded outcomes, and treatment-axis cells under a declared response mechanism that reads the covariates only ([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F) | [F12](#f12-missing-outcome-simulated-confounding-replay) |
-| Longitudinal simulated-confounding replay | censoring or survival outcomes; a time-varying covariate after the first treatment node; a time-varying latent with treatment feedback | identification | point-treatment results only. [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F holds one time-fixed latent on uncensored terminal-outcome fits | [F13](#f13-longitudinal-simulated-confounding-replay) |
+| Longitudinal simulated-confounding replay | censoring or survival outcomes; a time-varying covariate after the first treatment node; a time-varying latent with treatment feedback | identification | one time-fixed latent on uncensored end-of-study fits ([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F) | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | the treatment axis on a fit with an intermediate | identification | the outcome axis, and an intermediate axis that holds the treatment ([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F) | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` open for the [admitted set](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) and refuse for every other learner under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | Targeted bootstrap inference | full-refit bootstrap consistency with data-adaptive or cross-fitted nuisances; a row-resampling (nonparametric) targeted bootstrap for learners other than HAL | asymptotic | the in-sample point-treatment `TMLE` bootstrap publishes its percentile interval, with a data-adaptive learner too, although the registered study measured only correctly specified nuisances. A cross-fitted point bootstrap, and every `DRTMLE` and `CTMLE` bootstrap, prints as a diagnostic. [X55](#x55-bootstrap-extensions) holds the extensions that published support carries | [F2](#f2-targeted-bootstrap-inference) |
@@ -1404,6 +1404,8 @@ request checks in `sensitivity/` refuse each request before any refit.
 | (c) | a fixed regime or MSM beside another axis | a replay of each axis of the joint fit. It depends on X57 |
 | (f) | a continuous replay under a method other than `TMLE` | as X82 part F, further replays (e). A continuous fit under `DRTMLE` or `CTMLE` needs F5 first, because neither method fits a continuous dose |
 | (h) | PAR or PAF under `DRTMLE` or `CTMLE` | as X82 part F, further replays (e). It depends on X50 part (c), X51 part (a) and X62 part (d) |
+| (j) | a longitudinal node with more than two levels, or a vector node | the pairwise swap of point law (a) at each node, with a declared pair for each node, and a law for each component of a vector node |
+| (k) | a clustered longitudinal panel | the declared latent level of point law (b), shared by every node |
 
 Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness for each part.
 
@@ -1448,10 +1450,9 @@ contrast, a mutation control that drops the covariate-law term, and a registered
 
 ### X74. Assessment and study integration for the structural nested mean model
 
-`StructuralNestedMeanResult` declares `fitted_method = "snmm"` and no `assessment_family`.
-`cleverly.assessment.assessment_capabilities` therefore raises a bare `TypeError` that names the
-missing family. [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part D adds that family. `CausalStudy` offers no method that fits
-`StructuralNestedMean`.
+`StructuralNestedMeanResult` declares the `structural` assessment family
+([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part D). `CausalStudy` offers no
+method that fits `StructuralNestedMean`.
 
 | part | what to add | evidence |
 | --- | --- | --- |
@@ -1572,7 +1573,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | --- | --- | --- |
 | A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
 | C | the longitudinal refute adapter, shipped. Part C1 ships the Markov placebo, `random_common_cause` with `noise_nodes`, `subset`, and `bootstrap_stability`. Part C2 ships the negative-control outcome, its pre-treatment form, and the future-treatment control. These are descriptive. Part C3 ships the held-history generated outcomes on end-of-study, repeated, survival and competing-risk fits, descriptive until a longitudinal study registers its rows | the exact enumeration of a two-node panel, and a nonzero witness for each control |
-| D | `assessment_family` and the refute adapter of the structural nested mean model | a blip-null witness and the linear-remainder audit row |
+| D | the held-design generated outcomes, the future-treatment control, and the measurement-error bootstrap of the structural nested mean model. Part D ships the `structural` assessment family, one declaration per operation, and the placebo, `random_common_cause`, `subset`, `bootstrap_stability`, and `negative_control_outcome` tests, all descriptive | a nonzero witness for each control, and an exact effect for each generated process |
 | E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Controlled direct effects, MSMs, interventions, missing outcomes, and the longitudinal plasmode remain | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
@@ -1606,12 +1607,15 @@ for each request that stays refused.
 
 #### Part D: structural nested mean model assessment
 
-`StructuralNestedMeanResult` declares no `assessment_family`, so
-`cleverly.assessment.assessment_capabilities` raises a bare `TypeError`.
+Part D ships the `structural` assessment family. Each operation runs or refuses with a reason
+code, and `tests/unit/test_structural_refutation.py` checks every row. The rest of the part is in
+the table.
 
 | part | what to add | evidence |
 | --- | --- | --- |
-| D | an `assessment_family` for the result, with one declaration per assessment operation. Each declaration is available, or refuses with a reason code and a roadmap id | a test that every operation of `assessment_capabilities` runs or refuses with a code and an id on a structural fit |
+| D | `future_treatment` on a structural fit | a later treatment that an unmeasured cause of the earlier treatment moves, and one it does not |
+| D | held-design generated outcomes on a structural fit | the blips of each generated process computed exactly |
+| D | `bootstrap_measurement_error` on a structural fit | a declared error that moves the blips by a known amount |
 
 #### Part F: simulated common cause
 
@@ -1650,25 +1654,22 @@ refusal constants changed in the same commit.
 
 ##### Longitudinal latent
 
-One time-fixed latent is shared by every treatment node, and the DoWhy law applies at each node.
-The contract covers uncensored terminal-outcome fits whose panel has no time-varying covariate
+Shipped. One time-fixed latent is shared by every treatment node, and the DoWhy law applies at each
+node. The contract covers uncensored end-of-study fits whose panel has no time-varying covariate
 after the first treatment node. That narrowing removes covariates that were generated under the
-original treatment. Censoring, survival outcomes, post-treatment covariates and time-varying
-latents stay in [F13](#f13-longitudinal-simulated-confounding-replay).
+original treatment. The
+[longitudinal-latent table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+gives the law and its witnesses. Censoring, survival outcomes, post-treatment covariates, declared
+later-node mechanisms, the `IPSI` tilt and time-varying latents stay in
+[F13](#f13-longitudinal-simulated-confounding-replay).
 
 A later treatment node has the same structure as a post-treatment covariate when its mechanism
 reads an earlier treatment. The data generated $A_2$ under the original $A_1$, so given the
-misclassified $A'_1$ the node $A_2$ depends on the latent. The induced association of $A_2$ with
-the latent then includes the path through the earlier misclassified treatment. The contract must
-do one of two things before it ships:
-
-| option | contract |
-| --- | --- |
-| define the induced association | the reading of each strength names the induced association at a later node, including the path through $A'_1$, and the replay reports it |
-| restrict the mechanisms | the replay covers only fits whose declared treatment mechanism at each later node does not read an earlier treatment, and it refuses the others before any draw |
-
-Until the contract chooses one, a later node whose mechanism reads an earlier treatment stays in
-[F13](#f13-longitudinal-simulated-confounding-replay).
+misclassified $A'_1$ the node $A_2$ depends on the latent. The contract defines that induced
+association. Each cell reports the association of every node with the latent, and a later node's
+value includes the path through the earlier perturbed nodes. The other option restricts the fits
+to later-node mechanisms that do not read an earlier treatment. It is not adopted, because every
+default nuisance design reads the full treatment history.
 
 Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness at a two-node
 law; a pre-fit refusal for each panel outside the contract; for the restricted option, a pre-fit
@@ -1973,15 +1974,16 @@ this item.
 ### F13. Longitudinal simulated-confounding replay
 
 The pinned DoWhy law is a single-time-point perturbation.
-[X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, longitudinal latent, holds one time-fixed
-latent on uncensored terminal-outcome fits with no time-varying covariate after the first
-treatment node.
+[X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, longitudinal latent, ships one time-fixed
+latent on uncensored end-of-study fits with no time-varying covariate after the first treatment
+node. Each kept claim below is refused before any draw and names this item.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
-| censoring or a survival outcome | identification | the flip breaks coarsening at random at each censoring node, as in F12. An additive shift of an absorbing process is not a law on its support |
+| censoring, or a survival, competing-risk or repeated outcome | identification | the flip breaks coarsening at random at each censoring node, as in F12. An additive shift of an absorbing or time-indexed process is not a law on its support |
 | a time-varying covariate after the first treatment node | identification | a covariate generated under the original $A_t$ depends on the latent given $A'_t$, and the sequential regression conditions on it |
-| a later treatment node whose mechanism reads an earlier treatment | identification | the node was generated under the original earlier treatment, so given the misclassified one it depends on the latent. X82 part F moves it only when its contract defines that induced association, or restricts the mechanisms to ones that do not read an earlier treatment |
+| a declared treatment mechanism at a later node | identification | the declared factor reads the earlier treatment, so the factor of the perturbed node given the perturbed history is not a known function. X82 part F carries a declared first-node factor |
+| an `IPSI` fit | identification | the odds tilt multiplies a mechanism that reads the earlier perturbed nodes, and no contract names how the latent enters that tilt |
 | a time-varying latent with treatment feedback | identification | a law whose strengths name the feedback. Tan (2025), arXiv:2308.15725v1, Equations (11) and (34), gives bounds and no law |
 
 ### F15. Controlled-direct-effect simulated-confounding replay
