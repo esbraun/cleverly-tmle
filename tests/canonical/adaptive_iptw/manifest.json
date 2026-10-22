@@ -1,0 +1,180 @@
+{
+  "schema_version": 2,
+  "study": "adaptive-propensity IPTW",
+  "slug": "adaptive-iptw",
+  "generated_with": {
+    "subject": {
+      "implementation": "adaptive_iptw",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "d8a423e4b9a279faabf430ae78f9f59ec0236d92",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": {
+      "cal": 2000,
+      "bias": 400,
+      "ladder": 1000,
+      "vl": 1200
+    },
+    "n": 2000,
+    "seed": 20262101,
+    "resampling_seed": 2026210101,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "adaptive_iptw": 0.01
+    },
+    "scenarios": {
+      "known_arms": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "estimator": "AdaptiveIPTW",
+    "form": "targeted (the one-step form is fitted beside it on the known-mechanism cells)",
+    "reduced_outcome_learner": "unpenalized logistic (least squares for a stochastic-regime key) on a polynomial of logit(g), degree per law, capped at the number of distinct values minus one",
+    "degree": {
+      "p": 1,
+      "st": 1,
+      "m": 3,
+      "c": 3,
+      "wt": 3,
+      "cl": 3,
+      "pd": 3,
+      "cn": 5,
+      "rm": 2,
+      "ma": 2,
+      "vl": 3
+    },
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "tolerance": 1e-08,
+    "max_iter": 100,
+    "n_folds": {
+      "default": 10,
+      "m": 5
+    },
+    "folds": "the package's random partition, random_state from the replication seed",
+    "sizes": {
+      "pd": 2000,
+      "p": 3000,
+      "ladder": [
+        500,
+        1500,
+        4500
+      ],
+      "m": 2000,
+      "c": 2000,
+      "wt": 2000,
+      "cl_clusters": 200,
+      "st": 3000,
+      "cn": 2000,
+      "rm": 3000,
+      "ma": 2000,
+      "ma_crossfit": 7000,
+      "vl": 2000
+    },
+    "pre_routed": {
+      "bias/ey0__flexible": "law P is H1, so the validity term vanishes for this learner; the gradient-boosting learner's rate is not shown, so a red cell reads as the first or third C3 term",
+      "bias/ey1__flexible": "law P is H1, so the validity term vanishes for this learner; the gradient-boosting learner's rate is not shown, so a red cell reads as the first or third C3 term",
+      "bias/ate__flexible": "law P is H1, so the validity term vanishes for this learner; the gradient-boosting learner's rate is not shown, so a red cell reads as the first or third C3 term",
+      "spread/parametric_q_ne_qr": "the Theorem 1 curve is conservative under a fitted parametric mechanism when Q_0 != Qr_0 (the projection of 1.2); this is why AdaptiveIPTW withholds the interval"
+    },
+    "raised_replicates": {
+      "p_rate": 600,
+      "rm": 800
+    },
+    "red_reading": {
+      "primary": "a red primary row blocks the merge and gets a diagnosis",
+      "calibration": "a red calibration row is a finite-sample red only when the 99% interval of its SE ratio contains 1, its coverage interval contains 0.95 or lies inside [0.92, 0.98], and the diagnosis finds no defect; it then goes to reporting with an owner",
+      "bias": "a red positive bias row is a finite-sample red only when the 99% interval of its standardized bias contains the design-predicted b, the other rows of its scene are consistent with their own b, and the diagnosis finds no defect; it then goes to reporting with an owner",
+      "ladder": "a red root_n_points rung or root_n_rate slope reads as a bias row does: finite-sample only when its interval contains the predicted b of the rung",
+      "necessity": "a targeted positive row reads as a bias row; a red displacement, or an untargeted control that does not fail, is a defect suspect and never a finite-sample red",
+      "control": "a control that does not fail is a defect suspect in the instrument, never a finite-sample red"
+    },
+    "expected_chance_reds": {
+      "calibration": 2.0,
+      "bias_ladder_necessity": 1.5,
+      "total": 3.4
+    },
+    "reference": "none yet; the drtmle 538a3a2 pairing runs in adaptive-iptw-pairing",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_adaptive_iptw.py": "ee56443f0ebfb78a61d8f6e012dfd60572bfdf0a2281fc73a79c9c20565abcdd",
+    "tests/studies/adaptive_iptw_properties.py": "a797c1f71b7f49ee956788046db6ba56b462e12a912922912c937c7fc43124e9",
+    "tests/studies/adaptive_iptw_laws.py": "c64df1484394b3f11be0b50908522f70724c8c0bda26dfa877c1a21409caaab2",
+    "tests/studies/multi_arm_common.py": "60f76754d0079b0a00994812f3d6208c7e6ba0f8ae060811e9db8c0ba1841697",
+    "tests/studies/mar_arm_indexed_laws.py": "4e9d846330f321d36b19469fc01f629501a2a3c328af9111c4129a1634a9ce38",
+    "tests/studies/weighted_point_common.py": "90d9ff9f2a876520e246c89bbaa9a5fc637800f422b4d92213698c9809ca476d",
+    "tests/studies/clustered_unequal_laws.py": "d9546f88f3c58b8ba1ae38b46c9afab473e9a6f227e54cab4bef5edd1df50fc1",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/discrete_law_composite.py": "54a8bfbe377526937e71e3f4a7899247e0dc872b41be72c7c4dd20c1d2368f73",
+    "tests/discrete_law_mar.py": "1f09bb866e1c4c4c6975e9e58632d7acb05fff5d4abf7dc95e1081dab413b2d3",
+    "tests/discrete_law_multi.py": "af84143ddb6547e43f3dedfc5bbddae579ef20572f6d22ef5d13119c53cd463f",
+    "src/cleverly/estimators/iptw.py": "1a16c34a2d6768afe10f80072c09c7e62d18bc0c6a40ed42fa1b5e9d43818e7c",
+    "src/cleverly/estimators/reduced.py": "92de6627c0e3b8f5d59163d85db8fc8b011c5c35ca15d40d2455aa80ea9199f4",
+    "src/cleverly/fluctuation/mechanism.py": "d01e919a5550f22b9f3ae20b41760bcfe791bc6d405d9c62b3e3ce5c470fde89",
+    "src/cleverly/fluctuation/_score.py": "b738670e64c17e45ae41d5a02a369990321d16770c2adc1bd61bdc7026118bfb",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "2bca1f68307af23771a1474ca27cf604b71b3644fcdcb3cebc1cf89f160010db",
+    "summary.csv": "77e0d25c591fde805cb5263766892129222a14501aa2f8e9e9fe24338ded6d09",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "aa90cfc8d208a8cae18003ae20367808670d19b2ad49f46f0343b16fc6b763f7",
+    "property-replicates.parquet": "5d6d36d1969f7baf5fcf6a01583de26830101334e5b236ee2679b6c20c278cba",
+    "properties.csv": "1e7e470a2fc109212378752707f439a28a6d4df4c5b539dda1672d840d474575"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "drtmle",
+    "reason": "the drtmle pairing runs in the study adaptive-iptw-pairing (X21-plan.md 3.6): its R runners draw_folds.R, run_study.R and print_fixtures.R are written with that study and have not run, and the nuisance gate of the 1e-8 rule runs there before its declaration. This gate study runs no R process. The declared reference sources in the manifest are the pinned drtmle image and its runner, a placeholder until adaptive-iptw-pairing lands; that change clears pending_reference and comparison",
+    "metadata": {},
+    "declared_sources_sha256": {
+      "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+      "tests/canonical/drtmle/run_drtmle.R": "2fdc3a69ed5b8e5ca1db1b76588cdd1e60a1dedcf2a653aeedda8545f787bb8f"
+    }
+  }
+}

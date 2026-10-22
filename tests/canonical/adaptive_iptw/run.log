@@ -1,0 +1,21 @@
+=== adaptive-iptw declared run
+command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/adaptive_iptw/regenerate.py --output /home/user/x21-runs/run-1 --jobs 4
+commit: d8a423e4b9a279faabf430ae78f9f59ec0236d92; upstream d8a423e4b9a279faabf430ae78f9f59ec0236d92
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 135, sha256 8a178c719461828113100f2ac32b379e67da7ccb4f0366ef4f67213446cc107e
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-22T01:41:05+00:00
+finished: 2026-10-22T02:46:15+00:00
+wall seconds: 3909.9
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 3193509f9379416e5f1e61e2974d1ef1568719009710e43c42854319be96aaf2
+sha256 performance-tests.csv: aa90cfc8d208a8cae18003ae20367808670d19b2ad49f46f0343b16fc6b763f7
+sha256 properties.csv: 1e7e470a2fc109212378752707f439a28a6d4df4c5b539dda1672d840d474575
+sha256 property-replicates.parquet: 5d6d36d1969f7baf5fcf6a01583de26830101334e5b236ee2679b6c20c278cba
+sha256 replicates.parquet: 2bca1f68307af23771a1474ca27cf604b71b3644fcdcb3cebc1cf89f160010db
+sha256 summary.csv: 77e0d25c591fde805cb5263766892129222a14501aa2f8e9e9fe24338ded6d09
+
