@@ -141,8 +141,14 @@ def point_study_or_refuse(result: Any, error: ReplayError) -> Any:
     return study
 
 
-def check_only_declared_axis(result: Any, key: Any, axis: str, error: ReplayError) -> None:
-    """Refuse compositions without a supported perturbation and replay law."""
+def check_only_declared_axis(
+    result: Any, key: Any, axis: str, error: ReplayError, *, intermediate: bool = False
+) -> None:
+    """Refuse compositions without a supported perturbation and replay law.
+
+    ``intermediate=True`` admits a controlled direct effect on the arm axis, whose replay
+    holds the treatment and perturbs the intermediate and the outcome (X82 part F (f)).
+    """
     functional = result.identified_effect.functional
     estimator = result.estimator
     allowed = _AXIS_SLOTS[axis]
@@ -151,7 +157,7 @@ def check_only_declared_axis(result: Any, key: Any, axis: str, error: ReplayErro
         functional.longitudinal
         or functional.axis != axis
         or functional.horizons is not None
-        or functional.intermediate is not None
+        or (functional.intermediate is not None and not (intermediate and axis == "arm"))
         or any(getattr(estimator, slot) for slot in slots if slot not in allowed)
         or (bool(functional.interventions) != (axis in {"policy", "regime", "ipsi"}))
         or (functional.msm is not None) != (axis == "msm")

@@ -2,8 +2,8 @@
 
 A joint fit reports ``ey_obs``, ``par`` or ``paf`` beside arm means.  It fits the
 treatment mechanism, so every reader of ``g`` runs.  Each assessment that a
-natural-course target defeats keeps a target-specific refusal: the E-value, the
-missingness tilt, the omitted-variable pointer and the simulated-confounding surface.
+natural-course target defeats keeps a target-specific refusal: the E-value and the
+simulated-confounding surface.  The missingness tilt re-mixes every reported target.
 """
 
 from __future__ import annotations
@@ -20,11 +20,7 @@ from cleverly import CapabilityError, PositivityWarning, load
 from cleverly.estimators import TMLE
 from cleverly.exceptions import RefusalReason
 from cleverly.inference.results import reported_status
-from cleverly.targets.population_intervention import (
-    NATURAL_COURSE_SUPPORT_REFUSAL,
-    natural_course_tilt_refusal,
-    reads_natural_course_mean,
-)
+from cleverly.targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from tests.unit.test_attributable_mar_stack import _frame
 
 JOINT = ("ey_obs", "ey0", "par", "paf")
@@ -91,7 +87,7 @@ class TestTheInferenceStatus:
     ) -> None:
         result = _fit(estimands, **extra)
         assert reported_status(result.estimates) == "influence_curve"
-        assert reads_natural_course_mean(result)
+        assert {"ey_obs", "par", "paf"} & set(result.estimates)
 
 
 class TestTheReadersOfTheTreatmentMechanism:
@@ -188,76 +184,56 @@ class TestTheTargetSpecificRefusals:
         with pytest.raises(CapabilityError, match="paf compares the natural course"):
             complete.sensitivity.evalue("paf")
 
-    def test_the_omitted_variable_pointer_names_the_arm_means(self, joint: Any) -> None:
+    def test_the_omitted_variable_pointer_names_the_tilt(self, joint: Any) -> None:
         with pytest.raises(CapabilityError) as caught:
             joint.sensitivity.omitted_confounding("ey0")
-        message = str(caught.value)
-        assert "on this fit's arm means, and not on a target read from the natural-course" in (
-            message
-        )
+        assert "missingness tilt remains" in str(caught.value)
 
-    def test_a_par_bound_request_is_not_pointed_at_the_tilt(self, joint: Any) -> None:
+    def test_a_par_bound_request_is_pointed_at_the_tilt(self, joint: Any) -> None:
         from cleverly.sensitivity.omitted_variable import sensitivity_elements
 
         with pytest.raises(CapabilityError) as caught:
             sensitivity_elements(joint, "par")
-        assert "missingness tilt" not in str(caught.value)
-        with pytest.raises(CapabilityError) as arm:
-            sensitivity_elements(joint, "ey0")
-        assert "missingness tilt remains" in str(arm.value)
+        assert "missingness tilt remains" in str(caught.value)
 
-    def test_an_explicit_tilt_of_par_refuses(self, joint: Any) -> None:
-        with pytest.raises(CapabilityError) as caught:
-            joint.sensitivity.missingness(estimands=["par", "ey0"])
-        stem = natural_course_tilt_refusal(["par"]).split(" Request the arm means")[0]
-        assert str(caught.value).startswith(stem)
-        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-
-    def test_the_default_tilt_sweep_skips_the_natural_course_targets(self, joint: Any) -> None:
+    def test_the_default_tilt_sweep_covers_the_natural_course_targets(self, joint: Any) -> None:
         frame = joint.sensitivity.missingness()
-        assert set(frame["estimand"]) == {"ey0"}
-        row = next(row for row in joint.sensitivity.capabilities if row.operation == "missingness")
-        assert "the default sweep skips ['ey_obs', 'paf', 'par']" in row.interpretation
+        assert set(frame["estimand"]) == {"ey_obs", "ey0", "par", "paf"}
+        row = joint.sensitivity.capability("missingness")
+        assert row.available
+        assert "skips" not in row.interpretation
 
     @pytest.mark.parametrize("operation", ["missingness", "tipping_gamma"])
-    def test_a_fit_with_no_arm_mean_names_the_natural_course(self, operation: str) -> None:
-        """Rule 7, with the natural-course sentence, on the row and on the call."""
+    def test_a_fit_with_no_arm_mean_tilts_par_and_paf(self, operation: str) -> None:
         result = _fit(("par", "paf"))
-        row = result.sensitivity.capability(operation)
-        assert not row.available
-        assert "re-mixes the arm-indexed means" in str(row.reason)
-        stem = natural_course_tilt_refusal(["paf", "par"]).split(" Request the arm means")[0]
-        assert stem in str(row.reason)
-        assert row.refusal is not None
-        assert row.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         call = getattr(result.sensitivity, operation)
-        with pytest.raises(CapabilityError) as caught:
-            call() if operation == "missingness" else call("par")
-        assert str(row.reason) in str(caught.value)
+        if operation == "missingness":
+            assert set(call()["estimand"]) == {"par", "paf"}
+        else:
+            call("par")
 
     @pytest.mark.parametrize("estimands", [JOINT, ("ey0", "par")], ids=["joint", "par_and_ey0"])
-    def test_the_tipping_row_declares_what_the_bare_call_does(
-        self, estimands: tuple[str, ...]
-    ) -> None:
-        """The row defers on the estimand, and the bare call raises the row's own reason."""
+    def test_the_tipping_row_defers_on_the_estimand(self, estimands: tuple[str, ...]) -> None:
+        """The row defers on the estimand, and naming one lifts the deferral.
+
+        The bare call refuses for itself and names every parameter it could answer for.
+        """
         result = _fit(estimands)
         row = result.sensitivity.capability("tipping_gamma")
         assert not row.available
         assert row.status.value == "deferred"
         assert "estimand" in row.requires_arguments
-        assert "read the natural-course mean" in str(row.reason)
-        assert str(row.reason).endswith("Choose an explicit estimand from ['ey0'].")
+        assert "choose an explicit estimand from" in str(row.reason)
+        assert all(repr(name) in str(row.reason) for name in estimands)
         with pytest.raises(CapabilityError) as caught:
             result.sensitivity.tipping_gamma()
-        assert str(caught.value) == row.reason
-        # Naming the arm mean lifts the deferral, and the call runs.
-        result.sensitivity.tipping_gamma("ey0")
+        assert all(repr(name) in str(caught.value) for name in estimands)
+        result.sensitivity.tipping_gamma("par")
 
-    def test_simulated_confounding_keeps_the_missing_outcome_refusal(self, joint: Any) -> None:
-        with pytest.raises(
-            CapabilityError,
-            match=r"docs/roadmap.md F12 tracks a response mechanism that reads the treatment",
-        ):
+    def test_simulated_confounding_refuses_at_the_identification_stop(self, joint: Any) -> None:
+        # X82 part F (e) lifted the fit-wide missing-outcome stop, so this fit meets the
+        # next one: it records no backdoor identification metadata.
+        with pytest.raises(CapabilityError, match=r"needs identification metadata"):
             joint.sensitivity.simulated_confounding("par")
 
 
