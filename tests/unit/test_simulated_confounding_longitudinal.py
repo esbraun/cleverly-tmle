@@ -393,6 +393,14 @@ def test_a_cross_fitted_bounded_fit_keeps_its_folds_and_its_bounds(
     seeds = [item.seed for item in result.repeats]
     assert _frozen_seeds(result, 3) == seeds
     assert _frozen_seeds(result, 4) is None
+    redrawn = simulated_confounding(
+        result,
+        CONTRAST,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        random_state=4,
+    )
+    assert redrawn.refit_folds == "redrawn"
+    assert any(line.startswith("refit folds: redrawn") for line in redrawn.population_lines())
     replay = result.estimator.refit(result.data, random_state=3, frozen_seeds=seeds)
     assert replay[CONTRAST].psi == pytest.approx(result[CONTRAST].psi, abs=1e-12)
     seen = _capture(monkeypatch, result)
@@ -402,6 +410,7 @@ def test_a_cross_fitted_bounded_fit_keeps_its_folds_and_its_bounds(
         grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 3.0)),
         random_state=3,
     )
+    assert surface.refit_folds == "original"
     assert surface.bounded_outcome_law == "logit"
     assert surface.outcome_bounds == (-10.0, 10.0)
     ((data, options),) = seen
@@ -478,7 +487,7 @@ def test_the_assessment_row_is_available_and_asks_for_the_estimand(fitted: Any) 
         ({"latent_level": "cluster"}, "declares no cluster"),
         ({"observation_reads": ("W1",)}, "observes every node and the outcome"),
         ({"bounded_outcome_law": "logit"}, "declares none"),
-        ({"benchmark_covariates": ("A1",)}, "baseline covariates of this panel"),
+        ({"benchmark_covariates": ("A1",)}, "names a baseline covariate of this panel"),
         ({"grid": ConfounderStrengthGrid({"B": (0.0, 0.1)}, (0.0,))}, "not treatment nodes"),
         ({"grid": ConfounderStrengthGrid((0.0, 0.6), (0.0,))}, "between 0 and 0.5"),
         (

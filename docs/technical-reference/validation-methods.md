@@ -1287,9 +1287,12 @@ continuous nodes, and no cluster. The table gives the law and the test module th
 | outcome | the point outcome law, with the bounded laws on a `q_bounds` fit | a cross-fitted bounded fit keeps its folds and its bounds |
 
 Each refit passes the original draws' seeds when the root seed is the fit's own, so the refit at
-zero strength reproduces the estimate. Calibration reads each named baseline covariate against
-each moved node and the outcome. It conditions on the other baseline covariates, not on the
-earlier nodes. `longitudinal_fit_refusal`, in
+zero strength reproduces the estimate. An explicit seed other than the fit's own redraws them,
+and `refit_folds="redrawn"` then says that each cell's movement includes fold noise.
+
+Calibration reads each named baseline covariate against each moved node and the outcome. It conditions on
+the other baseline covariates, not on the earlier nodes. A benchmark names a baseline covariate.
+A covariate measured before node 1 in the time-varying block is not a benchmark. `longitudinal_fit_refusal`, in
 `src/cleverly/sensitivity/_simulated_confounding_longitudinal.py`, applies the ordered
 longitudinal stops below. The point rule table hands a longitudinal result to it before any
 point rule runs.
