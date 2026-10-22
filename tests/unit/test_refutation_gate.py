@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -38,7 +39,7 @@ from cleverly.validation._readings import (
     subset_reference_sd,
 )
 from cleverly.validation.refute import DEFAULT_TESTS
-from tests.unit.test_generated_outcome_refutation import _eligible_result
+from tests.unit.test_generated_outcome_refutation import _eligible_result, _linear_ate_fit
 
 
 def _fit_configuration(**overrides: Any) -> FitConfiguration:
@@ -56,6 +57,7 @@ def _fit_configuration(**overrides: Any) -> FitConfiguration:
         "min_event_count": None,
         "clusters": None,
         "arms": 2,
+        "replicates": 5,
     }
     base.update(overrides)
     return FitConfiguration(**base)
@@ -358,6 +360,7 @@ class TestScopeContainment:
                 inference=frozenset({fit.inference}),
                 known_mechanism=frozenset({False}),
                 arms=frozenset({2}),
+                replicates=frozenset({5}),
                 n_min=fit.n,
                 covariates_per_row_max=fit.covariates_per_row,
             ),
@@ -384,6 +387,106 @@ class TestScopeContainment:
         assert check_scope_containment(row, without_power)
         failed_size = {**cells, "s1": CalibrationCell("size", False, cells["s1"].configuration)}
         assert check_scope_containment(row, failed_size)
+
+    def test_a_combination_no_cell_ran_is_a_finding(self) -> None:
+        row = self._row()
+        base = _fit_configuration()
+        crossed = replace(
+            row,
+            scope=replace(
+                row.scope,
+                methods=frozenset({"TMLE", "CTMLE"}),
+                outcome_families=frozenset({"gaussian", "binomial"}),
+            ),
+        )
+        cells = {
+            "s1": CalibrationCell("size", True, base),
+            "s2": CalibrationCell(
+                "size", True, replace(base, method="CTMLE", outcome_family="binomial")
+            ),
+            "p1": CalibrationCell("power", True, base),
+            "p2": CalibrationCell(
+                "power", True, replace(base, method="CTMLE", outcome_family="binomial")
+            ),
+        }
+        crossed = replace(crossed, study=("study", "s1", "s2", "p1", "p2"))
+        findings = check_scope_containment(crossed, cells)
+        assert any("TMLE" in item and "binomial" in item for item in findings)
+        assert any("CTMLE" in item and "gaussian" in item for item in findings)
+
+    def test_learners_are_checked_per_fit_not_pooled(self) -> None:
+        row, base = self._row(), _fit_configuration()
+        other = replace(base, learners=("Ridge()", "Lasso()"))
+        pooled = replace(
+            row,
+            scope=replace(row.scope, learners=frozenset({*base.learners, *other.learners})),
+            study=("study", "s1", "s2", "p1", "p2"),
+        )
+        cells = {
+            "s1": CalibrationCell("size", True, base),
+            "s2": CalibrationCell("size", True, other),
+            "p1": CalibrationCell("power", True, base),
+            "p2": CalibrationCell("power", True, other),
+        }
+        assert check_scope_containment(pooled, cells)
+
+    def test_a_row_at_one_replicate_count_covers_no_other(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        row = _covering_row("placebo", "t")
+        row = replace(row, scope=replace(row.scope, replicates=frozenset({20})))
+        monkeypatch.setattr(interpretation, "VERDICT_EVIDENCE", (row,))
+        result = _binary_fit(cross_fit=False)
+        at_five = refute(result, tests=("placebo",), n_replicates=5, random_state=3)
+        at_twenty = refute(result, tests=("placebo",), n_replicates=20, random_state=3)
+        assert at_five["placebo"].passed is None
+        assert at_twenty["placebo"].passed is not None
+
+    def test_event_and_cluster_bounds_must_sit_inside_the_cells(self) -> None:
+        row, base = self._row(), _fit_configuration(min_event_count=30, clusters=40)
+        cells = {
+            "s1": CalibrationCell("size", True, base),
+            "p1": CalibrationCell("power", True, base),
+        }
+        unbounded_events = replace(row, scope=replace(row.scope, min_event_count_min=None))
+        assert check_scope_containment(unbounded_events, cells)
+        wide_clusters = replace(
+            row, scope=replace(row.scope, min_event_count_min=30, clusters_min=10)
+        )
+        assert check_scope_containment(wide_clusters, cells)
+        inside = replace(row, scope=replace(row.scope, min_event_count_min=30, clusters_min=40))
+        assert check_scope_containment(inside, cells) == []
+
+
+class TestNegativeControlConfiguration:
+    def test_the_control_outcome_family_is_the_scope_axis(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A Gaussian fit with a binary control: the control's family is binomial.
+        row = _covering_row("negative_control_outcome", "z")
+        row = replace(row, scope=replace(row.scope, outcome_families=frozenset({"binomial"})))
+        monkeypatch.setattr(interpretation, "VERDICT_EVIDENCE", (row,))
+        result = _linear_ate_fit(ATE())
+        rng = np.random.default_rng(0)
+        binary_control = (rng.uniform(size=result.data.n) < 0.3).astype(float)
+        report = refute(
+            result,
+            tests=("negative_control_outcome",),
+            negative_control_outcome=binary_control,
+            random_state=5,
+        )
+        assert report["negative_control_outcome"].passed is not None
+        gaussian_only = replace(
+            row, scope=replace(row.scope, outcome_families=frozenset({"gaussian"}))
+        )
+        monkeypatch.setattr(interpretation, "VERDICT_EVIDENCE", (gaussian_only,))
+        withheld = refute(
+            result,
+            tests=("negative_control_outcome",),
+            negative_control_outcome=binary_control,
+            random_state=5,
+        )
+        assert withheld["negative_control_outcome"].passed is None
 
 
 class TestEmptyRegistry:
@@ -658,36 +761,55 @@ class TestPlaceboDraw:
             refute(result, tests=("placebo",), placebo_mode="shuffle")
 
 
+class _IgnoreLast(BaseEstimator, RegressorMixin):
+    """Fit logistic regression on the first three columns only."""
+
+    def fit(self, x: Any, y: Any) -> _IgnoreLast:
+        self.model_ = LogisticRegression(max_iter=1000).fit(x[:, :3], y)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, x: Any) -> Any:
+        return self.model_.predict_proba(x[:, :3])
+
+    def predict(self, x: Any) -> Any:
+        return self.model_.predict(x[:, :3])
+
+
 class TestPairedNoise:
     def test_a_learner_that_ignores_the_noise_column_gives_exactly_zero(self) -> None:
-        from sklearn.base import BaseEstimator, RegressorMixin
-
-        class IgnoreLast(BaseEstimator, RegressorMixin):
-            """Fit logistic regression on the first four columns only."""
-
-            def fit(self, x: Any, y: Any) -> IgnoreLast:
-                self.model_ = LogisticRegression(max_iter=1000).fit(x[:, :3], y)
-                self.classes_ = self.model_.classes_
-                return self
-
-            def predict_proba(self, x: Any) -> Any:
-                return self.model_.predict_proba(x[:, :3])
-
-            def predict(self, x: Any) -> Any:
-                return self.model_.predict(x[:, :3])
-
         frame, _ = make_binary_outcome(n=300, seed=5)
         study = CausalStudy(
             frame,
             design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
         )
         result = study.identify(ATE()).estimate(
-            outcome_learner=IgnoreLast(),
-            treatment_learner=IgnoreLast(),
+            outcome_learner=_IgnoreLast(),
+            treatment_learner=_IgnoreLast(),
             n_folds=2,
             simultaneous=False,
         )
         report = refute(result, tests=("random_common_cause",), n_replicates=3, random_state=1)
+        assert report["random_common_cause"].statistic == 0.0
+
+    @pytest.mark.parametrize("random_state", [None, 7])
+    def test_repeated_cross_fitting_keeps_every_repeat_seed(self, random_state: int | None) -> None:
+        from tests.conftest import fast_tmle
+
+        frame, _ = make_binary_outcome(n=300, seed=5)
+        result = (
+            fast_tmle(
+                repeats=2,
+                n_folds=2,
+                cross_fit=True,
+                outcome_learner=_IgnoreLast(),
+                treatment_learner=_IgnoreLast(),
+                random_state=random_state,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+            .single()
+        )
+        report = refute(result, tests=("random_common_cause",), n_replicates=2, random_state=1)
         assert report["random_common_cause"].statistic == 0.0
 
     def test_the_seed_spread_is_opt_in(self) -> None:
@@ -703,3 +825,38 @@ class TestPairedNoise:
             random_state=1,
         )
         assert any("seeds" in label for label, _ in wide["random_common_cause"].extras)
+
+
+class TestFrozenSplitsAndCovariatePart:
+    def test_frozen_folds_meet_the_trainability_preflight(self) -> None:
+        from cleverly.exceptions import DataError
+        from cleverly.learners.crossfit import Folds
+
+        result = _binary_fit(cross_fit=True)
+        treatment = np.asarray(result.data.treatment)
+        labels = (treatment == 1).astype(np.int64)
+        with pytest.raises(DataError, match="training complement"):
+            result.estimator.refit(
+                result.data, frozen_folds=[Folds(labels, 2)] * len(result.repeats)
+            )
+
+    def test_a_varying_effect_would_withhold_the_ratio_and_coverage(self) -> None:
+        from cleverly.validation.refute import _covariate_part_vanishes
+
+        assert _covariate_part_vanishes(
+            difference_contrast=True, effect_varies_with_covariates=False
+        )
+        assert not _covariate_part_vanishes(
+            difference_contrast=True, effect_varies_with_covariates=True
+        )
+        assert not _covariate_part_vanishes(
+            difference_contrast=False, effect_varies_with_covariates=False
+        )
+
+    def test_the_registered_processes_carry_a_scalar_effect(self) -> None:
+        # The call site passes effect_varies_with_covariates=False. That is sound only while
+        # every accepted process has a constant effect, so a tau(W) process fails here first.
+        from cleverly.validation import GaussianAdjustmentOutcome
+
+        with pytest.raises((ValueError, TypeError)):
+            GaussianAdjustmentOutcome(effect=lambda w: w[:, 0])  # type: ignore[arg-type]

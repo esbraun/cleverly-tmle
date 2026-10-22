@@ -354,6 +354,10 @@ def band_readings(
     tuple of BandReading
         Bias, standard-error ratio and coverage, in that order.
 
+        The ratio divides by the sample standard deviation (``ddof=1``), and the delta method
+        uses the moment form (``ddof=0``) of the same variance, as the reference script of the
+        plan does. The two differ by a factor of order 1/R.
+
         The bias interval is :math:`\bar\psi - T \pm 1.96\sqrt{s^2/R + V_T}` in units of the
         draws' standard deviation :math:`s`. The ratio interval is the delta method on
         :math:`\log \overline{se} - \tfrac12 \log \overline{(\psi_r - \bar\psi)^2}`,

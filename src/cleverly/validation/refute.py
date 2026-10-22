@@ -2140,9 +2140,13 @@ def _read_configuration(result: Any, estimand: str) -> FitConfiguration | None:
         return None
 
 
-def _resolve(instrument: str, rule: str, fit: FitConfiguration | None) -> Resolution:
+def _resolve(
+    instrument: str, rule: str, fit: FitConfiguration | None, replicates: int | None = None
+) -> Resolution:
     """Ask the registry, reading :data:`~cleverly.validation._interpretation.VERDICT_EVIDENCE`
-    at call time so a test may patch it."""
+    at call time so a test may patch it. A row covers a report only at its replicate count."""
+    if fit is not None:
+        fit = replace(fit, replicates=replicates)
     return _interpretation.resolve(instrument, rule, fit)
 
 
@@ -2208,7 +2212,7 @@ def _generated_outcome_test(
         calibrated = len(values) >= bands.minimum_draws
         licensed_inside: list[bool] = []
         for reading in readings:
-            resolution = _resolve("generated_outcome", by_rule[reading.name], fit)
+            resolution = _resolve("generated_outcome", by_rule[reading.name], fit, len(values))
             if resolution.licensed and calibrated:
                 licensed_inside.append(reading.inside)
                 sentences.append(resolution.sentence)
@@ -2324,11 +2328,12 @@ def _placebo_data(data: Any, rng: np.random.Generator, mode: str) -> Any:
         return replaced
     from ..data.known_mechanism import KnownMechanism
 
-    treatment = np.asarray(replaced.treatment, dtype=float)
-    recorded = replaced.treatment_recorded if replaced.has_missing_treatment else slice(None)
-    shares = np.asarray(
-        [float(np.mean(treatment[recorded] == code)) for code in replaced.arm_codes]
-    )
+    # The exact mechanism of the placebo law is the empirical arm shares of the original
+    # treatment column, for the permutation and the independent draw alike. The realized
+    # shares of one drawn sample are not the law's.
+    treatment = np.asarray(data.treatment, dtype=float)
+    recorded = data.treatment_recorded if data.has_missing_treatment else slice(None)
+    shares = np.asarray([float(np.mean(treatment[recorded] == code)) for code in data.arm_codes])
     values = np.tile(shares, (replaced.n, 1))
     return replace(replaced, known_treatment=KnownMechanism(values, "array"))
 
@@ -2528,11 +2533,17 @@ def refute(
     outcomes: list[RefutationTest] = []
 
     def refit(
-        replacement: Any, *, seed: int = seed, frozen_folds: Sequence[Any] | None = None
+        replacement: Any,
+        *,
+        seed: int = seed,
+        frozen_folds: Sequence[Any] | None = None,
+        frozen_seeds: Sequence[int] | None = None,
     ) -> tuple[float, float]:
         options: dict[str, Any] = {}
         if frozen_folds is not None:
             options["frozen_folds"] = frozen_folds
+        if frozen_seeds is not None:
+            options["frozen_seeds"] = frozen_seeds
         refitted = estimator.refit(
             replacement,
             intermediate_value=result.intermediate_value,
@@ -2570,7 +2581,7 @@ def refute(
                     plugin_std_errors=[se for _, se in fits],
                     scale=original,
                 )
-            resolution = _resolve("placebo", "t", fit)
+            resolution = _resolve("placebo", "t", fit, replicate_count)
             passed: bool | None = None
             if reading is not None and resolution.licensed:
                 passed = not reading.rejects
@@ -2615,10 +2626,12 @@ def refute(
         elif name == "random_common_cause":
             repeats = getattr(result, "repeats", None)
             fit_seed = repeats[0].seed if repeats else seed
+            repeat_seeds = [item.seed for item in repeats] if repeats else None
             noise_fits = [
                 refit(
                     data.with_extra_covariate(rng.normal(size=data.n), f"_noise_{index}"),
                     seed=fit_seed,
+                    frozen_seeds=repeat_seeds,
                 )
                 for index in range(replicate_count)
             ]
@@ -2675,7 +2688,7 @@ def refute(
                     [on_scale(psi) for psi in values], std_error=std_error, n=units, m=size
                 )
             )
-            resolution = _resolve("subset", "rho", fit)
+            resolution = _resolve("subset", "rho", fit, replicate_count)
             passed = None
             if reading_s is not None and np.isfinite(reading_s.rho) and resolution.licensed:
                 passed = bool(reading_s.pvalue >= 0.05)
@@ -2728,7 +2741,18 @@ def refute(
             deviation = _no_effect_difference(value, no_effect_null)
             z = deviation / control_se if control_se > 0 else float("nan")
             pvalue = float(2.0 * stats.norm.sf(abs(z))) if np.isfinite(z) else float("nan")
-            resolution = _resolve("negative_control_outcome", "z", fit)
+            # The control's own outcome family and event count are the scope axes of a
+            # negative-control reading, not the primary outcome's.
+            control_fit = (
+                None
+                if fit is None
+                else replace(
+                    fit,
+                    outcome_family=str(replacement.family),
+                    min_event_count=_interpretation.event_count(replacement),
+                )
+            )
+            resolution = _resolve("negative_control_outcome", "z", control_fit, 1)
             passed = bool(pvalue >= 0.05) if resolution.licensed and np.isfinite(z) else None
             outcomes.append(
                 RefutationTest(

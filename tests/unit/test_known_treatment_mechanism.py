@@ -1154,3 +1154,26 @@ def test_a_discrete_modified_policy_on_a_known_mechanism_recovers_the_truth(arms
             target = int(apply(np.array([float(arm)]), frame_row)[0])
             truth += probability * outcome[cell, target] / len(law.CELLS)
     assert abs(result.estimates["ey_policy[mtp]"].psi - truth) <= EXACT
+
+
+def test_a_drawn_placebo_keeps_the_original_arm_shares_as_its_mechanism() -> None:
+    """The exact mechanism of the independent draw is the original shares, not the sample's."""
+    frame = _finite_frame()
+    result = (
+        _tmle(treatment_learner=LogisticRegression(max_iter=1000), estimands=("ate",))
+        .fit(frame, **ROLES, treatment_probabilities=_columns(2))
+        .single()
+    )
+    seen: list[CausalData] = []
+    real = result.estimator.refit
+
+    def spy(data: CausalData, **options: Any) -> Any:
+        seen.append(data)
+        return real(data, **options)
+
+    result.estimator.refit = spy  # type: ignore[method-assign]
+    refute(result, tests=("placebo",), placebo_mode="draw", n_replicates=3, random_state=1)
+    original = [np.mean(result.data.treatment == 0.0), np.mean(result.data.treatment == 1.0)]
+    assert len(seen) == 3
+    for data in seen:
+        np.testing.assert_allclose(np.asarray(data.known_treatment.values)[0], original)

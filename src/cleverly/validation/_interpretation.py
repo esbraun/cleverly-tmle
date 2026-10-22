@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from itertools import product
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
@@ -73,7 +74,10 @@ def learner_fingerprint(learner: Any, n: int) -> str:
 
     The declared parameters are not enough where a parameter resolves with the row count.
     ``early_stopping="auto"`` on a ``HistGradientBoosting*`` learner stops early above 10,000
-    rows, so the fingerprint writes the resolved value.
+    rows, so the fingerprint writes the resolved value. The resolution reads the full row
+    count of the fit, although each learner trains on (k - 1)/k of it under k-fold
+    cross-fitting. That reads early stopping as on slightly more often than the fit ran it,
+    which keeps a row from covering a fit that it did not calibrate.
 
     Parameters
     ----------
@@ -129,7 +133,7 @@ class FitConfiguration:
     outcome_family : str
         The outcome family of the fit.
     treatment_kind : str
-        ``"binary"``, ``"categorical"``, ``"continuous"`` or ``"vector"``.
+        ``"discrete"``, ``"continuous"`` or ``"vector"``.
     learners : tuple of str
         One :func:`learner_fingerprint` per nuisance learner.
     cross_fitting : str
@@ -149,6 +153,9 @@ class FitConfiguration:
         Number of clusters, or ``None`` on an unclustered fit.
     arms : int
         Number of treatment levels.
+    replicates : int or None
+        The replicate count R of the test that asks. ``None`` where the question is not about
+        a replicate count. :func:`~cleverly.validation.refute.refute` sets it per test.
     """
 
     method: str
@@ -164,6 +171,34 @@ class FitConfiguration:
     min_event_count: int | None
     clusters: int | None
     arms: int
+    replicates: int | None = None
+
+
+def event_count(data: Any) -> int | None:
+    """Return the smallest count of events or non-events in any arm.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis rows.
+
+    Returns
+    -------
+    int or None
+        ``None`` unless the outcome family is binomial.
+    """
+    arm_codes = tuple(getattr(data, "arm_codes", ()) or ())
+    if str(data.family) != "binomial" or not arm_codes:
+        return None
+    counts: list[int] = []
+    outcome = np.asarray(data.outcome, dtype=float)
+    treatment = np.asarray(data.treatment, dtype=float)
+    observed = np.asarray(data.observed, dtype=bool)
+    for code in arm_codes:
+        in_arm = observed & (treatment == code)
+        events = int(np.count_nonzero(outcome[in_arm] > 0.5))
+        counts.extend((events, int(in_arm.sum()) - events))
+    return min(counts)
 
 
 def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
@@ -199,17 +234,7 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         cross_fitting = "off"
     arm_codes = tuple(getattr(data, "arm_codes", ()) or ())
     family = str(data.family)
-    min_events: int | None = None
-    if family == "binomial" and arm_codes:
-        counts: list[int] = []
-        outcome = np.asarray(data.outcome, dtype=float)
-        treatment = np.asarray(data.treatment, dtype=float)
-        observed = np.asarray(data.observed, dtype=bool)
-        for code in arm_codes:
-            in_arm = observed & (treatment == code)
-            events = int(np.count_nonzero(outcome[in_arm] > 0.5))
-            counts.extend((events, int(in_arm.sum()) - events))
-        min_events = min(counts)
+    min_events = event_count(data)
     clusters = None if data.cluster is None else int(np.unique(data.cluster).size)
     return FitConfiguration(
         method=type(estimator).__name__,
@@ -254,6 +279,8 @@ class CalibrationScope:
         The covered values of the known-mechanism declaration.
     arms : frozenset of int or None
         The covered treatment level counts.
+    replicates : frozenset of int or None
+        The covered replicate counts R. A row calibrated at one R covers no other.
     n_min : int
         The smallest covered ``n``.
     n_max : int or None
@@ -275,6 +302,7 @@ class CalibrationScope:
     inference: frozenset[str] | None = None
     known_mechanism: frozenset[bool] | None = None
     arms: frozenset[int] | None = None
+    replicates: frozenset[int] | None = None
     n_min: int = 0
     n_max: int | None = None
     covariates_per_row_max: float | None = None
@@ -292,6 +320,7 @@ class CalibrationScope:
             "inference",
             "known_mechanism",
             "arms",
+            "replicates",
         ):
             object.__setattr__(self, name, _frozen(getattr(self, name)))
 
@@ -331,6 +360,7 @@ class CalibrationScope:
             ("inference status", self.inference, fit.inference),
             ("known mechanism", self.known_mechanism, fit.known_mechanism),
             ("arm count", self.arms, fit.arms),
+            ("replicate count", self.replicates, fit.replicates),
         )
         for axis, covered, value in pairs:
             if covered is not None and value not in covered:
@@ -634,42 +664,59 @@ def check_scope_containment(
             problems.append(f"{row.instrument}/{row.rule}: no passing {kind} cell")
             continue
         scope = row.scope
-        axes: dict[str, tuple[frozenset[Any] | None, tuple[Any, ...]]] = {
-            "methods": (scope.methods, tuple(c.configuration.method for c in passing)),
-            "estimand_kinds": (
-                scope.estimand_kinds,
-                tuple(c.configuration.estimand_kind for c in passing),
-            ),
-            "outcome_families": (
-                scope.outcome_families,
-                tuple(c.configuration.outcome_family for c in passing),
-            ),
-            "treatment_kinds": (
-                scope.treatment_kinds,
-                tuple(c.configuration.treatment_kind for c in passing),
-            ),
-            "cross_fitting": (
-                scope.cross_fitting,
-                tuple(c.configuration.cross_fitting for c in passing),
-            ),
-            "inference": (scope.inference, tuple(c.configuration.inference for c in passing)),
-            "known_mechanism": (
-                scope.known_mechanism,
-                tuple(c.configuration.known_mechanism for c in passing),
-            ),
-            "arms": (scope.arms, tuple(c.configuration.arms for c in passing)),
-        }
-        for axis, (covered, recorded) in axes.items():
+        axes: tuple[tuple[str, frozenset[Any] | None, Any], ...] = (
+            ("methods", scope.methods, lambda c: c.method),
+            ("estimand_kinds", scope.estimand_kinds, lambda c: c.estimand_kind),
+            ("outcome_families", scope.outcome_families, lambda c: c.outcome_family),
+            ("treatment_kinds", scope.treatment_kinds, lambda c: c.treatment_kind),
+            ("cross_fitting", scope.cross_fitting, lambda c: c.cross_fitting),
+            ("inference", scope.inference, lambda c: c.inference),
+            ("known_mechanism", scope.known_mechanism, lambda c: c.known_mechanism),
+            ("arms", scope.arms, lambda c: c.arms),
+            ("replicates", scope.replicates, lambda c: c.replicates),
+        )
+        unrestricted = False
+        for axis, covered, _read in axes:
             if covered is None:
                 problems.append(f"{row.instrument}/{row.rule}: axis {axis} is unrestricted")
-            elif not covered <= set(recorded):
+                unrestricted = True
+        if scope.learners is None:
+            problems.append(f"{row.instrument}/{row.rule}: axis learners is unrestricted")
+            unrestricted = True
+        if not unrestricted:
+            # A fit is covered when its whole combination of categorical values is, so every
+            # tuple in the product of the row's axes must be one passing cell's configuration.
+            # Each axis passing alone is not enough: cells TMLE-gaussian and CTMLE-binomial
+            # leave TMLE-binomial uncovered.
+            recorded = {
+                (*(read(c.configuration) for _, _, read in axes), c.configuration.learners)
+                for c in passing
+            }
+            assert scope.learners is not None
+            ran = {fp for c in passing for fp in c.configuration.learners}
+            if not scope.learners <= ran:
                 problems.append(
-                    f"{row.instrument}/{row.rule}: {axis} "
-                    f"{sorted(map(str, covered - set(recorded)))} has no passing {kind} cell"
+                    f"{row.instrument}/{row.rule}: a learner has no passing {kind} cell"
                 )
-        learners = {fp for c in passing for fp in c.configuration.learners}
-        if scope.learners is None or not scope.learners <= learners:
-            problems.append(f"{row.instrument}/{row.rule}: a learner has no passing {kind} cell")
+            by_length: dict[int, list[tuple[str, ...]]] = {}
+            for c in passing:
+                by_length.setdefault(len(c.configuration.learners), []).append(
+                    c.configuration.learners
+                )
+            for values in product(*(sorted(covered, key=str) for _, covered, _ in axes if covered)):
+                for length, tuples in sorted(by_length.items()):
+                    # Each position (outcome, treatment, missingness) takes the fingerprints
+                    # that the row names and a cell ran in that position.
+                    positions = [
+                        sorted({t[i] for t in tuples} & scope.learners) for i in range(length)
+                    ]
+                    for fingerprints in product(*positions):
+                        if (*values, fingerprints) not in recorded:
+                            problems.append(
+                                f"{row.instrument}/{row.rule}: the combination "
+                                f"{[str(v) for v in values]} with learners {list(fingerprints)} "
+                                f"has no passing {kind} cell"
+                            )
         smallest = min(c.configuration.n for c in passing)
         if scope.n_min < smallest:
             problems.append(f"{row.instrument}/{row.rule}: n_min {scope.n_min} < cell n {smallest}")
@@ -685,10 +732,13 @@ def check_scope_containment(
             for c in passing
             if c.configuration.min_event_count is not None
         ]
-        if scope.min_event_count_min is not None and (
-            not events or scope.min_event_count_min < min(events)
+        if events and (
+            scope.min_event_count_min is None or scope.min_event_count_min < min(events)
         ):
             problems.append(
                 f"{row.instrument}/{row.rule}: event-count bound below the {kind} cells"
             )
+        clusters = [c.configuration.clusters for c in passing if c.configuration.clusters]
+        if scope.clusters_min is not None and (not clusters or scope.clusters_min < min(clusters)):
+            problems.append(f"{row.instrument}/{row.rule}: cluster bound below the {kind} cells")
     return problems

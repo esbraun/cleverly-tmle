@@ -980,6 +980,7 @@ class TMLE:
     #: Realized outer splits that a refit uses in place of drawing one. Only the copy that
     #: :meth:`refit` builds sets it, so no constructor argument and no fitted result holds it.
     _frozen_folds: tuple[Folds, ...] | None = None
+    _frozen_seeds: tuple[int, ...] | None = None
 
     def __init__(
         self,
@@ -1516,6 +1517,7 @@ class TMLE:
         intermediate_value: float | None = None,
         random_state: int | None = None,
         frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int] | None = None,
     ) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
 
@@ -1547,7 +1549,8 @@ class TMLE:
         holding the fingerprint here would refuse the placebo and negative-control
         refutations for a change that moves no row.  What a refit cannot do is change the
         row *set*: the count check inside ``validate`` still refuses that, and
-        :func:`~cleverly.validation.refute` refuses the subsampling test up front.
+        :func:`~cleverly.validation.refute` refits the subsampling test on the original labels
+        of the kept rows (``frozen_folds``) and refuses the bootstrap test up front.
         :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
         refit accepts the plan and draws its labels again to check them.
 
@@ -1571,6 +1574,10 @@ class TMLE:
             these labels instead of drawing a split.  The data-subset refutation passes the
             original fit's labels of the drawn units, so the refit's fold noise is the
             original's and no split is redrawn.  ``None`` draws the split as usual.
+        frozen_seeds : sequence of int or None
+            One seed per repeat, replacing the seeds the plan would spawn from
+            ``random_state``.  The noise-covariate refutation passes the seeds of the
+            original repeats, so each repeat draws the original's folds and learner seeds.
 
         Returns
         -------
@@ -1582,6 +1589,10 @@ class TMLE:
             if estimator is self:
                 estimator = copy.copy(self)
             estimator._frozen_folds = tuple(frozen_folds)
+        if frozen_seeds is not None:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator._frozen_seeds = tuple(frozen_seeds)
         plan = estimator.split_plan
         if plan is not None and plan.source_fingerprint is not None:
             if estimator is self:
@@ -3717,6 +3728,13 @@ class TMLE:
         seeds = tuple(
             _fresh_seed() if seed is None else seed for seed in self.crossfit_plan(data).seeds()
         )
+        if self._frozen_seeds is not None:
+            if len(self._frozen_seeds) != len(seeds):
+                raise DataError(
+                    "frozen_seeds must hold one seed per repeat; "
+                    f"got {len(self._frozen_seeds)} for {len(seeds)} repeat(s)"
+                )
+            seeds = self._frozen_seeds
         supplied = self.split_plan
         if self._frozen_folds is not None:
             folds = self._frozen_folds
