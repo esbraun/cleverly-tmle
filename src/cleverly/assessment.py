@@ -621,6 +621,7 @@ SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
     "simulated_confounding": SensitivityRoute(
         "simulated_confounding", "simulated_confounding", needs_estimand=True
     ),
+    "marginal_bounds": SensitivityRoute("marginal", "marginal_sensitivity_bounds"),
 }
 
 
@@ -3805,6 +3806,20 @@ def _tipping_item(
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
+def _marginal_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    rows = report.rows
+    facts = [
+        f"{report.estimand} bounds at gamma={rows[-1].gamma:g}: "
+        f"[{rows[-1].lower:.4g}, {rows[-1].upper:.4g}]",
+        f"{len(rows)} gamma value(s)",
+    ]
+    if report.null is not None:
+        facts.append(f"breakdown gamma {report.breakdown}")
+    return AssessmentItem("marginal_bounds", AssessmentStatus.COMPLETED, "; ".join(facts))
+
+
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -3829,6 +3844,7 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "evalue": _evalue_item,
     "missingness": _missingness_item,
     "tipping_gamma": _tipping_item,
+    "marginal_bounds": _marginal_item,
 }
 
 
@@ -4059,6 +4075,38 @@ _STRUCTURAL_TILT_REFUSAL = Refusal(
 )
 
 
+#: The artifacts and the reading of the marginal sensitivity model row, one record for
+#: every family.
+_MARGINAL_ARTIFACTS = ("out-of-fold treatment mechanism", "out-of-fold outcome regression")
+_MARGINAL_INTERPRETATION = "arm-mean and ATE bounds under a marginal sensitivity model"
+
+
+def _marginal_structural_refusal() -> Refusal:
+    from .sensitivity.marginal import STRUCTURAL_REFUSAL
+
+    return STRUCTURAL_REFUSAL
+
+
+def _marginal_row(result: Any, family: str) -> AssessmentCapability:
+    """The marginal sensitivity model row, declared from the bound's own refusal."""
+    from .sensitivity.marginal import marginal_bound_refusal
+
+    refusal = marginal_bound_refusal(result)
+    return _capability(
+        "marginal_bounds",
+        family,
+        artifacts=_MARGINAL_ARTIFACTS,
+        interpretation=_MARGINAL_INTERPRETATION,
+        # It fits quantile and tail regressions on the fit's folds; the estimator is not
+        # refitted.
+        execution="refit",
+        cost="moderate",
+        available=refusal is None,
+        status=AssessmentStatus.PASSED if refusal is None else AssessmentStatus.UNAVAILABLE,
+        refusal=refusal,
+    )
+
+
 def _structural_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
     """Every sensitivity row of a structural fit, each refused with its record."""
 
@@ -4137,6 +4185,12 @@ def _structural_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             artifacts=("observation mechanism", "published tilt identification"),
             interpretation="missingness departure at which the conclusion reaches its null",
             status=AssessmentStatus.NOT_APPLICABLE,
+        ),
+        refused(
+            "marginal_bounds",
+            _marginal_structural_refusal(),
+            artifacts=_MARGINAL_ARTIFACTS,
+            interpretation=_MARGINAL_INTERPRETATION,
         ),
     )
 
@@ -4393,6 +4447,7 @@ class SensitivityFacade(_CapabilityFacade):
                 "tipping_gamma",
                 interpretation="missingness departure at which the conclusion reaches its null",
             ),
+            _marginal_row(self._result, family),
         )
 
     @cached_property
@@ -4808,6 +4863,26 @@ class SensitivityFacade(_CapabilityFacade):
         cleverly.sensitivity.evalue : The same E-value as a free function.
         """
         return self._dispatch("evalue", args, kwargs)
+
+    def marginal_bounds(self, *args: Any, **kwargs: Any) -> Any:
+        """Bound an arm mean or the ATE under the marginal sensitivity model.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.marginal_sensitivity_bounds`, without
+            its first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        MarginalSensitivityBounds
+            One row of bounds per sensitivity parameter value.
+
+        See Also
+        --------
+        cleverly.sensitivity.marginal_sensitivity_bounds : The same bounds as a free function.
+        """
+        return self._dispatch("marginal_bounds", args, kwargs)
 
     def missingness(self, *args: Any, **kwargs: Any) -> Any:
         """Vary unobserved-outcome odds under a missingness tilt.
