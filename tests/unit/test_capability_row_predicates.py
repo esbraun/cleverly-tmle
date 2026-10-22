@@ -27,7 +27,6 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
-from cleverly._refusal import NO_ALTERNATIVE
 from cleverly.assessment import (
     POINT_REPLAY_REFIT_CONFIGURATION,
     AssessmentStatus,
@@ -43,7 +42,6 @@ from cleverly.exceptions import CapabilityError, CleverlyError, DataError, Refus
 from cleverly.methods import MethodAvailability
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import missingness as missingness_module
-from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.missingness import (
     _FIT_WIDE_TILT_RULES,
@@ -56,8 +54,6 @@ from cleverly.sensitivity.missingness import (
 from cleverly.sensitivity.omitted_variable import (
     _EVALUE_POINTER,
     _FIT_WIDE_BOUND_RULES,
-    _RESPONSE_BOUND_REFUSAL,
-    _RESPONSE_TILT_POINTER,
     OMITTED_VARIABLE_OPERATIONS,
     benchmark,
     benchmark_refusal,
@@ -192,7 +188,7 @@ def _disagreement(label: object, row: Any, raised: str | None) -> list[str]:
 
 
 def tilt_disagreements(result: Any) -> list[str]:
-    """Every way the two tilt rows and the bound's pointer disagree with the calls.
+    """Every way the two tilt rows disagree with the calls.
 
     A fresh facade reads the rows, so a monkeypatched seam takes effect even when the
     result already memoized its own facade. An empty list is agreement.
@@ -206,10 +202,6 @@ def tilt_disagreements(result: Any) -> list[str]:
             # The row asks which estimand, and the call that names one runs.
             continue
         problems += _disagreement(operation, row, raised)
-    bound = fit_wide_bound_refusal(result)
-    points = bound is not None and bound.alternative == _RESPONSE_TILT_POINTER.strip()
-    if points and not facade.capability("missingness").available:
-        problems.append("the bound points at a tilt row that is not available")
     return problems
 
 
@@ -309,23 +301,22 @@ class TestTheTiltRowsReadTheCallsPredicate:
                 assert "declined this request" not in item.detail, (kind, operation)
 
 
-class TestTheBoundPointsAtTheTiltOnlyWhereItRuns:
-    """The response refusal of the bound names the tilt only where the tilt runs."""
+class TestTheBoundAdmitsAResponseMechanism:
+    """X82 part G lifted the response refusal, so only the parameter axis refuses here."""
 
-    def test_a_missing_outcome_fit_keeps_the_pointer(self, tilt_fits: dict[str, Any]) -> None:
-        refusal = fit_wide_bound_refusal(tilt_fits["missing"])
-        assert refusal is not None
-        assert refusal.condition == _RESPONSE_BOUND_REFUSAL
-        assert refusal.alternative == _RESPONSE_TILT_POINTER.strip()
+    def test_a_missing_outcome_fit_meets_no_fit_wide_refusal(
+        self, tilt_fits: dict[str, Any]
+    ) -> None:
+        assert fit_wide_bound_refusal(tilt_fits["missing"]) is None
 
     @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
-    def test_a_fit_the_tilt_refuses_hears_no_pointer(
+    def test_a_fit_the_tilt_refuses_hears_its_axis(
         self, tilt_fits: dict[str, Any], kind: str
     ) -> None:
+        """Nonzero witness: the same response mechanism on another axis still refuses."""
         refusal = fit_wide_bound_refusal(tilt_fits[kind])
         assert refusal is not None
-        assert refusal.condition == _RESPONSE_BOUND_REFUSAL
-        assert refusal.alternative == NO_ALTERNATIVE
+        assert refusal == dict(_FIT_WIDE_BOUND_RULES)["parameter_axis"](tilt_fits[kind])
 
 
 class TestEachTiltMutationRestoresADisagreement:
@@ -351,16 +342,6 @@ class TestEachTiltMutationRestoresADisagreement:
         """The same mutation changes nothing where the table already said ``None``."""
         MUTATIONS["M1"].apply(monkeypatch)
         assert tilt_disagreements(tilt_fits["missing"]) == []
-
-    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
-    def test_an_unconditional_pointer_disagrees(
-        self, tilt_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The pointer as it was: printed on every response fit but the natural course."""
-        monkeypatch.setattr(omitted_variable_module, "fit_wide_tilt_refusal", lambda result: None)
-        assert tilt_disagreements(tilt_fits[kind]) == [
-            "the bound points at a tilt row that is not available"
-        ]
 
     def test_a_call_that_ignores_the_predicate_disagrees(
         self, tilt_fits: dict[str, Any], monkeypatch: pytest.MonkeyPatch
