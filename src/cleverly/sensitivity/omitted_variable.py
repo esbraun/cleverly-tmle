@@ -211,7 +211,7 @@ _DRTMLE_BOUND_REFUSAL = Refusal(
     "mechanism is wrong, which is the case DR-TMLE guards against. The bound would be too "
     "narrow and the robustness value too large. " + _NO_NU2_DERIVATION,
     alternative="Fit the ordinary TMLE on the same data for the bound.",
-    roadmap="X50",
+    roadmap="X82",
 )
 
 _CTMLE_BOUND_REFUSAL = Refusal(
@@ -226,7 +226,7 @@ _CTMLE_BOUND_REFUSAL = Refusal(
     "declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, "
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION,
     alternative="Fit the ordinary TMLE on the same data for the bound.",
-    roadmap="X51",
+    roadmap="X82",
 )
 
 #: The same refusal for the two collaborative fits that select nothing. Their mechanism
@@ -277,7 +277,7 @@ _INTERMEDIATE_BOUND_REFUSAL = Refusal(
     "strength over the treatment and intermediate mechanisms. This package reports cf_d "
     "and the robustness value as a treatment-side strength.",
     alternative=NO_ALTERNATIVE,
-    roadmap="X9",
+    roadmap="X82",
 )
 
 #: Why the median of several fold draws has no bound, in the words
@@ -382,7 +382,7 @@ def _refuse_response_mechanism(result: Any) -> Refusal | None:
         RefusalReason.IMPLEMENTATION_GAP,
         _RESPONSE_BOUND_REFUSAL,
         alternative=pointer.strip() or NO_ALTERNATIVE,
-        roadmap="X9",
+        roadmap="X82",
     )
 
 
@@ -392,10 +392,10 @@ _MISSING_TREATMENT_BOUND_REFUSAL = Refusal(
     "the omitted-variable bound is not implemented for a fit with a declared missing "
     "treatment. The Riesz representer of the bound is derived for a recorded treatment, "
     "and this fit divides by the composite mechanism P(A = a, Delta_A = 1[, Delta = 1] | W), "
-    "whose representer and confounding strengths are not derived. Roadmap X9 owns the "
+    "whose representer and confounding strengths are not derived. Roadmap X82 part G owns the "
     "representers that carry a second mechanism.",
     alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
-    roadmap="X9",
+    roadmap="X82",
 )
 
 
@@ -458,7 +458,7 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
         f"implementation of it is registered. The implemented bound covers the "
         f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)}.",
         alternative=NO_ALTERNATIVE,
-        roadmap="X9",
+        roadmap="X82",
     )
 
 
@@ -501,7 +501,7 @@ def _refuse_repeats(result: Any) -> Refusal | None:
         text=_REPEATS_REASON,
         reason=RefusalReason.IMPLEMENTATION_GAP,
         alternative="Fit one split for this analysis.",
-        roadmap="X65",
+        roadmap="X82",
     )
 
 
@@ -1959,7 +1959,7 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
             "Name a proper subset of the covariates, which exists only when the fit "
             "adjusts for two or more."
         ),
-        roadmap="X65",
+        roadmap="X82",
     )
 
 

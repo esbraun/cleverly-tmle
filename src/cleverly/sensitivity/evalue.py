@@ -87,7 +87,7 @@ _STANDARDISED_MISSING_REFUSAL = Refusal(
         "An E-value computed from a reported risk ratio or odds ratio reads only the "
         "estimate and its interval, so it stays available."
     ),
-    roadmap="X65",
+    roadmap="X82",
 )
 
 #: Why every E-value branch stops on a fit that supplies no inference.  Each branch reads
@@ -101,7 +101,7 @@ _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and it
 #: Why every E-value branch stops on a fit with an intermediate variable. This package
 #: has no implemented bound for its fitted controlled direct effect and confounding model.
 #: The E-value section of ``docs/technical-reference/validation-methods.md`` gives the
-#: support boundary, and X49 in ``docs/roadmap.md`` holds the per-arm bound that fills the
+#: support boundary, and X82 part G in ``docs/roadmap.md`` holds the per-arm bound that fills the
 #: gap. Raised in
 #: :func:`_select_evalue` before the
 #: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
@@ -113,10 +113,10 @@ _DIRECT_EFFECT_REFUSAL = Refusal(
     "effect and its confounding model. Applying the ordinary E-value conversion does "
     "not establish sensitivity to unmeasured treatment-outcome or intermediate-outcome "
     "confounding for this target, because its bias splits into one bounding factor per "
-    "arm and the ordinary conversion inverts one factor. docs/roadmap.md X49 tracks the "
+    "arm and the ordinary conversion inverts one factor. docs/roadmap.md X82 part G tracks the "
     "E-value of their product.",
     alternative=NO_ALTERNATIVE,
-    roadmap="X49",
+    roadmap="X82",
 )
 
 
@@ -496,7 +496,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
                 "Call evalue on the marginal alias of the same fit, or fit the stratum's "
                 "rows as their own study."
             ),
-            roadmap="X65",
+            roadmap="X82",
         )
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the

@@ -91,15 +91,15 @@ _LEARNED_RULE_TARGET = (
 )
 
 #: Why the omitted-variable bound refuses a learned-rule fit.  With the fold rules frozen,
-#: the value is a linear functional, and the bound of a known regime is X9's open work.
+#: the value is a linear functional, and the bound of a known regime is X82 part G's open work.
 LEARNED_RULE_BOUND_REFUSAL = (
     f"{_LEARNED_RULE_TARGET}. X11 (n) in docs/roadmap.md tracks the bound of the frozen "
-    "fold rules, after X9 covers a known regime"
+    "fold rules, after X82 part G covers a known regime"
 )
 
 #: Why simulated confounding refuses a learned-rule fit.
 LEARNED_RULE_REPLAY_REFUSAL = (
-    f"{_LEARNED_RULE_TARGET}. X11 (o) in docs/roadmap.md tracks a replay that freezes the "
+    f"{_LEARNED_RULE_TARGET}. X82 part F in docs/roadmap.md tracks a replay that freezes the "
     "fold rules"
 )
 
@@ -120,10 +120,10 @@ LEARNED_RULE_REFIT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "A refutation refits the learned-rule value, and a refit relearns the rule inside each "
     "training fold. The refitted estimate therefore has a different target, and its "
-    "comparison with the reported estimate is not defined. X11 (o) in docs/roadmap.md "
+    "comparison with the reported estimate is not defined. X82 part F in docs/roadmap.md "
     "tracks a refutation that freezes the fold rules.",
     alternative=NO_ALTERNATIVE,
-    roadmap="X11",
+    roadmap="X82",
 )
 
 _X11 = "X11 ({part}) in docs/roadmap.md"
