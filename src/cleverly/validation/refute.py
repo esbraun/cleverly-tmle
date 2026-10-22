@@ -87,7 +87,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._inference_status import InferenceStatus, supplies_inference
-from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
+from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
@@ -95,6 +95,13 @@ from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from . import _interpretation
+from ._band_placebo import (
+    BAND_SENTENCE,
+    NEAREST_DONORS,
+    PanelBands,
+    PointBands,
+    placebo_bands,
+)
 from ._interpretation import FitConfiguration, Resolution, Rung
 from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
 from ._point_generated import (
@@ -1231,62 +1238,29 @@ def _refuse_placebo_mode(result: TMLEResult, request: _RefuteRequest) -> Refusal
 
 
 def _refuse_placebo_kernel(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse the placebo on a dose that has no Markov kernel or no history-free draw."""
+    """Refuse the placebo on a dose that has no Markov kernel or no band-rank draw.
+
+    A dose whose declared support is a function of the covariates or the history takes the
+    band-rank draw (:mod:`~cleverly.validation._band_placebo`). The cases that draw does not
+    implement, and a band declaration it cannot read, are refused here, before any refit.
+    """
     if "placebo" not in request.tests:
         return None
-    if not _is_panel(result):
-        return _refuse_row_varying_support(result)
-    if not getattr(result.data, "has_mixed_node", False):
-        return _refuse_row_varying_support(result)
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "the longitudinal placebo has no Markov kernel for a vector node with a continuous "
-        "component, whose components a drawn code cannot replace.",
-        alternative=(
-            "The random_common_cause, subset and bootstrap_stability tests run on this fit."
-        ),
-        roadmap="X82",
-    )
-
-
-def _refuse_row_varying_support(result: TMLEResult) -> Refusal | None:
-    """Refuse the placebo on a dose whose declared support reads the history.
-
-    The longitudinal kernel draws a donor's dose, and the point placebo permutes or redraws the
-    recorded doses, each without reading the receiving unit's covariates. A drawn dose can then
-    leave a support that moves with the history, and the refit would stop on the
-    declared-support check partway through the replicates.
-    """
-    data = result.data
-    declared = (
-        getattr(data, "dose_supports", ())
-        if _is_panel(result)
-        else getattr(data, "treatment_support", None)
-    )
-    if isinstance(declared, Mapping):
-        declared = tuple(declared.values())
-    elif not isinstance(declared, tuple):
-        declared = (declared,)
-    flat = [
-        support
-        for entry in declared
-        for support in (entry.values() if isinstance(entry, Mapping) else (entry,))
-        if support is not None
-    ]
-    if not any(callable(bound) for support in flat for bound in (support.lower, support.upper)):
-        return None
-    family, reads = (
-        ("longitudinal", "history") if _is_panel(result) else ("point-treatment", "covariates")
-    )
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        f"the {family} placebo draws each dose without reading the unit's {reads}, so a dose "
-        f"can leave a declared support whose bounds are functions of the {reads}.",
-        alternative=(
-            "The random_common_cause, subset and bootstrap_stability tests run on this fit."
-        ),
-        roadmap="X82",
-    )
+    if _is_panel(result) and getattr(result.data, "has_mixed_node", False):
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "the longitudinal placebo has no Markov kernel for a vector node with a continuous "
+            "component, whose components a drawn code cannot replace.",
+            alternative=(
+                "The random_common_cause, subset and bootstrap_stability tests run on this fit."
+            ),
+            roadmap="X82",
+        )
+    try:
+        placebo_bands(result)
+    except CapabilityError as error:
+        return error.refusal
+    return None
 
 
 def _refuse_noise_nodes(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
@@ -3903,12 +3877,17 @@ def _read_configuration(result: Any, estimand: str) -> FitConfiguration | None:
 
 
 def _resolve(
-    instrument: str, rule: str, fit: FitConfiguration | None, replicates: int | None = None
+    instrument: str,
+    rule: str,
+    fit: FitConfiguration | None,
+    replicates: int | None = None,
+    placebo_draw: str | None = None,
 ) -> Resolution:
     """Ask the registry, reading :data:`~cleverly.validation._interpretation.VERDICT_EVIDENCE`
-    at call time so a test may patch it. A row covers a report only at its replicate count."""
+    at call time so a test may patch it. A row covers a report only at its replicate count,
+    and a placebo row only on the draw it calibrated."""
     if fit is not None:
-        fit = replace(fit, replicates=replicates)
+        fit = replace(fit, replicates=replicates, placebo_draw=placebo_draw)
     return _interpretation.resolve(instrument, rule, fit)
 
 
@@ -4488,6 +4467,148 @@ def _placebo_data(
     return replace(replaced, known_treatment=KnownMechanism(values, "array"))
 
 
+def _on_draw(error: CleverlyError, label: str) -> CleverlyError:
+    """``error`` with its condition prefixed by the placebo draw that raised it."""
+    refusal = replace(error.refusal, condition=f"{label}: {error.refusal.condition}")
+    return type(error)(refusal=refusal)
+
+
+def _band_placebo_sets(
+    result: Any,
+    bands: PointBands | PanelBands,
+    rng: np.random.Generator,
+    mode: str | None,
+    count: int,
+) -> list[Any]:
+    """Draw every band-rank placebo data set, each through the refit's preflight.
+
+    The refit of each data set would run the estimator's declaration checks before any
+    learner: the declared support (an assertion here, since every placebo dose lies in its
+    band), the undeclared and declared atoms, and each policy's partition, monotonicity,
+    collapse, tie, atom-image and support checks. A placebo dose takes new values, so a check
+    the original fit passed can fail on one draw. Every draw is checked here first, so such a
+    draw refuses the call before any refit, with its own reason code. The pooled extreme
+    positions are checked as well, which makes the support check independent of the seed for
+    a monotone policy (``X82-J-plan.md`` section 3.3).
+    """
+    data = result.data
+    sets: list[Any] = []
+    for draw in range(1, count + 1):
+        label = f"on placebo draw {draw} of the band-rank placebo"
+        try:
+            if isinstance(bands, PanelBands):
+                doses, drawn = bands.placebo(data, rng)
+                replacement = data.with_treatment(
+                    doses, known_mechanisms=placebo_known_mechanisms(data, bands.kernel, drawn)
+                )
+            else:
+                replacement = data.with_treatment(bands.draw(data, rng, mode))
+            _placebo_preflight(result, replacement)
+        except CleverlyError as error:
+            raise _on_draw(error, label) from error
+        sets.append(replacement)
+    try:
+        _band_extremes_check(result, bands)
+    except CleverlyError as error:
+        raise _on_draw(
+            error, "at a pooled extreme position of the band-rank placebo, on every row"
+        ) from error
+    return sets
+
+
+def _placebo_preflight(result: Any, replacement: Any) -> None:
+    """Run the refit's own declaration checks on ``replacement``, fitting nothing."""
+    estimator = result.estimator
+    check = getattr(
+        estimator,
+        "_preflight_policies" if _is_panel(result) else "_preflight_fit_configuration",
+        None,
+    )
+    if check is not None:
+        check(replacement)
+
+
+def _band_extremes_check(result: Any, bands: PointBands | PanelBands) -> None:
+    """Refuse a policy that leaves the band at a pooled extreme position (R-a1)."""
+    from ..interventions.policy import (
+        ModifiedPolicy,
+        Piecewise,
+        Scale,
+        Shift,
+        _check_declared_support,
+        lazy_frame,
+    )
+
+    data = result.data
+    estimator = result.estimator
+    moving = (Shift, Scale, Piecewise, ModifiedPolicy)
+    if isinstance(bands, PointBands):
+        extremes = bands.extremes()
+        policies = tuple(getattr(estimator, "policies", None) or ())
+        if extremes is None or not policies:
+            return
+        from ..estimators._tuned_policies import declares_tuned, in_sample_policies
+
+        if declares_tuned(policies):
+            policies = in_sample_policies(policies, data)
+        frame = lazy_frame(
+            lambda: data.frame_like(
+                {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+            )
+        )
+        rows = np.zeros(data.n, dtype=bool)
+        rows[bands.pool] = True
+        for doses in extremes:
+            for policy in policies:
+                if isinstance(policy, moving):
+                    _check_declared_support(
+                        policy,
+                        np.nan_to_num(doses, nan=0.0),
+                        frame,
+                        rows,
+                        data.treatment_support,
+                        regimen=getattr(policy, "name", repr(policy)),
+                        node=str(data.treatment_name),
+                    )
+        return
+    from functools import partial
+
+    from ..longitudinal.regimen import DynamicRegimen, resolve_regimens
+    from ..longitudinal.regimen import declares_tuned as declares_tuned_regimens
+
+    declared = getattr(estimator, "regimens", None)
+    if declared is None:
+        return
+    regimens = resolve_regimens(
+        declared, data.n_decisions, held_nodes=data.n_times if data.treatment_held else None
+    )
+    if declares_tuned_regimens(regimens):
+        return
+    for matrix in bands.extremes(data):
+        extreme = replace(data, treatment=matrix)
+        for time, form in enumerate(bands.forms, start=1):
+            if form is None:
+                continue
+            column = matrix[:, time - 1]
+            rows = ~np.isnan(column)
+            frame = lazy_frame(partial(extreme.policy_frame, time))
+            for regimen in regimens:
+                if not isinstance(regimen, DynamicRegimen) or not regimen.is_mtp(time):
+                    continue
+                policy = regimen.plan[time - 1]
+                if not isinstance(policy, moving):
+                    continue
+                _check_declared_support(
+                    policy,
+                    np.nan_to_num(column, nan=0.0),
+                    frame,
+                    rows,
+                    data.node_support(time),
+                    regimen=regimen.label,
+                    node=str(data.treatment_names[time - 1]),
+                )
+
+
 def _noise_data(data: Any, rng: np.random.Generator, index: int, nodes: bool) -> Any:
     """Return ``data`` with an independent standard-normal column appended.
 
@@ -4650,7 +4771,12 @@ def refute(
         both give the same null. On a longitudinal fit, ``"markov"`` draws each unit's
         treatment trajectory from a first-order kernel fitted to the observed treatments,
         and masks it by the observed at-risk pattern. ``None`` is ``"permute"`` on a
-        point-treatment fit and ``"markov"`` on a longitudinal fit.
+        point-treatment fit and ``"markov"`` on a longitudinal fit. A dose whose declared
+        support is a function of the covariates or the history takes the band-rank form of
+        the draw: each dose's position within its own band is permuted, drawn or
+        kernel-drawn, then mapped into the receiving unit's band, so every placebo dose meets
+        the support the refit checks. Each placebo data set meets the refit's declaration
+        checks before any refit, and the placebo reading reports the band-rank form.
     seed_spread : bool
         Whether ``random_common_cause`` also refits ``n_replicates`` baselines at fresh seeds
         and prints their spread, the movement that fold noise alone gives. It adds that many
@@ -4798,6 +4924,21 @@ def refute(
     structural = is_structural(result)
     panel = longitudinal or structural
     kernel = MarkovKernel.fit(data) if panel and "placebo" in requested else None
+    # A dose whose declared support is a function takes the band-rank draw. Its placebo data
+    # sets are drawn here, first, and each meets the refit's whole preflight, so a draw the
+    # refit would refuse stops the call before any refit (X82 part J, section 3.3).
+    bands = placebo_bands(result) if "placebo" in requested else None
+    placebo_draw: str = "markov" if panel else (placebo_mode or "permute")
+    banded_sets: list[Any] | None = None
+    if bands is not None:
+        placebo_draw = f"band_{placebo_draw}"
+        banded_sets = _band_placebo_sets(
+            result,
+            bands,
+            rng,
+            placebo_mode,
+            n_replicates if n_replicates is not None else _DEFAULT_PERTURBATION_REPLICATES,
+        )
 
     from ..interventions.learned import frozen_rule_replay
 
@@ -4876,10 +5017,14 @@ def refute(
                     )
                 )
                 continue
-            fits = [
-                refit(_placebo_data(data, rng, placebo_mode, kernel))
-                for _ in range(replicate_count)
-            ]
+            fits = (
+                [refit(replacement) for replacement in banded_sets]
+                if banded_sets is not None
+                else [
+                    refit(_placebo_data(data, rng, placebo_mode, kernel))
+                    for _ in range(replicate_count)
+                ]
+            )
             values = tuple(psi for psi, _ in fits)
             learned = _is_learned_rule_fit(result)
             # A learned-rule level and an MSM coefficient read on their reported scale; only
@@ -4900,7 +5045,7 @@ def refute(
                     plugin_std_errors=[se for _, se in fits],
                     scale=original,
                 )
-            resolution = _resolve("placebo", "t", fit, replicate_count)
+            resolution = _resolve("placebo", "t", fit, replicate_count, placebo_draw)
             passed: bool | None = None
             if reading is not None and resolution.licensed:
                 passed = not reading.rejects
@@ -4953,6 +5098,13 @@ def refute(
                     "observed treatments, so every blip and every regimen contrast is "
                     "exactly 0 on the placebo law"
                 )
+            if bands is not None:
+                detail += f". {BAND_SENTENCE}"
+                if panel:
+                    detail += (
+                        ". At each banded node the kernel draws the position from one of the "
+                        f"{NEAREST_DONORS} donors whose previous value is nearest"
+                    )
             if _declares_known_treatment(data):
                 detail += ". The refit keeps a known mechanism: the placebo law's own " + (
                     "kernel" if longitudinal else "arm shares"

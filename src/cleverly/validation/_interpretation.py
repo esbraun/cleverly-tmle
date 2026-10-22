@@ -161,6 +161,11 @@ class FitConfiguration:
     nodes : int or None
         The number of treatment nodes ``T`` of a longitudinal fit, and ``None`` on a
         point-treatment fit.
+    placebo_draw : str or None
+        The draw of the placebo test that asks: ``"permute"``, ``"draw"``, ``"markov"``, or
+        the band-rank form of one of them, ``"band_permute"``, ``"band_draw"`` or
+        ``"band_markov"``. ``None`` where the question is not about a placebo.
+        :func:`~cleverly.validation.refute.refute` sets it on the placebo test.
     """
 
     method: str
@@ -178,6 +183,7 @@ class FitConfiguration:
     arms: int
     replicates: int | None = None
     nodes: int | None = None
+    placebo_draw: str | None = None
 
 
 def event_count(data: Any) -> int | None:
@@ -460,6 +466,9 @@ class CalibrationScope:
         The smallest covered event count, for a binary or event outcome.
     clusters_min : int or None
         The smallest covered cluster count. ``None`` leaves a clustered fit uncovered.
+    placebo_draws : frozenset of str or None
+        The covered placebo draws (:attr:`FitConfiguration.placebo_draw`). A placebo row
+        restricts it; every other row leaves it ``None``.
     """
 
     methods: frozenset[str] | None = None
@@ -478,6 +487,7 @@ class CalibrationScope:
     covariates_per_row_max: float | None = None
     min_event_count_min: int | None = None
     clusters_min: int | None = None
+    placebo_draws: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -492,6 +502,7 @@ class CalibrationScope:
             "arms",
             "replicates",
             "nodes",
+            "placebo_draws",
         ):
             object.__setattr__(self, name, _frozen(getattr(self, name)))
 
@@ -533,6 +544,7 @@ class CalibrationScope:
             ("arm count", self.arms, fit.arms),
             ("replicate count", self.replicates, fit.replicates),
             ("node count", self.nodes, fit.nodes),
+            ("placebo draw", self.placebo_draws, fit.placebo_draw),
         )
         for axis, covered, value in pairs:
             if covered is not None and value not in covered:
@@ -813,6 +825,7 @@ def _longitudinal_rows() -> tuple[VerdictEvidence, ...]:
                         arms=frozenset({2}),
                         replicates=frozenset({refits}),
                         nodes=frozenset({2}),
+                        placebo_draws=(frozenset({"markov"}) if instrument == "placebo" else None),
                         n_min=1000,
                         covariates_per_row_max=0.003,
                         min_event_count_min=events,
@@ -988,6 +1001,7 @@ def _point_rows() -> tuple[VerdictEvidence, ...]:
                         arms=frozenset({2}),
                         replicates=frozenset({refits}),
                         nodes=frozenset({None}),
+                        placebo_draws=(frozenset({"permute"}) if instrument == "placebo" else None),
                         n_min=2000,
                         covariates_per_row_max=0.01,
                         min_event_count_min=floor,
@@ -1406,6 +1420,15 @@ def check_scope_containment(
             ("replicates", scope.replicates, lambda c: c.replicates),
             ("nodes", scope.nodes, lambda c: c.nodes),
         )
+        if row.instrument == "placebo":
+            # The placebo draw moves the reading's size, so a placebo row names the draws
+            # its cells ran (X82 part J, section 5).
+            axes = (*axes, ("placebo_draws", scope.placebo_draws, lambda c: c.placebo_draw))
+        elif scope.placebo_draws is not None:
+            problems.append(
+                f"{row.instrument}/{row.rule}: axis placebo_draws restricts a test that draws "
+                "no placebo"
+            )
         unrestricted = False
         for axis, covered, _read in axes:
             if covered is None:

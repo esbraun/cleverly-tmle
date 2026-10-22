@@ -30,6 +30,13 @@ held node                 the decision drawn at node 1
 Between two distinct doses equally near the drawn one, the lower dose is taken. Among the donors
 that hold the chosen previous treatment, one is drawn uniformly.
 
+The band-rank placebo (:mod:`~cleverly.validation._band_placebo`, X82 part J) fits this kernel
+to the within-band positions of a dose whose declared support is a function of the history. At
+such a node with a continuous previous node, the donor is drawn uniformly among the ``k``
+donors whose previous value is nearest the drawn one (:attr:`MarkovKernel.nearest`), so the
+transition has a spread. Ties at the edge of that window take the lower value. The draw still
+reads no non-treatment variable.
+
 A donor is a unit with a recorded treatment at both nodes. A categorical value that no donor
 holds draws from the node-``t`` marginal of the units at risk. The donor is chosen without
 reading the receiving unit's non-treatment variables, which is what the proof needs. A
@@ -88,6 +95,10 @@ class MarkovKernel:
         The sampling unit of each row when units are clusters, else ``None``.
     levels : tuple of int
         The number of level codes of each node, ``0`` at a continuous node.
+    nearest : tuple of int
+        Per node, the number of nearest donors a draw at a continuous previous node chooses
+        among. ``()`` and ``1`` take the single nearest value, as the constant-support
+        placebo does.
     """
 
     trajectories: FloatArray
@@ -95,6 +106,7 @@ class MarkovKernel:
     held: bool
     cluster_codes: IntArray | None
     levels: tuple[int, ...]
+    nearest: tuple[int, ...] = ()
 
     @classmethod
     def fit(cls, data: Any) -> MarkovKernel:
@@ -185,10 +197,48 @@ class MarkovKernel:
             if not previous.size:
                 drawn[:, time - 1] = rng.choice(marginal, size=size, replace=True)
                 continue
+            spread = self.nearest[time - 1] if self.nearest else 1
+            if spread > 1 and not self.categorical[time - 2]:
+                drawn[:, time - 1] = self._nearest_draw(
+                    rng, drawn[:, time - 2], previous, current, marginal, spread
+                )
+                continue
             drawn[:, time - 1] = self._donor_draw(
                 rng, drawn[:, time - 2], previous, current, marginal, self.categorical[time - 2]
             )
         return drawn
+
+    @staticmethod
+    def _nearest_draw(
+        rng: np.random.Generator,
+        given: FloatArray,
+        previous: FloatArray,
+        current: FloatArray,
+        marginal: FloatArray,
+        spread: int,
+    ) -> FloatArray:
+        """Draw the next value of each ``given`` from one of its ``spread`` nearest donors."""
+        order = np.argsort(previous, kind="stable")
+        ranked = previous[order]
+        following = current[order]
+        count = int(ranked.size)
+        window = min(int(spread), count)
+        out = rng.choice(marginal, size=given.size, replace=True)
+        known = ~np.isnan(given)
+        target = np.where(known, given, ranked[0])
+        low = np.searchsorted(ranked, target).astype(np.int64)
+        high = low.copy()
+        for _ in range(window):
+            left = np.where(low > 0, target - ranked[np.maximum(low - 1, 0)], np.inf)
+            right = np.where(high < count, ranked[np.minimum(high, count - 1)] - target, np.inf)
+            # The nearer neighbour joins the window, and the lower one on a tie.
+            take_left = left <= right
+            low = np.where(take_left, low - 1, low)
+            high = np.where(take_left, high, high + 1)
+        offsets = np.floor(rng.random(given.size) * (high - low)).astype(np.int64)
+        picks = low + np.minimum(offsets, high - low - 1)
+        out[known] = following[picks[known]]
+        return out
 
     @staticmethod
     def _donor_draw(
