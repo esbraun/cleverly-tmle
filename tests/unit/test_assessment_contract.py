@@ -267,8 +267,9 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "truncation_curve",
         "refute",
     }
-    assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == {"point", "longitudinal"}
-    for family in ("point", "longitudinal"):
+    families = {"point", "longitudinal", "structural"}
+    assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == families
+    for family in sorted(families):
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
         declared = {item.operation for item in family_rows}
         assert declared == expected
