@@ -1721,7 +1721,9 @@ registered study covers them
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 The bound of a regime mean, a shift mean on declared dose atoms, and an identity-link MSM coefficient has shipped,
 with descriptive limits. The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
-`assume_consistent_mechanism=True`, with no limits. A per-arm outcome-adaptive fit refuses it
+`assume_consistent_mechanism=True`, with no limits. A per-arm outcome-adaptive fit refuses it, because it
+declares no learner for the mechanism on every covariate. A declared `mechanism_learner=` on the bound is the
+target that would support it
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
 ##### Remaining linear functionals
