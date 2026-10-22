@@ -539,13 +539,12 @@ class TestGeneratedOutcomeFailureBoundary:
         ("change", "message"),
         [
             ("continuous", "continuous treatment"),
-            ("missing", "missing-outcome"),
             ("axis", "intervention-indexed"),
             ("msm", "MSM"),
-            ("natural-course", "ey_obs effect derivation"),
+            ("unknown-target", "nde effect derivation"),
             ("longitudinal", "longitudinal"),
-            ("intermediate-data", "controlled-direct-effect"),
-            ("intermediate-functional", "controlled-direct-effect"),
+            ("intermediate-data", "none on the functional"),
+            ("intermediate-functional", "inconsistent registered target provenance"),
         ],
     )
     def test_unsupported_compositions_are_refused_pre_fit(self, change: str, message: str) -> None:
@@ -558,8 +557,6 @@ class TestGeneratedOutcomeFailureBoundary:
         result.data.has_intermediate = False
         if change == "continuous":
             result.data.is_continuous_treatment = True
-        elif change == "missing":
-            result.data.observed = np.zeros(result.data.n, dtype=bool)
         elif change == "longitudinal":
             result.identified_effect.functional = replace(
                 result.identified_effect.functional, longitudinal=True
@@ -579,7 +576,7 @@ class TestGeneratedOutcomeFailureBoundary:
                 result.identified_effect.functional, msm=object()
             )
         else:
-            result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], estimand="ey_obs")
+            result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], estimand="nde")
         result.data.is_binary_treatment = len(result.data.treatment_levels) == 2
         result.data.has_missing_outcome = not bool(np.all(result.data.observed))
         with pytest.raises(CapabilityError, match=message):

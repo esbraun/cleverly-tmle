@@ -99,12 +99,10 @@ class TestPlasmodeRefutation:
         test = refute(result, tests=("plasmode",), n_replicates=20, random_state=2)["plasmode"]
         assert test.rung == "L1" and test.passed is None
 
-    def test_a_clustered_fit_is_refused(self, result: Any) -> None:
-        clustered = replace(
-            result, data=replace(result.data, cluster=np.arange(result.data.n) // 2)
-        )
-        with pytest.raises(CapabilityError, match="clusters"):
-            refute(clustered, tests=("plasmode",), n_replicates=20, random_state=2)
+    def test_a_weighted_fit_is_refused(self, result: Any) -> None:
+        weighted = replace(result, data=replace(result.data, weights_name="w"))
+        with pytest.raises(CapabilityError, match="weights"):
+            refute(weighted, tests=("plasmode",), n_replicates=20, random_state=2)
 
 
 class TestPlasmodeScope:

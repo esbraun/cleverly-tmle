@@ -28,7 +28,7 @@ covered configuration in one line.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import product
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -595,6 +595,10 @@ DESCRIPTIVE_SENTENCE = (
     "report states no verdict."
 )
 
+#: The plasmode rows cover every fit, a clustered one included: the readings are exact
+#: whatever the cluster count, because whole clusters are the i.i.d. units of a draw.
+_PLASMODE_SCOPE = CalibrationScope(clusters_min=1)
+
 #: Rows that license a verdict. A row with ``exact=False`` is added by the registered study
 #: that measured its size and power, in the pull request that registers the study.
 VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
@@ -651,9 +655,10 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         theory=(
             "X82 plan 4.2.1 and 5.6. The plasmode draws are i.i.d. units from a law whose "
             "covariates are the empirical support, so the truth is an exact finite sum and "
-            "the bias and its Monte Carlo standard error are exact."
+            "the bias and its Monte Carlo standard error are exact. A clustered draw "
+            "resamples whole clusters, which are then the i.i.d. units."
         ),
-        scope=CalibrationScope.unrestricted(),
+        scope=_PLASMODE_SCOPE,
         sentence=(
             "On the plasmode law named here, the bias lies inside its equivalence band. "
             "The plasmode resembles your data and does not estimate its truth."
@@ -668,7 +673,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "X82 plan 4.2.1 and 5.6. The plasmode resamples the covariates, so the fit's "
             "standard error targets the unconditional variance across the i.i.d. draws."
         ),
-        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the standard-error ratio lies inside its "
             "equivalence band. The plasmode resembles your data and does not estimate its truth."
@@ -683,7 +688,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "X82 plan 4.2.1 and 5.6. The Clopper-Pearson interval of the coverage is exact "
             "given i.i.d. plasmode draws."
         ),
-        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the 95% interval coverage lies inside its "
             "equivalence band. The plasmode resembles your data and does not estimate its truth."
