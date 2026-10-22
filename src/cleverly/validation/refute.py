@@ -1275,15 +1275,15 @@ def _refuse_row_varying_support(result: TMLEResult) -> Refusal | None:
     ]
     if not any(callable(bound) for support in flat for bound in (support.lower, support.upper)):
         return None
-    family = "longitudinal" if _is_panel(result) else "point-treatment"
+    family, reads = (
+        ("longitudinal", "history") if _is_panel(result) else ("point-treatment", "covariates")
+    )
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
-        f"the {family} placebo draws each dose without reading the unit's history, so a dose "
-        "can leave a declared support whose bounds are functions of the history.",
+        f"the {family} placebo draws each dose without reading the unit's {reads}, so a dose "
+        f"can leave a declared support whose bounds are functions of the {reads}.",
         alternative=(
             "The random_common_cause, subset and bootstrap_stability tests run on this fit."
-            if _is_panel(result)
-            else "The random_common_cause and subset tests run on this fit."
         ),
         roadmap="X82",
     )
