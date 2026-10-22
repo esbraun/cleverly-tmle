@@ -65,17 +65,18 @@ a registered coverage cell adds a row, it prints the registry's descriptive sent
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from scipy.stats import norm
 from sklearn.base import clone
 
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from ..exceptions import CapabilityError
 from ..inference.cluster import influence_variance
+from ..inference.delta import reference_quantile
+from ..utils.frames import emit_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -166,6 +167,8 @@ class MarginalSensitivityBounds:
         The tail-regression learner each side and arm selected, or ``()``.
     limit_reading : Resolution or None
         The registry's reading of the confidence limits.
+    backend : str or None
+        The dataframe backend of the fit's data, which :meth:`to_frame` emits.
 
     Attributes
     ----------
@@ -182,6 +185,7 @@ class MarginalSensitivityBounds:
     quantile_learner: tuple[str, ...] = ()
     pseudo_outcome_learner: tuple[str, ...] = ()
     limit_reading: Resolution | None = field(default=None, compare=False)
+    backend: str | None = None
 
     @property
     def breakdown(self) -> float | None:
@@ -212,16 +216,16 @@ class MarginalSensitivityBounds:
         return self.limit_reading is None or not self.limit_reading.licensed
 
     def to_frame(self) -> Any:
-        """Return one row per :math:`\\Gamma` as a pandas data frame.
+        """Return one row per :math:`\\Gamma`, in the backend of the fit's data.
 
         Returns
         -------
-        pandas.DataFrame
+        DataFrame
             The fields of :class:`MarginalSensitivityRow`.
         """
-        import pandas as pd
-
-        return pd.DataFrame([row.__dict__ for row in self.rows])
+        names = [item.name for item in fields(MarginalSensitivityRow)]
+        payload = {name: [getattr(row, name) for row in self.rows] for name in names}
+        return emit_frame(payload, backend=self.backend)
 
     def summary(self) -> str:
         """Return a text report of the bounds and how to read them.
@@ -714,7 +718,7 @@ def marginal_sensitivity_bounds(
     estimand = "ate" if estimand is None else estimand
     arm, versus = _estimand_arms(result, estimand)
     cluster = result.data.cluster
-    z = float(norm.ppf(1.0 - (1.0 - level) / 2.0))
+    z = reference_quantile(1.0 - level)
     outcome_kind = "binary" if result.data.family == "binomial" else "continuous"
     rows: list[MarginalSensitivityRow] = []
     quantile_names: set[str] = set()
@@ -768,4 +772,5 @@ def marginal_sensitivity_bounds(
             estimand,
             custom_learners=quantile_learner is not None or pseudo_outcome_learner is not None,
         ),
+        backend=result.data.backend,
     )
