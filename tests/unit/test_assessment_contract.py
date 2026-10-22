@@ -107,23 +107,22 @@ def raw_natural_course_result():  # type: ignore[no-untyped-def]
     )
 
 
-def test_natural_course_assessment_refuses_arm_specific_surfaces(
+def test_natural_course_assessment_tilts_the_natural_course_mean(
     natural_course_result,
 ) -> None:  # type: ignore[no-untyped-def]
-    reasons = set()
+    """The tilt re-mixes ``ey_obs`` at the received arm, and passes through it at zero."""
     for operation in ("missingness", "tipping_gamma"):
         capability = natural_course_result.sensitivity.capability(operation)
-        assert not capability.available
-        assert capability.status is AssessmentStatus.UNAVAILABLE
-        reasons.add(capability.reason)
-        with pytest.raises(CapabilityError, match="natural-course sensitivity parameter"):
-            getattr(natural_course_result.sensitivity, operation)()
-    assert len(reasons) == 1
+        assert capability.available
+        assert capability.status is AssessmentStatus.PASSED
+    curve = natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0])
+    assert list(curve["estimand"]) == ["ey_obs", "ey_obs"]
+    assert curve["psi"].iloc[0] == pytest.approx(natural_course_result["ey_obs"].psi, rel=1e-12)
+    assert curve["psi"].iloc[1] != pytest.approx(curve["psi"].iloc[0], abs=1e-4)
 
     combined = natural_course_result.sensitivity.run_all(include_retargets=True)
     for operation in ("missingness", "tipping_gamma"):
-        assert combined[operation].status is AssessmentStatus.UNAVAILABLE
-        assert combined[operation].detail in reasons
+        assert combined[operation].status is AssessmentStatus.COMPLETED
 
 
 def test_natural_course_diagnostics_are_truthful_without_a_propensity(
@@ -153,7 +152,7 @@ def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
     assert not support.available
     assert support.refusal == NATURAL_COURSE_SUPPORT_REFUSAL
     for operation in ("missingness", "tipping_gamma"):
-        assert not raw_natural_course_result.sensitivity.capability(operation).available
+        assert raw_natural_course_result.sensitivity.capability(operation).available
 
     bounds = (0.01, 0.05)
     default = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds)

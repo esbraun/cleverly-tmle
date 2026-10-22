@@ -437,22 +437,20 @@ class TestEachReasonNamesTheMissingResult:
         for operation in ("missingness", "tipping_gamma"):
             assert response_fit.sensitivity.capability(operation).available, operation
 
-    def test_a_natural_course_fit_is_not_sent_to_a_second_refusal(
-        self, natural_course_fit: Any
-    ) -> None:
-        """The pointer is gated, because both tilt rows are unavailable here.
+    def test_a_natural_course_fit_is_sent_to_the_tilt(self, natural_course_fit: Any) -> None:
+        """The pointer names the tilt, because the tilt covers the natural-course mean.
 
         A natural-course fit has a response mechanism, so it hears the response refusal.
-        It has no arm-specific tilt, so ``missingness`` and ``tipping_gamma`` are refused
-        in turn. Printing the pointer would answer a refusal with a refusal.
+        Since X82 part G the tilt re-mixes ``ey_obs``, so both tilt rows answer and the
+        pointer sends the reader to them.
         """
         refusal = fit_wide_bound_refusal(natural_course_fit)
         assert refusal is not None
         reason = refusal.message()
         assert "response mechanism" in reason
-        assert "sensitivity.missingness()" not in reason
+        assert "sensitivity.missingness()" in reason
         for operation in ("missingness", "tipping_gamma"):
-            assert not natural_course_fit.sensitivity.capability(operation).available, operation
+            assert natural_course_fit.sensitivity.capability(operation).available, operation
 
 
 class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:

@@ -1960,10 +1960,46 @@ Without `q_bounds`, `OutcomeScaler.from_outcome` takes the observed range and wi
 Declare `q_bounds` to fix what one unit of $\gamma$ means for a continuous outcome.
 
 Away from $\gamma = 0$, the curve is a plug-in value.
-`_tilted_psi` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
+`_tilted_value` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
 The accuracy of the curve away from $\gamma = 0$ therefore depends on the outcome model.
 
 This is a retarget operation and not a refit.
+
+The tilt re-mixes each reported parameter in the table below. Each row repeats the arithmetic of
+the target that reported the parameter on the tilted regressions. Each curve therefore passes
+through the reported estimate at $\gamma = 0$. $\bar{Q}_\gamma(a, W)$ is the mixture above, and
+$\gamma_a$ is the tilt of arm $a$.
+
+| parameter | point curve at $\gamma$ | spread at $\gamma \neq 0$ |
+| --- | --- | --- |
+| an arm mean, a contrast, `att`, `atc` | the same functional of $\bar{Q}_\gamma(a, W)$ | the reported standard error under `std_err`, `ci_lower` and `ci_upper` |
+| `rr`, `or` | the ratio of two tilted arm means | the reported log-scale standard error, centred on the log of the tilted point |
+| `ey_obs` | $P_n[\pi(A, W)\,\bar{Q}^*(A, W) + \{1 - \pi(A, W)\}\,\operatorname{expit}\{\operatorname{logit}\bar{Q}^*(A, W) + \gamma_A\}]$ | the reported standard error, centred on the tilted point |
+| `par`, `paf` | the tilted `ey_obs` and the tilted reference-arm mean | as above |
+| a regime mean or contrast | $P_n[\sum_a g^\star(a \mid W)\,\bar{Q}_\gamma(a, W)]$ | as above |
+| an MSM coefficient | the projection of $\bar{Q}_\gamma(a, W)$ onto the working model, with its design, weights and link | as above |
+
+Every row except the first publishes its spread at $\gamma \neq 0$ under `plugin_std_err`,
+`plugin_interval_lower` and `plugin_interval_upper`. The reported influence curve is the
+missing-at-random curve, so this spread is a diagnostic and not an interval for the tilted
+parameter. At $\gamma = 0$ each row publishes the fit's own spread. A frame that mixes the two
+kinds carries both sets of columns, with NaN where a row has no value.
+
+The `ey_obs` row reads the natural-course fluctuation at the received arm, and the mechanism at
+that arm. It replaces the observed $\Delta Y$ by its regression $\pi \bar{Q}^*$. That form and
+$P_n[\Delta Y + (1 - \Delta)\bar{Q}_\gamma(A, W)]$ estimate one functional. Only the regression
+form passes through the reported estimate at $\gamma = 0$, because targeting solves the weighted
+residual equation and not the unweighted one.
+
+`tipping_gamma(use_ci=True)` follows a confidence limit, so it refuses every row but the first.
+`tipping_interval_refusal` gives the sentence, and the argument-aware capability row quotes it.
+The default point search answers for every row.
+
+`tests/unit/test_missingness_tilt_part_g.py` checks each row against the reported estimate at
+$\gamma = 0$ to `rtol=1e-12`, and against a hand computation at $\gamma = 1$. Two mutations move
+the curve: a mechanism that tilts the observed rows too, and a mechanism that tilts no row. A
+two-arm saturated MSM matches the arm-mean contrast. An MSM with an effect modifier matches a
+stacked weighted least squares.
 
 `fit_wide_tilt_refusal` holds every refusal that no argument lifts. `missingness_tilt()` and
 `tipping_gamma()` raise its sentence first, and both capability rows quote it. The table is
@@ -1973,11 +2009,10 @@ ordered, and each rule assumes that the rules above it passed.
 | --- | --- | --- | --- |
 | 1 | `longitudinal` | a longitudinal result | `unavailable` |
 | 2 | `learned_rule` | a learned-rule fit, which refuses missing outcomes before any learner. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds that refusal | `unavailable` |
-| 3 | `natural_course` | a missing-outcome `NaturalCourseMean` fit that reports `ey_obs` alone | `unavailable` |
-| 4 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
-| 5 | `continuous` | a continuous dose | `unavailable` |
-| 6 | `incremental` | an incremental fit | `unavailable` |
-| 7 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, ratio-only, or PAR-and-PAF-only fit. On the last kind the sentence names the natural-course targets | `unavailable` |
+| 3 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
+| 4 | `continuous` | a continuous dose | `unavailable` |
+| 5 | `incremental` | an incremental fit | `unavailable` |
+| 6 | `tiltable_parameters` | a fit that reports no parameter of the first table | `unavailable` |
 
 On a composite fit with a missing treatment and a missing outcome, the tilt re-mixes the targeted
 regression with the response mechanism $\pi(a, W) = P(\Delta = 1 \mid A = a, \Delta_A = 1, W)$.
@@ -1985,21 +2020,11 @@ Both are defined there, so the formula does not change. The tilt holds the treat
 condition fixed: it moves the outcome's recording away from missing at random and leaves the
 treatment's recording at it.
 
-The tilt is arm-specific. A fit that reports `ey_obs`, PAR or PAF beside arm means passes the
-table, and three rules keep the natural-course targets out of the tilt:
-
-| request | result |
-| --- | --- |
-| `missingness_tilt(estimands=...)` that names `ey_obs`, `par` or `paf` | `CapabilityError` that names those targets and the arm-mean remedy |
-| the default sweep | the arm means and contrasts only. The capability row's interpretation names the skipped targets |
-| a bare `tipping_gamma()` whose default would fall to the one reported arm mean | the row reads `deferred` and requires `estimand`. The call raises the row's reason, which names the natural-course targets and the arm mean to choose, rather than a silent switch to the arm mean |
-
-A fit that reports PAR or PAF and no arm mean meets rule 7. `tests/unit/test_attributable_mar_capabilities.py`
-checks each row.
+A bare `tipping_gamma()` on a fit with several tiltable parameters reads `deferred` and requires
+`estimand`. `tests/unit/test_attributable_mar_capabilities.py` checks the natural-course rows.
 
 The omitted-variable bound refuses a fit with a response mechanism. Its sentence points at the tilt
-only when this table admits the fit. On a fit that reports `ey_obs`, PAR or PAF, the pointer names
-the arm means, and a bound request for PAR or PAF carries no pointer. `TestTheTiltRowsReadTheCallsPredicate` and
+only when this table admits the fit. `TestTheTiltRowsReadTheCallsPredicate` and
 `TestTheBoundPointsAtTheTiltOnlyWhereItRuns` in `tests/unit/test_capability_row_predicates.py`
 check the rows and the pointer.
 

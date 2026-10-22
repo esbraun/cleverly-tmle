@@ -44,8 +44,6 @@ from .inference.influence import spread_name
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     is_natural_course_fit,
-    natural_course_names,
-    reads_natural_course_mean,
 )
 from .utils.frames import emit_frame
 from .utils.memos import without_memos
@@ -1563,30 +1561,6 @@ def _defaults_to_ambiguous_estimand(function: Callable[..., Any]) -> bool:
     return parameter is not None and parameter.default == _AMBIGUOUS_ESTIMAND
 
 
-def _tipping_natural_course_refusal(
-    result: Any, operation: str, candidates: tuple[str, ...]
-) -> Refusal | None:
-    """Why a bare ``tipping_gamma()`` needs an estimand on a fit that reads the natural course.
-
-    One spelling for the capability row and the call.  ``None`` unless the operation is
-    ``tipping_gamma``, the fit reports ``ey_obs``, ``par`` or ``paf`` with missing outcomes,
-    and exactly one arm parameter is left, which the facade would otherwise substitute.
-    """
-    if operation != "tipping_gamma" or len(candidates) != 1:
-        return None
-    if not reads_natural_course_mean(result):
-        return None
-    natural = natural_course_names(result.estimates)
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "tipping_gamma answers for one estimand, and the implemented missingness tilt is "
-        f"arm-specific: {natural} read the natural-course mean, which needs a "
-        "natural-course sensitivity parameter that is not implemented.",
-        alternative=f"Choose an explicit estimand from {list(candidates)}.",
-        roadmap="X82",
-    )
-
-
 def _default_estimand_candidates(result: Any, eligible: Container[str]) -> tuple[str, ...]:
     """Reported parameters an operation defaulting to ``"ate"`` is left to choose between.
 
@@ -1912,17 +1886,6 @@ class _CapabilityFacade:
             # default, so that spelling has to defer exactly as the bare request does.
             return capability
         candidates = self._estimand_candidates(capability.operation)
-        natural = _tipping_natural_course_refusal(self._result, capability.operation, candidates)
-        if natural is not None:
-            # The facade does not substitute the one arm mean on a fit that also reports a
-            # natural-course target, so the row declares the argument the call needs.
-            return replace(
-                capability,
-                available=False,
-                status=AssessmentStatus.DEFERRED,
-                refusal=natural,
-                requires_arguments=(*capability.requires_arguments, "estimand"),
-            )
         if len(candidates) < (2 if self._substitutes_estimand else 1):
             # One candidate is a deferral or a substitution, and which one it is belongs
             # to the facade rather than to the count. See ``_substitutes_estimand``.
@@ -4105,12 +4068,6 @@ class SensitivityFacade(_CapabilityFacade):
             """
             if tilt_rule is None:
                 status = AssessmentStatus.PASSED
-                skipped = natural_course_names(self._result.estimates)
-                if skipped and reads_natural_course_mean(self._result):
-                    interpretation = (
-                        f"{interpretation}; the default sweep skips {skipped}, which read "
-                        "the natural-course mean and have no tilt"
-                    )
             elif tilt_rule[0] == "missing_outcome":
                 status = AssessmentStatus.NOT_APPLICABLE
             else:
@@ -4344,11 +4301,30 @@ class SensitivityFacade(_CapabilityFacade):
         so before the call, in the sentence the call raises. The default point search
         stays available, which is why a request without ``use_ci`` reads the row unchanged.
         The answer reads every estimate of the fit, so a fit with one estimate that supplies
-        no inference, such as a constant-node parameter, makes the row unavailable.
+        no inference, such as a constant-node parameter, makes the row unavailable.  The
+        row is unavailable for a parameter whose tilt claims no interval at
+        ``gamma != 0`` too, in the sentence
+        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives.
         """
         if not arguments.get("use_ci"):
             return capability
-        from .sensitivity.missingness import _TIPPING_INTERVAL_OPERATION
+        from .sensitivity.missingness import _TIPPING_INTERVAL_OPERATION, tipping_interval_refusal
+
+        if capability.available:
+            # The estimand the call searches: the named one, else the one the facade
+            # substitutes, else the signature's default.
+            estimand = arguments.get("estimand")
+            if estimand is None:
+                candidates = self._estimand_candidates("tipping_gamma")
+                estimand = candidates[0] if len(candidates) == 1 else "ate"
+            target = tipping_interval_refusal(self._result, estimand)
+            if target is not None:
+                return replace(
+                    capability,
+                    available=False,
+                    status=AssessmentStatus.UNAVAILABLE,
+                    refusal=target,
+                )
 
         status = precedent_status(
             estimate.inference for estimate in self._result.estimates.values()
@@ -4400,6 +4376,10 @@ class SensitivityFacade(_CapabilityFacade):
             )
             if len(binary) == 1:
                 return binary
+        if operation == "tipping_gamma":
+            from .sensitivity.missingness import _tilt_target_names
+
+            return _default_estimand_candidates(self._result, _tilt_target_names(self._result))
         from .sensitivity._parameters import arm_parameters
 
         return _default_estimand_candidates(self._result, arm_parameters(self._result))
@@ -4685,11 +4665,6 @@ class SensitivityFacade(_CapabilityFacade):
         candidates = self._estimand_candidates(operation)
         if len(candidates) != 1:
             return args, kwargs
-        natural = _tipping_natural_course_refusal(self._result, operation, candidates)
-        if natural is not None:
-            # The one arm candidate is not what a fit that reads the natural-course mean
-            # was asked about, so the facade names the gap instead of substituting it.
-            raise CapabilityError.from_refusal(natural)
         if positional:
             return (candidates[0], *args), kwargs
         return args, {**kwargs, "estimand": candidates[0]}
