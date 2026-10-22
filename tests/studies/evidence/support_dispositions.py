@@ -1828,10 +1828,9 @@ def positive_red_rows() -> list[PositiveRow]:
         Property rows with the role ``positive``, truth rows of an implementation that starts
         with ``cleverly``, and paired rows, across the registered studies.
     """
+    from cleverly._support_rows import EXEMPT_STUDIES
     from tests.studies.evidence.red_cells import OWNERS, frames, red_rows
     from tests.studies.evidence.registry import registered
-
-    from cleverly._support_rows import EXEMPT_STUDIES
 
     found: list[PositiveRow] = []
     for record in registered():

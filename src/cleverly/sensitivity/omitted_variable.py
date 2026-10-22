@@ -80,6 +80,12 @@ of these configurations resolve through the ``ovb_limit`` rows of
 :mod:`cleverly.validation._interpretation` and print as descriptive until a registered
 study covers them.
 
+Repeated cross-fitting (X82 part G).  A fit with ``repeats`` above one has one bound per
+draw.  The reported bounds are the medians of the draws' bounds, and each one-sided limit
+combines the draws' limits by the median rule of the estimate.  Each draw is retargeted from
+its own nuisances for its influence curve.  :func:`sensitivity_elements` describes one draw,
+named with ``repeat``.
+
 Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for five
 reasons.
 
@@ -91,8 +97,7 @@ reasons.
   and no implementation is registered.
 * An ``ipsi`` fit is outside that theorem, because its estimand contains the treatment
   mechanism.
-* A longitudinal fit has no registered derivation, and a median-combined repeated fit has
-  no influence function for the median bound.
+* A longitudinal fit has no registered derivation.
 * An arm-indexed fit that reports no counterfactual mean and no linear contrast has no
   parameter to bound.  A ratio-only fit, a population attributable risk or fraction, and
   a complete-outcome natural-course mean are such fits.
@@ -106,8 +111,8 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ParamSpec
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, ParamSpec, cast
 
 import numpy as np
 from scipy import optimize
@@ -122,7 +127,7 @@ from ..estimators.ctmle import CTMLEDerivativeFit, CTMLESelection, declares_no_s
 from ..estimators.direct_effect import declares_intermediate, targeted_rows
 from ..estimators.iptw import OPERATION_REFUSALS
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
+from ..exceptions import CapabilityError, DataError, refuse_inference
 from ..inference.cluster import influence_variance
 from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
@@ -267,14 +272,6 @@ _ZERO_BIAS_LIMITS_REFUSAL = (
 _UNREACHABLE_RV = "no equal strength reaches the null"
 
 
-#: Why the median of several fold draws has no bound, in the words
-#: :func:`~cleverly.exceptions.repeats_refusal` completes.
-_REPEATS_REASON = (
-    "A coordinatewise median of the bound's influence terms would not be the influence "
-    "function of the median bound."
-)
-
-
 def _refuse_longitudinal(result: Any) -> Refusal | None:
     """Refuse any assessment family but ``point``.
 
@@ -399,31 +396,15 @@ def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
     )
 
 
-def _refuse_repeats(result: Any) -> Refusal | None:
-    """Refuse a median-combined repeated fit.
-
-    The one rule a refit of the same estimator lifts, which is why it runs last.  Every
-    rule above it refuses the fit at any split count, so a reader told to fit one split
-    meets no second refusal after the refit.
-    """
-    return repeats_refusal(
-        result.n_repeats,
-        operation="omitted-variable sensitivity",
-        text=_REPEATS_REASON,
-        reason=RefusalReason.IMPLEMENTATION_GAP,
-        alternative="Fit one split for this analysis.",
-        roadmap="X82",
-    )
-
-
 #: Every omitted-variable refusal that the requested estimand cannot change, in the one
 #: order the five entry points and the capability rows both use.  The table is ordered and
 #: each rule assumes its predecessors returned ``None``: ``longitudinal`` establishes that
 #: the result carries a point-treatment ``data`` and ``config`` at all, which every rule
 #: after it reads.  ``bound_parameters`` follows ``parameter_axis``, because its sentence
-#: names an arm-indexed fit.  ``repeats`` is last because it is the only rule a refit with
-#: one split lifts.  The names are the introspection contract; a test reads them to pin the
-#: order without respelling a message.
+#: names an arm-indexed fit.  A fit with ``repeats`` above one passes every rule: each draw
+#: has its own bound, and :func:`omitted_variable_bounds` combines them by the median rule.
+#: The names are the introspection contract; a test reads them to pin the order without
+#: respelling a message.
 _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("drtmle", _refuse_guarded_mechanism),
@@ -431,7 +412,6 @@ _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] =
     ("collaborative_tmle", _refuse_selected_mechanism),
     ("parameter_axis", _refuse_non_arm_axis),
     ("bound_parameters", _refuse_unbounded_parameters),
-    ("repeats", _refuse_repeats),
 )
 
 
@@ -530,6 +510,7 @@ def sensitivity_elements(
     estimand: str = "ate",
     *,
     nu2_estimator: str = "auto",
+    repeat: int | None = None,
 ) -> SensitivityElements:
     r"""Compute :math:`\sigma^2`, :math:`\nu^2` and the bias scale for one estimand.
 
@@ -537,6 +518,10 @@ def sensitivity_elements(
     :data:`_FIT_WIDE_BOUND_RULES`, so :func:`omitted_variable_bounds`,
     :func:`benchmark`, :func:`robustness_value`, and :func:`contour_data` share one
     refusal and none of them pays a learner before hearing it.
+
+    The elements describe one draw of the cross-fitting split.  A fit with ``repeats``
+    above one has one set per draw, so the call names the draw with ``repeat``.
+    :func:`omitted_variable_bounds` combines the draws by the median rule.
 
     Parameters
     ----------
@@ -553,29 +538,208 @@ def sensitivity_elements(
         a derived influence curve for any mechanism learner.  The plug-in form gives the
         bounds confidence limits only for a declared known mechanism or a qualifying
         ``LogisticRegression``, in sample or cross-fitted.
+    repeat : int or None
+        The draw of the cross-fitting split, from 0 to ``result.n_repeats - 1``.
+        ``None`` means the only draw of a fit with one, and a fit with more refuses it.
 
     Returns
     -------
     SensitivityElements
         The residual outcome variance, the Riesz second moment, the bias scale, and
-        the influence curve of each.
+        the influence curve of each, for the one draw.
 
     Raises
     ------
     ValueError
-        If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`.  The check runs
-        before any refusal and before any computation.
+        If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, or if ``repeat`` names
+        no draw of the fit.  The checks run before any refusal and before any computation.
     CapabilityError
         If a rule of :data:`_FIT_WIDE_BOUND_RULES` refuses the fit, if the fit reports
-        no parameter the bound applies to under ``estimand``, or if the doubly robust
-        estimate of :math:`\nu^2` is not positive.
+        no parameter the bound applies to under ``estimand``, if ``repeat`` is omitted on a
+        fit with several draws, or if the doubly robust estimate of :math:`\nu^2` is not
+        positive.
+    """
+    _resolved_nu2_estimator(nu2_estimator)
+    draw = _draw_index(result, repeat)
+    refusal = fit_wide_bound_refusal(result)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    if draw is None:
+        raise CapabilityError.from_refusal(repeat_required_refusal(result.n_repeats))
+    parameter = resolve_parameter(result, estimand)
+    return _elements_for(result, result.repeats[draw], parameter, nu2_estimator)
+
+
+def repeat_required_refusal(n_repeats: int) -> Refusal:
+    """The refusal of a bare elements request on a fit with several draws.
+
+    Parameters
+    ----------
+    n_repeats : int
+        How many draws of the cross-fitting split the fit combined.
+
+    Returns
+    -------
+    Refusal
+        An ``invalid_declaration`` refusal that names the ``repeat`` argument.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"this fit combined {n_repeats} draws of the cross-fitting split, and the elements "
+        "of the bound describe one draw.",
+        alternative=(
+            f"Name the draw with repeat=0 to repeat={n_repeats - 1}. "
+            "omitted_variable_bounds() combines the draws by the median rule."
+        ),
+    )
+
+
+def _draw_index(result: Any, repeat: int | None) -> int | None:
+    """The draw ``repeat`` names, or ``None`` for a bare request on a fit with several."""
+    n_repeats = int(getattr(result, "n_repeats", 1))
+    if repeat is None:
+        return 0 if n_repeats == 1 else None
+    if isinstance(repeat, bool) or not isinstance(repeat, (int, np.integer)):
+        raise ValueError(f"repeat must be an integer; got {repeat!r}")
+    if not 0 <= int(repeat) < n_repeats:
+        raise ValueError(f"repeat must lie in [0, {n_repeats - 1}] for this fit; got {repeat}")
+    return int(repeat)
+
+
+@dataclass(frozen=True)
+class _Draw:
+    """One draw's estimate, its influence curve, and its bound elements."""
+
+    psi: float
+    curve: FloatArray
+    elements: SensitivityElements
+
+
+def _bound_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> tuple[_Draw, ...]:
+    """Every draw's estimate, curve and elements, after the fit-wide refusals.
+
+    A fit with one draw reads its reported estimate, so every quantity equals the shipped
+    one bit for bit.  A fit with several draws keeps each draw's point estimate but not its
+    curve, so each draw is retargeted from its own nuisances.  The retarget must reproduce
+    the stored point estimate, which checks that it ran the fit's own targeting.
     """
     _resolved_nu2_estimator(nu2_estimator)
     refusal = fit_wide_bound_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
     parameter = resolve_parameter(result, estimand)
-    return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
+    if result.n_repeats == 1:
+        estimate = result[estimand]
+        elements = _elements_for(result, result.repeats[0], parameter, nu2_estimator)
+        return (_Draw(float(estimate.psi), estimate.influence_curve, elements),)
+    estimator = result.estimator
+    if estimator is None:
+        raise CapabilityError(
+            "the omitted-variable bound of a fit with several draws retargets each draw, "
+            "and this result carries no fitted estimator",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    keys = result.parameter_keys
+    key = keys.get(estimand) if keys else None
+    target = key.estimand if key is not None else parameter_stem(estimand)
+    draws = []
+    for index, repeat in enumerate(result.repeats):
+        estimates, _ = estimator.retarget(
+            result.data,
+            repeat.nuisance,
+            estimands=(target,),
+            intermediate_value=result.intermediate_value,
+            g_bounds=result.config.g_bounds,
+            g_bounds_conditional=result.config.g_bounds_conditional,
+            nuisance_bound=result.config.missingness_bound,
+            alpha_sig=result.config.alpha_sig,
+            conditions=result.config.support_conditions,
+        )
+        estimate = estimates.get(estimand)
+        stored = repeat.psi.get(estimand)
+        if (
+            estimate is None
+            or stored is None
+            or not np.isclose(estimate.psi, stored, rtol=1e-9, atol=1e-12)
+        ):
+            raise RuntimeError(
+                f"retargeting draw {index} for {estimand!r} gave "
+                f"{None if estimate is None else estimate.psi!r}, and the fit stored "
+                f"{stored!r}. This is a package defect; report it."
+            )
+        elements = _elements_for(result, repeat, parameter, nu2_estimator)
+        draws.append(_Draw(float(stored), estimate.influence_curve, elements))
+    return tuple(draws)
+
+
+def _median_elements(result: TMLEResult, estimand: str, nu2_estimator: str) -> SensitivityElements:
+    """The elements of one draw, or the medians of ``sigma2`` and ``nu2`` over several.
+
+    :func:`benchmark` compares these two second moments with and without the named
+    covariates.  It reads no curve, so it needs no retarget.  One draw returns its own
+    elements unchanged.
+    """
+    _resolved_nu2_estimator(nu2_estimator)
+    refusal = fit_wide_bound_refusal(result)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    parameter = resolve_parameter(result, estimand)
+    per_draw = [
+        _elements_for(result, repeat, parameter, nu2_estimator) for repeat in result.repeats
+    ]
+    if len(per_draw) == 1:
+        return per_draw[0]
+    sigma2 = float(np.median([elements.sigma2 for elements in per_draw]))
+    nu2 = float(np.median([elements.nu2 for elements in per_draw]))
+    return replace(per_draw[0], sigma2=sigma2, nu2=nu2, max_bias=float(np.sqrt(sigma2 * nu2)))
+
+
+def _median_rule(points: FloatArray, std_errors: FloatArray) -> tuple[float, float]:
+    r"""The median point and the split-adjusted standard error of several draws.
+
+    The variance is :math:`\operatorname{median}_r\{\hat\sigma_r^2 + (\hat t_r -
+    \tilde t)^2\}`, the rule :func:`~cleverly.inference.median_estimates` applies to the
+    estimate.  One draw returns its own point and standard error unchanged.
+    """
+    if len(points) == 1:
+        return float(points[0]), float(std_errors[0])
+    center = float(np.median(points))
+    variance = float(np.median(np.square(std_errors) + np.square(points - center)))
+    return center, float(np.sqrt(variance))
+
+
+def _combined_elements(draws: tuple[_Draw, ...], result: TMLEResult) -> SensitivityElements:
+    """The elements a combined bound reports: one draw's, or the medians over draws.
+
+    The curves belong to one draw, so a combined record keeps the first draw's curves and
+    only the summary fields of the combined bound read it: the bias scale, the estimator,
+    the limit refusal and the features.
+    """
+    first = draws[0].elements
+    if len(draws) == 1:
+        return first
+    refusal = next(
+        (draw.elements.limit_refusal for draw in draws if draw.elements.limit_refusal),
+        None,
+    )
+    corrections = [draw.elements.nu2_correction for draw in draws]
+    return replace(
+        first,
+        sigma2=float(np.median([draw.elements.sigma2 for draw in draws])),
+        nu2=float(np.median([draw.elements.nu2 for draw in draws])),
+        max_bias=float(np.median([draw.elements.max_bias for draw in draws])),
+        psi_max_bias=(
+            None
+            if any(draw.elements.psi_max_bias is None for draw in draws)
+            else first.psi_max_bias
+        ),
+        limit_refusal=refusal,
+        nu2_correction=(
+            None
+            if any(value is None for value in corrections)
+            else float(np.median(cast("list[float]", corrections)))
+        ),
+    )
 
 
 def _resolved_nu2_estimator(nu2_estimator: str) -> str:
@@ -658,6 +822,7 @@ _FEATURE_MECHANISMS: dict[str, str | None] = {
     "missing_treatment": "recording",
     "intermediate": "intermediate",
     "stratum": None,
+    "repeats": None,
 }
 
 
@@ -686,6 +851,7 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
         "missing_treatment": bool(getattr(data, "has_missing_treatment", False)),
         "intermediate": declares_intermediate(result),
         "stratum": parameter.stratum is not None,
+        "repeats": result.n_repeats > 1,
     }
     return tuple(name for name in _FEATURE_MECHANISMS if present[name])
 
@@ -966,6 +1132,8 @@ def _configuration_phrase(features: tuple[str, ...]) -> str:
         )
     if "stratum" in features:
         parts.append("is restricted to a baseline stratum and divides by its share")
+    if "repeats" in features:
+        parts.append("is combined over draws of the cross-fitting split by the median rule")
     return " and ".join(parts)
 
 
@@ -1680,7 +1848,9 @@ def omitted_variable_bounds(
         An unreachable robustness threshold is ``None``. On a fit with a response mechanism,
         a missing treatment, an intermediate variable, or a stratum parameter, ``features``
         names them and ``limit_reading`` marks the limits descriptive until a registered study
-        covers them.
+        covers them. With ``repeats`` above one, each bound is the median of the draws'
+        bounds, ``max_bias`` the median of their bias scales, and each limit the median rule
+        of the draws' limits.
 
     Raises
     ------
@@ -1708,28 +1878,30 @@ def omitted_variable_bounds(
         cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
     cf_y = 0.03 if cf_y is None else cf_y
     cf_d = 0.03 if cf_d is None else cf_d
-    elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    draws = _bound_draws(result, estimand, nu2_estimator)
+    elements = _combined_elements(draws, result)
     estimate = result[estimand]
     quantile = _one_sided_quantile(level, estimate.reference_df)
     strength = _confounding_strength(cf_y, cf_d, rho)
+    psis = np.array([draw.psi for draw in draws])
+    scales = np.array([draw.elements.max_bias for draw in draws])
 
-    lower = estimate.psi - strength * elements.max_bias
-    upper = estimate.psi + strength * elements.max_bias
+    # Each draw's bound, then the median over draws. One draw is the shipped bound.
+    lower, _ = _median_rule(psis - strength * scales, np.zeros(len(draws)))
+    upper, _ = _median_rule(psis + strength * scales, np.zeros(len(draws)))
 
     # One-sided limits on each end, Theorem 4 in Section 4 of Chernozhukov et al. (2026).
     # The curve adds the uncertainty of the bias term to that of the estimate. The plug-in
-    # has no curve, so its bound stores no limit and its accessors refuse.
+    # has no curve, so its bound stores no limit and its accessors refuse. Several draws
+    # combine each draw's limit by the median rule of the estimate.
     ci_lower: float | None = None
     ci_upper: float | None = None
     if elements.psi_max_bias is not None:
-        psi_bias = elements.psi_max_bias
-        se_lower = _bound_std_error(estimate.influence_curve, -strength * psi_bias, result)
-        se_upper = _bound_std_error(estimate.influence_curve, strength * psi_bias, result)
-        ci_lower = lower - quantile * se_lower
-        ci_upper = upper + quantile * se_upper
+        ci_lower = _limit(draws, result, strength, -1.0, quantile)
+        ci_upper = _limit(draws, result, strength, 1.0, quantile)
 
     rv, rva = _robustness_values(
-        result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
     )
     return SensitivityBounds(
         estimand=estimand,
@@ -1763,9 +1935,34 @@ def _bound_std_error(psi_estimate: FloatArray, psi_bias: FloatArray, result: TML
     return float(np.sqrt(influence_variance(combined, result.data.cluster)))
 
 
+def _edge(draws: tuple[_Draw, ...], signed_strength: float) -> float:
+    """The median over draws of ``psi + signed_strength * max_bias``."""
+    points = np.array([draw.psi + signed_strength * draw.elements.max_bias for draw in draws])
+    return _median_rule(points, np.zeros(len(draws)))[0]
+
+
+def _limit(
+    draws: tuple[_Draw, ...], result: TMLEResult, strength: float, side: float, quantile: float
+) -> float:
+    """The one-sided limit of the bound at ``strength``, by the median rule.
+
+    ``side`` names the end: ``-1`` for the lower bound, which the limit extends downward,
+    and ``1`` for the upper.  It is separate from the strength, which can be zero.
+    """
+    signed_strength = side * strength
+    points, errors = [], []
+    for draw in draws:
+        psi_bias = draw.elements.psi_max_bias
+        assert psi_bias is not None
+        points.append(draw.psi + signed_strength * draw.elements.max_bias)
+        errors.append(_bound_std_error(draw.curve, signed_strength * psi_bias, result))
+    center, error = _median_rule(np.array(points), np.array(errors))
+    return center + side * quantile * error
+
+
 def _robustness_values(
     result: TMLEResult,
-    elements: SensitivityElements,
+    draws: tuple[_Draw, ...],
     psi: float,
     rho: float,
     level: float,
@@ -1777,8 +1974,11 @@ def _robustness_values(
     The point value is ``None`` when no equal strength in ``[0, 1)`` reaches the null.
     The limit value is also ``None`` when its influence curve is unavailable; callers
     omit and refuse that accessor rather than interpreting it as an unreachable limit.
+    On several draws both solve for the median bound and its median-rule limit.  The
+    median of the draws' bounds reaches the null where the median draw's bound does.
     """
     side = 1.0 if null_hypothesis > psi else -1.0
+    elements = _combined_elements(draws, result)
     psi_bias = elements.psi_max_bias
     alignment = abs(rho)
     if not 0.0 <= alignment <= 1.0:
@@ -1802,23 +2002,17 @@ def _robustness_values(
         return value
 
     def limit_at(strength: float) -> float:
-        assert psi_bias is not None
-        bias = strength * elements.max_bias
-        edge = psi + side * bias
-        se = _bound_std_error(
-            result[elements.estimand].influence_curve,
-            side * strength * psi_bias,
-            result,
-        )
-        return edge + side * quantile * se
+        return _limit(draws, result, strength, side, quantile)
 
     distance = abs(psi - null_hypothesis)
     if distance == 0.0:
         rv = 0.0
     elif alignment == 0.0 or elements.max_bias == 0.0:
         rv = None
-    else:
+    elif len(draws) == 1:
         rv = equal_share(distance / elements.max_bias)
+    else:
+        rv = _median_point_root(draws, side, null_hypothesis, equal_share)
     if psi_bias is None:
         return rv, None
 
@@ -1846,6 +2040,30 @@ def _robustness_values(
         high *= 2.0
     strength = float(optimize.brentq(signed_gap, 0.0, high))
     return rv, equal_share(strength)
+
+
+def _median_point_root(
+    draws: tuple[_Draw, ...],
+    side: float,
+    null_hypothesis: float,
+    equal_share: Callable[[float], float],
+) -> float | None:
+    """The equal-strength value at which the median bound of several draws meets the null.
+
+    Each draw's bound moves toward the null at the rate of its bias scale, so the median
+    bound is monotone in the strength.  It never reaches the null when half the draws or
+    more have a zero bias scale and stay on the far side.
+    """
+
+    def gap(strength: float) -> float:
+        return side * (_edge(draws, side * strength) - null_hypothesis)
+
+    high = 1.0
+    while gap(high) < 0.0:
+        if high > np.finfo(float).max / 2.0:
+            return None
+        high *= 2.0
+    return equal_share(float(optimize.brentq(gap, 0.0, high)))
 
 
 @dataclass(frozen=True)
@@ -2211,7 +2429,7 @@ def benchmark(
     # refit under it, and report it.  Same convention as ``cleverly.validation.refute``.
     seed = resolve_assessment_seed(result, random_state)
 
-    long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    long_elements = _median_elements(result, estimand, nu2_estimator)
     refusal = benchmark_refusal(result, names)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
@@ -2219,7 +2437,7 @@ def benchmark(
     short_result = estimator.refit(
         short_data, intermediate_value=result.intermediate_value, random_state=seed
     )
-    short_elements = sensitivity_elements(short_result, estimand, nu2_estimator=nu2_estimator)
+    short_elements = _median_elements(short_result, estimand, nu2_estimator)
 
     var_y = float(np.var(result.data.outcome[result.data.observed]))
     r2_long = 1.0 - long_elements.sigma2 / var_y
@@ -2321,10 +2539,11 @@ def robustness_value(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
-    elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    draws = _bound_draws(result, estimand, nu2_estimator)
+    elements = _combined_elements(draws, result)
     estimate = result[estimand]
     rv, rva = _robustness_values(
-        result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
     )
     status = estimate.inference
     values: dict[str, Any] = {"inference": status} if is_labelled(status) else {}
@@ -2400,8 +2619,7 @@ def contour_data(
     """
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")
-    elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
-    psi = result[estimand].psi
+    draws = _bound_draws(result, estimand, nu2_estimator)
     sign = -1.0 if bound == "lower" else 1.0
 
     cf_d_grid = np.linspace(0.0, grid_bounds[0], grid_size)
@@ -2412,5 +2630,5 @@ def contour_data(
             strength = _confounding_strength(float(cf_y), float(cf_d), rho)
             rows_d.append(float(cf_d))
             rows_y.append(float(cf_y))
-            values.append(psi + sign * strength * elements.max_bias)
+            values.append(_edge(draws, sign * strength))
     return result.data.frame_like({"cf_d": rows_d, "cf_y": rows_y, "value": values})

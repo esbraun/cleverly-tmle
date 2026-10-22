@@ -188,7 +188,7 @@ def intermediate_fit() -> Any:
 
 @pytest.fixture(scope="module")
 def repeated_fit() -> Any:
-    """A median over two cross-fitting draws, the one refusal a refit with one split lifts."""
+    """A median over two cross-fitting draws, which the bound admits since X82 part G."""
     frame, _ = make_binary_outcome(n=400, seed=17)
     return fast_tmle(repeats=2, estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
 
@@ -266,7 +266,6 @@ REFUSED_FITS: tuple[tuple[str, str], ...] = (
     ("shift_fit", "W1"),
     ("msm_fit", "W1"),
     ("ratio_only_fit", "W1"),
-    ("repeated_fit", "W1"),
 )
 
 #: Every public entry point that reaches :func:`sensitivity_elements`, called the way a
@@ -416,19 +415,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             "collaborative_tmle",
             "parameter_axis",
             "bound_parameters",
-            "repeats",
         ]
-
-    def test_a_fit_refused_twice_hears_the_rule_a_refit_cannot_lift(self, drtmle_fit: Any) -> None:
-        """Why ``repeats`` is last.
-
-        A repeated DR-TMLE fit breaks two rules. Told to fit one split, its reader would
-        refit and meet the DR-TMLE refusal next, so the table reports that one first.
-        """
-        repeated = replace(drtmle_fit, repeats=drtmle_fit.repeats * 2)
-        rules = dict(_FIT_WIDE_BOUND_RULES)
-        assert rules["repeats"](repeated) is not None
-        assert fit_wide_bound_refusal(repeated) == rules["drtmle"](repeated)
 
     def test_the_longitudinal_reason_is_the_literal_the_facade_published(self) -> None:
         rules = dict(_FIT_WIDE_BOUND_RULES)
@@ -468,7 +455,6 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             ("collaborative_tmle", "plain_fit", {"fitted_method": "collaborative_tmle"}),
             ("parameter_axis", "plain_fit", {"parameter_axis": "regime"}),
             ("bound_parameters", "ratio_only_fit", {}),
-            ("repeats", "repeated_fit", {}),
         ],
     )
     def test_each_rule_is_the_one_a_matching_fit_reaches(

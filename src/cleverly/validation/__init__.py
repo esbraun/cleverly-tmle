@@ -15,7 +15,12 @@ from .nuisance import (
     RepeatSpreadRow,
     nuisance_diagnostics,
 )
-from .outcome_processes import LogisticHazardOutcome, MultinomialHazardOutcome
+from .outcome_processes import (
+    BernoulliAdjustmentOutcome,
+    BoundedAdjustmentOutcome,
+    LogisticHazardOutcome,
+    MultinomialHazardOutcome,
+)
 from .refute import (
     DEFAULT_OUTCOME_REPLICATES,
     DEFAULT_TESTS,
@@ -51,7 +56,9 @@ __all__ = [
     "IDENTITY_TOLERANCE",
     "MARGIN_ACTIVE",
     "BandReading",
+    "BernoulliAdjustmentOutcome",
     "BootstrapMeasurementError",
+    "BoundedAdjustmentOutcome",
     "CorrectionCheck",
     "CorrectionRow",
     "CoverageStudy",
