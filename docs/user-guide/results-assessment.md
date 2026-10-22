@@ -560,7 +560,7 @@ prints the numbers, `passed` is `None`, and the report says what it would take t
 verdict. `bool(report)` raises `TypeError` for a descriptive report, so test `report.passed` against
 `True` and `False`. 
 
-Checks that need more than five refits are opt-in. The default tests run five
+Checks that need more than 20 refits are opt-in. The default tests run 20
 replications each. A generated-outcome call defaults to `DEFAULT_OUTCOME_REPLICATES`, which is 400
 draws, and a budget below 400 prints its readings without a verdict. A budget below 10 is refused.
 [The technical reference](../technical-reference/validation-methods.md#refutation-operations)

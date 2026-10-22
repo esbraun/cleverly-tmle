@@ -1678,7 +1678,7 @@ A refutation prints a verdict only where evidence licenses its rule. The registr
 covers prints its numbers with `passed=None`. Part A1 ships the registry, the tri-state verdict,
 the t placebo, the subset reference with its fold slice, the paired shift of `random_common_cause`,
 the equivalence bands of the generated-outcome tests, the placebo with a known treatment mechanism,
-and the default refit cap. Any check that needs more than five refits is opt-in.
+and the default refit cap. Any check that needs more than 20 refits is opt-in.
 
 | part | what to add | evidence |
 | --- | --- | --- |

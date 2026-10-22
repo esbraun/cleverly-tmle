@@ -19,8 +19,8 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_binary_outcome
+from cleverly.validation import BootstrapMeasurementError, EmpiricalInclusionRule, refute
 from cleverly.validation import _interpretation as interpretation
-from cleverly.validation import refute
 from cleverly.validation._interpretation import (
     CalibrationCell,
     CalibrationScope,
@@ -674,27 +674,92 @@ class _CountingEstimator:
 
 
 class TestDefaultCost:
-    """A check that needs more than five refits is opt-in (Eric, 2026-10-22)."""
+    """A check that needs more than 20 refits is opt-in (Eric, 2026-10-22 01:51Z)."""
 
-    def test_the_default_set_has_no_check_above_five_refits(self) -> None:
+    def test_the_default_set_has_no_check_above_twenty_refits(self) -> None:
         assert set(DEFAULT_TESTS) == {"placebo", "random_common_cause", "subset"}
         for name in DEFAULT_TESTS:
             result = _binary_fit(cross_fit=False)
             counter = _CountingEstimator(result.estimator)
             result = replace(result, estimator=counter)
             refute(result, tests=(name,), random_state=1)
-            assert counter.calls <= 5, (name, counter.calls)
+            assert counter.calls <= 20, (name, counter.calls)
 
     def test_a_default_set_with_a_baseline_refit_per_draw_would_fail(self) -> None:
         result = _binary_fit(cross_fit=False)
         counter = _CountingEstimator(result.estimator)
         result = replace(result, estimator=counter)
         refute(result, tests=("random_common_cause",), seed_spread=True, random_state=1)
-        assert counter.calls > 5  # the opt-in path costs more, so the default must not use it
+        assert counter.calls > 20  # the opt-in path costs more, so the default must not use it
+
+    def test_a_default_set_with_the_dummy_outcome_would_fail(self) -> None:
+        result = _linear_ate_fit(ATE())
+        counter = _CountingEstimator(result.estimator)
+        result = replace(result, estimator=counter)
+        refute(result, tests=("dummy_outcome",), n_replicates=30, random_state=1)
+        assert counter.calls > 20  # so the dummy outcome must stay out of the default set
 
     def test_the_generated_outcome_tests_are_not_default(self) -> None:
         assert "dummy_outcome" not in DEFAULT_TESTS
         assert "simulated_outcome" not in DEFAULT_TESTS
+
+
+class TestBootstrapFoldRule:
+    def test_every_copy_of_a_unit_keeps_the_original_units_fold(self) -> None:
+        from cleverly.validation.refute import _bootstrap_design, _CopyFolds
+
+        result = _binary_fit(cross_fit=True, n=200)
+        data = result.data
+        design = _bootstrap_design(data, n_replicates=3, resampling="iid", random_state=4)
+        draws = {draw.replicate: draw for draw in design.draws}
+        folds = _CopyFolds(result, data, design, draws)
+        original = np.asarray(result.repeats[0].folds.assignment)
+        for replicate in draws:
+            sample = folds.sample(replicate)
+            index, _ = design.indices(data, draws[replicate])
+            assert sample.n == index.size
+            frozen = folds.options(replicate)["frozen_folds"]
+            assert len(frozen) == len(result.repeats)
+            _, expected = np.unique(original[index], return_inverse=True)
+            np.testing.assert_array_equal(frozen[0].assignment, expected)
+            # The mutation: a refit that redrew folds would split copies of one unit apart.
+            copies = np.flatnonzero(np.bincount(index, minlength=200) > 1)
+            assert copies.size > 0
+            for unit in copies:
+                positions = np.flatnonzero(index == unit)
+                assert len(set(frozen[0].assignment[positions])) == 1
+
+    @staticmethod
+    def _run(monkeypatch: pytest.MonkeyPatch | None = None) -> tuple[Any, _CountingEstimator]:
+        result = _binary_fit(cross_fit=True, n=200)
+        counter = _CountingEstimator(result.estimator)
+        result = replace(result, estimator=counter)
+        refute(
+            result,
+            tests=("bootstrap_measurement_error",),
+            bootstrap_measurement_error=BootstrapMeasurementError(("W1",)),
+            measurement_error_rule=EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
+            n_replicates=4,
+            random_state=5,
+        )
+        return result, counter
+
+    def test_the_estimator_receives_the_original_folds_of_the_copied_rows(self) -> None:
+        result, counter = self._run()
+        assert len(counter.kwargs) == 4
+        for options in counter.kwargs:
+            frozen = options["frozen_folds"]
+            assert len(frozen) == len(result.repeats)
+            assert frozen[0].n == result.data.n
+
+    def test_dropping_the_fold_options_leaves_no_frozen_folds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cleverly.validation.refute import _CopyFolds
+
+        monkeypatch.setattr(_CopyFolds, "options", lambda self, replicate: {})
+        _, counter = self._run()
+        assert all("frozen_folds" not in options for options in counter.kwargs)
 
 
 class TestSubsetFoldSlice:
@@ -756,7 +821,7 @@ class TestPlaceboDraw:
     def test_the_mode_runs_end_to_end_and_an_unknown_mode_raises(self) -> None:
         result = _binary_fit(cross_fit=False)
         report = refute(result, tests=("placebo",), placebo_mode="draw", random_state=1)
-        assert len(report["placebo"].values) == 5
+        assert len(report["placebo"].values) == 20
         with pytest.raises(ValueError, match="placebo_mode"):
             refute(result, tests=("placebo",), placebo_mode="shuffle")
 

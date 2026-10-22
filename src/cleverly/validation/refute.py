@@ -62,7 +62,7 @@ Each test refits the model, so a full run costs several times a single fit.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -122,15 +122,14 @@ DEFAULT_OUTCOME_REPLICATES = DEFAULT_BAND_REPLICATES
 #: Draws of ``bootstrap_measurement_error``, a description with no verdict rule.
 _DEFAULT_MEASUREMENT_REPLICATES = 100
 
-#: Eric, 2026-10-22: a check that needs more than five refits is opt-in. The default
-#: placebo and subset therefore refit five times, and a caller asks for the calibrated 20
-#: (``t`` with 19 degrees of freedom) through ``n_replicates``.
-_DEFAULT_PERTURBATION_REPLICATES = 5
-CALIBRATED_PERTURBATION_REPLICATES = 20
+#: Eric, 2026-10-22 01:51Z: a check that needs more than 20 refits is opt-in. The default
+#: placebo and subset therefore refit 20 times (``t`` with 19 degrees of freedom), which is
+#: the count the short studies calibrate.
+_DEFAULT_PERTURBATION_REPLICATES = 20
 
 #: The random-common-cause report refits each noise draw under the original fit's seed, so the
 #: original fit is the paired baseline and the report costs one refit per draw.
-_DEFAULT_NOISE_REPLICATES = 5
+_DEFAULT_NOISE_REPLICATES = 20
 
 #: The fewest draws at which the equivalence intervals are defined and worth printing.
 _MINIMUM_BAND_DRAWS = 10
@@ -1790,6 +1789,7 @@ def _run_empirical_refits(
     replacement: Callable[[int, int], Any],
     expected_family: str,
     retain_preparation_failures: bool = False,
+    refit_options: Callable[[int], dict[str, Any]] | None = None,
 ) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
     """Run, validate, and retain empirical refits through one failure contract.
 
@@ -1812,6 +1812,9 @@ def _run_empirical_refits(
         it, because a bootstrap draw fails per sample: a resample can hold too few rows,
         and ``run_bootstrap`` drops exactly that draw. Keep the two paths apart. A refit
         failure is retained either way.
+    refit_options : callable or None
+        Maps a replicate index to extra keyword arguments of the refit, for example the
+        frozen fold labels of a resample.
 
     Returns
     -------
@@ -1843,6 +1846,7 @@ def _run_empirical_refits(
                 prepared,
                 intermediate_value=result.intermediate_value,
                 random_state=child_seed,
+                **({} if refit_options is None else refit_options(replicate)),
             )
         except Exception as error:  # an estimator failure belongs in the report
             failures.append(
@@ -2032,6 +2036,33 @@ def _perturb_measurement_error(
     return data.with_covariates(values, name="measurement-error covariates")
 
 
+class _CopyFolds:
+    """Keep every bootstrap copy of a unit in the fold of the original unit.
+
+    A refit that redrew its folds on a resample would put copies of one unit in different
+    folds, so a copy would train the nuisance that predicts another copy. Each resampled row
+    takes the fold label of the row it copies (X82 plan 5.4). A stand-in result that holds
+    no repeats leaves the refit to draw its own folds.
+    """
+
+    def __init__(self, result: Any, data: Any, design: Any, draws: Mapping[int, Any]) -> None:
+        self._result = result
+        self._data = data
+        self._design = design
+        self._draws = draws
+        self._index: dict[int, np.ndarray] = {}
+
+    def sample(self, replicate: int) -> Any:
+        index, codes = self._design.indices(self._data, self._draws[replicate])
+        self._index[replicate] = index
+        sample = self._data.subset(index)
+        return sample if codes is None else replace(sample, cluster=codes)
+
+    def options(self, replicate: int) -> dict[str, Any]:
+        sliced = _sliced_folds(self._result, self._index[replicate])
+        return {} if sliced is None else {"frozen_folds": sliced}
+
+
 def _bootstrap_measurement_error_test(
     result: Any,
     *,
@@ -2050,13 +2081,15 @@ def _bootstrap_measurement_error_test(
         random_state=root_seed,
     )
     draw_by_replicate = {draw.replicate: draw for draw in design.draws}
+    folds = _CopyFolds(result, data, design, draw_by_replicate)
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
         replacement=lambda replicate, seed: _perturb_measurement_error(
-            design.sample(data, draw_by_replicate[replicate]), declaration, seed=seed
+            folds.sample(replicate), declaration, seed=seed
         ),
+        refit_options=folds.options,
         expected_family=data.family,
         # A cluster or stratum bootstrap draw can hold too few rows to subset, and that is
         # a property of the draw rather than of the request. ``run_bootstrap`` drops such a
@@ -2426,13 +2459,11 @@ def refute(
         after the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
         ``evaluation=`` companion that lacks it.
     n_replicates : int or None
-        Replicates per randomized test. ``None`` uses five for ``placebo`` and ``subset``,
-        five for ``random_common_cause``, 100 for
+        Replicates per randomized test. ``None`` uses 20 for ``placebo``, ``subset`` and
+        ``random_common_cause`` (``t`` with 19 degrees of freedom for the placebo), 100 for
         ``bootstrap_measurement_error``, and 400 for each generated-outcome test. Any check
-        that needs more than five refits is opt-in, and the calibrated count of the placebo
-        and the subset test is 20. The
-        generated-outcome readings print at ``L1`` below 400 draws, and a budget below ten
-        is refused before any refit.
+        that needs more than 20 refits is opt-in. The generated-outcome readings print at
+        ``L1`` below 400 draws, and a budget below ten is refused before any refit.
     subset_fraction : float
         Share of rows the subset test refits on.
     placebo_mode : {"permute", "draw"}
