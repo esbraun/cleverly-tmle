@@ -309,14 +309,16 @@ class TestTheBoundAdmitsAResponseMechanism:
     ) -> None:
         assert fit_wide_bound_refusal(tilt_fits["missing"]) is None
 
-    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
-    def test_a_fit_the_tilt_refuses_hears_its_axis(
-        self, tilt_fits: dict[str, Any], kind: str
-    ) -> None:
-        """Nonzero witness: the same response mechanism on another axis still refuses."""
+    def test_a_fit_the_tilt_refuses_hears_its_axis(self, tilt_fits: dict[str, Any]) -> None:
+        """Nonzero witness: the same response mechanism on the incremental axis still refuses."""
+        kind = "incremental+missing"
         refusal = fit_wide_bound_refusal(tilt_fits[kind])
         assert refusal is not None
         assert refusal == dict(_FIT_WIDE_BOUND_RULES)["parameter_axis"](tilt_fits[kind])
+
+    def test_a_shift_with_a_response_mechanism_is_admitted(self, tilt_fits: dict[str, Any]) -> None:
+        """X82 part G covers the shift axis, with the response mechanism as a feature."""
+        assert fit_wide_bound_refusal(tilt_fits["shift+missing"]) is None
 
 
 class TestEachTiltMutationRestoresADisagreement:

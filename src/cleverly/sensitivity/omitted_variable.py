@@ -168,6 +168,20 @@ __all__ = [
 #: what turns a fit's arms into the names these stems produce.
 LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", "atc"})
 
+#: The stems of the regime, shift and MSM axes the bound covers (X82 part G).  Each is a
+#: linear functional of the outcome regression with a known Riesz representer, read off
+#: the fit's own clever covariate.  :func:`axis_parameters` turns a fit's codes into names.
+AXIS_ESTIMANDS: frozenset[str] = frozenset(
+    {"ey_regime", "ate_regime", "ey_policy", "ate_policy", "msm"}
+)
+
+#: The fluctuation group, and the part G feature, of each covered axis.
+_AXIS_GROUPS: dict[str, tuple[str, str]] = {
+    "regime": ("regime", "regime"),
+    "policy": ("mtp", "shift"),
+    "msm": ("msm", "msm"),
+}
+
 #: The two ratio scales an E-value answers for, and the pointer a refusal appends when a
 #: request or a fit names one.  Offered for anything else, such as an attributable
 #: fraction, the pointer sends the reader from one refusal to a second one.
@@ -198,10 +212,7 @@ OMITTED_VARIABLE_OPERATIONS: tuple[str, ...] = tuple(
 #: purpose: an incremental intervention is refused for a different reason, and
 #: :func:`_refuse_non_arm_axis` states it separately.
 _AXIS_NOUNS: dict[str, str] = {
-    "regime": "A regime mean",
-    "policy": "A modified-policy mean",
     "rr_tilt": "A risk-ratio tilt mean",
-    "msm": "A point-treatment MSM coefficient",
 }
 
 #: The longitudinal stop. ``tests/unit/test_assessment_contract.py`` matches the declared
@@ -365,6 +376,8 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
             "on. Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bound the bias "
             "of a linear functional of the outcome regression alone.",
         )
+    if axis in _AXIS_GROUPS:
+        return _refuse_axis_configuration(result, axis)
     noun = _AXIS_NOUNS[axis]
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
@@ -372,10 +385,117 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
         f"indexed by {axis!r}. {noun} is a linear functional of the outcome regression, "
         f"and it has a Riesz representer, so the bound is well posed here and no "
         f"implementation of it is registered. The implemented bound covers the "
-        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)}.",
+        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)} and the regime, shift "
+        f"and MSM parameters {sorted(AXIS_ESTIMANDS)}.",
         alternative=NO_ALTERNATIVE,
         roadmap="X82",
     )
+
+
+def _axis_gap(what: str, why: str) -> Refusal:
+    """An implementation gap on a covered axis, in one sentence form."""
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"the omitted-variable bound covers a {what} only in its basic form, and {why}.",
+        alternative=NO_ALTERNATIVE,
+        roadmap="X82",
+    )
+
+
+def _refuse_axis_configuration(result: Any, axis: str) -> Refusal | None:
+    """Refuse the regime, shift and MSM configurations whose representer is not derived.
+
+    The bound reads the fit's own clever covariate.  A continuous-dose or non-identity MSM,
+    and a randomized, fold-tuned or joint policy, change that covariate or the functional
+    in a way that no derivation here covers.
+    """
+    nuisance = result.repeats[0].nuisance
+    if axis == "msm":
+        msm = nuisance.msm
+        if msm is not None and msm.continuous:
+            return _axis_gap(
+                "working-model coefficient",
+                "a continuous-dose MSM reads the treatment density at quadrature doses, "
+                "whose representer and Gram matrix the bound does not rebuild",
+            )
+        if msm is not None and str(msm.link) != "identity":
+            return _axis_gap(
+                "working-model coefficient",
+                f"under link={msm.link!r} the coefficient is not linear in the outcome "
+                "regression, so it has no Riesz representer",
+            )
+    if axis == "policy":
+        policies = nuisance.policies
+        if policies is not None and any(
+            getattr(policies, name) is not None
+            for name in ("mixing", "component_rows", "curve_terms", "joint")
+        ):
+            return _axis_gap(
+                "modified-policy mean",
+                "a randomized, fold-tuned or joint policy set mixes components whose "
+                "representers the bound does not combine",
+            )
+    return None
+
+
+def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
+    """The reported regime, shift and MSM parameters the bound covers, by name.
+
+    Composed forward through :func:`~cleverly.targets.parameter_name` from the codes the
+    fit carries, as :mod:`cleverly.sensitivity.missingness` composes them for the tilt.
+    Each parameter keeps its code in ``arm`` and its reference code in ``versus``.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A point-treatment result.
+
+    Returns
+    -------
+    dict
+        Each reported name and its parameter.  Empty on any other axis.
+    """
+    from ..targets import parameter_name
+
+    axis = getattr(getattr(result, "config", None), "parameter_axis", None)
+    if axis not in _AXIS_GROUPS or getattr(result, "assessment_family", None) != "point":
+        return {}
+    group = _AXIS_GROUPS[axis][0]
+    nuisance = result.repeats[0].nuisance
+    estimates = result.estimates
+    out: dict[str, ArmParameter] = {}
+    if axis == "msm":
+        msm = nuisance.msm
+        if msm is None:
+            return {}
+        for code in msm.codes:
+            name = parameter_name("msm", arm=msm.labels[code])
+            if name in estimates:
+                out[name] = ArmParameter(name, "msm", group, code)
+        return out
+    codes = nuisance.regimes if axis == "regime" else nuisance.policies
+    if codes is None:
+        return {}
+    level, contrast = (
+        ("ey_regime", "ate_regime") if axis == "regime" else ("ey_policy", "ate_policy")
+    )
+    labels = codes.labels
+    reference = float(codes.reference)
+    for code in codes.codes:
+        name = parameter_name(level, arm=labels[code])
+        if name in estimates:
+            out[name] = ArmParameter(name, level, group, code)
+        if code == reference:
+            continue
+        name = parameter_name(contrast, arm=labels[code], versus=labels[reference])
+        if name in estimates:
+            out[name] = ArmParameter(name, contrast, group, code, reference)
+    return out
+
+
+def _bound_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
+    """Every reported parameter the bound applies to: the arm ones and the axis ones."""
+    return {**reported_arm_parameters(result), **axis_parameters(result)}
 
 
 def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
@@ -390,7 +510,7 @@ def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
     only on a fit that reports a risk ratio or an odds ratio, the two scales the E-value
     answers for.
     """
-    if reported_arm_parameters(result):
+    if _bound_parameters(result):
         return None
     ratio = any(parameter_stem(name) in _EVALUE_STEMS for name in result.estimates)
     return Refusal(
@@ -935,7 +1055,7 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         The reported parameter and the arms it is a functional of.
     """
     stem = parameter_stem(estimand)
-    if stem not in LINEAR_ESTIMANDS:
+    if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
         # refusal to a second one.
@@ -947,7 +1067,7 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             reason=RefusalReason.INVALID_DECLARATION,
             alternative=pointer,
         )
-    available = reported_arm_parameters(result)
+    available = _bound_parameters(result)
     if estimand in available:
         return available[estimand]
     # A stratum-conditional parameter has its own representer: the marginal one restricted
@@ -978,6 +1098,9 @@ _FEATURE_MECHANISMS: dict[str, str | None] = {
     "response": "response",
     "missing_treatment": "recording",
     "intermediate": "intermediate",
+    "regime": None,
+    "shift": None,
+    "msm": None,
     "stratum": None,
     "repeats": None,
 }
@@ -1007,6 +1130,9 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
         "response": bool(data.has_missing_outcome),
         "missing_treatment": bool(getattr(data, "has_missing_treatment", False)),
         "intermediate": declares_intermediate(result),
+        "regime": parameter.group == "regime",
+        "shift": parameter.group == "mtp",
+        "msm": parameter.group == "msm",
         "stratum": parameter.stratum is not None,
         "repeats": result.n_repeats > 1,
     }
@@ -1167,12 +1293,13 @@ def _elements_for(
     sigma2 = float(np.average(sigma2_element, weights=weights))
     psi_sigma2 = (sigma2_element - sigma2) * weights
 
-    representer = _riesz_representer(parameter, submodel) * _representer_rows(data)
+    axis = _AxisInputs.build(parameter, nuisance, weights)
+    representer = _riesz_representer(parameter, submodel, axis) * _representer_rows(data)
 
     method = _resolved_nu2_estimator(nu2_estimator)
     m_alpha: FloatArray | None = None
     if method == "doubly_robust":
-        m_alpha = _m_alpha(parameter, submodel, conditioning_indicator, conditioning_share)
+        m_alpha = _m_alpha(parameter, submodel, conditioning_indicator, conditioning_share, axis)
     # The share the estimate divides by, and the indicator of the rows it counts: the
     # conditioning arm's for an ATT or an ATC, and the stratum's when there is one.
     share_indicator, share = conditioning_indicator, conditioning_share
@@ -1240,6 +1367,12 @@ def _elements_for(
             # _conditioning_share_influence.
             assert share is not None
             psi_nu2 = psi_nu2 + _conditioning_share_influence(nu2, share_indicator, share, weights)
+        if axis is not None and axis.gram_inverse is not None:
+            # The representer and m(O, alpha) read the estimated Gram matrix, so the curve
+            # carries its influence (_gram_influence).
+            psi_nu2 = psi_nu2 + _gram_influence(
+                parameter, submodel, axis, representer, nu2, weights
+            )
     nu2_correction: float | None = None
     if mechanism_term is not None:
         # The curve is that of E_n[alpha_hat^2]; the bound reports it less its second-order
@@ -1287,6 +1420,12 @@ def _configuration_phrase(features: tuple[str, ...]) -> str:
             + (nouns[0] if len(nouns) == 1 else f"{', '.join(nouns[:-1])} and {nouns[-1]}")
             + (" mechanism" if len(nouns) == 1 else " mechanisms")
         )
+    axes = {
+        "regime": "is the clever covariate of a declared regime",
+        "shift": "is the clever covariate of a modified treatment policy",
+        "msm": "is projected through the working model's Gram matrix",
+    }
+    parts.extend(phrase for name, phrase in axes.items() if name in features)
     if "stratum" in features:
         parts.append("is restricted to a baseline stratum and divides by its share")
     if "repeats" in features:
@@ -1332,7 +1471,56 @@ def _restrict_to_stratum(
     return stratum * representer * ratio, scaled_m, indicator, share
 
 
-def _riesz_representer(parameter: ArmParameter, submodel: Any) -> FloatArray:
+@dataclass(frozen=True)
+class _AxisInputs:
+    r"""The known arrays a regime or MSM representer reads beyond the clever covariate.
+
+    Parameters
+    ----------
+    regimes : ndarray or None
+        ``(n, K, R)`` regime densities :math:`g^\star_r(a \mid W)`, for the regime axis.
+    design : ndarray or None
+        ``(n, K, p)`` working-model design :math:`\varphi(a, V)`, for the MSM axis.
+    model_weights : ndarray or None
+        ``(n, K)`` working-model weights :math:`h(a, V)`, for the MSM axis.
+    gram_inverse : ndarray or None
+        ``(p, p)`` inverse of the observation-weighted Gram matrix
+        :math:`M = P_n \sum_a h \varphi \varphi^\top`, which the coefficient inverts.
+    """
+
+    regimes: FloatArray | None = None
+    design: FloatArray | None = None
+    model_weights: FloatArray | None = None
+    gram_inverse: FloatArray | None = None
+
+    @classmethod
+    def build(
+        cls, parameter: ArmParameter, nuisance: NuisanceEstimates, weights: FloatArray
+    ) -> _AxisInputs | None:
+        """The inputs of ``parameter``'s axis, or ``None`` for an arm parameter."""
+        if parameter.group == "regime":
+            assert nuisance.regimes is not None
+            return cls(regimes=np.asarray(nuisance.regimes.values, dtype=float))
+        if parameter.group != "msm":
+            return None
+        msm = nuisance.msm
+        assert msm is not None
+        design = np.asarray(msm.design, dtype=float)
+        model_weights = np.asarray(msm.weights, dtype=float)
+        w = np.asarray(weights, dtype=float)
+        # The Gram matrix of cleverly.msm.solve_projection under the identity link.
+        gram = np.einsum("ijp,ijq,ij,i->pq", design, design, model_weights, w) / float(w.sum())
+        return cls(design=design, model_weights=model_weights, gram_inverse=np.linalg.inv(gram))
+
+    def coefficient_rows(self, parameter: ArmParameter) -> FloatArray:
+        """``b = M^{-1} e_j``, the row of the inverse Gram matrix coefficient ``j`` reads."""
+        assert self.gram_inverse is not None
+        return np.asarray(self.gram_inverse[:, int(parameter.arm)], dtype=float)
+
+
+def _riesz_representer(
+    parameter: ArmParameter, submodel: Any, axis: _AxisInputs | None = None
+) -> FloatArray:
     r"""``alpha(A, W)`` for the requested estimand.
 
     The clever covariate *is* the Riesz representer -- that is why the same object
@@ -1342,7 +1530,20 @@ def _riesz_representer(parameter: ArmParameter, submodel: Any) -> FloatArray:
     Every column is reached by the arm it carries rather than by position, so
     ``ate[high vs low]`` reads the two arms it names out of a ``K``-column covariate
     instead of the two an implementation that counted to two would have found.
+
+    A regime column targets one regime, and a contrast of regimes is a difference of two
+    columns.  A policy column targets one policy, as an arm column targets one arm.  An MSM
+    coefficient ``j`` reads :math:`e_j^\top M^{-1} H(A, W)`, the row of the coefficient's
+    residual term in :func:`~cleverly.inference.influence.msm_coefficients`.
     """
+    if parameter.group == "msm":
+        assert axis is not None
+        return np.asarray(submodel.observed @ axis.coefficient_rows(parameter), dtype=float)
+    if parameter.group == "regime":
+        column = np.asarray(submodel.observed[:, int(parameter.arm)], dtype=float)
+        if parameter.versus is None:
+            return column
+        return np.asarray(column - submodel.observed[:, int(parameter.versus)], dtype=float)
     if parameter.group in ("att", "atc"):
         # One column per non-reference arm, and this parameter's is the one carrying the
         # contrast it is named for.
@@ -1359,6 +1560,7 @@ def _m_alpha(
     submodel: Any,
     conditioning_indicator: FloatArray | None,
     conditioning_share: float | None,
+    axis: _AxisInputs | None = None,
 ) -> FloatArray:
     r"""The target functional applied to the Riesz representer, ``m(O, alpha)``.
 
@@ -1390,10 +1592,15 @@ def _m_alpha(
     population.  They are ``None`` for a mean or an unconditional contrast, which
     reweight nobody.
     """
+    if parameter.group in ("regime", "msm"):
+        assert axis is not None
+        return _axis_m_alpha(parameter, submodel, axis)
     # ``arms[a][:, c]`` is the covariate at arm ``a`` in the column targeting arm ``c``:
     # the mean submodel has one column per arm, so both indices are arm levels and
-    # neither is a positional 0 or 1.
-    if parameter.group == "mean":
+    # neither is a positional 0 or 1.  A policy submodel has the same layout, with the
+    # policy in place of the arm: ``arms[s][:, c]`` is the covariate at the dose that
+    # policy ``s`` assigns, in the column targeting policy ``c``.
+    if parameter.group in ("mean", "mtp"):
         columns = submodel.arm_columns
         at = parameter.arm
         if parameter.versus is None:
@@ -1418,6 +1625,82 @@ def _m_alpha(
         dtype=float,
     )
     return np.asarray((conditioning_indicator / conditioning_share) * difference, dtype=float)
+
+
+def _axis_m_alpha(parameter: ArmParameter, submodel: Any, axis: _AxisInputs) -> FloatArray:
+    r"""``m(O, alpha)`` for a regime parameter or an MSM coefficient.
+
+    Both functionals are :math:`E[\sum_a c(a, W) \bar Q(a, W)]` with a known weight
+    ``c``, so :math:`m(O, \alpha) = \sum_a c(a, W) \alpha(a, W)`.  A regime ``r`` has
+    :math:`c = g^\star_r(a \mid W)`, and a contrast the difference of two regimes.  An
+    MSM coefficient ``j`` has :math:`c = e_j^\top M^{-1} h(a, V) \varphi(a, V)`.  The
+    counterfactual blocks ``submodel.arms[a]`` hold the clever covariate at arm ``a``.
+    """
+    total = np.zeros(submodel.n, dtype=float)
+    if parameter.group == "msm":
+        assert axis.design is not None and axis.model_weights is not None
+        b = axis.coefficient_rows(parameter)
+        for index, level in enumerate(submodel.levels):
+            weight = axis.model_weights[:, index] * (axis.design[:, index, :] @ b)
+            total += weight * (submodel.arms[level] @ b)
+        return total
+    assert axis.regimes is not None
+    code = int(parameter.arm)
+    versus = None if parameter.versus is None else int(parameter.versus)
+    for index, level in enumerate(submodel.levels):
+        block = submodel.arms[level]
+        weight = axis.regimes[:, index, code]
+        alpha = block[:, code]
+        if versus is not None:
+            weight = weight - axis.regimes[:, index, versus]
+            alpha = alpha - block[:, versus]
+        total += weight * alpha
+    return total
+
+
+def _gram_influence(
+    parameter: ArmParameter,
+    submodel: Any,
+    axis: _AxisInputs,
+    representer: FloatArray,
+    nu2: float,
+    weights: FloatArray,
+) -> FloatArray:
+    r"""The influence of the estimated Gram matrix on the doubly robust ``nu^2`` of an MSM.
+
+    With :math:`b = M^{-1} e_j`, the estimate is :math:`\hat\nu^2 = b^\top \hat K b`,
+    where :math:`\hat K = P_n[2 \sum_a u_a v_a^\top - H H^\top]`, :math:`u_a = h \varphi`
+    at arm ``a`` and :math:`v_a` and :math:`H` are the clever covariate at arm ``a`` and
+    at the observed arm.  The Gram matrix :math:`\hat M = P_n \sum_a h \varphi
+    \varphi^\top` is estimated whenever :math:`h` or :math:`\varphi` reads ``V``.  Since
+    :math:`db = -M^{-1} dM\, b`, the delta method adds
+
+    .. math::
+
+        -2 w \Big[\sum_a h(a, V)\, (z^\top \varphi_a)(\varphi_a^\top b) - \nu^2\Big],
+        \qquad z = M^{-1} K b ,
+
+    to the curve.  For a marginal MSM the bracket is zero on every row, because each row's
+    Gram contribution equals :math:`M`.  ``tests/unit/test_omitted_variable_axes.py``
+    compares the curve with its Gateaux derivative on a design that reads ``V``.
+    """
+    assert axis.design is not None and axis.model_weights is not None
+    w = np.asarray(weights, dtype=float)
+    mass = float(w.sum())
+    b = axis.coefficient_rows(parameter)
+    # K b = P_n[2 sum_a u_a alpha(a) - H alpha], with alpha(a) = v_a' b and H' b = alpha.
+    # ``representer`` carries the row mask R, and R^2 = R, so H (H' b) = observed * alpha.
+    kb = -np.einsum("i,ip,i->p", w, submodel.observed, representer) / mass
+    for index, level in enumerate(submodel.levels):
+        u = axis.design[:, index, :] * axis.model_weights[:, index][:, None]
+        kb += 2.0 * np.einsum("i,ip,i->p", w, u, submodel.arms[level] @ b) / mass
+    assert axis.gram_inverse is not None
+    z = axis.gram_inverse @ kb
+    bracket = np.zeros(submodel.n, dtype=float)
+    for index in range(len(submodel.levels)):
+        phi = axis.design[:, index, :]
+        bracket += axis.model_weights[:, index] * (phi @ z) * (phi @ b)
+    return np.asarray(-2.0 * w * (bracket - nu2), dtype=float)
 
 
 def _conditioning_share_influence(
@@ -2539,6 +2822,34 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
     )
 
 
+def _axis_benchmark_refusal(axis: str, names: tuple[str, ...]) -> Refusal:
+    """Why a benchmark that drops a covariate the declared intervention reads is refused."""
+    noun = {"regime": "regime", "policy": "policy", "msm": "working model"}[axis]
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"benchmark refits the model without {list(names)}, and the declared {noun} reads "
+        f"them, so the short model would estimate another target. The benchmark compares "
+        f"two fits of one parameter.",
+        alternative=f"Name covariates that the declared {noun} does not read.",
+    )
+
+
+def _axis_target_moved(result: TMLEResult, short: TMLEResult) -> bool:
+    """Whether the short refit evaluated the declared intervention to other values."""
+    long, other = result.repeats[0].nuisance, short.repeats[0].nuisance
+    axis = result.config.parameter_axis
+    if axis == "regime" and long.regimes is not None and other.regimes is not None:
+        return not np.array_equal(long.regimes.values, other.regimes.values)
+    if axis == "msm" and long.msm is not None and other.msm is not None:
+        return not (
+            np.array_equal(long.msm.design, other.msm.design)
+            and np.array_equal(long.msm.weights, other.msm.weights)
+        )
+    if axis == "policy" and long.policies is not None and other.policies is not None:
+        return not np.array_equal(long.policies.shifted, other.policies.shifted)
+    return False
+
+
 def benchmark(
     result: TMLEResult,
     covariates: Any,
@@ -2615,9 +2926,19 @@ def benchmark(
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
     short_data = result.data.without_covariates(_benchmark_columns(result.data, names))
-    short_result = estimator.refit(
-        short_data, intermediate_value=result.intermediate_value, random_state=seed
-    )
+    axis = result.config.parameter_axis
+    try:
+        short_result = estimator.refit(
+            short_data, intermediate_value=result.intermediate_value, random_state=seed
+        )
+    except (KeyError, DataError) as error:
+        if axis not in _AXIS_GROUPS:
+            raise
+        # The refit evaluates the declared regime, policy or working model again on the
+        # short data, and the declaration reads a covariate the request drops.
+        raise CapabilityError.from_refusal(_axis_benchmark_refusal(axis, names)) from error
+    if _axis_target_moved(result, short_result):
+        raise CapabilityError.from_refusal(_axis_benchmark_refusal(axis, names))
     short_elements = _median_elements(short_result, estimand, nu2_estimator)
 
     var_y = float(np.var(result.data.outcome[result.data.observed]))

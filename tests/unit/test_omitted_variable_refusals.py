@@ -227,6 +227,17 @@ def msm_fit() -> Any:
 
 
 @pytest.fixture(scope="module")
+def msm_logit_fit() -> Any:
+    """A working model under a logit link, whose coefficient is not linear in the regression."""
+    frame, _ = make_binary_outcome(n=300, seed=3)
+    return (
+        TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, msm=MSM.linear(link="logit"))
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
 def natural_course_fit() -> Any:
     """The missing-outcome natural-course mean, whose tilt rows are unavailable too."""
     mar = discrete_law_mar.DiscreteLaw()
@@ -263,8 +274,7 @@ REFUSED_FITS: tuple[tuple[str, str], ...] = (
     ("drtmle_fit", "W"),
     ("collaborative_fit", "W1"),
     ("ipsi_fit", "W1"),
-    ("shift_fit", "W1"),
-    ("msm_fit", "W1"),
+    ("msm_logit_fit", "W1"),
     ("ratio_only_fit", "W1"),
 )
 
@@ -353,26 +363,35 @@ class TestEachReasonNamesTheMissingResult:
         # The representer is that average only where the working mechanism is P(A | V).
         assert "Where the working mechanism is P(A | V) in the limit" in reason
 
-    @pytest.mark.parametrize(
-        ("fixture", "axis", "phrase"),
-        [
-            ("ipsi_fit", "ipsi", "part of the estimand"),
-            ("shift_fit", "policy", "A modified-policy mean"),
-            ("msm_fit", "msm", "A point-treatment MSM coefficient"),
-        ],
-    )
-    def test_a_real_fit_on_each_non_arm_axis_hears_its_own_reason(
-        self, request: pytest.FixtureRequest, fixture: str, axis: str, phrase: str
-    ) -> None:
+    def test_a_real_incremental_fit_hears_its_own_reason(self, ipsi_fit: Any) -> None:
         """The axis is the one the fit records, not one written into its configuration."""
-        result = request.getfixturevalue(fixture)
-        assert result.config.parameter_axis == axis
-        refusal = fit_wide_bound_refusal(result)
+        assert ipsi_fit.config.parameter_axis == "ipsi"
+        refusal = fit_wide_bound_refusal(ipsi_fit)
         assert refusal is not None
         reason = refusal.message()
-        assert f"indexed by {axis!r}" in reason
-        assert phrase in reason
-        assert ("well posed" in reason) is (axis != "ipsi")
+        assert "indexed by 'ipsi'" in reason
+        assert "part of the estimand" in reason
+        assert "well posed" not in reason
+
+    @pytest.mark.parametrize("fixture", ["shift_fit", "msm_fit"])
+    def test_a_real_shift_or_msm_fit_is_admitted(
+        self, request: pytest.FixtureRequest, fixture: str
+    ) -> None:
+        """Nonzero control: X82 part G covers these axes, so no fit-wide rule refuses them.
+
+        The plug-in second moment is positive for every parameter.  The doubly robust one
+        can fall below zero on a binned dose density, which its own refusal reports.
+        """
+        result = request.getfixturevalue(fixture)
+        assert fit_wide_bound_refusal(result) is None
+        for name in result.estimates:
+            assert sensitivity_elements(result, name, nu2_estimator="plugin").nu2 > 0, name
+
+    def test_a_non_identity_msm_names_its_link(self, msm_logit_fit: Any) -> None:
+        refusal = fit_wide_bound_refusal(msm_logit_fit)
+        assert refusal is not None
+        assert "link='logit'" in refusal.message()
+        assert "no Riesz representer" in refusal.message()
 
     @pytest.mark.parametrize("fixture", ["drtmle_fit", "collaborative_fit"])
     def test_a_mechanism_refusal_names_the_assumption_it_lacks(
@@ -453,7 +472,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         [
             ("drtmle", "plain_fit", {"fitted_method": "drtmle"}),
             ("collaborative_tmle", "plain_fit", {"fitted_method": "collaborative_tmle"}),
-            ("parameter_axis", "plain_fit", {"parameter_axis": "regime"}),
+            ("parameter_axis", "plain_fit", {"parameter_axis": "rr_tilt"}),
             ("bound_parameters", "ratio_only_fit", {}),
         ],
     )
