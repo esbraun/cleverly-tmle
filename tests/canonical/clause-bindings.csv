@@ -1387,6 +1387,16 @@ tests.studies.long_horizon_sdr_properties,root_n_and_efficiency,se ratio sanity,
 tests.studies.long_horizon_sdr_properties,root_n_rate,slope in root-n band,contract
 tests.studies.long_horizon_sdr_properties,sequential_double_robustness,bias discriminated,pair_collapse
 tests.studies.long_horizon_sdr_properties,sequential_double_robustness,bias equivalent,bias
+tests.studies.adaptive_iptw_properties,bias,bias discriminated,pair_collapse
+tests.studies.adaptive_iptw_properties,bias,bias equivalent,bias
+tests.studies.adaptive_iptw_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.adaptive_iptw_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.adaptive_iptw_properties,root_n_points,bias equivalent,bias
+tests.studies.adaptive_iptw_properties,root_n_rate,slope in root-n band,contract
+tests.studies.adaptive_iptw_properties,simultaneous_coverage,joint coverage in calibration band,se_low
+tests.studies.adaptive_iptw_properties,targeting_necessity,bias discriminated,pair_collapse
+tests.studies.adaptive_iptw_properties,targeting_necessity,bias equivalent,bias
+tests.studies.adaptive_iptw_properties,targeting_necessity,least displacement over labels,control_concentrated
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05
