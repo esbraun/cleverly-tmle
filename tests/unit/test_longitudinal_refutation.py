@@ -356,10 +356,6 @@ class TestRefit:
         again = restored.estimator.refit(restored.data, frozen_seeds=seeds)
         assert again[CONTRAST].psi == fitted[CONTRAST].psi
 
-    def test_a_refit_refuses_an_intermediate_value(self, fitted: Any) -> None:
-        with pytest.raises(ValueError, match="intermediate"):
-            fitted.estimator.refit(fitted.data, intermediate_value=0.5)
-
 
 class TestAdapter:
     def test_every_test_runs_and_reads_descriptive(self, fitted: Any) -> None:

@@ -2010,7 +2010,9 @@ The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws.
 
 A longitudinal result stores an unfitted copy of its estimator in `result.estimator`. The copy
 fits no bootstrap and no simultaneous band. `refute()` refits it with the original fold labels and
-repeat seeds. The table lists the four tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
+repeat seeds. The `refute` row reads the `rerun_configuration` slot of `replayability()`. That slot needs
+the stored copy and the regimen and MSM declarations, and it does not need seeded learners. The
+table lists the four tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
 and the survival, competing-risk, repeated-outcome, and MSM fits. Each test prints its numbers
 with `passed=None`, because no registry row covers a longitudinal fit (X82 plan section 7).
 

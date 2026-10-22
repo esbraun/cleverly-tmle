@@ -2162,7 +2162,7 @@ def _run_empirical_refits(
         try:
             refitted = result.estimator.refit(
                 prepared,
-                intermediate_value=getattr(result, "intermediate_value", None),
+                **_intermediate_option(result),
                 random_state=child_seed,
                 **({} if refit_options is None else refit_options(replicate)),
             )
@@ -2965,6 +2965,13 @@ def _subset_draw(
     return np.flatnonzero(np.isin(data.cluster, chosen)), units, size
 
 
+def _intermediate_option(result: Any) -> dict[str, Any]:
+    """The ``intermediate_value`` a point refit holds fixed; a longitudinal fit has none."""
+    if not hasattr(result, "intermediate_value"):
+        return {}
+    return {"intermediate_value": result.intermediate_value}
+
+
 def _sliced_folds(result: Any, index: np.ndarray) -> tuple[Any, ...] | None:
     """The original fold labels of the drawn rows, one split per repeat.
 
@@ -3168,7 +3175,7 @@ def refute(
             options["frozen_seeds"] = frozen_seeds
         refitted = estimator.refit(
             replacement,
-            intermediate_value=getattr(result, "intermediate_value", None),
+            **_intermediate_option(result),
             random_state=seed,
             **options,
         )

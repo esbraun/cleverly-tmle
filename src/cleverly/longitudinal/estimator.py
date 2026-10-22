@@ -1914,15 +1914,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
     #: ``None`` on every other fit.
     simulation: GFormulaReport | None = field(default=None, kw_only=True)
+    #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
+    #: runs again on a changed container.  ``None`` on a result built by hand.
+    estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
     #: One complete single-draw fit per draw of the cross-fitting split.
     repeats: tuple[LongitudinalRepeat, ...] = field(kw_only=True)
     #: The studentized bootstrap sup-t band over the estimates that supply inference, when
     #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
     #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.
     bootstrap_band: BootstrapBand | None = None
-    #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
-    #: runs again on a changed container.  ``None`` on a result built by hand.
-    estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
     #: :attr:`fitted_method`.
@@ -5958,7 +5958,6 @@ class _SequentialEstimator:
         self,
         data: LongitudinalData,
         *,
-        intermediate_value: float | None = None,
         random_state: int | None = None,
         frozen_folds: Sequence[Folds] | None = None,
         frozen_seeds: Sequence[int | None] | None = None,
@@ -5973,8 +5972,6 @@ class _SequentialEstimator:
         ----------
         data : LongitudinalData
             The prepared container to fit, usually ``result.data`` with one array changed.
-        intermediate_value : None
-            A longitudinal fit has no intermediate variable. Any other value is refused.
         random_state : int or None
             Seed of the refit. ``None`` keeps this estimator's own.
         frozen_folds : sequence of Folds or None
@@ -5989,14 +5986,7 @@ class _SequentialEstimator:
         -------
         LongitudinalResult
             The result of the whole fit on ``data``.
-
-        Raises
-        ------
-        ValueError
-            When ``intermediate_value`` is given.
         """
-        if intermediate_value is not None:
-            raise ValueError("a longitudinal fit has no intermediate variable to hold fixed")
         estimator = self._refit_template()
         if random_state is not None:
             estimator.random_state = random_state

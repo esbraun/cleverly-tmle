@@ -42,17 +42,18 @@ from typing import Any
 import numpy as np
 
 from .._typing import FloatArray, IntArray
+from ..exceptions import NO_ALTERNATIVE, CapabilityError, RefusalReason
 
 __all__ = ["MarkovKernel", "placebo_known_mechanisms"]
 
 
-def _cluster_constant(data: Any) -> bool:
+def _cluster_constant(cluster: Any, treatment: FloatArray) -> bool:
     """Whether every node's recorded treatment is constant within each cluster."""
-    if data.cluster is None:
+    if cluster is None:
         return False
-    codes = np.asarray(data.cluster)
-    for time in range(1, data.n_times + 1):
-        column = np.asarray(data.treatment[:, time - 1], dtype=float)
+    codes = np.asarray(cluster)
+    for time in range(1, treatment.shape[1] + 1):
+        column = treatment[:, time - 1]
         present = ~np.isnan(column)
         if not present.any():
             continue
@@ -99,14 +100,21 @@ class MarkovKernel:
         Parameters
         ----------
         data : LongitudinalData
-            The panel. A node with a continuous component in a vector is not accepted; the
-            caller refuses it first.
+            The panel. A vector node with a continuous component is refused.
 
         Returns
         -------
         MarkovKernel
             The kernel.
         """
+        if data.has_mixed_node:
+            # Every read of the treatment and its level sets below assumes no mixed node.
+            raise CapabilityError(
+                "a vector node with a continuous component has no Markov kernel",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=NO_ALTERNATIVE,
+                roadmap="X82",
+            )
         treatment = np.asarray(data.treatment, dtype=float)
         categorical = tuple(
             data.node_kind(time) == "categorical" for time in range(1, data.n_times + 1)
@@ -115,7 +123,7 @@ class MarkovKernel:
             len(data.treatment_levels[time - 1]) if categorical[time - 1] else 0
             for time in range(1, data.n_times + 1)
         )
-        if _cluster_constant(data):
+        if _cluster_constant(data.cluster, treatment):
             codes = np.asarray(data.cluster, dtype=np.int64)
             units = int(codes.max()) + 1
             trajectories = np.full((units, data.n_times), np.nan)
@@ -228,7 +236,10 @@ class MarkovKernel:
             ``(len(previous), K_t)`` probabilities in level-code order.
         """
         if not self.categorical[time - 1]:
-            raise ValueError(f"node {time} holds a dose and has no probability per level")
+            raise CapabilityError(
+                f"node {time} holds a dose and has no probability per level",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         levels = self.levels[time - 1]
         rows = np.asarray(previous, dtype=float).reshape(-1)
 
@@ -275,7 +286,10 @@ class MarkovKernel:
             ``(codes, probability)`` pairs over the product of the level sets.
         """
         if not all(self.categorical):
-            raise ValueError("a dose node has no finite trajectory law")
+            raise CapabilityError(
+                "a dose node has no finite trajectory law",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         out: list[tuple[tuple[int, ...], float]] = []
         for codes in product(*(range(levels) for levels in self.levels)):
             probability = float(self.node_law(1, np.zeros(1))[0, codes[0]])

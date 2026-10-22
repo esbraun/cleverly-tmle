@@ -592,6 +592,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "config",
         "data",
         "estimates",
+        "estimator",
         "fitted_method",
         "identified_effect",
         "method",

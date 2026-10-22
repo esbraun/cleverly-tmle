@@ -359,9 +359,10 @@ class CalibrationScope:
         The covered treatment level counts.
     replicates : frozenset of int or None
         The covered replicate counts R. A row calibrated at one R covers no other.
-    nodes : frozenset of int or None
-        The covered treatment node counts of a longitudinal fit. A point-treatment fit has
-        no node count, so a row that restricts this axis covers no point-treatment fit.
+    nodes : frozenset of int or None, or None
+        The covered treatment node counts ``T``. ``None`` inside the set stands for a
+        point-treatment fit, which has no node count, so a point row holds
+        ``frozenset({None})``.
     n_min : int
         The smallest covered ``n``.
     n_max : int or None
@@ -384,7 +385,7 @@ class CalibrationScope:
     known_mechanism: frozenset[bool] | None = None
     arms: frozenset[int] | None = None
     replicates: frozenset[int] | None = None
-    nodes: frozenset[int] | None = None
+    nodes: frozenset[int | None] | None = None
     n_min: int = 0
     n_max: int | None = None
     covariates_per_row_max: float | None = None
