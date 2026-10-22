@@ -806,7 +806,10 @@ matching capability row therefore carry one reason.
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong. `assume_consistent_mechanism=True` gives a point bound under that assumption |
 | a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does. `assume_consistent_mechanism=True` gives a point bound on a selecting fit |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
-| a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| an `rr_tilt` parameter axis | an implementation. A risk-ratio tilt mean is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| an `msm` axis with a continuous dose or a link other than `"identity"` | a representer. A continuous dose reads the treatment density at quadrature doses, and under another link the coefficient is not linear in the outcome regression |
+| a `policy` axis with a randomized, fold-tuned, or joint policy set | a combination of the component representers |
+| a `policy` axis on a continuous dose, where an observed or a shifted dose is not a declared dose atom | a derived representer for a fitted dose density, and a guarantee for $\hat\nu^2$. On a binned density, the doubly robust $\hat\nu^2$ is often negative |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
@@ -849,6 +852,46 @@ the [standard error](#standard-error-of-the-omitted-variable-bound) states. Unde
 | `TestTheResidualVariance` | $\sigma^2$ masks $R$ and averages every row. A mutation removes $1\{Z = z\}$ from $R$ |
 | `TestTheStratumShareCurve` | the curve of $\hat\nu^2$ equals a finite-difference Gateaux derivative on every row. A mutation removes the share term |
 | `TestOneStratumIsTheMarginalBound` | a stratum that holds every row gives the marginal bound |
+
+#### Regime, shift, and MSM parameters
+
+The bound covers the regime, shift, and MSM parameters in the table below. Each parameter is a
+linear functional of the outcome regression. The representer is the fit's own clever covariate
+times $R$, as in the table above. In each row, $m(O, \alpha)$ reads the counterfactual blocks of
+the clever covariate.
+
+| axis | parameter | representer $\alpha$ | $m(O, \alpha)$ | feature |
+| --- | --- | --- | --- | --- |
+| `regime` | `ey_regime`, `ate_regime` | $g^\star_r(A \mid W) / g(A \mid W)$, over $\pi$ and $q_z$ where the fit has them | $\sum_a g^\star_r(a \mid W) \alpha(a, W)$ | `regime` |
+| `policy` | `ey_policy`, `ate_policy` | the shift's ratio of dose probabilities $h_s(A, W)$, on declared dose atoms | $\alpha(d_s(A, W), W)$, at the dose the policy assigns | `shift` |
+| `msm` | `msm[term]` | $e_j^\top M^{-1} h(A, V) \varphi(A, V) / g(A \mid W)$ | $\sum_a e_j^\top M^{-1} h(a, V) \varphi(a, V) \alpha(a, W)$ | `msm` |
+
+$M = P_n \sum_a h \varphi \varphi^\top$ is the observation-weighted Gram matrix that the
+coefficient inverts. A contrast takes the difference of two representers and of two $m$ terms.
+
+The MSM estimate of $\nu^2$ reads $\hat M$. Its curve therefore adds the influence of $\hat M$,
+$-2 w [\sum_a h_a (z^\top \varphi_a)(\varphi_a^\top b) - \nu^2]$, with $b = M^{-1} e_j$ and
+$z = M^{-1} K b$. Here $K$ is the matrix with $\nu^2 = b^\top K b$. The term is zero on every row
+of a marginal MSM, because each row's Gram contribution is $M$. The package derives this term,
+and no cited source gives it.
+
+A shift representer is a ratio of dose probabilities. The bound covers a shift only when
+`dose_atoms` holds every observed dose and every shifted dose. A shift on a continuous dose refuses
+with `implementation_gap` under both estimators of $\nu^2$.
+`test_a_continuous_dose_shift_is_refused` in `tests/unit/test_omitted_variable_refusals.py` checks
+the refusal.
+
+`benchmark()` refits without the named covariates. The refit evaluates the declared regime,
+policy, or working model again. When a dropped covariate changes or breaks that declaration, the
+call refuses, because the short model would estimate another target.
+
+`tests/unit/test_omitted_variable_axes.py` checks these claims:
+
+- The Riesz identity holds on exact laws for each axis to `rtol=1e-12`, with wrong mechanisms as
+  the nonzero witness. A stochastic regime's density has a mutation control.
+- A static regime and a saturated MSM give the arm bound's $\nu^2$.
+- The MSM curve equals the Gateaux derivative on a design that reads $V$. A mutation that drops
+  the $\hat M$ term departs from it.
 
 #### The bound after repeated cross-fitting
 
