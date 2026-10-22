@@ -159,6 +159,23 @@ class TestTruthByHand:
         assert value == pytest.approx(expected, abs=1e-12)
 
 
+class TestTheConvention:
+    """The law reads the container's survival layout: ``L_t, A_t, C_t, Y_t`` at each node."""
+
+    def test_a_unit_after_its_event_holds_no_treatment(self, survival: Any) -> None:
+        # The node models fit on the units whose treatment is present.
+        data = survival.data
+        assert np.isnan(data.treatment[data.event[:, 0], 1]).all()
+
+    def test_the_censoring_precedes_the_event(self, survival: Any) -> None:
+        # A unit censored at node t has no event recorded at t (LongitudinalData.with_events).
+        data = survival.data
+        first = data.event.copy()
+        first[:, 1:] &= ~data.event[:, :-1]
+        for node in range(data.n_times):
+            assert not first[~data.uncensored[:, node], node].any()
+
+
 class TestTheDraw:
     def test_a_drawn_panel_masks_every_exit(self, survival: Any, law: Any) -> None:
         drawn = law.draw(HAZARD, seed=3, name="plasmode")
