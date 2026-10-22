@@ -5,7 +5,7 @@ optionally ``--jobs`` and ``--fresh``, and nothing else. :mod:`tests.canonical.d
 describes the guard, the run log and the copy into this directory. The study has no
 comparator, so the run starts no container.
 
-Red-cell reading (declared before any run, ``X82-H-plan.md`` rev 2.3, section 8).
+Red-cell reading (declared before any run, ``X82-H-plan.md`` rev 2.4, section 8).
 
 * A red primary row is a defect suspect until it is diagnosed. A defect is fixed and the study
   re-runs under a fresh declaration. A red with no defect leaves the rule descriptive, and the
