@@ -19,12 +19,17 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
     ATE,
+    AdaptiveIPTWMethod,
     CausalStudy,
+    CrossFitting,
     DRTMLEMethod,
+    Inference,
+    ModelSpec,
     MSMProjection,
     PointTreatment,
     RegimeContrast,
     RegimeMean,
+    Runtime,
 )
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import TMLE
@@ -61,6 +66,19 @@ def _declaring_classes() -> list[type]:
     return found
 
 
+def _adaptive_iptw_method() -> Any:
+    """The in-sample AdaptiveIPTW method that ``test_adaptive_iptw_refute.py`` fits."""
+    return AdaptiveIPTWMethod(
+        models=ModelSpec(
+            treatment_learner=LogisticRegression(max_iter=1000),
+            outcome_learner=LogisticRegression(max_iter=1000),
+        ),
+        cross_fitting=CrossFitting(enabled=False),
+        inference=Inference(simultaneous=False),
+        runtime=Runtime(random_state=_SEED),
+    )
+
+
 #: The study method that fits each declaring class, keyed by ``_assessment_method``.  A class
 #: that declares the replay and has no entry here fails the enumeration test by name.
 _METHODS: dict[str, Any] = {
@@ -70,6 +88,7 @@ _METHODS: dict[str, Any] = {
         reduced_outcome_learner=LinearRegression(),
         reduced_treatment_learner=LogisticRegression(max_iter=1000),
     ),
+    "adaptive_iptw": _adaptive_iptw_method,
 }
 
 
@@ -79,6 +98,8 @@ def _fit(method_name: str) -> Any:
     study = CausalStudy(
         frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"))
     )
+    if method_name == "adaptive_iptw":
+        return study.identify(ATE()).estimate(method=_adaptive_iptw_method())
     return study.identify(ATE()).estimate(
         method=_METHODS[method_name](),
         outcome_learner=LogisticRegression(max_iter=1000),
@@ -114,10 +135,8 @@ def _check_replays(result: Any) -> None:
 
 def test_the_shipped_classes_declare_the_replay() -> None:
     names = {cls.__name__ for cls in _declaring_classes()}
-    assert {"TMLE", "CTMLE", "DRTMLE"} <= names
+    assert {"TMLE", "CTMLE", "DRTMLE", "AdaptiveIPTW"} <= names
     assert set(replay_classes()) == names
-    # AdaptiveIPTW fits no outcome regression, and part I owns its witness.
-    assert "AdaptiveIPTW" not in names
 
 
 @pytest.mark.parametrize("cls", _declaring_classes(), ids=lambda cls: cls.__name__)
@@ -162,7 +181,10 @@ def test_an_inherited_declaration_is_not_a_declaration() -> None:
         simulated_confounding(replace(result, estimator=stub), estimand="ate", grid=_GATE_GRID)
 
 
-@pytest.mark.parametrize(("method", "roadmap"), [("drtmle", "X50"), ("collaborative_tmle", "X51")])
+@pytest.mark.parametrize(
+    ("method", "roadmap"),
+    [("drtmle", "X50"), ("collaborative_tmle", "X51"), ("adaptive_iptw", "X81")],
+)
 @pytest.mark.parametrize("target", ["ey_regime", "ate_regime", "msm"])
 def test_dr_and_collaborative_regimes_stay_with_their_rows(
     method: str, roadmap: str, target: str

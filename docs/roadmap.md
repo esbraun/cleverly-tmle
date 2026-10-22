@@ -459,6 +459,8 @@ The `F4-calibration-draws` owner holds two cells that read one draw set of the m
 missing-outcome DR-TMLE study. It is a standing record of a reading, and it does not gate the
 beta release.
 
+The `X82-short-study-sanity` owner holds the two truth rows of the sanity phase of the longitudinal refutation study. The phase cannot resolve the coverage floor at 200 replications. It is a standing record of a reading, and it does not gate the beta release.
+
 The `composite-high-arm` owner holds the `ey[high]` truth row of both implementations in the
 composite missing-data study. It is a standing record of a reading, and it does not gate the beta
 release.
@@ -548,6 +550,7 @@ owners do the same for the stratified DR-TMLE study.
 | `adaptive-iptw-flexible-learner` | the three `bias/{ey0,ey1,ate}__flexible` cells of `adaptive-iptw`, declared `reporting` before the run | reading `flexible-learner limit`, declared in `PRE_ROUTED_GROUPS` of `tests/studies/canonical_adaptive_iptw.py` before the run. Law P is H1, so the validity term vanishes for the gradient-boosting mechanism. The bias comes from the learner's own error terms. The standardized biases are 0.832, -0.718 and 1.182, and the plug-in coverage is 0.898, 0.890 and 0.830. The key of a fit reads the mechanism learner family. A boosted fit matches no row and carries the `experimental` label. The owner closes when a published rate for a flexible mechanism bounds the first and third second-order terms of C3, or when a registered study shows a flexible mechanism that passes `bias_equivalent` at the declared margin. No size, margin, law or learner of the declared run changes |
 | `adaptive-iptw-finite-sample` | the `bias/ate__rate` cell and its 14 `targeting_necessity` rows, and the `interval_calibration/ey0__known_clustered__correctly_specified` cell of `adaptive-iptw` | reading `finite-sample`. The `rate` mechanism at n = 3,000 gives an ATE bias of 0.155 SD, with a 99% interval of 0.050 to 0.261 SD. The design predicts 0.086, which the interval contains. The diagnosis after the fold-wise fix finds no defect. The `targeting_necessity` family reads the same estimates, and its other 13 rows are red through the family clause only. The three `root_n_points` rungs pass. The clustered cell has 200 clusters, an SE ratio of 1.030 with a 99% interval of 0.990 to 1.072 against an upper bound of 1.07, and a coverage of 0.953. The in-sample fit on the same draws reads 1.027. The owner closes when the rerun at a larger size shows the contraction that the design predicts, with no change of margin, law or learner |
 | `adaptive-iptw-composite-l3` | the `bias/ey_low__composite_l3` cell of `adaptive-iptw` | reading `draw-specific, not reproduced`. The declared 400 draws read -0.153 SD, with a 99% interval of -0.282 to -0.023. The declared bias reading does not apply, because the predicted bias is near 0. The in-sample fit on the same draws reads -0.151, and 800 other draws read -0.01 to -0.03. A diagnostic ([`tests/diagnostics/adaptive_iptw_composite_l3/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/adaptive_iptw_composite_l3)) runs the same scene on 4,000 draws with seeds that the study never uses. It reads -0.011 SD, with a 99% interval of -0.052 to 0.030. `tests/unit/test_adaptive_iptw_composite_l3_reading.py` rebuilds the reading. The owner closes at the next regeneration of the study |
+| `X82-short-study-sanity` | the `end_of_study/ate` and `survival/ate` truth rows of `refuter-calibration-longitudinal`, the sanity phase of the S1 and L1 fits that the refutation rules read | reading `under-resolved at its declared size`. The phase has 200 replications. At a true coverage of 0.95, 190 covers of 200 give a 99% lower limit of 0.8960, below the floor of 0.90. The measured coverages are 0.9150 and 0.9450, and both SE-ratio intervals contain 1. The `SDR` row reads an SE ratio of 0.9271, a possible mild shortfall of its standard error, so the owner treats it as a signal to recheck at a larger size. The end-of-study bias interval, -0.0303 to 0.0065, contains 0. No reading names a defect. No rule row reads these rows, and the 40 property cells pass. It is a standing record of a reading, and it does not gate the beta release |
 
 ## Detailed implementation contracts
 
@@ -1557,6 +1560,7 @@ probabilities, and no source read here defines a trim of them.
 | (a) | `repeats > 1` | a repeat aggregate of the targeted propensity, with the median rule of the other estimators. No read source states one for this estimator |
 | (b) | a regime with missing data, cross-fitted | the composite indicator on the cross-fitted regime key. The base result is the in-sample key of the [contract page](technical-reference/adaptive-iptw.md#contract). The pooled reduced cross-fit term of [F21](#f21-other-missing-outcome-cv-tmle-variants) stays open |
 | (c) | `truncation_curve` | a retargeting of the IPTW propensity at each bound. The base result is Lemma 2 of WP302 for the loop at that bound |
+| (d) | `simulated_confounding` of a regime or an MSM | the frozen-regime replay of the ordinary TMLE, refitting the targeted propensity in each cell |
 
 Acceptance: a pre-fit refusal test for each request that stays refused; a registered study for
 each request that ships.
@@ -1575,11 +1579,11 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
 | C | the longitudinal refute adapter, shipped. Part C1 ships the Markov placebo, `random_common_cause` with `noise_nodes`, `subset`, and `bootstrap_stability`. Part C2 ships the negative-control outcome, its pre-treatment form, and the future-treatment control. These are descriptive. Part C3 ships the held-history generated outcomes on end-of-study, repeated, survival and competing-risk fits, descriptive until a longitudinal study registers its rows | the exact enumeration of a two-node panel, and a nonzero witness for each control |
 | D | the held-design generated outcomes, the future-treatment control, and the measurement-error bootstrap of the structural nested mean model. Part D ships the `structural` assessment family, one declaration per operation, and the placebo, `random_common_cause`, `subset`, `bootstrap_stability`, and `negative_control_outcome` tests, all descriptive | a nonzero witness for each control, and an exact effect for each generated process |
-| E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Part E2 ships missing outcomes, missing treatments, controlled direct effects, `ey_obs`, PAR, PAF, strata, and the clustered plasmode. Part E5 ships the measurement-error bootstrap on panels and on strata variables. MSMs, interventions, the DR-TMLE estimated-index witness, and the longitudinal plasmode remain | the effect of each process computed exactly, judged by the bands of A1 |
+| E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Part E2 ships missing outcomes, missing treatments, controlled direct effects, `ey_obs`, PAR, PAF, strata, and the clustered plasmode. Part E5 ships the measurement-error bootstrap on panels and on strata variables. Part E3 ships regimes, incremental tilts, and MSM coefficients. Modified treatment policies, risk-ratio tilts, the DR-TMLE estimated-index witness, and the longitudinal plasmode remain | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
 | H | marginal sensitivity model bounds for the point-treatment ATE and arm means | a source read of Dorn, Guo and Kallus before the documentation cites it |
-| I | every applicable instrument for `AdaptiveIPTW` | X21 merged |
+| I | every applicable instrument for `AdaptiveIPTW`, shipped: every point `refute` test, simulated confounding on the arm axis, and the derived risk ratio of the E-value. Each study-backed reading stays descriptive until the follow-up study SI registers its rows | an exact enumeration of the placebo law, a zero paired shift on a known mechanism, and a zero-strength reproduction |
 
 Each short-study follow-up adds the registry rows that its passing cells license. A failed cell
 keeps its rule descriptive. Parts C to G hold the requests that the tables below list. Each
@@ -1599,7 +1603,7 @@ needs an exact calculation and no new theory.
 | --- | --- | --- |
 | C | a longitudinal refute adapter and a longitudinal generated-outcome process | a sequential outcome process that reads the baseline covariates and the treatments only, or one that also generates each time-varying covariate. Then the sequential g-formula on the generated law gives the effect exactly |
 | E (b) | a generated-outcome process for a continuous treatment | a registered process whose mean is linear in the dose, with the policy truths of E (c) |
-| E (c) | a generated-outcome process for an MSM, an intervention, or a functional other than `BackdoorMeanContrast` | a registered process for each target, with its effect computed exactly. An intervention that reads the propensity, such as an odds tilt, needs a process that also generates the treatment |
+| E (c) | a generated-outcome truth for a modified treatment policy, a risk-ratio tilt, or a functional other than `BackdoorMeanContrast` | the policy map applied to the held or frozen treatment, with the truth computed exactly. A risk-ratio tilt reads the propensity, so it runs in the plasmode only. Part E3 shipped the regimes, the incremental tilts and the MSM coefficients |
 | E (d) | a plasmode on a fit with weights, or with two of a missing outcome, a missing treatment and an intermediate | a joint frozen model of the observation processes, and a law for the weights |
 | E (e) | a plasmode witness that sees the DR-TMLE linear remainder on a law with an estimated index | a probe that finds a law and a sample size where the remainder is at least 0.5 SD at a test cost the fast tier allows. A first probe at n = 500 took about 2 s for each refit and showed no bias at R = 40 with the offset constant at 8 |
 
@@ -1700,17 +1704,20 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 
-Part G has three tables: other linear functionals, the DR-TMLE and C-TMLE bound, and further
-sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
+Part G has two tables: other linear functionals and further sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
 standardized contrast with a response mechanism, of a derived `CTMLE` or `DRTMLE` ratio, and of a
 `TimeToEvent` pair has shipped. Its confidence limit prints as descriptive until a registered study
 covers it ([E-value](technical-reference/validation-methods.md#e-value)).
 The missingness tilt of a ratio, of the natural-course mean, PAR and PAF, of a regime mean and of
 an MSM coefficient has shipped, with a plug-in spread and no interval away from $\gamma = 0$
 ([missingness tilt](technical-reference/validation-methods.md#missingness-tilt-and-tipping-gamma)).
+
 The omitted-variable bound of a fit with a response mechanism, a missing treatment, an intermediate
 variable, a baseline stratum, or `repeats` above 1 has shipped. Its confidence limits print as descriptive until a
 registered study covers them
+([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
+The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
+`assume_consistent_mechanism=True`, with no limits
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
 ##### Other linear functionals
@@ -1737,13 +1744,6 @@ response and intermediate representers. DR-TMLE and
 C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
-
-##### DR-TMLE and C-TMLE bound
-
-| part | request | step |
-| --- | --- | --- |
-| DR-TMLE | the omitted-variable bound | the shipped plug-in bound recentred on the DR-TMLE point, under a consistent mechanism. No new theory. The owner chooses the scope |
-| C-TMLE | the omitted-variable bound | as the DR-TMLE row. No new theory |
 
 ##### Further sensitivity requests
 

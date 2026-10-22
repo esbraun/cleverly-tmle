@@ -283,20 +283,6 @@ OPERATION_REFUSALS: dict[str, Refusal] = {
         alternative="Refit AdaptiveIPTW with another g_bounds=, or fit method='tmle'.",
         roadmap="X81",
     ),
-    "refute": Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "refute() refits a TMLE under placebo and resampled data, and no refutation of "
-        "AdaptiveIPTW is registered.",
-        alternative=_TMLE_ALTERNATIVE,
-        roadmap="X82",
-    ),
-    "simulated_confounding": Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "simulated_confounding() refits or tilts the outcome regression, and AdaptiveIPTW "
-        "fits no outcome regression.",
-        alternative=_TMLE_ALTERNATIVE,
-        roadmap="X82",
-    ),
     "missingness_tilt": Refusal(
         RefusalReason.API_REDIRECTION,
         "missingness() and tipping_gamma() refit or tilt the outcome regression, and "
@@ -977,8 +963,9 @@ class AdaptiveIPTW(TMLE):
     """
 
     _assessment_method = "adaptive_iptw"
-    #: The fit has no outcome regression for a simulated common cause to perturb.
-    simulated_confounding_replay = False
+    #: ``refit`` refits the targeted propensity on new data, so the simulated common cause
+    #: replays an arm-axis fit (X82 part I).  A regime replay is refused (X81 (d)).
+    simulated_confounding_replay = True
 
     def __init__(
         self,

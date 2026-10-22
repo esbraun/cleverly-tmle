@@ -120,6 +120,7 @@ repeated-outcome-sdr
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 calibration-slope-warning
+refuter-calibration-longitudinal
 default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts
 ```

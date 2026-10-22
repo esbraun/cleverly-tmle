@@ -52,8 +52,8 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     if fixed_axis(target) is None:
         return None
     method = getattr(estimator, "_assessment_method", "")
-    # X50 holds the DR-TMLE regimes and MSMs, and X51 the C-TMLE ones.  Any other class
-    # passes when it declares the replay, as the binary arm axis requires.
+    # X50 holds the DR-TMLE regimes and MSMs, X51 the C-TMLE ones, and X81 the AdaptiveIPTW
+    # regimes.  Any other class passes when it declares the replay, as the arm axis requires.
     condition = (
         f"simulated_confounding has no fixed-regime or MSM replay for {type(estimator).__name__}."
     )
@@ -65,6 +65,10 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     if method == "collaborative_tmle":
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP, condition, alternative=alternative, roadmap="X51"
+        )
+    if method == "adaptive_iptw":
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP, condition, alternative=alternative, roadmap="X81"
         )
     if not declares_replay(estimator):
         return Refusal(

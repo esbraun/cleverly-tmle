@@ -1,15 +1,18 @@
 """Point generated-outcome targets and the point plasmode law (X82 plan 5.5.1, 5.6; part E).
 
 A point target names an arm-indexed functional: a difference contrast, a level, a risk ratio,
-an odds ratio, or a natural-course functional (``ey_obs``, ``par``, ``paf``). Each averages
-over a population (every row, the value arm, or the reference arm) and, on a stratified fit,
-over one stratum. Its truth on a generated law is a finite sum of the process mean
-``m(a, W)`` over rows, so the held design and the plasmode both have an exact reference.
+an odds ratio, or a natural-course functional (``ey_obs``, ``par``, ``paf``). It can also
+name an intervention functional: the mean under a regime or a tilt of the treatment
+mechanism, a contrast of two of them, or one coefficient of a marginal structural model
+(part E3). Each averages over a population (every row, the value arm, or the reference arm)
+and, on a stratified fit, over one stratum. Its truth on a generated law is a finite sum of
+the process mean ``m(a, W)`` over rows, so the held design and the plasmode both have an
+exact reference.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 import numpy as np
@@ -22,11 +25,225 @@ PLASMODE_G_BOUNDS = (0.01, 0.99)
 #: The relative range below which an arm contrast counts as constant over the rows.
 CONSTANT_TOLERANCE = 1e-12
 
-TargetKind = Literal["difference", "level", "rr", "or", "natural", "par", "paf"]
+TargetKind = Literal[
+    "difference",
+    "level",
+    "rr",
+    "or",
+    "natural",
+    "par",
+    "paf",
+    "intervention",
+    "intervention_difference",
+    "msm",
+]
 Population = Literal["all", "value", "reference"]
 
 #: The natural-course kinds, which average the mean at each row's own arm.
 NATURAL_KINDS = ("natural", "par", "paf")
+
+#: The intervention kinds, which average the mean under a declared law of the arms.
+INTERVENTION_KINDS = ("intervention", "intervention_difference")
+
+#: The links of a working model whose projection :class:`Projection` solves.
+PROJECTION_LINKS = ("identity", "log", "logit")
+
+
+@dataclass(frozen=True, eq=False)
+class InterventionLaw:
+    """The law of the arms that one intervention assigns at each row (part E3).
+
+    A regime assigns a fixed law: a static arm, a rule of ``W``, or a known stochastic
+    density. An incremental intervention tilts the treatment mechanism: it multiplies the
+    odds of each arm by a factor, so ``q(a | W) = f_a g(a | W) / sum_b f_b g(b | W)``
+    (Kennedy 2019). Its law therefore needs the true ``g``, which only the plasmode knows.
+
+    Parameters
+    ----------
+    label : str
+        The name of the intervention in the reported parameter.
+    values : ndarray or None
+        ``(n, K)`` fixed probability of each arm at each row, in the order of the arm
+        codes, or ``None`` for a tilt.
+    factors : ndarray or None
+        ``(K,)`` odds factor of each arm, or ``None`` for a fixed law.
+    """
+
+    label: str
+    values: np.ndarray | None = None
+    factors: np.ndarray | None = None
+
+    @property
+    def reads_mechanism(self) -> bool:
+        """Return whether the law is a tilt of the treatment mechanism."""
+        return self.factors is not None
+
+    def density(self, mechanism: np.ndarray | None) -> np.ndarray:
+        """Return the ``(n, K)`` probability of each arm at each row.
+
+        Parameters
+        ----------
+        mechanism : ndarray or None
+            ``(n, K)`` true treatment mechanism, which a tilt reads.
+
+        Returns
+        -------
+        ndarray
+            The law of the arms at each row.
+
+        Raises
+        ------
+        ValueError
+            If a tilt has no mechanism to read.
+        """
+        if self.factors is None:
+            assert self.values is not None
+            return self.values
+        if mechanism is None:
+            raise ValueError("a tilt of the treatment mechanism needs the true mechanism")
+        tilted = np.asarray(mechanism, dtype=float) * self.factors[None, :]
+        return np.asarray(tilted / tilted.sum(axis=1, keepdims=True), dtype=float)
+
+
+@dataclass(frozen=True, eq=False)
+class Projection:
+    """One coefficient of a marginal structural model's projection (part E3).
+
+    The coefficient vector ``beta`` solves
+    ``sum_i w_i sum_a h(a, V_i) m'(eta) phi(a, V_i) (Q(a, W_i) - m(a, V_i; beta)) = 0``,
+    the working-model normal equations of :mod:`cleverly.msm`, with ``Q`` the process mean.
+    :meth:`coefficient` solves them by Gauss-Newton iterations written here, so the truth
+    does not share the package's projection solver.
+
+    Parameters
+    ----------
+    design : ndarray
+        ``(n, K, p)`` working-model design ``phi(a, V)``.
+    weights : ndarray
+        ``(n, K)`` working-model weights ``h(a, V)``.
+    link : {"identity", "log", "logit"}
+        The working model's link.
+    term : int
+        The index of the reported coefficient.
+    """
+
+    design: np.ndarray
+    weights: np.ndarray
+    link: str
+    term: int
+
+    def _inverse(self, eta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        mean, slope, _ = self._derivatives(eta)
+        return mean, slope
+
+    def _derivatives(self, eta: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return the mean ``m``, ``dm/deta`` and ``d2m/deta2`` of the link at ``eta``."""
+        if self.link == "identity":
+            return eta, np.ones_like(eta), np.zeros_like(eta)
+        if self.link == "log":
+            mean = np.exp(eta)
+            return mean, mean, mean
+        if self.link == "logit":
+            mean = 1.0 / (1.0 + np.exp(-eta))
+            slope = mean * (1.0 - mean)
+            return mean, slope, slope * (1.0 - 2.0 * mean)
+        raise ValueError(f"no projection for the link {self.link!r}")
+
+    def covariate_part(self, means: np.ndarray, population: np.ndarray) -> np.ndarray:
+        """Return the covariate part of the reported coefficient's curve at each row.
+
+        The part is ``e_j' M^{-1} sum_a h m'(eta) phi (Q - m)`` at each row, with
+        ``M = P[sum_a h (m'^2 - (Q - m) m'') phi phi']`` the derivative of the normal
+        equations (:func:`cleverly.msm.solve_projection` states the same matrix).
+
+        Parameters
+        ----------
+        means : ndarray
+            ``(n, K)`` process mean at each arm.
+        population : ndarray
+            ``(n,)`` population weight of each row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` covariate part of the coefficient :attr:`term` names.
+        """
+        phi = np.asarray(self.design, dtype=float)
+        h = np.asarray(self.weights, dtype=float)
+        w = np.asarray(population, dtype=float)
+        beta = self.coefficients(means, w)
+        fitted, slope, curvature = self._derivatives(phi @ beta)
+        residual = means - fitted
+        bend = h * (slope**2 - residual * curvature)
+        matrix = np.einsum("i,ik,ikp,ikq->pq", w, bend, phi, phi) / float(np.sum(w))
+        rows = np.einsum("ik,ikp->ip", h * slope * residual, phi)
+        return np.asarray(np.linalg.solve(matrix, rows.T)[self.term], dtype=float)
+
+    def coefficients(self, means: np.ndarray, population: np.ndarray) -> np.ndarray:
+        """Return the projection of ``means`` onto the working model.
+
+        Parameters
+        ----------
+        means : ndarray
+            ``(n, K)`` process mean ``Q(a, W_i)`` at each arm.
+        population : ndarray
+            ``(n,)`` population weight of each row.
+
+        Returns
+        -------
+        ndarray
+            ``(p,)`` working-model coefficients.
+
+        Raises
+        ------
+        ValueError
+            If the iterations do not converge.
+        """
+        phi = np.asarray(self.design, dtype=float)
+        mass = np.asarray(population, dtype=float)[:, None] * np.asarray(self.weights, dtype=float)
+        beta = np.zeros(phi.shape[2])
+        if self.link == "log":
+            beta[0] = np.log(np.sum(mass * means) / np.sum(mass))
+        elif self.link == "logit":
+            level = np.sum(mass * means) / np.sum(mass)
+            beta[0] = np.log(level / (1.0 - level))
+
+        def loss(candidate: np.ndarray) -> float:
+            fitted, _ = self._inverse(phi @ candidate)
+            return float(np.sum(mass * (means - fitted) ** 2))
+
+        for _ in range(500):
+            fitted, slope = self._inverse(phi @ beta)
+            gradient = phi * (slope * np.sqrt(mass))[:, :, None]
+            residual = (means - fitted) * np.sqrt(mass)
+            jacobian = gradient.reshape(-1, phi.shape[2])
+            step = np.linalg.lstsq(jacobian, residual.reshape(-1), rcond=None)[0]
+            # The full Gauss-Newton step decides convergence. Halving guards a step that
+            # raises the loss beyond rounding, and it never stops the iteration by itself.
+            if float(np.max(np.abs(step))) <= 1e-13 * max(1.0, float(np.max(np.abs(beta)))):
+                return beta
+            size, current = 1.0, loss(beta)
+            while loss(beta + size * step) > current * (1.0 + 1e-12) and size > 1e-8:
+                size /= 2.0
+            beta = beta + size * step
+        raise ValueError("the working-model projection did not converge")
+
+    def coefficient(self, means: np.ndarray, population: np.ndarray) -> float:
+        """Return the reported coefficient of the projection.
+
+        Parameters
+        ----------
+        means : ndarray
+            ``(n, K)`` process mean at each arm.
+        population : ndarray
+            ``(n,)`` population weight of each row.
+
+        Returns
+        -------
+        float
+            The coefficient :attr:`term` names.
+        """
+        return float(self.coefficients(means, population)[self.term])
 
 
 @dataclass(frozen=True)
@@ -35,9 +252,14 @@ class PointTarget:
 
     Parameters
     ----------
-    kind : {"difference", "level", "rr", "or", "natural", "par", "paf"}
-        The functional of the arm levels. ``natural`` is ``ey_obs``, the mean at each
-        row's own arm. ``par`` is ``ey_obs - ey[r]`` and ``paf`` is ``par / ey_obs``.
+    kind : str
+        The functional of the arm levels: ``"difference"``, ``"level"``, ``"rr"``,
+        ``"or"``, ``"natural"``, ``"par"``, ``"paf"``, ``"intervention"``,
+        ``"intervention_difference"`` or ``"msm"``. ``natural`` is ``ey_obs``, the mean
+        at each row's own arm. ``par`` is ``ey_obs - ey[r]`` and ``paf`` is
+        ``par / ey_obs``. ``intervention`` is the mean under :attr:`value_law`, and
+        ``intervention_difference`` subtracts the mean under :attr:`reference_law`.
+        ``msm`` is one coefficient of :attr:`projection`.
     population : {"all", "value", "reference"}
         Rows the levels average over: every row (``ate``, levels, ratios, natural
         course), the rows of the value arm (``att``), or the rows of the reference arm
@@ -55,7 +277,13 @@ class PointTarget:
         The value ``z`` at which a controlled direct effect fixes the intermediate, or
         ``None`` on a fit with no intermediate.
     arms : tuple of float
-        Every arm code, which the natural-course kinds read.
+        Every arm code, which the natural-course, intervention and MSM kinds read.
+    value_law : InterventionLaw or None
+        The intervention of an intervention kind.
+    reference_law : InterventionLaw or None
+        The reference intervention of ``intervention_difference``.
+    projection : Projection or None
+        The working model of ``msm``.
     """
 
     kind: TargetKind
@@ -66,6 +294,9 @@ class PointTarget:
     stratum: int | None = None
     intermediate: float | None = None
     arms: tuple[float, ...] = ()
+    value_law: InterventionLaw | None = field(default=None, compare=False)
+    reference_law: InterventionLaw | None = field(default=None, compare=False)
+    projection: Projection | None = field(default=None, compare=False)
 
     @property
     def ratio(self) -> bool:
@@ -78,9 +309,20 @@ class PointTarget:
         return self.kind in NATURAL_KINDS
 
     @property
+    def intervention(self) -> bool:
+        """Return whether the target averages the mean under a declared law of the arms."""
+        return self.kind in INTERVENTION_KINDS
+
+    @property
+    def reads_mechanism(self) -> bool:
+        """Return whether the truth reads the true treatment mechanism."""
+        laws = (self.value_law, self.reference_law)
+        return self.natural or any(law is not None and law.reads_mechanism for law in laws)
+
+    @property
     def codes(self) -> tuple[float, ...]:
         """Return the arm codes the truth reads."""
-        if self.natural:
+        if self.natural or self.intervention or self.kind == "msm":
             return self.arms
         assert self.value_code is not None
         if self.reference_code is None:
@@ -99,6 +341,26 @@ class PointTarget:
         if mixture is None:
             raise ValueError("a natural-course target needs the arm probabilities of each row")
         return np.asarray(sum(mixture[code] * means[code] for code in self.arms), dtype=float)
+
+    def _under(
+        self, law: InterventionLaw | None, means: dict[float, np.ndarray], mixture: Any
+    ) -> np.ndarray:
+        """Return ``sum_a q(a | W_i) m(a, W_i)`` at each row for the law ``q``."""
+        assert law is not None
+        mechanism = None
+        if mixture is not None:
+            mechanism = np.column_stack([mixture[code] for code in self.arms])
+        density = law.density(mechanism)
+        return np.asarray(
+            sum(density[:, index] * means[code] for index, code in enumerate(self.arms)),
+            dtype=float,
+        )
+
+    def _intervention_vector(self, means: dict[float, np.ndarray], mixture: Any) -> np.ndarray:
+        value = self._under(self.value_law, means, mixture)
+        if self.kind == "intervention":
+            return value
+        return value - self._under(self.reference_law, means, mixture)
 
     def truth(
         self,
@@ -135,6 +397,12 @@ class PointTarget:
         def average(values: np.ndarray) -> float:
             return float(np.sum(weights * values) / total)
 
+        if self.intervention:
+            return average(self._intervention_vector(means, mixture))
+        if self.kind == "msm":
+            assert self.projection is not None
+            table = np.column_stack([means[code] for code in self.arms])
+            return self.projection.coefficient(table, weights)
         if self.natural:
             observed = average(self._natural(means, mixture))
             if self.kind == "natural":
@@ -192,9 +460,12 @@ class PointTarget:
         The covariate part of a difference contrast is ``m(v, W) - m(r, W) - psi``, of a
         level ``m(a, W) - psi``, and of a log ratio a combination of the two levels' parts.
         The natural-course mean reads ``m(A, W) - psi``, ``par`` reads
-        ``m(A, W) - m(r, W) - psi``, and ``paf`` combines ``m(A, W)`` and ``m(r, W)``. Each
-        vanishes when the functions it reads are constant over the population rows (X82
-        plan 5.5.1). The check reads the generated law, not the target name.
+        ``m(A, W) - m(r, W) - psi``, and ``paf`` combines ``m(A, W)`` and ``m(r, W)``. An
+        intervention mean reads ``sum_a q(a | W) m(a, W) - psi``, and a contrast of two
+        interventions the difference of two such sums. An MSM coefficient reads
+        :meth:`Projection.covariate_part`. Each vanishes when the functions it reads are
+        constant over the population rows (X82 plan 5.5.1). The check reads the generated
+        law, not the target name.
 
         Parameters
         ----------
@@ -214,7 +485,13 @@ class PointTarget:
         rows = weights > 0.0
         if not np.any(rows):
             return False
-        if self.natural:
+        if self.kind == "msm":
+            assert self.projection is not None
+            table = np.column_stack([means[code] for code in self.arms])
+            vectors = [self.projection.covariate_part(table, weights)[rows]]
+        elif self.intervention:
+            vectors = [self._intervention_vector(means, mixture)[rows]]
+        elif self.natural:
             observed = self._natural(means, mixture)[rows]
             if self.kind == "natural":
                 vectors = [observed]
@@ -564,7 +841,7 @@ class PlasmodeLaw:
             ``m(a, W_i)`` per arm code over the ``n`` support points; the population
             weights (1 for every point, or the frozen probability of the population arm,
             times the stratum indicator); and the frozen arm probabilities that a
-            natural-course target reads, or ``None``.
+            natural-course target or a tilt reads, or ``None``.
         """
         means = arm_means(
             process,
@@ -585,7 +862,7 @@ class PlasmodeLaw:
             assert self.strata is not None
             weights = np.where(self.strata == target.stratum, weights, 0.0)
         mixture = None
-        if target.natural:
+        if target.reads_mechanism:
             mixture = {
                 code: np.asarray(self.probabilities[:, index], dtype=float)
                 for index, code in enumerate(self.arm_codes)
