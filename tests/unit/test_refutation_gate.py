@@ -19,6 +19,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_binary_outcome
+from cleverly.exceptions import CapabilityError
 from cleverly.validation import BootstrapMeasurementError, EmpiricalInclusionRule, refute
 from cleverly.validation import _interpretation as interpretation
 from cleverly.validation._interpretation import (
@@ -760,6 +761,43 @@ class TestBootstrapFoldRule:
         monkeypatch.setattr(_CopyFolds, "options", lambda self, replicate: {})
         _, counter = self._run()
         assert all("frozen_folds" not in options for options in counter.kwargs)
+
+
+class TestBootstrapStability:
+    def _run(self, **options: Any) -> tuple[Any, _CountingEstimator, Any]:
+        result = _binary_fit(cross_fit=True, n=200)
+        counter = _CountingEstimator(result.estimator)
+        result = replace(result, estimator=counter)
+        report = refute(
+            result, tests=("bootstrap_stability",), n_replicates=4, random_state=5, **options
+        )
+        return result, counter, report
+
+    def test_it_is_opt_in_and_descriptive(self) -> None:
+        assert "bootstrap_stability" not in DEFAULT_TESTS
+        _, _, report = self._run()
+        test = report["bootstrap_stability"]
+        assert test.passed is None
+        assert test.rung == "L0"
+        assert len(test.values) == 4
+
+    def test_every_refit_reuses_the_original_seeds_and_folds(self) -> None:
+        result, counter, _ = self._run()
+        seeds = [item.seed for item in result.repeats]
+        for options in counter.kwargs:
+            assert list(options["frozen_seeds"]) == seeds
+            assert len(options["frozen_folds"]) == len(result.repeats)
+
+    def test_the_shift_is_the_mean_against_the_original_fit(self) -> None:
+        _, _, report = self._run()
+        test = report["bootstrap_stability"]
+        shift = dict(test.extras)["shift against the original fit"]
+        assert shift == pytest.approx(np.mean(test.values) - test.original)
+
+    def test_one_draw_is_refused(self) -> None:
+        result = _binary_fit(cross_fit=True, n=200)
+        with pytest.raises(CapabilityError, match="at least 2"):
+            refute(result, tests=("bootstrap_stability",), n_replicates=1, random_state=5)
 
 
 class TestSubsetFoldSlice:

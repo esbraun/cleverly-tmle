@@ -57,6 +57,11 @@ The tests, and what a reading means:
     the estimate moves under that error.  A draw that fails to sample, perturb, or refit is
     retained as a failure rather than raised, because a bootstrap draw fails per sample.
 
+``bootstrap_stability``
+    Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
+    original fold and every refit reuses the original fit's seeds, so the shift of the mean
+    against the original fit carries no fold or seed noise.  The report is descriptive.
+
 Each test refits the model, so a full run costs several times a single fit.
 """
 
@@ -1004,6 +1009,7 @@ _KNOWN_TESTS = (
     "dummy_outcome",
     "simulated_outcome",
     "bootstrap_measurement_error",
+    "bootstrap_stability",
 )
 _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 #: The refutations whose refit sees a different row set from the fit's own. ``subset`` drops
@@ -1013,10 +1019,10 @@ _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 #: bootstrap refuses a supplied plan outright. Every other test here replaces or perturbs a
 #: column and keeps each row in its position, which is what makes a supplied
 #: :class:`~cleverly.SplitPlan` still apply.
-_ROW_SET_TESTS = ("subset", "bootstrap_measurement_error")
+_ROW_SET_TESTS = ("subset", "bootstrap_measurement_error", "bootstrap_stability")
 #: ``subset`` refits on the original fold labels of the drawn units, so a supplied plan
 #: labels the refit's rows by position and the test does not refuse it.
-_PLAN_REFUSING_TESTS = ("bootstrap_measurement_error",)
+_PLAN_REFUSING_TESTS = ("bootstrap_measurement_error", "bootstrap_stability")
 _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2, "random_common_cause": 3}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
@@ -1363,6 +1369,17 @@ def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest)
     return None
 
 
+def _refuse_stability_eligibility(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse ``bootstrap_stability`` on a fit whose data it cannot resample, or on one draw."""
+    if "bootstrap_stability" not in request.tests:
+        return None
+    try:
+        _validate_stability_eligibility(result, request.draws)
+    except CapabilityError as error:
+        return error.refusal
+    return None
+
+
 def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a measurement-error draw budget below its rule's floor."""
     if "bootstrap_measurement_error" not in request.tests:
@@ -1409,6 +1426,7 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("measurement_declaration", _refuse_measurement_declaration),
     ("measurement_rule", _refuse_measurement_rule),
     ("measurement_eligibility", _refuse_measurement_eligibility),
+    ("stability_eligibility", _refuse_stability_eligibility),
     ("measurement_budget", _refuse_measurement_budget),
     ("generated_budget", _refuse_generated_budget),
 )
@@ -2051,6 +2069,9 @@ class _CopyFolds:
         self._design = design
         self._draws = draws
         self._index: dict[int, np.ndarray] = {}
+        #: Repeat seeds of the original fit that every refit reuses, or ``None`` to let the
+        #: refit draw its own.
+        self.frozen_seeds: Sequence[int] | None = None
 
     def sample(self, replicate: int) -> Any:
         index, codes = self._design.indices(self._data, self._draws[replicate])
@@ -2060,7 +2081,94 @@ class _CopyFolds:
 
     def options(self, replicate: int) -> dict[str, Any]:
         sliced = _sliced_folds(self._result, self._index[replicate])
-        return {} if sliced is None else {"frozen_folds": sliced}
+        options: dict[str, Any] = {} if sliced is None else {"frozen_folds": sliced}
+        if self.frozen_seeds is not None:
+            options["frozen_seeds"] = self.frozen_seeds
+        return options
+
+
+def _validate_stability_eligibility(result: Any, n_replicates: int) -> Any:
+    """Validate a ``bootstrap_stability`` request before it refits."""
+    from ..data import CausalData
+
+    data = getattr(result, "data", None)
+    if type(data) is not CausalData:
+        raise CapabilityError(
+            "bootstrap_stability supports point-treatment CausalData results; "
+            f"got result family {type(result).__name__} with data family {type(data).__name__}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="X67",
+        )
+    if n_replicates < 2:
+        raise CapabilityError(
+            f"bootstrap_stability was asked for {n_replicates} draw(s); a spread needs at least 2",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return data
+
+
+def _bootstrap_stability_test(
+    result: Any,
+    *,
+    estimand: str,
+    original: float,
+    n_replicates: int,
+    root_seed: int,
+) -> RefutationTest:
+    """Refit on bootstrap resamples that keep each unit's fold, and describe the spread.
+
+    The original fit is the same-seed full-data baseline: every refit reuses its repeat
+    seeds and each copy of a unit keeps the unit's original fold, so the shift of the mean
+    against the original fit carries no fold or seed noise. No theorem covers a refit
+    bootstrap of a cross-fitted estimator, so the report stays descriptive (X82 plan 5.4).
+    """
+    data = _validate_stability_eligibility(result, n_replicates)
+    design = _bootstrap_design(
+        data, n_replicates=n_replicates, resampling="auto", random_state=root_seed
+    )
+    draw_by_replicate = {draw.replicate: draw for draw in design.draws}
+    folds = _CopyFolds(result, data, design, draw_by_replicate)
+    repeats = getattr(result, "repeats", None)
+    folds.frozen_seeds = [item.seed for item in repeats] if repeats else None
+    records, failures = _run_empirical_refits(
+        result,
+        estimand=estimand,
+        draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        replacement=lambda replicate, seed: folds.sample(replicate),
+        refit_options=folds.options,
+        expected_family=data.family,
+        retain_preparation_failures=True,
+    )
+    values = tuple(item.estimate for item in records)
+    shift = float(np.mean(values) - original) if values else float("nan")
+    spread = float(np.std(values, ddof=1)) if len(values) > 1 else float("nan")
+    return RefutationTest(
+        name="bootstrap_stability",
+        estimand=estimand,
+        original=original,
+        values=values,
+        expectation=f"spread {spread:.4g} around the original fit",
+        passed=None,
+        detail=(
+            f"{len(values)} of {n_replicates} resample refits succeeded; the mean moved "
+            f"{shift:.4g} from the same-seed full-data fit"
+        ),
+        standard_errors=tuple(item.std_error for item in records),
+        failures=failures,
+        requested_draws=n_replicates,
+        resampling=design.resampling,
+        rung="L0",
+        scope_sentence=_STABILITY_SENTENCE,
+        extras=(("shift against the original fit", shift),),
+    )
+
+
+_STABILITY_SENTENCE = (
+    "The draws describe how far the estimate moves under resampling of units that keep their "
+    "folds. No result covers a refit bootstrap of a cross-fitted estimator, so the report "
+    "states no verdict. The subset test is the calibrated stability check."
+)
 
 
 def _bootstrap_measurement_error_test(
@@ -2592,7 +2700,7 @@ def refute(
             replicate_count = n_replicates
         elif name in _GENERATED_TESTS:
             replicate_count = DEFAULT_OUTCOME_REPLICATES
-        elif name == "bootstrap_measurement_error":
+        elif name in ("bootstrap_measurement_error", "bootstrap_stability"):
             replicate_count = _DEFAULT_MEASUREMENT_REPLICATES
         elif name == "random_common_cause":
             replicate_count = _DEFAULT_NOISE_REPLICATES
@@ -2819,6 +2927,16 @@ def refute(
                     value_code=contrasts[name][0],
                     reference_code=contrasts[name][1],
                     fit=fit,
+                )
+            )
+        elif name == "bootstrap_stability":
+            outcomes.append(
+                _bootstrap_stability_test(
+                    result,
+                    estimand=estimand,
+                    original=original,
+                    n_replicates=replicate_count,
+                    root_seed=seed,
                 )
             )
         else:
