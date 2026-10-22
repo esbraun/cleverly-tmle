@@ -128,6 +128,7 @@ not change the package version.
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| BP | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
@@ -1669,6 +1670,34 @@ fluctuation across the regimens, and that fluctuation has no bounded form yet.
 the per-node density ratios of the iterated-mean recursion. `lmtp` has no hazard model. The
 clever covariates of the hazard targeting read the cumulative inverse treatment and censoring
 probabilities, and no source read here defines a trim of them.
+
+### X82. Refutation and sensitivity checks for every estimator
+
+A refutation prints a verdict only where evidence licenses its rule. The registry
+`VERDICT_EVIDENCE` in `validation/_interpretation.py` holds that evidence, and a rule that no row
+covers prints its numbers with `passed=None`. Part A1 ships the registry, the tri-state verdict,
+the t placebo, the subset reference with its fold slice, the paired shift of `random_common_cause`,
+the equivalence bands of the generated-outcome tests, the placebo with a known treatment mechanism,
+and the default refit cap. Any check that needs more than 20 refits is opt-in.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
+| C | a longitudinal refute adapter: Markov placebo, random common cause, subset, bootstrap stability, held-history generated outcomes, negative-control outcome, and the pre-treatment and future-treatment controls | the exact enumeration of a two-node panel, and a nonzero witness for each control |
+| D | `assessment_family` and the refute adapter of the structural nested mean model | a blip-null witness and the linear-remainder audit row |
+| E | generated processes beyond the Gaussian ATE: other families, arms, ratios, controlled direct effects, MSMs, interventions, and missing outcomes | the effect of each process computed exactly, judged by the bands of A1 |
+| F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | the witnesses of X47, X48 and X66 |
+| G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
+| H | marginal sensitivity model bounds for the point-treatment ATE and arm means | a source read of Dorn, Guo and Kallus before the documentation cites it |
+| I | every applicable instrument for `AdaptiveIPTW` | X21 merged |
+
+Each short-study follow-up adds the registry rows that its passing cells license. A failed cell
+keeps its rule descriptive. Parts C to I absorb parts of X9, X11 (o), X47, X48, X49, X50 (e),
+X51 (f), X65, X66, X67 and X74. Each of those parts leaves its old row when it lands.
+
+Acceptance: a fast test of each rule against its exact reference, a nonzero witness or mutation
+control for every sign, mask and guard, an empty-registry test that proves each unlicensed rule
+prints `passed=None`, and a docs audit for each part.
 
 ### P1. EP learner
 

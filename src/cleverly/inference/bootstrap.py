@@ -119,14 +119,18 @@ class _BootstrapDesign:
     cluster: IntArray | None
     members: tuple[IntArray, ...] | None
 
-    def sample(self, data: _DataT, draw: _BootstrapDraw) -> _DataT:
-        """Materialize one sample with distinct codes for cluster occurrences."""
-        index, occurrence_codes = _bootstrap_draw(
+    def indices(self, data: _DataT, draw: _BootstrapDraw) -> tuple[IntArray, IntArray | None]:
+        """Return the row positions of one draw, and the distinct cluster occurrence codes."""
+        return _bootstrap_draw(
             data.n,
             self.cluster,
             np.random.default_rng(draw.sequence),
             None if self.members is None else list(self.members),
         )
+
+    def sample(self, data: _DataT, draw: _BootstrapDraw) -> _DataT:
+        """Materialize one sample with distinct codes for cluster occurrences."""
+        index, occurrence_codes = self.indices(data, draw)
         sample = data.subset(index)
         if occurrence_codes is None:
             return sample

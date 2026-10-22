@@ -360,14 +360,14 @@ class TestEverySpreadIsNamedByItsStatus:
         assert spread_name("std_error", DIAGNOSTIC) in columns
         assert "std_error" not in columns
         # The detail counts the shift in the same unit the frame names.
-        assert f" {spread_name('standard errors', DIAGNOSTIC)}); " in test.detail
+        assert f" {spread_name('standard errors', DIAGNOSTIC)} against" in test.detail
 
     def test_an_ordinary_refutation_detail_counts_standard_errors(self, ordinary_fit: Any) -> None:
         report = refute(
             ordinary_fit, tests=("random_common_cause",), n_replicates=2, random_state=0
         )
         detail = report.tests[0].detail
-        assert " standard errors); " in detail
+        assert " standard errors against" in detail
         assert spread_name("standard errors", DIAGNOSTIC) not in detail
 
     def test_a_failing_score_verdict_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:

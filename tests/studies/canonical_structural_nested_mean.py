@@ -90,6 +90,9 @@ item gives the row, the expected verdict, the chance, and the route if the row r
 ``superior`` on ``k`` ``r12`` comes from the reference's SE defect.  It does not show that the
 subject estimates better, because the points are identical.
 
+Post-run note: the r21 SE ratio read 1.031 (declared ≈1.026); replicates 0–999 differ at 1–2 ULP
+with ``covered`` unchanged; see the evidence page.
+
 **Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  No
 row is declared red: :data:`EXPECTED_RED` is empty.  The sparse-positivity law ``SP`` was
 declared red in an earlier draft on the reading that the unpenalized ``GLM`` nuisances fail in
