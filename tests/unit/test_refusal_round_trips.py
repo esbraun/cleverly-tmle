@@ -106,17 +106,17 @@ def test_an_unavailable_item_keeps_its_refusal_record(
     natural_course_result: Any, tmp_path: Path
 ) -> None:
     original = _unavailable_items(natural_course_result.sensitivity.run_all(arguments=_INTERVAL))
-    # The witness: the items carry records with a non-default code, an alternative and, for
-    # the omitted-variable bound, a roadmap id, so equality can fail on a dropped field.
+    # The witness: the items carry records with two different codes and, for the tilt's
+    # interval search, an alternative and a roadmap id, so equality can fail on a dropped
+    # field.  The bound refuses a fit that reports no linear arm parameter.
     assert {"omitted_confounding", "tipping_gamma"} <= set(original)
     bound = original["omitted_confounding"].refusal
     assert bound is not None
-    assert bound.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert bound.roadmap is not None
-    assert bound.alternative
+    assert bound.reason is RefusalReason.INVALID_DECLARATION
     tipping = original["tipping_gamma"].refusal
     assert tipping is not None
     assert tipping.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert tipping.roadmap is not None
     assert tipping.alternative and "point search" in tipping.alternative
     assert bound != tipping
 

@@ -79,6 +79,7 @@ __all__ = [
     "TRUNCATION_MARGIN",
     "MechanismRefusal",
     "MechanismTerm",
+    "configuration_refusal",
     "correction_refusal",
     "plugin_mechanism_term",
 ]
@@ -176,6 +177,32 @@ def _refusal(
         text=f"nu2_estimator='plugin': {_STEM}. This fit does not qualify: {clause}.",
         alternative=alternative,
         reason=reason,
+    )
+
+
+def configuration_refusal(configuration: str) -> MechanismRefusal:
+    """The plug-in refusal of a bound whose representer the stack does not rebuild.
+
+    The stack rebuilds the marginal representer of the treatment mechanism alone.  A
+    representer that also divides by a response, recording, or intermediate mechanism,
+    or that is restricted to a baseline stratum, has a further first-order term in its
+    plug-in curve, and no source this package cites gives that term.
+
+    Parameters
+    ----------
+    configuration : str
+        What the representer reads beyond the marginal treatment mechanism, as a phrase
+        that completes "the representer of this bound ...".
+
+    Returns
+    -------
+    MechanismRefusal
+        The refusal, with key ``"configuration"``.
+    """
+    return _refusal(
+        "configuration",
+        f"the representer of this bound {configuration}, and the stack carries the score "
+        "of the treatment mechanism alone",
     )
 
 
