@@ -859,13 +859,58 @@ ARMS.update(
     }
 )
 
+#: The rows of the X82 SG limit coverage studies, as arm labels; see the section at the end.
+_SG_OVB = "ovb-limit-coverage"
+_SG_EVALUE = "evalue-limit-coverage"
+_SG_STRENGTH = "at cf_y 0.3, cf_d 0.2, rho 1"
+_SG_PARAMETERS = {
+    "O1": {
+        "ate": "the ATE, outcome missing at random",
+        "ey1": "the arm-1 mean, outcome missing at random",
+    },
+    "O2": {
+        "cde_z0": "the controlled direct effect at Z = 0",
+        "cde_z1": "the controlled direct effect at Z = 1",
+    },
+    "O3": {
+        "coin": "the mean under the stochastic regime coin",
+        "coin_vs_always": "the contrast of the regime coin with always treat",
+    },
+    "O4": {
+        "w2": "the W2 coefficient of the linear MSM with modifier W2",
+        "a_w2": "the treatment-by-W2 coefficient of the linear MSM with modifier W2",
+    },
+    "O5": {
+        "plus1": "the mean under the shift +1 on the dose atoms",
+        "plus1_vs_natural": "the contrast of the shift +1 with the natural course",
+    },
+}
+_SG_OVB_ROWS = {
+    f"{label}_{end}": (cell, f"{end} omitted-variable bound on {words}, {_SG_STRENGTH}")
+    for cell, parameters in _SG_PARAMETERS.items()
+    for label, words in parameters.items()
+    for end in ("lower", "upper")
+}
+_SG_EVALUE_ROWS = {
+    **{
+        f"E3_rr[V={stratum}]": f"risk ratio in stratum V={stratum}, on the log scale"
+        for stratum in (0, 1, 2)
+    },
+    "E4_rr_t5": "ratio of the arm-1 and arm-0 risks at t = 5, on the log scale",
+}
+
+ARMS.update({f"{cell}_{row}": words for row, (cell, words) in _SG_OVB_ROWS.items()})
+ARMS.update(_SG_EVALUE_ROWS)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
 #: raise :class:`Undescribed`.  Longest alternative first, so a longer arm is never shadowed
 #: by a shorter one it starts with.
 _ARM = re.compile(
-    r"^(?P<arm>" + "|".join(sorted(ARMS, key=len, reverse=True)) + r")__(?P<cell>.+)$"
+    r"^(?P<arm>"
+    + "|".join(re.escape(arm) for arm in sorted(ARMS, key=len, reverse=True))
+    + r")__(?P<cell>.+)$"
 )
 
 #: A contraction ladder's rung, ``"<configuration>_n<size>"``.  Matched only for the family
@@ -3792,12 +3837,21 @@ def scenario(key: str, *, slug: str | None = None) -> str:
         raise Undescribed(f"no description for scenario {key!r}") from None
 
 
-def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
+#: Estimand descriptions that one study scopes, by ``(slug, estimand)``.  A study whose row key
+#: another study already describes, such as ``ate_lower`` at another strength, names its own
+#: reading here.
+STUDY_ESTIMANDS: dict[tuple[str, str], str] = {}
+
+
+def estimand(key: str, *, outcome_kind: str = "absorbing", slug: str | None = None) -> str:
     """What an estimand key names, including a bracketed longitudinal regimen.
 
     ``outcome_kind`` is the study record's declaration.  It decides the wording of a
     horizon-indexed contrast, which reads the same on a survival and a repeated outcome.
+    ``slug`` selects the study's own entry in :data:`STUDY_ESTIMANDS` first.
     """
+    if slug is not None and (slug, key) in STUDY_ESTIMANDS:
+        return STUDY_ESTIMANDS[slug, key]
     stratum = _STRATUM.match(key)
     if stratum is not None:
         base = estimand(stratum.group("base"), outcome_kind=outcome_kind)
@@ -3957,9 +4011,10 @@ def cell(
     size = _SIZE.match(base) if family == "double_robust_contraction" else None
     if size is not None:
         base = size.group("cell")
+    scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
     try:
         tested, required = (
-            (STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None)
+            scoped
             or (ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None)
             or CELLS[family, base]
         )
@@ -3967,7 +4022,7 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
-    if family == "interval_calibration" and base == "correctly_specified":
+    if family == "interval_calibration" and base == "correctly_specified" and scoped is None:
         if nuisance_count == 2:
             tested = "both nuisances are correctly specified"
         else:
@@ -4880,3 +4935,63 @@ def _refuter_calibration_cells() -> None:
 
 
 _refuter_calibration_cells()
+
+
+# ------------------------------------------------------------------ X82 SG limit coverage
+
+#: The rows of ``ovb-limit-coverage`` and ``evalue-limit-coverage``.  Mirrored from
+#: ``tests.studies.ovb_limit_coverage.CELLS`` and ``tests.studies.evalue_limit_coverage``, which
+#: this module cannot import; ``tests/unit/test_sensitivity_limit_coverage_registry.py`` pins
+#: that every published key resolves.
+IMPLEMENTATIONS["cleverly-ovb-limit"] = "`cleverly` omitted-variable bound limits (X82 part G)"
+IMPLEMENTATIONS["cleverly-evalue-limit"] = "`cleverly` risk-ratio interval behind the E-value limit"
+STUDY_SCENARIOS.update(
+    {
+        (_SG_OVB, "O1"): "part G law, outcome missing at random given A and W; saturated GLMs",
+        (_SG_OVB, "O2"): "part G law with a binary intermediate Z; saturated GLMs",
+        (_SG_OVB, "O3"): "part G law, complete data, three regimes; saturated GLMs",
+        (_SG_OVB, "O4"): "part G law, complete data, linear MSM with modifier W2; saturated GLMs",
+        (_SG_OVB, "O5"): "`tests.discrete_law_shift` on its four dose atoms; saturated GLMs",
+        (_SG_EVALUE, "E3"): "`stratified_law`, three strata, as `canonical-stratified-tmle` fits",
+        (_SG_EVALUE, "E4"): "the `survival` law of `point-treatment-survival`, hazard LTMLE",
+    }
+)
+STUDY_ESTIMANDS.update({(_SG_OVB, row): words for row, (_, words) in _SG_OVB_ROWS.items()})
+STUDY_ESTIMANDS[_SG_EVALUE, "rr_t5"] = _SG_EVALUE_ROWS["E4_rr_t5"]
+STUDY_ARM_CELLS.update(
+    {
+        (slug, "interval_calibration", label, kind): words
+        for slug, labels in (
+            (_SG_OVB, [f"{cell}_{row}" for row, (cell, _) in _SG_OVB_ROWS.items()]),
+            (_SG_EVALUE, list(_SG_EVALUE_ROWS)),
+        )
+        for label in labels
+        for kind, words in (
+            (
+                "correctly_specified",
+                (
+                    "every nuisance is correctly specified, and the row reads its reported limit",
+                    "SE ratio and coverage intervals both inside their calibration bands",
+                ),
+            ),
+            (
+                "inflated_se_control",
+                (
+                    "the reported standard error is multiplied by 1.5",
+                    "the SE-ratio interval must fall above the calibration band",
+                ),
+            ),
+        )
+    }
+)
+PROPERTIES["response_mask_necessity"] = (
+    "the response mask in sigma^2 is what puts the response-mechanism bound at its truth"
+)
+CELLS[("response_mask_necessity", "masked")] = (
+    "the package bound, whose sigma^2 is the masked mean over all rows",
+    "bias interval inside the equivalence margin",
+)
+CELLS[("response_mask_necessity", "unmasked_sigma2")] = (
+    "sigma^2 read as the mean over the observed rows only",
+    "bias interval must fall entirely outside the margin",
+)

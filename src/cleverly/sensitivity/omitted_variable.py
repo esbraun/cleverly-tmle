@@ -77,8 +77,9 @@ treatment mechanism and the second one.  A stratum-conditional parameter restric
 representer to the stratum and divides by its share, as the ATT divides by the share of its
 arm, and the curve of ``nu^2`` carries the influence of that share.  The confidence limits
 of these configurations resolve through the ``ovb_limit`` rows of
-:mod:`cleverly.validation._interpretation` and print as descriptive until a registered
-study covers them.
+:mod:`cleverly.validation._interpretation`.  The ``ovb-limit-coverage`` study registers a
+row for each single-feature rule on its measured configuration, and every other fit prints
+its limits as descriptive.
 
 Repeated cross-fitting (X82 part G).  A fit with ``repeats`` above one has one bound per
 draw.  The reported bounds are the medians of the draws' bounds, and each one-sided limit

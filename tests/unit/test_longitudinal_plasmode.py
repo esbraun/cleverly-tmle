@@ -193,7 +193,7 @@ class TestTheDraw:
     def test_the_drawn_treatment_follows_the_frozen_mechanism(self, law: Any) -> None:
         drawn = law.draw(PROCESS, seed=6, name="plasmode")
         baseline = np.asarray(drawn.baseline, dtype=float)
-        expected = np.clip(law.treatment[0].probability(baseline), law.lower, 1.0 - law.lower)
+        expected = np.clip(law.mechanisms[0].probability(baseline), law.lower, 1.0 - law.lower)
         assert abs(np.mean(drawn.treatment[:, 0]) - np.mean(expected)) < 0.06
 
 

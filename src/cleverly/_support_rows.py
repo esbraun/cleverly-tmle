@@ -3508,6 +3508,15 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."
     ),
+    "ovb-limit-coverage": (
+        "It measures the coverage of the omitted-variable bound limits of X82 part G. A limit "
+        "is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
+        "licenses."
+    ),
+    "evalue-limit-coverage": (
+        "It measures the coverage of the risk-ratio intervals that two E-value limits map. "
+        "VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
     "calibration-slope-warning": (
         "It measures the rate of a diagnostic warning. The warning is no estimate."
     ),

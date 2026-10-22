@@ -1359,6 +1359,15 @@ class TestPublishedVerdicts:
                 >= study.properties().MISSINGNESS_DISPLACEMENT
             )
 
+        mask = published.loc[published["property"] == "response_mask_necessity"]
+        if not mask.empty:
+            assert mask["property_passed"].nunique() == 1
+            assert bool(mask["property_passed"].iloc[0]) is bool(
+                mask["passed"].all()
+                and mask["response_mask_displacement"].iloc[0]
+                >= study.properties().RESPONSE_MASK_DISPLACEMENT
+            )
+
         projection = published.loc[published["property"] == "projection_necessity"]
         if not projection.empty:
             assert projection["property_passed"].nunique() == 1
@@ -1561,6 +1570,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X82 SG: the O1 bound with the masked sigma^2 inside the margin, the bound with the
+        # observed-rows sigma^2 outside it.
+        "response_mask_necessity",
         # X16's three-arm pair: the positive cell's bias inside the margin, the control's
         # outside it.
         "multi_arm",
@@ -2958,6 +2970,9 @@ class TestThePublishedTestTables:
         def scenario(key: str) -> str:
             return descriptions.scenario(key, slug=study.slug)
 
+        def estimand(key: str) -> str:
+            return descriptions.estimand(key, slug=study.slug)
+
         undescribed: list[str] = []
         for frame, resolvers in (
             (
@@ -2965,12 +2980,12 @@ class TestThePublishedTestTables:
                 (
                     ("implementation", descriptions.implementation),
                     ("scenario", scenario),
-                    ("estimand", descriptions.estimand),
+                    ("estimand", estimand),
                 ),
             ),
             (
                 data["equivalence"],
-                (("scenario", scenario), ("estimand", descriptions.estimand)),
+                (("scenario", scenario), ("estimand", estimand)),
             ),
         ):
             for column, resolve in resolvers:
@@ -3066,6 +3081,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
     "margin:fold_locality_displacement": lambda s: s.properties().FOLD_LOCALITY_DISPLACEMENT,
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
+    "margin:response_mask_displacement": lambda s: s.properties().RESPONSE_MASK_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
     "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,
