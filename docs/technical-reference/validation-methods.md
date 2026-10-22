@@ -836,11 +836,11 @@ mechanism $g_{c,a}$ is the one that the
 
 Each functional is linear in the regression on the rows that $R$ marks, so Theorem 2 of the cited
 paper covers it. Only $R$ and the representer differ from the shipped bound. On complete data
-$R = 1$, and each quantity equals the shipped one.
+$R = 1$, and each quantity equals the shipped one. The bias reads $Y$ only where $R = 1$, so $c_Y$
+is the share of the residual variation of $Y$ on those rows.
 
 On the first three rows, $c_D$ measures a joint strength over the treatment mechanism and a second
-mechanism. The summary names that second mechanism as the response, recording, or intermediate
-mechanism. `benchmark()` refits every mechanism without the named covariates, so it measures the
+mechanism. The summaries of the bound and of the `benchmark()` record name that second mechanism. `benchmark()` refits every mechanism without the named covariates, so it measures the
 same joint strength. The curve of $\nu^2$ in a stratum carries the influence of the share $p$, as
 the [standard error](#standard-error-of-the-omitted-variable-bound) states. Under
 `nu2_estimator="plugin"` these fits report the point bounds. Their limits refuse with the key
@@ -1270,6 +1270,42 @@ and the test module that checks it.
 | a missing outcome or a declared missing treatment | each cell perturbs the recorded values only and keeps every observation indicator. Outcome-axis cells need no declaration, because the latent is independent of the data. A cell that moves the treatment needs `observation_reads=`, the adjustment covariates that every observation mechanism reads, so that $\Delta \perp (A', Y') \mid W$. The report states that assumption, and calibration reads the recorded rows of each target | `test_simulated_confounding_missing_laws.py`: recorded outcomes follow the law and placeholders stay, the indicators never change, and a declaration that names the treatment is refused |
 | a controlled direct effect | each cell holds the treatment, flips the binary intermediate in the latent tail with strength `ConfounderStrengthGrid(intermediate=...)`, and moves the outcome. The refit targets the same intermediate level. A nonzero treatment strength is refused | `test_simulated_confounding_intermediate_laws.py`: the treatment is identical in every refit, the intermediate equals the published flip, and the cell reports `induced_intermediate_association` |
 | a Gaussian fit whose estimator declares `q_bounds` | `bounded_outcome_law="logit"`, the default there, shifts $\mathrm{logit}((Y - l)/(h - l))$ by $-k_Y U$, and a recorded row at or beyond a bound never moves. `"normal_score"` shifts $\Phi^{-1}(\mathrm{rank}/(m + 1))$, maps it back through the empirical quantile at the Weibull plotting positions, and clips the result to $[l, h]$. It depends on the sample. Every cell reports `induced_outcome_association`, because $k_Y$ is no longer in outcome SD units | `test_simulated_confounding_intermediate_laws.py`: every outcome stays in the bounds at a strength where the linear shift leaves them, rows at a bound stay, and both laws are the identity at zero strength. The normal-score law matches a hand computation at tied values, and its clip is a mutation control |
+
+**Longitudinal latent of X82 part F.** One standard-normal latent value per unit is shared by
+every treatment node and the outcome. The contract covers `LTMLE`, `SDR`,
+`SequentialGComputation`, `SequentialIPW`, and `ParametricGFormula` fits. The panel has no
+censoring, an end-of-study outcome, no time-varying covariate after the first node, binary or
+continuous nodes, and no cluster. The table gives the law and the test module that checks it.
+
+| item | law | witness |
+| --- | --- | --- |
+| node law | a binary node flips on $U \ge \Phi^{-1}(1 - s_t)$, and a dose adds $k_t U$. A one-axis grid applies each strength at every node, and a mapping keys strengths by node column | `test_simulated_confounding_longitudinal.py`: a two-node discrete panel fitted by saturated sequential regressions gives a cell equal to the hand g-formula on the perturbed table. A law that moves node 1 alone gives another value |
+| nested flips | every node reads one latent, so the flipped row sets are nested in strength order | the flipped rows of the weaker node sit inside those of the stronger node |
+| later nodes | each cell reports, node by node, the weighted correlation of $U$ and $A'_t$. It includes the path through $A'_1, \dots, A'_{t-1}$, because the data generated $A_t$ under the original history | the association of each node equals a hand computation |
+| held decision | node 1 moves, and the identity nodes repeat it | the refit data repeat the flipped node 1 at node 2 |
+| declared mechanism | a declared node-1 factor becomes $(1 - s)\,g + s\,g(1 - a)$. A declared later node is refused | the refit carries the flipped factor |
+| outcome | the point outcome law, with the bounded laws on a `q_bounds` fit | a cross-fitted bounded fit keeps its folds and its bounds |
+
+Each refit passes the original draws' seeds when the root seed is the fit's own, so the refit at
+zero strength reproduces the estimate. An explicit seed other than the fit's own redraws them,
+and `refit_folds="redrawn"` then says that each cell's movement includes fold noise.
+
+Calibration reads each named baseline covariate against each moved node and the outcome. It conditions on
+the other baseline covariates, not on the earlier nodes. A benchmark names a baseline covariate.
+A covariate measured before node 1 in the time-varying block is not a benchmark. `longitudinal_fit_refusal`, in
+`src/cleverly/sensitivity/_simulated_confounding_longitudinal.py`, applies the ordered
+longitudinal stops below. The point rule table hands a longitudinal result to it before any
+point rule runs.
+
+| stop | refuses | roadmap |
+| --- | --- | --- |
+| `estimator` | an `IPSI` fit, whose tilt reads the earlier perturbed nodes | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `outcome_kind` | a survival, competing-risk, or repeated outcome | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `censoring` | a censoring node | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `later_covariates` | a time-varying covariate after the first node | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `node_law` | a node with more than two levels, or a vector node | [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (j) |
+| `cluster` | a clustered panel | [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (k) |
+| `known_later_node` | a declared mechanism at a node after the first | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
 
 Every binary calibration uses the unpenalized fit, numeric covariates included, so one report
 reads one fit. Complete or quasi-complete separation leaves no maximum-likelihood fit (Albert and
@@ -1714,7 +1750,9 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
 walks that table and returns the first reason that applies. Three missing-science stops apply
-in this order: longitudinal, learned-rule, and risk-ratio tilt fits. Each one has a row in the
+in this order: longitudinal, learned-rule, and risk-ratio tilt fits. The longitudinal stop applies
+the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
+point rule. Each one has a row in the
 refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
 and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
@@ -1752,7 +1790,7 @@ of the roadmap also has a part that waits on published theory, as the
 
 | refused | code | why |
 | --- | --- | --- |
-| a longitudinal result | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). One time-fixed latent on an uncensored terminal-outcome fit is not written yet. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, longitudinal latent. |
+| a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
 | a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
 | a risk-ratio tilt fit | `implementation_gap` | the replay declares no reading of the tilt rule on a perturbed draw. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (d) |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
@@ -2216,6 +2254,7 @@ with `passed=None`, because no registry row covers a longitudinal fit (X82 plan 
 | `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
 | `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
 | `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+| `negative_control_outcome` | the control in place of the outcome. The refit keeps the original split and the fit seed | 0 for a blip coefficient and for a regimen contrast. A level refuses the control |
 | `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
 | `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
 | `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
@@ -2385,6 +2424,57 @@ these requests.
 moves `A_2` and the control gives `|z| > 6`. The same control without that path gives `|z| < 3`. A
 control that `L_2` drives reads 0 with `L_2` in the history. With `L_2` removed, the same
 control gives `|z| > 6`.
+
+#### Structural nested mean refutation
+
+A `StructuralNestedMean` result declares the `structural` assessment family. It keeps a copy of
+its settings, its one outer split, and its fit seed in `result.config.fit_seed`. An unseeded fit
+draws that seed once and uses it for the split and for every ensemble that inherits a seed.
+`refute()` runs the five tests below. Each test prints its numbers with `passed=None`, because no
+registry row covers a structural fit yet.
+
+| test | structural draw | reference |
+| --- | --- | --- |
+| `placebo` | a Markov treatment trajectory per unit, as for a longitudinal fit, with no mask | 0 for a blip coefficient and for a regimen contrast. A level has no reference and refuses the placebo |
+| `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one per node. Each refit keeps the original split and the fit seed | the paired shift against the original fit |
+| `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))`, with the plug-in SE of a fit that reports no interval |
+| `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+| `negative_control_outcome` | the control in place of the outcome. The refit keeps the original split and the fit seed | 0 for a blip coefficient and for a regimen contrast. A level refuses the control |
+
+The placebo law factorizes as `P(O-) x K`. No covariate and not the outcome reads the drawn
+treatment, so `E[Y | H_t, A_t]` is free of `A_t`. Every true blip is then 0, and `psi = 0` solves
+the population g-estimating equation of each node. A regimen contrast is linear in the blips, so
+it is 0 without a positivity condition on the regimen.
+
+`tests/unit/test_structural_refutation.py`
+runs the package g-estimation on an enumerated two-node law. The observed law gives the blips 0.74
+and 0.6. The placebo law gives 0 within `1e-12`. Its mutation control lets the drawn node-2
+treatment read the observed one, and the node-2 blip moves to 0.387.
+
+A subset draw that leaves a fold with fewer than 2 units of a treatment level at some node is
+refused before the first subset refit. The g-estimating equation of that node would have no
+treatment variation in the fold. Raise `subset_fraction`, or drop `subset`.
+
+The negative-control outcome follows the negative-control rules above, and the
+pre-treatment form reads the baseline as its adjustment set. A control outside {0, 1} is a
+regression target, which `regression_learner` fits. When that setting is `None` and the outcome
+learner only classifies, or is a binomial `GLM`, `refute()` refuses the control before any refit.
+The witness test fits a control that `A1` moves beyond its history, and its z exceeds 5. A
+control independent of the treatment gives a z below 2.
+
+The other operations of the family do not run. The table gives the reason of each.
+
+| operation | status | reason |
+| --- | --- | --- |
+| `support`, `nuisance_models` | `unavailable`, `api_redirection` | the fit records its positivity and learner diagnostics in `result.diagnostics` |
+| `score_equations`, `corrections`, `truncation_curve` | `not_applicable` | g-estimation solves its equations by a linear solve, uses no correction system, and applies no mechanism bound |
+| omitted-variable analyses, `evalue` | `unavailable`, `implementation_gap` | no Riesz representer or risk-ratio scale of a blip is derived. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) tracks the bound |
+| `simulated_confounding` | `unavailable`, `implementation_gap` | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `missingness`, `tipping_gamma` | `not_applicable` | the estimator refuses missing outcomes and censoring |
+
+The generated outcomes, the future-treatment control, and the measurement-error bootstrap of a
+structural fit are refused with the roadmap id
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
 
 #### Verdicts and evidence
 

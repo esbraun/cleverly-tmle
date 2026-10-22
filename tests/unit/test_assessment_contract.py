@@ -49,9 +49,9 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import RefusalReason
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
+from cleverly.sensitivity._simulated_confounding_longitudinal import _CENSORING_REFUSAL
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
-    _LONGITUDINAL_REFUSAL,
     _fit_wide_refusal,
 )
 from cleverly.sensitivity.positivity import positivity_report
@@ -267,8 +267,9 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "truncation_curve",
         "refute",
     }
-    assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == {"point", "longitudinal"}
-    for family in ("point", "longitudinal"):
+    families = {"point", "longitudinal", "structural"}
+    assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == families
+    for family in sorted(families):
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
         declared = {item.operation for item in family_rows}
         assert declared == expected
@@ -421,7 +422,8 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     longitudinal_result,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _LONGITUDINAL_REFUSAL
+    # The sweep's two-node fit has censoring nodes, which the time-fixed latent refuses.
+    reason = _CENSORING_REFUSAL
     capability = longitudinal_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE

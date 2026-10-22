@@ -49,6 +49,7 @@ from ._simulated_confounding_incremental import (
     natural_incremental_means,
     validate_incremental_replay,
 )
+from ._simulated_confounding_longitudinal import longitudinal_fit_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .simulated_confounding import ConfounderStrengthGrid
@@ -144,16 +145,6 @@ _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTA
 #: hard-stop review (docs/technical-reference/hard-stop-review.md) moved each declarable
 #: law to roadmap X82 part F.  A stop that keeps a part in the research queue names both
 #: rows and states the condition that keeps that part there.
-_LONGITUDINAL_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no time-indexed latent law for longitudinal "
-    "treatments, censoring, histories, outcomes, and contrasts. docs/roadmap.md X82 part F "
-    "tracks one time-fixed latent on uncensored terminal-outcome fits, and "
-    "docs/roadmap.md F13 tracks censoring, survival outcomes, time-varying covariates "
-    "after the first treatment node, and time-varying latents.",
-    alternative=NO_ALTERNATIVE,
-    roadmap="X82",
-)
 _MISSING_OUTCOME_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding moves the treatment of a missing-outcome fit only under a declared "
@@ -196,26 +187,26 @@ _INTERMEDIATE_REFUSAL = Refusal(
 
 
 def _refuse_longitudinal(result: Any) -> Refusal | None:
-    """Refuse every declared assessment family except the point-treatment one.
+    """Hand a longitudinal result to its own rules, and refuse an unknown family.
 
     Runs first, and it is the only rule that runs before the result shape is established,
-    so it reads its attribute defensively.  A longitudinal result is not a ``TMLEResult``
-    either, and it must hear its own missing-law stop rather than a type report.
+    so it reads its attribute defensively.  A longitudinal result is not a ``TMLEResult``,
+    and the point rules after this one do not apply to it: :func:`_fit_wide_refusal` stops
+    after this rule for a longitudinal result, which
+    :func:`~cleverly.sensitivity._simulated_confounding_longitudinal.longitudinal_fit_refusal`
+    answers in full.
 
-    ``_LONGITUDINAL_REFUSAL`` is a claim about *that* family, so only ``"longitudinal"``
-    hears it.  Any other declared family refuses with a message that names what the object
-    actually declared.  ``evalue._select_evalue``, ``_derived._risk_ratio_refusal`` and
+    Any other declared family refuses with a message that names what the object actually
+    declared.  ``evalue._select_evalue``, ``_derived._risk_ratio_refusal`` and
     ``_parameters.arm_parameter_keys`` all refuse the complement of ``"point"`` the same
     way, and none of them asserts a family the object never named.
 
     An object that declares no family at all is not a fitted result, and the ``result_type``
-    rule that runs next owns that message.  Nothing falls through: only an exact
-    ``TMLEResult`` passes that rule, and ``TMLEResult.assessment_family`` is the class
-    variable ``"point"``, so a result reaching rule three declared its family here.
+    rule that runs next owns that message.
     """
     family = getattr(result, "assessment_family", None)
     if family == "longitudinal":
-        return _LONGITUDINAL_REFUSAL
+        return longitudinal_fit_refusal(result)
     if family is not None and family != "point":
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
@@ -468,11 +459,18 @@ def _fit_wide_refusal(result: Any) -> Refusal | None:
     Refusal or None
         The first fit-wide refusal, or ``None`` when no fit-wide boundary applies.
     """
-    for _name, rule in _FIT_WIDE_RULES:
+    for name, rule in _FIT_WIDE_RULES:
         refusal = rule(result)
         if refusal is not None:
             return refusal
+        if name == "longitudinal" and _is_longitudinal(result):
+            # The longitudinal rules answered in full; the point rules read a TMLEResult.
+            return None
     return None
+
+
+def _is_longitudinal(result: Any) -> bool:
+    return getattr(result, "assessment_family", None) == "longitudinal"
 
 
 def _replay_refusal(estimator: Any, estimand: str) -> Refusal | None:
@@ -1088,6 +1086,10 @@ def simulated_confounding_refusal(
     refusal = _fit_wide_refusal(result)
     if refusal is not None:
         return refusal
+    if _is_longitudinal(result):
+        # Every longitudinal refusal is fit-wide; the estimand and covariate checks raise
+        # ``ValueError`` or ``TypeError`` from the call.
+        return None
     try:
         _validated_parameter(result, estimand, benchmark_covariates)
     except CapabilityError as error:

@@ -256,6 +256,10 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
     """
     if getattr(result, "assessment_family", None) == "longitudinal":
         return _longitudinal_configuration(result, estimand)
+    if getattr(result, "assessment_family", None) == "structural":
+        from ._structural_refute import structural_configuration
+
+        return structural_configuration(result, estimand)
     data = result.data
     estimator = result.estimator
     estimate = result[estimand]

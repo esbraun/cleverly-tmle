@@ -1036,6 +1036,10 @@ class StructuralConfig:
         Whether a blip feature reads a time-varying covariate.
     support_key : SupportKey or None, default None
         The support key the fit was classified under, read before any nuisance was fitted.
+    fit_seed : int or None, default None
+        The seed the fit drew its outer split and seeded its default learners with:
+        ``random_state`` on a seeded fit, and a drawn seed on an unseeded one. A refit given
+        it reproduces both (:meth:`StructuralNestedMean.refit`).
     """
 
     n_times: int
@@ -1051,6 +1055,7 @@ class StructuralConfig:
     random_state: int | None
     reads_covariates: bool
     support_key: SupportKey | None = None
+    fit_seed: int | None = None
 
     def describe(self) -> list[str]:
         """The settings as summary lines."""
@@ -1322,6 +1327,11 @@ class StructuralNestedMean:
      'ey_reference', 'ey_regimen[always]', 'ey_regimen[never]']
     """
 
+    #: The outer split that a refit uses instead of drawing one (:meth:`refit`).
+    _frozen_folds: Folds | None = None
+    #: The seed of a refit's split and default learners, in place of ``random_state``.
+    _frozen_seed: int | None = None
+
     def __init__(
         self,
         regimens: Any = None,
@@ -1482,7 +1492,8 @@ class StructuralNestedMean:
             raise CapabilityError.from_refusal(_COVARIATE_FEATURE_REFUSAL)
         reference = self._reference(regimens)
         self._refuse_reference_dose(prepared)
-        folds = self._folds(prepared)
+        fit_seed = self._fit_seed()
+        folds = self._folds(prepared, fit_seed)
         check_integrity(folds, cluster=prepared.cluster)
         # No refusal of this estimator is a composition that the code computes and no study
         # covers, so the classification carries no condition: the label rests on the rows.
@@ -1498,7 +1509,7 @@ class StructuralNestedMean:
             self.outcome_learner,
             self.treatment_learner,
             learner_folds=self.learner_folds,
-            random_state=self.random_state,
+            random_state=fit_seed,
             regression=self.regression_learner,
         )
         nuisances = _fit_nuisances(prepared, nodes, learners, folds, self.n_jobs)
@@ -1539,6 +1550,7 @@ class StructuralNestedMean:
             random_state=self.random_state,
             reads_covariates=reads_covariates,
             support_key=None if classification is None else classification.key,
+            fit_seed=fit_seed,
         )
         result = StructuralNestedMeanResult(
             estimates=estimates,
@@ -1554,13 +1566,20 @@ class StructuralNestedMean:
             simultaneous=self._bands(estimates, kinds, prepared, status, classification),
             diagnostics=diagnostics,
             static_regimens=regimens,
-            estimator=copy.copy(self),
+            estimator=self._template(),
             label=SNMM_LABEL,
         )
         record_fit(classification, result, source="StructuralNestedMean.fit")
         return result
 
     # -------------------------------------------------------------- internals
+
+    def _template(self) -> StructuralNestedMean:
+        """The settings a result keeps: a copy that holds no frozen split or seed."""
+        template = copy.copy(self)
+        template._frozen_folds = None
+        template._frozen_seed = None
+        return template
 
     @staticmethod
     def _refuse_design(data: LongitudinalData) -> None:
@@ -1613,15 +1632,93 @@ class StructuralNestedMean:
                     alternative="Center the dose so that the reference lies in the range.",
                 )
 
-    def _folds(self, data: LongitudinalData) -> Folds:
+    def _fit_seed(self) -> int:
+        """The seed of the split and of the default learners of one fit.
+
+        A refit given ``frozen_seeds`` takes that seed. A seeded estimator takes its
+        ``random_state``. An unseeded one draws a seed, which the result records, so a
+        refutation can rerun the fit under the same split and the same learner seeds.
+        """
+        if self._frozen_seed is not None:
+            return int(self._frozen_seed)
+        return _fresh_seed() if self.random_state is None else int(self.random_state)
+
+    def _folds(self, data: LongitudinalData, seed: int | None = None) -> Folds:
+        if self._frozen_folds is not None:
+            if self._frozen_folds.n != data.n:
+                raise ValueError(
+                    f"a frozen split labels {self._frozen_folds.n} rows and the refit has {data.n}"
+                )
+            return self._frozen_folds
         if self.n_folds <= 1:
             return Folds.single(data.n)
-        return random_partition(
-            data.n,
-            self.n_folds,
-            cluster=data.cluster,
-            seed=_fresh_seed() if self.random_state is None else int(self.random_state),
-        )
+        if seed is None:
+            seed = self._fit_seed()
+        return random_partition(data.n, self.n_folds, cluster=data.cluster, seed=seed)
+
+    def refit(
+        self,
+        data: LongitudinalData,
+        *,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int | None] | None = None,
+    ) -> StructuralNestedMeanResult:
+        """Run the whole fit again, nuisances included, on a prepared container.
+
+        :func:`cleverly.validation.refute` calls this on a structural result. It changes a
+        column, draws units, or appends a covariate, and then refits. The estimator is not
+        modified: every setting applies to a copy, and the copy builds no simultaneous band.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared container to fit, usually ``result.data`` with one array changed.
+        random_state : int or None
+            Seed of the refit's split and default learners. ``None`` keeps this estimator's
+            own.
+        frozen_folds : sequence of Folds or None
+            The realized outer split, for the rows of ``data``. The estimator draws one split,
+            so the sequence holds one entry. ``None`` draws the split as usual.
+        frozen_seeds : sequence of int or None
+            One seed, in place of ``random_state``, for the outer split and for every learner
+            the estimator seeds. The sequence holds one entry. Given the original fit's
+            :attr:`StructuralConfig.fit_seed`, a refit on data with the same row count draws
+            the original split and the original learner seeds.
+
+        Returns
+        -------
+        StructuralNestedMeanResult
+            The result of the whole fit on ``data``.
+
+        Raises
+        ------
+        ValueError
+            When ``frozen_folds`` or ``frozen_seeds`` holds other than one entry, or a frozen
+            split labels another number of rows than ``data`` holds.
+        """
+        settings = copy.copy(self)
+        settings.simultaneous = False
+        if random_state is not None:
+            settings.random_state = int(random_state)
+        if frozen_folds is not None:
+            folds = tuple(frozen_folds)
+            if len(folds) != 1:
+                raise ValueError(
+                    f"a structural fit draws one split; frozen_folds holds {len(folds)}"
+                )
+            settings._frozen_folds = folds[0]
+        if frozen_seeds is not None:
+            seeds = tuple(frozen_seeds)
+            if len(seeds) != 1:
+                raise ValueError(
+                    f"a structural fit draws one split; frozen_seeds holds {len(seeds)}"
+                )
+            settings._frozen_seed = None if seeds[0] is None else int(seeds[0])
+        with warnings.catch_warnings():
+            # A refit on a perturbed panel repeats the original fit's status warnings.
+            warnings.simplefilter("ignore")
+            return settings.fit(data)
 
     def _check_positivity(
         self, nodes: Sequence[_Node], stage: _Stage, data: LongitudinalData
@@ -1979,6 +2076,12 @@ class StructuralNestedMeanResult:
     label : str
         The structural condition under which the intervals are valid.
 
+    Attributes
+    ----------
+    assessment_cache : dict
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache.
+
     See Also
     --------
     StructuralNestedMean : The estimator.
@@ -1998,10 +2101,17 @@ class StructuralNestedMeanResult:
     estimator: StructuralNestedMean
     label: str
     simultaneous: SimultaneousBands | None = None
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, as
+    #: on :class:`~cleverly.longitudinal.LongitudinalResult`, so a mapping handed to the
+    #: constructor by ``dataclasses.replace`` cannot answer for another fit.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
-    #: The method identity of the result.  The result declares no ``assessment_family``, so
-    #: ``assessment_capabilities`` does not accept it until X82 part D in ``docs/roadmap.md``
-    #: adds one.
+    #: The assessment family: one declaration per assessment operation in
+    #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`. A structural fit is not a
+    #: :class:`~cleverly.longitudinal.LongitudinalResult`: it holds one split, no regimen
+    #: plans and no targeting state, so the longitudinal declarations do not describe it.
+    assessment_family: ClassVar[str] = "structural"
+    #: The method identity of the result.
     fitted_method: ClassVar[str] = "snmm"
 
     # ------------------------------------------------------------- mapping API
@@ -2378,13 +2488,8 @@ class StructuralNestedMeanResult:
 
     def _refit(self, folds: Folds) -> StructuralNestedMeanResult:
         """Refit the structural estimator on these rows with another fold split."""
-        settings = copy.copy(self.estimator)
-        # The check reads the curves and the estimates; a band would be discarded.
-        settings.simultaneous = False
-        settings._folds = lambda _data, _seed=None: folds  # type: ignore[method-assign, misc]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return settings.fit(self.data)
+        # The check reads the curves and the estimates; the refit builds no band.
+        return self.estimator.refit(self.data, frozen_folds=(folds,))
 
     def _nonparametric(self, folds: Folds, q_bounds: tuple[float, float] | None) -> Any:
         """Fit LTMLE for the static regimens on these rows with this fold split."""
@@ -2409,6 +2514,24 @@ class StructuralNestedMeanResult:
             return nonparametric_fit.fit(self.data)
 
     # ----------------------------------------------------------------- reports
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade.
+
+        Every row refuses on a structural fit, with its reason code and the roadmap item
+        that tracks the derivation.
+        """
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored structural artifacts."""
+        from ..assessment import replayability
+
+        return replayability(self)
 
     def save(self, path: Any) -> Any:
         """Persist the fitted result to a trusted joblib artifact.
