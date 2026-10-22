@@ -14,6 +14,7 @@ import pytest
 
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    ROOT,
     assert_protocol_recorded,
     changed_fields,
     covers,
@@ -21,6 +22,36 @@ from tests.unit.tutorial_semantics import (
 )
 
 NOTEBOOK = EXAMPLES / "longitudinal-survival.ipynb"
+
+_PROBE = ROOT / "reviews/notebook-review/probes/longitudinal-survival-refuters/probe.log"
+_PROBE_NAME = "reviews/notebook-review/probes/longitudinal-survival-refuters/probe.log"
+
+#: Decimals the Step 10 readings quote from the committed review probe, which no cell prints.
+UNPRINTED_DECIMALS = dict.fromkeys(
+    (
+        "-0.0011",
+        "0.0003",
+        "0.5401",
+        "0.8782",
+        "0.9226",
+        "1.0698",
+        "0.2913",
+        "0.9943",
+        "-0.0988",
+        "0.0972",
+        "-0.0580",
+        "-0.1568",
+        "0.0398",
+    ),
+    f"a value of the review probe log, {_PROBE_NAME}",
+)
+
+
+def _check_probe_log() -> None:
+    """Each quoted probe number appears in the committed probe log, at its printed form."""
+    text = _PROBE.read_text(encoding="utf-8")
+    for literal in UNPRINTED_DECIMALS:
+        assert literal in text, f"{literal} is not in {_PROBE_NAME}"
 
 
 def _death_as_censoring_functional(a: float, *, death_first: bool) -> float:
@@ -57,8 +88,91 @@ def _summed(result: Any, names: list[str], signs: list[float]) -> tuple[float, f
     return psi, float(np.sqrt(np.var(curve, ddof=1) / result.data.n))
 
 
+def _hazard_truth(process: Any, baseline: Any, doses: tuple[float, float], cause: int) -> float:
+    """The risk of ``cause`` by node 2 under a multinomial hazard, from its stated equations.
+
+    The hazard of cause ``j`` is ``exp(eta_j) / (1 + sum_k exp(eta_k))`` with ``eta_j`` the
+    intercept, the shared covariate term and the effect times the cumulative dose.  The sum over
+    the two nodes is written out, so the check does not call the library's recursion.
+    """
+    from cleverly.validation.outcome_processes import standardized_sum
+
+    shift = standardized_sum(baseline, process.adjustment_scale)
+    risk = np.zeros(len(shift))
+    alive = np.ones(len(shift))
+    for dose in doses:
+        odds = np.exp(
+            np.array(process.intercepts)[:, None]
+            + shift[None, :]
+            + np.outer(process.effects, [dose] * len(shift))
+        )
+        probability = odds / (1.0 + odds.sum(axis=0))
+        risk += alive * probability[cause]
+        alive *= 1.0 - probability.sum(axis=0)
+    return float(risk.mean())
+
+
+def _check_refutation(namespace: dict[str, Any], readmission_t2: Any) -> None:
+    """Step 10: the refutation tests of the day-60 readmission difference."""
+    contrast_fit, target = namespace["contrast_fit"], namespace["target"]
+    # "The two lines agree": the typed contrast and the Step 7 contrast.
+    assert contrast_fit[target].psi == pytest.approx(readmission_t2.psi, abs=5e-5)
+    assert contrast_fit[target].std_error == pytest.approx(readmission_t2.std_error, abs=5e-5)
+    assert contrast_fit.data.n == 4_000 and contrast_fit.data.n_times == 2
+
+    # Each test prints a descriptive reading at level L0: the registry covers a survival outcome
+    # and the fit has competing events.
+    refutation, stability = namespace["refutation"], namespace["stability"]
+    tests = {test.name: test for test in refutation.tests}
+    assert list(tests) == ["placebo", "subset", "random_common_cause"]
+    for test in (*tests.values(), *stability.tests):
+        assert test.verdict == "descriptive" and test.passed is None and test.rung == "L0"
+        assert test.original == pytest.approx(readmission_t2.psi, abs=1e-12)
+    assert refutation.passed is None
+    for name in ("placebo", "subset"):
+        assert "This fit differs on outcome family 'competing'" in tests[name].scope_sentence
+    assert "Covered:" not in tests["random_common_cause"].scope_sentence
+    assert tests["placebo"].n_replicates == tests["subset"].n_replicates == 20
+    # "At 20 draws, none of these numbers shows a defect" on this seeded draw.
+    assert tests["placebo"].expectation == "~ 0"
+    assert tests["placebo"].statistic_pvalue > 0.05 and tests["subset"].statistic_pvalue > 0.05
+    assert abs(tests["random_common_cause"].statistic) < 0.05
+    spread = stability.tests[0]
+    assert spread.n_replicates == 20
+    assert 0.8 < spread.spread / contrast_fit[target].std_error < 1.25
+    # ``noise_nodes=True`` puts a noise column at every node. A baseline-only column moves the
+    # estimate differently under the same seed, so the flag acts on this fit.
+    baseline_only = contrast_fit.diagnostics.refute(
+        estimand=target, tests=("random_common_cause",), random_state=61
+    ).tests[0]
+    assert baseline_only.mean != pytest.approx(tests["random_common_cause"].mean, abs=1e-9)
+
+    # Generated outcomes: the dummy law has the exact null, the adjusted laws do not, and the
+    # simulated truth equals the hazard equations written out for the static regimens.
+    generated = namespace["generated_tests"]
+    assert list(generated) == ["dummy_outcome", "simulated_outcome", "plasmode"]
+    for test in generated.values():
+        bias = test.readings[0]
+        assert test.n_replicates == 20 and test.rung == "L1" and test.verdict == "descriptive"
+        assert bias.name == "bias" and not bias.inside
+        # 20 draws give an interval wider than the band, which is why no verdict prints.
+        assert bias.upper - bias.lower > 2 * bias.band[1]
+    assert generated["dummy_outcome"].declared_effect == 0.0
+    baseline = contrast_fit.data.baseline
+    adjusted = namespace["adjusted"]
+    expected = _hazard_truth(adjusted, baseline, (1.0, 2.0), 0) - _hazard_truth(
+        adjusted, baseline, (0.0, 0.0), 0
+    )
+    assert generated["simulated_outcome"].declared_effect == pytest.approx(expected, abs=1e-10)
+    assert expected > 0.1
+    # The plasmode truth is a Monte Carlo value, near the held-history truth.
+    assert generated["plasmode"].declared_effect == pytest.approx(0.1602, abs=5e-4)
+    assert abs(generated["plasmode"].declared_effect - expected) < 0.03
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The competing-risk analysis, its failure mode, and the readings' relations hold."""
+    _check_probe_log()
     result = namespace["result"]
     population = namespace["population"]
     frame = namespace["frame"]
@@ -283,7 +397,10 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert largest["epsilon"] == pytest.approx(-0.0679, abs=5e-5)
 
-    # Step 10. Each refit drops one recorded covariate from the full design; every move is
+    # Step 10. The refutation reads a fit of the typed contrast that agrees with Step 7.
+    _check_refutation(namespace, readmission_t2)
+
+    # Step 11. Each refit drops one recorded covariate from the full design; every move is
     # positive, and the last refit has no time-varying history left.
     benchmark = namespace["benchmark"]
     assert list(benchmark["dropped"].unique()) == ["age", "baseline_readiness", "identified_needs"]
