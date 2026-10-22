@@ -2287,9 +2287,10 @@ control at the quantile of the other side moves it by $O(\delta)$.
 A parametrized test refuses each composition in the scope table before a learner fits.
 
 **Confidence limits.** The limits resolve through the evidence registry with the instrument
-`msm_bound_limit`. The rule is `continuous` or `binary`, with `+clustered` on a clustered fit. The
-registry has no `msm_bound_limit` row, so the limits print as descriptive until study SH
-registers its coverage cells.
+`msm_bound_limit`. The rule is `continuous` or `binary`. A continuous outcome with a
+caller-supplied quantile or tail learner adds `+custom_learners`, and a clustered fit adds
+`+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
+until study SH registers its coverage cells.
 
 ### Missingness tilt and tipping gamma
 
@@ -2680,6 +2681,7 @@ that it fits on the panel once and then holds fixed. The table gives the model o
 | `A_t` | logistic, clipped to the fit's `g` bounds | `W`, `L_1` to `L_t`, and `A_1` to `A_{t-1}` |
 | censoring after node `t` | logistic | `W`, `L_1` to `L_t`, and `A_1` to `A_t` |
 | outcome | `mu + f(W) + effect * (A_1 + ... + A_T) + history_effect * h(L) + e` | `h` is the root-count standardized sum of every time-varying column |
+| `Y_t` of a repeated outcome | the outcome row, with `t` in place of `T` and `h` over the columns of nodes 1 to `t` | the drawn `Y_t` is also the copy that opens the block of node `t + 1` |
 | event at node `t` of a survival or competing-risk fit | the declared hazard, with `history_effect * h_t` added to each log-odds | `h_t` is the same sum over the columns of nodes 1 to `t` |
 
 Each model fits on the units present at its node. Such a unit is uncensored and has no event
@@ -2716,6 +2718,11 @@ R = 400 on that panel, and a contrast passes on a panel with a Gaussian `L_2`.
 Two tests in the same file lower the limits. Past the branch limit, the truth samples. At a draw
 cap of 4, the bias interval widens.
 
+`tests/unit/test_repeated_plasmode.py` checks the Monte Carlo truth of `Y_2` against its
+closed form within four standard errors. In that panel, `L_2` is Gaussian linear in `W`, `A_1`
+and `Y_1`. The naive truth holds `Y_1` at its observed value and differs by more than 0.02. A
+repeated contrast passes at R = 400.
+
 `tests/unit/test_survival_plasmode.py` works the same g-formula for a survival hazard that reads
 `L_2`. It checks static regimens, a rule, each horizon, and both causes of a competing-risk fit to
 `1e-12`. The naive truth differs by more than 0.01. A survival contrast passes at R = 400 with
@@ -2726,7 +2733,6 @@ The table gives the panels that the plasmode refuses, with roadmap id
 
 | panel | reason |
 | --- | --- |
-| a repeated outcome | the draw has no repeated-outcome process yet |
 | a held baseline decision, or a node with no treatment decision | the draw draws one treatment at each node |
 | a declared known mechanism | the frozen model replaces the declared one |
 | a clustered or weighted panel | resampled rows do not carry the cluster or weight law |

@@ -1231,17 +1231,59 @@ def _refuse_placebo_mode(result: TMLEResult, request: _RefuteRequest) -> Refusal
 
 
 def _refuse_placebo_kernel(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse the longitudinal placebo on a node that has no Markov kernel."""
-    if "placebo" not in request.tests or not _is_panel(result):
+    """Refuse the placebo on a dose that has no Markov kernel or no history-free draw."""
+    if "placebo" not in request.tests:
         return None
+    if not _is_panel(result):
+        return _refuse_row_varying_support(result)
     if not getattr(result.data, "has_mixed_node", False):
-        return None
+        return _refuse_row_varying_support(result)
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "the longitudinal placebo has no Markov kernel for a vector node with a continuous "
         "component, whose components a drawn code cannot replace.",
         alternative=(
             "The random_common_cause, subset and bootstrap_stability tests run on this fit."
+        ),
+        roadmap="X82",
+    )
+
+
+def _refuse_row_varying_support(result: TMLEResult) -> Refusal | None:
+    """Refuse the placebo on a dose whose declared support reads the history.
+
+    The longitudinal kernel draws a donor's dose, and the point placebo permutes or redraws the
+    recorded doses, each without reading the receiving unit's covariates. A drawn dose can then
+    leave a support that moves with the history, and the refit would stop on the
+    declared-support check partway through the replicates.
+    """
+    data = result.data
+    declared = (
+        getattr(data, "dose_supports", ())
+        if _is_panel(result)
+        else getattr(data, "treatment_support", None)
+    )
+    if isinstance(declared, Mapping):
+        declared = tuple(declared.values())
+    elif not isinstance(declared, tuple):
+        declared = (declared,)
+    flat = [
+        support
+        for entry in declared
+        for support in (entry.values() if isinstance(entry, Mapping) else (entry,))
+        if support is not None
+    ]
+    if not any(callable(bound) for support in flat for bound in (support.lower, support.upper)):
+        return None
+    family = "longitudinal" if _is_panel(result) else "point-treatment"
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"the {family} placebo draws each dose without reading the unit's history, so a dose "
+        "can leave a declared support whose bounds are functions of the history.",
+        alternative=(
+            "The random_common_cause, subset and bootstrap_stability tests run on this fit."
+            if _is_panel(result)
+            else "The random_common_cause and subset tests run on this fit."
         ),
         roadmap="X82",
     )
@@ -2145,8 +2187,8 @@ def _zero_one_levels(levels: Sequence[object]) -> bool:
 def _refuse_longitudinal_plasmode(name: str, structure: str) -> None:
     if name == "plasmode":
         raise CapabilityError(
-            f"the longitudinal plasmode has no draw for {structure}. It draws an end-of-study "
-            "or survival panel with binary treatment nodes.",
+            f"the longitudinal plasmode has no draw for {structure}. It draws an end-of-study, "
+            "repeated-outcome or survival panel with binary treatment nodes.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="dummy_outcome and simulated_outcome run on the held history.",
             roadmap="X82",
@@ -2215,7 +2257,6 @@ def _longitudinal_plasmode_target(
 
     data = result.data
     structures = (
-        (data.repeated is not None, "a repeated outcome"),
         (bool(data.treatment_held), "a held baseline decision"),
         (int(data.n_decisions) != int(data.n_times), "a node without a treatment decision"),
         (data.known_mechanisms is not None, "a declared known mechanism"),
@@ -2236,10 +2277,12 @@ def _longitudinal_plasmode_target(
     regimens = {regimen.label: regimen for regimen in result.config.regimens}
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
-    # A survival risk reads the nodes through its horizon, and the cause of its parameter.
+    # A survival risk or a repeated mean reads the nodes through its horizon, and a risk
+    # reads the cause of its parameter.
     reading: dict[str, int] = {}
-    if data.is_survival:
+    if data.is_survival or data.repeated is not None:
         reading["horizon"] = horizon
+    if data.is_survival:
         reading["cause"] = 0 if cause is None else list(data.cause_labels).index(cause)
     draws: int | None = None
     if not law.enumerable:

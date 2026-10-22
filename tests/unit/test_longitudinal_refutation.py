@@ -21,6 +21,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_longitudinal
 from cleverly.exceptions import CapabilityError, DataError
+from cleverly.interventions import Support
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import ParametricGFormula
 from cleverly.msm import MSM
@@ -438,6 +439,24 @@ class TestAdapter:
             assessment_family="longitudinal", data=SimpleNamespace(has_mixed_node=False)
         )
         assert _refuse_placebo_kernel(nothing, request) is None  # type: ignore[arg-type]
+
+    def test_a_history_dependent_support_refuses_the_placebo(self) -> None:
+        request = _RefuteRequest(estimand=CONTRAST, tests=("placebo",))
+
+        def stand_in(support: Any) -> Any:
+            return SimpleNamespace(
+                assessment_family="longitudinal",
+                data=SimpleNamespace(has_mixed_node=False, dose_supports=(support,)),
+            )
+
+        refusal = _refuse_placebo_kernel(
+            stand_in(Support(0.0, lambda h: 6.0 + h["W"])),
+            request,
+        )
+        assert refusal is not None
+        assert refusal.roadmap == "X82"
+        assert _refuse_placebo_kernel(stand_in(Support(0.0, 6.0)), request) is None
+        assert _refuse_placebo_kernel(stand_in(None), request) is None
 
     def test_noise_nodes_is_refused_on_the_parametric_g_formula(self, frame: pd.DataFrame) -> None:
         result: Any = ParametricGFormula(
