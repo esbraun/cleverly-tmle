@@ -210,6 +210,8 @@ def structural_subset_refusal(result: Any, draws: Any) -> Refusal | None:
         (folds,) = structural_frozen_folds(result, index)
         labels = np.asarray(folds.assignment) if not folds.is_single else np.zeros(index.size)
         for label in np.unique(labels):
+            # Every row of the fold enters each node's equation: the estimator refuses
+            # censoring and events, so no node has a smaller risk set.
             rows = np.asarray(index)[labels == label]
             for time in categorical:
                 levels = len(data.treatment_levels[time - 1])
