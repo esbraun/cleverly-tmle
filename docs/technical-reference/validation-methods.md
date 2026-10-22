@@ -1200,7 +1200,7 @@ $Y' = Y-k_YU$. Binomial outcomes use the same tail-flip construction as binary t
 Flip strengths range from zero through 0.5. Continuous treatment strengths are signed finite
 coefficients.
 
-**Point laws of X82 part F.** Four fit shapes take a declared law. The table gives each law
+**Point laws of X82 part F.** Eight fit shapes take a declared law. The table gives each law
 and the test module that checks it.
 
 | fit | law | witness |
@@ -1210,6 +1210,9 @@ and the test module that checks it.
 | a clustered fit | the caller declares `latent_level`. `"row"` draws one latent per row. `"cluster"` draws one per cluster. `"mixed"` draws $\sqrt{\rho}\,U_c + \sqrt{1-\rho}\,e$ with a declared `latent_rho`, so each latent stays standard normal. A treatment column that is constant within every cluster refuses `"row"` and `"mixed"` when a cell moves that column. A vector reads each component alone. An outcome-only grid runs at every level | `test_simulated_confounding_point_laws.py`: a cluster latent is constant within each cluster, the mixed latent equals its declared composition, and an outcome-only row latent leaves the treatment unchanged. `test_vector_simulated_confounding.py`: a moved cluster-level flag refuses, and a moved dose runs |
 | a categorical benchmark covariate | one block over every encoded indicator. A binary target uses the class-prediction change of an unpenalized logistic fit when the whole block is set to its mean. A Gaussian target uses $R \cdot \mathrm{sd}$, with $R$ the multiple correlation of the block. An indicator name is refused with its logical covariate | `test_simulated_confounding_point_laws.py`: a different reference level gives the same strength to $10^{-8}$, and the default L2 fit does not |
 | estimated observation weights | every cell holds the supplied weights on their rows, so it targets the fit's weighted population $E[w\,h(W, A', Y')]$. `weights_estimated` records the declaration | `test_simulated_confounding_point_laws.py`: on a saturated binary law each cell equals the weighted plug-in, and the unweighted plug-in differs by more than $10^{-3}$ |
+| a missing outcome or a declared missing treatment | each cell perturbs the recorded values only and keeps every observation indicator. Outcome-axis cells need no declaration, because the latent is independent of the data. A cell that moves the treatment needs `observation_reads=`, the adjustment covariates that every observation mechanism reads, so that $\Delta \perp (A', Y') \mid W$. The report states that assumption, and calibration reads the recorded rows of each target | `test_simulated_confounding_missing_laws.py`: recorded outcomes follow the law and placeholders stay, the indicators never change, and a declaration that names the treatment is refused |
+| a controlled direct effect | each cell holds the treatment, flips the binary intermediate in the latent tail with strength `ConfounderStrengthGrid(intermediate=...)`, and moves the outcome. The refit targets the same intermediate level. A nonzero treatment strength is refused | `test_simulated_confounding_intermediate_laws.py`: the treatment is identical in every refit, the intermediate equals the published flip, and the cell reports `induced_intermediate_association` |
+| a Gaussian fit whose estimator declares `q_bounds` | `bounded_outcome_law="logit"`, the default there, shifts $\mathrm{logit}((Y - l)/(h - l))$ by $-k_Y U$, and a recorded row at a bound never moves. `"normal_score"` shifts $\Phi^{-1}(\mathrm{rank}/(m + 1))$ and maps it back through the empirical quantile at the Weibull plotting positions, so it depends on the sample. Every cell reports `induced_outcome_association`, because $k_Y$ is no longer in outcome SD units | `test_simulated_confounding_intermediate_laws.py`: every outcome stays in the bounds at a strength where the linear shift leaves them, rows at a bound stay, and both laws are the identity at zero strength |
 
 Every binary calibration uses the unpenalized fit, numeric covariates included, so one report
 reads one fit. Complete or quasi-complete separation leaves no maximum-likelihood fit (Albert and
@@ -1645,14 +1648,14 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 **Refusals.** `_FIT_WIDE_RULES`, in
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
-walks that table and returns the first reason that applies. Six missing-science stops apply
-in this order: longitudinal, learned-rule, risk-ratio tilt, missing-outcome, missing-treatment,
-and intermediate fits. Each one has a row in the refusal table below, and each one carries a roadmap item. F12
-tracks the missing-treatment stop with the missing-outcome stop.
+walks that table and returns the first reason that applies. Three missing-science stops apply
+in this order: longitudinal, learned-rule, and risk-ratio tilt fits. Each one has a row in the
+refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
+and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
 The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
-field that only a `TMLEResult` declares. The other eleven follow the intermediate stop. The table
+field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
 below gives all twelve in contract order.
 
 | rule | refuses |
@@ -1672,11 +1675,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all eighteen. A fit that reaches the `provider` stop reports
+execution name the same stop for all fifteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the six missing-science stops, plus the estimands and compositions the
+The rows below record the three fit-wide missing-science stops and the three grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1687,9 +1690,9 @@ of the roadmap also has a part that waits on published theory, as the
 | a longitudinal result | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). One time-fixed latent on an uncensored terminal-outcome fit is not written yet. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, longitudinal latent. |
 | a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
 | a risk-ratio tilt fit | `implementation_gap` | the replay declares no reading of the tilt rule on a perturbed draw. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (d) |
-| a missing outcome | `implementation_gap` | a response mechanism that reads the covariates only keeps missing at random given the perturbed treatment. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (e). A mechanism that reads the treatment breaks it. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a declared missing treatment | `implementation_gap` | as the missing-outcome row. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (e) and [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a controlled direct effect, or any fit that carries an intermediate variable | `implementation_gap` | the outcome axis and an intermediate axis that holds the treatment are declared laws. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (f). A flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
+| a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a cell that moves the treatment of a controlled direct effect | `implementation_gap` | a flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. The intermediate and outcome axes run. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
 | identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (a) |
@@ -1723,8 +1726,8 @@ the ordinary TMLE, which `guard=()` is.
 | regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |
 
 The surface also refuses a constant benchmark covariate. That check reads the requested covariate
-rather than the fitted result, so it sits outside the fit-wide table. The latent-level checks read
-the request too.
+rather than the fitted result, so it sits outside the fit-wide table. The latent-level, observation,
+intermediate, and bounded-law checks read the request too.
 
 `simulated_confounding_refusal` returns the refusal of one request before any draw. It reads the
 fit-wide table and then the parameter and calibration checks that the call runs. The capability

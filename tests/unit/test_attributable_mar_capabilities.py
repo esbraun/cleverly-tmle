@@ -253,11 +253,10 @@ class TestTheTargetSpecificRefusals:
         # Naming the arm mean lifts the deferral, and the call runs.
         result.sensitivity.tipping_gamma("ey0")
 
-    def test_simulated_confounding_keeps_the_missing_outcome_refusal(self, joint: Any) -> None:
-        with pytest.raises(
-            CapabilityError,
-            match=r"docs/roadmap.md F12 tracks a response mechanism that reads the treatment",
-        ):
+    def test_simulated_confounding_refuses_at_the_identification_stop(self, joint: Any) -> None:
+        # X82 part F (e) lifted the fit-wide missing-outcome stop, so this fit meets the
+        # next one: it records no backdoor identification metadata.
+        with pytest.raises(CapabilityError, match=r"needs identification metadata"):
             joint.sensitivity.simulated_confounding("par")
 
 

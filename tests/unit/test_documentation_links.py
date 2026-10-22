@@ -320,7 +320,12 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
     Driven off :data:`~cleverly.sensitivity._simulated_confounding_request._FIT_WIDE_RULES`
     rather than a list, so a rule that cites a new item is checked the day it is added.
     """
-    from cleverly.sensitivity._simulated_confounding_request import _FIT_WIDE_RULES
+    from cleverly.sensitivity._simulated_confounding_request import (
+        _FIT_WIDE_RULES,
+        _INTERMEDIATE_REFUSAL,
+        _MISSING_OUTCOME_REFUSAL,
+        _MISSING_TREATMENT_REFUSAL,
+    )
 
     cited = {
         item
@@ -328,6 +333,10 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
         for text in rule_texts(rule)
         for item in ROADMAP_CITATION.findall(text)
     }
+    # X82 part F made these three stops depend on the grid, so they left the fit-wide
+    # table.  Their citations still reach the user.
+    for refusal in (_MISSING_OUTCOME_REFUSAL, _MISSING_TREATMENT_REFUSAL, _INTERMEDIATE_REFUSAL):
+        cited.update(ROADMAP_CITATION.findall(refusal.message()))
 
     # The negative control.  A rule table read through the wrong attribute, or a citation
     # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
