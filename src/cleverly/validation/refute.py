@@ -65,7 +65,9 @@ The tests, and what a reading means:
     exact truth in both designs.  An incremental tilt reads the true treatment mechanism, so
     only the plasmode, whose frozen model is that mechanism, reads it.  A modified treatment
     policy moves the natural treatment: the held design reads each row's held arm or dose,
-    and the plasmode of an arm treatment reads its frozen model.
+    and the plasmode of an arm treatment reads its frozen model.  On an end-of-study
+    longitudinal panel the plasmode draws the whole history from frozen node models, and its
+    truth is the sequential g-formula of that law.
 
 ``bootstrap_stability``
     Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
@@ -1184,7 +1186,7 @@ def _refuse_structural_tests(result: TMLEResult, request: _RefuteRequest) -> Ref
     return None
 
 
-#: The tests the longitudinal adapter runs (X82 part C1).
+#: The tests the longitudinal adapter runs (X82 parts C1 and E4).
 _LONGITUDINAL_TESTS = (
     "placebo",
     "random_common_cause",
@@ -1194,6 +1196,7 @@ _LONGITUDINAL_TESTS = (
     "future_treatment",
     "dummy_outcome",
     "simulated_outcome",
+    "plasmode",
     "bootstrap_measurement_error",
 )
 
@@ -1207,12 +1210,11 @@ def _refuse_longitudinal_tests(result: TMLEResult, request: _RefuteRequest) -> R
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
-        f"refutation test(s) {pending} have no longitudinal adapter yet. The longitudinal "
-        "plasmode is X82 work.",
+        f"refutation test(s) {pending} have no longitudinal adapter yet.",
         alternative=(
             "The placebo, random_common_cause, subset, bootstrap_stability, "
-            "negative_control_outcome, future_treatment, dummy_outcome, simulated_outcome "
-            "and bootstrap_measurement_error tests run on this fit."
+            "negative_control_outcome, future_treatment, dummy_outcome, simulated_outcome, "
+            "plasmode and bootstrap_measurement_error tests run on this fit."
         ),
         roadmap="X82",
     )
@@ -2143,15 +2145,114 @@ def _zero_one_levels(levels: Sequence[object]) -> bool:
         return False
 
 
-def _refuse_longitudinal_plasmode(name: str) -> None:
+def _refuse_longitudinal_plasmode(name: str, structure: str) -> None:
     if name == "plasmode":
         raise CapabilityError(
-            "the longitudinal plasmode draws a whole treatment and covariate history, and no "
-            "such draw is written.",
+            f"the longitudinal plasmode has no draw for {structure}. It draws an end-of-study "
+            "panel with binary treatment nodes.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="dummy_outcome and simulated_outcome run on the held history.",
             roadmap="X82",
         )
+
+
+@dataclass(frozen=True, eq=False)
+class _LongitudinalPlasmode:
+    """A longitudinal plasmode target: the frozen law, its g-formula truth and its draw.
+
+    Parameters
+    ----------
+    law : LongitudinalPlasmodeLaw
+        The frozen law.
+    process : object
+        The declared outcome process.
+    truth : float
+        The g-formula value of the estimand under the law.
+    monte_carlo_se : float
+        The Monte Carlo standard error of ``truth``, 0 when every branch is enumerated.
+    draws : int or None
+        The histories per support point of a Monte Carlo truth, or ``None``.
+    covariate_part : bool
+        Always ``True``: the plasmode resamples ``W``, so its readings have the
+        unconditional reference.
+    """
+
+    law: Any
+    process: Any
+    truth: float
+    monte_carlo_se: float
+    draws: int | None
+    covariate_part: bool = True
+
+    def draw(self, data: Any, *, seed: int, name: str) -> Any:
+        """Draw one panel of the natural course of the frozen law.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The held panel. The law holds it as its support.
+        seed : int
+            The child seed of this draw.
+        name : str
+            The test name.
+
+        Returns
+        -------
+        LongitudinalData
+            The drawn panel.
+        """
+        return self.law.draw(self.process, seed=seed, name=name)
+
+
+def _longitudinal_plasmode_target(
+    result: Any, estimand: str, process: Any, name: str
+) -> _LongitudinalPlasmode:
+    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth."""
+    from ..longitudinal.regimen import declares_tilt, declares_tuned
+    from ._longitudinal_plasmode import (
+        MAX_DRAWS,
+        MONTE_CARLO_SHARE,
+        PILOT_DRAWS,
+        LongitudinalPlasmodeLaw,
+    )
+
+    data = result.data
+    structures = (
+        (data.repeated is not None, "a repeated outcome"),
+        (bool(data.treatment_held), "a held baseline decision"),
+        (int(data.n_decisions) != int(data.n_times), "a node without a treatment decision"),
+        (data.known_mechanisms is not None, "a declared known mechanism"),
+        (data.cluster is not None, "a clustered panel"),
+        (bool(data.is_weighted), "a weighted panel"),
+        (declares_tuned(result.config.regimens), "a regimen with a tuned cap"),
+        (declares_tilt(result.config.regimens), "an odds tilt of the treatment mechanism"),
+    )
+    for present, structure in structures:
+        if present:
+            _refuse_longitudinal_plasmode(name, structure)
+    label, _cause, _horizon = _held_parameter(result, estimand, name)
+    regimens = {regimen.label: regimen for regimen in result.config.regimens}
+    parts = label.split(" vs ") if " vs " in label else [label]
+    law = LongitudinalPlasmodeLaw.fit(result)
+    draws: int | None = None
+    if not law.binary:
+        # Size N so the Monte Carlo error is at most 2% of the fit's standard error (plan 6).
+        pilot = sum(
+            law.truth(process, regimens[part], draws=PILOT_DRAWS, seed=index)[1] ** 2
+            for index, part in enumerate(parts)
+        )
+        allowed = MONTE_CARLO_SHARE * float(result[estimand].plugin_std_error)
+        needed = PILOT_DRAWS * pilot / allowed**2 if allowed > 0.0 else float(MAX_DRAWS)
+        draws = int(min(max(np.ceil(needed), PILOT_DRAWS), MAX_DRAWS))
+    levels = [
+        law.truth(process, regimens[part], draws=draws, seed=1000 + index)
+        for index, part in enumerate(parts)
+    ]
+    truth = levels[0][0] - levels[1][0] if len(levels) == 2 else levels[0][0]
+    error = float(np.sqrt(sum(level[1] ** 2 for level in levels)))
+    return _LongitudinalPlasmode(
+        law=law, process=process, truth=float(truth), monte_carlo_se=error, draws=draws
+    )
 
 
 def _held_parameter(result: Any, estimand: str, name: str) -> tuple[str, str | None, int]:
@@ -2229,11 +2330,11 @@ def _held_shares(uncensored: Any) -> tuple[float, ...]:
 
 def _longitudinal_generated_target(
     result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalGenerated | _SurvivalGenerated:
+) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
     """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
     data = result.data
-    _refuse_longitudinal_plasmode(name)
     if data.is_survival:
+        _refuse_longitudinal_plasmode(name, "a survival or competing-risk fit")
         return _survival_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
     if not isinstance(process, (GaussianIndependentOutcome, GaussianAdjustmentOutcome)):
@@ -2279,6 +2380,15 @@ def _longitudinal_generated_target(
         raise CapabilityError(
             f"{name} needs a regression-capable outcome learner for its Gaussian process; "
             f"{type(incompatible).__name__} is configured for classification",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if name == "plasmode":
+        return _longitudinal_plasmode_target(result, estimand, process, name)
+    if getattr(process, "history_effect", 0.0):
+        raise CapabilityError(
+            f"{name} keeps the held covariate history, whose law under a regimen is unknown, "
+            "so an outcome that reads it has no held-history truth. Leave history_effect at 0, "
+            "or run tests=('plasmode',), which draws the history from frozen models",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     label, _cause, horizon = _held_parameter(result, estimand, name)
@@ -2452,7 +2562,7 @@ def _survival_generated_target(
 
 def _validate_generated_eligibility(
     result: Any, estimand: str, process: Any, name: str
-) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated:
+) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
     """Refuse an ineligible generated-outcome request and resolve its target.
 
     Parameters
@@ -2570,6 +2680,13 @@ def _validate_generated_eligibility(
         )
     if getattr(data, "is_continuous_treatment", False):
         _refuse_continuous_point_target(functional, process, name)
+    if getattr(process, "history_effect", 0.0):
+        raise CapabilityError(
+            f"{name} declares history_effect={process.history_effect:g}, which only the "
+            "longitudinal plasmode reads: a point fit has no time-varying covariates. Leave "
+            "history_effect at 0",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     has_intermediate = bool(getattr(data, "has_intermediate", False))
     if getattr(process, "intermediate_effect", 0.0) and not has_intermediate:
         raise CapabilityError(
@@ -3710,7 +3827,7 @@ def _generated_outcome_test(
     n_replicates: int,
     root_seed: int,
     fit: FitConfiguration | None,
-    target: PointTarget | _LongitudinalGenerated | _SurvivalGenerated,
+    target: PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode,
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
@@ -3874,7 +3991,21 @@ def _generated_outcome_test(
         elif not covariate_part:
             detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
         design = "the held design"
-        if not isinstance(target, PointTarget):
+        if isinstance(target, _LongitudinalPlasmode):
+            design = (
+                "resampled baselines and a history drawn from frozen node models, with the "
+                f"treatment clipped to [{target.law.lower:g}, {1.0 - target.law.lower:g}]"
+            )
+            if target.draws is None:
+                sentences.append(
+                    "The truth enumerates every branch of every history, so it is exact."
+                )
+            else:
+                sentences.append(
+                    f"The truth averages {target.draws} simulated histories per support point; "
+                    f"its Monte Carlo standard error is {target.monte_carlo_se:.3g}."
+                )
+        elif not isinstance(target, PointTarget):
             design = "the held history"
             if target.shares:
                 detail += "; uncensored share by node " + ", ".join(

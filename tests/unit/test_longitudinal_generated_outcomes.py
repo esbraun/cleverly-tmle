@@ -265,9 +265,10 @@ def test_a_longitudinal_fit_reads_descriptive_at_the_calibrated_budget(fitted: A
 
 
 class TestRefusals:
-    def test_the_plasmode_is_refused(self, fitted: Any) -> None:
-        error = _refused(fitted, CONTRAST, "plasmode")
+    def test_the_plasmode_of_a_repeated_outcome_is_refused(self, repeated: Any) -> None:
+        error = _refused(repeated, "ate_regimen[never vs always @ t=1]", "plasmode")
         assert error.refusal.roadmap == "X82"
+        assert "a repeated outcome" in error.refusal.message()
 
     def test_a_binary_outcome_is_refused(self, frame: pd.DataFrame) -> None:
         binary = frame.assign(Y2=np.where(frame.Y2.isna(), np.nan, (frame.Y2 > 0).astype(float)))
