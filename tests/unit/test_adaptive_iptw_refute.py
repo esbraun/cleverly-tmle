@@ -34,6 +34,7 @@ from cleverly.validation import (
     refute,
 )
 from cleverly.validation._interpretation import (
+    VERDICT_EVIDENCE,
     CalibrationScope,
     VerdictEvidence,
     fit_configuration,
@@ -537,6 +538,13 @@ class TestFitConfiguration:
         )
         assert resolve("placebo", "t", replace(greedy, replicates=20), evidence=(row,)).licensed
         assert not resolve("placebo", "t", replace(oat, replicates=20), evidence=(row,)).licensed
+
+    def test_no_shipped_row_scopes_a_variant_class_by_its_bare_name(self) -> None:
+        # method_axis never reads a bare "CTMLE", so a row scoped on it would cover no fit.
+        # A row must name the variant its cells ran, for example "CTMLE[greedy]".
+        bare = {"CTMLE"}
+        for row in VERDICT_EVIDENCE:
+            assert not (row.scope.methods or frozenset()) & bare, row
 
 
 # ------------------------------------------------------ simulated confounding
