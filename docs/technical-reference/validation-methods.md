@@ -1518,8 +1518,8 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; any intervention whose density is declared known, frozen per row |
-| binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; any link registered in `cleverly.msm.LINKS`, with fixed projection measure |
-| binary | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
+| binary, multi-arm, or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; any link registered in `cleverly.msm.LINKS`, with fixed projection measure |
+| binary or multi-arm | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
 | continuous | one explicitly named marginal or baseline-stratum `ey_policy[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
@@ -1583,6 +1583,9 @@ stochastic-regime, and MSM studies validate the unchanged estimator paths.
 The estimator rebuilds $q_\delta=\delta g/(\delta g+1-g)$ and retains its mechanism targeting contribution.
 The surface therefore compares the same multiplier rule under different fitted laws.
 It does not preserve the original intervention probabilities.
+
+The summary states this reading on its `incremental reading` line.
+On a multi-arm fit, $q_\delta(a \mid W) = \delta_a g(a \mid W) / \sum_b \delta_b g(b \mid W)$, and the cells swap the declared `arm_pair`.
 Kennedy (2019), equation (1) and Corollaries 1–2, supplies the parameter and influence curve.
 The [source audit](../references.md#sensitivity-analysis) separates that result from the qualitative perturbation.
 
@@ -1614,6 +1617,7 @@ Outcome diagnostics remain available; integration-grid positions never become tr
 | --- | --- |
 | `tests/unit/test_simulated_confounding_incremental.py` | nonzero complete refits, mechanism rebuilding, natural-course refusals, repeated provenance, and persisted assessment |
 | `tests/unit/test_simulated_confounding_msm.py` | built-in links, fixed quadrature, observed-dose rebuilding, support masks, and corrupted cached arrays |
+| `tests/unit/test_simulated_confounding_off_axis.py` | on a saturated finite law, a multi-arm incremental cell, a stratum incremental cell and a multi-arm MSM coefficient each equal the hand g-formula on the refitted table. A frozen-mechanism control misses the incremental cell. A stratum continuous-MSM cell equals a manual refit |
 | existing incremental and MSM estimator tests | unchanged targeting, influence curves, and projections |
 
 These are deterministic diagnostic checks, not new repeated-sampling or interval claims.

@@ -1676,7 +1676,7 @@ def _validated_parameter(
         raise CapabilityError.from_refusal(refusal)
     if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
-    elif treatment_family == "binary" and key.estimand in INCREMENTAL_TARGETS:
+    elif treatment_family in {"binary", "categorical"} and key.estimand in INCREMENTAL_TARGETS:
         estimator = validate_incremental_replay(result, estimand, key)
     elif treatment_family in {"binary", "categorical"}:
         check_only_declared_axis(
