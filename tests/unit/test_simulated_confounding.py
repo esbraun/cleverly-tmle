@@ -48,11 +48,19 @@ from cleverly.sensitivity import (
     simulated_confounding,
 )
 from cleverly.sensitivity import simulated_confounding as public_function
+from cleverly.sensitivity._simulated_confounding_longitudinal import (
+    _CENSORING_REFUSAL,
+    _CLUSTERED_REFUSAL,
+    _IPSI_REFUSAL,
+    _KNOWN_LATER_NODE_REFUSAL,
+    _LATER_COVARIATE_REFUSAL,
+    _NODE_LAW_REFUSAL,
+    _OUTCOME_KIND_REFUSAL,
+)
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
     _FIT_WIDE_RULES,
     _INTERMEDIATE_REFUSAL,
-    _LONGITUDINAL_REFUSAL,
     _MISSING_OUTCOME_REFUSAL,
     _MISSING_TREATMENT_REFUSAL,
     _TMLE_ONLY_TARGETS,
@@ -2236,7 +2244,13 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
 #: emptying one, leaves every such assertion true.  These literals are the surviving witness
 #: the constants would otherwise have nowhere in the suite.
 _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
-    (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
+    (_CENSORING_REFUSAL, "breaks coarsening at random at each later censoring node"),
+    (_LATER_COVARIATE_REFUSAL, "no time-varying covariate after the first treatment node"),
+    (_OUTCOME_KIND_REFUSAL, "competing-risk or repeated outcome"),
+    (_KNOWN_LATER_NODE_REFUSAL, "declared mechanism at the first treatment node only"),
+    (_IPSI_REFUSAL, "how the latent enters that tilt"),
+    (_NODE_LAW_REFUSAL, "needs a declared arm pair at each node"),
+    (_CLUSTERED_REFUSAL, "declared latent level of the point law at every node"),
     (_MISSING_OUTCOME_REFUSAL, "moves the treatment of a missing-outcome fit"),
     (_MISSING_TREATMENT_REFUSAL, "moves a declared missing treatment"),
     (_INTERMEDIATE_REFUSAL, "holds the treatment of a controlled-direct-effect fit"),
@@ -2244,7 +2258,7 @@ _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
 
 
 def test_each_missing_science_refusal_says_its_own_thing() -> None:
-    """The deliberate-mutation control for the seven refusal constants.
+    """The deliberate-mutation control for the missing-science refusal constants.
 
     Swapping the bodies of two constants, or blanking one, passes every equality assertion
     in this file, because both sides of those comparisons read the same constant. Each
@@ -2263,7 +2277,13 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
 #: The roadmap rows each missing-science refusal cites (docs/technical-reference/hard-stop-review.md).
 #: A declarable law cites X82; a part that stays in the research queue cites its F row.
 _REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
-    (_LONGITUDINAL_REFUSAL, ("X82", "F13")),
+    (_CENSORING_REFUSAL, ("F13",)),
+    (_LATER_COVARIATE_REFUSAL, ("F13",)),
+    (_OUTCOME_KIND_REFUSAL, ("F13",)),
+    (_KNOWN_LATER_NODE_REFUSAL, ("F13",)),
+    (_IPSI_REFUSAL, ("F13",)),
+    (_NODE_LAW_REFUSAL, ("X66",)),
+    (_CLUSTERED_REFUSAL, ("X66",)),
     (_MISSING_OUTCOME_REFUSAL, ("F12",)),
     (_MISSING_TREATMENT_REFUSAL, ("F12",)),
     (_INTERMEDIATE_REFUSAL, ("F15",)),
