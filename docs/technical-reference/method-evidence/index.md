@@ -109,6 +109,7 @@ survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-one-inconsistent-nuisance
+adaptive-iptw
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean

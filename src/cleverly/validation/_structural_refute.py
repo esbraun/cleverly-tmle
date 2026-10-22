@@ -58,6 +58,7 @@ STRUCTURAL_TESTS: tuple[str, ...] = (
     "random_common_cause",
     "subset",
     "bootstrap_stability",
+    "negative_control_outcome",
 )
 
 #: The parameter kinds whose placebo value is exactly 0.
@@ -99,11 +100,11 @@ def structural_tests_refusal(tests: Any) -> Refusal | None:
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"refutation test(s) {pending} have no structural nested mean adapter yet. The "
-        "generated outcomes and the measurement-error bootstrap of a structural fit are X82 "
-        "work.",
+        "generated outcomes, the future-treatment control and the measurement-error bootstrap "
+        "of a structural fit are X82 work.",
         alternative=(
-            "The placebo, random_common_cause, subset and bootstrap_stability tests run on "
-            "this fit."
+            "The placebo, random_common_cause, subset, bootstrap_stability and "
+            "negative_control_outcome tests run on this fit."
         ),
         roadmap="X82",
     )

@@ -816,7 +816,7 @@ def test_missing_population_interventions_identify_the_mar_stack(estimand: Any) 
     assert "Díaz, Carone & van der Laan (2016)" in identification.references
     assert "Díaz & van der Laan (2017)" in identification.references
     available = {item.name for item in effect.available_methods() if item.available}
-    assert available == {"tmle"}
+    assert available == {"tmle", "adaptive_iptw"}
 
 
 def test_the_attributable_dr_condition_names_the_design_columns() -> None:

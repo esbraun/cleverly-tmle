@@ -416,7 +416,7 @@ def test_a_level_refuses_the_placebo_before_any_refit(structural_result, monkeyp
     ("tests", "options"),
     [
         (("dummy_outcome",), {}),
-        (("negative_control_outcome",), {"negative_control_outcome": "W1"}),
+        (("future_treatment",), {"future_treatment_control": np.zeros(300)}),
         (("bootstrap_measurement_error",), {}),
     ],
 )
@@ -471,3 +471,109 @@ def test_subset_reads_the_plugin_error_of_an_in_sample_adaptive_fit() -> None:
     (test,) = report.tests
     assert test.passed is None
     assert np.isfinite(test.statistic)
+
+
+# ----------------------------------------------------------- negative control
+
+
+def _controls(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """A null control and a control that tracks the first treatment beyond its history."""
+    rng = np.random.default_rng(5)
+    first = frame["A1"].to_numpy(dtype=float)
+    null = (rng.random(len(frame)) < 0.4).astype(float)
+    confounded = (rng.random(len(frame)) < 0.3 + 0.4 * first).astype(float)
+    return null, confounded
+
+
+def test_the_negative_control_reads_a_control_against_the_blip_null(structural_result) -> None:  # type: ignore[no-untyped-def]
+    null, confounded = _controls(_frame())
+    readings = {}
+    for label, control in (("null", null), ("confounded", confounded)):
+        report = refute(
+            structural_result,
+            estimand=BLIP,
+            tests=("negative_control_outcome",),
+            negative_control_outcome=control,
+        )
+        (test,) = report.tests
+        assert test.passed is None
+        assert test.expectation == "~ 0"
+        readings[label] = test.statistic
+    # A control that A1 moves beyond its history is the nonzero witness: the refit reads the
+    # control's own blip, not the primary outcome's.
+    assert abs(readings["null"]) < 2.0
+    assert readings["confounded"] > 5.0
+
+
+def test_the_negative_control_refit_keeps_the_split_and_the_seed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    result = _fit(_frame(), random_state=None)
+    seen = []
+    original = type(result.estimator).refit
+
+    def recording(self, data, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(kwargs)
+        return original(self, data, **kwargs)
+
+    monkeypatch.setattr(type(result.estimator), "refit", recording)
+    null, _ = _controls(_frame())
+    refute(
+        result, estimand=BLIP, tests=("negative_control_outcome",), negative_control_outcome=null
+    )
+    (kwargs,) = seen
+    assert kwargs["frozen_seeds"] == (result.config.fit_seed,)
+    (folds,) = kwargs["frozen_folds"]
+    assert np.array_equal(np.asarray(folds.assignment), np.asarray(result.folds.assignment))
+
+
+def test_a_pre_treatment_control_runs_and_a_baseline_copy_refuses(structural_result) -> None:  # type: ignore[no-untyped-def]
+    frame = _frame()
+    null, _ = _controls(frame)
+    report = refute(
+        structural_result,
+        estimand=CONTRAST,
+        tests=("negative_control_outcome",),
+        negative_control_outcome=null,
+        negative_control_kind="pre_treatment",
+    )
+    (test,) = report.tests
+    assert "pre-treatment reading" in test.scope_sentence
+    # The fit regresses a continuous control, so the copy reaches the adjustment-set check.
+    refusal = refute_refusal(
+        _fit(frame, regression_learner=GLM()),
+        estimand=BLIP,
+        tests=("negative_control_outcome",),
+        negative_control_outcome=frame["W1"].to_numpy(dtype=float),
+        negative_control_kind="pre_treatment",
+    )
+    assert refusal is not None
+    assert "W1" in refusal.condition
+
+
+def test_a_continuous_control_needs_a_regression_learner(structural_result) -> None:  # type: ignore[no-untyped-def]
+    control = np.random.default_rng(1).normal(size=structural_result.data.n)
+    refusal = refute_refusal(
+        structural_result,
+        estimand=BLIP,
+        tests=("negative_control_outcome",),
+        negative_control_outcome=control,
+    )
+    assert refusal is not None
+    assert refusal.reason is RefusalReason.INVALID_DECLARATION
+    assert "regression_learner" in refusal.condition
+    result = _fit(_frame(), regression_learner=GLM())
+    report = refute(
+        result, estimand=BLIP, tests=("negative_control_outcome",), negative_control_outcome=control
+    )
+    assert np.isfinite(report.tests[0].statistic)
+
+
+def test_a_level_refuses_the_negative_control(structural_result) -> None:  # type: ignore[no-untyped-def]
+    null, _ = _controls(_frame())
+    refusal = refute_refusal(
+        structural_result,
+        estimand="ey_reference",
+        tests=("negative_control_outcome",),
+        negative_control_outcome=null,
+    )
+    assert refusal is not None
+    assert refusal.reason is RefusalReason.INVALID_DECLARATION

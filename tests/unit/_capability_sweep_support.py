@@ -55,7 +55,7 @@ from cleverly.datasets import (
     make_point_survival,
     make_shift_dose,
 )
-from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, Refusal
 from cleverly.interventions import Incremental, Shift
@@ -70,6 +70,7 @@ from tests.conftest import (
     linear_in_sample,
     mean_one_weights,
 )
+from tests.unit import _known_mechanism_support as known_mechanism
 from tests.unit import _learned_rule_support as learned_rule_support
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
@@ -283,6 +284,118 @@ def fit_regime_missing() -> Any:
     """The three regimes of :mod:`tests.regimes` on the missing-outcome discrete law."""
     return (
         TMLE(**linear_in_sample(interventions=regimes.interventions()))
+        .fit(
+            discrete_law_mar.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            delta="Delta",
+        )
+        .single()
+    )
+
+
+def _iptw(**overrides: Any) -> AdaptiveIPTW:
+    """An in-sample AdaptiveIPTW, whose reduced regression is the linear outcome learner."""
+    return AdaptiveIPTW(
+        **linear_in_sample(
+            missingness_learner=LogisticRegression(max_iter=1000),
+            **overrides,
+        )
+    )
+
+
+def fit_iptw() -> Any:
+    """An AdaptiveIPTW arm fit with complete outcomes and an estimated mechanism.
+
+    It reports `estimated_mechanism_plugin`: the point estimates stand and the interval
+    rows refuse by name. It fits no outcome regression, so the outcome-bound rows refuse.
+    """
+    return _iptw().fit(_linear_frame(), outcome="Y", treatment="A").single()
+
+
+def fit_iptw_known() -> Any:
+    """An AdaptiveIPTW arm fit with a declared mechanism (H2), which reports `influence_curve`."""
+    frame = known_mechanism.point_frame()
+    return (
+        _iptw()
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            treatment_probabilities=frame[["p0", "p1"]].to_numpy(dtype=float),
+        )
+        .single()
+    )
+
+
+def fit_iptw_regime() -> Any:
+    """A deterministic regime pair, a static and a rule, on the discrete law."""
+    return (
+        _iptw(interventions=regimes.interventions()[:2])
+        .fit(discrete_law.frame(), outcome="Y", treatment="A", covariates=("W",))
+        .single()
+    )
+
+
+def fit_iptw_stochastic() -> Any:
+    """The three regimes of :mod:`tests.regimes`, one of them a known stochastic regime."""
+    return (
+        _iptw(interventions=regimes.interventions())
+        .fit(discrete_law.frame(), outcome="Y", treatment="A", covariates=("W",))
+        .single()
+    )
+
+
+def fit_iptw_natural_course() -> Any:
+    """The missing-outcome natural-course mean, which fits no treatment mechanism."""
+    return (
+        _iptw(estimands=("ey_obs",))
+        .fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+
+
+def fit_iptw_missing() -> Any:
+    """An AdaptiveIPTW composite fit with a missing outcome."""
+    return _iptw().fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta").single()
+
+
+def fit_iptw_missing_treatment() -> Any:
+    """An AdaptiveIPTW composite fit with a missing treatment, fitted in sample."""
+    return (
+        _iptw()
+        .fit(
+            _with_missing_treatment(_linear_frame()),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3", "W4"],
+            treatment_delta="DeltaA",
+        )
+        .single()
+    )
+
+
+def fit_iptw_missing_treatment_crossfit() -> Any:
+    """An AdaptiveIPTW composite fit with a missing treatment, cross-fitted."""
+    return (
+        _iptw(cross_fit=True, n_folds=3)
+        .fit(
+            _with_missing_treatment(_linear_frame()),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3", "W4"],
+            treatment_delta="DeltaA",
+        )
+        .single()
+    )
+
+
+def fit_iptw_regime_missing() -> Any:
+    """A regime fit with missing outcomes, fitted in sample."""
+    return (
+        _iptw(interventions=regimes.interventions())
         .fit(
             discrete_law_mar.frame(),
             outcome="Y",
@@ -878,6 +991,18 @@ _ARM = (*_LIVE, *_BOUND, "benchmark")
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, *_ARM),
+    # AdaptiveIPTW fits no outcome regression: the bound, tilt, refit and truncation rows
+    # refuse it by name, and the rows that read the treatment mechanism run. The E-value
+    # runs on the fit whose mechanism is declared, because it needs an interval.
+    "iptw": _kind(fit_iptw, *_READ),
+    "iptw_known": _kind(fit_iptw_known, *_READ, "evalue"),
+    "iptw_regime": _kind(fit_iptw_regime, *_READ),
+    "iptw_stochastic": _kind(fit_iptw_stochastic, *_READ),
+    "iptw_natural_course": _kind(fit_iptw_natural_course, "nuisance_models", "score_equations"),
+    "iptw_missing": _kind(fit_iptw_missing, *_READ),
+    "iptw_missing_treatment": _kind(fit_iptw_missing_treatment, *_READ),
+    "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
+    "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
     "binary": _kind(fit_binary, *_ARM),
     "missing": _kind(fit_missing, *_LIVE, *_TILT),
     "shift": _kind(fit_shift, *_LIVE),

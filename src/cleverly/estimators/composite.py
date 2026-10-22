@@ -45,6 +45,7 @@ every site that takes the two-arm complement form reads it column by column inst
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import Any, Literal
 
 import numpy as np
@@ -460,6 +461,22 @@ _LEARNED_RULE_REASON = (
 _UNIDENTIFIED_TARGETS = ("att", "atc", "ey_obs", "par", "paf")
 
 
+#: The sentence that opens every missing-treatment refusal of a TMLE, DRTMLE or CTMLE fit.
+_SUPPORTED_COMPOSITIONS = (
+    "A missing treatment is "
+    "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
+    "and DRTMLE fits and, for point estimates, per-arm outcome-adaptive CTMLE fits, and "
+    "for regime means and arm-indexed MSM coefficients on in-sample "
+    "TMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}."
+)
+#: The same sentence for an AdaptiveIPTW fit, which cross-fits the arm means and fits its
+#: regime means in sample.
+_SUPPORTED_COMPOSITIONS_ADAPTIVE_IPTW = (
+    "A missing treatment is supported for AdaptiveIPTW arm means, in sample and "
+    "cross-fitted, and for its regime means in sample, as point estimates."
+)
+
+
 def _message(
     data: CausalData,
     reason: str,
@@ -467,14 +484,16 @@ def _message(
     *,
     code: RefusalReason,
     roadmap: str | None = None,
+    method: str | None = None,
 ) -> CapabilityError:
     unrecorded = int(np.count_nonzero(~data.treatment_recorded))
+    supported = (
+        _SUPPORTED_COMPOSITIONS_ADAPTIVE_IPTW
+        if method == "adaptive_iptw"
+        else _SUPPORTED_COMPOSITIONS
+    )
     return CapabilityError(
-        f"{data.treatment_name} is missing on {unrecorded} row(s). A missing treatment is "
-        "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
-        "and DRTMLE fits and, for point estimates, per-arm outcome-adaptive CTMLE fits, and "
-        "for regime means and arm-indexed MSM coefficients on in-sample "
-        f"TMLE fits, through the composite indicator Delta_A * Delta * 1{{A = a}}. {reason}",
+        f"{data.treatment_name} is missing on {unrecorded} row(s). {supported} {reason}",
         reason=code,
         alternative=remedy,
         roadmap=roadmap,
@@ -511,10 +530,11 @@ def missing_treatment_refusal(
     name = data.treatment_name
     identification = _IDENTIFICATION.format(A=name)
     method = getattr(estimator, "_assessment_method", None)
+    message = partial(_message, method=method)
     from .ctmle import is_per_arm_oat
 
     if method == "collaborative_tmle" and getattr(estimator, "strategy", None) == "derivative":
-        return _message(
+        return message(
             data,
             "strategy='derivative' builds its derivative columns from the treatment mechanism "
             "and a partner mechanism, and no partner is defined for the composite indicator.",
@@ -524,7 +544,7 @@ def missing_treatment_refusal(
         )
     per_arm_oat = is_per_arm_oat(estimator)
     if method == "collaborative_tmle" and not per_arm_oat:
-        return _message(
+        return message(
             data,
             "The C-TMLE selector strategies have no collaborative score for the composite "
             "indicator: a selector point estimate that keeps the observation factors off the "
@@ -535,8 +555,8 @@ def missing_treatment_refusal(
             code=RefusalReason.IMPLEMENTATION_GAP,
             roadmap="X51",
         )
-    if method not in ("tmle", "drtmle") and not per_arm_oat:
-        return _message(
+    if method not in ("tmle", "drtmle", "adaptive_iptw") and not per_arm_oat:
+        return message(
             data,
             "This fit is not one of those compositions.",
             _MEANS_REMEDY,
@@ -546,7 +566,7 @@ def missing_treatment_refusal(
     if data.known_treatment is not None:
         return CapabilityError.from_refusal(KNOWN_TREATMENT_DELTA_REFUSAL)
     if bool(getattr(estimator, "randomized", False)):
-        return _message(
+        return message(
             data,
             "randomized=True selects the Díaz and van der Laan (2017) construction, which "
             "observes the treatment on every row.",
@@ -554,7 +574,9 @@ def missing_treatment_refusal(
             "P(A = a, Delta_A = 1, Delta = 1 | W) from the data.",
             code=RefusalReason.INVALID_DECLARATION,
         )
-    if getattr(estimator, "cross_fit", False):
+    # An AdaptiveIPTW fit cross-fits the composite: its out-of-fold factor fits give the
+    # mechanism of the reduced data, and the fit reports point estimates only.
+    if getattr(estimator, "cross_fit", False) and method != "adaptive_iptw":
         if per_arm_oat:
             open_row = "F19"
             reason = (
@@ -568,7 +590,7 @@ def missing_treatment_refusal(
                 "The composite construction uses the in-sample (Donsker) theorem. The "
                 f"cross-fitted composite construction is open (roadmap {open_row})."
             )
-        return _message(
+        return message(
             data,
             reason,
             "Pass cross_fit=False (CrossFitting(enabled=False) on a method).",
@@ -576,7 +598,7 @@ def missing_treatment_refusal(
             roadmap=open_row,
         )
     if data.has_intermediate:
-        return _message(
+        return message(
             data,
             "No derivation of the composite indicator for a controlled direct effect is "
             "written here, and the condition that ties Z to the treatment's recording is not "
@@ -587,14 +609,14 @@ def missing_treatment_refusal(
         )
     for keyword in ("incremental", "policies"):
         if getattr(estimator, keyword, None):
-            return _message(
+            return message(
                 data,
                 f"{identification} {keyword}= reads P({name} | W).",
                 _DROP_REMEDY,
                 code=RefusalReason.INVALID_DECLARATION,
             )
     if getattr(estimator, "learned_rule", None) is not None:
-        return _message(
+        return message(
             data,
             _LEARNED_RULE_REASON,
             _DROP_REMEDY,
@@ -608,7 +630,7 @@ def missing_treatment_refusal(
         return None
     named = [target for target in (estimands or ()) if target in _UNIDENTIFIED_TARGETS]
     if named:
-        return _message(
+        return message(
             data,
             f"{identification} {', '.join(named)} read the treatment law of every row.",
             _MEANS_REMEDY,
@@ -623,7 +645,7 @@ def missing_treatment_refusal(
         )
     ):
         refusal = composite_nested_refusal(estimator)
-        return _message(
+        return message(
             data,
             refusal.condition,
             refusal.alternative or "",

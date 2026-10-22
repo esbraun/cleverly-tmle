@@ -1018,7 +1018,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   nuisance estimators and solves extra score equations for a binary treatment-specific mean. The
   shipped selector does not perform those targeting steps. This entry gives no section locator,
   because the RM19 review could not read the journal version, and the
-  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why.
+  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why. `AdaptiveIPTW` cites the working paper WP302 and not this article. The
+  [adaptive-propensity IPTW entry](#adaptive-propensity-iptw-adaptiveiptw) says so.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
@@ -2274,7 +2275,7 @@ rather than a comparison target.
   iterative algorithm as "Theorem 3 of van der Laan (2014)", with this journal version in its
   reference list. The RM19 review could not read the journal version, which is not open access.
   So this repository cites **Theorem 3** through Benkeser et al. (2017), Section 3.1, and gives no
-  page or section locator of its own. The later univariate result remains the default.
+  page or section locator of its own. `AdaptiveIPTW` cites the working paper WP302 and not this article. The later univariate result remains the default.
 - Benkeser, Carone, van der Laan & Gilbert (2016), *Doubly-robust Nonparametric Inference on the
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
   356. Read first-hand by the RM19 review. RM40 did not read this version. §3.1 and equation (2)
@@ -2425,6 +2426,44 @@ $f^{-1}(f(h) \pm z\,se)$, with $se$ from the gradient of $f \circ h$.
 [`R/test.R`, lines 85-183](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/test.R#L85-L183) forms `wald_test(null = )` as
 $(f(h) - f(\text{null}))/se$. `contrast(transform=)` and `ParameterEstimate.wald_test` reproduce
 both, and sort the transformed limits.
+
+## Adaptive-propensity IPTW (`AdaptiveIPTW`)
+
+The estimator rests on one working paper. The [contract page](technical-reference/adaptive-iptw.md)
+states what the estimator takes from it and what it corrects. The journal version of the paper was
+not available to this project, so the page cites the working paper only. The `drtmle` source is
+implementation provenance and the origin of the one-step form.
+
+- van der Laan (2012), *Statistical Inference when using Data Adaptive Estimators of Nuisance
+  Parameters*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper 302 (WP302).
+  Locators: Theorem 1, "Negligibility of second order terms", pp. 5-6, where the foot of p. 5
+  defines $Q_{r,0,n}$ and the second of the three displays at the top of p. 6 states the condition
+  (WP302 numbers no equations); the worked super learner example, pp. 4-7; Section 2.1, p. 7; the
+  proof preamble, p. 26; Lemma 1, p. 27; Lemma 2, pp. 27-28. Three defects are recorded. The
+  influence curve prints the term $H_0 (A - g_0)$ with a plus sign on p. 6 and again in
+  Section 2.1. The proof, p. 26, and the efficient influence function of p. 7 give a minus sign,
+  and the package uses minus. The gloss on p. 6 says that the second and third conditions again
+  need $g_n$ at rate $o(n^{-1/4})$, which is false for the second condition. The claim of
+  Section 2.1 that a correct parametric model in the library satisfies all the conditions is false
+  when $Q_0 \ne Q_{r,0}$.
+- van der Laan (2014), *Int. J. Biostat.* 10(1):29-57, the published version of WP302. The article
+  is unread. This repository cites no locator from it.
+- Williamson, Forbes and White (2014), *Statistics in Medicine*, DOI 10.1002/sim.5991. Section 3.3:
+  for plain IPTW with a parametric propensity, a sandwich variance that ignores the estimated
+  propensity is typically conservative.
+- Ertefaie, Hejazi and van der Laan, arXiv:2005.11303v2, p. 2: the targeted IPW estimator "has
+  been shown to suffer from issues of irregularity". The Biometrics version appears under
+  [longitudinal references](#longitudinal-survival-and-marginal-structural-models).
+- Benkeser, Cai and van der Laan, arXiv:1901.05056v1, Appendix F, condition (v): the mirror-image
+  term of the doubly robust case needs an explicit smoothness assumption.
+- The `drtmle` 1.1.2 vignette, [`vignettes/using_drtmle.Rmd`](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/vignettes/using_drtmle.Rmd#L1317-L1323),
+  lines 1317-1323, gives the one-step form, and lines 1345-1348 say that the authors expect
+  `iptw_tmle` to behave better in finite samples, "though further study is needed".
+  [`R/adaptive_iptw.R`](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/adaptive_iptw.R#L208-L215), lines 208-215, computes the one-step
+  value, and lines 284-296 build the covariance from the refitted reduced regression.
+  [`R/confint.R`](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/confint.R#L179-L181), lines 179-181, calls `iptw_os` "not recommended",
+  and line 250 refuses inference for the untargeted IPTW with the message "Theory does not
+  support inference for naive IPTW with super learner."
 
 ## The TWINS example
 

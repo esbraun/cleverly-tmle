@@ -292,6 +292,15 @@ def _refuse_repeat_provenance(result: Any) -> Refusal | None:
     return None
 
 
+def _refuse_adaptive_iptw(result: Any) -> Refusal | None:
+    """Refuse an AdaptiveIPTW fit, which has no outcome regression to perturb."""
+    from ..estimators.iptw import OPERATION_REFUSALS
+
+    if getattr(result, "fitted_method", None) == "adaptive_iptw":
+        return OPERATION_REFUSALS["simulated_confounding"]
+    return None
+
+
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
     """Refuse a binary fit made by an estimator this surface cannot replay."""
     from ..estimators.ctmle import CTMLE
@@ -425,6 +434,7 @@ def _refuse_provider(result: Any) -> Refusal | None:
 _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
+    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("missing_estimator", _refuse_missing_estimator),

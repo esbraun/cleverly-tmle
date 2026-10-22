@@ -2111,7 +2111,7 @@ A longitudinal result stores an unfitted copy of its estimator in `result.estima
 fits no bootstrap and no simultaneous band. `refute()` refits it with the original fold labels and
 repeat seeds. The `refute` row reads the `rerun_configuration` slot of `replayability()`. That slot needs
 the stored copy and the regimen and MSM declarations, and it does not need seeded learners. The
-table lists the four tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
+table lists the eight tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
 and the survival, competing-risk, repeated-outcome, and MSM fits. Each test prints its numbers
 with `passed=None`, because no registry row covers a longitudinal fit (X82 plan section 7).
 
@@ -2121,6 +2121,9 @@ with `passed=None`, because no registry row covers a longitudinal fit (X82 plan 
 | `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
 | `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
 | `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+| `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
+| `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
+| `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
 
 The placebo does not permute trajectories. A permuted trajectory gives a unit at risk the missing
 treatment of a unit that left earlier. A permutation within each follow-up pattern makes the
@@ -2153,10 +2156,140 @@ prints its numbers against no reference.
 
 `tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
 panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
-within each follow-up pattern, and the contrast moves by more than `1e-3`. The negative-control,
-pre-treatment, and future-treatment controls and the generated outcomes are
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part C work. A
-request for them is refused with that roadmap id.
+within each follow-up pattern, and the contrast moves by more than `1e-3`. The longitudinal
+plasmode and the measurement-error bootstrap are
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) work. A request
+for them is refused with that roadmap id.
+
+#### Generated outcomes on the held history
+
+The draw keeps `W`, `L`, `A` and `C` of each unit and replaces the outcome. The outcome at node
+`t` is `f(W) + effect * (A_1 + ... + A_t) + e_t`, with fresh Gaussian noise `e_t`. The sum runs
+over the decision nodes, so a held design adds the effect once. `dummy_outcome` sets `f` and
+`effect` to 0. An end-of-study outcome is the node-`T` value. A repeated outcome draws every node,
+and its copies in the node histories keep the original values.
+
+The outcome reads no `L`, so each static regimen `a` has an exact level. That level is the
+weighted sample mean of `f(W)`, plus the noise mean, plus `effect` times the sum of `a` up to the
+horizon. A difference contrast is the difference of two levels. The independent process gives
+every policy contrast the value 0. The held censoring reads `L`, and the generated outcome does not,
+so the censoring stays at random.
+
+| target | `dummy_outcome` | `simulated_outcome` |
+| --- | --- | --- |
+| a static-regimen difference contrast | bias, standard-error ratio, coverage | bias, standard-error ratio, coverage |
+| a static-regimen level | bias, standard-error ratio, coverage | bias |
+| a dynamic, MTP, stochastic or incremental policy | bias, standard-error ratio, coverage | refused, `IMPLEMENTATION_GAP` |
+
+A level of `simulated_outcome` has a covariate part `f(W) - mean f(W)` in its influence curve. With
+`W` held, that part is fixed, so the standard-error ratio and the coverage have no held-design
+reference (X82 plan 5.5.1). A contrast cancels `f(W)`. Coverage also needs a correct censoring
+model, so the report prints the uncensored share at each node. A policy that reads `L` or the
+natural treatment has an unknown truth when `L` is held.
+
+A survival or competing-risk fit replaces its events, not one outcome. Its declarations are hazards.
+
+| fit | declaration | event probability at node `t` for a unit at risk |
+| --- | --- | --- |
+| survival | `LogisticHazardOutcome(intercept, effect, adjustment_scale)` | `expit(intercept + f(W) + effect * d_t)` |
+| competing risks | `MultinomialHazardOutcome(intercepts, effects, adjustment_scale)` | `exp(eta_j) / (1 + sum_k exp(eta_k))` for cause `j`, with `eta_j = intercepts[j] + f(W) + effects[j] * d_t` |
+
+`d_t` is the number of treated decision nodes up to `t`. The cause probabilities and the
+probability of no event sum to 1, which independent per-cause logistic hazards do not ensure.
+`dummy_outcome` needs a hazard with every effect 0 and `adjustment_scale=0`. The default Gaussian
+declarations are refused on these fits.
+
+The draw recodes the exit before it draws the events (X82 plan 5.5.2).
+
+1. An original event at node `t` becomes censoring at `t`. The generated outcome is not observed
+   at that node.
+2. Original censoring stays.
+3. While a unit is under observation, it has the generated event with the declared probability
+   and fresh noise. After an event, its later nodes are missing.
+
+The container orders a node as `L_t`, `A_t`, `C_t`, `Y_t`, and a unit censored at `t + 1` must
+hold `L_{t+1}` and `A_{t+1}`. A unit with an original event at `t` holds neither, so the recode
+censors it at `t`. The recoded censoring reads the original outcome. The generated event reads
+`W`, the treatments and fresh noise, so the censoring stays at random given the recorded history.
+The report prints the uncensored share after the recode at each node, because the recode censors
+every original event.
+
+The truth of a static regimen `a` at horizon `h` is the weighted sample mean of
+`sum_{t <= h} S(t - 1) p_j(t)`, where `S` is the probability of no event through a node. A
+hazard that reads `W` gives each risk and contrast a covariate part, so these read bias only. An
+independent hazard gives every policy contrast the value 0. A fit that declares a known censoring
+mechanism is refused, because the recode changes the censoring law.
+
+`tests/unit/test_longitudinal_generated_events.py` enumerates a two-node law whose original event
+reads `L_2`. The g-formula of the recoded and censored law equals the uncensored closed-form risk
+within `1e-12`. Its mutation control lets the generated hazard read `L_2`, and the two values
+differ by more than `1e-2`.
+
+The registered `generated_outcome` rows cover point fits only. Their bands were measured there,
+and sequential regressions, censoring weights and per-node targeting change the variance. So each
+longitudinal reading prints its numbers with `passed=None` until a longitudinal study registers a
+row.
+
+On an end-of-study or repeated fit, the tests refuse a non-Gaussian outcome, declared `q_bounds`,
+and a classifier outcome learner. A cross-fitted Gaussian panel must declare `q_bounds`, so these
+tests run on a fit with `n_folds=1`. Every longitudinal fit refuses an MSM coefficient and a node
+whose levels are not 0 and 1.
+`tests/unit/test_longitudinal_generated_outcomes.py` checks each truth with a nonzero effect, and
+checks that the mean of 40 refits lies within four Monte Carlo standard errors of the truth.
+
+#### Negative controls
+
+A negative-control outcome has the shape of the primary outcome. An end-of-study fit takes one
+value per unit. A repeated-outcome fit takes one value per unit and node. The copies of the primary
+outcome in the node histories do not change, so each adjustment set stays the same. A survival or
+competing-risk fit refuses the control, because the event indicators define the risk sets.
+
+A control fit is an auxiliary fit, so `refute()` sets its outcome bounds. A binary control takes
+no bounds. A continuous control takes its observed range on a cross-fitted fit, or on a fit that
+declares `q_bounds`. This is the usual TMLE choice (Gruber and van der Laan 2010). The report
+prints the bounds. A continuous control on a fit with a classifier outcome learner uses the
+pseudo-outcome learner of the fit.
+
+`negative_control_kind="pre_treatment"` declares a control that precedes the first treatment. The
+form applies to point and longitudinal fits. `refute()` refuses the control in two cases.
+
+| refusal | reason |
+| --- | --- |
+| the control equals an adjustment column | the control fit drops a measured confounder |
+| the cross-fitted residual variance share is below `negative_control_floor` | the estimate is 0 because the control has no free variation |
+
+The adjustment set is the covariates of a point fit and the baseline of a longitudinal fit. The
+share is the residual variance of a 2-fold cross-fitted linear regression of the control on the
+adjustment set, over the control variance. The folds use a fixed seed, so the `refute` row and the
+call compute the same share. The default floor is 0.01.
+
+The `future_treatment` test reads a control `C` that the fit does not use. Under no unmeasured
+confounding of `A_{t+1}`, the control is independent of `A_{t+1}` given the history `H_{t+1}`. That
+history is `W`, the earlier treatments, `L_1` to `L_{t+1}`, and each earlier repeated outcome. The
+test fits a point-treatment TMLE of `C` on `A_{t+1}`, adjusted for `H_{t+1}`, on the units at risk at
+node `t + 1`. `future_treatment_node=t` selects the node, and the default is 1.
+
+The test uses the outcome and treatment learners and the fold count of the fit. The bounds rule
+and the learner rule of the negative-control outcome apply to the control.
+
+The reading is valid only when `C` is measured before `A_{t+1}`, has no effect on `A_{t+1}`, and gets no feedback from `A_{t+1}`. The
+code cannot check this condition, so the report states it and stays at `L0`. `refute()` refuses
+these requests.
+
+| request | reason |
+| --- | --- |
+| a point-treatment fit | no later treatment node exists |
+| one decision, or a held design | no later treatment exists |
+| `future_treatment_node` at the last node | no node `t + 1` exists |
+| a control equal to a column of `H_{t+1}` | the fit adjusts for it by design |
+| a control whose cross-fitted residual share on `H_{t+1}` is below `negative_control_floor` | it is nearly a function of the history, so it is associated with `A_{t+1}` by design |
+| a control constant on the units at risk | its estimate is 0 by construction |
+| a later node that is not binary | `IMPLEMENTATION_GAP`, roadmap X82 |
+
+`tests/unit/test_longitudinal_negative_controls.py` holds the witnesses. An unmeasured `U` that
+moves `A_2` and the control gives `|z| > 6`. The same control without that path gives `|z| < 3`. A
+control that `L_2` drives reads 0 with `L_2` in the history. With `L_2` removed, the same
+control gives `|z| > 6`.
 
 #### Structural nested mean refutation
 
@@ -2225,9 +2358,10 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 
 | test | rule | rung today |
 | --- | --- | --- |
-| `dummy_outcome`, `simulated_outcome` | bias band | `L2`, at 400 draws or more |
-| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` where the covariate part of the influence curve is zero, and at 400 draws or more |
-| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome` | t, rho, paired shift, z | descriptive until a registered study adds a row |
+| `dummy_outcome`, `simulated_outcome` | bias band | `L2` on a point fit, at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
+| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
 in [0.85, 1.15], and a coverage in [0.88, 0.99]. A reading passes when its 95% interval lies inside

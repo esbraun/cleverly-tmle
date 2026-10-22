@@ -24,6 +24,7 @@ from .ctmle import (
     logistic_plugin,
 )
 from .drtmle import DRTMLE, ReducedFit
+from .iptw import AdaptiveIPTW, AdaptiveIPTWFit
 from .tmle import TMLE, tmle
 
 __all__ = [
@@ -32,6 +33,8 @@ __all__ = [
     "DEFAULT_ESTIMANDS",
     "DRTMLE",
     "TMLE",
+    "AdaptiveIPTW",
+    "AdaptiveIPTWFit",
     "CTMLEDerivativeFit",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
