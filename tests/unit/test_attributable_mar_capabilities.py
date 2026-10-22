@@ -230,11 +230,10 @@ class TestTheTargetSpecificRefusals:
         assert all(repr(name) in str(caught.value) for name in estimands)
         result.sensitivity.tipping_gamma("par")
 
-    def test_simulated_confounding_keeps_the_missing_outcome_refusal(self, joint: Any) -> None:
-        with pytest.raises(
-            CapabilityError,
-            match=r"docs/roadmap.md F12 tracks a response mechanism that reads the treatment",
-        ):
+    def test_simulated_confounding_refuses_at_the_identification_stop(self, joint: Any) -> None:
+        # X82 part F (e) lifted the fit-wide missing-outcome stop, so this fit meets the
+        # next one: it records no backdoor identification metadata.
+        with pytest.raises(CapabilityError, match=r"needs identification metadata"):
             joint.sensitivity.simulated_confounding("par")
 
 
