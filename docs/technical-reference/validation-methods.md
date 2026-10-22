@@ -1976,6 +1976,19 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 | `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
 
+The placebo reads an MSM coefficient of a point treatment against its value under the placebo
+law. The table names the two cases. The code reads the case from the realised design and weight
+arrays.
+
+| case | reference | reading |
+| --- | --- | --- |
+| identity link, and the coefficient is 0 for every function of the covariates | exactly 0 | the `t` rule |
+| any other coefficient, weight, or link | the projection of the fitted regression `sum_a g(a given W) Qbar(a, W)` | descriptive, with no verdict |
+
+A product weight and a tensor design whose arm factor holds an intercept give the first case. The
+`TestMSMPlacebo` witnesses in `tests/unit/test_refutation_gate.py` enumerate a finite law for each
+case.
+
 The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
 default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.
 The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
@@ -2061,7 +2074,7 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | 1 | `estimator` | a result with no estimator |
 | 2 | `learned_rule` | any test except `placebo` on a learned-rule fit, whose refit relearns the rules and so changes the target. The placebo law gives every rule the value `E[Y]`, so the placebo reads the learned-rule level against the weighted mean of the outcome. The default `refute` row reads `unavailable` for the fit |
 | 3 | `estimand` | an estimand that the fit did not report |
-| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, an MSM coefficient, or a target with no registered null |
+| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
 | 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
 | 6 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
 | 7 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |

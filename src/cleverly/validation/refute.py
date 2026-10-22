@@ -1249,13 +1249,7 @@ def _learned_rule_reference(data: Any) -> float:
 
 
 def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
-    """Return the reported-scale no-effect value of a registered parameter, if defined.
-
-    A learned-rule level has no constant null. Its placebo reference is the outcome mean
-    (:func:`_learned_rule_reference`).
-    """
-    if _is_learned_rule_fit(result) and estimand in result.estimates:
-        return _learned_rule_reference(result.data)
+    """Return the reported-scale no-effect value of a registered parameter, if defined."""
     declaration = _target_declaration(result, estimand)
     if declaration is None:
         return None
@@ -1268,6 +1262,80 @@ def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
     return None
 
 
+@dataclass(frozen=True)
+class _MSMReference:
+    """The placebo value of one MSM coefficient, and whether it is exact.
+
+    ``exact`` holds when the coefficient is 0 for every function of the covariates the
+    placebo law can put in the outcome regression. Otherwise ``value`` is the projection
+    of the fitted regression ``E[Y | W]``, a computed number and not an exact null.
+    """
+
+    value: float
+    exact: bool
+
+
+def _msm_reference(result: Any, estimand: str) -> _MSMReference | None:
+    """Return the placebo reference of a point-treatment MSM coefficient, or ``None``.
+
+    Under the placebo law ``m(a, W) = q(W)`` for every arm ``a`` (X82 plan 5.1.4). The
+    coefficient is the weighted projection ``M^-1 sum_i w_i sum_j h_ij phi_ij q_i / n`` of
+    ``q``. A coefficient is exactly 0 when its row of ``M^-1 sum_j h_ij phi_ij`` vanishes on
+    every unit, whatever ``q`` is. That holds for a product weight and a tensor design whose
+    arm factor contains an intercept, and the identity link keeps the projection linear. The
+    check reads the realised arrays, so it needs no declaration of the structure. Any other
+    coefficient takes the projection of the fitted mixture ``sum_a g(a | W) Qbar(a, W)``.
+    """
+    from ..msm import solve_projection
+
+    if getattr(getattr(result, "config", None), "parameter_axis", None) != "msm":
+        return None
+    nuisance = getattr(result, "nuisance", None)
+    model = getattr(nuisance, "msm", None)
+    fluctuation = getattr(result, "fluctuations", {}).get("msm")
+    if nuisance is None or model is None or fluctuation is None or model.dose_values:
+        return None
+    labels = [f"msm[{term}]" for term in model.terms]
+    if estimand not in labels:
+        return None
+    column = labels.index(estimand)
+    design = np.asarray(model.design, dtype=float)
+    weights = np.asarray(model.weights, dtype=float)
+    sampling = np.asarray(result.data.weights, dtype=float)
+    if model.link == "identity":
+        normal = np.einsum("i,ij,ijp,ijq->pq", sampling, weights, design, design)
+        rows = np.einsum("i,ij,ijp->pi", sampling, weights, design)
+        operator = np.linalg.solve(normal, rows)
+        if np.max(np.abs(operator[column])) <= 1e-9 * max(1.0, float(np.max(np.abs(operator)))):
+            return _MSMReference(0.0, True)
+    arms = model.arms
+    targeted = fluctuation.targeted
+    propensity = nuisance.propensity
+    mixture = sum(
+        np.asarray(propensity.arm(arm), dtype=float)
+        * np.asarray(nuisance.scaler.unscale_level(targeted.arms[arm]), dtype=float)
+        for arm in arms
+    )
+    predictions = np.repeat(np.asarray(mixture, dtype=float)[:, None], len(arms), axis=1)
+    beta = solve_projection(design, weights, predictions, sampling, str(model.link)).beta
+    return _MSMReference(float(beta[column]), False)
+
+
+def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
+    """Return the value the placebo reads the refit against, or ``None`` when it has none.
+
+    A contrast has its fixed no-effect value. A learned-rule level reads against the outcome
+    mean, because the placebo law gives every rule that value. An MSM coefficient reads
+    against its placebo projection (:func:`_msm_reference`).
+    """
+    if _is_learned_rule_fit(result) and estimand in result.estimates:
+        return _learned_rule_reference(result.data)
+    reference = _msm_reference(result, estimand)
+    if reference is not None:
+        return reference.value
+    return _no_effect_null(result, estimand)
+
+
 def _no_effect_difference(value: float, null: float) -> float:
     """Return the signed difference on the estimate's inference scale."""
     if null == 1.0:
@@ -1278,7 +1346,13 @@ def _no_effect_difference(value: float, null: float) -> float:
 def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse null-effect tests on parameters with no fixed reported-scale null."""
     chosen = [name for name in request.tests if name in ("placebo", "negative_control_outcome")]
-    if not chosen or _no_effect_null(result, request.estimand) is not None:
+    chosen = [
+        name
+        for name in chosen
+        if (_placebo_null if name == "placebo" else _no_effect_null)(result, request.estimand)
+        is None
+    ]
+    if not chosen:
         return None
     keys = getattr(result, "parameter_keys", {})
     key = keys.get(request.estimand) if keys else None
@@ -2671,6 +2745,8 @@ def refute(
 
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)
+    placebo_null = _placebo_null(result, estimand)
+    msm_reference = _msm_reference(result, estimand)
     estimate_scale = getattr(result[estimand], "scale", None)
     declaration = _target_declaration(result, estimand)
     is_ratio = (estimate_scale or getattr(declaration, "scale", None)) == "ratio"
@@ -2734,18 +2810,22 @@ def refute(
             replicate_count = _DEFAULT_PERTURBATION_REPLICATES
         mean_kind: Literal["arithmetic", "geometric"] = "geometric" if is_ratio else "arithmetic"
         if name == "placebo":
-            assert no_effect_null is not None
+            assert placebo_null is not None
             fits = [refit(_placebo_data(data, rng, placebo_mode)) for _ in range(replicate_count)]
             values = tuple(psi for psi, _ in fits)
             learned = _is_learned_rule_fit(result)
-            if replicate_count < 2:
+            # A learned-rule level and an MSM coefficient read on their reported scale; only
+            # a registered contrast can sit on the log scale.
+            direct = learned or msm_reference is not None
+            computed = msm_reference is not None and not msm_reference.exact
+            if replicate_count < 2 or computed:
+                # A computed projection is one offset shared by all draws and estimated from
+                # the same data, so the t reference does not hold for it (X82 plan 5.1.4).
                 reading = None
             else:
                 reading = placebo_reading(
                     [
-                        psi - no_effect_null
-                        if learned
-                        else _no_effect_difference(psi, no_effect_null)
+                        psi - placebo_null if direct else _no_effect_difference(psi, placebo_null)
                         for psi in values
                     ],
                     std_error=std_error,
@@ -2757,7 +2837,14 @@ def refute(
             if reading is not None and resolution.licensed:
                 passed = not reading.rejects
             mean = float(np.exp(np.mean(np.log(values)))) if is_ratio else float(np.mean(values))
-            if reading is None:
+            if computed:
+                detail = (
+                    f"{mean_kind} mean placebo estimate {mean:+.5g} beside the computed "
+                    f"projection {placebo_null:.5g} of the fitted outcome regression. This "
+                    "coefficient has no exact placebo value under this design and weight, so "
+                    "the report states no verdict"
+                )
+            elif reading is None:
                 detail = "one placebo draw carries no spread, so the t statistic is undefined"
             elif reading.kind == "constant_zero":
                 detail = (
@@ -2767,13 +2854,18 @@ def refute(
             else:
                 detail = (
                     f"{mean_kind} mean placebo estimate {mean:+.5g} against the exact null "
-                    f"{no_effect_null:g}; the t statistic of the {replicate_count} draws is "
+                    f"{placebo_null:g}; the t statistic of the {replicate_count} draws is "
                     f"{reading.t:+.4g} on {reading.df} degrees of freedom"
                 )
             if learned:
                 detail += (
-                    f". The reference is the outcome mean {no_effect_null:.5g}, the value of "
+                    f". The reference is the outcome mean {placebo_null:.5g}, the value of "
                     "every rule under the placebo law"
+                )
+            if msm_reference is not None and msm_reference.exact:
+                detail += (
+                    ". The weight and the design separate the arm from the covariates, so the "
+                    "coefficient is exactly 0 under the placebo law"
                 )
             if data.known_treatment is not None:
                 detail += ". The refit keeps a known mechanism: the placebo law's own arm shares"
@@ -2783,7 +2875,7 @@ def refute(
                     estimand=estimand,
                     original=original,
                     values=values,
-                    expectation=f"~ {no_effect_null:g}",
+                    expectation=f"~ {placebo_null:g}",
                     passed=passed,
                     detail=detail,
                     standard_errors=tuple(se for _, se in fits),

@@ -7,6 +7,7 @@ because Part A ships no row whose rule needs a study.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from itertools import combinations
 from types import SimpleNamespace
@@ -850,6 +851,104 @@ class TestLearnedRulePlacebo:
         assert np.mean(values) == pytest.approx(_learned_rule_reference(data))
         # The mutation: an unweighted mean of a weighted fit is not the placebo value.
         assert np.mean(values) != pytest.approx(float(np.mean(y)))
+
+
+def _msm_stub(design: np.ndarray, weights: np.ndarray, q: np.ndarray, mass: np.ndarray) -> Any:
+    """A finite law as an MSM fit: rows are support points, ``mass`` their probability."""
+    from types import SimpleNamespace
+
+    from cleverly.msm import MSMSet
+
+    arms = (0.0, 1.0)
+    terms = tuple(f"t{index}" for index in range(design.shape[2]))
+    model = MSMSet(terms, design, weights, arms)  # type: ignore[arg-type]
+    nuisance = SimpleNamespace(
+        msm=model,
+        propensity=SimpleNamespace(arm=lambda arm: np.full(len(q), 0.5)),
+        scaler=SimpleNamespace(unscale_level=lambda values: values),
+    )
+    targeted = SimpleNamespace(arms={0.0: q, 1.0: q})
+    return SimpleNamespace(
+        config=SimpleNamespace(parameter_axis="msm"),
+        nuisance=nuisance,
+        fluctuations={"msm": SimpleNamespace(targeted=targeted)},
+        data=SimpleNamespace(weights=mass),
+    )
+
+
+class TestMSMPlacebo:
+    """Under the placebo law ``m(a, W) = q(W)`` for every arm (X82 plan 5.1.4)."""
+
+    V = np.array([-1.0, 0.0, 0.5, 2.0])
+    MASS = np.array([0.1, 0.4, 0.3, 0.2])
+    Q = np.array([0.2, 0.9, -0.4, 1.3])
+
+    def _design(self, columns: Callable[[float, np.ndarray], list[np.ndarray]]) -> np.ndarray:
+        return np.stack([np.column_stack(columns(a, self.V)) for a in (0.0, 1.0)], axis=1)
+
+    def test_a_tensor_design_with_a_product_weight_is_exactly_zero(self) -> None:
+        from cleverly.validation.refute import _msm_reference
+
+        design = self._design(lambda a, v: [np.ones_like(v), np.full_like(v, a), v, a * v])
+        weights = np.outer(1.0 + (self.V > 0), [0.6, 1.8])
+        stub = _msm_stub(design, weights, self.Q, self.MASS)
+        for term in ("t1", "t3"):
+            reference = _msm_reference(stub, f"msm[{term}]")
+            assert reference is not None and reference.exact and reference.value == 0.0
+        # The covariate terms carry the projection of q, so they are not claimed exact.
+        assert not _msm_reference(stub, "msm[t2]").exact
+
+    def test_a_design_without_the_arm_intercept_has_a_computed_nonzero_null(self) -> None:
+        from cleverly.validation.refute import _msm_reference
+
+        design = self._design(lambda a, v: [np.ones_like(v), np.full_like(v, a), a * v])
+        weights = np.ones((4, 2))
+        stub = _msm_stub(design, weights, self.Q, self.MASS)
+        reference = _msm_reference(stub, "msm[t2]")
+        assert reference is not None and not reference.exact
+        # Independent weighted least squares over the enumerated (unit, arm) cells.
+        rows = design.reshape(8, 3)
+        target = np.repeat(self.Q, 2)
+        root = np.sqrt(np.repeat(self.MASS, 2))
+        beta = np.linalg.lstsq(rows * root[:, None], target * root, rcond=None)[0]
+        assert reference.value == pytest.approx(beta[2], abs=1e-12)
+        # The mutation: reading this coefficient against 0 would be wrong by beta[2].
+        assert abs(beta[2]) > 0.1
+
+    def test_a_non_product_weight_loses_the_exact_zero(self) -> None:
+        from cleverly.validation.refute import _msm_reference
+
+        design = self._design(lambda a, v: [np.ones_like(v), np.full_like(v, a), v])
+        weights = np.column_stack([np.ones(4), 1.0 + self.V**2])
+        stub = _msm_stub(design, weights, self.Q, self.MASS)
+        assert not _msm_reference(stub, "msm[t1]").exact
+
+    def test_a_real_fit_reads_the_treatment_coefficient_at_zero(self) -> None:
+        from tests.unit._simulated_confounding_support import _fit_msm
+
+        result = _fit_msm()
+        exact = refute(
+            result, estimand="msm[treatment]", tests=("placebo",), n_replicates=4, random_state=1
+        )["placebo"]
+        assert exact.expectation == "~ 0"
+        assert exact.statistic is not None
+        computed = refute(
+            result, estimand="msm[baseline]", tests=("placebo",), n_replicates=4, random_state=1
+        )["placebo"]
+        assert computed.passed is None and computed.statistic is None
+        assert "computed projection" in computed.detail
+
+    def test_the_negative_control_still_refuses_an_msm_coefficient(self) -> None:
+        from tests.unit._simulated_confounding_support import _fit_msm
+
+        result = _fit_msm()
+        with pytest.raises(CapabilityError, match="no universal null"):
+            refute(
+                result,
+                estimand="msm[treatment]",
+                tests=("negative_control_outcome",),
+                negative_control_outcome=np.zeros(result.data.n),
+            )
 
 
 class TestSubsetFoldSlice:
