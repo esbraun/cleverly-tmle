@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from tests.canonical.regenerate import digest, run_key, runs_root
 from tests.studies import longitudinal_repeated_crossfit as study
 from tests.studies import longitudinal_repeated_crossfit_properties as properties
 from tests.studies.evidence import property_failures, property_verdicts, replication
+from tests.studies.evidence.manifest import write_rows
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import stream_seed
 
@@ -699,13 +701,26 @@ def _inherit_setup(
     directory = tmp_path / "new"
     directory.mkdir(exist_ok=True)
     for name, frame in new.items():
-        frame.to_csv(directory / name, index=False)
+        if name.endswith(".parquet"):
+            write_rows(frame, directory / name)
+        else:
+            frame.to_csv(directory / name, index=False)
+    # The baseline commit predates the Parquet row files: it holds the gzipped CSV names.
     blobs = {name: frame.to_csv(index=False).encode() for name, frame in old.items()}
-    gz = {
-        name: gzip.compress(blob) if name.endswith(".gz") else blob for name, blob in blobs.items()
+    held = {
+        inherit.CSV_NAMES.get(name, name): gzip.compress(blob)
+        if name in inherit.CSV_NAMES
+        else blob
+        for name, blob in blobs.items()
     }
+
+    def baseline(commit: str, name: str) -> bytes:
+        if name not in held:
+            raise subprocess.CalledProcessError(128, ["git", "show"])
+        return held[name]
+
     monkeypatch.setattr(inherit, "HERE", directory)
-    monkeypatch.setattr(inherit, "baseline", lambda commit, name: gz[name])
+    monkeypatch.setattr(inherit, "baseline", baseline)
     return inherit.check("baseline")
 
 

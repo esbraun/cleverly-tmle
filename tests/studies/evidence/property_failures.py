@@ -2958,6 +2958,9 @@ TARGETED_RATIOS = (1.0, *TARGETED_SPREADS)
 CENTRE_FACTORS = (0.9, 0.75, 0.5, 0.25, 0.0, -0.5, -1.0, 1.5, 3.0)
 ROLE_SE_FACTORS = (0.5, 0.25, 0.8, 1.25, 2.0, 4.0)
 ROLE_SPREADS = (2.0, 4.0, 10.0, 0.5)
+#: The SE factor that takes a reported variance below a rounding-level floor.  A split variance
+#: share near 1e-2 falls under a floor of 1e-8 once each standard error grows by 1e5.
+ROUNDING_SE_FACTOR = 1.0e5
 #: The amplitude of each ``mixed/<k>`` draw, and the seed root of the draws.
 MIXED_AMPLITUDES = tuple(float(value) for value in np.geomspace(0.1, 1.0, 16))
 MIXED_SEED = 20_261_015
@@ -3194,7 +3197,7 @@ def composed_perturbations() -> tuple[str, ...]:
     | kind | change | ``covered``, ``rejected`` |
     | --- | --- | --- |
     | ``centre/<role>/<c>`` | each cell of the role keeps its spread, and its mean error times ``c`` | recomputed for the role |
-    | ``se_role/<role>/<f>`` | each standard error of the role times ``f`` | kept |
+    | ``se_role/<role>/<f>`` | each standard error of the role times ``f``. At 1e5 it puts a rounding-level variance floor out of reach | kept |
     | ``coverage_role/<role>/<p>`` | ``coverage/<p>`` on the role's cells alone | ``rejected`` kept |
     | ``spread_role/<role>/<g>`` | each cell of the role dilated ``g`` times about its mean, and its standard errors times ``g`` | recomputed for the role |
     | ``<a>+<b>`` | kind ``a``, then kind ``b`` | as each kind says |
@@ -3203,7 +3206,7 @@ def composed_perturbations() -> tuple[str, ...]:
     -------
     tuple of str
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
-        followed by a coverage share.
+        followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role.
     """
     return _composed()
 
@@ -3226,6 +3229,7 @@ def _composed() -> tuple[str, ...]:
             for role in roles
             for p in COVERAGE_TARGETS
         ),
+        *(f"se_role/{role}/{ROUNDING_SE_FACTOR:g}" for role in roles),
     )
 
 

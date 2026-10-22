@@ -342,8 +342,8 @@ row. A move to `gated` is a separate registry decision.
 | study | verdicts it publishes | red rows |
 | --- | --- | --- |
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
-| [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
-| [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 84 | 0 |
+| [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 32 | 0 |
+| [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 89 | 0 |
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |

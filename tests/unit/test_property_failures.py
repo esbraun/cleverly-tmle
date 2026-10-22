@@ -2030,6 +2030,19 @@ class TestDifferential:
         shares = flipped.loc[control].groupby(["property", "cell"])["covered"].mean()
         assert np.allclose(shares, 0.5, atol=1.0 / 380)
 
+    def test_the_rounding_kind_scales_the_standard_errors_of_one_role(self) -> None:
+        _, rows = self._ladder()
+        kind = f"se_role/positive/{property_failures.ROUNDING_SE_FACTOR:g}"
+        assert kind in property_failures.composed_perturbations()
+        scaled = property_failures.perturbed(rows, kind)
+        chosen = (rows["role"] == "positive").to_numpy()
+        assert chosen.any()
+        assert np.allclose(
+            scaled["std_error"][chosen],
+            rows["std_error"][chosen] * property_failures.ROUNDING_SE_FACTOR,
+        )
+        pd.testing.assert_series_equal(scaled["std_error"][~chosen], rows["std_error"][~chosen])
+
     def test_a_composed_kind_applies_its_parts_in_order(self) -> None:
         _, rows = self._ladder()
         composed = property_failures.perturbed(rows, "se/1.03+coverage/0.9")

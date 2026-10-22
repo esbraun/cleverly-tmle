@@ -103,7 +103,8 @@ The control resamples with a stream of its own. The three rows share one verdict
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000818 to 0.000668, margin 0.0025, SE ratio 0.9704 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9351 to 0.9589, SE ratio 0.9678 to 1.0431 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `repeat_stability` | `one_repeat_control` | control | the ATE from each repeated fit's first actual fold draw | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.6349, 0.5643 to 0.7150, boundary 1 | pass |
+| `repeat_stability` | `one_repeat` | positive | the ATE from each repeated fit's first actual fold draw, alone on the same fixed sample; the base of both spread ratios | the pair's verdict: the spread of the median over this spread stays under the declared boundary | spread ratio 0.6349, 0.5643 to 0.7150, boundary 1 | pass |
+| `repeat_stability` | `second_draw_control` | control | the ATE from each repeated fit's second actual fold draw, alone | the spread of an independent single draw over the first draw's spread must not fall below the declared boundary (no reduction exists to read) | spread ratio 0.9910, 0.8605 to 1.1366, boundary 1, reached by the upper endpoint | pass |
 | `repeat_stability` | `three_repeats` | positive | the median ATE over three fold draws across labelled base seeds | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.6349, 0.5643 to 0.7150, boundary 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000054, coverage 0.9107 to 0.9565, SE ratio 0.9692 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000305, coverage 0.9401 to 0.9767, SE ratio 1.0212 | pass |
@@ -116,7 +117,9 @@ The control resamples with a stream of its own. The three rows share one verdict
 ## Result
 
 The median repeated estimator and every declared repeated-sampling property passed. The
-repeat-stability ratio was 0.6349, with a 99% interval from 0.5643 to 0.7150. Mean aggregation is
+repeat-stability ratio was 0.6349, with a 99% interval from 0.5643 to 0.7150. The control ratio of
+the second draw over the first draw was 0.9910, with a 99% interval from 0.8605 to 1.1366. Its
+upper endpoint reaches 1, so the rule reads no reduction where none exists. Mean aggregation is
 not a public option. This record tests the method that the library ships.
 
 ## Measured values
@@ -132,8 +135,8 @@ from the committed results and checked at the precision printed.
 | `independent_tests_passed` | 17 | of those, passing |
 | `paired_tests_total` | 0 | external comparisons declared |
 | `paired_tests_passed` | 0 | external comparisons passing |
-| `property_cells_total` | 14 | repeated-sampling property cells |
-| `property_cells_passed` | 14 | cells whose own and family verdicts pass |
+| `property_cells_total` | 15 | repeated-sampling property cells |
+| `property_cells_passed` | 15 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0557 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9337 | lowest measured primary-study coverage |
 | `min_coverage_ci_lower` | 0.9078 | lowest exact 99% primary coverage endpoint |
@@ -165,6 +168,8 @@ from the committed results and checked at the precision printed.
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
 | `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:repeat_spread_ratio` | 1 | largest accepted upper endpoint for the paired repeat-stability spread ratio |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 8 | the same bound, in primary replications |
 
 ## Limitations
 
