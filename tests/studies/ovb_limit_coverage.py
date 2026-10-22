@@ -47,8 +47,10 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_
 
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
-SEED = 20262301
-RESAMPLING_SEED = 20262302
+#: 20262301 was ``canonical-composite-drtmle``'s seed, so the first run shared its resampling
+#: streams.  The study was rerun on fresh seeds and its results accepted as drawn.
+SEED = 20262321
+RESAMPLING_SEED = 20262322
 
 #: The two-sided 95% multiplier of each row's interval, and the bound's one-sided multiplier.
 TWO_SIDED = float(stats.norm.ppf(0.975))

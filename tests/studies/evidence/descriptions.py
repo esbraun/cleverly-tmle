@@ -4995,3 +4995,68 @@ CELLS[("response_mask_necessity", "unmasked_sigma2")] = (
     "sigma^2 read as the mean over the observed rows only",
     "bias interval must fall entirely outside the margin",
 )
+
+
+def _refuter_point_cells() -> None:
+    """The point-treatment refutation study (X82 SP): its laws and 27 cells."""
+    slug = "refuter-calibration-point"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point law with 20 covariates and a Gaussian outcome; TMLE at five folds"
+    )
+    STUDY_SCENARIOS[(slug, "binomial")] = (
+        "the point law with 20 covariates and a binary outcome of prevalence 0.100; "
+        "TMLE at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-point"] = (
+        "`cleverly` fit that the point-treatment refutation rules read"
+    )
+    fits = {
+        "T1": "TMLE with GLM nuisances, Gaussian outcome",
+        "T2": "TMLE with GLM nuisances, binary outcome",
+        "T3": "TMLE with a depth-2 booster, binary outcome",
+        "C1": "greedy C-TMLE, binary outcome",
+        "D1": "DR-TMLE with a declared mechanism, binary outcome",
+        "D2": "DR-TMLE with an estimated mechanism, binary outcome",
+    }
+    readings = {
+        "T1": ("placebo", "subset", "negative_control"),
+        "T2": ("placebo", "subset", "negative_control"),
+        "T3": ("placebo",),
+        "C1": ("placebo",),
+        "D1": ("placebo", "subset", "negative_control"),
+        "D2": ("placebo",),
+    }
+    size = "no more than 17 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    words = {
+        "placebo": "the placebo t rule against the exact permutation null",
+        "subset": "the subset rho rule, both tails",
+        "negative_control": "the negative-control z rule on a valid control",
+    }
+    defects = {
+        "placebo": {
+            "placebo_stale_rows": "the placebo t rule, with a declared share of stale rows"
+        },
+        "subset": {
+            "subset_half_se": "the subset rho rule, at the reported SE halved",
+            "subset_double_se": "the subset rho rule, at the reported SE doubled",
+        },
+        "negative_control": {
+            "negative_control_confounded": (
+                "the negative-control z rule, on a control that reads an unmeasured cause of A"
+            )
+        },
+    }
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, fit in fits.items():
+        for reading in readings[cell]:
+            table[("refuter_size", f"{cell}__{reading}")] = (f"{fit}: {words[reading]}", size)
+            for defect, text in defects[reading].items():
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{fit}: {text}", power)
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_point_cells()
