@@ -348,3 +348,90 @@ rerun's manifest records `38ad7d05` and hashes the artifacts that the rerun wrot
 | `stability_d`, `stability_i` | 400 | committed rows |
 | `band_d`, `band_i`, `band_s`, `band_c`, `band_m` | 2,400 | the rerun |
 | `increment_s` | 2,800 | the rerun |
+
+The table describes the rerun at `38ad7d05`. The X79 rerun below changes which fit sets
+`inherit.py` fits and which it inherits.
+
+## Repeat-stability control rows (X79)
+
+Both `repeat_stability` families had a control that was the denominator arm of the positive
+comparison. It published the positive row's interval and verdict, so it could not fail unless the
+positive failed. X79 renames that arm `one_repeat_control` to `one_repeat` (a positive row that
+shares the pair's verdict) and adds the control `second_draw_control`: draw 1 of the three-draw
+fit, read as `SD(second_draw_control) / SD(one_repeat)` against a rule of `U >= 1`. Draws 0 and 1
+are exchangeable on one fixed sample, so the true ratio is exactly 1. The repeat layer, the
+estimators, the samples, the fold seeds, the trial counts and the positive rule are unchanged.
+
+The clause-binding table `tests/canonical/clause-bindings.csv` has no `repeat_stability` row for
+either study while the committed rows hold the old cells. After the run, search the two subjects
+with `python -m tests.canonical.property_differential --bindings DIR --subjects
+repeated-crossfit-tmle longitudinal-repeated-crossfit`. Merge the `found` rows of the two search
+files into the table in its sort order. `--write` does not apply here, because it needs a search
+file for every subject and rewrites the whole table.
+
+Both declared runs ran at `b545a579` in a cloud container, with every thread variable set to 1. The
+artifacts were committed in `f4e259a4` as gzipped CSV. Main then stored every row file as Parquet
+(`ac93764f`). The merge converted the four X79 row files with `write_rows`, and
+`csv_text(read_rows(file))` equals the committed CSV text byte for byte for each of them. Only the
+`sha256` keys of the two manifests changed.
+
+### Point study: `repeated-crossfit-tmle`
+
+The study has no `inherit.py`. The declared run is the whole study, and it replaces the
+seed-repair composite manifest with a plain manifest. The drift reading is declared before the
+run. Discrete columns and every verdict outside `repeat_stability` must be equal. A float column
+outside `repeat_stability` must agree within 1e-9, the `REPLAY_TOLERANCE` of
+`tests/studies/evidence/seed_repair.py`, and the run reports the maximum difference. A difference
+beyond 1e-9 is a defect suspect. The positive rows (`three_repeats` and `one_repeat`, named
+`one_repeat_control` in the baseline) must keep their ratio, interval and verdict within the same
+tolerance. `test_targeted_composites_attribute_carried_and_replaced_evidence` must pass on the
+plain manifest.
+
+The run read a largest float difference of 3.2e-15 outside `repeat_stability`, on a primary
+row 4.9e-15, and 2.2e-16 on a kept stability arm. No verdict changed.
+
+### Longitudinal study: `longitudinal-repeated-crossfit`
+
+`inherit.py` now fits `stability_d` and `stability_i` and inherits every other fit set,
+including `band_*` and `increment_s`, which the committed rows of the earlier rerun supply. The
+primary phase is refitted. `stability_rows` is the only row builder that changed. It reads draw 1
+of each three-draw fit, and the code paths of every inherited fit set (`fit_set_rows`, `draw`,
+`sample_seed`, `plan`) are untouched. `inherit.py --check <baseline commit>` compares after the
+run. Every property row outside `repeat_stability` must be equal bit for bit. The primary rows,
+the kept stability arms (`three_repeats` and `one_repeat`, read as `one_repeat_control` in the
+baseline), their summary ratios, intervals and verdicts, and the summary rows outside
+`repeat_stability` must agree within a relative tolerance of 1e-12 and an absolute tolerance of
+1e-14. Only `second_draw_control` is new and is not compared. No container or R-runner hash is
+involved, so the rerun needs no gated revision.
+
+| item | value |
+| --- | --- |
+| base commit of X79 | `fb4461a8` |
+| commit that the base manifest names for the inherited rows | `38ad7d05` |
+| SHA-256 of the source `property-replicates.csv.gz` | `ef1c414c099734bebcbe5ff4247c4fcb9fc927f7d1c0769823d7803c1d4809b4` |
+| declared run commit, which the rerun's manifest records | `b545a579` |
+| rerun artifact commit | `f4e259a4` (gzipped CSV, converted to Parquet in the merge of main) |
+| largest primary or kept-arm difference from the baseline | 4.3e-14 on a primary row, 2.8e-16 on a kept stability arm; `inherit.py --check fb4461a8` printed `matches fb4461a8 outside ('repeat_stability',)` |
+
+| fit set | replicates | source of the rows |
+| --- | --- | --- |
+| `calibration_d`, `calibration_s`, `calibration_c`, `calibration_m` | 24,000 | committed rows |
+| `calibration_i` | 24,000 | committed rows |
+| `rate_2000`, `rate_8000`, `rate_32000` | 800 | committed rows |
+| `ipsi_primary` | 1,600 | committed rows |
+| `band_d`, `band_i`, `band_s`, `band_c`, `band_m` | 2,400 | committed rows |
+| `increment_s` | 2,800 | committed rows |
+| `stability_d`, `stability_i` | 400 | the rerun |
+
+## Runners that a pending study names
+
+The study `longitudinal-repeated-sdr` declares a pending lmtp comparator. Its `Reference` names
+`longitudinal_sdr_runner.R`, `lmtp_sdr_adapter.R` and the `lmtp_crossfit` Dockerfile, because the
+`Reference` type requires a runner path and plan X32b section K12 reuses the adapter and the
+Dockerfile unchanged. An edit to that runner for `longitudinal-sdr` is result-neutral for the
+pending study until PR C replaces it with the per-horizon runner. The pending study runs no
+reference process, so the recorded hash describes no committed result.
+
+The runner also sources `study_harness.R`. The pending manifest now lists that file among its
+declared sources, with the hash of its bytes at the run commit `77a31636`. The file has not changed
+since `182b6438`, which precedes the run. No reference ran, so the added entry changes no result.

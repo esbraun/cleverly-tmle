@@ -26,7 +26,7 @@ from tests.studies.evidence.failures import (
     filled,
     vertex,
 )
-from tests.studies.evidence.inference import clopper_pearson, student_interval
+from tests.studies.evidence.inference import Interval, clopper_pearson, student_interval
 from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -961,6 +961,64 @@ def _p9_spread_ratio(lose: bool = True) -> Control:
     return Control(rows, summary, study, "synthetic_spread", "subject", clause.name, rules)
 
 
+def _p9_spread_ratio_lower(lose: bool = True) -> Control:
+    """S9 with the fills of a ``lower`` clause: a control ratio of 1.02 must stay at or above 1.
+
+    The numerator is the denominator scaled by 1.02, so every resampled ratio is 1.02 and the
+    interval is the point.  The numerator's mean fills and the denominator's widest splits
+    lower the ratio under 1, the direction a control read on its upper endpoint is pushed.
+    """
+    study = _study()
+    size = 380 if lose else 400
+    lost = _every(20, 20) if lose else ()
+    reference = _signs(size)
+    reference[0], reference[1] = 2.0, -2.0
+    rows = pd.concat(
+        [
+            _arm(
+                "synthetic_lower",
+                "subject",
+                "positive",
+                requested=400,
+                lost=lost,
+                estimates=1.02 * reference,
+            ),
+            _arm(
+                "synthetic_lower",
+                "reference",
+                "diagnostic",
+                requested=400,
+                lost=lost,
+                estimates=reference,
+            ),
+        ],
+        ignore_index=True,
+    )
+    seed = 11
+    ratio = paired_spread_ratio_interval(
+        rows.loc[rows["cell"] == "subject"],
+        rows.loc[rows["cell"] == "reference"],
+        replicates=study.margins.bootstrap_replicates,
+        confidence_level=study.margins.confidence_level,
+        seed=seed,
+    )
+    clause = property_failures.spread_ratio_clause(
+        "control ratio reaches its boundary",
+        cells=("subject", "reference"),
+        side="lower",
+        judge=property_failures.upper_at_or_above_judge(lambda ctx: 1.0),
+        seed=lambda ctx, row: seed,
+        applies=property_failures.roles("positive"),
+    )
+    summary, rules = _synthetic(
+        "synthetic_lower",
+        rows,
+        {"spread_ratio_ci_lower": ratio.interval.low, "spread_ratio_ci_upper": ratio.interval.high},
+        clause,
+    )
+    return Control(rows, summary, study, "synthetic_lower", "subject", clause.name, rules)
+
+
 def _p10_extra_mean(lose: bool = True) -> Control:
     """S10: a share of 0.49 under a 0.5 cap; 20 lost rows at the support bound 1 exceed it."""
     study = _study()
@@ -1604,6 +1662,7 @@ LEG_CONTROLS = {
     "p7": _p7_coverage_gain,
     "p7 across keys": functools.partial(_p7_coverage_gain, across_keys=True),
     "p9": _p9_spread_ratio,
+    "p9 lower": _p9_spread_ratio_lower,
     "p10": _p10_extra_mean,
     **LEG_CONTROLS_REV3,
 }
@@ -1970,6 +2029,19 @@ class TestDifferential:
         pd.testing.assert_series_equal(flipped["covered"][~control], rows["covered"][~control])
         shares = flipped.loc[control].groupby(["property", "cell"])["covered"].mean()
         assert np.allclose(shares, 0.5, atol=1.0 / 380)
+
+    def test_the_rounding_kind_scales_the_standard_errors_of_one_role(self) -> None:
+        _, rows = self._ladder()
+        kind = f"se_role/positive/{property_failures.ROUNDING_SE_FACTOR:g}"
+        assert kind in property_failures.composed_perturbations()
+        scaled = property_failures.perturbed(rows, kind)
+        chosen = (rows["role"] == "positive").to_numpy()
+        assert chosen.any()
+        assert np.allclose(
+            scaled["std_error"][chosen],
+            rows["std_error"][chosen] * property_failures.ROUNDING_SE_FACTOR,
+        )
+        pd.testing.assert_series_equal(scaled["std_error"][~chosen], rows["std_error"][~chosen])
 
     def test_a_composed_kind_applies_its_parts_in_order(self) -> None:
         _, rows = self._ladder()
@@ -3203,3 +3275,35 @@ class TestSummaryRows:
         rows = _cell("power", "large")
         assert property_failures.summary_rows(SimpleNamespace(), rows) is rows
         assert property_failures.summary_rows(None, rows) is rows
+
+
+class TestUpperAtOrAboveJudge:
+    """The judge of a control whose ratio interval must still reach its boundary (X79)."""
+
+    @staticmethod
+    def _judge(low: float, high: float, threshold: float = 1.0) -> property_failures.Judged:
+        judge = property_failures.upper_at_or_above_judge(lambda ctx: threshold)
+        return judge(None, None, Interval(low, high))  # type: ignore[arg-type]
+
+    def test_the_upper_endpoint_at_the_threshold_passes_with_zero_slack(self) -> None:
+        judged = self._judge(0.8, 1.0)
+        assert judged.passed and judged.slack == 0.0
+
+    def test_an_upper_endpoint_below_the_threshold_fails_with_negative_slack(self) -> None:
+        judged = self._judge(0.4, 0.9)
+        assert not judged.passed and judged.slack == pytest.approx(-0.1)
+
+    def test_it_reads_the_upper_endpoint_and_not_the_lower(self) -> None:
+        """A nonzero witness: an interval that straddles the threshold passes, though its lower
+        endpoint is far below it and a floor judge on the same interval fails."""
+        judged = self._judge(0.4, 1.2)
+        floor = property_failures.floor_judge(lambda ctx: 1.0)
+        assert judged.passed and judged.slack == pytest.approx(0.2)
+        assert not floor(None, None, Interval(0.4, 1.2)).passed  # type: ignore[arg-type]
+
+    def test_it_is_the_complement_of_the_strict_below_judge_at_the_threshold(self) -> None:
+        below = property_failures.below_judge(lambda ctx: 1.0)
+        for high in (0.999, 1.0, 1.001):
+            interval = Interval(0.5, high)
+            judged = self._judge(0.5, high)
+            assert judged.passed is (not below(None, None, interval).passed)  # type: ignore[arg-type]

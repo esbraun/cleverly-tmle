@@ -71,19 +71,29 @@ run fits nothing that a part finished and then writes the artifacts.
 
 ## Rerun with inherited fit sets
 
-The first declared run read the `simultaneous_coverage` band and the `repeat_increment` pair off
-the calibration fits. The rerun gives each family its own samples: `band_*` (2,400 replications
-each) and `increment_s` (2,800). Every other fit set draws, fits and writes what it wrote
-before. `inherit.py` checkpoints the committed rows of those fit sets into the declared run's
-scratch, so the declared run reuses them and fits only the primary phase and the new fit sets.
+The `repeat_stability` family holds three cells per label. `three_repeats` is the three-draw
+median. `one_repeat` is draw 0 alone, the base of both ratios. `second_draw_control` is draw 1
+alone, read off the three-draw fit. The positive rows pass when the upper endpoint of
+`SD(three_repeats) / SD(one_repeat)` is below 1. The control passes when the upper endpoint of
+`SD(second_draw_control) / SD(one_repeat)` is at or above 1, because draws 0 and 1 are
+exchangeable. All three need the one-draw split variance above the spread floor, and the three
+cells of a label share one verdict.
+
+The rename and the new cell change only the two stability fit sets. `inherit.py` checkpoints the
+committed rows of every other fit set into the declared run's scratch, so the declared run reuses
+them. The stability laws and the primary phase are fitted again.
 
 ```bash
 python -m tests.canonical.longitudinal_repeated_crossfit.inherit
-python -m tests.canonical.longitudinal_repeated_crossfit.part --part band_i --jobs 14
-python -m tests.canonical.longitudinal_repeated_crossfit.regenerate --jobs 14 --output ~/scratch/x46-run-2
+python -m tests.canonical.longitudinal_repeated_crossfit.part --part stability_i --jobs 4
+python -m tests.canonical.longitudinal_repeated_crossfit.part --part stability_d --jobs 4
+python -m tests.canonical.longitudinal_repeated_crossfit.regenerate --jobs 4 --output ~/scratch/x79-run
+python -m tests.canonical.longitudinal_repeated_crossfit.inherit --check <baseline commit>
 ```
 
 `inherit.py` refuses a committed row file that its manifest does not hash, a fit set with a
-missing replicate, and a row that records a lost replicate. The rerun costs about 36
-CPU-hours at the cloud per-core speed (`band_i` 29, the other new fit sets 4.7, the primary phase 2). `tests/canonical/provenance-revisions.md` records why
-the inherited rows are sound under the new code.
+missing replicate, and a row that records a lost replicate. `--check` requires every property row
+outside `repeat_stability` to equal the baseline bit for bit. It compares the primary rows, the
+kept stability arms (`one_repeat` was `one_repeat_control`) and the summary rows within a relative
+tolerance of 1e-12 and an absolute tolerance of 1e-14. `tests/canonical/provenance-revisions.md`
+records why the inherited rows are sound under the new code.

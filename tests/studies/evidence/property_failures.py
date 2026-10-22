@@ -674,6 +674,15 @@ def above_judge(threshold: Callable[[Context], float]) -> Judge:
     return lambda ctx, row, iv: Judged(iv.low - threshold(ctx), bool(iv.low > threshold(ctx)))
 
 
+def upper_at_or_above_judge(threshold: Callable[[Context], float]) -> Judge:
+    """The upper endpoint at or above a threshold: an interval that still reaches it.
+
+    A control that must read no reduction passes on this judge, because a ratio interval
+    whose upper endpoint falls below the threshold has found a reduction.
+    """
+    return lambda ctx, row, iv: Judged(iv.high - threshold(ctx), bool(iv.high >= threshold(ctx)))
+
+
 def band_judge(band: Callable[[Context], tuple[float, float]]) -> Judge:
     """The whole interval inside a band."""
 
@@ -1467,7 +1476,10 @@ def spread_ratio_clause(
     """S9: a paired spread ratio, pushed toward the clause's boundary.
 
     For an ``upper`` clause the numerator's lost values sit at each vertex split and the
-    denominator's at the survivor mean; a ``lower`` clause reverses the roles.  The arms are
+    denominator's at the survivor mean; a ``lower`` clause reverses the roles.  ``side`` names
+    the direction of the fills, which push the ratio up or down, and it does not name the
+    endpoint the judge reads: a ``lower`` clause may be judged on the upper endpoint, as a
+    control whose ratio must not fall below its boundary is.  The arms are
     completed by replicate (b1 M2).  ``statistic`` is the verdict's own statistic function
     (G6); :func:`~tests.studies.evidence.properties.paired_spread_ratio_interval` by default.
     The point ratio is exact; the bootstrap interval is enumerated.
@@ -1479,7 +1491,8 @@ def spread_ratio_clause(
     cells : tuple of str
         The numerator and denominator cells of the row's family.
     side : str
-        ``upper`` or ``lower``: which endpoint the clause bounds.
+        ``upper`` or ``lower``: the direction the fills push the ratio, ``upper`` for fills
+        that raise it and ``lower`` for fills that lower it.
     judge : Callable
         The rule on the ratio interval.
     seed : Callable
@@ -2945,6 +2958,9 @@ TARGETED_RATIOS = (1.0, *TARGETED_SPREADS)
 CENTRE_FACTORS = (0.9, 0.75, 0.5, 0.25, 0.0, -0.5, -1.0, 1.5, 3.0)
 ROLE_SE_FACTORS = (0.5, 0.25, 0.8, 1.25, 2.0, 4.0)
 ROLE_SPREADS = (2.0, 4.0, 10.0, 0.5)
+#: The SE factor that takes a reported variance below a rounding-level floor.  A split variance
+#: share near 1e-2 falls under a floor of 1e-8 once each standard error grows by 1e5.
+ROUNDING_SE_FACTOR = 1.0e5
 #: The amplitude of each ``mixed/<k>`` draw, and the seed root of the draws.
 MIXED_AMPLITUDES = tuple(float(value) for value in np.geomspace(0.1, 1.0, 16))
 MIXED_SEED = 20_261_015
@@ -3181,7 +3197,7 @@ def composed_perturbations() -> tuple[str, ...]:
     | kind | change | ``covered``, ``rejected`` |
     | --- | --- | --- |
     | ``centre/<role>/<c>`` | each cell of the role keeps its spread, and its mean error times ``c`` | recomputed for the role |
-    | ``se_role/<role>/<f>`` | each standard error of the role times ``f`` | kept |
+    | ``se_role/<role>/<f>`` | each standard error of the role times ``f``. At 1e5 it puts a rounding-level variance floor out of reach | kept |
     | ``coverage_role/<role>/<p>`` | ``coverage/<p>`` on the role's cells alone | ``rejected`` kept |
     | ``spread_role/<role>/<g>`` | each cell of the role dilated ``g`` times about its mean, and its standard errors times ``g`` | recomputed for the role |
     | ``<a>+<b>`` | kind ``a``, then kind ``b`` | as each kind says |
@@ -3190,7 +3206,7 @@ def composed_perturbations() -> tuple[str, ...]:
     -------
     tuple of str
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
-        followed by a coverage share.
+        followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role.
     """
     return _composed()
 
@@ -3213,6 +3229,7 @@ def _composed() -> tuple[str, ...]:
             for role in roles
             for p in COVERAGE_TARGETS
         ),
+        *(f"se_role/{role}/{ROUNDING_SE_FACTOR:g}" for role in roles),
     )
 
 

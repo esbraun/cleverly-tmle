@@ -1,40 +1,21 @@
-{
-  "artifact_sha256": {
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "manifest.json": "65f6538ce3ad44a7218bbacf83d01be624b2107da51e73dc75bf29f4eae4921a",
-    "performance-tests.csv": "0e4ab5170735c9a3b8098710189c8455d5a620d9812652ca684e4444a72c910a",
-    "properties.csv": "51ed47b5c4e1b745018525d2c22df3d7a852ab7fa9e8c1ec59fe63d90aa606f5",
-    "property-replicates.csv.gz": "870e8cb36b950f4081a49adadc591b69ec243b5fca6bc3df707e4be71977a0d1",
-    "replicates.csv.gz": "a9c64e84941750fbea399a25ab6cb65fccd1c115c8130762e7d61d79b7ae74cd",
-    "summary.csv": "5997c1ff437404f03145c2c49f751b2284405bb4b5a21e1ddc7f70d91b41d156"
-  },
-  "command": [
-    "C:\\Users\\erics\\.codex\\worktrees\\review-20260929\\cleverly-tmle\\tests\\canonical\\repair_property_seeds.py",
-    "--plan",
-    "tests/canonical/seed-repair-plan.json",
-    "--study",
-    "repeated-crossfit-tmle",
-    "--output",
-    "C:\\Users\\erics\\.codex\\review-runs\\20260929-01a0efbd-targeted\\repeated-crossfit-tmle",
-    "--jobs",
-    "16"
-  ],
-  "exit_code": 0,
-  "finished": "2026-09-30T04:15:25.331163+00:00",
-  "old_seed_replays": 1,
-  "operation": "targeted_seed_repair",
-  "plan_sha256": "82c971bb9a8121f451c8a27a8c25ebb336398ffc0ef9fafcabab24b0308e8f97",
-  "publication_gate_passed": true,
-  "replacement_positions": 1,
-  "scientific_verdicts_passed": true,
-  "source_commit": "bbd4bdc93e61b97f986772662c0e0ef9d1534ad5",
-  "started": "2026-09-30T04:14:55.779317+00:00",
-  "threads": {
-    "MKL_NUM_THREADS": "1",
-    "NUMEXPR_NUM_THREADS": "1",
-    "OMP_NUM_THREADS": "1",
-    "OPENBLAS_NUM_THREADS": "1",
-    "VECLIB_MAXIMUM_THREADS": "1"
-  },
-  "wall_seconds": 29.54699999996228
-}
+=== repeated-crossfit-tmle declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/repeated_crossfit/regenerate.py --jobs 4 --output /home/claude/x79-runs/point-out
+commit: b545a579945a758aa05d3d385617f433626cfc3d; upstream b545a579945a758aa05d3d385617f433626cfc3d
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 681484c26d0ccd0c656dd04d22f3239323f1987523b7240302844db182ef5429
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-21T17:37:16+00:00
+finished: 2026-10-21T17:44:27+00:00
+wall seconds: 431.1
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 28212dda53dae188cc3f296471acfdf58c442ee2b55c1a2db01c607f4f3b9054
+sha256 performance-tests.csv: 89d5197b26f462750e279004855d6fec45c18bdb421d0ada66c976802d8501ce
+sha256 properties.csv: c957725fd1ce163196cb3c8309177d129820492fd2c9e2ab2fec2e143e95cd0d
+sha256 property-replicates.csv.gz: c3338721fcd1da96c750dafe2d9fbcc917ae33c80475d8e85252f9e1b60452c0
+sha256 replicates.csv.gz: ebce6f55297a896062a2c118a24c9073f892d0fd2d744b21e007e7a8e43ad622
+sha256 summary.csv: 9ddc74a593c4e6bd78d33599c1a75b270fe069d776e7994f7eaa2f4a58aa5ecf
+
