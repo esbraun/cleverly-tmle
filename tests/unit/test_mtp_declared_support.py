@@ -284,10 +284,13 @@ def test_a_history_dependent_support_refuses_the_point_placebo_before_any_refit(
     declared = _fit(frame, "density", treatment_support=Support(0.0, law.upper)).single()
     refusal = refute_refusal(declared, estimand=contrast, tests=("placebo",))
     assert refusal is not None
-    assert "functions of the history" in refusal.message()
+    assert "functions of the covariates" in refusal.message()
     assert refusal.roadmap == "X82"
-    with pytest.raises(CapabilityError, match="functions of the history"):
+    with pytest.raises(CapabilityError, match="functions of the covariates"):
         refute(declared, estimand=contrast, tests=("placebo",), n_replicates=3)
+    for test in ("random_common_cause", "subset", "bootstrap_stability"):
+        # The refusal's alternative names the tests that run on this fit.
+        assert refute_refusal(declared, estimand=contrast, tests=(test,)) is None
     fixed = _fit(frame, "density", treatment_support=Support(-10.0, 10.0)).single()
     assert refute_refusal(fixed, estimand=contrast, tests=("placebo",)) is None
     plain = _fit(frame, "density").single()
