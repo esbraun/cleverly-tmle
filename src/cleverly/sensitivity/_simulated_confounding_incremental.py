@@ -112,7 +112,7 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
         mechanism = np.asarray(nuisance.propensity.values)
         if (
             type(state) is not IPSISet
-            or mechanism.shape != (result.data.n, 2)
+            or mechanism.shape != (result.data.n, result.data.n_arms)
             or not np.all(np.isfinite(mechanism))
             or np.any((mechanism < 0.0) | (mechanism > 1.0))
             or not nuisance.propensity.simplex

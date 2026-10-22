@@ -356,6 +356,30 @@ regimen all run. A fit that no `G42` row covers reads `experimental`, and the
 
 `tests/unit/test_structural_nested_mean.py` (W7) pins the code of each refusal.
 
+## Assessment and refutation
+
+The result declares the `structural` assessment family. `cleverly.assessment.assessment_capabilities`
+returns one row per diagnostic operation, and `result.sensitivity` returns one row per sensitivity
+operation. Each row runs, or refuses with its reason code. Each `implementation_gap` refusal names
+its roadmap item. The attribute `result.diagnostics` stays the fit's own positivity and learner
+record, so the support and nuisance rows redirect there.
+
+`cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,
+`bootstrap_stability`, and `negative_control_outcome` tests. The placebo and the negative control
+read every blip coefficient and every regimen contrast against 0. The [refutation operations](validation-methods.md#refutation-operations) page gives
+each draw, reference, and witness. The cell SN1 of the
+[longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) calibrates
+the placebo, subset and negative-control rules on the regimen contrast. Its scope is
+intercept-only blips with GLM nuisances, five folds, two nodes, and $n \ge 1000$. Outside that
+scope, every test prints its numbers with `passed=None`.
+
+The interval of this estimator has no linear-remainder exposure. Every nuisance regresses an
+observed variable on $H_t$, and the remainder $R_t$ of [the estimating
+equation](#the-estimating-equation) is a sum of products of nuisance errors. So a reading that uses
+the fit's standard error, such as `subset` or the negative control, inherits no first-order bias
+from a nuisance fitted on an estimated index. The theory admits a verdict for those two tests within
+a calibrated scope. Cell SN1 registers one such scope.
+
 ## Comparator
 
 The comparator is EconML 0.17.0 `DynamicDML`. It solves the same estimating equation with three

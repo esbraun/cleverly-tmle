@@ -484,6 +484,12 @@ A derived ratio can have a different output alias, such as `rr`.
 For a default odds-ratio source, the row keeps `estimand=None` because an explicit alias chooses the approximation.
 The returned E-value records that source in `source_estimand`.
 
+On a `TimeToEvent` fit, name two reported risks at one horizon, numerator first:
+`result.sensitivity.evalue(("risk_regimen[a1 @ t=2]", "risk_regimen[a0 @ t=2]"))`.
+Some configurations have no coverage study for their confidence limit yet. The
+[E-value reference](../technical-reference/validation-methods.md#e-value)
+lists them. Each prints its confidence-limit E-value as descriptive, and `EValue.limit_descriptive` is true.
+
 The omitted-confounding row says "at the default strengths" when you omit both strength arguments.
 It names the omitted strength when you supply only one. The effective arguments retain both numeric values.
 
@@ -664,15 +670,16 @@ not approach, can clear the refusal. The
 [learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
 lists every key.
 
-The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
-linear contrasts. The table gives each missing-outcome fit where both are unavailable.
+The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means and their
+contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away
+from $\gamma = 0$, every parameter but an arm mean or a linear contrast reports its spread under
+the `plugin_` column names, and `tipping_gamma(use_ci=True)` refuses it. The table gives each
+missing-outcome fit where both are unavailable.
 
 | fit | reason |
 | --- | --- |
-| `NaturalCourseMean()` | the natural-course target needs its own sensitivity parameter |
 | a shift fit | whether the tilted parameter is still the shift parameter has not been derived |
 | an incremental fit | its targeting also solves a score in the treatment mechanism, and no derivation covers the tilt of that fixed point |
-| a regime, MSM, or ratio-only fit | the fit reports no arm-indexed mean and no linear contrast |
 
 A per-arm outcome-adaptive `CTMLE` fit regresses its observation factor on the outcome regression
 only. Both methods read the full-covariate model `nuisance.tilt_missingness` on that fit, and no
@@ -1009,22 +1016,37 @@ source conventions for numeric covariates. It does not change the declared grid.
 
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
-check is one ordered list, and it stops at the first boundary your fit meets. Six stops wait on
-published theory: longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and
-clustered fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+check is one ordered list, and it stops at the first boundary your fit meets.
+
+Two stops wait on
+a declared law: longitudinal fits outside the time-fixed latent, and learned-rule fits. A third
+stop refuses a risk-ratio tilt fit, which no typed study request reports. Twelve provenance and shape stops read the result type, the replay estimator, the
 repeat provenance, the outcome family, the observation weights, and the identification metadata.
 The result-type stop runs second, because every later stop reads a field that only a
 point-treatment result declares.
 
-The capability row names the same stop that direct execution would raise, for all eighteen. Take a
+The capability row names the same stop that direct execution would raise, for all fifteen. Take a
 fit whose backdoor provenance is not a registered explicit adjustment set. Its row reports
 `available=False` and the reason
 `"simulated_confounding needs registered explicit-adjustment backdoor provenance"`. The
 [technical reference](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 lists the twelve stops in order. Each refusal occurs before calibration, a latent draw, or a refit.
 
-Estimated-weight replay needs the fitted weight model, target-population semantics, and a
-regeneration rule. The fitted result does not store that contract.
+A multi-arm fit swaps the two arms of one declared pair, and other arms keep their rows. A
+contrast alias such as `ate[high vs low]` declares the pair. Any other parameter needs
+`arm_pair=("high", "low")`. A vector treatment names a pair for each categorical component with
+more than two levels.
+
+A clustered fit needs `latent_level`. Pass `"row"`, `"cluster"`, or `"mixed"` with `latent_rho`.
+A treatment that is constant within every cluster accepts only `"cluster"` when a cell moves the
+treatment.
+
+Estimated observation weights stay fixed on their rows. Each cell then targets the weighted
+population of the original fit. The replay does not regenerate the weights.
+
+A categorical benchmark covariate calibrates as one block of its indicators. Name the logical
+covariate, not one indicator. Every binary calibration uses an unpenalized logistic fit. A fit that
+separates the classes reports a `nan` strength, and `summary()` counts those rows.
 
 A fixed-weight collaborative fit reruns its selector or outcome-adaptive treatment fit at each
 cell. It uses the normalized row weights in every nuisance fit, loss, penalty, targeting step, and
@@ -1033,10 +1055,29 @@ plug-in.
 The R `ctmle` and archived `ctmle3` sources provide no weighted comparator. The fixed-weight
 collaborative surface makes no numerical parity claim with those implementations.
 
-Missing-outcome replay needs a joint law for the response indicator, treatment, and outcome.
-Holding the response indicator fixed can break missing at random after treatment changes.
-Intermediate and longitudinal fits need their own ordered latent laws. Clustered fits need a
-source-backed choice among row-level, cluster-level, and mixed latent causes.
+A fit with a missing outcome or a missing treatment perturbs the recorded values only, and it
+keeps every observation indicator. Outcome-axis cells run as they are. A cell that moves the
+treatment needs `observation_reads=("W1", "W2")`, the covariates that every observation mechanism
+reads. A mechanism that reads the treatment breaks missing at random under the flip, so the
+surface refuses the treatment axis without that declaration. The report states the declaration,
+because the surface cannot verify it.
+
+A controlled direct effect holds its treatment. Each cell flips the intermediate with
+`ConfounderStrengthGrid(intermediate=(0.0, 0.2))` and moves the outcome. A nonzero treatment
+strength is refused.
+
+On a Gaussian fit whose estimator declares `q_bounds`, every outcome that a cell moves lands
+inside the bounds. The default `bounded_outcome_law="logit"` shifts the logit of the scaled outcome.
+A row at or beyond a bound never moves. `"normal_score"` shifts the normal score, maps it back
+through the empirical quantile, and clips the result to the bounds. The outcome strength is then not in outcome SD units, so compare the
+`induced_outcome_association` of each cell across fits.
+
+A longitudinal fit shares one latent value per unit across every treatment node and the outcome.
+The surface covers uncensored end-of-study panels with no time-varying covariate after the first
+node. `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW`, and `ParametricGFormula` fits
+take it. Name the estimand, such as `"ate_regimen[never vs always]"`. A one-axis grid moves every
+node, and `treatment={"A2": (0.0, 0.1)}` moves one node. Each cell reports one association per
+node. A later node's association includes the path through the earlier perturbed nodes.
 
 A combined call excludes refits and retargets by default. A row skipped for cost alone names the
 flag that would run it. A row that also needs a choice names the choice instead. Longitudinal

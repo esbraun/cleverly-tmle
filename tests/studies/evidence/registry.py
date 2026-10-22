@@ -508,6 +508,7 @@ def registered() -> tuple[StudyRecord, ...]:
     estimator configuration, and so a study module can import the framework.
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
+    from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
@@ -640,6 +641,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
@@ -649,6 +651,10 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+    )
+    from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.refuter_calibration_longitudinal import (
+        STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
@@ -728,6 +734,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
         SURVIVAL_NODE_BOUNDS,
+        ADAPTIVE_IPTW,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
@@ -742,7 +749,10 @@ def registered() -> tuple[StudyRecord, ...]:
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+        OVB_LIMIT_COVERAGE,
+        EVALUE_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
+        REFUTER_CALIBRATION_LONGITUDINAL,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

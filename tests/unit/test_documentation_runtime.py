@@ -230,6 +230,7 @@ PRELUDES: dict[str, str] = {
     "README.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
+    "docs/technical-reference/adaptive-iptw.md": "",
     "docs/technical-reference/dr-tmle/supported-estimands.md": "",
     "docs/technical-reference/longitudinal-tmle.md": "",
     "docs/technical-reference/parametric-gformula.md": "",

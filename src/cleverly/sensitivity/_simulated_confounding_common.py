@@ -36,6 +36,52 @@ def replay_error(error: ReplayError) -> CapabilityError:
     return CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
 
 
+def declares_replay(estimator: Any) -> bool:
+    """Whether the exact class of a point estimator declares a simulated-confounding replay.
+
+    The surface reads ``simulated_confounding_replay`` from the class's own namespace, so a
+    subclass that inherits the attribute without declaring it is not admitted.  The class
+    also needs a ``refit``, which every cell calls.
+
+    Parameters
+    ----------
+    estimator : Any
+        The replay estimator stored on the fitted result.
+
+    Returns
+    -------
+    bool
+        ``True`` when the class declares ``simulated_confounding_replay = True`` and the
+        estimator has a callable ``refit``.
+    """
+    return vars(type(estimator)).get("simulated_confounding_replay") is True and callable(
+        getattr(estimator, "refit", None)
+    )
+
+
+def replay_classes() -> tuple[str, ...]:
+    """Name the package's point estimator classes that declare a simulated-confounding replay.
+
+    Returns
+    -------
+    tuple of str
+        The class names in breadth-first order from ``TMLE``, for a refusal to quote.
+    """
+    from ..estimators.tmle import TMLE
+
+    found: list[str] = []
+    pending: list[type] = [TMLE]
+    while pending:
+        cls = pending.pop(0)
+        if cls.__module__.startswith("cleverly.") and vars(cls).get("simulated_confounding_replay"):
+            found.append(cls.__name__)
+        pending.extend(cls.__subclasses__())
+    return tuple(found)
+
+
+#: The axes whose functional declares its interventions.
+_INTERVENTION_AXES = frozenset({"policy", "regime", "ipsi", "learned_rule"})
+
 _AXIS_SLOTS = {
     "arm": (),
     "policy": ("policies",),
@@ -43,6 +89,7 @@ _AXIS_SLOTS = {
     "regime": ("interventions",),
     "msm": ("msm",),
     "ipsi": ("incremental",),
+    "learned_rule": ("learned_rule",),
 }
 
 
@@ -141,8 +188,14 @@ def point_study_or_refuse(result: Any, error: ReplayError) -> Any:
     return study
 
 
-def check_only_declared_axis(result: Any, key: Any, axis: str, error: ReplayError) -> None:
-    """Refuse compositions without a supported perturbation and replay law."""
+def check_only_declared_axis(
+    result: Any, key: Any, axis: str, error: ReplayError, *, intermediate: bool = False
+) -> None:
+    """Refuse compositions without a supported perturbation and replay law.
+
+    ``intermediate=True`` admits a controlled direct effect on the arm axis, whose replay
+    holds the treatment and perturbs the intermediate and the outcome (X82 part F (f)).
+    """
     functional = result.identified_effect.functional
     estimator = result.estimator
     allowed = _AXIS_SLOTS[axis]
@@ -151,9 +204,9 @@ def check_only_declared_axis(result: Any, key: Any, axis: str, error: ReplayErro
         functional.longitudinal
         or functional.axis != axis
         or functional.horizons is not None
-        or functional.intermediate is not None
-        or any(getattr(estimator, slot) for slot in slots if slot not in allowed)
-        or (bool(functional.interventions) != (axis in {"policy", "regime", "ipsi"}))
+        or (functional.intermediate is not None and not (intermediate and axis == "arm"))
+        or any(getattr(estimator, slot, None) for slot in slots if slot not in allowed)
+        or (bool(functional.interventions) != (axis in _INTERVENTION_AXES))
         or (functional.msm is not None) != (axis == "msm")
         or any(getattr(key, slot) is not None for slot in ("regimen", "cause", "horizon"))
         or (axis != "msm" and key.term is not None)

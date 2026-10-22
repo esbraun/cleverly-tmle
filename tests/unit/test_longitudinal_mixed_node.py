@@ -532,8 +532,32 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "a panel container only: from_long_panel refuses a vector node with a dose"
     ),
     ("study.py", "TimeToEvent._check_prepared"): "one baseline column",
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_calibrate"): (
+        "after the node_law rule of longitudinal_fit_refusal refuses a mixed node"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_node_kinds"): (
+        "after the node_law rule of longitudinal_fit_refusal refuses a mixed node"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_flipped_declaration"): (
+        "reads the declared known-mechanism tuple, not a node column"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_refuse_known_later_node"): (
+        "reads the declared known-mechanism tuple, not a node column"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "longitudinal_surface"): (
+        "reads the declared known-mechanism tuple, not a node column"
+    ),
     ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
+    ("validation/refute.py", "_LongitudinalGenerated.draw"): (
+        "after _held_parameter refuses a mixed node"
+    ),
+    ("validation/refute.py", "_SurvivalGenerated.draw"): (
+        "after _held_parameter refuses a mixed node"
+    ),
+    ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_future_treatment_test"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
 }
 
 
@@ -547,6 +571,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.with_treatment"): "a mixed node is refused first",
     (
         "longitudinal/estimator.py",
         "ParametricGFormula._refuse_design",
@@ -574,9 +599,17 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
         "_window_outcome_design",
     ): "a mixed node is a policy node, never a rule node",
     ("longitudinal/sequential.py", "preflight_mechanism_support"): "categorical branch",
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_refuse_node_law"): (
+        "a mixed node is refused first"
+    ),
     ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    ("validation/_markov_placebo.py", "MarkovKernel.fit"): "a mixed node is refused first",
+    ("validation/_structural_refute.py", "structural_subset_refusal"): "categorical nodes only",
+    ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
+    ("validation/refute.py", "_held_parameter"): "a mixed node is refused first",
     (
         "validation/longitudinal.py",
         "_ipsi_node_row",

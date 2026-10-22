@@ -475,6 +475,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "misspecification_control/ht_x_contrast__main_terms",
         "misspecification_control/ice_x_contrast__main_terms",
     ),
+    # The sanity phase of the longitudinal refutation study: 200 replications cannot put the
+    # 99% coverage limit above the 0.90 floor, so the truth gate is under-resolved by design.
+    # The S1 (SDR) row also reads an SE ratio of 0.927, a possible mild SE shortfall that the
+    # owner reads as a signal, not as resolution alone.
+    "X82-short-study-sanity": _keys(
+        "refuter-calibration-longitudinal",
+        "truth",
+        "cleverly-refute-longitudinal/end_of_study/ate",
+        "cleverly-refute-longitudinal/survival/ate",
+    ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
         "composite-missing-drtmle",
@@ -621,6 +631,35 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
+    # X21. The gradient-boosting mechanism of law P, declared ``reporting`` before the run
+    # (``PRE_ROUTED_GROUPS`` of the study).
+    "adaptive-iptw-flexible-learner": (
+        *_keys(
+            "adaptive-iptw",
+            "property",
+            "bias/ate__flexible",
+            "bias/ey0__flexible",
+            "bias/ey1__flexible",
+        ),
+    ),
+    # X21. The ``rate`` mechanism of law P at n = 3,000 reads 0.155 against a predicted 0.086, and
+    # the necessity family takes its other 13 rows red through the family clause.  The clustered
+    # known-mechanism cell has an SE ratio of 1.030 and a 99% interval that ends 0.002 above the band.
+    "adaptive-iptw-finite-sample": (
+        *_keys(
+            "adaptive-iptw",
+            "property",
+            "bias/ate__rate",
+            "interval_calibration/ey0__known_clustered__correctly_specified",
+            *(
+                f"targeting_necessity/{label}__{arm}"
+                for label in ("p_ate", "p_ey0", "p_ey1", "pd_d", "pd_s", "cn_ey_obs", "rm_d")
+                for arm in ("targeted", "untargeted")
+            ),
+        ),
+    ),
+    # X21. The three-arm composite cell reads -0.153 on its 400 draws and -0.011 on 4,000 fresh ones.
+    "adaptive-iptw-composite-l3": _keys("adaptive-iptw", "property", "bias/ey_low__composite_l3"),
 }
 
 

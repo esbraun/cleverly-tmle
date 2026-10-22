@@ -27,7 +27,6 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
-from cleverly._refusal import NO_ALTERNATIVE
 from cleverly.assessment import (
     POINT_REPLAY_REFIT_CONFIGURATION,
     AssessmentStatus,
@@ -43,11 +42,11 @@ from cleverly.exceptions import CapabilityError, CleverlyError, DataError, Refus
 from cleverly.methods import MethodAvailability
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import missingness as missingness_module
-from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.missingness import (
     _FIT_WIDE_TILT_RULES,
     _fit_wide_tilt_rule,
+    _tilt_target_names,
     fit_wide_tilt_refusal,
     missingness_tilt,
     tipping_gamma,
@@ -55,9 +54,6 @@ from cleverly.sensitivity.missingness import (
 from cleverly.sensitivity.omitted_variable import (
     _EVALUE_POINTER,
     _FIT_WIDE_BOUND_RULES,
-    _RESPONSE_ARM_TILT_POINTER,
-    _RESPONSE_BOUND_REFUSAL,
-    _RESPONSE_TILT_POINTER,
     OMITTED_VARIABLE_OPERATIONS,
     benchmark,
     benchmark_refusal,
@@ -74,7 +70,6 @@ from cleverly.sensitivity.positivity import (
     truncation_curve,
     truncation_refusal,
 )
-from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
 from cleverly.validation.refute import (
     _REQUEST_RULES,
     DEFAULT_TESTS,
@@ -117,17 +112,18 @@ from tests.unit._simulated_confounding_support import (
 # ----------------------------------------------------------------------------- the tilt
 
 #: The tilt rule each kind of fit meets first, or ``None`` for a fit the tilt admits.
-#: The five kinds between ``missing`` and ``natural_course`` are the ones RM23 found
-#: declining: their rows read ``available`` and both calls refused.
+#: ``shift+missing`` and ``incremental+missing`` are the kinds RM23 found declining: their
+#: rows read ``available`` and both calls refused.  The regime, MSM, ratio, attributable
+#: and natural-course kinds are admitted since X82 part G gave them a tilt.
 TILT_RULE_OF: dict[str, str | None] = {
     "missing": None,
     "shift+missing": "continuous",
     "incremental+missing": "incremental",
-    "regime+missing": "tiltable_parameters",
-    "msm+missing": "tiltable_parameters",
-    "rr+missing": "tiltable_parameters",
-    "par+missing": "tiltable_parameters",
-    "natural_course": "natural_course",
+    "regime+missing": None,
+    "msm+missing": None,
+    "rr+missing": None,
+    "par+missing": None,
+    "natural_course": None,
     "ordinary": "missing_outcome",
     # First among the fit-wide rules after the family: a learned-rule fit has no missing
     # outcome, and its row names the learned-rule reason rather than the absent mechanism.
@@ -146,6 +142,26 @@ def tilt_fits() -> dict[str, Any]:
 def _text(refusal: Refusal | None) -> str | None:
     """The sentence a refusal record prints, or ``None`` when the request runs."""
     return None if refusal is None else refusal.message()
+
+
+def _tilt_call(result: Any, operation: str) -> Callable[[], Any]:
+    """The free tilt call for ``result``, naming the estimand a bare facade call supplies.
+
+    ``tipping_gamma`` defaults to ``"ate"``.  A fit the tilt admits that reports no
+    ``"ate"`` is asked about its first tiltable name, which is the name the facade
+    substitutes when it is the only one.
+    """
+    call = TILT_CALLS[operation]
+    if operation == "tipping_gamma" and "ate" not in result.estimates:
+        names = _tilt_target_names(result)
+        if names:
+            return functools.partial(call, result, names[0])
+    return functools.partial(call, result)
+
+
+def _deferred_on_estimand(row: Any) -> bool:
+    """Whether ``row`` defers a bare request only because the fit names several estimands."""
+    return row.status is AssessmentStatus.DEFERRED and "estimand" in row.requires_arguments
 
 
 def _raised(call: Callable[[], Any]) -> str | None:
@@ -172,23 +188,20 @@ def _disagreement(label: object, row: Any, raised: str | None) -> list[str]:
 
 
 def tilt_disagreements(result: Any) -> list[str]:
-    """Every way the two tilt rows and the bound's pointer disagree with the calls.
+    """Every way the two tilt rows disagree with the calls.
 
     A fresh facade reads the rows, so a monkeypatched seam takes effect even when the
     result already memoized its own facade. An empty list is agreement.
     """
     facade = SensitivityFacade(result)
     problems = []
-    for operation, call in TILT_CALLS.items():
-        raised = _raised(functools.partial(call, result))
-        problems += _disagreement(operation, facade.capability(operation), raised)
-    bound = fit_wide_bound_refusal(result)
-    points = bound is not None and bound.alternative in {
-        _RESPONSE_TILT_POINTER.strip(),
-        _RESPONSE_ARM_TILT_POINTER.strip(),
-    }
-    if points and not facade.capability("missingness").available:
-        problems.append("the bound points at a tilt row that is not available")
+    for operation in TILT_CALLS:
+        raised = _raised(_tilt_call(result, operation))
+        row = facade.capability(operation)
+        if _deferred_on_estimand(row) and raised is None:
+            # The row asks which estimand, and the call that names one runs.
+            continue
+        problems += _disagreement(operation, row, raised)
     return problems
 
 
@@ -199,8 +212,8 @@ class TestTheTiltRowsReadTheCallsPredicate:
         """The names are the contract the rows read, so the order is pinned by name."""
         assert [name for name, _ in _FIT_WIDE_TILT_RULES] == [
             "longitudinal",
+            "adaptive_iptw",
             "learned_rule",
-            "natural_course",
             "missing_outcome",
             "continuous",
             "incremental",
@@ -230,10 +243,15 @@ class TestTheTiltRowsReadTheCallsPredicate:
     ) -> None:
         result = tilt_fits[kind]
         row = result.sensitivity.capability(operation)
-        raised = _raised(functools.partial(TILT_CALLS[operation], result))
+        raised = _raised(_tilt_call(result, operation))
         rule = TILT_RULE_OF[kind]
         if rule is None:
             # The nonzero witness: a fit the table admits runs both calls.
+            assert raised is None
+            if _deferred_on_estimand(row):
+                # Several tiltable names: the bare row asks which one.
+                assert len(_tilt_target_names(result)) > 1
+                return
             assert row.available and row.status is AssessmentStatus.PASSED
             assert row.reason is None
             assert raised is None
@@ -282,29 +300,23 @@ class TestTheTiltRowsReadTheCallsPredicate:
                 assert item.status is AssessmentStatus.UNAVAILABLE, (kind, operation)
                 assert "declined this request" not in item.detail, (kind, operation)
 
-    def test_the_natural_course_rule_keeps_its_sentence(self, tilt_fits: dict[str, Any]) -> None:
-        reason = _text(fit_wide_tilt_refusal(tilt_fits["natural_course"]))
-        assert reason is not None
-        assert reason.startswith(NATURAL_COURSE_TILT_REFUSAL)
 
+class TestTheBoundAdmitsAResponseMechanism:
+    """X82 part G lifted the response refusal, so only the parameter axis refuses here."""
 
-class TestTheBoundPointsAtTheTiltOnlyWhereItRuns:
-    """The response refusal of the bound names the tilt only where the tilt runs."""
+    def test_a_missing_outcome_fit_meets_no_fit_wide_refusal(
+        self, tilt_fits: dict[str, Any]
+    ) -> None:
+        assert fit_wide_bound_refusal(tilt_fits["missing"]) is None
 
-    def test_a_missing_outcome_fit_keeps_the_pointer(self, tilt_fits: dict[str, Any]) -> None:
-        refusal = fit_wide_bound_refusal(tilt_fits["missing"])
-        assert refusal is not None
-        assert refusal.condition == _RESPONSE_BOUND_REFUSAL
-        assert refusal.alternative == _RESPONSE_TILT_POINTER.strip()
-
-    @pytest.mark.parametrize("kind", [*DECLINED_TILT_KINDS, "natural_course"])
-    def test_a_fit_the_tilt_refuses_hears_no_pointer(
+    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
+    def test_a_fit_the_tilt_refuses_hears_its_axis(
         self, tilt_fits: dict[str, Any], kind: str
     ) -> None:
+        """Nonzero witness: the same response mechanism on another axis still refuses."""
         refusal = fit_wide_bound_refusal(tilt_fits[kind])
         assert refusal is not None
-        assert refusal.condition == _RESPONSE_BOUND_REFUSAL
-        assert refusal.alternative == NO_ALTERNATIVE
+        assert refusal == dict(_FIT_WIDE_BOUND_RULES)["parameter_axis"](tilt_fits[kind])
 
 
 class TestEachTiltMutationRestoresADisagreement:
@@ -331,27 +343,17 @@ class TestEachTiltMutationRestoresADisagreement:
         MUTATIONS["M1"].apply(monkeypatch)
         assert tilt_disagreements(tilt_fits["missing"]) == []
 
-    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
-    def test_an_unconditional_pointer_disagrees(
-        self, tilt_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The pointer as it was: printed on every response fit but the natural course."""
-        monkeypatch.setattr(omitted_variable_module, "fit_wide_tilt_refusal", lambda result: None)
-        assert tilt_disagreements(tilt_fits[kind]) == [
-            "the bound points at a tilt row that is not available"
-        ]
-
     def test_a_call_that_ignores_the_predicate_disagrees(
         self, tilt_fits: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The calls must raise from the table too, or a row quotes a sentence nobody raises.
 
         The rows read the table through ``_fit_wide_tilt_rule``, so silencing the public
-        predicate inside the module reaches the two calls alone. The regime call then falls
+        predicate inside the module reaches the two calls alone. The shift call then falls
         through to the per-request check and raises a sentence the row does not quote.
         """
         monkeypatch.setattr(missingness_module, "fit_wide_tilt_refusal", lambda result: None)
-        problems = tilt_disagreements(tilt_fits["regime+missing"])
+        problems = tilt_disagreements(tilt_fits["shift+missing"])
         assert len(problems) == 2
         assert all("the row quotes" in problem for problem in problems)
 
@@ -597,8 +599,14 @@ class TestTheRefuteRowResolvesEachRequest:
     def test_the_rule_table_is_ordered(self) -> None:
         assert [name for name, _ in _REQUEST_RULES] == [
             "estimator",
-            "learned_rule",
             "estimand",
+            "structural_tests",
+            "longitudinal_tests",
+            "placebo_mode",
+            "placebo_kernel",
+            "noise_nodes",
+            "negative_control_design",
+            "future_treatment",
             "no_effect_null",
             "row_set_under_plan",
             "generated_rule",
@@ -1491,7 +1499,7 @@ ANCHOR = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
 #: is the nonzero witness of its fit, and ``natural_course`` has none.
 CONFOUNDING_REQUESTS: dict[str, tuple[tuple[dict[str, Any], bool], ...]] = {
     "categorical": (
-        ({"benchmark_covariates": ("V",)}, False),
+        ({"benchmark_covariates": ("V",)}, True),
         ({"benchmark_covariates": ("V__small",)}, False),
         ({"benchmark_covariates": ("W",)}, True),
     ),
@@ -1507,7 +1515,13 @@ CONFOUNDING_REQUESTS: dict[str, tuple[tuple[dict[str, Any], bool], ...]] = {
 }
 
 #: The fit and the covariate of each refused calibration.
-REFUSED_COVARIATES = (("categorical", "V"), ("categorical", "V__small"), ("constant", "W4"))
+REFUSED_COVARIATES = (("categorical", "V__small"), ("constant", "W4"))
+
+#: The fragment of each refused calibration's sentence that names the refused covariate.
+REFUSED_FRAGMENTS = {
+    ("categorical", "V__small"): "'V__small' is one indicator of 'V'",
+    ("constant", "W4"): "constant covariate 'W4'",
+}
 
 
 @pytest.fixture(scope="module")
@@ -1564,7 +1578,7 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         )
         assert row.status is AssessmentStatus.UNAVAILABLE
         assert row.reason == _text(simulated_confounding_refusal(result, "ate", (name,)))
-        assert row.reason is not None and f"{kind} covariate {name!r}" in row.reason
+        assert row.reason is not None and REFUSED_FRAGMENTS[kind, name] in row.reason
         with pytest.raises(CapabilityError) as error:
             simulated_confounding(result, grid=ANCHOR, **request)
         assert type(error.value) is CapabilityError
@@ -1593,7 +1607,9 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         assert item.detail == _text(simulated_confounding_refusal(result, "ate", (name,)))
         assert DECLINED not in item.detail
 
-    @pytest.mark.parametrize(("kind", "name"), [("categorical", "W"), ("constant", "W1")])
+    @pytest.mark.parametrize(
+        ("kind", "name"), [("categorical", "W"), ("categorical", "V"), ("constant", "W1")]
+    )
     def test_a_covariate_that_calibrates_runs(
         self, confounding_fits: dict[str, Any], kind: str, name: str
     ) -> None:

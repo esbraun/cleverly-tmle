@@ -71,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
+    "NO_OUTCOME_REGRESSION",
     "NUISANCE_SELECTION_MISSING",
     "SPREAD_NOT_FINITE",
     "SPREAD_NO_PARAMETERS",
@@ -95,6 +96,9 @@ _CALIBRATION_BINS = 10
 
 #: The fit declares itself collaborative and retains no ``ctmle`` artifact to describe.
 NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact"
+
+#: The fit is an AdaptiveIPTW fit, which weights the observed outcomes and fits none.
+NO_OUTCOME_REGRESSION = "AdaptiveIPTW fits no outcome regression"
 
 #: The fit drew the cross-fitting split once, so there is no between-draw spread. Not a
 #: fault: it is the ordinary state of an ordinary fit.
@@ -415,6 +419,9 @@ class NuisanceDiagnostics:
         Machine-readable reason no split-spread row is available.
     reported_repeat : int
         One-based draw described by the nuisance models and selection artifact.
+    outcome_omission : str or None
+        The reason the fit has no outcome-regression report, or ``None`` where it has one.
+        An AdaptiveIPTW fit fits the treatment and missingness models only.
     inference : str
         The inference status the fit's estimates declare. One of
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
@@ -450,6 +457,7 @@ class NuisanceDiagnostics:
     #: Nuisance models and the selection artifact describe this draw. One is the only
     #: draw the fitted result retains method-specific extras for.
     reported_repeat: int = REPORTED_DRAW
+    outcome_omission: str | None = None
     #: Keyed on what the estimates declare rather than on :attr:`treatment_role`, which
     #: cannot tell a selector path from the outcome-adaptive one.
     inference: InferenceStatus = "influence_curve"
@@ -584,6 +592,8 @@ class NuisanceDiagnostics:
             lines.append(self.selection.describe())
         elif self.selection_omission is not None:
             lines.append(f"C-TMLE selection unavailable: {self.selection_omission}")
+        if self.outcome_omission is not None:
+            lines.append(f"outcome: not fitted ({self.outcome_omission})")
         if self.repeat_spread:
             reported = spread_name("reported se", self.inference)
             lines.extend(
@@ -937,7 +947,14 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
 
     scaled = nuisance.scaler.scale(data.outcome)
     outcome_rows = data.observed if recorded is None else data.observed & recorded
-    if data.family == "binomial":
+    from ..estimators._nuisance import UnfittedOutcome
+
+    outcome_omission = (
+        NO_OUTCOME_REGRESSION if isinstance(nuisance.outcome, UnfittedOutcome) else None
+    )
+    if outcome_omission is not None:
+        pass
+    elif data.family == "binomial":
         models.append(
             _binary_report(
                 "outcome",
@@ -983,6 +1000,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         repeat_spread=spread_rows,
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
+        outcome_omission=outcome_omission,
         inference=result.inference_status,
     )
 

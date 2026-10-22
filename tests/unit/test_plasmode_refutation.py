@@ -11,6 +11,7 @@ import pytest
 from cleverly import ATE
 from cleverly.exceptions import CapabilityError
 from cleverly.validation import DEFAULT_TESTS, GaussianAdjustmentOutcome, GaussianNoise, refute
+from cleverly.validation._point_generated import PointTarget
 from cleverly.validation._readings import EquivalenceBands, band_readings
 from cleverly.validation.refute import _PlasmodeLaw
 from tests.unit.test_generated_outcome_refutation import _linear_ate_fit
@@ -20,6 +21,8 @@ from tests.unit.test_generated_outcome_refutation import _linear_ate_fit
 PROCESS = GaussianAdjustmentOutcome(
     effect=1.0, adjustment_scale=3.0, noise=GaussianNoise(mean=0.5, standard_deviation=1.0)
 )
+
+TARGET = PointTarget("difference", "all", 1.0, 0.0)
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +48,7 @@ def _mean_readings(law: _PlasmodeLaw, data: Any, *, draws: int, hold: bool) -> A
                 + PROCESS.noise.draw(rng, n)
             )
         else:
-            y = np.asarray(law.draw(data, PROCESS, seed=seed).outcome)
+            y = np.asarray(law.draw(data, PROCESS, seed=seed, target=TARGET).outcome)
         estimates.append(float(np.mean(y)))
         errors.append(float(np.std(y, ddof=1) / np.sqrt(n)))
     # The exact truth is a finite sum over the n support points: the adjustment averages to
@@ -96,18 +99,15 @@ class TestPlasmodeRefutation:
         test = refute(result, tests=("plasmode",), n_replicates=20, random_state=2)["plasmode"]
         assert test.rung == "L1" and test.passed is None
 
-    def test_a_clustered_fit_is_refused(self, result: Any) -> None:
-        clustered = replace(
-            result, data=replace(result.data, cluster=np.arange(result.data.n) // 2)
-        )
-        with pytest.raises(CapabilityError, match="clusters"):
-            refute(clustered, tests=("plasmode",), n_replicates=20, random_state=2)
+    def test_a_weighted_fit_is_refused(self, result: Any) -> None:
+        weighted = replace(result, data=replace(result.data, weights_name="w"))
+        with pytest.raises(CapabilityError, match="weights"):
+            refute(weighted, tests=("plasmode",), n_replicates=20, random_state=2)
 
 
 class TestPlasmodeScope:
-    @pytest.mark.parametrize("levels", [(0, 1, 2), (0.0, 0.5, 1.0, 2.0)])
-    def test_more_than_two_arms_is_refused_before_any_refit(self, levels: tuple) -> None:
-        """The law draws two arms only. The generated-outcome check refuses any other."""
+    def test_a_continuous_treatment_is_refused_before_any_refit(self) -> None:
+        """The law draws arms. A continuous treatment has no arm target."""
         from types import SimpleNamespace
 
         from tests.unit.test_generated_outcome_refutation import _eligible_result
@@ -115,11 +115,10 @@ class TestPlasmodeScope:
         result = _eligible_result()
         result.data = SimpleNamespace(**vars(result.data))
         result.data.n = len(result.data.outcome)
-        result.data.treatment_levels = levels
-        result.data.is_binary_treatment = False
+        result.data.is_continuous_treatment = True
         result.data.has_missing_outcome = False
         result.data.has_intermediate = False
-        with pytest.raises(CapabilityError, match="non-binary"):
+        with pytest.raises(CapabilityError, match="continuous treatment"):
             refute(result, tests=("plasmode",), n_replicates=10)
         assert result.estimator.calls == []
 

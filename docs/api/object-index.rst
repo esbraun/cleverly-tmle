@@ -52,6 +52,7 @@ categorized API tables.
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod
+   cleverly.AdaptiveIPTWMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
    cleverly.SDRMethod
@@ -168,6 +169,10 @@ categorized API tables.
    cleverly.validation.GaussianNoise
    cleverly.validation.GaussianIndependentOutcome
    cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.BernoulliAdjustmentOutcome
+   cleverly.validation.BoundedAdjustmentOutcome
+   cleverly.validation.LogisticHazardOutcome
+   cleverly.validation.MultinomialHazardOutcome
    cleverly.validation.RelativeGaussianNoise
    cleverly.validation.BootstrapMeasurementError
    cleverly.validation.BandReading

@@ -454,7 +454,7 @@ refuses by name.
 A `summarize` row reads stored state and always runs. A `refit` row refits nuisances and runs only
 under `include_refits`. A `retarget` row retargets cached nuisances and runs under
 `include_retargets`, unless its own row declares `cost` as `cheap`. A cheap retarget runs by
-default, which is how an eligible ordinary TMLE fit reports its derived E-value without refitting a
+default, which is how an eligible TMLE, C-TMLE or DR-TMLE fit reports its derived E-value without refitting a
 nuisance model.
 
 The two flags stay separate because the two costs are disjoint. Refutation and benchmarking refit

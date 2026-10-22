@@ -1508,7 +1508,10 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> Ref
         The refusal, or ``None`` when the requested axis can be swept.
     """
     from ..estimators.drtmle import DRTMLE
+    from ..estimators.iptw import OPERATION_REFUSALS
 
+    if getattr(result, "fitted_method", None) == "adaptive_iptw":
+        return OPERATION_REFUSALS["truncation_curve"]
     if refits_reduced_regressions(result) and isinstance(result.estimator, DRTMLE):
         settings = result.estimator._reduction_configuration_refusal(
             result.extra.get("drtmle"), result.nuisance

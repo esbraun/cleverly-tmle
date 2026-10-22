@@ -109,6 +109,7 @@ survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-one-inconsistent-nuisance
+adaptive-iptw
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean
@@ -118,7 +119,10 @@ repeated-outcome-ipsi
 repeated-outcome-sdr
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
+ovb-limit-coverage
+evalue-limit-coverage
 calibration-slope-warning
+refuter-calibration-longitudinal
 default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts
 ```

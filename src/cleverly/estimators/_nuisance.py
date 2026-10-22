@@ -64,15 +64,18 @@ if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes 
 __all__ = [
     "CompanionEstimates",
     "DrawInference",
+    "FoldMechanisms",
     "InnerDesigns",
     "KnownPropensity",
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
     "Truncation",
+    "UnfittedOutcome",
     "UnfittedPropensity",
     "cross_fit_companion",
     "cross_fit_predictions",
+    "fit_fold_mechanisms",
     "fit_inner_designs",
     "fit_nuisances",
     "fit_on_rows",
@@ -326,6 +329,48 @@ class UnfittedPropensity(Propensity):
         raise self._unfitted()
 
 
+class UnfittedOutcome(InitialFit):
+    """The ``fit_outcome=False`` value: an outcome regression that was never fitted.
+
+    :func:`fit_nuisances` returns the ordinary container even when it skipped the outcome
+    model, because the treatment and missingness fits travel in it.  Every read of the
+    regression raises :class:`~cleverly.exceptions.CapabilityError`, so no consumer can
+    use a placeholder array as a prediction.  :class:`~cleverly.estimators.iptw.AdaptiveIPTW`
+    is the only estimator that builds it.
+    """
+
+    def __init__(self) -> None:  # numpydoc ignore=GL08
+        # No arrays: the frozen dataclass initialiser would assign them.
+        pass
+
+    @staticmethod
+    def _unfitted() -> CapabilityError:
+        return CapabilityError(
+            "this fit has no outcome regression: AdaptiveIPTW weights the observed outcomes "
+            "and fits only the treatment mechanism and the reduced regression of the outcome "
+            "on it",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Fit tmle or drtmle for an outcome regression.",
+        )
+
+    @property
+    def observed(self) -> FloatArray:
+        raise self._unfitted()
+
+    @property
+    def arms(self) -> dict[float, FloatArray]:
+        raise self._unfitted()
+
+    def __repr__(self) -> str:
+        return "UnfittedOutcome()"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, UnfittedOutcome)
+
+    def __hash__(self) -> int:
+        return hash(UnfittedOutcome)
+
+
 @dataclass(frozen=True)
 class InnerDesigns:
     r"""One fold-free copy of the primary nuisances per outer fold: **leave two folds out**.
@@ -457,6 +502,34 @@ class CompanionEstimates:
         """
         sizes = np.asarray(self.fold_sizes, dtype=float)
         return sizes / float(sizes.sum())
+
+
+@dataclass(frozen=True)
+class FoldMechanisms:
+    r"""Leave-two-folds-out mechanisms, one full-length slab entry per outer fold.
+
+    Entry ``k`` holds, at row ``j`` in fold ``m != k``, the prediction of a model fitted on
+    ``assignment`` outside ``{k, m}``, and at fold ``k``'s own rows a refit of the production
+    model ``g^{(-k)}``, which ``_solve_key`` replaces with the production array.  So entry
+    ``k`` at a training row of fold ``k`` never saw fold ``k`` and never saw that row, which is
+    the property the fold-wise reduced regression of :class:`~cleverly.AdaptiveIPTW` needs.
+    The layout is :class:`InnerDesigns`', for the mechanisms the fold-wise construction reads:
+    the treatment mechanism, the treatment observation mechanism and the outcome observation
+    mechanism.  Built by :func:`fit_fold_mechanisms`.
+
+    Parameters
+    ----------
+    propensity : ndarray or None
+        ``(K, n, C)``, untruncated, or ``None`` when no treatment mechanism was fitted.
+    treatment_observation : ndarray or None
+        ``(K, n)``, ``P(Delta_A = 1 | W)``, or ``None``.
+    missingness : ndarray or None
+        ``(K, n, C')``, the outcome observation mechanism, or ``None``.
+    """
+
+    propensity: FloatArray | None = None
+    treatment_observation: FloatArray | None = None
+    missingness: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -605,6 +678,33 @@ class NuisanceEstimates:
     #: :func:`fit_nuisances`'s ``probe_doses``: the boundary and the last moved dose of a
     #: population-target tuned cap (X40 part (e2)).  Empty on every other fit.
     outcome_probes: dict[str, FloatArray] = field(default_factory=dict)
+    #: Leave-two-folds-out mechanisms, or ``None`` for every fit that did not ask for them --
+    #: which is every fit but a cross-fitted :class:`~cleverly.AdaptiveIPTW`.  See
+    #: :class:`FoldMechanisms` and :meth:`at_fold`.
+    fold_mechanisms: FoldMechanisms | None = None
+
+    def at_fold(self, fold: int) -> NuisanceEstimates:
+        """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
+
+        A construction that composes the mechanism factors (the composite mechanism, the
+        response probability at the realised arm) then reads fold ``fold``'s leave-two-out
+        design at every row.  Raises when the fit kept no :attr:`fold_mechanisms`.
+        """
+        slab = self.fold_mechanisms
+        if slab is None:
+            raise ValueError("this fit kept no fold mechanisms; see fit_fold_mechanisms")
+        changes: dict[str, Any] = {"fold_mechanisms": None}
+        if slab.propensity is not None:
+            changes["propensity"] = type(self.propensity)(
+                np.asarray(slab.propensity[fold], dtype=float), self.propensity.arms
+            )
+        if slab.treatment_observation is not None:
+            changes["treatment_observation"] = np.asarray(
+                slab.treatment_observation[fold], dtype=float
+            )
+        if slab.missingness is not None:
+            changes["missingness"] = np.asarray(slab.missingness[fold], dtype=float)
+        return replace(self, **changes)
 
     def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
         """The same nuisances with every tilt re-evaluated at the ``(n, K)`` ``mechanism``.
@@ -1748,6 +1848,7 @@ def fit_nuisances(
     policy_by_fold: Sequence[Sequence[Policy]] | None = None,
     probe_doses: Mapping[str, FloatArray] | None = None,
     outcome_by_arm: bool = False,
+    fit_outcome: bool = True,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1769,6 +1870,12 @@ def fit_nuisances(
     target. It is intentionally internal: the returned propensity is an
     :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise. A
     collaborative caller must replace it; a natural-course caller must avoid it.
+
+    ``fit_outcome=False`` is the outcome-free path of :class:`~cleverly.estimators.iptw.
+    AdaptiveIPTW`, which weights the observed outcomes and fits only the treatment mechanism
+    and the missingness models. No outcome learner runs, and
+    :attr:`NuisanceEstimates.outcome` is an :class:`UnfittedOutcome`, whose accessors raise.
+    The default runs the outcome regression exactly as before.
 
     ``fit_treatment_observation=False`` skips the full-covariate treatment observation
     model on a fit with a missing treatment, and leaves
@@ -2120,128 +2227,142 @@ def fit_nuisances(
             diagnostics["intermediate"] = intermediate_diagnostics
 
     # --- outcome regression --------------------------------------------------
-    if data.has_intermediate and intermediate_value is None:
-        raise ValueError("intermediate_value is required when the data carries an intermediate")
-    include_z = data.has_intermediate
-    outcome_design = data.treatment_design(include_intermediate=include_z, missing_as=fill)
-    scaled = scaler.scale(data.outcome)
     outcome_task: Task = "classification" if data.family == "binomial" else "regression"
-
-    # Every requested level of the intermediate in one pass over the folds. The
-    # outcome *model* does not depend on the level -- its design uses the observed Z --
-    # so the levels differ only in which counterfactual design it is predicted onto,
-    # which is exactly what predict_designs is for. Fitting them separately refits all
-    # four nuisance models to obtain two extra prediction vectors.
-    levels = _requested_levels(intermediate_value, extra_levels)
-
-    # What the counterfactual predictions are keyed by, and what treatment value each
-    # one sets. An arm fit sets one level for everybody; a shift fit sets a *different*
-    # dose per row, which is what makes a modified treatment policy modified -- so the
-    # value here is an (n,) array rather than a scalar, and the keys are shift codes.
-    counterfactual: dict[float, float | FloatArray]
-    if msm is not None and msm.continuous:
-        counterfactual = {
-            code: float(dose) for code, dose in zip(msm.arms, msm.dose_values, strict=True)
-        }
-    elif policy_set is None:
-        counterfactual = {arm: arm for arm in arms}
-    else:
-        counterfactual = {
-            code: policy_set.shifted[:, index]
-            for index, code in enumerate(policy_set.component_keys)
-        }
-
-    designs: dict[str, FloatArray] = {"observed": outcome_design}
+    primary: InitialFit
+    by_level: dict[float, InitialFit]
+    outcome_out: dict[str, FloatArray]
     probes = dict(probe_doses or {})
-    for key, doses in probes.items():
-        designs[f"probe:{key}"] = data.counterfactual_design(
-            np.asarray(doses, dtype=float), intermediate_value=levels[0]
-        )
-    for level in levels:
-        for code, value in counterfactual.items():
-            designs[_design_key(code, level)] = data.counterfactual_design(
-                value, intermediate_value=level
+    companion_estimates: CompanionEstimates | None = None
+    if not fit_outcome:
+        # The outcome-free path of an estimator that weights the observed outcomes
+        # (`AdaptiveIPTW`): no outcome learner runs, and every outcome accessor raises.
+        primary = UnfittedOutcome()
+        by_level = {}
+        outcome_out = {}
+    else:
+        if data.has_intermediate and intermediate_value is None:
+            raise ValueError("intermediate_value is required when the data carries an intermediate")
+        include_z = data.has_intermediate
+        outcome_design = data.treatment_design(include_intermediate=include_z, missing_as=fill)
+        scaled = scaler.scale(data.outcome)
+
+        # Every requested level of the intermediate in one pass over the folds. The
+        # outcome *model* does not depend on the level -- its design uses the observed Z --
+        # so the levels differ only in which counterfactual design it is predicted onto,
+        # which is exactly what predict_designs is for. Fitting them separately refits all
+        # four nuisance models to obtain two extra prediction vectors.
+        levels = _requested_levels(intermediate_value, extra_levels)
+
+        # What the counterfactual predictions are keyed by, and what treatment value each
+        # one sets. An arm fit sets one level for everybody; a shift fit sets a *different*
+        # dose per row, which is what makes a modified treatment policy modified -- so the
+        # value here is an (n,) array rather than a scalar, and the keys are shift codes.
+        counterfactual: dict[float, float | FloatArray]
+        if msm is not None and msm.continuous:
+            counterfactual = {
+                code: float(dose) for code, dose in zip(msm.arms, msm.dose_values, strict=True)
+            }
+        elif policy_set is None:
+            counterfactual = {arm: arm for arm in arms}
+        else:
+            counterfactual = {
+                code: policy_set.shifted[:, index]
+                for index, code in enumerate(policy_set.component_keys)
+            }
+
+        designs: dict[str, FloatArray] = {"observed": outcome_design}
+        for key, doses in probes.items():
+            designs[f"probe:{key}"] = data.counterfactual_design(
+                np.asarray(doses, dtype=float), intermediate_value=levels[0]
             )
-
-    companion_designs: dict[str, FloatArray] = {}
-    if companion is not None:
-        companion_designs = {"observed": companion.treatment_design()}
-        for arm in arms:
-            companion_designs[_design_key(arm, levels[0])] = companion.counterfactual_design(arm)
-
-    outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
-    if outcome_by_arm:
-        # One learner per arm; the designs above keep the treatment column and go unused.
-        by_arm_queries = {"observed": ArmQuery(_arm_codes_by_row(data, data.treatment))}
         for level in levels:
             for code, value in counterfactual.items():
-                by_arm_queries[_design_key(code, level)] = ArmQuery(value, level)
-        by_arm_companion: dict[str, ArmQuery] = {}
-        if companion is not None:
-            by_arm_companion = {
-                "observed": ArmQuery(_arm_codes_by_row(companion, companion.treatment))
-            }
-            for arm in arms:
-                by_arm_companion[_design_key(arm, levels[0])] = ArmQuery(arm)
-        outcome_out, outcome_companion, outcome_diagnostics = _fit_outcome_by_arm(
-            outcome_learner,
-            data,
-            scaled,
-            folds,
-            task=outcome_task,
-            queries=by_arm_queries,
-            fit_mask=outcome_fit_mask,
-            companion=companion,
-            companion_queries=by_arm_companion,
-            n_jobs=n_jobs,
-        )
-    else:
-        outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
-            outcome_learner,
-            outcome_design,
-            scaled,
-            data.weights,
-            folds,
-            task=outcome_task,
-            predict_designs=designs,
-            companion_designs=companion_designs,
-            fit_mask=outcome_fit_mask,
-            groups=groups,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
-    if outcome_diagnostics:
-        diagnostics["outcome"] = outcome_diagnostics
-
-    by_level = {
-        level: InitialFit(
-            outcome_out["observed"],
-            {code: outcome_out[_design_key(code, level)] for code in counterfactual},
-        )
-        for level in levels
-    }
-    primary = by_level[levels[0]]
-
-    companion_estimates = None
-    if companion is not None:
-        counts = np.bincount(np.asarray(folds.assignment), minlength=folds.n_folds)
-        companion_estimates = CompanionEstimates(
-            data=companion,
-            outcome=tuple(
-                InitialFit(
-                    outcome_companion["observed"][fold],
-                    {
-                        arm: outcome_companion[_design_key(arm, levels[0])][fold]
-                        for arm in counterfactual
-                    },
+                designs[_design_key(code, level)] = data.counterfactual_design(
+                    value, intermediate_value=level
                 )
-                for fold in range(folds.n_folds)
-            ),
-            propensity=tuple(
-                Propensity(propensity_companion["g"][fold], arms) for fold in range(folds.n_folds)
-            ),
-            fold_sizes=tuple(int(count) for count in counts),
-        )
+
+        companion_designs: dict[str, FloatArray] = {}
+        if companion is not None:
+            companion_designs = {"observed": companion.treatment_design()}
+            for arm in arms:
+                companion_designs[_design_key(arm, levels[0])] = companion.counterfactual_design(
+                    arm
+                )
+
+        outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
+        if outcome_by_arm:
+            # One learner per arm; the designs above keep the treatment column and go unused.
+            by_arm_queries = {"observed": ArmQuery(_arm_codes_by_row(data, data.treatment))}
+            for level in levels:
+                for code, value in counterfactual.items():
+                    by_arm_queries[_design_key(code, level)] = ArmQuery(value, level)
+            by_arm_companion: dict[str, ArmQuery] = {}
+            if companion is not None:
+                by_arm_companion = {
+                    "observed": ArmQuery(_arm_codes_by_row(companion, companion.treatment))
+                }
+                for arm in arms:
+                    by_arm_companion[_design_key(arm, levels[0])] = ArmQuery(arm)
+            outcome_out, outcome_companion, outcome_diagnostics = _fit_outcome_by_arm(
+                outcome_learner,
+                data,
+                scaled,
+                folds,
+                task=outcome_task,
+                queries=by_arm_queries,
+                fit_mask=outcome_fit_mask,
+                companion=companion,
+                companion_queries=by_arm_companion,
+                n_jobs=n_jobs,
+            )
+        else:
+            outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
+                outcome_learner,
+                outcome_design,
+                scaled,
+                data.weights,
+                folds,
+                task=outcome_task,
+                predict_designs=designs,
+                companion_designs=companion_designs,
+                fit_mask=outcome_fit_mask,
+                groups=groups,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
+        if outcome_diagnostics:
+            diagnostics["outcome"] = outcome_diagnostics
+
+        by_level = {
+            level: InitialFit(
+                outcome_out["observed"],
+                {code: outcome_out[_design_key(code, level)] for code in counterfactual},
+            )
+            for level in levels
+        }
+        primary = by_level[levels[0]]
+
+        companion_estimates = None
+        if companion is not None:
+            counts = np.bincount(np.asarray(folds.assignment), minlength=folds.n_folds)
+            companion_estimates = CompanionEstimates(
+                data=companion,
+                outcome=tuple(
+                    InitialFit(
+                        outcome_companion["observed"][fold],
+                        {
+                            arm: outcome_companion[_design_key(arm, levels[0])][fold]
+                            for arm in counterfactual
+                        },
+                    )
+                    for fold in range(folds.n_folds)
+                ),
+                propensity=tuple(
+                    Propensity(propensity_companion["g"][fold], arms)
+                    for fold in range(folds.n_folds)
+                ),
+                fold_sizes=tuple(int(count) for count in counts),
+            )
 
     return NuisanceEstimates(
         propensity=propensity,
@@ -2436,6 +2557,146 @@ def fit_inner_designs(
             InitialFit(regression["observed"], {arm: regression[f"arm{arm}"] for arm in arms})
         )
     return InnerDesigns(outcome=tuple(outcomes), propensity=tuple(propensities))
+
+
+def fit_fold_mechanisms(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    *,
+    treatment_learner: Learner | None,
+    missingness_learner: Learner | None,
+    n_jobs: int = 1,
+) -> FoldMechanisms:
+    r"""Refit each mechanism once per outer fold ``k``, leaving fold ``k`` out as well.
+
+    The construction of :func:`fit_inner_designs`, for the mechanisms rather than for the
+    treatment mechanism and the outcome regression: passing ``fit_mask`` without fold
+    ``k``'s rows makes fold ``m``'s model train on ``train(m) ∩ complement(k)``, which is
+    leave-two-folds-out, and fold ``k``'s own model is a refit of the production one,
+    which :func:`~cleverly.estimators.reduced._foldwise_column` never reads.  Entry ``k`` of
+    each slab is then the design that fold ``k``'s reduced regression trains on: at a row
+    of fold ``m != k`` it comes from a model that saw neither fold ``k`` nor that row.
+
+    Why not fold ``k``'s production model evaluated at its own training rows: for an
+    adaptive learner those are in-sample predictions, and fold ``k``'s rows are evaluated
+    out of sample, so the regression would train and predict at two designs that differ in
+    distribution (the covariate shift :func:`~cleverly.estimators.reduced.fit_reduced`
+    rejects per-outer-fold designs for).
+
+    A declared known treatment mechanism is not refitted, as in :func:`fit_inner_designs`.
+    ``treatment_learner=None`` skips the treatment mechanism (the natural-course key reads
+    none).  A mechanism the fit did not estimate gets no slab.
+
+    **Cost is ``K`` times the mechanism fitting**: ``K (K - 1)`` further models of each
+    estimated mechanism, paid once at the initial fit.  The targeting loop tilts the slabs
+    and refits no mechanism.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, not a composite view.
+    nuisance : NuisanceEstimates
+        The production nuisances; its split and arms are reused.
+    treatment_learner : Learner or None
+        The resolved treatment learner, or ``None``.
+    missingness_learner : Learner or None
+        The resolved observation learner, or ``None``.
+    n_jobs : int
+        Parallel jobs per fold loop.
+
+    Returns
+    -------
+    FoldMechanisms
+        The leave-two-folds-out slabs.
+    """
+    folds = nuisance.folds
+    if folds.is_single:
+        raise ValueError("leave-two-folds-out mechanisms need an outer split")
+    if folds.n_folds < 3:
+        raise ValueError(
+            "leave-two-folds-out mechanisms leave two folds out at a time, so they need at "
+            f"least three folds; this fit has {folds.n_folds}"
+        )
+    arms = nuisance.arms
+    assignment = np.asarray(folds.assignment)
+    groups = data.cluster
+    recorded = data.treatment_recorded if data.has_missing_treatment else None
+    fill = data.arm_codes[0] if recorded is not None else None
+    eligible = np.ones(data.n, dtype=bool) if recorded is None else np.asarray(recorded, bool)
+    estimated_treatment = (
+        treatment_learner is not None
+        and nuisance.fits_treatment
+        and not isinstance(nuisance.propensity, KnownPropensity)
+    )
+    propensity: list[FloatArray] = []
+    observation: list[FloatArray] = []
+    missingness: list[FloatArray] = []
+    for fold in range(folds.n_folds):
+        without = assignment != fold
+        if estimated_treatment:
+            assert treatment_learner is not None
+            mechanism, _ = cross_fit_predictions(
+                treatment_learner,
+                data.mechanism_covariates,
+                data.treatment,
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs={"g": data.mechanism_covariates},
+                fit_mask=eligible & without,
+                groups=groups,
+                clip=(0.0, 1.0),
+                classes=arms,
+                n_jobs=n_jobs,
+            )
+            propensity.append(mechanism["g"])
+        if nuisance.treatment_observation is not None:
+            assert missingness_learner is not None and recorded is not None
+            seen, _ = cross_fit_predictions(
+                missingness_learner,
+                data.covariates,
+                np.asarray(recorded, dtype=float),
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs={"pi_a": data.covariates},
+                fit_mask=without,
+                groups=groups,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
+            observation.append(seen["pi_a"])
+        if nuisance.missingness is not None:
+            assert missingness_learner is not None
+            design = (
+                data.missingness_design()
+                if fill is None
+                else data.treatment_design(missing_as=fill)
+            )
+            response, _ = cross_fit_predictions(
+                missingness_learner,
+                design,
+                data.observed.astype(float),
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs=_mechanism_designs(data, arms, None, design),
+                fit_mask=eligible & without,
+                groups=groups,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
+            missingness.append(_mechanism_columns(response, arms, None))
+    known = (
+        np.stack([nuisance.propensity.values] * folds.n_folds)
+        if isinstance(nuisance.propensity, KnownPropensity)
+        else None
+    )
+    return FoldMechanisms(
+        propensity=np.stack(propensity) if propensity else known,
+        treatment_observation=np.stack(observation) if observation else None,
+        missingness=np.stack(missingness) if missingness else None,
+    )
 
 
 def _retained_covariates(

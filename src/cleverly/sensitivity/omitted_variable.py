@@ -66,20 +66,39 @@ per contrast, because :math:`\nu^2` is the second moment of *that contrast's* Ri
 representer.  Ratios are not linear functionals of the outcome regression, so use
 :mod:`cleverly.sensitivity.evalue` for those.
 
+Second mechanisms and strata (X82 part G).  A fit with a response mechanism, a declared
+missing treatment, or an intermediate variable at a level ``z`` has a representer that also
+divides by that mechanism: :math:`\Delta 1\{A = a\} / (g_a \pi_a)`, the composite
+:math:`C_a / g_{c,a}`, or the controlled-direct-effect covariate with :math:`1\{Z = z\}`.
+The functional is linear in the regression on the rows the representer reads, so
+Theorem 2 of Chernozhukov et al. covers it.  :math:`\sigma^2` is then the mean over every
+row of the residual masked to those rows, and ``cf_d`` measures a joint strength over the
+treatment mechanism and the second one.  A stratum-conditional parameter restricts the
+representer to the stratum and divides by its share, as the ATT divides by the share of its
+arm, and the curve of ``nu^2`` carries the influence of that share.  The confidence limits
+of these configurations resolve through the ``ovb_limit`` rows of
+:mod:`cleverly.validation._interpretation`.  The ``ovb-limit-coverage`` study registers a
+row for each single-feature rule on its measured configuration, and every other fit prints
+its limits as descriptive.
+
+Repeated cross-fitting (X82 part G).  A fit with ``repeats`` above one has one bound per
+draw.  The reported bounds are the medians of the draws' bounds, and each one-sided limit
+combines the draws' limits by the median rule of the estimate.  Each draw is retargeted from
+its own nuisances for its influence curve.  :func:`sensitivity_elements` describes one draw,
+named with ``repeat``.
+
 Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for five
 reasons.
 
 * A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
   Lemma 3 of Chernozhukov et al. and the standard error of their Theorem 4 assume a
   consistently estimated treatment mechanism.
-* A fit with a response mechanism, a fit with an intermediate variable, and a fit indexed
-  by a regime, a shift, or an MSM term are well posed.  Theorem 2 of Chernozhukov et al.
-  covers each one as a linear functional of the outcome regression, and no implementation
-  is registered.
+* A fit indexed by a regime, a shift, or an MSM term is well posed.  Theorem 2 of
+  Chernozhukov et al. covers each one as a linear functional of the outcome regression,
+  and no implementation is registered.
 * An ``ipsi`` fit is outside that theorem, because its estimand contains the treatment
   mechanism.
-* A longitudinal fit has no registered derivation, and a median-combined repeated fit has
-  no influence function for the median bound.
+* A longitudinal fit has no registered derivation.
 * An arm-indexed fit that reports no counterfactual mean and no linear contrast has no
   parameter to bound.  A ratio-only fit, a population attributable risk or fraction, and
   a complete-outcome natural-course mean are such fits.
@@ -94,7 +113,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, ParamSpec
+from typing import TYPE_CHECKING, Any, ParamSpec, cast
 
 import numpy as np
 from scipy import optimize
@@ -104,30 +123,33 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
+from ..estimators.composite import composite_state
 from ..estimators.ctmle import CTMLEDerivativeFit, CTMLESelection, declares_no_selection
-from ..estimators.direct_effect import declares_intermediate
+from ..estimators.direct_effect import declares_intermediate, targeted_rows
+from ..estimators.iptw import OPERATION_REFUSALS
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
+from ..exceptions import CapabilityError, DataError, refuse_inference
 from ..inference.cluster import influence_variance
 from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
 from ..interventions.learned import LEARNED_RULE_BOUND_REFUSAL
 from ..targets import parameter_stem
-from ..targets.population_intervention import natural_course_names, reads_natural_course_mean
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from ._mechanism_stack import (
     MechanismRefusal,
+    configuration_refusal,
     correction_refusal,
     plugin_mechanism_term,
 )
-from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
-from .missingness import fit_wide_tilt_refusal
+from ._parameters import ArmParameter, reported_arm_parameters, stratum_parameter
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..estimators._nuisance import RepeatFit
+    from ..data.causal_data import CausalData
+    from ..estimators._nuisance import NuisanceEstimates, RepeatFit
     from ..estimators.base import TMLEResult
+    from ..validation._interpretation import Resolution
 
 __all__ = [
     "BenchmarkResult",
@@ -146,6 +168,20 @@ __all__ = [
 #: representer of its own.  :func:`~cleverly.sensitivity._parameters.arm_parameters` is
 #: what turns a fit's arms into the names these stems produce.
 LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", "atc"})
+
+#: The stems of the regime, shift and MSM axes the bound covers (X82 part G).  Each is a
+#: linear functional of the outcome regression with a known Riesz representer, read off
+#: the fit's own clever covariate.  :func:`axis_parameters` turns a fit's codes into names.
+AXIS_ESTIMANDS: frozenset[str] = frozenset(
+    {"ey_regime", "ate_regime", "ey_policy", "ate_policy", "msm"}
+)
+
+#: The fluctuation group, and the part G feature, of each covered axis.
+_AXIS_GROUPS: dict[str, tuple[str, str]] = {
+    "regime": ("regime", "regime"),
+    "policy": ("mtp", "shift"),
+    "msm": ("msm", "msm"),
+}
 
 #: The two ratio scales an E-value answers for, and the pointer a refusal appends when a
 #: request or a fit names one.  Offered for anything else, such as an attributable
@@ -177,10 +213,7 @@ OMITTED_VARIABLE_OPERATIONS: tuple[str, ...] = tuple(
 #: purpose: an incremental intervention is refused for a different reason, and
 #: :func:`_refuse_non_arm_axis` states it separately.
 _AXIS_NOUNS: dict[str, str] = {
-    "regime": "A regime mean",
-    "policy": "A modified-policy mean",
     "rr_tilt": "A risk-ratio tilt mean",
-    "msm": "A point-treatment MSM coefficient",
 }
 
 #: The longitudinal stop. ``tests/unit/test_assessment_contract.py`` matches the declared
@@ -210,7 +243,11 @@ _DRTMLE_BOUND_REFUSAL = Refusal(
     "the fitted representer, by the Riesz identity, so it falls exactly where the fitted "
     "mechanism is wrong, which is the case DR-TMLE guards against. The bound would be too "
     "narrow and the robustness value too large. " + _NO_NU2_DERIVATION,
-    alternative="Fit the ordinary TMLE on the same data for the bound.",
+    alternative=(
+        "Pass assume_consistent_mechanism=True for a point bound that assumes a consistent "
+        "treatment mechanism, or fit the ordinary TMLE on the same data for the bound and "
+        "its limits."
+    ),
     roadmap="X82",
 )
 
@@ -225,7 +262,11 @@ _CTMLE_BOUND_REFUSAL = Refusal(
     "while sigma^2 still comes from a regression on every "
     "declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, "
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION,
-    alternative="Fit the ordinary TMLE on the same data for the bound.",
+    alternative=(
+        "Pass assume_consistent_mechanism=True for a point bound that assumes a consistent "
+        "treatment mechanism, or fit the ordinary TMLE on the same data for the bound and "
+        "its limits."
+    ),
     roadmap="X82",
 )
 
@@ -242,13 +283,6 @@ _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL = Refusal(
     alternative="Fit the ordinary TMLE (TMLE, or TMLEMethod) on the same data for the bound.",
 )
 
-#: The clause the two well-posed mechanism refusals share: each functional is linear in
-#: an outcome regression, which is the hypothesis of the general bound.
-_THEOREM_2_COVERS = (
-    "so Theorem 2 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) covers it, "
-    "and the bound is well posed here."
-)
-
 _ZERO_BIAS_LIMITS_REFUSAL = (
     "max_bias is zero: sqrt(sigma^2 nu^2) has no ordinary influence curve at "
     "sigma^2 = 0, so the one-sided limits and confidence-limit robustness value "
@@ -256,55 +290,6 @@ _ZERO_BIAS_LIMITS_REFUSAL = (
 )
 
 _UNREACHABLE_RV = "no equal strength reaches the null"
-
-
-_RESPONSE_BOUND_REFUSAL = (
-    "the omitted-variable bound is not implemented for a fit with a response mechanism. "
-    "The identified mean is a linear functional of the regression of Delta Y on "
-    "(A, Delta, W), " + _THEOREM_2_COVERS + " Three pieces are missing. The implemented "
-    "representer omits the response indicator Delta. sigma^2 averages the respondents, "
-    "and the theorem needs E[Delta (Y - Qbar)^2] over every row. cf_d would measure a "
-    "joint strength over the treatment and response mechanisms, and this package reports "
-    "it as a treatment-side strength."
-)
-
-_INTERMEDIATE_BOUND_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "the omitted-variable bound is not implemented for a fit with an intermediate "
-    "variable. Each estimand at the fixed level z is a linear functional of the "
-    "regression of Y on (A, Z, W), " + _THEOREM_2_COVERS + " The representer carries the "
-    "intermediate weight 1{Z = z} / P(Z = z | A, W), so cf_d would measure a joint "
-    "strength over the treatment and intermediate mechanisms. This package reports cf_d "
-    "and the robustness value as a treatment-side strength.",
-    alternative=NO_ALTERNATIVE,
-    roadmap="X82",
-)
-
-#: Why the median of several fold draws has no bound, in the words
-#: :func:`~cleverly.exceptions.repeats_refusal` completes.
-_REPEATS_REASON = (
-    "A coordinatewise median of the bound's influence terms would not be the influence "
-    "function of the median bound."
-)
-
-#: Appended to the response refusal on a fit that can still run the tilt.  A
-#: natural-course, shift, incremental, regime, MSM, or ratio-only fit cannot: both tilt
-#: rows are unavailable there
-#: (:func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal`), so the pointer would
-#: send the reader to a second refusal.
-_RESPONSE_TILT_POINTER = (
-    " The missingness tilt remains the sensitivity analysis for response: call "
-    "sensitivity.missingness() or sensitivity.tipping_gamma()."
-)
-
-#: The pointer on a fit that also reports a target read from the natural-course mean.
-#: The tilt covers the arm means only, so the pointer says so rather than sending a PAR
-#: or PAF request to a tilt that refuses it.
-_RESPONSE_ARM_TILT_POINTER = (
-    " The missingness tilt remains the sensitivity analysis for response on this fit's "
-    "arm means, and not on a target read from the natural-course mean: call "
-    "sensitivity.missingness() or sensitivity.tipping_gamma() and name the arm means."
-)
 
 
 def _refuse_longitudinal(result: Any) -> Refusal | None:
@@ -323,6 +308,13 @@ def _refuse_guarded_mechanism(result: Any) -> Refusal | None:
     """Refuse a DR-TMLE fit, whose estimator does not assume a consistent mechanism."""
     if result.fitted_method == "drtmle":
         return _DRTMLE_BOUND_REFUSAL
+    return None
+
+
+def _refuse_adaptive_iptw(result: Any) -> Refusal | None:
+    """Refuse an AdaptiveIPTW fit, which has no outcome regression to take a residual from."""
+    if result.fitted_method == "adaptive_iptw":
+        return OPERATION_REFUSALS["omitted_variable"]
     return None
 
 
@@ -351,70 +343,6 @@ def _refuse_selected_mechanism(result: Any) -> Refusal | None:
     ):
         return _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
     return _CTMLE_BOUND_REFUSAL
-
-
-def _refuse_response_mechanism(result: Any) -> Refusal | None:
-    """Refuse a fit whose outcome is unobserved on some rows.
-
-    The predicate is the data flag ``has_missing_outcome``, which the missingness-tilt
-    table reads too, so every fit those rows offer the tilt on is a fit this rule refuses.
-    It reads the data rather than a fitted missingness nuisance on one repeat, because a
-    response mechanism is a property of the identified functional and survives a
-    replacement of the stored nuisances.  The sibling surface
-    :mod:`~cleverly.sensitivity._simulated_confounding_request` reads the same flag for
-    the same boundary.  ``result.data`` has no default here, so a result without
-    point-treatment data raises ``AttributeError`` rather than reporting no mechanism.
-
-    The sentence points at the tilt only when
-    :func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal` admits the fit, which
-    is the predicate both tilt rows read.  Any narrower test, such as a natural-course
-    check alone, would send a shift or a regime fit to a tilt that refuses.
-    """
-    if not result.data.has_missing_outcome:
-        return None
-    if fit_wide_tilt_refusal(result) is not None:
-        pointer = ""
-    elif reads_natural_course_mean(result):
-        pointer = _RESPONSE_ARM_TILT_POINTER
-    else:
-        pointer = _RESPONSE_TILT_POINTER
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        _RESPONSE_BOUND_REFUSAL,
-        alternative=pointer.strip() or NO_ALTERNATIVE,
-        roadmap="X82",
-    )
-
-
-#: Why the bound refuses a fit with a declared missing treatment.
-_MISSING_TREATMENT_BOUND_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "the omitted-variable bound is not implemented for a fit with a declared missing "
-    "treatment. The Riesz representer of the bound is derived for a recorded treatment, "
-    "and this fit divides by the composite mechanism P(A = a, Delta_A = 1[, Delta = 1] | W), "
-    "whose representer and confounding strengths are not derived. Roadmap X82 part G owns the "
-    "representers that carry a second mechanism.",
-    alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
-    roadmap="X82",
-)
-
-
-def _refuse_missing_treatment(result: Any) -> Refusal | None:
-    """Refuse a fit with a declared missing treatment, whose representer is not derived."""
-    if not getattr(result.data, "has_missing_treatment", False):
-        return None
-    return _MISSING_TREATMENT_BOUND_REFUSAL
-
-
-def _refuse_intermediate(result: Any) -> Refusal | None:
-    """Refuse a fit that declares an intermediate variable.
-
-    The predicate is :func:`~cleverly.estimators.direct_effect.declares_intermediate`,
-    which every sensitivity surface reads for this boundary, so they refuse the same fits.
-    Without this rule the bound returns a number, and nothing in it says that ``cf_d`` has
-    changed meaning.
-    """
-    return _INTERMEDIATE_BOUND_REFUSAL if declares_intermediate(result) else None
 
 
 def _refuse_non_arm_axis(result: Any) -> Refusal | None:
@@ -449,6 +377,8 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
             "on. Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bound the bias "
             "of a linear functional of the outcome regression alone.",
         )
+    if axis in _AXIS_GROUPS:
+        return _refuse_axis_configuration(result, axis)
     noun = _AXIS_NOUNS[axis]
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
@@ -456,10 +386,142 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
         f"indexed by {axis!r}. {noun} is a linear functional of the outcome regression, "
         f"and it has a Riesz representer, so the bound is well posed here and no "
         f"implementation of it is registered. The implemented bound covers the "
-        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)}.",
+        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)} and the regime, shift "
+        f"and MSM parameters {sorted(AXIS_ESTIMANDS)}.",
         alternative=NO_ALTERNATIVE,
         roadmap="X82",
     )
+
+
+def _axis_gap(what: str, why: str) -> Refusal:
+    """An implementation gap on a covered axis, in one sentence form."""
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"the omitted-variable bound covers a {what} only in its basic form, and {why}.",
+        alternative=NO_ALTERNATIVE,
+        roadmap="X82",
+    )
+
+
+def _refuse_axis_configuration(result: Any, axis: str) -> Refusal | None:
+    """Refuse the regime, shift and MSM configurations whose representer is not derived.
+
+    The bound reads the fit's own clever covariate.  A continuous-dose or non-identity MSM,
+    and a randomized, fold-tuned or joint policy, change that covariate or the functional
+    in a way that no derivation here covers.
+    """
+    nuisance = result.repeats[0].nuisance
+    if axis == "msm":
+        msm = nuisance.msm
+        if msm is not None and msm.continuous:
+            return _axis_gap(
+                "working-model coefficient",
+                "a continuous-dose MSM reads the treatment density at quadrature doses, "
+                "whose representer and Gram matrix the bound does not rebuild",
+            )
+        if msm is not None and str(msm.link) != "identity":
+            return _axis_gap(
+                "working-model coefficient",
+                f"under link={msm.link!r} the coefficient is not linear in the outcome "
+                "regression, so it has no Riesz representer",
+            )
+    if axis == "policy":
+        policies = nuisance.policies
+        if policies is not None and any(
+            getattr(policies, name) is not None
+            for name in ("mixing", "component_rows", "curve_terms", "joint")
+        ):
+            return _axis_gap(
+                "modified-policy mean",
+                "a randomized, fold-tuned or joint policy set mixes components whose "
+                "representers the bound does not combine",
+            )
+        if policies is not None and not _atomic_policy_doses(result.data, policies.shifted):
+            return _axis_gap(
+                "modified-policy mean",
+                "a policy on a continuous dose reads a fitted conditional density, and the "
+                "bound has no derived Riesz representer or nu^2 guarantee for it; declare "
+                "dose_atoms that hold every observed and shifted dose",
+            )
+    return None
+
+
+def _atomic_policy_doses(data: Any, shifted: np.ndarray) -> bool:
+    """Whether every observed dose and every shifted dose is a declared dose atom.
+
+    The bound's representer for a shift is the density ratio of the induced law over the
+    fitted law.  On a dose that the atoms carry, that ratio is a ratio of point masses.
+    """
+    atoms = np.asarray(getattr(data, "dose_atoms", ()), dtype=float)
+    if atoms.size == 0:
+        return False
+    treatment = np.asarray(data.treatment, dtype=float)
+    observed = getattr(data, "treatment_observed", None)
+    if observed is not None:
+        treatment = treatment[np.asarray(observed, dtype=bool)]
+    doses = np.concatenate([treatment.reshape(-1), np.asarray(shifted, dtype=float).reshape(-1)])
+    doses = doses[np.isfinite(doses)]
+    return bool(np.all(np.isin(doses, atoms)))
+
+
+def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
+    """The reported regime, shift and MSM parameters the bound covers, by name.
+
+    Composed forward through :func:`~cleverly.targets.parameter_name` from the codes the
+    fit carries, as :mod:`cleverly.sensitivity.missingness` composes them for the tilt.
+    Each parameter keeps its code in ``arm`` and its reference code in ``versus``.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A point-treatment result.
+
+    Returns
+    -------
+    dict
+        Each reported name and its parameter.  Empty on any other axis.
+    """
+    from ..targets import parameter_name
+
+    axis = getattr(getattr(result, "config", None), "parameter_axis", None)
+    if axis not in _AXIS_GROUPS or getattr(result, "assessment_family", None) != "point":
+        return {}
+    group = _AXIS_GROUPS[axis][0]
+    nuisance = result.repeats[0].nuisance
+    estimates = result.estimates
+    out: dict[str, ArmParameter] = {}
+    if axis == "msm":
+        msm = nuisance.msm
+        if msm is None:
+            return {}
+        for code in msm.codes:
+            name = parameter_name("msm", arm=msm.labels[code])
+            if name in estimates:
+                out[name] = ArmParameter(name, "msm", group, code)
+        return out
+    codes = nuisance.regimes if axis == "regime" else nuisance.policies
+    if codes is None:
+        return {}
+    level, contrast = (
+        ("ey_regime", "ate_regime") if axis == "regime" else ("ey_policy", "ate_policy")
+    )
+    labels = codes.labels
+    reference = float(codes.reference)
+    for code in codes.codes:
+        name = parameter_name(level, arm=labels[code])
+        if name in estimates:
+            out[name] = ArmParameter(name, level, group, code)
+        if code == reference:
+            continue
+        name = parameter_name(contrast, arm=labels[code], versus=labels[reference])
+        if name in estimates:
+            out[name] = ArmParameter(name, contrast, group, code, reference)
+    return out
+
+
+def _bound_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
+    """Every reported parameter the bound applies to: the arm ones and the axis ones."""
+    return {**reported_arm_parameters(result), **axis_parameters(result)}
 
 
 def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
@@ -474,7 +536,7 @@ def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
     only on a fit that reports a risk ratio or an odds ratio, the two scales the E-value
     answers for.
     """
-    if reported_arm_parameters(result):
+    if _bound_parameters(result):
         return None
     ratio = any(parameter_stem(name) in _EVALUE_STEMS for name in result.estimates)
     return Refusal(
@@ -488,41 +550,22 @@ def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
     )
 
 
-def _refuse_repeats(result: Any) -> Refusal | None:
-    """Refuse a median-combined repeated fit.
-
-    The one rule a refit of the same estimator lifts, which is why it runs last.  Every
-    rule above it refuses the fit at any split count, so a reader told to fit one split
-    meets no second refusal after the refit.
-    """
-    return repeats_refusal(
-        result.n_repeats,
-        operation="omitted-variable sensitivity",
-        text=_REPEATS_REASON,
-        reason=RefusalReason.IMPLEMENTATION_GAP,
-        alternative="Fit one split for this analysis.",
-        roadmap="X82",
-    )
-
-
 #: Every omitted-variable refusal that the requested estimand cannot change, in the one
 #: order the five entry points and the capability rows both use.  The table is ordered and
 #: each rule assumes its predecessors returned ``None``: ``longitudinal`` establishes that
 #: the result carries a point-treatment ``data`` and ``config`` at all, which every rule
 #: after it reads.  ``bound_parameters`` follows ``parameter_axis``, because its sentence
-#: names an arm-indexed fit.  ``repeats`` is last because it is the only rule a refit with
-#: one split lifts.  The names are the introspection contract; a test reads them to pin the
-#: order without respelling a message.
+#: names an arm-indexed fit.  A fit with ``repeats`` above one passes every rule: each draw
+#: has its own bound, and :func:`omitted_variable_bounds` combines them by the median rule.
+#: The names are the introspection contract; a test reads them to pin the order without
+#: respelling a message.
 _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("drtmle", _refuse_guarded_mechanism),
+    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("collaborative_tmle", _refuse_selected_mechanism),
-    ("response_mechanism", _refuse_response_mechanism),
-    ("missing_treatment", _refuse_missing_treatment),
-    ("intermediate", _refuse_intermediate),
     ("parameter_axis", _refuse_non_arm_axis),
     ("bound_parameters", _refuse_unbounded_parameters),
-    ("repeats", _refuse_repeats),
 )
 
 
@@ -560,7 +603,10 @@ class SensitivityElements:
     estimand : str
         Alias of the estimand these elements describe.
     sigma2 : float
-        :math:`E[(Y - \bar Q^*(A, W))^2]`, the residual outcome variance.
+        :math:`E[R (Y - \bar Q^*(A, W))^2]`, the residual outcome variance, with ``R`` the
+        indicator of the rows the representer reads, averaged over every row.  ``R`` is one
+        on complete data, :math:`\Delta` with a response mechanism, and also
+        :math:`1\{Z = z\}` or :math:`1\{S = s\}` for an intermediate or a stratum.
     nu2 : float
         :math:`E[\alpha(A, W)^2]`, the second moment of the Riesz representer.  Under the
         plug-in estimator with a correction, :math:`E_n[\hat\alpha^2] - \hat B`.
@@ -593,6 +639,9 @@ class SensitivityElements:
     nu2_correction : float or None
         :math:`\hat B`, the second-order bias the plug-in estimate subtracts.  ``None``
         under the doubly robust estimator and wherever the plug-in estimate is uncorrected.
+    features : tuple of str, default=()
+        The X82 part G configurations the bound reads (:func:`bound_features`).  Empty
+        for the shipped bound.
     """
 
     estimand: str
@@ -607,6 +656,7 @@ class SensitivityElements:
     limit_refusal: MechanismRefusal | None = None
     plugin_mechanism: str | None = None
     nu2_correction: float | None = None
+    features: tuple[str, ...] = ()
 
 
 def sensitivity_elements(
@@ -614,6 +664,7 @@ def sensitivity_elements(
     estimand: str = "ate",
     *,
     nu2_estimator: str = "auto",
+    repeat: int | None = None,
 ) -> SensitivityElements:
     r"""Compute :math:`\sigma^2`, :math:`\nu^2` and the bias scale for one estimand.
 
@@ -621,6 +672,10 @@ def sensitivity_elements(
     :data:`_FIT_WIDE_BOUND_RULES`, so :func:`omitted_variable_bounds`,
     :func:`benchmark`, :func:`robustness_value`, and :func:`contour_data` share one
     refusal and none of them pays a learner before hearing it.
+
+    The elements describe one draw of the cross-fitting split.  A fit with ``repeats``
+    above one has one set per draw, so the call names the draw with ``repeat``.
+    :func:`omitted_variable_bounds` combines the draws by the median rule.
 
     Parameters
     ----------
@@ -637,37 +692,357 @@ def sensitivity_elements(
         a derived influence curve for any mechanism learner.  The plug-in form gives the
         bounds confidence limits only for a declared known mechanism or a qualifying
         ``LogisticRegression``, in sample or cross-fitted.
+    repeat : int or None
+        The draw of the cross-fitting split, from 0 to ``result.n_repeats - 1``.
+        ``None`` means the only draw of a fit with one, and a fit with more refuses it.
 
     Returns
     -------
     SensitivityElements
         The residual outcome variance, the Riesz second moment, the bias scale, and
-        the influence curve of each.
+        the influence curve of each, for the one draw.
 
     Raises
     ------
     ValueError
-        If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`.  The check runs
-        before any refusal and before any computation.
+        If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, or if ``repeat`` names
+        no draw of the fit.  The checks run before any refusal and before any computation.
     CapabilityError
         If a rule of :data:`_FIT_WIDE_BOUND_RULES` refuses the fit, if the fit reports
-        no parameter the bound applies to under ``estimand``, or if the doubly robust
-        estimate of :math:`\nu^2` is not positive.
+        no parameter the bound applies to under ``estimand``, if ``repeat`` is omitted on a
+        fit with several draws, or if the doubly robust estimate of :math:`\nu^2` is not
+        positive.
+    """
+    _resolved_nu2_estimator(nu2_estimator)
+    draw = _draw_index(result, repeat)
+    refusal = fit_wide_bound_refusal(result)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    if draw is None:
+        raise CapabilityError.from_refusal(repeat_required_refusal(result.n_repeats))
+    parameter = resolve_parameter(result, estimand)
+    return _elements_for(result, result.repeats[draw], parameter, nu2_estimator)
+
+
+def repeat_required_refusal(n_repeats: int) -> Refusal:
+    """The refusal of a bare elements request on a fit with several draws.
+
+    Parameters
+    ----------
+    n_repeats : int
+        How many draws of the cross-fitting split the fit combined.
+
+    Returns
+    -------
+    Refusal
+        An ``invalid_declaration`` refusal that names the ``repeat`` argument.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"this fit combined {n_repeats} draws of the cross-fitting split, and the elements "
+        "of the bound describe one draw.",
+        alternative=(
+            f"Name the draw with repeat=0 to repeat={n_repeats - 1}. "
+            "omitted_variable_bounds() combines the draws by the median rule."
+        ),
+    )
+
+
+def _draw_index(result: Any, repeat: int | None) -> int | None:
+    """The draw ``repeat`` names, or ``None`` for a bare request on a fit with several."""
+    n_repeats = int(getattr(result, "n_repeats", 1))
+    if repeat is None:
+        return 0 if n_repeats == 1 else None
+    if isinstance(repeat, bool) or not isinstance(repeat, (int, np.integer)):
+        raise ValueError(f"repeat must be an integer; got {repeat!r}")
+    if not 0 <= int(repeat) < n_repeats:
+        raise ValueError(f"repeat must lie in [0, {n_repeats - 1}] for this fit; got {repeat}")
+    return int(repeat)
+
+
+@dataclass(frozen=True)
+class _Draw:
+    """One draw's estimate, its influence curve, and its bound elements."""
+
+    psi: float
+    curve: FloatArray | None
+    elements: SensitivityElements
+
+
+#: The fitted methods whose bound refusal ``assume_consistent_mechanism=True`` lifts.
+CONSISTENT_MECHANISM_METHODS: tuple[str, ...] = ("drtmle", "collaborative_tmle")
+
+
+def _consistent_mechanism_limits(method: str) -> MechanismRefusal:
+    """Why the point bound of a DR-TMLE or C-TMLE fit has no confidence limits."""
+    why = (
+        "the DR-TMLE remainder is linear in the error of the mechanism it does not assume "
+        "consistent"
+        if method == "drtmle"
+        else "the selected mechanism has no derived curve for nu^2"
+    )
+    return MechanismRefusal(
+        key="consistent_mechanism",
+        text=(
+            f"assume_consistent_mechanism=True: the bound of a {method!r} fit is a point "
+            f"bound, and no source this package cites gives its standard error, because {why}."
+        ),
+        alternative="Read the point bounds and the point robustness value, which stay available.",
+        reason=RefusalReason.INFERENCE_GAP,
+    )
+
+
+def _lasso_fit(result: TMLEResult) -> bool:
+    """Whether a collaborative fit selected its mechanism on a lasso penalty path."""
+    selection = result.extra.get("ctmle")
+    return isinstance(selection, CTMLESelection) and selection.strategy == "lasso"
+
+
+def _consistent_mechanism_assumption(result: TMLEResult) -> str:
+    """The sentence a consistent-mechanism point bound prints beside its numbers."""
+    if result.fitted_method == "drtmle":
+        source = "the fit's primary treatment mechanism"
+    elif _lasso_fit(result):
+        source = (
+            "one refit of the lasso path's unpenalized member (lambda = 0) on every mechanism "
+            "covariate, not the selected mechanism"
+        )
+    else:
+        source = (
+            "one refit of the fit's treatment learner on every mechanism covariate, not the "
+            "selected mechanism"
+        )
+    return (
+        "assume_consistent_mechanism=True: this point bound assumes no unmeasured confounding "
+        f"beyond the stated strengths and a consistent treatment mechanism. Its representer "
+        f"comes from {source}."
+    )
+
+
+def _full_mechanism(result: TMLEResult, repeat: RepeatFit) -> Any:
+    """The fit's treatment learner refitted on every mechanism covariate, on the draw's folds.
+
+    A C-TMLE fit conditions its mechanism on a selected function of the covariates.  The
+    bound under an assumed consistent mechanism reads the mechanism on every covariate, which
+    the fit never estimated, so it is fitted here once per draw.  A lasso fit never uses
+    ``treatment_learner`` for its candidates, so its full mechanism is the path's own
+    unpenalized member: :class:`~cleverly.learners._l1_logistic.L1Logistic` at
+    ``lambda = 0``, on the ``glmnet`` objective the path solves.
+    """
+    from ..estimators._nuisance import Propensity, cross_fit_predictions
+    from ..learners._l1_logistic import L1Logistic
+    from ..learners.super_learner import resolve_learner
+
+    estimator = result.estimator
+    data = result.data
+    nuisance = repeat.nuisance
+    learner = resolve_learner(
+        L1Logistic(0.0) if _lasso_fit(result) else estimator.treatment_learner,
+        task="classification",
+        n_folds=estimator.learner_folds,
+        random_state=repeat.seed,
+    )
+    predictions, _ = cross_fit_predictions(
+        learner,
+        data.mechanism_covariates,
+        data.treatment,
+        data.weights,
+        nuisance.folds,
+        task="classification",
+        predict_designs={"g": data.mechanism_covariates},
+        groups=data.cluster,
+        clip=(0.0, 1.0),
+        classes=nuisance.arms,
+        n_jobs=estimator.n_jobs,
+    )
+    return Propensity(predictions["g"], nuisance.arms)
+
+
+def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> tuple[_Draw, ...]:
+    """The point bound's draws under ``assume_consistent_mechanism=True``.
+
+    The keyword lifts the one rule that refuses a DR-TMLE or a selecting C-TMLE fit.  Every
+    other rule of :data:`_FIT_WIDE_BOUND_RULES` still applies.  ``sigma^2`` reads the fit's
+    targeted outcome regression, and each bound centres on the fit's own estimate.  No draw
+    carries a curve, so the bound has no limits.
+    """
+    _resolved_nu2_estimator(nu2_estimator)
+    method = getattr(result, "fitted_method", None)
+    rules = dict(_FIT_WIDE_BOUND_RULES)
+    lifted = rules[method](result) if method in CONSISTENT_MECHANISM_METHODS else None
+    if lifted is _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL:
+        # A fit that selects nothing is the ordinary TMLE fit, so the redirection stands.
+        raise CapabilityError.from_refusal(lifted)
+    if lifted is None:
+        raise ValueError(
+            "assume_consistent_mechanism=True lifts the bound's refusal of a DRTMLE fit and of "
+            "a selecting CTMLE fit, and this fit meets neither. Omit the argument."
+        )
+    for name, rule in _FIT_WIDE_BOUND_RULES:
+        refusal = None if name == method else rule(result)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
+    if result.estimator is None:
+        raise CapabilityError(
+            "assume_consistent_mechanism=True reads the fitted estimator, and this result "
+            "carries none",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if method == "collaborative_tmle" and bool(
+        getattr(result.data, "has_missing_treatment", False)
+    ):
+        raise CapabilityError(
+            "assume_consistent_mechanism=True refits the treatment mechanism of a CTMLE fit on "
+            "every covariate, and no refit of the composite mechanism of a missing treatment "
+            "is implemented.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit the ordinary TMLE on the same data for the bound.",
+            roadmap="X82",
+        )
+    parameter = resolve_parameter(result, estimand)
+    limits = _consistent_mechanism_limits(str(method))
+    draws = []
+    for repeat in result.repeats:
+        if method == "collaborative_tmle":
+            refitted = replace(repeat.nuisance, propensity=_full_mechanism(result, repeat))
+            repeat = replace(repeat, nuisance=refitted)
+        elements = _elements_for(result, repeat, parameter, nu2_estimator)
+        elements = replace(elements, psi_max_bias=None, limit_refusal=limits)
+        psi = float(result[estimand].psi) if result.n_repeats == 1 else float(repeat.psi[estimand])
+        draws.append(_Draw(psi, None, elements))
+    return tuple(draws)
+
+
+def _bound_draws(
+    result: TMLEResult, estimand: str, nu2_estimator: str, *, consistent: bool = False
+) -> tuple[_Draw, ...]:
+    """Every draw's estimate, curve and elements, after the fit-wide refusals.
+
+    A fit with one draw reads its reported estimate, so every quantity equals the shipped
+    one bit for bit.  A fit with several draws keeps each draw's point estimate but not its
+    curve, so each draw is retargeted from its own nuisances.  The retarget must reproduce
+    the stored point estimate, which checks that it ran the fit's own targeting.
+    ``consistent`` is ``assume_consistent_mechanism`` (:func:`_consistent_draws`).
+    """
+    if consistent:
+        return _consistent_draws(result, estimand, nu2_estimator)
+    _resolved_nu2_estimator(nu2_estimator)
+    refusal = fit_wide_bound_refusal(result)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    parameter = resolve_parameter(result, estimand)
+    if result.n_repeats == 1:
+        estimate = result[estimand]
+        elements = _elements_for(result, result.repeats[0], parameter, nu2_estimator)
+        return (_Draw(float(estimate.psi), estimate.influence_curve, elements),)
+    estimator = result.estimator
+    if estimator is None:
+        raise CapabilityError(
+            "the omitted-variable bound of a fit with several draws retargets each draw, "
+            "and this result carries no fitted estimator",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    keys = result.parameter_keys
+    key = keys.get(estimand) if keys else None
+    target = key.estimand if key is not None else parameter_stem(estimand)
+    draws = []
+    for index, repeat in enumerate(result.repeats):
+        estimates, _ = estimator.retarget(
+            result.data,
+            repeat.nuisance,
+            estimands=(target,),
+            intermediate_value=result.intermediate_value,
+            g_bounds=result.config.g_bounds,
+            g_bounds_conditional=result.config.g_bounds_conditional,
+            nuisance_bound=result.config.missingness_bound,
+            alpha_sig=result.config.alpha_sig,
+            conditions=result.config.support_conditions,
+        )
+        estimate = estimates.get(estimand)
+        stored = repeat.psi.get(estimand)
+        if (
+            estimate is None
+            or stored is None
+            or not np.isclose(estimate.psi, stored, rtol=1e-9, atol=1e-12)
+        ):
+            raise RuntimeError(
+                f"retargeting draw {index} for {estimand!r} gave "
+                f"{None if estimate is None else estimate.psi!r}, and the fit stored "
+                f"{stored!r}. This is a package defect; report it."
+            )
+        elements = _elements_for(result, repeat, parameter, nu2_estimator)
+        draws.append(_Draw(float(stored), estimate.influence_curve, elements))
+    return tuple(draws)
+
+
+def _median_elements(result: TMLEResult, estimand: str, nu2_estimator: str) -> SensitivityElements:
+    """The elements of one draw, or the medians of ``sigma2`` and ``nu2`` over several.
+
+    :func:`benchmark` compares these two second moments with and without the named
+    covariates.  It reads no curve, so it needs no retarget.  One draw returns its own
+    elements unchanged.
     """
     _resolved_nu2_estimator(nu2_estimator)
     refusal = fit_wide_bound_refusal(result)
     if refusal is not None:
-        # The tilt pointer is fit-wide: a joint natural-course fit can tilt its arm
-        # means. The tilt refuses a target read from the natural-course mean, so a
-        # request for one is not sent there.
-        if natural_course_names([estimand]) and refusal.alternative in {
-            _RESPONSE_TILT_POINTER.strip(),
-            _RESPONSE_ARM_TILT_POINTER.strip(),
-        }:
-            refusal = replace(refusal, alternative=NO_ALTERNATIVE)
         raise CapabilityError.from_refusal(refusal)
     parameter = resolve_parameter(result, estimand)
-    return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
+    per_draw = [
+        _elements_for(result, repeat, parameter, nu2_estimator) for repeat in result.repeats
+    ]
+    if len(per_draw) == 1:
+        return per_draw[0]
+    sigma2 = float(np.median([elements.sigma2 for elements in per_draw]))
+    nu2 = float(np.median([elements.nu2 for elements in per_draw]))
+    return replace(per_draw[0], sigma2=sigma2, nu2=nu2, max_bias=float(np.sqrt(sigma2 * nu2)))
+
+
+def _median_rule(points: FloatArray, std_errors: FloatArray) -> tuple[float, float]:
+    r"""The median point and the split-adjusted standard error of several draws.
+
+    The variance is :math:`\operatorname{median}_r\{\hat\sigma_r^2 + (\hat t_r -
+    \tilde t)^2\}`, the rule :func:`~cleverly.inference.median_estimates` applies to the
+    estimate.  One draw returns its own point and standard error unchanged.
+    """
+    if len(points) == 1:
+        return float(points[0]), float(std_errors[0])
+    center = float(np.median(points))
+    variance = float(np.median(np.square(std_errors) + np.square(points - center)))
+    return center, float(np.sqrt(variance))
+
+
+def _combined_elements(draws: tuple[_Draw, ...], result: TMLEResult) -> SensitivityElements:
+    """The elements a combined bound reports: one draw's, or the medians over draws.
+
+    The curves belong to one draw, so a combined record keeps the first draw's curves and
+    only the summary fields of the combined bound read it: the bias scale, the estimator,
+    the limit refusal and the features.
+    """
+    first = draws[0].elements
+    if len(draws) == 1:
+        return first
+    refusal = next(
+        (draw.elements.limit_refusal for draw in draws if draw.elements.limit_refusal),
+        None,
+    )
+    corrections = [draw.elements.nu2_correction for draw in draws]
+    return replace(
+        first,
+        sigma2=float(np.median([draw.elements.sigma2 for draw in draws])),
+        nu2=float(np.median([draw.elements.nu2 for draw in draws])),
+        max_bias=float(np.median([draw.elements.max_bias for draw in draws])),
+        psi_max_bias=(
+            None
+            if any(draw.elements.psi_max_bias is None for draw in draws)
+            else first.psi_max_bias
+        ),
+        limit_refusal=refusal,
+        nu2_correction=(
+            None
+            if any(value is None for value in corrections)
+            else float(np.median(cast("list[float]", corrections)))
+        ),
+    )
 
 
 def _resolved_nu2_estimator(nu2_estimator: str) -> str:
@@ -690,7 +1065,8 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     parameter the bound applies to, since no estimand name can change either verdict.
     The order of the checks below matters.  A name this bound could never apply to is
     refused first, so that asking for a risk ratio is not reported as a missing
-    estimand; the coverage message comes last.
+    estimand; the coverage message comes last.  A reported stratum-conditional alias
+    resolves to the marginal parameter's arms with the stratum's code.
 
     Parameters
     ----------
@@ -705,7 +1081,7 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         The reported parameter and the arms it is a functional of.
     """
     stem = parameter_stem(estimand)
-    if stem not in LINEAR_ESTIMANDS:
+    if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
         # refusal to a second one.
@@ -717,14 +1093,14 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             reason=RefusalReason.INVALID_DECLARATION,
             alternative=pointer,
         )
-    available = reported_arm_parameters(result)
+    available = _bound_parameters(result)
     if estimand in available:
         return available[estimand]
-    # Before the coverage message: this one *was* reported, so "not requested" would be
-    # false. It is the derivation that is missing, not the parameter.
-    conditional = stratum_refusal(result, estimand, "the omitted-variable bound")
+    # A stratum-conditional parameter has its own representer: the marginal one restricted
+    # to the stratum and divided by the stratum's share (``_StratumScale``).
+    conditional = stratum_parameter(result, estimand)
     if conditional is not None:
-        raise CapabilityError.from_refusal(conditional)
+        return conditional
     empty = _refuse_unbounded_parameters(result)
     if empty is not None:
         # Every entry point hears this sentence from the fit-wide table before it gets
@@ -738,27 +1114,172 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     )
 
 
+#: The registry instrument the confidence limits of a part G configuration resolve through.
+OVB_LIMIT_INSTRUMENT = "ovb_limit"
+
+#: The features of :func:`bound_features`, in the one order their rule joins them, and the
+#: noun each second mechanism takes in the joint-strength sentence.  A feature with no noun
+#: reads no second mechanism.
+_FEATURE_MECHANISMS: dict[str, str | None] = {
+    "response": "response",
+    "missing_treatment": "recording",
+    "intermediate": "intermediate",
+    "regime": None,
+    "shift": None,
+    "msm": None,
+    "stratum": None,
+    "repeats": None,
+}
+
+
+def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ...]:
+    """The X82 part G configurations a bound of ``parameter`` on ``result`` reads.
+
+    Each feature changes the representer or the residual mask of the shipped bound.  The
+    ``+``-joined tuple is the ``ovb_limit`` rule its confidence limits resolve through, so
+    a registered coverage cell licenses exactly the configuration it measured.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A point-treatment result that the fit-wide rules admit.
+    parameter : ArmParameter
+        The resolved parameter.
+
+    Returns
+    -------
+    tuple of str
+        The features in :data:`_FEATURE_MECHANISMS` order. Empty for the shipped bound.
+    """
+    data = result.data
+    present = {
+        "response": bool(data.has_missing_outcome),
+        "missing_treatment": bool(getattr(data, "has_missing_treatment", False)),
+        "intermediate": declares_intermediate(result),
+        "regime": parameter.group == "regime",
+        "shift": parameter.group == "mtp",
+        "msm": parameter.group == "msm",
+        "stratum": parameter.stratum is not None,
+        "repeats": result.n_repeats > 1,
+    }
+    return tuple(name for name in _FEATURE_MECHANISMS if present[name])
+
+
+def joint_strength_sentence(features: tuple[str, ...]) -> str | None:
+    """The sentence that says which mechanisms ``cf_d`` measures a joint strength over.
+
+    Parameters
+    ----------
+    features : tuple of str
+        The features of :func:`bound_features`.
+
+    Returns
+    -------
+    str or None
+        The sentence, or ``None`` when the representer reads the treatment mechanism alone.
+    """
+    nouns = [noun for name in features if (noun := _FEATURE_MECHANISMS[name]) is not None]
+    if not nouns:
+        return None
+    named = (
+        f"the {nouns[0]} mechanism"
+        if len(nouns) == 1
+        else f"the {', '.join(nouns[:-1])} and {nouns[-1]} mechanisms"
+    )
+    return f"cf_d measures a joint strength over the treatment mechanism and {named}."
+
+
+def _limit_reading(
+    result: TMLEResult, estimand: str, features: tuple[str, ...]
+) -> Resolution | None:
+    """Ask the registry what the confidence limits of a part G configuration may print.
+
+    The shipped configuration has no feature and returns ``None`` without asking, so it
+    keeps its output.  The import is local because :mod:`cleverly.validation` imports
+    this package.
+    """
+    if not features:
+        return None
+    from ..validation._interpretation import fit_configuration, resolve
+
+    try:
+        fit = fit_configuration(result, estimand)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # An unreadable configuration licenses only through an unrestricted, exact row.
+        fit = None
+    return resolve(OVB_LIMIT_INSTRUMENT, "+".join(features), fit)
+
+
+def _bound_inputs(
+    result: TMLEResult, repeat: RepeatFit, group: str
+) -> tuple[CausalData, NuisanceEstimates, tuple[float, float]]:
+    """The data, nuisances, and bounds the representer of ``group`` is built from.
+
+    A composite fit (a declared missing treatment) was targeted along
+    :math:`C_a / g_{c,a}` on the composite view, so the representer is read there, as
+    :func:`~cleverly.sensitivity.positivity._group_submodel` reads it.  Every other fit
+    reads its own data and the group's bounds.
+    """
+    bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
+    data, nuisance = result.data, repeat.nuisance
+    if result.extra.get("missing_data") == "composite":
+        state = composite_state(
+            data, nuisance, g_bounds=bounds, nuisance_bound=result.config.missingness_bound
+        )
+        return state.data, state.nuisance, state.bounds
+    return data, nuisance, bounds
+
+
+def _representer_rows(data: CausalData) -> FloatArray:
+    r"""The observation indicator the submodel applies through the fluctuation's mask.
+
+    :math:`\Delta` on a fit with a response mechanism, :math:`\Delta_A \Delta` on the
+    composite view, and one on every row of complete data.  The clever covariate omits it,
+    so the representer multiplies it in.
+    """
+    return np.where(np.asarray(data.observed, dtype=bool), 1.0, 0.0)
+
+
+def _stratum_rows(result: TMLEResult, parameter: ArmParameter) -> FloatArray | None:
+    """``1{S = s}`` for a stratum-conditional parameter, or ``None`` for a marginal one."""
+    if parameter.stratum is None:
+        return None
+    return np.asarray(result.data.strata == parameter.stratum, dtype=float)
+
+
 def _elements_for(
     result: TMLEResult,
     repeat: RepeatFit,
     parameter: ArmParameter,
     nu2_estimator: str,
 ) -> SensitivityElements:
-    """The bound's pieces under one cross-fitting draw.
+    r"""The bound's pieces under one cross-fitting draw.
 
     Takes the targeted ``Qbar`` and the mechanism from the same
     :class:`~cleverly.estimators._nuisance.RepeatFit`, which is what makes ``sigma2`` the
     residual variance of the regression whose propensity ``nu2`` was computed from.
+
+    The representer is the fit's own clever covariate times the indicator of the rows it
+    reads: :math:`\Delta` for a response mechanism, :math:`\Delta 1\{Z = z\}` for an
+    intermediate at ``z``, and :math:`\Delta_A \Delta` on the composite view.  The submodel
+    applies :math:`\Delta` through the fluctuation's mask rather than in the covariate, so
+    the product is taken here.  ``sigma2`` averages the residual masked to the same rows
+    over every row.  On complete data the indicator is one everywhere and both are the
+    shipped quantities.
+
+    A stratum-conditional parameter restricts both to the stratum.  The representer and
+    :math:`m(O, \alpha)` are rescaled from the marginal share to the stratum's, which is
+    ``P(S = s)`` for a mean or a difference of means and ``P(A = c, S = s)`` for an
+    effect that conditions on arm ``c``.
     """
-    data = result.data
-    scaler = repeat.nuisance.scaler
+    data, nuisance, bounds = _bound_inputs(result, repeat, parameter.group)
+    scaler = nuisance.scaler
     group = parameter.group
     fluctuation = repeat.fluctuations[group]
-    bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
     reference = result.config.reference_arm
     submodel = build_submodel(
         data,
-        repeat.nuisance,
+        nuisance,
         group,
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
@@ -767,6 +1288,14 @@ def _elements_for(
         # so the covariate rebuilt here must be the one it was targeted with.
         reference=reference,
     )
+    features = bound_features(result, parameter)
+    weights = data.weights
+    # The rows the representer reads: the observed outcome (Delta, or Delta_A Delta on the
+    # composite view) at the targeted level of the intermediate.
+    support = np.asarray(targeted_rows(data, result.intermediate_value), dtype=float)
+    stratum = _stratum_rows(result, parameter)
+    if stratum is not None:
+        support = support * stratum
     # The weight of the arm the estimand *conditions on*: ``_m_alpha`` multiplies the
     # contrast by 1{A = c} / P(A = c), the observed membership of that arm over its share,
     # and never by a fitted g_c. ``None`` for a mean or an unconditional contrast, which
@@ -778,24 +1307,35 @@ def _elements_for(
     conditioning_share: float | None = None
     if conditioning is not None:
         conditioning_indicator = np.asarray(data.treatment == conditioning, dtype=float)
-        conditioning_share = float(data.arm_fractions[repeat.nuisance.arms.index(conditioning)])
+        conditioning_share = float(data.arm_fractions[nuisance.arms.index(conditioning)])
 
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.
     scaled = scaler.scale(data.outcome)
-    residual = np.where(data.observed, scaled - fluctuation.targeted.observed, 0.0)
+    residual = np.where(support > 0.0, scaled - fluctuation.targeted.observed, 0.0)
     if not scaler.is_identity:
         residual = residual * scaler.range
-    weights = data.weights
     sigma2_element = residual**2
-    sigma2 = float(np.average(sigma2_element[data.observed], weights=weights[data.observed]))
-    psi_sigma2 = np.where(data.observed, sigma2_element - sigma2, 0.0) * weights
+    sigma2 = float(np.average(sigma2_element, weights=weights))
+    psi_sigma2 = (sigma2_element - sigma2) * weights
 
-    representer = _riesz_representer(parameter, submodel)
+    axis = _AxisInputs.build(parameter, nuisance, weights)
+    representer = _riesz_representer(parameter, submodel, axis) * _representer_rows(data)
 
     method = _resolved_nu2_estimator(nu2_estimator)
+    m_alpha: FloatArray | None = None
     if method == "doubly_robust":
-        m_alpha = _m_alpha(parameter, submodel, conditioning_indicator, conditioning_share)
+        m_alpha = _m_alpha(parameter, submodel, conditioning_indicator, conditioning_share, axis)
+    # The share the estimate divides by, and the indicator of the rows it counts: the
+    # conditioning arm's for an ATT or an ATC, and the stratum's when there is one.
+    share_indicator, share = conditioning_indicator, conditioning_share
+    if stratum is not None:
+        representer, m_alpha, share_indicator, share = _restrict_to_stratum(
+            representer, m_alpha, stratum, conditioning_indicator, conditioning_share, weights
+        )
+
+    if method == "doubly_robust":
+        assert m_alpha is not None
         nu2_element = 2.0 * m_alpha - representer**2
         nu2 = float(np.average(nu2_element, weights=weights))
         if nu2 <= 0:
@@ -831,23 +1371,33 @@ def _elements_for(
         # carries the mechanism score's term. Only a declared known mechanism or a fixed
         # logistic model gives that term (docs/roadmap.md F26); for any other learner an
         # array here would be a curve for a different estimator under this one's name.
-        stacked = plugin_mechanism_term(
-            result, repeat, parameter, representer, bounds, conditioning_share
-        )
-        if isinstance(stacked, MechanismRefusal):
-            limit_refusal = stacked
+        # A part G representer also reads a second mechanism or a stratum share, whose
+        # term the stack does not carry.
+        if features:
+            limit_refusal = configuration_refusal(_configuration_phrase(features))
         else:
-            mechanism_term = stacked.values
+            stacked = plugin_mechanism_term(
+                result, repeat, parameter, representer, bounds, conditioning_share
+            )
+            if isinstance(stacked, MechanismRefusal):
+                limit_refusal = stacked
+            else:
+                mechanism_term = stacked.values
     if method == "doubly_robust" or mechanism_term is not None:
         psi_nu2 = (nu2_element - nu2) * weights
         if mechanism_term is not None:
             psi_nu2 = psi_nu2 + mechanism_term
-        if conditioning_indicator is not None:
-            # The estimate divides by the estimated share of the conditioning arm, so its
-            # curve carries that share's influence. See _conditioning_share_influence.
-            assert conditioning_share is not None
-            psi_nu2 = psi_nu2 + _conditioning_share_influence(
-                nu2, conditioning_indicator, conditioning_share, weights
+        if share_indicator is not None:
+            # The estimate divides by the estimated share of the conditioning arm or of the
+            # stratum, so its curve carries that share's influence. See
+            # _conditioning_share_influence.
+            assert share is not None
+            psi_nu2 = psi_nu2 + _conditioning_share_influence(nu2, share_indicator, share, weights)
+        if axis is not None and axis.gram_inverse is not None:
+            # The representer and m(O, alpha) read the estimated Gram matrix, so the curve
+            # carries its influence (_gram_influence).
+            psi_nu2 = psi_nu2 + _gram_influence(
+                parameter, submodel, axis, representer, nu2, weights
             )
     nu2_correction: float | None = None
     if mechanism_term is not None:
@@ -862,7 +1412,7 @@ def _elements_for(
             if limit_refusal is None:
                 nu2 = nu2 - correction
                 nu2_correction = correction
-                plugin_mechanism = repeat.nuisance.treatment_mechanism
+                plugin_mechanism = nuisance.treatment_mechanism
                 plugin_mechanism = "known" if plugin_mechanism == "known" else "logistic"
     max_bias = float(np.sqrt(sigma2 * nu2))
     # The square-root delta method requires a positive product. At sigma2=0 the
@@ -882,10 +1432,121 @@ def _elements_for(
         limit_refusal=limit_refusal,
         plugin_mechanism=plugin_mechanism,
         nu2_correction=nu2_correction,
+        features=features,
     )
 
 
-def _riesz_representer(parameter: ArmParameter, submodel: Any) -> FloatArray:
+def _configuration_phrase(features: tuple[str, ...]) -> str:
+    """What a part G representer reads beyond the marginal treatment mechanism."""
+    nouns = [noun for name in features if (noun := _FEATURE_MECHANISMS[name]) is not None]
+    parts = []
+    if nouns:
+        parts.append(
+            "also divides by the "
+            + (nouns[0] if len(nouns) == 1 else f"{', '.join(nouns[:-1])} and {nouns[-1]}")
+            + (" mechanism" if len(nouns) == 1 else " mechanisms")
+        )
+    axes = {
+        "regime": "is the clever covariate of a declared regime",
+        "shift": "is the clever covariate of a modified treatment policy",
+        "msm": "is projected through the working model's Gram matrix",
+    }
+    parts.extend(phrase for name, phrase in axes.items() if name in features)
+    if "stratum" in features:
+        parts.append("is restricted to a baseline stratum and divides by its share")
+    if "repeats" in features:
+        parts.append("is combined over draws of the cross-fitting split by the median rule")
+    return " and ".join(parts)
+
+
+def _restrict_to_stratum(
+    representer: FloatArray,
+    m_alpha: FloatArray | None,
+    stratum: FloatArray,
+    conditioning_indicator: FloatArray | None,
+    conditioning_share: float | None,
+    weights: FloatArray,
+) -> tuple[FloatArray, FloatArray | None, FloatArray, float]:
+    r"""The stratum's representer and :math:`m(O, \alpha)`, from the marginal ones.
+
+    A stratum-conditional mean or difference of means is
+    :math:`E[1\{S = s\} f(W) / p_s]` with :math:`p_s = P_w(S = s)`, so its representer is
+    :math:`1\{S = s\} \alpha / p_s` and :math:`m(O, \alpha_s) = 1\{S = s\} m / p_s^2`.
+    An effect that conditions on arm ``c`` divides by :math:`q = P_w(A = c, S = s)` in place
+    of the marginal :math:`p_c`.  Its marginal representer is proportional to
+    :math:`1 / p_c` and its marginal :math:`m` to :math:`1 / p_c^2`, so the stratum's
+    pieces are the marginal ones times :math:`1\{S = s\} p_c / q` and
+    :math:`1\{S = s\} (p_c / q)^2`.  Both forms give :math:`\nu^2 = F / \text{share}^2` with
+    ``F`` free of the share, which is what :func:`_conditioning_share_influence` needs.
+
+    Returns
+    -------
+    tuple
+        The representer, :math:`m(O, \alpha)` (``None`` when ``m_alpha`` is ``None``), the
+        indicator of the rows the share counts, and the share.
+    """
+    if conditioning_indicator is None:
+        share = float(np.average(stratum, weights=weights))
+        scaled_m = None if m_alpha is None else stratum * m_alpha / share**2
+        return stratum * representer / share, scaled_m, stratum, share
+    assert conditioning_share is not None
+    indicator = conditioning_indicator * stratum
+    share = float(np.average(indicator, weights=weights))
+    ratio = conditioning_share / share
+    scaled_m = None if m_alpha is None else stratum * m_alpha * ratio**2
+    return stratum * representer * ratio, scaled_m, indicator, share
+
+
+@dataclass(frozen=True)
+class _AxisInputs:
+    r"""The known arrays a regime or MSM representer reads beyond the clever covariate.
+
+    Parameters
+    ----------
+    regimes : ndarray or None
+        ``(n, K, R)`` regime densities :math:`g^\star_r(a \mid W)`, for the regime axis.
+    design : ndarray or None
+        ``(n, K, p)`` working-model design :math:`\varphi(a, V)`, for the MSM axis.
+    model_weights : ndarray or None
+        ``(n, K)`` working-model weights :math:`h(a, V)`, for the MSM axis.
+    gram_inverse : ndarray or None
+        ``(p, p)`` inverse of the observation-weighted Gram matrix
+        :math:`M = P_n \sum_a h \varphi \varphi^\top`, which the coefficient inverts.
+    """
+
+    regimes: FloatArray | None = None
+    design: FloatArray | None = None
+    model_weights: FloatArray | None = None
+    gram_inverse: FloatArray | None = None
+
+    @classmethod
+    def build(
+        cls, parameter: ArmParameter, nuisance: NuisanceEstimates, weights: FloatArray
+    ) -> _AxisInputs | None:
+        """The inputs of ``parameter``'s axis, or ``None`` for an arm parameter."""
+        if parameter.group == "regime":
+            assert nuisance.regimes is not None
+            return cls(regimes=np.asarray(nuisance.regimes.values, dtype=float))
+        if parameter.group != "msm":
+            return None
+        msm = nuisance.msm
+        assert msm is not None
+        design = np.asarray(msm.design, dtype=float)
+        model_weights = np.asarray(msm.weights, dtype=float)
+        w = np.asarray(weights, dtype=float)
+        # The Gram matrix of cleverly.msm.solve_projection under the identity link.
+        gram = np.einsum("ijp,ijq,ij,i->pq", design, design, model_weights, w) / float(w.sum())
+        return cls(design=design, model_weights=model_weights, gram_inverse=np.linalg.inv(gram))
+
+    def coefficient_rows(self, parameter: ArmParameter) -> FloatArray:
+        """``b = M^{-1} e_j``, the row of the inverse Gram matrix coefficient ``j`` reads."""
+        assert self.gram_inverse is not None
+        return np.asarray(self.gram_inverse[:, int(parameter.arm)], dtype=float)
+
+
+def _riesz_representer(
+    parameter: ArmParameter, submodel: Any, axis: _AxisInputs | None = None
+) -> FloatArray:
     r"""``alpha(A, W)`` for the requested estimand.
 
     The clever covariate *is* the Riesz representer -- that is why the same object
@@ -895,7 +1556,20 @@ def _riesz_representer(parameter: ArmParameter, submodel: Any) -> FloatArray:
     Every column is reached by the arm it carries rather than by position, so
     ``ate[high vs low]`` reads the two arms it names out of a ``K``-column covariate
     instead of the two an implementation that counted to two would have found.
+
+    A regime column targets one regime, and a contrast of regimes is a difference of two
+    columns.  A policy column targets one policy, as an arm column targets one arm.  An MSM
+    coefficient ``j`` reads :math:`e_j^\top M^{-1} H(A, W)`, the row of the coefficient's
+    residual term in :func:`~cleverly.inference.influence.msm_coefficients`.
     """
+    if parameter.group == "msm":
+        assert axis is not None
+        return np.asarray(submodel.observed @ axis.coefficient_rows(parameter), dtype=float)
+    if parameter.group == "regime":
+        column = np.asarray(submodel.observed[:, int(parameter.arm)], dtype=float)
+        if parameter.versus is None:
+            return column
+        return np.asarray(column - submodel.observed[:, int(parameter.versus)], dtype=float)
     if parameter.group in ("att", "atc"):
         # One column per non-reference arm, and this parameter's is the one carrying the
         # contrast it is named for.
@@ -912,6 +1586,7 @@ def _m_alpha(
     submodel: Any,
     conditioning_indicator: FloatArray | None,
     conditioning_share: float | None,
+    axis: _AxisInputs | None = None,
 ) -> FloatArray:
     r"""The target functional applied to the Riesz representer, ``m(O, alpha)``.
 
@@ -943,10 +1618,15 @@ def _m_alpha(
     population.  They are ``None`` for a mean or an unconditional contrast, which
     reweight nobody.
     """
+    if parameter.group in ("regime", "msm"):
+        assert axis is not None
+        return _axis_m_alpha(parameter, submodel, axis)
     # ``arms[a][:, c]`` is the covariate at arm ``a`` in the column targeting arm ``c``:
     # the mean submodel has one column per arm, so both indices are arm levels and
-    # neither is a positional 0 or 1.
-    if parameter.group == "mean":
+    # neither is a positional 0 or 1.  A policy submodel has the same layout, with the
+    # policy in place of the arm: ``arms[s][:, c]`` is the covariate at the dose that
+    # policy ``s`` assigns, in the column targeting policy ``c``.
+    if parameter.group in ("mean", "mtp"):
         columns = submodel.arm_columns
         at = parameter.arm
         if parameter.versus is None:
@@ -971,6 +1651,82 @@ def _m_alpha(
         dtype=float,
     )
     return np.asarray((conditioning_indicator / conditioning_share) * difference, dtype=float)
+
+
+def _axis_m_alpha(parameter: ArmParameter, submodel: Any, axis: _AxisInputs) -> FloatArray:
+    r"""``m(O, alpha)`` for a regime parameter or an MSM coefficient.
+
+    Both functionals are :math:`E[\sum_a c(a, W) \bar Q(a, W)]` with a known weight
+    ``c``, so :math:`m(O, \alpha) = \sum_a c(a, W) \alpha(a, W)`.  A regime ``r`` has
+    :math:`c = g^\star_r(a \mid W)`, and a contrast the difference of two regimes.  An
+    MSM coefficient ``j`` has :math:`c = e_j^\top M^{-1} h(a, V) \varphi(a, V)`.  The
+    counterfactual blocks ``submodel.arms[a]`` hold the clever covariate at arm ``a``.
+    """
+    total = np.zeros(submodel.n, dtype=float)
+    if parameter.group == "msm":
+        assert axis.design is not None and axis.model_weights is not None
+        b = axis.coefficient_rows(parameter)
+        for index, level in enumerate(submodel.levels):
+            weight = axis.model_weights[:, index] * (axis.design[:, index, :] @ b)
+            total += weight * (submodel.arms[level] @ b)
+        return total
+    assert axis.regimes is not None
+    code = int(parameter.arm)
+    versus = None if parameter.versus is None else int(parameter.versus)
+    for index, level in enumerate(submodel.levels):
+        block = submodel.arms[level]
+        weight = axis.regimes[:, index, code]
+        alpha = block[:, code]
+        if versus is not None:
+            weight = weight - axis.regimes[:, index, versus]
+            alpha = alpha - block[:, versus]
+        total += weight * alpha
+    return total
+
+
+def _gram_influence(
+    parameter: ArmParameter,
+    submodel: Any,
+    axis: _AxisInputs,
+    representer: FloatArray,
+    nu2: float,
+    weights: FloatArray,
+) -> FloatArray:
+    r"""The influence of the estimated Gram matrix on the doubly robust ``nu^2`` of an MSM.
+
+    With :math:`b = M^{-1} e_j`, the estimate is :math:`\hat\nu^2 = b^\top \hat K b`,
+    where :math:`\hat K = P_n[2 \sum_a u_a v_a^\top - H H^\top]`, :math:`u_a = h \varphi`
+    at arm ``a`` and :math:`v_a` and :math:`H` are the clever covariate at arm ``a`` and
+    at the observed arm.  The Gram matrix :math:`\hat M = P_n \sum_a h \varphi
+    \varphi^\top` is estimated whenever :math:`h` or :math:`\varphi` reads ``V``.  Since
+    :math:`db = -M^{-1} dM\, b`, the delta method adds
+
+    .. math::
+
+        -2 w \Big[\sum_a h(a, V)\, (z^\top \varphi_a)(\varphi_a^\top b) - \nu^2\Big],
+        \qquad z = M^{-1} K b ,
+
+    to the curve.  For a marginal MSM the bracket is zero on every row, because each row's
+    Gram contribution equals :math:`M`.  ``tests/unit/test_omitted_variable_axes.py``
+    compares the curve with its Gateaux derivative on a design that reads ``V``.
+    """
+    assert axis.design is not None and axis.model_weights is not None
+    w = np.asarray(weights, dtype=float)
+    mass = float(w.sum())
+    b = axis.coefficient_rows(parameter)
+    # K b = P_n[2 sum_a u_a alpha(a) - H alpha], with alpha(a) = v_a' b and H' b = alpha.
+    # ``representer`` carries the row mask R, and R^2 = R, so H (H' b) = observed * alpha.
+    kb = -np.einsum("i,ip,i->p", w, submodel.observed, representer) / mass
+    for index, level in enumerate(submodel.levels):
+        u = axis.design[:, index, :] * axis.model_weights[:, index][:, None]
+        kb += 2.0 * np.einsum("i,ip,i->p", w, u, submodel.arms[level] @ b) / mass
+    assert axis.gram_inverse is not None
+    z = axis.gram_inverse @ kb
+    bracket = np.zeros(submodel.n, dtype=float)
+    for index in range(len(submodel.levels)):
+        phi = axis.design[:, index, :]
+        bracket += axis.model_weights[:, index] * (phi @ z) * (phi @ b)
+    return np.asarray(-2.0 * w * (bracket - nu2), dtype=float)
 
 
 def _conditioning_share_influence(
@@ -1097,6 +1853,15 @@ class SensitivityBounds:
     nu2_correction : float or None, default=None
         The second-order bias ``B`` that the plug-in ``nu^2`` subtracts. ``None`` under
         the doubly robust estimator and wherever the plug-in ``nu^2`` is uncorrected.
+    features : tuple of str, default=()
+        The X82 part G configurations the bound reads (:func:`bound_features`).  Empty
+        for the shipped bound.
+    limit_reading : Resolution or None, default=None
+        What the registry licenses for the confidence limits of a part G configuration.
+        ``None`` on the shipped bound, whose limits carry registered coverage evidence.
+    assumption : str or None, default=None
+        The assumption a ``DRTMLE`` or ``CTMLE`` point bound adds under
+        ``assume_consistent_mechanism=True``, as the summary prints it.  ``None`` otherwise.
     """
 
     estimand: str
@@ -1122,6 +1887,9 @@ class SensitivityBounds:
     limit_refusal: MechanismRefusal | None = None
     plugin_mechanism: str | None = None
     nu2_correction: float | None = None
+    features: tuple[str, ...] = ()
+    limit_reading: Resolution | None = None
+    assumption: str | None = None
 
     @_accepts_stored_limit_names
     def __init__(
@@ -1146,6 +1914,9 @@ class SensitivityBounds:
         limit_refusal: MechanismRefusal | None = None,
         plugin_mechanism: str | None = None,
         nu2_correction: float | None = None,
+        features: tuple[str, ...] = (),
+        limit_reading: Resolution | None = None,
+        assumption: str | None = None,
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -1169,8 +1940,23 @@ class SensitivityBounds:
             ("limit_refusal", limit_refusal),
             ("plugin_mechanism", plugin_mechanism),
             ("nu2_correction", nu2_correction),
+            ("features", tuple(features)),
+            ("limit_reading", limit_reading),
+            ("assumption", assumption),
         ):
             object.__setattr__(self, name, value)
+
+    @property
+    def limit_descriptive(self) -> bool:
+        """Whether the one-sided limits print without coverage evidence.
+
+        Returns
+        -------
+        bool
+            ``True`` when :attr:`limit_reading` holds a resolution the registry does not
+            license.
+        """
+        return self.limit_reading is not None and not self.limit_reading.licensed
 
     @property
     def _limits_derived(self) -> bool:
@@ -1310,6 +2096,16 @@ class SensitivityBounds:
         row["robustness_value"] = self.robustness_value
         if self._limits_derived:
             row[spread_name("robustness_value_ci", status)] = self.robustness_value_plugin_interval
+        if self.features:
+            row["features"] = "+".join(self.features)
+        if self.assumption is not None:
+            row["assumption"] = self.assumption
+        if self.limit_reading is not None and self._limits_derived:
+            row |= {
+                "limit_rung": self.limit_reading.rung,
+                "limit_licensed": self.limit_reading.licensed,
+                "limit_sentence": self.limit_reading.sentence,
+            }
         return row
 
     def summary(self) -> str:
@@ -1333,6 +2129,11 @@ class SensitivityBounds:
             f"rho = {self.rho:.3g}"
             f" -> bias <= {self.bias:.5g}",
         ]
+        joint = joint_strength_sentence(self.features)
+        if joint is not None:
+            header.append(joint)
+        if self.assumption is not None:
+            header.append(self.assumption)
         if self.plugin_mechanism is not None and self.nu2_correction is not None:
             source = (
                 "the declared known mechanism"
@@ -1384,6 +2185,11 @@ class SensitivityBounds:
                 "",
                 rv_line,
                 rva_line,
+                *(
+                    []
+                    if self.limit_reading is None
+                    else ["", f"confidence limits: {self.limit_reading.sentence}"]
+                ),
             ]
         )
 
@@ -1469,6 +2275,7 @@ def omitted_variable_bounds(
     null_hypothesis: float = 0.0,
     nu2_estimator: str = "auto",
     benchmark: BenchmarkResult | None = None,
+    assume_consistent_mechanism: bool = False,
 ) -> SensitivityBounds:
     """Bias-adjusted bounds and robustness values for one estimand.
 
@@ -1505,6 +2312,12 @@ def omitted_variable_bounds(
     benchmark : BenchmarkResult or None
         A benchmark of this fit and this estimand.  Its ``cf_y`` and ``cf_d`` become the
         assumed strengths, so ``cf_y=`` and ``cf_d=`` must be omitted.
+    assume_consistent_mechanism : bool
+        ``True`` lifts the refusal of a ``DRTMLE`` fit and of a selecting ``CTMLE`` fit, and
+        reports a point bound that assumes a consistent treatment mechanism.  The representer
+        reads the DR-TMLE primary mechanism, or one refit of the C-TMLE treatment learner on
+        every mechanism covariate.  The bound has no confidence limits.  ``False`` keeps the
+        refusal.  Any other fit raises ``ValueError`` when it is ``True``.
 
     Returns
     -------
@@ -1515,7 +2328,12 @@ def omitted_variable_bounds(
         refuse when read, unless the mechanism is declared known or is a qualifying
         ``LogisticRegression`` (docs/roadmap.md F26). A zero bias scale also leaves the point
         bounds available but refuses the limits, whose square-root derivative is undefined.
-        An unreachable robustness threshold is ``None``.
+        An unreachable robustness threshold is ``None``. On a fit with a response mechanism,
+        a missing treatment, an intermediate variable, or a stratum parameter, ``features``
+        names them and ``limit_reading`` marks the limits descriptive until a registered study
+        covers them. With ``repeats`` above one, each bound is the median of the draws'
+        bounds, ``max_bias`` the median of their bias scales, and each limit the median rule
+        of the draws' limits.
 
     Raises
     ------
@@ -1543,28 +2361,30 @@ def omitted_variable_bounds(
         cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
     cf_y = 0.03 if cf_y is None else cf_y
     cf_d = 0.03 if cf_d is None else cf_d
-    elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    draws = _bound_draws(result, estimand, nu2_estimator, consistent=assume_consistent_mechanism)
+    elements = _combined_elements(draws, result)
     estimate = result[estimand]
     quantile = _one_sided_quantile(level, estimate.reference_df)
     strength = _confounding_strength(cf_y, cf_d, rho)
+    psis = np.array([draw.psi for draw in draws])
+    scales = np.array([draw.elements.max_bias for draw in draws])
 
-    lower = estimate.psi - strength * elements.max_bias
-    upper = estimate.psi + strength * elements.max_bias
+    # Each draw's bound, then the median over draws. One draw is the shipped bound.
+    lower, _ = _median_rule(psis - strength * scales, np.zeros(len(draws)))
+    upper, _ = _median_rule(psis + strength * scales, np.zeros(len(draws)))
 
     # One-sided limits on each end, Theorem 4 in Section 4 of Chernozhukov et al. (2026).
     # The curve adds the uncertainty of the bias term to that of the estimate. The plug-in
-    # has no curve, so its bound stores no limit and its accessors refuse.
+    # has no curve, so its bound stores no limit and its accessors refuse. Several draws
+    # combine each draw's limit by the median rule of the estimate.
     ci_lower: float | None = None
     ci_upper: float | None = None
     if elements.psi_max_bias is not None:
-        psi_bias = elements.psi_max_bias
-        se_lower = _bound_std_error(estimate.influence_curve, -strength * psi_bias, result)
-        se_upper = _bound_std_error(estimate.influence_curve, strength * psi_bias, result)
-        ci_lower = lower - quantile * se_lower
-        ci_upper = upper + quantile * se_upper
+        ci_lower = _limit(draws, result, strength, -1.0, quantile)
+        ci_upper = _limit(draws, result, strength, 1.0, quantile)
 
     rv, rva = _robustness_values(
-        result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
     )
     return SensitivityBounds(
         estimand=estimand,
@@ -1587,6 +2407,11 @@ def omitted_variable_bounds(
         limit_refusal=elements.limit_refusal,
         plugin_mechanism=elements.plugin_mechanism,
         nu2_correction=elements.nu2_correction,
+        features=elements.features,
+        limit_reading=_limit_reading(result, estimand, elements.features),
+        assumption=(
+            _consistent_mechanism_assumption(result) if assume_consistent_mechanism else None
+        ),
     )
 
 
@@ -1596,9 +2421,34 @@ def _bound_std_error(psi_estimate: FloatArray, psi_bias: FloatArray, result: TML
     return float(np.sqrt(influence_variance(combined, result.data.cluster)))
 
 
+def _edge(draws: tuple[_Draw, ...], signed_strength: float) -> float:
+    """The median over draws of ``psi + signed_strength * max_bias``."""
+    points = np.array([draw.psi + signed_strength * draw.elements.max_bias for draw in draws])
+    return _median_rule(points, np.zeros(len(draws)))[0]
+
+
+def _limit(
+    draws: tuple[_Draw, ...], result: TMLEResult, strength: float, side: float, quantile: float
+) -> float:
+    """The one-sided limit of the bound at ``strength``, by the median rule.
+
+    ``side`` names the end: ``-1`` for the lower bound, which the limit extends downward,
+    and ``1`` for the upper.  It is separate from the strength, which can be zero.
+    """
+    signed_strength = side * strength
+    points, errors = [], []
+    for draw in draws:
+        psi_bias = draw.elements.psi_max_bias
+        assert psi_bias is not None and draw.curve is not None
+        points.append(draw.psi + signed_strength * draw.elements.max_bias)
+        errors.append(_bound_std_error(draw.curve, signed_strength * psi_bias, result))
+    center, error = _median_rule(np.array(points), np.array(errors))
+    return center + side * quantile * error
+
+
 def _robustness_values(
     result: TMLEResult,
-    elements: SensitivityElements,
+    draws: tuple[_Draw, ...],
     psi: float,
     rho: float,
     level: float,
@@ -1610,8 +2460,11 @@ def _robustness_values(
     The point value is ``None`` when no equal strength in ``[0, 1)`` reaches the null.
     The limit value is also ``None`` when its influence curve is unavailable; callers
     omit and refuse that accessor rather than interpreting it as an unreachable limit.
+    On several draws both solve for the median bound and its median-rule limit.  The
+    median of the draws' bounds reaches the null where the median draw's bound does.
     """
     side = 1.0 if null_hypothesis > psi else -1.0
+    elements = _combined_elements(draws, result)
     psi_bias = elements.psi_max_bias
     alignment = abs(rho)
     if not 0.0 <= alignment <= 1.0:
@@ -1635,23 +2488,17 @@ def _robustness_values(
         return value
 
     def limit_at(strength: float) -> float:
-        assert psi_bias is not None
-        bias = strength * elements.max_bias
-        edge = psi + side * bias
-        se = _bound_std_error(
-            result[elements.estimand].influence_curve,
-            side * strength * psi_bias,
-            result,
-        )
-        return edge + side * quantile * se
+        return _limit(draws, result, strength, side, quantile)
 
     distance = abs(psi - null_hypothesis)
     if distance == 0.0:
         rv = 0.0
     elif alignment == 0.0 or elements.max_bias == 0.0:
         rv = None
-    else:
+    elif len(draws) == 1:
         rv = equal_share(distance / elements.max_bias)
+    else:
+        rv = _median_point_root(draws, side, null_hypothesis, equal_share)
     if psi_bias is None:
         return rv, None
 
@@ -1679,6 +2526,30 @@ def _robustness_values(
         high *= 2.0
     strength = float(optimize.brentq(signed_gap, 0.0, high))
     return rv, equal_share(strength)
+
+
+def _median_point_root(
+    draws: tuple[_Draw, ...],
+    side: float,
+    null_hypothesis: float,
+    equal_share: Callable[[float], float],
+) -> float | None:
+    """The equal-strength value at which the median bound of several draws meets the null.
+
+    Each draw's bound moves toward the null at the rate of its bias scale, so the median
+    bound is monotone in the strength.  It never reaches the null when half the draws or
+    more have a zero bias scale and stay on the far side.
+    """
+
+    def gap(strength: float) -> float:
+        return side * (_edge(draws, side * strength) - null_hypothesis)
+
+    high = 1.0
+    while gap(high) < 0.0:
+        if high > np.finfo(float).max / 2.0:
+            return None
+        high *= 2.0
+    return equal_share(float(optimize.brentq(gap, 0.0, high)))
 
 
 @dataclass(frozen=True)
@@ -1729,6 +2600,10 @@ class BenchmarkResult:
     random_state : int or None
         Seed this benchmark ran under.  Pass it back to :func:`benchmark` to obtain the
         benchmark again.  ``None`` only on a record built without a seed.
+    features : tuple of str
+        The second mechanisms and the stratum that the representer carries, as
+        :attr:`SensitivityElements.features` names them.  On such a fit ``cf_d`` measures a
+        joint strength, and :meth:`summary` says so.
 
     Attributes
     ----------
@@ -1753,6 +2628,7 @@ class BenchmarkResult:
     #: carrying no seed would otherwise give a different answer to the same question and
     #: cache the first one.
     random_state: int | None = None
+    features: tuple[str, ...] = ()
 
     @property
     def gain_y(self) -> float:
@@ -1784,7 +2660,7 @@ class BenchmarkResult:
         dict
             A JSON-compatible mapping of every reported field.
         """
-        return {
+        values: dict[str, Any] = {
             "estimand": self.estimand,
             "covariates": ", ".join(self.covariates),
             "cf_y": self.cf_y,
@@ -1796,6 +2672,9 @@ class BenchmarkResult:
             "psi_long": self.psi_long,
             "psi_short": self.psi_short,
         }
+        if self.features:
+            values["features"] = "+".join(self.features)
+        return values
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -1819,10 +2698,16 @@ class BenchmarkResult:
                 ),
                 "",
                 f"implied cf_y = {self.cf_y:.4f}, cf_d = {self.cf_d:.4f}, rho = {self.rho:.4f}",
+                *self._joint_lines(),
                 *self._clip_lines(),
                 f"the estimate moved by {self.delta_psi:+.5g} when these covariates were dropped",
             ]
         )
+
+    def _joint_lines(self) -> list[str]:
+        """The joint-strength sentence, on a fit whose representer carries a second mechanism."""
+        joint = joint_strength_sentence(self.features)
+        return [] if joint is None else [joint]
 
     def _clip_lines(self) -> list[str]:
         """One line for each gain that the record clips at 1."""
@@ -1963,6 +2848,34 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
     )
 
 
+def _axis_benchmark_refusal(axis: str, names: tuple[str, ...]) -> Refusal:
+    """Why a benchmark that drops a covariate the declared intervention reads is refused."""
+    noun = {"regime": "regime", "policy": "policy", "msm": "working model"}[axis]
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"benchmark refits the model without {list(names)}, and the declared {noun} reads "
+        f"them, so the short model would estimate another target. The benchmark compares "
+        f"two fits of one parameter.",
+        alternative=f"Name covariates that the declared {noun} does not read.",
+    )
+
+
+def _axis_target_moved(result: TMLEResult, short: TMLEResult) -> bool:
+    """Whether the short refit evaluated the declared intervention to other values."""
+    long, other = result.repeats[0].nuisance, short.repeats[0].nuisance
+    axis = result.config.parameter_axis
+    if axis == "regime" and long.regimes is not None and other.regimes is not None:
+        return not np.array_equal(long.regimes.values, other.regimes.values)
+    if axis == "msm" and long.msm is not None and other.msm is not None:
+        return not (
+            np.array_equal(long.msm.design, other.msm.design)
+            and np.array_equal(long.msm.weights, other.msm.weights)
+        )
+    if axis == "policy" and long.policies is not None and other.policies is not None:
+        return not np.array_equal(long.policies.shifted, other.policies.shifted)
+    return False
+
+
 def benchmark(
     result: TMLEResult,
     covariates: Any,
@@ -1979,6 +2892,10 @@ def benchmark(
     turns an abstract sensitivity parameter into a concrete comparison.
 
     Note this is a genuine refit, so it costs about as much as the original fit.
+
+    On a fit with ``repeats`` above one, each of ``sigma2`` and ``nu2`` is the median of that
+    moment over the draws, taken separately for the full fit and for the refit.  The two
+    medians need not come from one draw.
 
     Parameters
     ----------
@@ -2030,15 +2947,25 @@ def benchmark(
     # refit under it, and report it.  Same convention as ``cleverly.validation.refute``.
     seed = resolve_assessment_seed(result, random_state)
 
-    long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    long_elements = _median_elements(result, estimand, nu2_estimator)
     refusal = benchmark_refusal(result, names)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
     short_data = result.data.without_covariates(_benchmark_columns(result.data, names))
-    short_result = estimator.refit(
-        short_data, intermediate_value=result.intermediate_value, random_state=seed
-    )
-    short_elements = sensitivity_elements(short_result, estimand, nu2_estimator=nu2_estimator)
+    axis = result.config.parameter_axis
+    try:
+        short_result = estimator.refit(
+            short_data, intermediate_value=result.intermediate_value, random_state=seed
+        )
+    except (KeyError, DataError) as error:
+        if axis not in _AXIS_GROUPS:
+            raise
+        # The refit evaluates the declared regime, policy or working model again on the
+        # short data, and the declaration reads a covariate the request drops.
+        raise CapabilityError.from_refusal(_axis_benchmark_refusal(axis, names)) from error
+    if _axis_target_moved(result, short_result):
+        raise CapabilityError.from_refusal(_axis_benchmark_refusal(axis, names))
+    short_elements = _median_elements(short_result, estimand, nu2_estimator)
 
     var_y = float(np.var(result.data.outcome[result.data.observed]))
     r2_long = 1.0 - long_elements.sigma2 / var_y
@@ -2072,6 +2999,7 @@ def benchmark(
         nu2_long=long_elements.nu2,
         nu2_short=short_elements.nu2,
         random_state=seed,
+        features=long_elements.features,
     )
 
 
@@ -2083,6 +3011,7 @@ def robustness_value(
     level: float = 0.95,
     null_hypothesis: float = 0.0,
     nu2_estimator: str = "auto",
+    assume_consistent_mechanism: bool = False,
 ) -> dict[str, Any]:
     """The confounding strength that would explain the effect away.
 
@@ -2117,6 +3046,9 @@ def robustness_value(
         Value the strength is measured against.
     nu2_estimator : {"auto", "doubly_robust", "plugin"}
         Which estimator of the Riesz second moment to use.
+    assume_consistent_mechanism : bool
+        ``True`` lifts the refusal of a ``DRTMLE`` fit and of a selecting ``CTMLE`` fit, as
+        :func:`omitted_variable_bounds` states.  The point values remain, and no limit does.
 
     Returns
     -------
@@ -2126,7 +3058,9 @@ def robustness_value(
         At a non-inferential status, also the
         status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``, and
         ``"limit_refusal"`` in place of the confidence-limit value when the mechanism does not
-        qualify.
+        qualify. When :attr:`SensitivityBounds.features` is not empty, such as on a fit
+        with a second mechanism, a stratum, a regime, a shift, or an MSM coefficient, also
+        ``"limit_licensed"`` and ``"limit_sentence"``, which mark the limit descriptive.
 
     Raises
     ------
@@ -2138,10 +3072,11 @@ def robustness_value(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
-    elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    draws = _bound_draws(result, estimand, nu2_estimator, consistent=assume_consistent_mechanism)
+    elements = _combined_elements(draws, result)
     estimate = result[estimand]
     rv, rva = _robustness_values(
-        result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
     )
     status = estimate.inference
     values: dict[str, Any] = {"inference": status} if is_labelled(status) else {}
@@ -2159,6 +3094,9 @@ def robustness_value(
         }
         return values
     values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
+    reading = _limit_reading(result, estimand, elements.features)
+    if reading is not None:
+        values |= {"limit_licensed": reading.licensed, "limit_sentence": reading.sentence}
     return values
 
 
@@ -2171,6 +3109,7 @@ def contour_data(
     grid_bounds: tuple[float, float] = (0.15, 0.15),
     bound: str = "lower",
     nu2_estimator: str = "auto",
+    assume_consistent_mechanism: bool = False,
 ) -> Any:
     """A ``cf_d`` x ``cf_y`` grid of bias-adjusted bounds, for a contour plot.
 
@@ -2193,6 +3132,9 @@ def contour_data(
         Which end of the bias-adjusted interval each cell reports.
     nu2_estimator : {"auto", "doubly_robust", "plugin"}
         Which estimator of the Riesz second moment to use.
+    assume_consistent_mechanism : bool
+        ``True`` lifts the refusal of a ``DRTMLE`` fit and of a selecting ``CTMLE`` fit, as
+        :func:`omitted_variable_bounds` states.  The point values remain, and no limit does.
 
     Returns
     -------
@@ -2214,8 +3156,7 @@ def contour_data(
     """
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")
-    elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
-    psi = result[estimand].psi
+    draws = _bound_draws(result, estimand, nu2_estimator, consistent=assume_consistent_mechanism)
     sign = -1.0 if bound == "lower" else 1.0
 
     cf_d_grid = np.linspace(0.0, grid_bounds[0], grid_size)
@@ -2226,5 +3167,5 @@ def contour_data(
             strength = _confounding_strength(float(cf_y), float(cf_d), rho)
             rows_d.append(float(cf_d))
             rows_y.append(float(cf_y))
-            values.append(psi + sign * strength * elements.max_bias)
+            values.append(_edge(draws, sign * strength))
     return result.data.frame_like({"cf_d": rows_d, "cf_y": rows_y, "value": values})

@@ -91,6 +91,8 @@ def publish_run(
     error after the manifest exists is a failed verdict of a gated study: the record is copied
     and the error is raised again.  A driver error before the manifest exists copies nothing.
     """
+    # A study's property artifacts, such as ``cells.csv``, are part of its record too. The SL
+    # and SD runs of ``refuter-calibration-longitudinal`` lost theirs before this line read them.
     names = (
         *ARTIFACT_NAMES,
         *study.STUDY.extra_artifacts,

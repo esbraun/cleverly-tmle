@@ -165,13 +165,17 @@ def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_wor
     randomized_fit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _MISSING_OUTCOME_REFUSAL
+    # X82 part F (e): a missing outcome is no longer a fit-wide stop.  A moved treatment
+    # still needs the observation declaration, unless an earlier fit-wide stop applies.
     forbid_draw_and_refit(monkeypatch, randomized_fit.estimator)
+    fit_wide = _fit_wide_refusal(randomized_fit)
+    assert fit_wide != _MISSING_OUTCOME_REFUSAL
     capability = randomized_fit.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    assert _fit_wide_refusal(randomized_fit) == reason
+    if fit_wide is not None:
+        assert not capability.available
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        assert capability.refusal == fit_wide
+    reason = fit_wide or _MISSING_OUTCOME_REFUSAL
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
             randomized_fit,

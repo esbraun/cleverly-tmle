@@ -993,6 +993,20 @@ class TestPublishedVerdicts:
                 f"endpoints: bias {endpoint}, SE ratio {row.se_ratio}"
             )
 
+        refuter = published.loc[published["property"].isin({"refuter_size", "refuter_power"})]
+        if not refuter.empty:
+            declared = study.runner()
+            for row in refuter.itertuples():
+                count = round(row.rejection_rate * row.replicates)
+                expected = (
+                    count <= declared.SIZE_MAX_REJECTIONS
+                    if row.property == "refuter_size"
+                    else count >= declared.POWER_MIN_DETECTIONS
+                )
+                assert bool(row.passed) is expected, (
+                    f"{row.cell} publishes passed={row.passed} against its own count {count}"
+                )
+
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
@@ -1345,6 +1359,15 @@ class TestPublishedVerdicts:
                 >= study.properties().MISSINGNESS_DISPLACEMENT
             )
 
+        mask = published.loc[published["property"] == "response_mask_necessity"]
+        if not mask.empty:
+            assert mask["property_passed"].nunique() == 1
+            assert bool(mask["property_passed"].iloc[0]) is bool(
+                mask["passed"].all()
+                and mask["response_mask_displacement"].iloc[0]
+                >= study.properties().RESPONSE_MASK_DISPLACEMENT
+            )
+
         projection = published.loc[published["property"] == "projection_necessity"]
         if not projection.empty:
             assert projection["property_passed"].nunique() == 1
@@ -1547,6 +1570,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X82 SG: the O1 bound with the masked sigma^2 inside the margin, the bound with the
+        # observed-rows sigma^2 outside it.
+        "response_mask_necessity",
         # X16's three-arm pair: the positive cell's bias inside the margin, the control's
         # outside it.
         "multi_arm",
@@ -1593,6 +1619,10 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X82 SL: each size row answers to its own rejection count and each power row to its
+        # own detection count (checked below against the study's declared thresholds).
+        "refuter_size",
+        "refuter_power",
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",
@@ -1680,6 +1710,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # X33's binding witness: the iterated-mean cell answers to two share floors, and the
         # hazard cell carries the diagnostic role and states no verdict.
         "binding_witness",
+        # X21's bias rows of AdaptiveIPTW: a positive row's standardized bias inside the
+        # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
+        "bias",
+        "root_n_points",
     }
 )
 
@@ -1688,7 +1722,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
-    "survival-node-bounds": frozenset({"binding_witness", "interval_calibration"}),
+    "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
+    # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
+    # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
+    # the fit that the bias row reads.
+    "adaptive-iptw": (
+        frozenset({"bias", "interval_calibration"}),
+        frozenset({"bias", "targeting_necessity"}),
+    ),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
@@ -1718,6 +1759,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
+        # declared reading and no verdict (the interval is withheld for a fitted mechanism).
+        "spread",
         # X44's weak-positivity fit of the structural estimator, reported with no verdict.
         "positivity_reporting",
         # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
@@ -2182,7 +2226,8 @@ class TestTheStudyStillMeasuresTheCode:
         collisions = {
             stream: sorted(properties)
             for stream, properties in by_stream.items()
-            if len(properties) > 1 and frozenset(properties) != SAME_DRAW_FAMILIES.get(study.slug)
+            if len(properties) > 1
+            and frozenset(properties) not in SAME_DRAW_FAMILIES.get(study.slug, ())
         }
         assert not collisions, f"property families reuse sample streams: {collisions}"
 
@@ -2678,6 +2723,10 @@ _FAMILY = {
     "max_calibration_excess": "equivalence",
     "max_margin_utilization": "equivalence",
     "property_cells": "properties",
+    # ``properties.csv`` columns of a study that records its targeting loop.
+    "property_rows_nonconverged": "properties",
+    "property_nonconverged_fits": "properties",
+    "property_max_rounds": "properties",
     "max_targeting_displacement": "replicates",
     "median_targeting_displacement": "replicates",
     "score_audited_fits": "fit_diagnostics",
@@ -2917,19 +2966,26 @@ class TestThePublishedTestTables:
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""
         data = _artifacts(study.slug)
+
+        def scenario(key: str) -> str:
+            return descriptions.scenario(key, slug=study.slug)
+
+        def estimand(key: str) -> str:
+            return descriptions.estimand(key, slug=study.slug)
+
         undescribed: list[str] = []
         for frame, resolvers in (
             (
                 data["performance"],
                 (
                     ("implementation", descriptions.implementation),
-                    ("scenario", descriptions.scenario),
-                    ("estimand", descriptions.estimand),
+                    ("scenario", scenario),
+                    ("estimand", estimand),
                 ),
             ),
             (
                 data["equivalence"],
-                (("scenario", descriptions.scenario), ("estimand", descriptions.estimand)),
+                (("scenario", scenario), ("estimand", estimand)),
             ),
         ):
             for column, resolve in resolvers:
@@ -3025,6 +3081,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
     "margin:fold_locality_displacement": lambda s: s.properties().FOLD_LOCALITY_DISPLACEMENT,
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
+    "margin:response_mask_displacement": lambda s: s.properties().RESPONSE_MASK_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
     "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,

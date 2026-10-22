@@ -413,7 +413,7 @@ CONFIGURATION = {
         "n_train / n (quirk 8); for binary_learners the package refits its terminal under the "
         "split, while R reads SL.glm's cv column"
     ),
-    "paired_role": (
+    "paired_role_reason": (
         "descriptive: quirk 2 drives R's cross-validation to the last candidate, so the "
         "selected estimates are not compared under a verdict"
     ),

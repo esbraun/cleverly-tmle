@@ -1,0 +1,4 @@
+draws 4000; seed labels ('confirm_probe_sample', 'confirm_probe_fit')
+mean error -0.000300; spread 0.027231
+standardized bias -0.0110; 99% interval [-0.0518, 0.0297]
+nonconverged fits 0; max rounds 7
