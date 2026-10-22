@@ -1702,7 +1702,7 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 
-Part G has two tables: other linear functionals and further sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
+Part G has two tables: the remaining linear functionals and further sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
 standardized contrast with a response mechanism, of a derived `CTMLE` or `DRTMLE` ratio, and of a
 `TimeToEvent` pair has shipped. Its confidence limit prints as descriptive until a registered study
 covers it ([E-value](technical-reference/validation-methods.md#e-value)).
@@ -1714,34 +1714,28 @@ The omitted-variable bound of a fit with a response mechanism, a missing treatme
 variable, a baseline stratum, or `repeats` above 1 has shipped. Its confidence limits print as descriptive until a
 registered study covers them
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
-The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
+The bound of a regime mean, a basic shift mean, and an identity-link MSM coefficient has shipped,
+with descriptive limits. The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
 `assume_consistent_mechanism=True`, with no limits
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
-##### Other linear functionals
+##### Remaining linear functionals
 
-The package refuses the omitted-variable bound on
-three kinds of fit whose parameter is a linear functional of an outcome regression. Each refusal is
-correct, and each message says that the bound is well posed and not implemented. Theorem 2 of
-Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) gives the bias of such a functional, and
-Equation (14) in their Section 4 gives the bounds.
-The [omitted-variable bound study](technical-reference/method-evidence/omitted-variable-bound-standard-error.md) checked those locators against the
-published online appendix and arXiv v6. This project has not read the published main text, so the source
-read of this item still needs it.
+The bound refuses the configurations below. Each parameter is a linear functional of an outcome
+regression, or the configuration changes its representer. Theorem 2 of Chernozhukov, Cinelli,
+Newey, Sharma and Syrgkanis (2026) gives the bias of a linear functional.
 
-| fit | the functional | what the contract must add |
-| --- | --- | --- |
-| `regime` axis | a regime mean, linear in the regression of $Y$ on $(A, W)$ | the representer of each regime, from the fit's clever covariate |
-| `shift` axis | a shifted-dose mean, linear in the same regression | the representer of each shift, which reads the treatment density |
-| `msm` axis | an MSM coefficient, linear in the same regression | the representer of each coefficient through the projection |
+| fit | what the contract must add |
+| --- | --- |
+| `rr_tilt` axis | the representer of each risk-ratio tilt |
+| an MSM with a continuous dose | the representer and the Gram matrix at the quadrature doses |
+| an MSM with a link other than `"identity"` | a bound for a coefficient that is not linear in the regression |
+| a randomized, fold-tuned, or joint policy set | the combination of the component representers |
 
 Each contract names the representer, the $\nu^2$ estimator, and its influence curve. The evidence
-needs an exact finite-support law for each representer. It also needs a nonzero witness for each
-weight that is zero off its support, as `tests/unit/test_omitted_variable_part_g.py` has for the
-response and intermediate representers. DR-TMLE and
-C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
-stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
-because its functional depends on the treatment mechanism.
+needs an exact finite-support law, as `tests/unit/test_omitted_variable_axes.py` has for the
+shipped axes. Longitudinal fits stay in [F16](#f16-longitudinal-sensitivity-bound-estimation).
+The `ipsi` axis stays refused, because its functional depends on the treatment mechanism.
 
 ##### Further sensitivity requests
 

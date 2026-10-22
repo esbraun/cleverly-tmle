@@ -4612,7 +4612,8 @@ class SensitivityFacade(_CapabilityFacade):
         ``simulated_confounding`` answers for ratio and population attributable contrasts
         too, so it consults its own eligible set first and falls back to the linear set
         when that set names no single parameter. The rest are functionals of one linear
-        contrast, and their eligible set is the arm-indexed one.
+        contrast, and their eligible set is the arm-indexed one, with the regime, shift
+        and MSM parameters that the omitted-variable bound covers.
 
         Parameters
         ----------
@@ -4642,8 +4643,12 @@ class SensitivityFacade(_CapabilityFacade):
 
             return _default_estimand_candidates(self._result, _tilt_target_names(self._result))
         from .sensitivity._parameters import arm_parameters
+        from .sensitivity.omitted_variable import axis_parameters
 
-        return _default_estimand_candidates(self._result, arm_parameters(self._result))
+        # A regime, shift or MSM fit reports no arm parameter, and the bound answers for
+        # its own parameters (X82 part G).
+        eligible = {**arm_parameters(self._result), **axis_parameters(self._result)}
+        return _default_estimand_candidates(self._result, eligible)
 
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
         """Bound omitted-confounder bias for a reported estimand.
