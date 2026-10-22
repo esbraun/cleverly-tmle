@@ -779,8 +779,10 @@ $$
 |\text{bias}| \le |\rho| \sqrt{\frac{c_D^2}{1-c_D^2}}\; c_Y \sqrt{\sigma^2 \nu^2},
 $$
 
-with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer. The
-two primitives are exposed as `elements()`.
+with $\sigma^2 = E[R (Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer.
+$R$ is the indicator of the rows the representer reads. On complete data $R$ is one on every row.
+[Second mechanisms and strata](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
+fits. The two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
 model. On a wrong model, the doubly robust estimate of $\nu^2$ falls below $\nu_0^2$ by
@@ -803,18 +805,65 @@ matching capability row therefore carry one reason.
 | --- | --- |
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
 | a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does |
-| a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
-| a fit with a declared missing treatment | a derivation. The representer of the implemented bound is derived for a recorded treatment. This fit divides by the composite mechanism $P(A = a, \Delta_A = 1 \mid W)$, or $P(A = a, \Delta_A = 1, \Delta = 1 \mid W)$ with `delta=`, and no representer or confounding strength is derived for it. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G |
-| a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
-| an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or complete-outcome `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
+| an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
 | a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
 
 The table rule for `repeats=` runs last. A repeated fit that another rule also refuses reports that
 other rule, because one split would not lift it.
+
+#### Second mechanisms and strata of the bound
+
+The bound also covers the fits in the table below. Each representer is the fit's own clever
+covariate times the indicator $R$ of the rows that it reads. The submodel applies $\Delta$ through
+the mask of the fluctuation, so the bound multiplies it into the representer. $\sigma^2$ is the
+mean over every row of the residual that $R$ masks.
+
+| fit | representer $\alpha$ | $m(O, \alpha)$ | $R$ | feature |
+| --- | --- | --- | --- | --- |
+| a response mechanism | $\Delta 1\{A = a\} / (g_a \pi_a)$ | $1 / (g_a \pi_a)$ at each arm | $\Delta$ | `response` |
+| a declared missing treatment | $C_a / g_{c,a}$, with $C_a = \Delta_A \Delta 1\{A = a\}$ | $1 / g_{c,a}$ at each arm | $\Delta_A \Delta$ | `missing_treatment` |
+| an intermediate variable at the level $z$ | $\Delta 1\{A = a\} 1\{Z = z\} / (g_a q_z \pi_a)$ | $1 / (g_a q_z \pi_a)$ at each arm | $\Delta 1\{Z = z\}$ | `intermediate` |
+| a stratum-conditional parameter | the marginal $\alpha$ times $1\{S = s\} / p$ | the marginal $m$ times $1\{S = s\} / p^2$ | the marginal $R$ times $1\{S = s\}$ | `stratum` |
+
+For a mean or a difference of means in a stratum, $p = P_w(S = s)$. For an ATT or an ATC in a
+stratum, $p = P_w(A = c, S = s)$, and it replaces the marginal share $P_w(A = c)$. The composite
+mechanism $g_{c,a}$ is the one that the
+[composite construction](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) targets.
+
+Each functional is linear in the regression on the rows that $R$ marks, so Theorem 2 of the cited
+paper covers it. Only $R$ and the representer differ from the shipped bound. On complete data
+$R = 1$, and each quantity equals the shipped one.
+
+On the first three rows, $c_D$ measures a joint strength over the treatment mechanism and a second
+mechanism. The summary names that second mechanism as the response, recording, or intermediate
+mechanism. `benchmark()` refits every mechanism without the named covariates, so it measures the
+same joint strength. The curve of $\nu^2$ in a stratum carries the influence of the share $p$, as
+the [standard error](#standard-error-of-the-omitted-variable-bound) states. Under
+`nu2_estimator="plugin"` these fits report the point bounds. Their limits refuse with the key
+`configuration`, because the mechanism stack carries the score of the treatment mechanism alone.
+
+| witness in `tests/unit/test_omitted_variable_part_g.py` | what it checks |
+| --- | --- |
+| `TestTheRieszIdentityOnAnExactLaw` | $\hat\nu^2 = \nu_0^2 - E[(\hat\alpha - \alpha_0)^2]$ to a relative tolerance of $10^{-12}$ on each configuration. The mechanisms are wrong, so the error term is not zero |
+| `TestTheOracleRepresenter` | at the law's own mechanisms, the representer equals $\alpha_0$ on every row. One mutation drops each weight: $\Delta$, $1\{Z = z\}$, $\Delta_A$, and $1\{S = s\}$ |
+| `TestTheResidualVariance` | $\sigma^2$ masks $R$ and averages every row. A mutation removes $1\{Z = z\}$ from $R$ |
+| `TestTheStratumShareCurve` | the curve of $\hat\nu^2$ equals a finite-difference Gateaux derivative on every row. A mutation removes the share term |
+| `TestOneStratumIsTheMarginalBound` | a stratum that holds every row gives the marginal bound |
+
+#### Omitted-variable limits without coverage evidence
+
+The one-sided limits of these configurations print without coverage evidence. Each bound asks the
+evidence registry with the instrument `ovb_limit`. The rule is the features of the fit, joined with
+`+`, for example `response+stratum`. The registry has no `ovb_limit` row, so each limit prints as
+descriptive. `SensitivityBounds.limit_reading` holds the resolution, and
+`SensitivityBounds.limit_descriptive` is true. `to_dict()` adds `features`, `limit_rung`,
+`limit_licensed`, and `limit_sentence`. `robustness_value()` adds `limit_licensed` and
+`limit_sentence`. A registered coverage study adds one row for the configuration that it measured.
+The shipped bound asks the registry nothing, and its output does not change.
 
 `nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
 `"doubly_robust"`. A value outside those three raises `ValueError` before the table above refuses a
@@ -915,19 +964,27 @@ includes the null, its robustness threshold is zero.
 | quantity | curve per row | source |
 | --- | --- | --- |
 | estimate | the estimate's own influence curve. For the ATT and the ATC it includes the share term of $\theta_s$ | Online Appendix A, "Statistical Inference", Equation (15) |
-| $\sigma^2$ | $w ((Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
-| $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (1\{A = c\} - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
-| $\nu^2$, plug-in | $w (\alpha^2 - \nu^2) + \psi^\gamma - 2 \nu^2 w (1\{A = c\} - p) / p$. The mechanism term $\psi^\gamma$ is zero for a declared known mechanism. The last term applies to the ATT and the ATC only | Saul and Hudgens (2020), Section 2, Equation (1), for $\psi^\gamma$. The share term is this package's derivation, as for the doubly robust curve. [Plug-in limits](#plug-in-limits-and-the-learner-rule) defines $\psi^\gamma$ |
+| $\sigma^2$ | $w (R (Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
+| $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (I - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
+| $\nu^2$, plug-in | $w (\alpha^2 - \nu^2) + \psi^\gamma - 2 \nu^2 w (I - p) / p$. The mechanism term $\psi^\gamma$ is zero for a declared known mechanism. The last term applies to the ATT and the ATC only | Saul and Hudgens (2020), Section 2, Equation (1), for $\psi^\gamma$. The share term is this package's derivation, as for the doubly robust curve. [Plug-in limits](#plug-in-limits-and-the-learner-rule) defines $\psi^\gamma$ |
 | bias scale $S$ | $(\sigma^2 \psi_{\nu^2} + \nu^2 \psi_{\sigma^2}) / (2 \sqrt{\sigma^2 \nu^2})$ | Theorem 4 |
 
-The second term of the $\nu^2$ curve applies to the ATT and the ATC only. Here $c$ is the arm the
-parameter conditions on: the contrast arm for an ATT and the reference for an ATC. With more than
-two arms each contrast has its own $c$, and $p$ is the weighted share $P_w(A = c)$ of that arm.
+The second term of the $\nu^2$ curve applies to the ATT, the ATC, and a stratum-conditional
+parameter. $I$ is the indicator of the rows the parameter conditions on, and $p = P_w(I = 1)$.
+
+| parameter | $I$ |
+| --- | --- |
+| an ATT or an ATC | $1\{A = c\}$ |
+| a mean or a difference of means in the stratum $s$ | $1\{S = s\}$ |
+| an ATT or an ATC in the stratum $s$ | $1\{A = c, S = s\}$ |
+
+Here $c$ is the arm the parameter conditions on: the contrast arm for an ATT and the reference for
+an ATC. With more than two arms each contrast has its own $c$.
 
 The representer and $m(O, \alpha)$ both divide by $p$, so the estimate is $\hat F / \hat p^2$. The
 Riesz identity makes $\hat F$ insensitive to the fitted mechanism at first order, so its curve is
-the Lemma 3 score. The curve of $\hat p$ is $w (1\{A = c\} - p)$, and the derivative of $F / p^2$ in $p$
-is $-2 \nu^2 / p$. The delta method gives the second term.
+the Lemma 3 score. The curve of $\hat p$ is $w (I - p)$, and the derivative of $F / p^2$ in $p$ is
+$-2 \nu^2 / p$. The delta method gives the second term.
 
 The paper gives no such term for $\nu^2$. Equation (15) of Online Appendix A gives the term for the
 estimate $\theta_s$ only. The R package `dml.sensemakr` carries the same $\nu^2$ term since commit
@@ -1200,7 +1257,7 @@ $Y' = Y-k_YU$. Binomial outcomes use the same tail-flip construction as binary t
 Flip strengths range from zero through 0.5. Continuous treatment strengths are signed finite
 coefficients.
 
-**Point laws of X82 part F.** Four fit shapes take a declared law. The table gives each law
+**Point laws of X82 part F.** Eight fit shapes take a declared law. The table gives each law
 and the test module that checks it.
 
 | fit | law | witness |
@@ -1210,6 +1267,9 @@ and the test module that checks it.
 | a clustered fit | the caller declares `latent_level`. `"row"` draws one latent per row. `"cluster"` draws one per cluster. `"mixed"` draws $\sqrt{\rho}\,U_c + \sqrt{1-\rho}\,e$ with a declared `latent_rho`, so each latent stays standard normal. A treatment column that is constant within every cluster refuses `"row"` and `"mixed"` when a cell moves that column. A vector reads each component alone. An outcome-only grid runs at every level | `test_simulated_confounding_point_laws.py`: a cluster latent is constant within each cluster, the mixed latent equals its declared composition, and an outcome-only row latent leaves the treatment unchanged. `test_vector_simulated_confounding.py`: a moved cluster-level flag refuses, and a moved dose runs |
 | a categorical benchmark covariate | one block over every encoded indicator. A binary target uses the class-prediction change of an unpenalized logistic fit when the whole block is set to its mean. A Gaussian target uses $R \cdot \mathrm{sd}$, with $R$ the multiple correlation of the block. An indicator name is refused with its logical covariate | `test_simulated_confounding_point_laws.py`: a different reference level gives the same strength to $10^{-8}$, and the default L2 fit does not |
 | estimated observation weights | every cell holds the supplied weights on their rows, so it targets the fit's weighted population $E[w\,h(W, A', Y')]$. `weights_estimated` records the declaration | `test_simulated_confounding_point_laws.py`: on a saturated binary law each cell equals the weighted plug-in, and the unweighted plug-in differs by more than $10^{-3}$ |
+| a missing outcome or a declared missing treatment | each cell perturbs the recorded values only and keeps every observation indicator. Outcome-axis cells need no declaration, because the latent is independent of the data. A cell that moves the treatment needs `observation_reads=`, the adjustment covariates that every observation mechanism reads, so that $\Delta \perp (A', Y') \mid W$. The report states that assumption, and calibration reads the recorded rows of each target | `test_simulated_confounding_missing_laws.py`: recorded outcomes follow the law and placeholders stay, the indicators never change, and a declaration that names the treatment is refused |
+| a controlled direct effect | each cell holds the treatment, flips the binary intermediate in the latent tail with strength `ConfounderStrengthGrid(intermediate=...)`, and moves the outcome. The refit targets the same intermediate level. A nonzero treatment strength is refused | `test_simulated_confounding_intermediate_laws.py`: the treatment is identical in every refit, the intermediate equals the published flip, and the cell reports `induced_intermediate_association` |
+| a Gaussian fit whose estimator declares `q_bounds` | `bounded_outcome_law="logit"`, the default there, shifts $\mathrm{logit}((Y - l)/(h - l))$ by $-k_Y U$, and a recorded row at or beyond a bound never moves. `"normal_score"` shifts $\Phi^{-1}(\mathrm{rank}/(m + 1))$, maps it back through the empirical quantile at the Weibull plotting positions, and clips the result to $[l, h]$. It depends on the sample. Every cell reports `induced_outcome_association`, because $k_Y$ is no longer in outcome SD units | `test_simulated_confounding_intermediate_laws.py`: every outcome stays in the bounds at a strength where the linear shift leaves them, rows at a bound stay, and both laws are the identity at zero strength. The normal-score law matches a hand computation at tied values, and its clip is a mutation control |
 
 Every binary calibration uses the unpenalized fit, numeric covariates included, so one report
 reads one fit. Complete or quasi-complete separation leaves no maximum-likelihood fit (Albert and
@@ -1645,14 +1705,14 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 **Refusals.** `_FIT_WIDE_RULES`, in
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
-walks that table and returns the first reason that applies. Six missing-science stops apply
-in this order: longitudinal, learned-rule, risk-ratio tilt, missing-outcome, missing-treatment,
-and intermediate fits. Each one has a row in the refusal table below, and each one carries a roadmap item. F12
-tracks the missing-treatment stop with the missing-outcome stop.
+walks that table and returns the first reason that applies. Three missing-science stops apply
+in this order: longitudinal, learned-rule, and risk-ratio tilt fits. Each one has a row in the
+refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
+and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
 The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
-field that only a `TMLEResult` declares. The other eleven follow the intermediate stop. The table
+field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
 below gives all twelve in contract order.
 
 | rule | refuses |
@@ -1672,11 +1732,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all eighteen. A fit that reaches the `provider` stop reports
+execution name the same stop for all fifteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the six missing-science stops, plus the estimands and compositions the
+The rows below record the three fit-wide missing-science stops and the three grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1687,9 +1747,9 @@ of the roadmap also has a part that waits on published theory, as the
 | a longitudinal result | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). One time-fixed latent on an uncensored terminal-outcome fit is not written yet. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, longitudinal latent. |
 | a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
 | a risk-ratio tilt fit | `implementation_gap` | the replay declares no reading of the tilt rule on a perturbed draw. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (d) |
-| a missing outcome | `implementation_gap` | a response mechanism that reads the covariates only keeps missing at random given the perturbed treatment. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (e). A mechanism that reads the treatment breaks it. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a declared missing treatment | `implementation_gap` | as the missing-outcome row. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (e) and [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a controlled direct effect, or any fit that carries an intermediate variable | `implementation_gap` | the outcome axis and an intermediate axis that holds the treatment are declared laws. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (f). A flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
+| a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a cell that moves the treatment of a controlled direct effect | `implementation_gap` | a flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. The intermediate and outcome axes run. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
 | identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (a) |
@@ -1723,8 +1783,8 @@ the ordinary TMLE, which `guard=()` is.
 | regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |
 
 The surface also refuses a constant benchmark covariate. That check reads the requested covariate
-rather than the fitted result, so it sits outside the fit-wide table. The latent-level checks read
-the request too.
+rather than the fitted result, so it sits outside the fit-wide table. The latent-level, observation,
+intermediate, and bounded-law checks read the request too.
 
 `simulated_confounding_refusal` returns the refusal of one request before any draw. It reads the
 fit-wide table and then the parameter and calibration checks that the call runs. The capability
@@ -1960,10 +2020,46 @@ Without `q_bounds`, `OutcomeScaler.from_outcome` takes the observed range and wi
 Declare `q_bounds` to fix what one unit of $\gamma$ means for a continuous outcome.
 
 Away from $\gamma = 0$, the curve is a plug-in value.
-`_tilted_psi` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
+`_tilted_value` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
 The accuracy of the curve away from $\gamma = 0$ therefore depends on the outcome model.
 
 This is a retarget operation and not a refit.
+
+The tilt re-mixes each reported parameter in the table below. Each row repeats the arithmetic of
+the target that reported the parameter on the tilted regressions. Each curve therefore passes
+through the reported estimate at $\gamma = 0$. $\bar{Q}_\gamma(a, W)$ is the mixture above, and
+$\gamma_a$ is the tilt of arm $a$.
+
+| parameter | point curve at $\gamma$ | spread at $\gamma \neq 0$ |
+| --- | --- | --- |
+| an arm mean, a contrast, `att`, `atc` | the same functional of $\bar{Q}_\gamma(a, W)$ | the reported standard error under `std_err`, `ci_lower` and `ci_upper` |
+| `rr`, `or` | the ratio of two tilted arm means | the reported log-scale standard error, centred on the log of the tilted point |
+| `ey_obs` | $P_n[\pi(A, W)\,\bar{Q}^*(A, W) + \{1 - \pi(A, W)\}\,\operatorname{expit}\{\operatorname{logit}\bar{Q}^*(A, W) + \gamma_A\}]$ | the reported standard error, centred on the tilted point |
+| `par`, `paf` | the tilted `ey_obs` and the tilted reference-arm mean | as above |
+| a regime mean or contrast | $P_n[\sum_a g^\star(a \mid W)\,\bar{Q}_\gamma(a, W)]$ | as above |
+| an MSM coefficient | the projection of $\bar{Q}_\gamma(a, W)$ onto the working model, with its design, weights and link | as above |
+
+Every row except the first publishes its spread at $\gamma \neq 0$ under `plugin_std_err`,
+`plugin_interval_lower` and `plugin_interval_upper`. The reported influence curve is the
+missing-at-random curve, so this spread is a diagnostic and not an interval for the tilted
+parameter. At $\gamma = 0$ each row publishes the fit's own spread. A frame that mixes the two
+kinds carries both sets of columns, with NaN where a row has no value.
+
+The `ey_obs` row reads the natural-course fluctuation at the received arm, and the mechanism at
+that arm. It replaces the observed $\Delta Y$ by its regression $\pi \bar{Q}^*$. That form and
+$P_n[\Delta Y + (1 - \Delta)\bar{Q}_\gamma(A, W)]$ estimate one functional. Only the regression
+form passes through the reported estimate at $\gamma = 0$, because targeting solves the weighted
+residual equation and not the unweighted one.
+
+`tipping_gamma(use_ci=True)` follows a confidence limit, so it refuses every row but the first.
+`tipping_interval_refusal` gives the sentence, and the argument-aware capability row quotes it.
+The default point search answers for every row.
+
+`tests/unit/test_missingness_tilt_part_g.py` checks each row against the reported estimate at
+$\gamma = 0$ to `rtol=1e-12`, and against a hand computation at $\gamma = 1$. Two mutations move
+the curve: a mechanism that tilts the observed rows too, and a mechanism that tilts no row. A
+two-arm saturated MSM matches the arm-mean contrast. An MSM with an effect modifier matches a
+stacked weighted least squares.
 
 `fit_wide_tilt_refusal` holds every refusal that no argument lifts. `missingness_tilt()` and
 `tipping_gamma()` raise its sentence first, and both capability rows quote it. The table is
@@ -1973,11 +2069,10 @@ ordered, and each rule assumes that the rules above it passed.
 | --- | --- | --- | --- |
 | 1 | `longitudinal` | a longitudinal result | `unavailable` |
 | 2 | `learned_rule` | a learned-rule fit, which refuses missing outcomes before any learner. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds that refusal | `unavailable` |
-| 3 | `natural_course` | a missing-outcome `NaturalCourseMean` fit that reports `ey_obs` alone | `unavailable` |
-| 4 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
-| 5 | `continuous` | a continuous dose | `unavailable` |
-| 6 | `incremental` | an incremental fit | `unavailable` |
-| 7 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, ratio-only, or PAR-and-PAF-only fit. On the last kind the sentence names the natural-course targets | `unavailable` |
+| 3 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
+| 4 | `continuous` | a continuous dose | `unavailable` |
+| 5 | `incremental` | an incremental fit | `unavailable` |
+| 6 | `tiltable_parameters` | a fit that reports no parameter of the first table | `unavailable` |
 
 On a composite fit with a missing treatment and a missing outcome, the tilt re-mixes the targeted
 regression with the response mechanism $\pi(a, W) = P(\Delta = 1 \mid A = a, \Delta_A = 1, W)$.
@@ -1985,23 +2080,15 @@ Both are defined there, so the formula does not change. The tilt holds the treat
 condition fixed: it moves the outcome's recording away from missing at random and leaves the
 treatment's recording at it.
 
-The tilt is arm-specific. A fit that reports `ey_obs`, PAR or PAF beside arm means passes the
-table, and three rules keep the natural-course targets out of the tilt:
+A bare `tipping_gamma()` on a fit with several tiltable parameters reads `deferred` and requires
+`estimand`. `tests/unit/test_attributable_mar_capabilities.py` checks the natural-course rows.
 
-| request | result |
-| --- | --- |
-| `missingness_tilt(estimands=...)` that names `ey_obs`, `par` or `paf` | `CapabilityError` that names those targets and the arm-mean remedy |
-| the default sweep | the arm means and contrasts only. The capability row's interpretation names the skipped targets |
-| a bare `tipping_gamma()` whose default would fall to the one reported arm mean | the row reads `deferred` and requires `estimand`. The call raises the row's reason, which names the natural-course targets and the arm mean to choose, rather than a silent switch to the arm mean |
-
-A fit that reports PAR or PAF and no arm mean meets rule 7. `tests/unit/test_attributable_mar_capabilities.py`
-checks each row.
-
-The omitted-variable bound refuses a fit with a response mechanism. Its sentence points at the tilt
-only when this table admits the fit. On a fit that reports `ey_obs`, PAR or PAF, the pointer names
-the arm means, and a bound request for PAR or PAF carries no pointer. `TestTheTiltRowsReadTheCallsPredicate` and
-`TestTheBoundPointsAtTheTiltOnlyWhereItRuns` in `tests/unit/test_capability_row_predicates.py`
-check the rows and the pointer.
+The omitted-variable bound also answers on a fit with a response mechanism, with a joint strength
+over the treatment and response mechanisms
+([second mechanisms and strata](#omitted-variable-bounds-robustness-value-benchmark-and-contours)). The two analyses
+answer different questions. The tilt moves the recording of the outcome away from missing at
+random. The bound measures an omitted confounder. `TestTheTiltRowsReadTheCallsPredicate` in
+`tests/unit/test_capability_row_predicates.py` checks the tilt rows.
 
 The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all of it. Only the
 three spread columns read an interval that those paths refuse. Such a fit therefore receives
@@ -2077,6 +2164,192 @@ default, so `refute()` costs about 60 fits. A check that needs more than 20 refi
 The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
 `tests=` to run them. `run_all(include_refits=True)` runs `refute()` with the default tests.
 
+#### Longitudinal refutation
+
+A longitudinal result stores an unfitted copy of its estimator in `result.estimator`. The copy
+fits no bootstrap and no simultaneous band. `refute()` refits it with the original fold labels and
+repeat seeds. The `refute` row reads the `rerun_configuration` slot of `replayability()`. That slot needs
+the stored copy and the regimen and MSM declarations, and it does not need seeded learners. The
+table lists the eight tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
+and the survival, competing-risk, repeated-outcome, and MSM fits. Each test prints its numbers
+with `passed=None`, because no registry row covers a longitudinal fit (X82 plan section 7).
+
+| test | longitudinal draw | reference |
+| --- | --- | --- |
+| `placebo` | a Markov treatment trajectory per unit, masked by the observed at-risk pattern | 0 for a difference, 1 for a ratio, 0 for an MSM coefficient whose operator row vanishes |
+| `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
+| `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
+| `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+| `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
+| `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
+| `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
+
+The placebo does not permute trajectories. A permuted trajectory gives a unit at risk the missing
+treatment of a unit that left earlier. A permutation within each follow-up pattern makes the
+treatment depend on the event process. `refute()` refuses `placebo_mode="permute"` and
+`placebo_mode="draw"` on a longitudinal fit for this reason.
+
+The placebo fits a covariate-free first-order kernel `K` to the observed treatments. It draws a
+complete trajectory for each unit from `K`, independently of the panel, and then applies the mask.
+So the placebo law factorizes as `P(O-) x K`, where `O-` is every non-treatment variable. Every
+policy then has the value `E[Q_1(W)]`, and every policy contrast is exactly 0.
+
+| node | draw |
+| --- | --- |
+| 1 | a node-1 treatment of a unit at risk |
+| `t >= 2`, categorical previous node | the node-`t` treatment of a donor with the same previous treatment; the node-`t` marginal when no donor has it |
+| `t >= 2`, continuous previous node | the node-`t` treatment of the donor with the nearest previous dose |
+| held decision | the node-1 draw |
+
+The exact null needs a positive kernel probability for each regimen. When `K` gives a static
+regimen probability 0, the placebo prints that reason and runs no refit. A treatment that is
+constant within each cluster draws one trajectory per cluster. A node that
+the fit declares known keeps a known mechanism, which is the law of `K` given the drawn previous
+treatment. A vector node with a continuous component has no kernel, and the placebo refuses it.
+A parametric g-formula fit refuses `noise_nodes=True`, because the forward simulation would need a
+law for the new covariates.
+
+An MSM coefficient has an exact placebo value under the identity link only. The coefficient is 0
+when its row of `M^-1 sum_c h_c phi_c` vanishes for each unit and horizon. Any other coefficient
+prints its numbers against no reference.
+
+`tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
+panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
+within each follow-up pattern, and the contrast moves by more than `1e-3`. The longitudinal
+plasmode and the measurement-error bootstrap are
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) work. A request
+for them is refused with that roadmap id.
+
+#### Generated outcomes on the held history
+
+The draw keeps `W`, `L`, `A` and `C` of each unit and replaces the outcome. The outcome at node
+`t` is `f(W) + effect * (A_1 + ... + A_t) + e_t`, with fresh Gaussian noise `e_t`. The sum runs
+over the decision nodes, so a held design adds the effect once. `dummy_outcome` sets `f` and
+`effect` to 0. An end-of-study outcome is the node-`T` value. A repeated outcome draws every node,
+and its copies in the node histories keep the original values.
+
+The outcome reads no `L`, so each static regimen `a` has an exact level. That level is the
+weighted sample mean of `f(W)`, plus the noise mean, plus `effect` times the sum of `a` up to the
+horizon. A difference contrast is the difference of two levels. The independent process gives
+every policy contrast the value 0. The held censoring reads `L`, and the generated outcome does not,
+so the censoring stays at random.
+
+| target | `dummy_outcome` | `simulated_outcome` |
+| --- | --- | --- |
+| a static-regimen difference contrast | bias, standard-error ratio, coverage | bias, standard-error ratio, coverage |
+| a static-regimen level | bias, standard-error ratio, coverage | bias |
+| a dynamic, MTP, stochastic or incremental policy | bias, standard-error ratio, coverage | refused, `IMPLEMENTATION_GAP` |
+
+A level of `simulated_outcome` has a covariate part `f(W) - mean f(W)` in its influence curve. With
+`W` held, that part is fixed, so the standard-error ratio and the coverage have no held-design
+reference (X82 plan 5.5.1). A contrast cancels `f(W)`. Coverage also needs a correct censoring
+model, so the report prints the uncensored share at each node. A policy that reads `L` or the
+natural treatment has an unknown truth when `L` is held.
+
+A survival or competing-risk fit replaces its events, not one outcome. Its declarations are hazards.
+
+| fit | declaration | event probability at node `t` for a unit at risk |
+| --- | --- | --- |
+| survival | `LogisticHazardOutcome(intercept, effect, adjustment_scale)` | `expit(intercept + f(W) + effect * d_t)` |
+| competing risks | `MultinomialHazardOutcome(intercepts, effects, adjustment_scale)` | `exp(eta_j) / (1 + sum_k exp(eta_k))` for cause `j`, with `eta_j = intercepts[j] + f(W) + effects[j] * d_t` |
+
+`d_t` is the number of treated decision nodes up to `t`. The cause probabilities and the
+probability of no event sum to 1, which independent per-cause logistic hazards do not ensure.
+`dummy_outcome` needs a hazard with every effect 0 and `adjustment_scale=0`. The default Gaussian
+declarations are refused on these fits.
+
+The draw recodes the exit before it draws the events (X82 plan 5.5.2).
+
+1. An original event at node `t` becomes censoring at `t`. The generated outcome is not observed
+   at that node.
+2. Original censoring stays.
+3. While a unit is under observation, it has the generated event with the declared probability
+   and fresh noise. After an event, its later nodes are missing.
+
+The container orders a node as `L_t`, `A_t`, `C_t`, `Y_t`, and a unit censored at `t + 1` must
+hold `L_{t+1}` and `A_{t+1}`. A unit with an original event at `t` holds neither, so the recode
+censors it at `t`. The recoded censoring reads the original outcome. The generated event reads
+`W`, the treatments and fresh noise, so the censoring stays at random given the recorded history.
+The report prints the uncensored share after the recode at each node, because the recode censors
+every original event.
+
+The truth of a static regimen `a` at horizon `h` is the weighted sample mean of
+`sum_{t <= h} S(t - 1) p_j(t)`, where `S` is the probability of no event through a node. A
+hazard that reads `W` gives each risk and contrast a covariate part, so these read bias only. An
+independent hazard gives every policy contrast the value 0. A fit that declares a known censoring
+mechanism is refused, because the recode changes the censoring law.
+
+`tests/unit/test_longitudinal_generated_events.py` enumerates a two-node law whose original event
+reads `L_2`. The g-formula of the recoded and censored law equals the uncensored closed-form risk
+within `1e-12`. Its mutation control lets the generated hazard read `L_2`, and the two values
+differ by more than `1e-2`.
+
+The registered `generated_outcome` rows cover point fits only. Their bands were measured there,
+and sequential regressions, censoring weights and per-node targeting change the variance. So each
+longitudinal reading prints its numbers with `passed=None` until a longitudinal study registers a
+row.
+
+On an end-of-study or repeated fit, the tests refuse a non-Gaussian outcome, declared `q_bounds`,
+and a classifier outcome learner. A cross-fitted Gaussian panel must declare `q_bounds`, so these
+tests run on a fit with `n_folds=1`. Every longitudinal fit refuses an MSM coefficient and a node
+whose levels are not 0 and 1.
+`tests/unit/test_longitudinal_generated_outcomes.py` checks each truth with a nonzero effect, and
+checks that the mean of 40 refits lies within four Monte Carlo standard errors of the truth.
+
+#### Negative controls
+
+A negative-control outcome has the shape of the primary outcome. An end-of-study fit takes one
+value per unit. A repeated-outcome fit takes one value per unit and node. The copies of the primary
+outcome in the node histories do not change, so each adjustment set stays the same. A survival or
+competing-risk fit refuses the control, because the event indicators define the risk sets.
+
+A control fit is an auxiliary fit, so `refute()` sets its outcome bounds. A binary control takes
+no bounds. A continuous control takes its observed range on a cross-fitted fit, or on a fit that
+declares `q_bounds`. This is the usual TMLE choice (Gruber and van der Laan 2010). The report
+prints the bounds. A continuous control on a fit with a classifier outcome learner uses the
+pseudo-outcome learner of the fit.
+
+`negative_control_kind="pre_treatment"` declares a control that precedes the first treatment. The
+form applies to point and longitudinal fits. `refute()` refuses the control in two cases.
+
+| refusal | reason |
+| --- | --- |
+| the control equals an adjustment column | the control fit drops a measured confounder |
+| the cross-fitted residual variance share is below `negative_control_floor` | the estimate is 0 because the control has no free variation |
+
+The adjustment set is the covariates of a point fit and the baseline of a longitudinal fit. The
+share is the residual variance of a 2-fold cross-fitted linear regression of the control on the
+adjustment set, over the control variance. The folds use a fixed seed, so the `refute` row and the
+call compute the same share. The default floor is 0.01.
+
+The `future_treatment` test reads a control `C` that the fit does not use. Under no unmeasured
+confounding of `A_{t+1}`, the control is independent of `A_{t+1}` given the history `H_{t+1}`. That
+history is `W`, the earlier treatments, `L_1` to `L_{t+1}`, and each earlier repeated outcome. The
+test fits a point-treatment TMLE of `C` on `A_{t+1}`, adjusted for `H_{t+1}`, on the units at risk at
+node `t + 1`. `future_treatment_node=t` selects the node, and the default is 1.
+
+The test uses the outcome and treatment learners and the fold count of the fit. The bounds rule
+and the learner rule of the negative-control outcome apply to the control.
+
+The reading is valid only when `C` is measured before `A_{t+1}`, has no effect on `A_{t+1}`, and gets no feedback from `A_{t+1}`. The
+code cannot check this condition, so the report states it and stays at `L0`. `refute()` refuses
+these requests.
+
+| request | reason |
+| --- | --- |
+| a point-treatment fit | no later treatment node exists |
+| one decision, or a held design | no later treatment exists |
+| `future_treatment_node` at the last node | no node `t + 1` exists |
+| a control equal to a column of `H_{t+1}` | the fit adjusts for it by design |
+| a control whose cross-fitted residual share on `H_{t+1}` is below `negative_control_floor` | it is nearly a function of the history, so it is associated with `A_{t+1}` by design |
+| a control constant on the units at risk | its estimate is 0 by construction |
+| a later node that is not binary | `IMPLEMENTATION_GAP`, roadmap X82 |
+
+`tests/unit/test_longitudinal_negative_controls.py` holds the witnesses. An unmeasured `U` that
+moves `A_2` and the control gives `|z| > 6`. The same control without that path gives `|z| < 3`. A
+control that `L_2` drives reads 0 with `L_2` in the history. With `L_2` removed, the same
+control gives `|z| > 6`.
+
 #### Verdicts and evidence
 
 A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in
@@ -2103,9 +2376,10 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 
 | test | rule | rung today |
 | --- | --- | --- |
-| `dummy_outcome`, `simulated_outcome` | bias band | `L2`, at 400 draws or more |
-| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` where the covariate part of the influence curve is zero, and at 400 draws or more |
-| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome` | t, rho, paired shift, z | descriptive until a registered study adds a row |
+| `dummy_outcome`, `simulated_outcome` | bias band | `L2` on a point fit, at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
+| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
 in [0.85, 1.15], and a coverage in [0.88, 0.99]. A reading passes when its 95% interval lies inside

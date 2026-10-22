@@ -132,7 +132,10 @@ The test fails on four states.
 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 188 | 36 studies |
+| [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) | 3 | adaptive-propensity IPTW |
+| [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
+| [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
+| total | 208 | 37 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -231,6 +234,26 @@ same text as the "measured" column of its study page.
 | [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | property | `simultaneous_coverage/all_reported__simultaneous_band` | positive | its own rule | joint coverage 0.9140 to 0.9283 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [point-treatment survival](point-treatment-survival.md) | property | `interval_calibration/weighted_t5__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to 1.0015 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted point-treatment survival](cross-fitted-point-treatment-survival.md) | property | `interval_calibration/three_arm_t3__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to 1.0764 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ate__flexible` | positive | its own rule | bias 0.0204 to 0.0254, margin 0.0048 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ate__rate` | positive | its own rule | bias 0.000882 to 0.0046, margin 0.0044 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ey0__flexible` | positive | its own rule | bias -0.0120 to -0.0083, margin 0.0035 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ey1__flexible` | positive | its own rule | bias 0.0107 to 0.0147, margin 0.0038 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ey_low__composite_l3` | positive | its own rule | bias -0.0075 to -0.000620, margin 0.0066 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `interval_calibration/ey0__known_clustered__correctly_specified` | positive | its own rule | coverage 0.9394 to 0.9643, SE ratio 0.9902 to 1.0722 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/cn_ey_obs__targeted` | positive | the family's joint clause | bias -0.0031 to 0.0014, margin 0.0043 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/cn_ey_obs__untargeted` | control | the family's joint clause | bias -0.0573 to -0.0534, margin 0.0038 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/p_ate__targeted` | positive | its own rule | bias 0.000882 to 0.0046, margin 0.0044 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/p_ate__untargeted` | control | the family's joint clause | bias -0.1145 to -0.1103, margin 0.0049 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/p_ey0__targeted` | positive | the family's joint clause | bias -0.0032 to -0.000466, margin 0.0033 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/p_ey0__untargeted` | control | the family's joint clause | bias 0.0724 to 0.0761, margin 0.0043 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/p_ey1__targeted` | positive | the family's joint clause | bias -0.000589 to 0.0024, margin 0.0035 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/p_ey1__untargeted` | control | the family's joint clause | bias -0.0394 to -0.0368, margin 0.0032 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/pd_d__targeted` | positive | the family's joint clause | bias -0.000687 to 0.0037, margin 0.0043 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/pd_d__untargeted` | control | the family's joint clause | bias 0.0407 to 0.0462, margin 0.0053 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/pd_s__targeted` | positive | the family's joint clause | bias -0.000669 to 0.0029, margin 0.0034 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/pd_s__untargeted` | control | the family's joint clause | bias 0.0380 to 0.0424, margin 0.0043 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/rm_d__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0010, margin 0.0048 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/rm_d__untargeted` | control | the family's joint clause | bias -0.0244 to -0.0211, margin 0.0046 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/hajek_x_contrast__main_terms` | control | its own rule | bias 0.1306 to 0.1344, margin 0.0175, coverage 0.5072 to 0.5348, SE ratio 0.9970 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ht_x_contrast__main_terms` | control | its own rule | bias 0.1637 to 0.1682, margin 0.0208, coverage 0.4709 to 0.4984, SE ratio 0.9988 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ice_x_contrast__main_terms` | control | its own rule | bias 0.1075 to 0.1111, margin 0.0162, coverage 0.5952 to 0.6221, SE ratio 1.0002 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |

@@ -107,23 +107,22 @@ def raw_natural_course_result():  # type: ignore[no-untyped-def]
     )
 
 
-def test_natural_course_assessment_refuses_arm_specific_surfaces(
+def test_natural_course_assessment_tilts_the_natural_course_mean(
     natural_course_result,
 ) -> None:  # type: ignore[no-untyped-def]
-    reasons = set()
+    """The tilt re-mixes ``ey_obs`` at the received arm, and passes through it at zero."""
     for operation in ("missingness", "tipping_gamma"):
         capability = natural_course_result.sensitivity.capability(operation)
-        assert not capability.available
-        assert capability.status is AssessmentStatus.UNAVAILABLE
-        reasons.add(capability.reason)
-        with pytest.raises(CapabilityError, match="natural-course sensitivity parameter"):
-            getattr(natural_course_result.sensitivity, operation)()
-    assert len(reasons) == 1
+        assert capability.available
+        assert capability.status is AssessmentStatus.PASSED
+    curve = natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0])
+    assert list(curve["estimand"]) == ["ey_obs", "ey_obs"]
+    assert curve["psi"].iloc[0] == pytest.approx(natural_course_result["ey_obs"].psi, rel=1e-12)
+    assert curve["psi"].iloc[1] != pytest.approx(curve["psi"].iloc[0], abs=1e-4)
 
     combined = natural_course_result.sensitivity.run_all(include_retargets=True)
     for operation in ("missingness", "tipping_gamma"):
-        assert combined[operation].status is AssessmentStatus.UNAVAILABLE
-        assert combined[operation].detail in reasons
+        assert combined[operation].status is AssessmentStatus.COMPLETED
 
 
 def test_natural_course_diagnostics_are_truthful_without_a_propensity(
@@ -153,7 +152,7 @@ def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
     assert not support.available
     assert support.refusal == NATURAL_COURSE_SUPPORT_REFUSAL
     for operation in ("missingness", "tipping_gamma"):
-        assert not raw_natural_course_result.sensitivity.capability(operation).available
+        assert raw_natural_course_result.sensitivity.capability(operation).available
 
     bounds = (0.01, 0.05)
     default = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds)
@@ -428,10 +427,10 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     assert capability.status is AssessmentStatus.UNAVAILABLE
     assert capability.refusal == reason
     assert _fit_wide_refusal(longitudinal_result) == reason
-    # A ``LongitudinalResult`` stores no replay estimator, so there is no ``refit`` to
-    # forbid.  Asserted rather than assumed: the day it gains one, this guard must cover it.
-    assert not hasattr(longitudinal_result, "estimator")
-    forbid_draw_and_refit(monkeypatch, None)
+    # A ``LongitudinalResult`` stores its refit template for the refutation adapter, so
+    # the guard forbids its ``refit`` too.
+    assert longitudinal_result.estimator is not None
+    forbid_draw_and_refit(monkeypatch, longitudinal_result.estimator)
     grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
     with pytest.raises(CapabilityError) as facade_refusal:
         longitudinal_result.sensitivity.simulated_confounding(grid=grid)
@@ -885,6 +884,8 @@ def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-u
         "grid": ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         # Every fixture in this module adjusts for ``W1``.
         "covariates": ["W1"],
+        # A test every refutable estimand runs.
+        "tests": ("random_common_cause",),
     }
 
 
@@ -897,7 +898,7 @@ def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-u
         ("multi_arm_result", "sensitivity", True),
         ("att_result", "diagnostics", True),
         ("att_result", "sensitivity", False),
-        ("longitudinal_result", "diagnostics", False),
+        ("longitudinal_result", "diagnostics", True),
         ("longitudinal_result", "sensitivity", False),
     ],
 )
@@ -930,7 +931,13 @@ def test_a_deferred_capability_is_never_deferred_once_its_arguments_arrive(  # t
         assert capability.requires_arguments, f"{capability.operation} names no argument"
         supplied = {name: values[name] for name in capability.requires_arguments}
         resolved = surface._capability_for_arguments(capability.operation, supplied)
-        assert resolved.status is not AssessmentStatus.DEFERRED, capability.operation
+        # A supplied argument can resolve the row to a deferral on a different argument:
+        # a longitudinal regimen mean refuses the default placebo, so its row then defers
+        # on ``tests``. The chain must move forward and end.
+        while resolved.status is AssessmentStatus.DEFERRED:
+            assert not set(resolved.requires_arguments) & set(supplied), capability.operation
+            supplied |= {name: values[name] for name in resolved.requires_arguments}
+            resolved = surface._capability_for_arguments(capability.operation, supplied)
 
     assert bool(deferred) is defers, deferred
 

@@ -133,6 +133,19 @@ states when its interval holds. The table gives its instruments and what each on
 | `tests/unit/test_conditioning_remainder_drtmle.py` | on an exact law, a tie-splitting mechanism estimate gives a nonzero conditioning term that is linear in the split. Controls make it vanish | the size of the term at a fitted nuisance |
 | the registered [one-inconsistent-nuisance study](method-evidence/dr-tmle-one-inconsistent-nuisance.md) | valid intervals on a declared mechanism, conservative intervals with a correctly specified parametric mechanism, and a bias of the predicted sign that grows with n for a slow nuisance error, on law L, and a bias of the predicted sign on law M. Neither term vanishes on either law | a flexible learner, the bivariate reduction, strata, clusters, weights and more arms |
 
+`AdaptiveIPTW` estimates the arm means and the targets built from them with a Horvitz-Thompson mean.
+The [contract page](adaptive-iptw.md#validation) lists its instruments. Its registered
+[adaptive IPTW study](method-evidence/adaptive-iptw.md) is Python property evidence, with the
+comparator runs against R `drtmle` pending. The study measures the known-mechanism intervals, the
+bias of the estimated-mechanism point estimates, and the need for targeting. The table gives the
+unit-test instruments and what each one cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_adaptive_iptw_exact.py` | on exact finite laws, the shipped value, tilt steps and score equal values that the test computes from the law tables. A GLM reduced regression makes the refit and the one-step form differ from the targeted value | the truth at a fitted learner |
+| `tests/unit/test_adaptive_iptw_composite.py`, `_regimes.py` | the composite, regime and natural-course keys, with strata and clusters, equal test-side values, in sample and cross-fitted | a cross-fitted regime with missing data, which is refused |
+| `tests/unit/test_adaptive_iptw_status.py` | the status of each construction, the withheld accessors, and the validity identity with a nonzero term | the size of the validity term at a fitted nuisance |
+
 A `discrete` C-TMLE fit with one declared candidate, equal to the full adjustment set, is the
 ordinary TMLE. The `TMLE` studies are its evidence, and
 `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins the identity to `1e-12`.

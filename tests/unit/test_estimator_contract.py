@@ -108,6 +108,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "ATC",
         "ATE",
         "ATT",
+        "AdaptiveIPTWMethod",
         "AssessmentCapability",
         "AssessmentReport",
         "AssessmentStatus",

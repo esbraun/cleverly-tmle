@@ -350,6 +350,8 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/estimators/ctmle.py", "has no observed training outcomes"): _SPLIT,
     ("src/cleverly/estimators/ctmle.py", "has no trainable rows for a nuisance"): _SPLIT,
     ("src/cleverly/estimators/reduced.py", "has no trainable rows for a reduced"): _SPLIT,
+    ("src/cleverly/estimators/reduced.py", "has no trainable rows for a nuisance"): _SPLIT,
+    ("src/cleverly/estimators/reduced.py", "constant_folds applies to a binary"): _INTERNAL,
     **{
         ("src/cleverly/estimators/ctmle.py", f"{name}= only applies to strategy="): "a "
         "malformed argument: the option belongs to another strategy of the same estimator"

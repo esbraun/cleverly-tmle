@@ -9,6 +9,7 @@ runtime behavior. Pass the configured object to `IdentifiedEffect.estimate()`.
 
    cleverly.EstimationMethod
    cleverly.TMLEMethod
+   cleverly.AdaptiveIPTWMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
    cleverly.SDRMethod

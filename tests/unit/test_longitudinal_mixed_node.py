@@ -534,6 +534,15 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("study.py", "TimeToEvent._check_prepared"): "one baseline column",
     ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
+    ("validation/refute.py", "_LongitudinalGenerated.draw"): (
+        "after _held_parameter refuses a mixed node"
+    ),
+    ("validation/refute.py", "_SurvivalGenerated.draw"): (
+        "after _held_parameter refuses a mixed node"
+    ),
+    ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_future_treatment_test"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
 }
 
 
@@ -547,6 +556,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.with_treatment"): "a mixed node is refused first",
     (
         "longitudinal/estimator.py",
         "ParametricGFormula._refuse_design",
@@ -577,6 +587,10 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    ("validation/_markov_placebo.py", "MarkovKernel.fit"): "a mixed node is refused first",
+    ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
+    ("validation/refute.py", "_held_parameter"): "a mixed node is refused first",
     (
         "validation/longitudinal.py",
         "_ipsi_node_row",

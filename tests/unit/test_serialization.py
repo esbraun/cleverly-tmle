@@ -189,9 +189,12 @@ def test_natural_course_round_trip_retains_score_and_capability_contract(
     )
     assert restored.diagnostics.score_equations().passed
     for operation in ("missingness", "tipping_gamma"):
-        capability = restored.sensitivity.capability(operation)
-        assert not capability.available
-        assert "natural-course sensitivity parameter" in str(capability.reason)
+        assert restored.sensitivity.capability(operation).available
+    # The restored fit tilts its natural-course mean exactly as the original does.
+    pd.testing.assert_frame_equal(
+        restored.sensitivity.missingness(gamma=[0.0, 1.0]),
+        natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0]),
+    )
 
 
 def test_raw_natural_course_round_trip_recovers_unstructured_capabilities(tmp_path: Path) -> None:
@@ -220,7 +223,7 @@ def test_raw_natural_course_round_trip_recovers_unstructured_capabilities(tmp_pa
     save(result, path)
     restored = load(path)
     assert not restored.diagnostics.capability("support").available
-    assert not restored.sensitivity.capability("missingness").available
+    assert restored.sensitivity.capability("missingness").available
     curve = restored.diagnostics.truncation_curve(bounds=(0.01, 0.05))
     assert set(curve["upper_bound"]) == {1.0}
 
@@ -592,6 +595,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "config",
         "data",
         "estimates",
+        "estimator",
         "fitted_method",
         "identified_effect",
         "method",

@@ -29,6 +29,7 @@ from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..data.treatment_covariates import (
+    adaptive_iptw_restriction_line,
     drtmle_restriction_line,
     treatment_mechanism_restriction,
 )
@@ -244,14 +245,29 @@ class TMLEConfig:
             else "fold-specific targeted TMLE"
         )
 
-    def describe(self) -> list[str]:
-        """Human-readable lines for :meth:`TMLEResult.summary`."""
+    def describe(self, *, outcome_fit: bool = True) -> list[str]:
+        """Human-readable lines for :meth:`TMLEResult.summary`.
+
+        Parameters
+        ----------
+        outcome_fit : bool
+            ``False`` for an AdaptiveIPTW fit, which fits no outcome regression and no
+            outcome fluctuation, so the lines name neither.
+
+        Returns
+        -------
+        list of str
+            The lines, one fact each.
+        """
         lines = [
-            f"outcome family: {self.family}; fluctuation: {self.fluctuation} ({self.targeting})",
+            f"outcome family: {self.family}; fluctuation: {self.fluctuation} ({self.targeting})"
+            if outcome_fit
+            else f"outcome family: {self.family}; no outcome regression is fitted",
         ]
         if self.cross_fit:
+            name = self.estimator_name if outcome_fit else "AdaptiveIPTW"
             lines.append(
-                f"{self.estimator_name}: nuisances cross-fitted over {self.n_folds} folds; "
+                f"{name}: nuisances cross-fitted over {self.n_folds} folds; "
                 f"targeting: {self.targeting_scheme}"
             )
             if self.crossfit.repeated:
@@ -263,7 +279,8 @@ class TMLEConfig:
                     "split; variance includes within-draw uncertainty and split dispersion)"
                 )
         else:
-            lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
+            name = self.estimator_name if outcome_fit else "AdaptiveIPTW"
+            lines.append(f"{name}: nuisances fitted in-sample (cross_fit=False)")
         if self.cross_fit and self.crossfit.n_folds != self.n_folds:
             # Only when they disagree, because agreeing is the ordinary case and a line
             # that always appears is a line nobody reads. When they do disagree the
@@ -285,7 +302,7 @@ class TMLEConfig:
                 # Named because it is a deliberate divergence from R's rule, and because a
                 # reader comparing two fits needs to know the bound moved with the weights.
                 bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
-            if self.g_bounds_conditional != self.g_bounds:
+            if outcome_fit and self.g_bounds_conditional != self.g_bounds:
                 bounds += (
                     f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
                     f"{self.g_bounds_conditional[1]:.4g}]"
@@ -301,11 +318,11 @@ class TMLEConfig:
             # -- not just the one with a familiar name.
             named = " and ".join(self.bounded_mechanisms)
             lines.append(f"{named} truncated to [{self.missingness_bound:.4g}, 1]")
-        if self.q_bounds is not None:
+        if self.q_bounds is not None and outcome_fit:
             lines.append(
                 f"outcome scaled from [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}] to [0, 1]"
             )
-        if self.target_weights:
+        if self.target_weights and outcome_fit:
             lines.append("fluctuation in weighted form (target_weights=True)")
         return lines
 
@@ -1191,6 +1208,11 @@ class TMLEResult:
         ValidationReport
             One item per check the fitted method declares, read off stored artifacts.
 
+        Raises
+        ------
+        CapabilityError
+            When the fit is an AdaptiveIPTW fit, which has no outcome regression to check.
+
         See Also
         --------
         cleverly.ValidationReport : The returned validation statuses.
@@ -1219,7 +1241,10 @@ class TMLEResult:
         True
         """
         from ..assessment import validate_result
+        from .iptw import OPERATION_REFUSALS
 
+        if self.fitted_method == "adaptive_iptw":
+            raise CapabilityError.from_refusal(OPERATION_REFUSALS["validate"])
         return validate_result(self)
 
     def assess(
@@ -1519,7 +1544,13 @@ class TMLEResult:
             A printable report: the estimates, the settings, then the diagnostics.
         """
         data = self.data
-        header = ["Targeted maximum likelihood estimation", "=" * 38]
+        iptw = self.extra.get("adaptive_iptw")
+        title = (
+            "Targeted maximum likelihood estimation"
+            if iptw is None
+            else "Adaptive-propensity inverse probability weighting"
+        )
+        header = [title, "=" * len(title)]
         facts = [
             f"n = {data.n}"
             + (
@@ -1535,9 +1566,13 @@ class TMLEResult:
             + f"; covariates = {data.n_covariates}; {_arm_shares(data)}",
         ]
         if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines(protocol=protocol))
+            facts.extend(
+                self.identified_effect.summary_lines(
+                    protocol=protocol, fitted_method=self.fitted_method
+                )
+            )
         else:
-            if data.treatment_adjustment_sources is not None:
+            if data.treatment_adjustment_sources is not None and iptw is None:
                 # A fit with no study carries no identification record, so the data's own
                 # declaration prints the same restriction a design records.
                 facts.append(
@@ -1561,7 +1596,7 @@ class TMLEResult:
             )
         if self.intermediate_value is not None:
             facts.append(describe_direct_effect(self.intermediate_value, data.intermediate_name))
-        facts.extend(self.config.describe())
+        facts.extend(self.config.describe(outcome_fit=iptw is None))
         # The selector a collaborative fit stopped at, named in the facts block rather than
         # left to the nuisance report.  ``describe()`` exists on both artifact classes so a
         # caller renders either without discriminating between them.
@@ -1574,6 +1609,18 @@ class TMLEResult:
             facts.append(reduced.describe())
             if data.treatment_adjustment_sources is not None:
                 facts.append(drtmle_restriction_line(data.treatment_adjustment_sources))
+        if iptw is not None:
+            facts.append(iptw.describe())
+            sources = data.treatment_adjustment_sources
+            if sources is not None:
+                everything = tuple(
+                    dict.fromkeys(data.indicator_sources.get(n, n) for n in data.covariate_names)
+                )
+                facts.append(
+                    adaptive_iptw_restriction_line(
+                        sources, [name for name in everything if name not in sources]
+                    )
+                )
         # The same for the learned-rule record, which states the data-adaptive target.
         learned = self.extra.get("learned_rule")
         if learned is not None:

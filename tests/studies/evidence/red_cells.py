@@ -621,6 +621,35 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
+    # X21. The gradient-boosting mechanism of law P, declared ``reporting`` before the run
+    # (``PRE_ROUTED_GROUPS`` of the study).
+    "adaptive-iptw-flexible-learner": (
+        *_keys(
+            "adaptive-iptw",
+            "property",
+            "bias/ate__flexible",
+            "bias/ey0__flexible",
+            "bias/ey1__flexible",
+        ),
+    ),
+    # X21. The ``rate`` mechanism of law P at n = 3,000 reads 0.155 against a predicted 0.086, and
+    # the necessity family takes its other 13 rows red through the family clause.  The clustered
+    # known-mechanism cell has an SE ratio of 1.030 and a 99% interval that ends 0.002 above the band.
+    "adaptive-iptw-finite-sample": (
+        *_keys(
+            "adaptive-iptw",
+            "property",
+            "bias/ate__rate",
+            "interval_calibration/ey0__known_clustered__correctly_specified",
+            *(
+                f"targeting_necessity/{label}__{arm}"
+                for label in ("p_ate", "p_ey0", "p_ey1", "pd_d", "pd_s", "cn_ey_obs", "rm_d")
+                for arm in ("targeted", "untargeted")
+            ),
+        ),
+    ),
+    # X21. The three-arm composite cell reads -0.153 on its 400 draws and -0.011 on 4,000 fresh ones.
+    "adaptive-iptw-composite-l3": _keys("adaptive-iptw", "property", "bias/ey_low__composite_l3"),
 }
 
 

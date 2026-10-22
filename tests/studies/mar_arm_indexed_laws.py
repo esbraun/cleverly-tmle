@@ -487,6 +487,9 @@ class LawTreatment(BaseEstimator):
     estimates on the recorded rows.  ``g`` replaces the table the learner returns.
     """
 
+    #: The law's own table: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
+
     def __init__(self, law: Law, g: np.ndarray | None = None) -> None:
         self.law = law
         self.g = g
@@ -529,6 +532,9 @@ class LawResponse(BaseEstimator):
     with ``W`` alone is the treatment observation factor, which
     :class:`LawTreatmentObservation` answers with ``recorded``.
     """
+
+    #: The law's own table: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
 
     def __init__(
         self, law: Law, pi: np.ndarray | None = None, recorded: np.ndarray | None = None

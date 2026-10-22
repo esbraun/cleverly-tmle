@@ -540,6 +540,30 @@ ARMS: dict[str, str] = {
         "risk by visit 5 under arm 1 of the iterated-mean fit at n = 16,000, with a saturated "
         "outcome regression and an intercept-only treatment mechanism"
     ),
+    # ``adaptive-iptw`` (X21): the keys its cells read.  ``ey0``, ``ey1``, ``ate``, ``rr``,
+    # ``or``, ``ey_obs``, ``par`` and ``paf`` keep the readings above.
+    "ey_never": "mean outcome if no one is treated",
+    "ey_d": "mean outcome under the deterministic rule that treats where the rule says so",
+    "ey_s": "mean outcome under the stochastic rule that treats with the declared probability",
+    "ate_d": "mean under the deterministic rule minus the mean if no one is treated",
+    "ate_s": "mean under the stochastic rule minus the mean if no one is treated",
+    "ate_s_vs_d": "mean under the stochastic rule minus the mean under the deterministic rule",
+    "ey_high": "mean outcome under the high arm",
+    "ey_medium": "mean outcome under the medium arm",
+    "ey_low": "mean outcome under the low arm",
+    "ey_mid": "mean outcome under the middle arm",
+    "ate_low": "mean under the low arm minus the mean under the high arm",
+    "ate_medium": "mean under the medium arm minus the mean under the high arm",
+    "ate_mid": "mean under the middle arm minus the mean under the high arm",
+    "ate_v0": "average treatment effect in stratum V = 0",
+    "ate_v1": "average treatment effect in stratum V = 1",
+    "ate_v2": "average treatment effect in stratum V = 2",
+    "p_ey1": "arm-1 mean",
+    "p_ate": "average treatment effect",
+    "pd_d": "mean under the deterministic rule",
+    "pd_s": "mean under the stochastic rule",
+    "cn_ey_obs": "observed outcome mean under the natural course",
+    "rm_d": "mean under the deterministic rule, with a missing outcome",
 }
 
 #: The labels of ``sequential-baselines``: an estimator, a law and a target.  Mirrored from
@@ -4649,3 +4673,211 @@ CELLS.update(
         ),
     }
 )
+
+
+# ------------------------------------------------------------------------- adaptive-iptw (X21)
+#: ``p_ey0`` is an arm of another study with another reading.
+STUDY_ARMS[("adaptive-iptw", "p_ey0")] = "arm-0 mean"
+
+IMPLEMENTATIONS["adaptive_iptw"] = (
+    "`cleverly` `AdaptiveIPTW`, the Horvitz-Thompson mean with a targeted propensity"
+)
+SCENARIOS["known_arms"] = (
+    "effect-modified two-arm law with a continuous and a binary covariate; the cross-fitted "
+    "targeted fit of the arm means and the ATE with the treatment mechanism declared known"
+)
+
+PROPERTIES.update(
+    {
+        "bias": (
+            "the point estimate of the fit is unbiased in the unit of its own spread: the "
+            "standardized bias lies inside the margin where the learner is consistent for the "
+            "mechanism, and outside it where the learner is not"
+        ),
+        "root_n_points": (
+            "the estimate under a mechanism that converges at the cube-root rate keeps a "
+            "standardized bias inside the margin at each of three sizes"
+        ),
+        "spread": (
+            "the plug-in standard error divided by the empirical spread of the estimates, "
+            "reported without a verdict"
+        ),
+    }
+)
+
+
+def _adaptive_cells() -> None:
+    """The cells of ``adaptive-iptw`` that no other study shares.
+
+    A cell name is ``<key label>__<configuration>``.  The key label is an arm of :data:`ARMS`,
+    so :func:`cell` reads the configuration here, and prints the key beside it.  A
+    configuration that another study already describes would be overwritten silently, so this
+    raises instead.
+    """
+    positive = "bias interval inside the equivalence margin"
+    control = "bias interval must fall entirely outside the margin"
+    band = "SE-ratio and coverage intervals both inside their calibration bands"
+    flexible = (
+        "bias interval inside the equivalence margin; pre-routed to reporting if it is red, "
+        "because the learner's rate is not shown"
+    )
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for fit, words in (
+        ("known_arms", "arm fit"),
+        ("known_regimes", "regime fit"),
+    ):
+        for form, form_words in (("", "targeted"), ("one_step_", "one-step")):
+            table[("interval_calibration", f"{form}{fit}__correctly_specified")] = (
+                f"the {form_words} {words} with the declared mechanism of the effect-modified "
+                f"two-arm law, so the validity term is zero and the interval is published",
+                band,
+            )
+    for cell_name, law in (
+        ("known_weighted", "the weighted law"),
+        ("known_clustered", "the clustered law with unequal cluster sizes"),
+        ("known_stratified", "the stratified law, one target per stratum"),
+    ):
+        table[("interval_calibration", f"{cell_name}__correctly_specified")] = (
+            f"the targeted fit on {law} with its declared mechanism",
+            band,
+        )
+    table[("simultaneous_coverage", "known_band__simultaneous_band")] = (
+        "the simultaneous band over the arm means, the effect, the risk ratio and the odds "
+        "ratio, with the declared mechanism",
+        "the band covers the whole truth vector at the nominal joint rate",
+    )
+    for bias_cell, words, required in (
+        (
+            "correct",
+            "the correct logistic mechanism, cross-fitted, on the law with a correct reduced regression",
+            positive,
+        ),
+        (
+            "rate",
+            "a mechanism whose logit is off by 2 n^(-1/3) (1 + W2), cross-fitted, on the law with a correct reduced regression",
+            positive,
+        ),
+        ("insample_correct", "the correct logistic mechanism, fitted in sample", positive),
+        (
+            "wrong_mechanism",
+            "a main-terms logistic mechanism that omits the W1 W2 interaction of the true mechanism",
+            control,
+        ),
+        ("flexible", "a gradient-boosting mechanism, cross-fitted", flexible),
+        ("three_arm", "the correct multinomial mechanism on a three-arm law, five folds", positive),
+        (
+            "rate_reduced",
+            "a multinomial mechanism shrunk toward uniform by 2 n^(-1/3), five folds, on a law where the reduced regression is not exact; each arm probability stays a function of the true one, so the level sets survive",
+            positive,
+        ),
+        (
+            "composite_l1",
+            "the composite mechanism of treatment and response on a finite two-arm law, cross-fitted",
+            positive,
+        ),
+        (
+            "composite_l3",
+            "the composite mechanism on a finite three-arm law, cross-fitted",
+            positive,
+        ),
+        (
+            "insample_composite_l1",
+            "the composite mechanism on a finite two-arm law, fitted in sample",
+            positive,
+        ),
+        (
+            "insample_composite_l3",
+            "the composite mechanism on a finite three-arm law, fitted in sample",
+            positive,
+        ),
+        (
+            "weighted",
+            "an estimated mechanism on the weighted law, on the draws of the known-mechanism cell",
+            positive,
+        ),
+        (
+            "clustered",
+            "an estimated mechanism on the clustered law, on the draws of the known-mechanism cell",
+            positive,
+        ),
+        (
+            "stratified",
+            "an estimated mechanism on the stratified law, on the draws of the known-mechanism cell",
+            positive,
+        ),
+        (
+            "regime",
+            "the regime fit with the mechanism logit scaled by 1 + 2 n^(-1/3), on the effect-modified law, where the scaling keeps the level sets",
+            positive,
+        ),
+        (
+            "natural_course",
+            "the natural-course fit with a response mechanism off by a multiple of n^(-1/3)",
+            positive,
+        ),
+        (
+            "insample_regime_missing",
+            "the regime fit with a missing outcome, fitted in sample",
+            positive,
+        ),
+        (
+            "insample_missing_treatment",
+            "the arm fit with a missing treatment and a missing outcome, fitted in sample",
+            positive,
+        ),
+        (
+            "insample_regime_missing_treatment",
+            "the regime fit with a missing treatment and a missing outcome, fitted in sample",
+            positive,
+        ),
+        (
+            "missing_treatment_crossfit",
+            "the arm fit with a missing treatment and a missing outcome, cross-fitted",
+            positive,
+        ),
+        (
+            "level_set_breaking",
+            "a mechanism whose error moves across the level sets of the true mechanism (it adds n^(-1/3) W2 to the logit), on a law where the reduced regression is not exact",
+            control,
+        ),
+        (
+            "level_set_breaking_h1",
+            "the same mechanism error on a law where the reduced regression is exact",
+            positive,
+        ),
+        (
+            "parametric_q_ne_qr",
+            "the correct logistic mechanism on a law where the reduced regression is not exact",
+            positive,
+        ),
+    ):
+        table[("bias", bias_cell)] = (words, required)
+    for rung in (500, 1_500, 4_500):
+        table[("root_n_points", f"n_{rung}")] = (
+            f"the average treatment effect at n = {rung:,} under a mechanism off by a multiple "
+            f"of n^(-1/3)",
+            positive,
+        )
+    table[("spread", "parametric_q_ne_qr")] = (
+        "the plug-in standard error over the empirical spread of the estimates, for the correct "
+        "logistic mechanism on a law where the reduced regression is not exact",
+        "reported only: the ratio and its interval, with no verdict",
+    )
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+    for label in ("p_ey0", "p_ey1", "p_ate", "pd_d", "pd_s", "cn_ey_obs", "rm_d"):
+        STUDY_ARM_CELLS[("adaptive-iptw", "targeting_necessity", label, "targeted")] = (
+            "the targeted estimate of the fit",
+            positive,
+        )
+        STUDY_ARM_CELLS[("adaptive-iptw", "targeting_necessity", label, "untargeted")] = (
+            "the Horvitz-Thompson mean of the same fit at the estimated mechanism, before the "
+            "targeting step, on the same draws",
+            "the displacement from the targeted estimate must reach one standard deviation of "
+            "the targeted estimate, and the bias interval must fall entirely outside the margin",
+        )
+
+
+_adaptive_cells()

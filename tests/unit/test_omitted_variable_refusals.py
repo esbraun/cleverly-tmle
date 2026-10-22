@@ -171,7 +171,7 @@ def collaborative_fit(instrument_pair: tuple[Any, Any]) -> Any:
 
 @pytest.fixture(scope="module")
 def response_fit() -> Any:
-    """An arm-indexed fit that models response, which the bound does not implement."""
+    """An arm-indexed fit that models response, which the bound covers since X82 part G."""
     frame, _ = make_missing_outcome(n=500, seed=91)
     return (
         fast_tmle(**IN_SAMPLE, estimands=("ate",))
@@ -182,7 +182,7 @@ def response_fit() -> Any:
 
 @pytest.fixture(scope="module")
 def intermediate_fit() -> Any:
-    """The controlled direct effect at ``Z = 0``, which the bound does not implement."""
+    """The controlled direct effect at ``Z = 0``, which the bound covers since X82 part G."""
     return fit_cde(cde_frame(), ("ate",))[0.0]
 
 
@@ -262,8 +262,6 @@ def ratio_only_fit() -> Any:
 REFUSED_FITS: tuple[tuple[str, str], ...] = (
     ("drtmle_fit", "W"),
     ("collaborative_fit", "W1"),
-    ("response_fit", "W1"),
-    ("intermediate_fit", "W1"),
     ("ipsi_fit", "W1"),
     ("shift_fit", "W1"),
     ("msm_fit", "W1"),
@@ -344,44 +342,6 @@ class TestEachReasonNamesTheMissingResult:
         assert phrase in reason
         assert "not implemented" not in reason
 
-    @pytest.mark.parametrize(
-        ("fixture", "missing"),
-        [
-            (
-                "response_fit",
-                (
-                    "omits the response indicator Delta",
-                    "E[Delta (Y - Qbar)^2]",
-                    "joint strength over the treatment and response mechanisms",
-                ),
-            ),
-            (
-                "intermediate_fit",
-                (
-                    "1{Z = z} / P(Z = z | A, W)",
-                    "joint strength over the treatment and intermediate mechanisms",
-                ),
-            ),
-        ],
-    )
-    def test_a_well_posed_mechanism_refusal_names_the_theorem_and_what_is_missing(
-        self, request: pytest.FixtureRequest, fixture: str, missing: tuple[str, ...]
-    ) -> None:
-        """The bound exists for these fits, so the reason is an implementation gap.
-
-        Each functional is linear in an outcome regression, which is the hypothesis of
-        Theorem 2. What the package lacks is named piece by piece.
-        """
-        refusal = fit_wide_bound_refusal(request.getfixturevalue(fixture))
-        assert refusal is not None
-        reason = refusal.message()
-        assert "is not implemented for a fit with" in reason
-        assert "Theorem 2" in reason
-        assert "well posed" in reason
-        assert "treatment-side strength" in reason
-        for piece in missing:
-            assert piece in reason, piece
-
     def test_the_collaborative_reason_names_the_conditioning_set(
         self, collaborative_fit: Any
     ) -> None:
@@ -425,34 +385,18 @@ class TestEachReasonNamesTheMissingResult:
         assert "does not assume a consistent treatment mechanism" in reason
         assert "standard error" in reason
 
-    def test_the_response_refusal_points_at_the_tilt_that_does_answer(
-        self, response_fit: Any
-    ) -> None:
-        refusal = fit_wide_bound_refusal(response_fit)
-        assert refusal is not None
-        reason = refusal.message()
-        assert "sensitivity.missingness()" in reason
-        assert "sensitivity.tipping_gamma()" in reason
-        # The pointer is only worth printing if the row it names is open.
-        for operation in ("missingness", "tipping_gamma"):
-            assert response_fit.sensitivity.capability(operation).available, operation
-
-    def test_a_natural_course_fit_is_not_sent_to_a_second_refusal(
+    def test_a_natural_course_fit_reports_no_linear_arm_parameter(
         self, natural_course_fit: Any
     ) -> None:
-        """The pointer is gated, because both tilt rows are unavailable here.
+        """A natural-course fit reports ``ey_obs`` alone, so the parameter rule refuses it.
 
-        A natural-course fit has a response mechanism, so it hears the response refusal.
-        It has no arm-specific tilt, so ``missingness`` and ``tipping_gamma`` are refused
-        in turn. Printing the pointer would answer a refusal with a refusal.
+        The response mechanism no longer refuses the bound (X82 part G).  The tilt still
+        answers for ``ey_obs``.
         """
         refusal = fit_wide_bound_refusal(natural_course_fit)
-        assert refusal is not None
-        reason = refusal.message()
-        assert "response mechanism" in reason
-        assert "sensitivity.missingness()" not in reason
+        assert refusal == dict(_FIT_WIDE_BOUND_RULES)["bound_parameters"](natural_course_fit)
         for operation in ("missingness", "tipping_gamma"):
-            assert not natural_course_fit.sensitivity.capability(operation).available, operation
+            assert natural_course_fit.sensitivity.capability(operation).available, operation
 
 
 class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
@@ -468,10 +412,8 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         assert [name for name, _ in _FIT_WIDE_BOUND_RULES] == [
             "longitudinal",
             "drtmle",
+            "adaptive_iptw",
             "collaborative_tmle",
-            "response_mechanism",
-            "missing_treatment",
-            "intermediate",
             "parameter_axis",
             "bound_parameters",
             "repeats",
@@ -503,11 +445,11 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert refusal.roadmap == "F16"
 
-    def test_a_response_rule_placed_after_longitudinal_would_have_raised(self) -> None:
+    def test_a_later_rule_placed_before_longitudinal_would_have_raised(self) -> None:
         """Why the order is a contract rather than a preference.
 
-        A longitudinal result answers no ``has_missing_outcome``, so this is what the
-        second rule would meet if the first were moved.
+        A longitudinal result answers no ``config.parameter_axis``, so this is what the
+        axis rule would meet if ``longitudinal`` were moved after it.
         """
         rules = dict(_FIT_WIDE_BOUND_RULES)
 
@@ -516,7 +458,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             data = object()
 
         with pytest.raises(AttributeError):
-            rules["response_mechanism"](Elsewhere())
+            rules["parameter_axis"](Elsewhere())
         assert fit_wide_bound_refusal(Elsewhere()) is not None
 
     @pytest.mark.parametrize(
@@ -524,8 +466,6 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         [
             ("drtmle", "plain_fit", {"fitted_method": "drtmle"}),
             ("collaborative_tmle", "plain_fit", {"fitted_method": "collaborative_tmle"}),
-            ("response_mechanism", "response_fit", {}),
-            ("intermediate", "intermediate_fit", {}),
             ("parameter_axis", "plain_fit", {"parameter_axis": "regime"}),
             ("bound_parameters", "ratio_only_fit", {}),
             ("repeats", "repeated_fit", {}),
@@ -867,35 +807,40 @@ class TestTheConditionalEffectScoreReadsTheObservedArm:
         assert abs(plugin.nu2 - robust.nu2) > 0.8
 
 
-class TestTheIntermediateRuleIsNotVacuous:
-    """The number the intermediate rule blocks, and why ``cf_d`` would misread it.
+class TestTheIntermediateRepresenterReadsTheLevel:
+    """The intermediate bound's representer is zero off the targeted level of ``Z``.
 
-    Without the rule the bound returns a value. Its representer is zero on every row at
-    the other level of ``Z`` and carries the intermediate weight on the rest, so the
-    confounder strength it scales is not a treatment-side strength.
+    That weight is why ``cf_d`` measures a joint strength over the treatment and
+    intermediate mechanisms, which the summary prints.
     """
 
     def test_the_representer_vanishes_off_the_level_and_not_on_it(
         self, intermediate_fit: Any
     ) -> None:
-        with pytest.raises(CapabilityError):
-            sensitivity_elements(intermediate_fit, "ate")
-        blocked = _blocked(intermediate_fit)
+        assert fit_wide_bound_refusal(intermediate_fit) is None
+        elements = sensitivity_elements(intermediate_fit, "ate")
         level = intermediate_fit.data.intermediate == intermediate_fit.intermediate_value
         assert 0 < int(level.sum()) < level.size
-        assert np.all(blocked.riesz_representer[~level] == 0.0)
-        assert np.all(blocked.riesz_representer[level] != 0.0)
-        assert np.isfinite(blocked.nu2) and blocked.nu2 > 0
+        assert np.all(elements.riesz_representer[~level] == 0.0)
+        assert np.all(elements.riesz_representer[level] != 0.0)
+        assert np.isfinite(elements.nu2) and elements.nu2 > 0
+        summary = omitted_variable_bounds(intermediate_fit, "ate").summary()
+        assert "the intermediate mechanism" in summary
 
 
-class TestTheResponseRepresenterOmitsTheIndicator:
-    """The response reason says the implemented representer omits ``Delta``. It does."""
+class TestTheResponseRepresenterCarriesTheIndicator:
+    """The response representer is zero on every row with no outcome, under both estimators."""
 
-    def test_the_representer_is_nonzero_on_rows_with_no_outcome(self, response_fit: Any) -> None:
-        blocked = _blocked(response_fit, "plugin")
+    @pytest.mark.parametrize("nu2_estimator", ["auto", "plugin"])
+    def test_the_representer_is_zero_on_rows_with_no_outcome(
+        self, response_fit: Any, nu2_estimator: str
+    ) -> None:
+        elements = sensitivity_elements(response_fit, "ate", nu2_estimator=nu2_estimator)
         unobserved = ~response_fit.data.observed
         assert unobserved.any()
-        assert np.count_nonzero(blocked.riesz_representer[unobserved]) > 0
+        assert np.count_nonzero(elements.riesz_representer[unobserved]) == 0
+        # Nonzero witness: the observed rows carry the representer.
+        assert np.count_nonzero(elements.riesz_representer[~unobserved]) > 0
 
 
 # ------------------------------------------------------- the plug-in limits (RM22, F26)
@@ -1176,6 +1121,8 @@ PUBLIC_PARAMETERS: tuple[str, ...] = (
     "limit_refusal",
     "plugin_mechanism",
     "nu2_correction",
+    "features",
+    "limit_reading",
 )
 
 
@@ -1248,7 +1195,7 @@ class TestReplaceKeepsTheStoredLimits:
         parameters = inspect.signature(SensitivityBounds).parameters
         assert tuple(parameters) == PUBLIC_PARAMETERS
         required = [name for name, p in parameters.items() if p.default is p.empty]
-        assert required == list(PUBLIC_PARAMETERS[:-5])
+        assert required == list(PUBLIC_PARAMETERS[:-7])
 
     @pytest.mark.parametrize(
         ("kind", "accessor"),
