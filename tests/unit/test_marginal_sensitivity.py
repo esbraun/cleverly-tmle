@@ -843,3 +843,12 @@ def test_other_families_are_refused(family: str, owner: str) -> None:
 def test_the_module_names_one_owner() -> None:
     assert marginal_module._OWNER == "X87"
     assert marginal_module._PART_H2 == "X82"
+
+
+def test_the_frame_follows_the_backend_of_the_fit() -> None:
+    polars = pytest.importorskip("polars")
+    fit = binary_fit(polars.from_pandas(binary_frame()))
+    frame = marginal_sensitivity_bounds(fit, (1.0, 1.5)).to_frame()
+    assert isinstance(frame, polars.DataFrame)
+    assert frame["gamma"].to_list() == [1.0, 1.5]
+    assert isinstance(marginal_sensitivity_bounds(binary_fit(), 1.5).to_frame(), pd.DataFrame)
