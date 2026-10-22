@@ -20,9 +20,10 @@ import pytest
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
 import cleverly.datasets.offers as offers_law
-from cleverly import CapabilityError
+from cleverly import CapabilityError, sensitivity
 from cleverly.datasets import OFFER_LEVELS, offers_protocol, win_back
 from cleverly.utils.bounds import expit
+from cleverly.validation import refute
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -64,6 +65,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_blind(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
+    _check_refutation(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
     _check_prose_phrases()
@@ -586,9 +588,80 @@ def _check_cap(namespace: dict[str, Any]) -> None:
     assert all(wide.iloc[fitted[0]][("engaged", week)] == 0 for week in (1, 2, 3))
 
 
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 10: the four refits of the win-back contrast, and the checks that the page states it skips."""
+    result, refutation = namespace["result"], namespace["refutation"]
+    estimand = _key("win_back")
+    assert refutation.estimand == estimand
+    tests = {test.name: test for test in refutation.tests}
+    assert list(tests) == ["placebo", "subset", "random_common_cause", "bootstrap_stability"]
+    original = result[estimand].psi
+    for test in tests.values():
+        # "No test prints a verdict": no registry row covers a binomial end-of-study fit.
+        assert test.passed is None and test.rung == "L0"
+        assert len(test.values) == 20 and test.original == pytest.approx(original)
+    assert refutation.passed is None
+    # The placebo reading: "-0.0023826 ... spread 0.01815 ... t -0.5872 (p = 0.564) ... 1.15".
+    placebo = tests["placebo"]
+    values = np.asarray(placebo.values)
+    assert round(float(values.mean()), 7) == -0.0023826
+    assert round(float(values.std(ddof=1)), 5) == 0.01815
+    assert round(float(placebo.statistic), 4) == -0.5872
+    assert round(float(placebo.statistic_pvalue), 3) == 0.564
+    assert round(float(np.mean(placebo.standard_errors) / values.std(ddof=1)), 2) == 1.15
+    # A nonzero witness: a placebo that kept the observed offers would return the original
+    # estimate, so the null reading would sit at 0.0754 and not near zero.
+    assert abs(values.mean()) < 0.1 * original
+    # The subset reading: "0.012468 against 0.013387 ... ratio 0.93129 (p = 0.75)".
+    subset = tests["subset"]
+    scatter = float(np.std(subset.values, ddof=1))
+    reference = float(result[estimand].std_error * np.sqrt((20_000 / 14_000 - 1) * 20_000 / 19_999))
+    assert round(scatter, 6) == 0.012468 and round(reference, 6) == 0.013387
+    assert round(scatter / reference, 5) == 0.93129
+    # The random-common-cause reading: the paired shift is nonzero and small.
+    noise = tests["random_common_cause"]
+    shift = (np.asarray(noise.values) - original) / result[estimand].std_error
+    assert 0.0 < abs(shift.mean()) < 0.05 and round(float(shift.mean()), 6) == -0.012488
+    assert round(float(np.std(shift, ddof=1)), 5) == 0.06524
+    # The stability reading: "-5.321e-05 ... spread 0.01597".
+    stability = tests["bootstrap_stability"]
+    assert round(float(np.mean(stability.values)) - original, 8) == -5.321e-05
+    assert round(float(np.std(stability.values, ddof=1)), 5) == 0.01597
+    # The stored output holds the sentence that names the outcome family as the difference.
+    assert "This fit differs on outcome family 'binomial'" in stored_output(NOTEBOOK, "refute")
+
+    # The skipped checks of the reading, each refused as the reading states.
+    wide = namespace["panel"].pivot(index="customer", columns="week")
+    tenure = wide[("tenure", 1)].to_numpy()
+    with pytest.raises(CapabilityError, match="equals the adjustment column 'tenure'"):
+        refute(
+            result,
+            estimand=estimand,
+            tests=("negative_control_outcome",),
+            negative_control_outcome=tenure,
+            negative_control_kind="pre_treatment",
+            n_replicates=5,
+        )
+    with pytest.raises(CapabilityError, match="node with more levels"):
+        refute(
+            result,
+            estimand=estimand,
+            tests=("future_treatment",),
+            future_treatment_control=tenure,
+        )
+    for name in ("simulated_outcome", "plasmode"):
+        with pytest.raises(CapabilityError, match="'binomial'"):
+            refute(result, estimand=estimand, tests=(name,), n_replicates=10)
+    with pytest.raises(Exception, match="F16"):
+        sensitivity.evalue(result, estimand)
+    grid = sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1))
+    with pytest.raises(CapabilityError, match="F13"):
+        sensitivity.simulated_confounding(result, grid=grid, estimand=estimand)
+
+
 def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]
-    # Step 10: the synthetic deployment check.
+    # Step 11: the synthetic deployment check.
     pilot, pilot_outcome = namespace["pilot"], namespace["pilot_outcome"]
     assert len(pilot_outcome) == 10_000 and int((pilot["consent"] == 0).sum()) == 0
     # The pilot deploys the win-back rule: each week's offer is the rule's offer for that week's
@@ -611,7 +684,7 @@ def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     assert round(truth["ey_regimen[win_back]"], 3) == 0.600
     assert covers(fitted, truth["ey_regimen[win_back]"])
 
-    # Step 11: the benchmark refits the static policies without engagement and keeps the declared
+    # Step 12: the benchmark refits the static policies without engagement and keeps the declared
     # offer probabilities.
     benchmark = namespace["benchmark"]
     assert list(benchmark.index) == ["discount", "shipping"]
