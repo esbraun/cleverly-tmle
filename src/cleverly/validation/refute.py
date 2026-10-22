@@ -73,6 +73,7 @@ Each test refits the model, so a full run costs several times a single fit.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
@@ -99,6 +100,13 @@ from ._readings import (
     paired_shift,
     placebo_reading,
     subset_reading,
+)
+from .outcome_processes import (
+    GaussianAdjustmentOutcome,
+    GaussianIndependentOutcome,
+    GaussianNoise,
+    LogisticHazardOutcome,
+    MultinomialHazardOutcome,
 )
 from .simulation import ReplicationFailure
 
@@ -145,45 +153,6 @@ _DEFAULT_NOISE_REPLICATES = 20
 
 #: The fewest draws at which the equivalence intervals are defined and worth printing.
 _MINIMUM_BAND_DRAWS = 10
-
-
-@dataclass(frozen=True)
-class GaussianNoise:
-    """Declare one Gaussian noise law for a generated outcome.
-
-    Parameters
-    ----------
-    mean : float
-        Mean of each independent noise draw.
-    standard_deviation : float
-        Positive standard deviation of each independent noise draw.
-    """
-
-    mean: float = 0.0
-    standard_deviation: float = 1.0
-
-    def __post_init__(self) -> None:
-        if not np.isfinite(self.mean):
-            raise ValueError("Gaussian noise mean must be finite")
-        if not np.isfinite(self.standard_deviation) or self.standard_deviation <= 0.0:
-            raise ValueError("Gaussian noise standard_deviation must be finite and positive")
-
-    def draw(self, rng: np.random.Generator, size: int) -> np.ndarray:
-        """Draw independent values from the declared law.
-
-        Parameters
-        ----------
-        rng : numpy.random.Generator
-            Generator that supplies the draw.
-        size : int
-            Number of values to draw.
-
-        Returns
-        -------
-        ndarray
-            Independent Gaussian values.
-        """
-        return np.asarray(rng.normal(self.mean, self.standard_deviation, size=size), dtype=float)
 
 
 @dataclass(frozen=True)
@@ -268,155 +237,6 @@ class BootstrapMeasurementError:
             raise ValueError("categorical_change_probability must be between zero and one")
         if self.resampling not in ("auto", "iid", "cluster"):
             raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
-
-
-@dataclass(frozen=True)
-class GaussianIndependentOutcome:
-    """Declare an outcome independent of treatment and adjustment variables.
-
-    Parameters
-    ----------
-    noise : GaussianNoise
-        Gaussian law that generates every outcome value.
-    """
-
-    noise: GaussianNoise = GaussianNoise()
-    name: str = field(default="gaussian_independent_noise", init=False)
-    adjustment_function: str = field(default="none", init=False)
-    treatment_term: str = field(default="none", init=False)
-    family: str = field(default="gaussian", init=False)
-    known_effect: float = field(default=0.0, init=False)
-
-    @property
-    def noise_law(self) -> GaussianNoise:
-        """Return the recorded Gaussian noise declaration."""
-        return self.noise
-
-    def draw(self, data: Any, *, seed: int) -> np.ndarray:
-        """Draw one independent outcome vector.
-
-        Parameters
-        ----------
-        data : CausalData
-            Analysis rows that determine the output length.
-        seed : int
-            Child seed for this draw.
-
-        Returns
-        -------
-        ndarray
-            One generated outcome per analysis row.
-        """
-        return self.noise.draw(np.random.default_rng(seed), data.n)
-
-
-@dataclass(frozen=True)
-class GaussianAdjustmentOutcome:
-    r"""Declare ``f(W) + effect * A + epsilon`` with Gaussian noise.
-
-    The adjustment function standardizes each nonconstant covariate, sums the standardized
-    columns, divides by the square root of how many columns it summed, and multiplies the
-    result by ``adjustment_scale``. The root-count divisor holds the adjustment standard
-    deviation at about ``adjustment_scale`` for any number of approximately independent
-    covariates, so the confounding signal does not shrink against the fixed noise scale as
-    the adjustment set widens. Correlated columns raise that standard deviation instead,
-    which only makes a failure to adjust easier to detect. The known binary arm contrast is
-    ``effect`` because the treatment term is additive.
-
-    Parameters
-    ----------
-    effect : float
-        Declared effect of treatment code one against code zero.
-    adjustment_scale : float
-        Multiplier on the root-count normalized standardized covariate sum.
-    noise : GaussianNoise
-        Gaussian law for ``epsilon``.
-    """
-
-    effect: float = 1.0
-    adjustment_scale: float = 1.0
-    noise: GaussianNoise = GaussianNoise()
-    name: str = field(default="gaussian_adjustment_dependent", init=False)
-    adjustment_function: str = field(
-        default="scaled_standardized_covariate_sum_over_root_count", init=False
-    )
-    treatment_term: str = field(default="effect_times_treatment_code", init=False)
-    family: str = field(default="gaussian", init=False)
-
-    def __post_init__(self) -> None:
-        if not np.isfinite(self.effect):
-            raise ValueError("Gaussian adjustment outcome effect must be finite")
-        if not np.isfinite(self.adjustment_scale):
-            raise ValueError("Gaussian adjustment outcome adjustment_scale must be finite")
-
-    @property
-    def known_effect(self) -> float:
-        """Return the derived code-one against code-zero mean contrast."""
-        return float(self.effect)
-
-    @property
-    def noise_law(self) -> GaussianNoise:
-        """Return the recorded Gaussian noise declaration."""
-        return self.noise
-
-    def adjustment(self, covariates: Any, *, centre: Any = None, scale: Any = None) -> np.ndarray:
-        """Evaluate the declared adjustment function.
-
-        Parameters
-        ----------
-        covariates : array-like
-            Covariate matrix with one row per observation.
-        centre : array-like or None
-            Column centres to standardize with. ``None`` uses the rows' own means.
-        scale : array-like or None
-            Column scales to standardize with. ``None`` uses the rows' own standard
-            deviations. The plasmode passes the original data's centre and scale, so the
-            function is the same on every resample.
-
-        Returns
-        -------
-        ndarray
-            Adjustment value for each row.
-        """
-        values = np.asarray(covariates, dtype=float)
-        center = np.mean(values, axis=0) if centre is None else np.asarray(centre, dtype=float)
-        scale = np.std(values, axis=0) if scale is None else np.asarray(scale, dtype=float)
-        active = scale > 0.0
-        if not np.any(active):
-            return np.zeros(values.shape[0], dtype=float)
-        standardized = (values[:, active] - center[active]) / scale[active]
-        # Sum over root count rather than mean: a mean of p standardized columns has
-        # standard deviation about 1/sqrt(p), so the confounding signal would vanish
-        # against the fixed noise scale on a wide adjustment set.
-        divisor = np.sqrt(float(np.count_nonzero(active)))
-        return np.asarray(
-            self.adjustment_scale * np.sum(standardized, axis=1) / divisor, dtype=float
-        )
-
-    def draw(self, data: Any, *, seed: int) -> np.ndarray:
-        """Draw one adjustment-dependent outcome vector.
-
-        Parameters
-        ----------
-        data : CausalData
-            Analysis rows that supply covariates and treatment.
-        seed : int
-            Child seed for the Gaussian noise.
-
-        Returns
-        -------
-        ndarray
-            One generated outcome per analysis row.
-        """
-        noise = self.noise.draw(np.random.default_rng(seed), data.n)
-        # A row with an unrecorded treatment has no code to add an effect to.  Its
-        # generated outcome is never read, because the composite indicator is zero there,
-        # so the arm-0 value keeps the vector finite and leaves the known effect intact.
-        treatment = np.where(np.isfinite(data.treatment), data.treatment, 0.0)
-        return np.asarray(
-            self.adjustment(data.covariates) + self.effect * treatment + noise,
-            dtype=float,
-        )
 
 
 @dataclass(frozen=True)
@@ -1024,7 +844,11 @@ _KNOWN_TESTS = (
     "bootstrap_measurement_error",
     "bootstrap_stability",
     "plasmode",
+    "future_treatment",
 )
+#: The negative-control outcome forms: ``None`` for an outcome measured after treatment, and
+#: ``"pre_treatment"`` for one measured before the first treatment (X82 plan 5.7.1).
+_NEGATIVE_CONTROL_KINDS = (None, "pre_treatment")
 _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome", "plasmode")
 #: The refutations whose refit sees a different row set from the fit's own. ``subset`` drops
 #: rows, so the count changes; ``bootstrap_measurement_error`` resamples with replacement
@@ -1071,6 +895,10 @@ def _validated_tests(
     n_replicates: int | None,
     negative_control_outcome: Any = None,
     placebo_mode: str | None = None,
+    negative_control_kind: str | None = None,
+    negative_control_floor: float = 0.01,
+    future_treatment_control: Any = None,
+    future_treatment_node: int = 1,
 ) -> tuple[str, ...]:
     """Refuse malformed arguments of :func:`refute` before any refit.
 
@@ -1089,6 +917,14 @@ def _validated_tests(
         The outcome required by the negative-control test.
     placebo_mode : str or None
         How the placebo treatment is drawn. ``None`` is the result family's own draw.
+    negative_control_kind : str or None
+        ``None``, or ``"pre_treatment"`` for a control measured before treatment.
+    negative_control_floor : float
+        The residual-variance floor of a pre-treatment control, a share in ``(0, 1)``.
+    future_treatment_control : Any
+        The control the future-treatment test reads.
+    future_treatment_node : int
+        The node ``t`` whose next treatment is the exposure.
 
     Returns
     -------
@@ -1099,7 +935,8 @@ def _validated_tests(
     ------
     ValueError
         If a test name is unknown, ``n_replicates`` is not a positive integer, the
-        placebo mode is unknown, or the negative-control test has no outcome.
+        placebo mode or the control kind is unknown, the floor is outside ``(0, 1)``, the
+        node is not a positive integer, or a control test has no control.
     """
     requested = tuple(tests)
     unknown = [name for name in requested if name not in _KNOWN_TESTS]
@@ -1121,6 +958,24 @@ def _validated_tests(
         raise ValueError(
             "the negative_control_outcome test needs an outcome array that treatment "
             "cannot affect; pass negative_control_outcome=<array>"
+        )
+    if negative_control_kind not in _NEGATIVE_CONTROL_KINDS:
+        raise ValueError(
+            f"unknown negative_control_kind {negative_control_kind!r}; choose None or "
+            "'pre_treatment'"
+        )
+    if not 0.0 < float(negative_control_floor) < 1.0:
+        raise ValueError("negative_control_floor must lie strictly between 0 and 1")
+    if (
+        isinstance(future_treatment_node, bool)
+        or not isinstance(future_treatment_node, (int, np.integer))
+        or future_treatment_node < 1
+    ):
+        raise ValueError("future_treatment_node must be a positive integer")
+    if "future_treatment" in requested and future_treatment_control is None:
+        raise ValueError(
+            "the future_treatment test needs a control measured before the later treatment "
+            "and outside its declared history; pass future_treatment_control=<array>"
         )
     return requested
 
@@ -1152,6 +1007,17 @@ class _RefuteRequest:
     noise_nodes : bool
         Whether ``random_common_cause`` also appends a noise column to every node of a
         longitudinal fit.
+    negative_control_outcome : Any
+        The negative-control outcome, or ``None``.
+    negative_control_kind : str or None
+        ``"pre_treatment"`` for a control measured before treatment, else ``None``.
+    future_treatment_control : Any
+        The control of the future-treatment test, or ``None``.
+    future_treatment_node : int
+        The node ``t`` whose next treatment is the exposure.
+    negative_control_floor : float
+        The least cross-fitted residual variance share of a pre-treatment or future-treatment
+        control.
     """
 
     estimand: str
@@ -1164,6 +1030,11 @@ class _RefuteRequest:
     measurement_error_rule: Any = field(default_factory=EmpiricalInclusionRule)
     placebo_mode: str | None = None
     noise_nodes: bool = False
+    negative_control_outcome: Any = None
+    negative_control_kind: str | None = None
+    future_treatment_control: Any = None
+    future_treatment_node: int = 1
+    negative_control_floor: float = 0.01
 
     @property
     def generated(self) -> tuple[str, ...]:
@@ -1224,6 +1095,15 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
+def _refuse_adaptive_iptw(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse an AdaptiveIPTW fit, for which no refutation is registered."""
+    from ..estimators.iptw import OPERATION_REFUSALS
+
+    if getattr(result, "fitted_method", None) == "adaptive_iptw":
+        return OPERATION_REFUSALS["refute"]
+    return None
+
+
 def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
     from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
@@ -1251,7 +1131,16 @@ def _is_longitudinal(result: Any) -> bool:
 
 
 #: The tests the longitudinal adapter runs (X82 part C1).
-_LONGITUDINAL_TESTS = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
+_LONGITUDINAL_TESTS = (
+    "placebo",
+    "random_common_cause",
+    "subset",
+    "bootstrap_stability",
+    "negative_control_outcome",
+    "future_treatment",
+    "dummy_outcome",
+    "simulated_outcome",
+)
 
 
 def _refuse_longitudinal_tests(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
@@ -1263,13 +1152,12 @@ def _refuse_longitudinal_tests(result: TMLEResult, request: _RefuteRequest) -> R
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
-        f"refutation test(s) {pending} have no longitudinal adapter yet. The negative-control "
-        "outcome and its pre-treatment and future-treatment forms, the held-history generated "
-        "outcomes, and the measurement-error bootstrap are X82 part C work that follows the "
-        "placebo, noise, subset and bootstrap tests.",
+        f"refutation test(s) {pending} have no longitudinal adapter yet. The longitudinal "
+        "plasmode and the measurement-error bootstrap are X82 work.",
         alternative=(
-            "The placebo, random_common_cause, subset and bootstrap_stability tests run on "
-            "this fit."
+            "The placebo, random_common_cause, subset, bootstrap_stability, "
+            "negative_control_outcome, future_treatment, dummy_outcome and simulated_outcome "
+            "tests run on this fit."
         ),
         roadmap="X82",
     )
@@ -1329,6 +1217,172 @@ def _refuse_noise_nodes(result: TMLEResult, request: _RefuteRequest) -> Refusal 
             "noise_nodes=True on a parametric g-formula fit would add a time-varying "
             "covariate that the forward simulation must model, and the fit declares no law "
             "for it. Leave noise_nodes=False: the baseline noise column runs on this fit"
+        )
+    return None
+
+
+def _matching_column(values: np.ndarray, matrix: np.ndarray, rows: np.ndarray) -> int | None:
+    """The first column of ``matrix`` equal to ``values`` on ``rows``, or ``None``."""
+    target = values[rows]
+    for column in range(matrix.shape[1]):
+        candidate = np.asarray(matrix[rows, column], dtype=float)
+        if np.allclose(candidate, target, rtol=0.0, atol=1e-12):
+            return column
+    return None
+
+
+def _adjustment_set(data: Any, longitudinal: bool) -> tuple[np.ndarray, tuple[str, ...], Any]:
+    """The adjustment set a pre-treatment control is read against, and its rows.
+
+    A point fit adjusts for its covariates. A longitudinal pre-treatment control precedes
+    every node, so its adjustment set is the baseline. The rows are those whose outcome is
+    observed.
+    """
+    if longitudinal:
+        rows = ~np.isnan(np.asarray(data.outcome, dtype=float))
+        return np.asarray(data.baseline, dtype=float), tuple(data.baseline_names), rows
+    return (
+        np.asarray(data.covariates, dtype=float),
+        tuple(data.covariate_names),
+        np.asarray(data.observed, dtype=bool),
+    )
+
+
+def _refuse_negative_control_design(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a negative-control outcome that no refit can read (X82 plan 5.7.1)."""
+    if "negative_control_outcome" not in request.tests:
+        return None
+    longitudinal = _is_longitudinal(result)
+    data: Any = result.data
+    if longitudinal and data.is_survival:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "a negative-control outcome on a survival or competing-risk fit must be an "
+            "absorbing indicator process that keeps the risk sets, and no such replacement "
+            "is written.",
+            alternative=NO_ALTERNATIVE,
+            roadmap="X82",
+        )
+    if request.negative_control_kind != "pre_treatment":
+        return None
+    if longitudinal and data.is_repeated:
+        return _invalid(
+            "a pre-treatment control is one value per unit, and a repeated outcome reads one "
+            "value per node. Pass negative_control_kind=None for a control at every node"
+        )
+    matrix, names, rows = _adjustment_set(data, longitudinal)
+    values = np.asarray(request.negative_control_outcome, dtype=float).reshape(-1)
+    if values.size != data.n or not np.all(np.isfinite(values[rows])):
+        # ``with_outcome`` reports the shape and the missing values in its own words.
+        return None
+    column = _matching_column(values, matrix, rows)
+    if column is not None:
+        return _invalid(
+            f"the pre-treatment control equals the adjustment column {names[column]!r}. The "
+            "control fit would drop a measured confounder and give a false alarm by "
+            "construction. Pass a control outside the adjustment set"
+        )
+    reason = _control_residual_reason(values[rows], matrix[rows], request.negative_control_floor)
+    return None if reason is None else _invalid(reason)
+
+
+def _future_history(data: Any, node: int) -> tuple[np.ndarray, tuple[str, ...]]:
+    """The history the fit adjusts the treatment at ``node`` for, as one matrix.
+
+    The covariate history ``(W, L_1, ..., L_node)``, with each earlier repeated outcome,
+    and the earlier treatments: one indicator per non-reference level of a categorical node,
+    and the dose of a continuous node.
+    """
+    blocks = [np.asarray(data.covariate_history(node), dtype=float)]
+    names = list(data.history_names(node))
+    for earlier in range(1, node):
+        codes = np.asarray(data.treatment[:, earlier - 1], dtype=float)
+        name = data.treatment_names[earlier - 1]
+        if data.node_kind(earlier) == "categorical":
+            levels = data.treatment_levels[earlier - 1]
+            for code in range(1, len(levels)):
+                blocks.append((codes == code).astype(float)[:, None])
+                names.append(f"{name}={levels[code]}")
+        else:
+            blocks.append(np.nan_to_num(codes)[:, None])
+            names.append(name)
+    return np.column_stack(blocks), tuple(names)
+
+
+def _refuse_future_treatment(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a future-treatment exposure that has no valid control (X82 plan 5.7.2)."""
+    if "future_treatment" not in request.tests:
+        return None
+    if not _is_longitudinal(result):
+        return _invalid(
+            "the future_treatment test reads a later treatment node of a longitudinal fit, "
+            "and a point-treatment fit has none"
+        )
+    data: Any = result.data
+    node = request.future_treatment_node + 1
+    if data.treatment_held or data.n_decisions < 2:
+        return _invalid(
+            "no valid control for the future-treatment exposure: the fit has one treatment "
+            "decision, so no later treatment exists"
+        )
+    if node > data.n_decisions:
+        return _invalid(
+            f"future_treatment_node={request.future_treatment_node} has no later treatment "
+            f"node; choose a node below {data.n_decisions}"
+        )
+    if (
+        data.has_mixed_node
+        or data.node_kind(node) != "categorical"
+        or len(data.treatment_levels[node - 1]) != 2
+    ):
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "the future-treatment exposure is a binary treatment at the later node; a node "
+            "with more levels, a dose or a mixed node has no contrast written for it.",
+            alternative=NO_ALTERNATIVE,
+            roadmap="X82",
+        )
+    control = np.asarray(request.future_treatment_control, dtype=float).reshape(-1)
+    if control.size != data.n:
+        return _invalid(
+            f"future_treatment_control has {control.size} value(s); expected one per unit "
+            f"({data.n})"
+        )
+    rows = data.node_present(node)
+    if not np.all(np.isfinite(control[rows])):
+        return _invalid(
+            f"future_treatment_control must be finite on every unit at risk at node {node}"
+        )
+    history, names = _future_history(data, node)
+    column = _matching_column(control, history, rows)
+    if column is not None:
+        return _invalid(
+            f"the control equals {names[column]!r}, a member of the history that the fit "
+            f"adjusts the treatment at node {node} for. A declared cause of that treatment is "
+            "associated with it by design, so its estimate is no confounding signal"
+        )
+    # A control that is nearly a function of the history is associated with the later
+    # treatment by design too, for example the sum of two history columns.
+    reason = _control_residual_reason(
+        control[rows],
+        history[rows],
+        request.negative_control_floor,
+        noun="the control",
+        adjustment=f"the history of the treatment at node {node}",
+    )
+    if reason is not None:
+        return _invalid(reason)
+    values = control[rows]
+    mean = float(np.mean(values)) if values.size else 0.0
+    if np.unique(values).size <= 1 or float(np.var(values)) <= 1e-12 * max(1.0, mean**2):
+        return _invalid(
+            "the control is constant on the analysis set, so its estimate is 0 by construction"
+        )
+    arms = np.unique(np.asarray(data.treatment[rows, node - 1], dtype=float))
+    if arms.size < 2:
+        return _invalid(
+            f"every unit at risk at node {node} holds one treatment level, so the exposure "
+            "has no contrast"
         )
     return None
 
@@ -1684,12 +1738,15 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
+    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("longitudinal_tests", _refuse_longitudinal_tests),
     ("placebo_mode", _refuse_placebo_mode),
     ("placebo_kernel", _refuse_placebo_kernel),
     ("noise_nodes", _refuse_noise_nodes),
+    ("negative_control_design", _refuse_negative_control_design),
+    ("future_treatment", _refuse_future_treatment),
     ("no_effect_null", _refuse_no_effect_null),
     ("row_set_under_plan", _refuse_row_set_under_plan),
     ("generated_rule", _refuse_generated_rule),
@@ -1719,13 +1776,21 @@ def refute_refusal(
     tests: Sequence[str],
     n_replicates: int | None = None,
     negative_control_outcome: Any = None,
-    dummy_outcome: GaussianIndependentOutcome | None = None,
-    simulated_outcome: GaussianAdjustmentOutcome | None = None,
+    dummy_outcome: (
+        GaussianIndependentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+    ) = None,
+    simulated_outcome: (
+        GaussianAdjustmentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+    ) = None,
     outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
     placebo_mode: str | None = None,
     noise_nodes: bool = False,
+    negative_control_kind: str | None = None,
+    negative_control_floor: float = 0.01,
+    future_treatment_control: Any = None,
+    future_treatment_node: int = 1,
 ) -> Refusal | None:
     """Return the refusal a :func:`refute` request meets before any refit.
 
@@ -1751,10 +1816,10 @@ def refute_refusal(
         Replicates per randomized test.
     negative_control_outcome : Any
         The outcome required by the negative-control test.
-    dummy_outcome : GaussianIndependentOutcome or None
-        Independent Gaussian process declaration.
-    simulated_outcome : GaussianAdjustmentOutcome or None
-        Adjustment-dependent additive process declaration.
+    dummy_outcome : GaussianIndependentOutcome, LogisticHazardOutcome or None
+        Independent process declaration.
+    simulated_outcome : GaussianAdjustmentOutcome, LogisticHazardOutcome or None
+        Adjustment-dependent process declaration.
     outcome_bands : EquivalenceBands
         Bands applied to generated-outcome readings.
     bootstrap_measurement_error : BootstrapMeasurementError or None
@@ -1765,6 +1830,14 @@ def refute_refusal(
         How the placebo treatment is drawn. ``None`` is the result family's own draw.
     noise_nodes : bool
         Whether ``random_common_cause`` also appends a noise column to every node.
+    negative_control_kind : str or None
+        ``"pre_treatment"`` for a control measured before treatment, else ``None``.
+    negative_control_floor : float
+        The residual-variance floor of a pre-treatment or future-treatment control.
+    future_treatment_control : Any
+        The control of the future-treatment test.
+    future_treatment_node : int
+        The node ``t`` whose next treatment is the exposure.
 
     Returns
     -------
@@ -1773,7 +1846,16 @@ def refute_refusal(
         argument is malformed.
     """
     try:
-        requested = _validated_tests(tests, n_replicates, negative_control_outcome, placebo_mode)
+        requested = _validated_tests(
+            tests,
+            n_replicates,
+            negative_control_outcome,
+            placebo_mode,
+            negative_control_kind,
+            negative_control_floor,
+            future_treatment_control,
+            future_treatment_node,
+        )
     except ValueError:
         return None
     request = _RefuteRequest(
@@ -1787,6 +1869,11 @@ def refute_refusal(
         measurement_error_rule,
         placebo_mode,
         bool(noise_nodes),
+        negative_control_outcome=negative_control_outcome,
+        negative_control_kind=negative_control_kind,
+        future_treatment_control=future_treatment_control,
+        future_treatment_node=int(future_treatment_node),
+        negative_control_floor=float(negative_control_floor),
     )
     return _first_refusal(result, request)
 
@@ -1889,9 +1976,376 @@ def _validate_plasmode_eligibility(result: Any) -> None:
         )
 
 
+@dataclass(frozen=True)
+class _LongitudinalGenerated:
+    """A generated outcome on the held history of a longitudinal fit (X82 plan 5.5).
+
+    The draw keeps ``(W, L, A, C)`` and replaces the outcome. The outcome at node ``t`` is
+    ``f(W) + effect * sum_s A_s + epsilon_t``, where the sum runs over the decision nodes up
+    to ``t``, and ``f`` and ``effect`` are 0 for the independent process. The outcome reads no
+    ``L``, so a static regimen ``a`` has the exact level ``mean_i f(W_i) + mu + effect *
+    sum_s a_s`` and every held censoring pattern stays at random.
+
+    Parameters
+    ----------
+    process : GaussianIndependentOutcome or GaussianAdjustmentOutcome
+        The declared outcome process.
+    truth : float
+        The sample-conditional value of the estimand under the process.
+    covariate_part : bool
+        Whether the covariate part of the influence curve vanishes, so the standard-error
+        ratio and the coverage have the held-design reference.
+    shares : tuple of float
+        The uncensored share at each node.
+    """
+
+    process: Any
+    truth: float
+    covariate_part: bool
+    shares: tuple[float, ...]
+
+    def draw(self, data: Any, *, seed: int, name: str) -> Any:
+        """The container with one generated outcome in place of the original.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The held panel.
+        seed : int
+            The child seed of this draw.
+        name : str
+            The test name, named in a refusal.
+
+        Returns
+        -------
+        LongitudinalData
+            The panel with the generated outcome.
+        """
+        rng = np.random.default_rng(seed)
+        decisions = int(data.n_decisions)
+        codes = np.nan_to_num(np.asarray(data.treatment[:, :decisions], dtype=float))
+        dose = np.cumsum(codes, axis=1)
+        shift = _generated_adjustment(self.process, data)
+        effect = float(self.process.known_effect)
+        if data.repeated is None:
+            noise = self.process.noise.draw(rng, data.n)
+            values = shift + effect * dose[:, -1] + noise
+        else:
+            nodes = int(data.n_times)
+            noise = self.process.noise.draw(rng, data.n * nodes).reshape(data.n, nodes)
+            reached = np.minimum(np.arange(1, nodes + 1), decisions) - 1
+            values = shift[:, None] + effect * dose[:, reached] + noise
+        return data.with_outcome(values, name=name)
+
+
+def _generated_adjustment(process: Any, data: Any) -> np.ndarray:
+    """``f(W)`` of a generated process on the baseline of ``data``; 0 without one."""
+    if not isinstance(process, GaussianAdjustmentOutcome):
+        return np.zeros(data.n, dtype=float)
+    baseline = np.asarray(data.baseline, dtype=float)
+    if not baseline.shape[1]:
+        return np.zeros(data.n, dtype=float)
+    return process.adjustment(baseline)
+
+
+def _zero_one_levels(levels: Sequence[object]) -> bool:
+    """Whether a node's levels are the numbers 0 and 1, in that order."""
+    try:
+        return tuple(float(level) for level in levels) == (0.0, 1.0)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
+def _refuse_longitudinal_plasmode(name: str) -> None:
+    if name == "plasmode":
+        raise CapabilityError(
+            "the longitudinal plasmode draws a whole treatment and covariate history, and no "
+            "such draw is written.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="dummy_outcome and simulated_outcome run on the held history.",
+            roadmap="X82",
+        )
+
+
+def _held_parameter(result: Any, estimand: str, name: str) -> tuple[str, str | None, int]:
+    """The regimen label, cause and horizon of ``estimand``, after the shared refusals.
+
+    Each node must have the levels 0 and 1, because a process adds its effect once per
+    treated node. An MSM coefficient has no held-history truth.
+    """
+    data = result.data
+    index = getattr(result, "parameter_index", None) or {}
+    if getattr(result, "msm", None) is not None or estimand not in index:
+        raise CapabilityError(
+            f"{name} has no held-history truth for {estimand!r}; the derivation covers the "
+            "regimen levels and their difference contrasts.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="X82",
+        )
+    decisions = int(data.n_decisions)
+    binary = not data.has_mixed_node and all(
+        data.node_kind(node) == "categorical" and _zero_one_levels(data.treatment_levels[node - 1])
+        for node in range(1, decisions + 1)
+    )
+    if not binary:
+        raise CapabilityError(
+            f"{name} adds the effect once per treated node, so each node must have the "
+            "levels 0 and 1; another node has no derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    label, cause, horizon = index[estimand]
+    return str(label), cause, int(horizon)
+
+
+def _regimen_doses(
+    result: Any, label: str, horizon: int, name: str, *, static: bool
+) -> list[np.ndarray | None]:
+    """Per policy of ``label``, the treated decision nodes up to each node through ``horizon``.
+
+    ``None`` stands for a policy the process does not read, which only an independent
+    process admits. A process that reads the treatment needs a static regimen, because any
+    other policy reads the held covariates or the natural treatment.
+    """
+    from ..longitudinal.regimen import Regimen
+
+    regimens = {regimen.label: regimen for regimen in result.config.regimens}
+    decisions = int(result.data.n_decisions)
+    doses: list[np.ndarray | None] = []
+    for part in label.split(" vs ") if " vs " in label else [label]:
+        regimen = regimens.get(part)
+        if not static:
+            doses.append(None)
+            continue
+        if type(regimen) is not Regimen:
+            raise CapabilityError(
+                f"{name} has an exact truth for a static regimen only. Policy {part!r} reads "
+                "the held covariates or the natural treatment, whose law under the policy is "
+                "unknown when the history is held.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="dummy_outcome has the exact null for every policy.",
+                roadmap="X82",
+            )
+        values = np.asarray(regimen.values, dtype=float).reshape(-1)
+        arms = np.resize(values, decisions) if values.size < decisions else values[:decisions]
+        reached = np.minimum(np.arange(1, horizon + 1), decisions) - 1
+        doses.append(np.cumsum(arms)[reached])
+    return doses
+
+
+def _held_shares(uncensored: Any) -> tuple[float, ...]:
+    kept = np.asarray(uncensored, dtype=bool)
+    return tuple(float(np.mean(kept[:, node])) for node in range(kept.shape[1]))
+
+
+def _longitudinal_generated_target(
+    result: Any, estimand: str, process: Any, name: str
+) -> _LongitudinalGenerated | _SurvivalGenerated:
+    """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
+    data = result.data
+    _refuse_longitudinal_plasmode(name)
+    if data.is_survival:
+        return _survival_generated_target(result, estimand, process, name)
+    _validate_generated_process(process, name)
+    if data.family != process.family:
+        raise CapabilityError(
+            f"{name} cannot replace an original outcome family={data.family!r} with the "
+            f"registered {process.family!r} process; the first catalog requires matching "
+            "Gaussian outcome configurations.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    estimator = result.estimator
+    if getattr(estimator, "q_bounds", None) is not None:
+        raise CapabilityError(
+            f"{name} draws a Gaussian outcome, whose support is the whole real line, and this "
+            f"fit declares q_bounds={estimator.q_bounds!r}. A cross-fitted continuous panel "
+            "must declare them, so refute a continuous outcome on a fit with n_folds=1 and "
+            "q_bounds=None",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    incompatible = _classification_only_learner(getattr(estimator, "outcome_learner", None))
+    if incompatible is not None:
+        raise CapabilityError(
+            f"{name} needs a regression-capable outcome learner for its Gaussian process; "
+            f"{type(incompatible).__name__} is configured for classification",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    label, _cause, horizon = _held_parameter(result, estimand, name)
+    adjusted = isinstance(process, GaussianAdjustmentOutcome)
+    doses = _regimen_doses(result, label, horizon, name, static=adjusted)
+    shift = _generated_adjustment(process, data)
+    baseline = float(np.average(shift, weights=np.asarray(data.weights, dtype=float)))
+    effect = float(process.known_effect)
+    levels = [
+        baseline + process.noise.mean + (0.0 if dose is None else effect * float(dose[-1]))
+        for dose in doses
+    ]
+    contrast = len(levels) == 2
+    truth = levels[0] - levels[1] if contrast else levels[0]
+    return _LongitudinalGenerated(
+        process=process,
+        truth=float(truth),
+        covariate_part=contrast or not adjusted,
+        shares=_held_shares(data.uncensored),
+    )
+
+
+@dataclass(frozen=True)
+class _SurvivalGenerated:
+    """Generated events on the held history of a survival fit (X82 plan 5.5.2).
+
+    The draw keeps ``(W, L, A, C)``. An original event at node ``t`` becomes censoring at
+    ``t``, so the generated outcome is not observed at that node. Original censoring stays.
+    While a unit is under observation, the generated event at node ``t`` reads ``W`` and the
+    treated decision nodes up to ``t`` through the declared hazard, and fresh noise. The
+    recoded censoring reads the original outcome, and the generated event does not, so the
+    censoring stays at random given the recorded history.
+
+    Parameters
+    ----------
+    process : LogisticHazardOutcome or MultinomialHazardOutcome
+        The declared hazard.
+    truth : float
+        The sample-conditional value of the estimand under the process.
+    covariate_part : bool
+        Whether the covariate part of the influence curve vanishes.
+    shares : tuple of float
+        The uncensored share at each node after the recode.
+    """
+
+    process: Any
+    truth: float
+    covariate_part: bool
+    shares: tuple[float, ...]
+
+    def draw(self, data: Any, *, seed: int, name: str) -> Any:
+        """The container with generated events in place of the original ones.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The held panel.
+        seed : int
+            The child seed of this draw.
+        name : str
+            The test name. The survival draw names nothing.
+
+        Returns
+        -------
+        LongitudinalData
+            The panel with the generated events and the recoded exits.
+        """
+        rng = np.random.default_rng(seed)
+        kept = _recoded_uncensored(data)
+        shift = _hazard_adjustment(self.process, data)
+        decisions = int(data.n_decisions)
+        codes = np.nan_to_num(np.asarray(data.treatment[:, :decisions], dtype=float))
+        dose = np.cumsum(codes, axis=1)
+        nodes = int(data.n_times)
+        causes = int(self.process.causes)
+        event = np.zeros((data.n, nodes), dtype=bool)
+        cause_event = np.zeros((data.n, nodes, causes), dtype=bool)
+        alive = np.ones(data.n, dtype=bool)
+        for node in range(nodes):
+            observed = alive & kept[:, node]
+            probabilities = self.process.probabilities(shift, dose[:, min(node + 1, decisions) - 1])
+            draw = rng.uniform(size=data.n)
+            edges = np.cumsum(probabilities, axis=1)
+            cause = np.sum(draw[:, None] >= edges, axis=1)
+            hit = observed & (cause < causes)
+            for index in range(causes):
+                cause_event[hit & (cause == index), node:, index] = True
+            event[hit, node:] = True
+            alive &= ~hit
+            kept[~alive, node + 1 :] = False
+        return data.with_events(event, kept, cause_event if data.cause_event is not None else None)
+
+
+def _recoded_uncensored(data: Any) -> np.ndarray:
+    """The censoring of ``data`` with each original event recoded as censoring at its node."""
+    kept = np.asarray(data.uncensored, dtype=bool).copy()
+    event = np.asarray(data.event, dtype=bool)
+    first = event.copy()
+    first[:, 1:] &= ~event[:, :-1]
+    for node in range(kept.shape[1]):
+        kept[first[:, node], node:] = False
+    return kept
+
+
+def _hazard_adjustment(process: Any, data: Any) -> np.ndarray:
+    from .outcome_processes import standardized_sum
+
+    return standardized_sum(np.asarray(data.baseline, dtype=float), process.adjustment_scale)
+
+
+def _survival_generated_target(
+    result: Any, estimand: str, process: Any, name: str
+) -> _SurvivalGenerated:
+    """Refuse a hazard a survival fit cannot read, else build its sample-conditional truth."""
+    data = result.data
+    competing = bool(data.is_competing)
+    expected = MultinomialHazardOutcome if competing else LogisticHazardOutcome
+    if type(process) is not expected:
+        raise CapabilityError(
+            f"{name} on a {'competing-risk' if competing else 'survival'} fit draws its "
+            f"events from a declared hazard; pass {name}={expected.__name__}(...)",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if name == "dummy_outcome" and not process.independent:
+        raise CapabilityError(
+            "dummy_outcome draws events that read nothing; declare effect 0 and "
+            "adjustment_scale 0, or run simulated_outcome for a hazard that reads W and A",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if competing and process.causes != len(data.cause_labels):
+        raise CapabilityError(
+            f"{name} declares {process.causes} cause(s), and the fit has "
+            f"{len(data.cause_labels)}: {list(data.cause_labels)}",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    known = getattr(data, "known_mechanisms", None)
+    if (
+        known is not None
+        and data.censoring_names
+        and any(known.censoring_at(node) is not None for node in range(1, data.n_times + 1))
+    ):
+        raise CapabilityError(
+            f"{name} recodes each original event as censoring, so the censoring law is no "
+            "longer the known one the fit declares",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    label, cause, horizon = _held_parameter(result, estimand, name)
+    doses = _regimen_doses(result, label, horizon, name, static=not process.independent)
+    shift = _hazard_adjustment(process, data)
+    weights = np.asarray(data.weights, dtype=float)
+    column = 0 if cause is None else list(data.cause_labels).index(cause)
+    levels: list[float] = []
+    for dose in doses:
+        survival = np.ones(data.n, dtype=float)
+        risk = np.zeros(data.n, dtype=float)
+        for node in range(horizon):
+            exposure = np.zeros(data.n) if dose is None else np.full(data.n, float(dose[node]))
+            probabilities = process.probabilities(shift, exposure)
+            risk += survival * probabilities[:, column]
+            survival *= 1.0 - probabilities.sum(axis=1)
+        levels.append(float(np.average(risk, weights=weights)))
+    contrast = len(levels) == 2
+    truth = levels[0] - levels[1] if contrast else levels[0]
+    return _SurvivalGenerated(
+        process=process,
+        truth=float(truth),
+        covariate_part=bool(process.independent),
+        shares=_held_shares(_recoded_uncensored(data)),
+    )
+
+
 def _validate_generated_eligibility(
     result: Any, estimand: str, process: Any, name: str
-) -> tuple[float, float]:
+) -> tuple[float, float] | _LongitudinalGenerated | _SurvivalGenerated:
     """Refuse an ineligible generated-outcome request and resolve its contrast direction.
 
     Parameters
@@ -1907,14 +2361,17 @@ def _validate_generated_eligibility(
 
     Returns
     -------
-    tuple of float, float
-        Value and reference arm codes the parameter key contrasts, in that order.
+    tuple of float, float, or _LongitudinalGenerated or _SurvivalGenerated
+        Value and reference arm codes the parameter key contrasts, in that order. A
+        longitudinal fit returns its held-history target instead.
 
     Raises
     ------
     CapabilityError
         If the fit, the estimand, or the process has no registered effect derivation.
     """
+    if _is_longitudinal(result):
+        return _longitudinal_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
     if name == "plasmode":
         _validate_plasmode_eligibility(result)
@@ -2708,11 +3165,18 @@ def _generated_outcome_test(
     value_code: float,
     reference_code: float,
     fit: FitConfiguration | None,
+    target: _LongitudinalGenerated | _SurvivalGenerated | None = None,
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
     plasmode = name == "plasmode"
-    if plasmode:
+    if target is not None:
+        held = target
+
+        def replacement(_replicate: int, seed: int) -> Any:
+            return held.draw(data, seed=seed, name=name)
+
+    elif plasmode:
         assert isinstance(process, GaussianAdjustmentOutcome)
         law = _PlasmodeLaw.fit(result)
         adjusted = process
@@ -2735,8 +3199,13 @@ def _generated_outcome_test(
     values = tuple(item.estimate for item in records)
     errors = tuple(item.std_error for item in records)
     # The additive treatment term makes the arm contrast linear in the code difference, so
-    # the declared effect is the process effect signed by the key's own direction.
-    declared_effect = float(process.known_effect * (value_code - reference_code))
+    # the declared effect is the process effect signed by the key's own direction. A
+    # longitudinal target carries its own sample-conditional truth.
+    declared_effect = (
+        float(process.known_effect * (value_code - reference_code))
+        if target is None
+        else target.truth
+    )
     families = {item.family for item in records}
     family = next(iter(families)) if len(families) == 1 else None
 
@@ -2763,8 +3232,12 @@ def _generated_outcome_test(
         # the covariates would fail this guard and read bias only.
         # The plasmode resamples W, so its SE ratio and coverage have the unconditional
         # reference for every target (plan 5.6) and need no covariate-part check.
-        covariate_part = plasmode or _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=False
+        covariate_part = plasmode or (
+            target.covariate_part
+            if target is not None
+            else _covariate_part_vanishes(
+                difference_contrast=True, effect_varies_with_covariates=False
+            )
         )
         by_rule = {"bias": "bias_band", "se_ratio": "se_ratio_band", "coverage": "coverage_band"}
         readings = tuple(reading for reading in shown if reading.name == "bias" or covariate_part)
@@ -2801,6 +3274,17 @@ def _generated_outcome_test(
         if not covariate_part:
             detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
         design = "the held design"
+        if target is not None:
+            design = "the held history"
+            if target.shares:
+                detail += "; uncensored share by node " + ", ".join(
+                    f"{share:.3f}" for share in target.shares
+                )
+            sentences.append(
+                _RECODED_EXIT_SENTENCE
+                if isinstance(target, _SurvivalGenerated)
+                else _HELD_HISTORY_SENTENCE
+            )
         if plasmode:
             clip = (
                 "a known mechanism"
@@ -2837,6 +3321,26 @@ def _generated_outcome_test(
 
 _PLACEBO_MODES = ("permute", "draw", "markov")
 
+#: The node a survival recode drops (X82 plan 5.5.2, z1).
+_RECODED_EXIT_SENTENCE = (
+    "The draw keeps the covariates, treatments and censoring of each unit and replaces the "
+    "events. An original event at node t censors the unit at t, so the generated outcome is "
+    "not observed at that node. The hazard reads W and the treatments only, so this censoring "
+    "stays at random. A risk under a hazard that reads W has a covariate part in its "
+    "influence curve, so it reads bias only. Coverage also needs a correct censoring model, "
+    "so the report prints the uncensored share at each node."
+)
+
+#: Why a held-history level reads bias only (X82 plan 5.5.1).
+_HELD_HISTORY_SENTENCE = (
+    "The draw keeps the covariates, treatments and censoring of each unit and replaces the "
+    "outcome. With the covariates held, the truth of a level is the sample mean of f(W), while "
+    "the standard error estimates the marginal variance, so a level reads bias only. A "
+    "difference contrast cancels f(W), so its standard-error ratio and coverage have the "
+    "held-design reference. Coverage also needs a correct censoring model, so the report "
+    "prints the uncensored share at each node."
+)
+
 _PLACEBO_SENTENCE = (
     "This reads whether the estimator returns the null when treatment is independent of "
     "covariates and outcome. It does not test the effect, and it says nothing about "
@@ -2856,6 +3360,191 @@ _NEGATIVE_CONTROL_SENTENCE = (
     "estimate can reveal residual bias. It can also mean the control is a bad one. A null "
     "estimate does not show that unmeasured confounding is absent."
 )
+#: The three assumptions of a pre-treatment control (X82 plan 5.7.1, n8).
+_PRE_TREATMENT_SENTENCE = (
+    "The pre-treatment reading assumes three things: no causal path from treatment to the "
+    "control, which time order gives; the confounding structure of the primary outcome; and "
+    "no effect of the control on treatment given the adjustment set. A lagged outcome that "
+    "drives treatment and sits outside the adjustment set breaks the third, and its estimate "
+    "is then nonzero with no unmeasured confounding."
+)
+#: What the future-treatment reading assumes (X82 plan 5.7.2).
+_FUTURE_TREATMENT_SENTENCE = (
+    "The reading assumes that the control was measured before the later treatment, which the "
+    "code cannot check from an array. It also assumes no feedback: the history the fit "
+    "declares for the later treatment "
+    "is its full set of parents, so the treatment is independent of the control given that "
+    "history. The code cannot check this. A nonzero estimate means an unmeasured common cause "
+    "of the later treatment and the control, or feedback that the declaration excludes. The "
+    "report states no verdict."
+)
+
+
+def _control_residual_reason(
+    values: np.ndarray,
+    features: np.ndarray,
+    floor: float,
+    *,
+    noun: str = "the pre-treatment control",
+    adjustment: str = "the adjustment set",
+) -> str | None:
+    """Why a pre-treatment control is nearly a function of the adjustment set, or ``None``.
+
+    The share is the two-fold cross-fitted residual variance of a linear regression of the
+    control on the adjustment set, over the control's variance (X82 plan 5.7.1). Below
+    ``floor`` the control estimate is 0 because the component vanishes, not because
+    confounding is absent. The folds use a fixed seed, so the capability row and the call
+    read the same share.
+    """
+    from sklearn.linear_model import LinearRegression
+    from sklearn.model_selection import KFold
+
+    total = float(np.var(values))
+    if total <= 0.0:
+        return f"{noun} is constant on the analysis rows, so its estimate is 0 by construction"
+    if not features.shape[1] or values.size < 4:
+        return None
+    residual = np.empty_like(values)
+    for train, test in KFold(n_splits=2, shuffle=True, random_state=0).split(features):
+        model = LinearRegression().fit(features[train], values[train])
+        residual[test] = values[test] - model.predict(features[test])
+    share = float(np.mean(residual**2)) / total
+    if share >= floor:
+        return None
+    return (
+        f"{noun} is nearly a function of {adjustment}: its "
+        f"cross-fitted residual variance is {share:.3g} of its variance, below the floor "
+        f"{floor:g}. Its estimate would be 0 because that component vanishes, not because "
+        "confounding is absent"
+    )
+
+
+def _control_values(data: Any, longitudinal: bool) -> np.ndarray:
+    """The observed values of a control that replaced the outcome of ``data``."""
+    if longitudinal:
+        values = np.asarray(
+            data.repeated if data.repeated is not None else data.outcome, dtype=float
+        )
+        return values[np.isfinite(values)]
+    return np.asarray(data.outcome, dtype=float)[np.asarray(data.observed, dtype=bool)]
+
+
+def _control_estimator(
+    estimator: Any, family: str, values: np.ndarray
+) -> tuple[Any, tuple[float, float] | None]:
+    """A copy of ``estimator`` whose outcome bounds fit a control, and those bounds.
+
+    A control is an auxiliary fit that the package builds, so the package sets its scale. A
+    binary control takes no bounds. A continuous control on a cross-fitted fit, or on a fit
+    that declares bounds for its own outcome, takes the control's observed range, which is
+    the usual TMLE choice (Gruber and van der Laan 2010). An in-sample fit with no bounds
+    keeps none. The report prints the bounds it set. A continuous control on a fit whose
+    outcome learner is a classifier regresses with the fit's pseudo-outcome learner.
+    """
+    declared = getattr(estimator, "q_bounds", None)
+    cross_fitted = bool(getattr(estimator, "cross_fit", True)) and (
+        int(getattr(estimator, "n_folds", 1) or 1) > 1
+    )
+    bounds: tuple[float, float] | None = None
+    if family != "binomial" and values.size and (cross_fitted or declared is not None):
+        bounds = (float(np.min(values)), float(np.max(values)))
+    learner = getattr(estimator, "outcome_learner", None)
+    swap = family != "binomial" and _classification_only_learner(learner) is not None
+    if bounds == declared and not swap:
+        return estimator, bounds
+    copied = copy.copy(estimator)
+    copied.q_bounds = bounds
+    if swap:
+        # A classifier cannot regress a continuous control. A longitudinal fit's
+        # pseudo-outcome learner is a regression learner; a point fit has none and keeps
+        # its learner, whose refit then reports the failure.
+        copied.outcome_learner = getattr(estimator, "pseudo_learner", learner)
+    return copied, bounds
+
+
+def _bounds_clause(bounds: tuple[float, float] | None) -> str:
+    """The report clause that names the outcome bounds a control fit used."""
+    if bounds is None:
+        return ""
+    return (
+        "; the control fit bounds its outcome to its observed range "
+        f"[{bounds[0]:.5g}, {bounds[1]:.5g}]"
+    )
+
+
+def _future_treatment_test(
+    result: Any, *, estimand: str, original: float, control: Any, node: int, seed: int
+) -> RefutationTest:
+    """Regress the control on the treatment at ``node``, adjusted for its declared history.
+
+    The fit is a point-treatment TMLE of the control on the binary treatment at ``node``,
+    adjusted for the history the longitudinal fit declares for that treatment, on the units
+    at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
+    count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
+    """
+    from ..data import CausalData
+    from ..estimators.tmle import TMLE
+
+    data = result.data
+    rows = data.node_present(node)
+    history, names = _future_history(data, node)
+    values = np.asarray(control, dtype=float).reshape(-1)[rows]
+    codes = np.asarray(data.treatment[rows, node - 1], dtype=float)
+    weights = np.asarray(data.weights, dtype=float)[rows]
+    cluster = None if data.cluster is None else np.asarray(data.cluster)[rows]
+    point = CausalData.from_arrays(
+        values,
+        codes,
+        history[rows],
+        covariate_names=[f"h{index}" for index in range(len(names))],
+        weights=None if np.allclose(weights, 1.0) else weights,
+        id=cluster,
+    )
+    template = result.estimator
+    folds = max(1, int(getattr(template, "n_folds", 1) or 1))
+    binary = bool(np.isin(values, (0.0, 1.0)).all())
+    cross_fit = folds > 1
+    # A continuous control on a cross-fitted fit takes its observed range as its bounds.
+    bounds = None if binary or not cross_fit else (float(np.min(values)), float(np.max(values)))
+    outcome_learner = getattr(template, "outcome_learner", None)
+    if not binary and _classification_only_learner(outcome_learner) is not None:
+        # A classifier cannot regress a continuous control. The fit's regression learner
+        # for its pseudo-outcomes can, and the default library stands in without one.
+        outcome_learner = getattr(template, "pseudo_learner", None)
+    fitted = TMLE(
+        outcome_learner=outcome_learner,
+        treatment_learner=getattr(template, "treatment_learner", None),
+        cross_fit=cross_fit,
+        n_folds=folds,
+        q_bounds=bounds,
+        random_state=seed,
+    ).fit(point)
+    estimate = fitted.single()["ate"]
+    value = float(estimate.psi)
+    std_error = float(estimate.plugin_std_error)
+    z = value / std_error if std_error > 0 else float("nan")
+    pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+    return RefutationTest(
+        name="future_treatment",
+        estimand=estimand,
+        original=original,
+        values=(value,),
+        expectation="~ 0",
+        passed=None,
+        detail=(
+            f"the control moves by {value:+.5g} with the treatment at node {node} (z = "
+            f"{z:+.3g} standard errors from 0), adjusted for the {len(names)} column(s) of "
+            f"that treatment's declared history on {int(rows.sum())} units at risk, "
+            f"{'cross-fitted in ' + str(folds) + ' folds' if cross_fit else 'fitted in sample'}"
+            + _bounds_clause(bounds)
+        ),
+        standard_errors=(std_error,),
+        rung="L0",
+        scope_sentence=_FUTURE_TREATMENT_SENTENCE,
+        statistic=z,
+        statistic_name="z",
+        statistic_pvalue=pvalue,
+    )
 
 
 def _drawn_treatment(data: Any, rng: np.random.Generator) -> np.ndarray:
@@ -3035,8 +3724,16 @@ def refute(
     seed_spread: bool = False,
     noise_nodes: bool = False,
     negative_control_outcome: Any = None,
-    dummy_outcome: GaussianIndependentOutcome | None = None,
-    simulated_outcome: GaussianAdjustmentOutcome | None = None,
+    negative_control_kind: Literal["pre_treatment"] | None = None,
+    negative_control_floor: float = 0.01,
+    future_treatment_control: Any = None,
+    future_treatment_node: int = 1,
+    dummy_outcome: (
+        GaussianIndependentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+    ) = None,
+    simulated_outcome: (
+        GaussianAdjustmentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+    ) = None,
     outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
@@ -3090,12 +3787,34 @@ def refute(
         On a longitudinal fit, whether ``random_common_cause`` also appends one noise column
         to the covariates of every node. ``False`` appends one baseline column. A
         point-treatment fit refuses ``True``.
-    negative_control_outcome : str or None
-        An outcome the treatment cannot affect.  Required to run that test.
-    dummy_outcome : GaussianIndependentOutcome or None
-        Independent Gaussian process declaration. ``None`` uses the default declaration.
-    simulated_outcome : GaussianAdjustmentOutcome or None
-        Adjustment-dependent additive process. ``None`` uses the default declaration.
+    negative_control_outcome : array-like or None
+        An outcome the treatment cannot affect.  Required to run that test. On a
+        longitudinal fit it has the outcome's shape: ``(n,)`` at the end of study and
+        ``(n, T)`` for a repeated outcome. A survival or competing-risk fit refuses it.
+    negative_control_kind : {"pre_treatment"} or None
+        ``"pre_treatment"`` declares a control measured before the first treatment. The test
+        then refuses a control that equals an adjustment column, or whose cross-fitted
+        residual variance on the adjustment set is below ``negative_control_floor`` of its
+        variance. ``None`` declares a control measured after treatment.
+    negative_control_floor : float
+        The cross-fitted residual-variance share below which a pre-treatment control, or a
+        future-treatment control regressed on its history, is refused.
+    future_treatment_control : array-like or None
+        The control of the ``future_treatment`` test on a longitudinal fit: one value per
+        unit, measured before the treatment at node ``future_treatment_node + 1`` and outside
+        the history that the fit adjusts that treatment for. The code cannot check the time
+        of measurement from an array. Required to run that test.
+    future_treatment_node : int
+        The node ``t``. The test regresses the control on the treatment at ``t + 1``,
+        adjusted for that treatment's history, on the units at risk at ``t + 1``.
+    dummy_outcome : GaussianIndependentOutcome, LogisticHazardOutcome or None
+        Independent process declaration. ``None`` uses the default Gaussian declaration. A
+        survival fit takes a hazard with ``effect=0`` and ``adjustment_scale=0``, and a
+        competing-risk fit takes a multinomial hazard with every effect 0.
+    simulated_outcome : GaussianAdjustmentOutcome, LogisticHazardOutcome or None
+        Adjustment-dependent process. ``None`` uses the default Gaussian declaration. A
+        survival fit takes a :class:`LogisticHazardOutcome`, and a competing-risk fit takes
+        a :class:`MultinomialHazardOutcome`.
     outcome_bands : EquivalenceBands
         Equivalence bands applied to the generated-outcome readings.
     bootstrap_measurement_error : BootstrapMeasurementError or None
@@ -3130,7 +3849,16 @@ def refute(
     # request this line admits.
     request = _RefuteRequest(
         estimand,
-        _validated_tests(tests, n_replicates, negative_control_outcome, placebo_mode),
+        _validated_tests(
+            tests,
+            n_replicates,
+            negative_control_outcome,
+            placebo_mode,
+            negative_control_kind,
+            negative_control_floor,
+            future_treatment_control,
+            future_treatment_node,
+        ),
         n_replicates,
         dummy_outcome,
         simulated_outcome,
@@ -3139,6 +3867,11 @@ def refute(
         measurement_error_rule,
         placebo_mode,
         bool(noise_nodes),
+        negative_control_outcome=negative_control_outcome,
+        negative_control_kind=negative_control_kind,
+        future_treatment_control=future_treatment_control,
+        future_treatment_node=int(future_treatment_node),
+        negative_control_floor=float(negative_control_floor),
     )
     refusal = _first_refusal(result, request)
     if refusal is not None:
@@ -3452,9 +4185,13 @@ def refute(
             replacement = data.with_outcome(
                 negative_control_outcome, name="negative_control_outcome"
             )
-            refitted = estimator.refit(
+            pre_treatment = negative_control_kind == "pre_treatment"
+            control_estimator, control_bounds = _control_estimator(
+                estimator, str(replacement.family), _control_values(replacement, longitudinal)
+            )
+            refitted = control_estimator.refit(
                 replacement,
-                intermediate_value=result.intermediate_value,
+                **_intermediate_option(result),
                 random_state=seed,
             )
             value = refitted[estimand].psi
@@ -3470,7 +4207,11 @@ def refute(
                 else replace(
                     fit,
                     outcome_family=str(replacement.family),
-                    min_event_count=_interpretation.event_count(replacement),
+                    min_event_count=(
+                        _interpretation._longitudinal_event_count(replacement)
+                        if longitudinal
+                        else _interpretation.event_count(replacement)
+                    ),
                 )
             )
             resolution = _resolve("negative_control_outcome", "z", control_fit, 1)
@@ -3486,16 +4227,40 @@ def refute(
                     detail=(
                         f"the negative-control outcome shows an estimate of {value:+.5g} "
                         f"(z = {z:+.3g} {unit} from the no-effect value {no_effect_null:g})"
+                        + _bounds_clause(control_bounds)
                     ),
                     rung=resolution.rung,
-                    scope_sentence=f"{_NEGATIVE_CONTROL_SENTENCE} {resolution.sentence}",
+                    scope_sentence=(
+                        f"{_NEGATIVE_CONTROL_SENTENCE} "
+                        + (f"{_PRE_TREATMENT_SENTENCE} " if pre_treatment else "")
+                        + resolution.sentence
+                    ),
                     statistic=z,
                     statistic_name="z",
                     statistic_pvalue=pvalue,
                 )
             )
 
+        elif name == "future_treatment":
+            outcomes.append(
+                _future_treatment_test(
+                    result,
+                    estimand=estimand,
+                    original=original,
+                    control=future_treatment_control,
+                    node=int(future_treatment_node) + 1,
+                    seed=seed,
+                )
+            )
+
         elif name in _GENERATED_TESTS:
+            resolved = contrasts[name]
+            target: _LongitudinalGenerated | _SurvivalGenerated | None = None
+            codes: tuple[float, float] = (0.0, 0.0)
+            if isinstance(resolved, (_LongitudinalGenerated, _SurvivalGenerated)):
+                target = resolved
+            else:
+                codes = resolved
             outcomes.append(
                 _generated_outcome_test(
                     result,
@@ -3506,9 +4271,10 @@ def refute(
                     bands=outcome_bands,
                     n_replicates=replicate_count,
                     root_seed=seed,
-                    value_code=contrasts[name][0],
-                    reference_code=contrasts[name][1],
+                    value_code=codes[0],
+                    reference_code=codes[1],
                     fit=fit,
+                    target=target,
                 )
             )
         elif name == "bootstrap_stability":

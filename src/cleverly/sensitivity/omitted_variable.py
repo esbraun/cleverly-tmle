@@ -120,6 +120,7 @@ from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.composite import composite_state
 from ..estimators.ctmle import CTMLEDerivativeFit, CTMLESelection, declares_no_selection
 from ..estimators.direct_effect import declares_intermediate, targeted_rows
+from ..estimators.iptw import OPERATION_REFUSALS
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
@@ -293,6 +294,13 @@ def _refuse_guarded_mechanism(result: Any) -> Refusal | None:
     return None
 
 
+def _refuse_adaptive_iptw(result: Any) -> Refusal | None:
+    """Refuse an AdaptiveIPTW fit, which has no outcome regression to take a residual from."""
+    if result.fitted_method == "adaptive_iptw":
+        return OPERATION_REFUSALS["omitted_variable"]
+    return None
+
+
 def _refuse_selected_mechanism(result: Any) -> Refusal | None:
     """Refuse a collaborative fit, whose representer comes from a selected working g.
 
@@ -419,6 +427,7 @@ def _refuse_repeats(result: Any) -> Refusal | None:
 _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("drtmle", _refuse_guarded_mechanism),
+    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("collaborative_tmle", _refuse_selected_mechanism),
     ("parameter_axis", _refuse_non_arm_axis),
     ("bound_parameters", _refuse_unbounded_parameters),
