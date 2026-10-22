@@ -41,7 +41,7 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import RefusalReason
 from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import (
-    _DIRECT_EFFECT_REFUSAL,
+    _INCOMPLETE_INTERMEDIATE_REFUSAL,
     _select_evalue,
     _standardising_sd,
     evalue_from_rr,
@@ -235,11 +235,8 @@ def test_explicit_or_evalue_is_not_blocked_by_default_derivation() -> None:
         _study()
         .identify(OddsRatio())
         .estimate(
-            # DR-TMLE, because its default odds-ratio E-value has no exact retarget, as
-            # the collaborative path had. That path now refuses every E-value branch
-            # (RM12 and RM20), so a collaborative fit here would test that refusal instead
-            # of this test's subject: an *explicitly* requested odds-ratio E-value is not
-            # blocked by the default derivation. The refusal is pinned in the next test.
+            # DR-TMLE: its default odds-ratio E-value retargets to the exact risk ratio,
+            # and an *explicitly* requested odds-ratio E-value keeps the approximation.
             method="drtmle",
             outcome_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
@@ -250,8 +247,9 @@ def test_explicit_or_evalue_is_not_blocked_by_default_derivation() -> None:
         )
     )
     assert result.sensitivity.capability("evalue").available
-    assert result.sensitivity.evalue().approximate
+    assert not result.sensitivity.evalue().approximate
     direct = result.sensitivity.evalue("or")
+    assert direct.approximate
     combined = result.sensitivity.run_all(arguments={"evalue": {"estimand": "or"}})
     assert combined.report("evalue") == direct
     assert direct.scale == "odds ratio"
@@ -406,8 +404,9 @@ def test_a_route_without_an_interpreter_is_what_the_two_way_check_catches() -> N
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
-        ({"fitted_method": "collaborative_tmle"}, "collaborative_tmle"),
-        ({"fitted_method": "drtmle"}, "drtmle"),
+        # TMLE, C-TMLE and DR-TMLE each carry a same-seed equality witness
+        # (tests/unit/test_evalue_part_g.py), so the gate refuses any other method.
+        ({"fitted_method": "ipw"}, "ipw"),
     ],
 )
 def test_derived_ratio_preserves_method_and_estimand_refusal_boundaries(
@@ -954,7 +953,8 @@ def test_method_facts_carry_the_reason_no_split_spread_is_available() -> None:
 
 # ``ctmle`` left this list when RM20 gave ``strategy="oat"``, the last collaborative path
 # that kept an interval, a status of its own. Its saved result refuses the E-value as the
-# live one does, which the test after this one pins.
+# live one does, which the test after this one pins. ``drtmle`` retargets to the exact
+# ratio since X82 part G, so only the CV-evaluated fit takes the fixed-baseline fallback.
 @pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "cv"])
 def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
     engine_name, tmp_path, monkeypatch
@@ -975,7 +975,7 @@ def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
     before = raw.sensitivity.evalue("ate")
     after = restored.sensitivity.evalue("ate")
     assert before == after
-    if engine_name != "tmle":
+    if engine_name == "cv":
         assert before.approximate
         assert before.risk_ratio == pytest.approx(1 + raw["ate"].psi / raw["ey0"].psi)
         assert before.risk_ratio_ci == pytest.approx(
@@ -1189,7 +1189,7 @@ def test_missing_or_invalid_baseline_cannot_enable_approximation():
         baseline = replace(result["ate"], name="ey0", psi=value)
         variant = replace(
             result,
-            fitted_method="drtmle",
+            config=replace(result.config, cv_evaluation=True),
             estimates={**result.estimates, "ey0": baseline},
             parameter_keys={},
         )
@@ -1202,8 +1202,9 @@ def _rare_outcome_drtmle_fit(
 ):
     """A DR-TMLE fit whose ATE interval reaches below the negative of its baseline risk.
 
-    DR-TMLE has no cached-nuisance risk-ratio retarget, so ``ate`` takes the
-    fixed-baseline conversion. The outcome is rare, so the difference interval is wide
+    The result is read as CV-evaluated, which has no cached-nuisance risk-ratio retarget, so
+    ``ate`` takes the fixed-baseline conversion. The edit refits nothing, so the estimates
+    stay those of the fit. The outcome is rare, so the difference interval is wide
     against a small reference risk. That is the geometry the affine conversion sends
     outside the risk-ratio parameter space.
 
@@ -1231,11 +1232,12 @@ def _rare_outcome_drtmle_fit(
             ),
         }
     )
-    return (
+    fit = (
         _raw(DRTMLE, estimands=("ate", "ey0"), learner_folds=2, random_state=seed)
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
+    return replace(fit, config=replace(fit.config, cv_evaluation=True))
 
 
 def test_a_difference_bound_below_the_negative_baseline_reports_a_limit_of_one():
@@ -1353,7 +1355,7 @@ def test_a_fixed_baseline_outside_the_parameter_space_is_refused_by_name(
         baseline = replace(baseline, variance=baseline_variance)
     variant = replace(
         result,
-        fitted_method="drtmle",
+        config=replace(result.config, cv_evaluation=True),
         estimates={
             **result.estimates,
             "ate": replace(result["ate"], psi=difference_psi),
@@ -1395,7 +1397,7 @@ def test_correction_participation_is_stamped_independently_of_extra(guard):
         # The collaborative case left when ``oat`` took a status. Its status refusal
         # arrives before this one, which
         # ``test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status`` pins.
-        ("drtmle", {}),
+        # ``drtmle`` left when X82 part G gave it the exact retarget.
         ("tmle", {"cv_evaluation": True}),
     ],
 )
@@ -1507,9 +1509,13 @@ def test_cached_evalue_refusals_store_data_without_exception_tracebacks(tmp_path
     restored = joblib.load(path)
     assert restored.capability("evalue") == capability
     for candidate in (facade, restored):
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
+        with pytest.raises(
+            CapabilityError, match=re.escape(_INCOMPLETE_INTERMEDIATE_REFUSAL.message())
+        ):
             candidate.evalue()
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
+        with pytest.raises(
+            CapabilityError, match=re.escape(_INCOMPLETE_INTERMEDIATE_REFUSAL.message())
+        ):
             candidate.evalue("ate")
         assert all(isinstance(value, tuple) for value in candidate._evalue_selections.values())
 
