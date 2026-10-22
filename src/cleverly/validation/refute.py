@@ -84,7 +84,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._inference_status import InferenceStatus
+from .._inference_status import InferenceStatus, supplies_inference
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.delta import two_sided_pvalue
@@ -1124,15 +1124,6 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
-def _refuse_adaptive_iptw(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse an AdaptiveIPTW fit, for which no refutation is registered."""
-    from ..estimators.iptw import OPERATION_REFUSALS
-
-    if getattr(result, "fitted_method", None) == "adaptive_iptw":
-        return OPERATION_REFUSALS["refute"]
-    return None
-
-
 def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
     from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
@@ -1810,7 +1801,6 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
-    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("structural_tests", _refuse_structural_tests),
@@ -3836,8 +3826,14 @@ def _generated_outcome_test(
         )
     else:
         shown = band_readings(scaled, errors, reference_value, bands)
+        # A fit whose status withholds an interval has no standard error or coverage to
+        # read; its plug-in spread is a diagnostic (X82 plan, matrix notes 8 and 15).
+        status = result[estimand].inference
+        interval = supplies_inference(status)
         by_rule = {"bias": "bias_band", "se_ratio": "se_ratio_band", "coverage": "coverage_band"}
-        readings = tuple(reading for reading in shown if reading.name == "bias" or covariate_part)
+        readings = tuple(
+            reading for reading in shown if reading.name == "bias" or (covariate_part and interval)
+        )
         calibrated = len(values) >= bands.minimum_draws
         licensed_inside: list[bool] = []
         for reading in readings:
@@ -3870,7 +3866,12 @@ def _generated_outcome_test(
         )
         if ratio:
             detail += "; on the log scale"
-        if not covariate_part:
+        if not interval:
+            detail += (
+                "; standard-error ratio and coverage withheld (the fit reports no interval: "
+                f"{status})"
+            )
+        elif not covariate_part:
             detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
         design = "the held design"
         if not isinstance(target, PointTarget):
@@ -3951,6 +3952,26 @@ _HELD_HISTORY_SENTENCE = (
     "held-design reference. Coverage also needs a correct censoring model, so the report "
     "prints the uncensored share at each node."
 )
+
+
+def _reported_spread(status: InferenceStatus) -> str:
+    """The short name of the fit's standard error in a placebo label, at its status."""
+    return "reported SE" if supplies_inference(status) else "plug-in SE"
+
+
+def _plugin_reference_clause(status: InferenceStatus) -> str:
+    """The clause that marks a sampling reference built from a diagnostic spread.
+
+    A fit whose status withholds an interval reports ``plugin_std_error`` only. A reference
+    built from it is a description, and the registry covers no withheld status.
+    """
+    if supplies_inference(status):
+        return ""
+    return (
+        "; the fit reports no interval, so the reference uses the plug-in spread of its "
+        "curve, a diagnostic"
+    )
+
 
 _PLACEBO_SENTENCE = (
     "This reads whether the estimator returns the null when treatment is independent of "
@@ -4050,8 +4071,14 @@ def _control_estimator(
     that declares bounds for its own outcome, takes the control's observed range, which is
     the usual TMLE choice (Gruber and van der Laan 2010). An in-sample fit with no bounds
     keeps none. The report prints the bounds it set. A continuous control on a fit whose
-    outcome learner is a classifier regresses with the fit's pseudo-outcome learner.
+    outcome learner is a classifier regresses with the fit's pseudo-outcome learner. An
+    :class:`~cleverly.estimators.AdaptiveIPTW` weights the observed control and scales no
+    outcome, so it refits unchanged and takes no bounds.
     """
+    from ..estimators.iptw import AdaptiveIPTW
+
+    if isinstance(estimator, AdaptiveIPTW):
+        return estimator, None
     declared = getattr(estimator, "q_bounds", None)
     cross_fitted = bool(getattr(estimator, "cross_fit", True)) and (
         int(getattr(estimator, "n_folds", 1) or 1) > 1
@@ -4703,7 +4730,12 @@ def refute(
                     statistic_pvalue=None if reading is None else reading.pvalue,
                     extras=()
                     if reading is None or reading.scale_ratio is None
-                    else (("mean reported SE over SD of the draws", reading.scale_ratio),),
+                    else (
+                        (
+                            f"mean {_reported_spread(status)} over SD of the draws",
+                            reading.scale_ratio,
+                        ),
+                    ),
                 )
             )
 
@@ -4810,6 +4842,7 @@ def refute(
                         f"{'on the log scale ' if is_ratio else ''}against "
                         f"{'nan' if reading_s is None else format(reading_s.reference_sd, '.5g')} "
                         f"from sampling {size} of {units} units alone"
+                        + _plugin_reference_clause(status)
                     ),
                     standard_errors=tuple(se for _, se in fits),
                     spread_kind="log" if is_ratio else "reported",

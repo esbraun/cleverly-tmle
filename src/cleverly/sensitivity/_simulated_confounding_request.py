@@ -283,27 +283,25 @@ def _refuse_repeat_provenance(result: Any) -> Refusal | None:
     return None
 
 
-def _refuse_adaptive_iptw(result: Any) -> Refusal | None:
-    """Refuse an AdaptiveIPTW fit, which has no outcome regression to perturb."""
-    from ..estimators.iptw import OPERATION_REFUSALS
-
-    if getattr(result, "fitted_method", None) == "adaptive_iptw":
-        return OPERATION_REFUSALS["simulated_confounding"]
-    return None
-
-
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
-    """Refuse a binary fit made by an estimator this surface cannot replay."""
+    """Refuse a binary fit made by an estimator this surface cannot replay.
+
+    An :class:`~cleverly.estimators.AdaptiveIPTW` fit replays as the others do: each cell
+    refits the stored estimator on the perturbed data (X82 part I). A declared known
+    mechanism travels to the cell as the exact mechanism of the flipped treatment.
+    """
     from ..estimators.ctmle import CTMLE
     from ..estimators.drtmle import DRTMLE
+    from ..estimators.iptw import AdaptiveIPTW
     from ..estimators.tmle import TMLE
 
     estimator = result.estimator
-    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
+    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE, AdaptiveIPTW}:
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
-            f"complete-outcome DR-TMLE; got {type(estimator).__name__}.",
+            "simulated_confounding supports ordinary TMLE, collaborative TMLE, "
+            "complete-outcome DR-TMLE, and adaptive-propensity IPTW; got "
+            f"{type(estimator).__name__}.",
             alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
             roadmap="X82",
         )
@@ -425,7 +423,6 @@ def _refuse_provider(result: Any) -> Refusal | None:
 _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
-    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("missing_estimator", _refuse_missing_estimator),

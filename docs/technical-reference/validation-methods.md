@@ -803,8 +803,8 @@ matching capability row therefore carry one reason.
 
 | refused fit | the result the package does not have |
 | --- | --- |
-| a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
-| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does |
+| a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong. `assume_consistent_mechanism=True` gives a point bound under that assumption |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does. `assume_consistent_mechanism=True` gives a point bound on a selecting fit |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
@@ -867,6 +867,9 @@ the draws as the table states. One draw reproduces the shipped bound exactly.
 | `benchmark()` | the medians of $\sigma^2$ and $\nu^2$ over draws, before and after the refit |
 | `sensitivity_elements()` | one draw, named by `repeat=`. A bare request refuses, and its capability row requires `repeat` |
 
+On several draws, `max_bias` is the median of $B_r$, and a bound is not $\psi \mp S$ times that
+median. Read each bound from the result, and do not recompute it from `max_bias`.
+
 The standard error rule is the one that
 [`repeats`](cv-tmle.md#variations) applies to the estimate. Chernozhukov et al.
 (2018, equation 3.14) give it. The rule assumes that $\hat\sigma^2$ and $\hat\nu^2$ are
@@ -879,6 +882,31 @@ retargets each draw from its own nuisances. The retarget must reproduce the stor
 draw, or the call raises `RuntimeError`. The feature `repeats` marks these limits descriptive.
 `tests/unit/test_omitted_variable_repeats.py` checks each row against the fit with one draw at the
 seed of that draw.
+
+#### The point bound under an assumed consistent mechanism
+
+`assume_consistent_mechanism=True` lifts the refusal of a `drtmle` fit and of a selecting
+`collaborative_tmle` fit. `omitted_variable_bounds()`, `robustness_value()`, and `contour_data()`
+accept it. The keyword states an assumption that the estimator itself does not make. The bound then
+reads the treatment mechanism as consistent, which is the assumption of the published $\nu^2$.
+
+| quantity | `drtmle` fit | selecting `collaborative_tmle` fit |
+| --- | --- | --- |
+| centre | the fit's estimate | the fit's estimate |
+| $\sigma^2$ | the fit's targeted outcome regression | the fit's targeted outcome regression |
+| the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
+| limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
+| a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
+
+The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
+keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
+assumption, the summary prints it, and `to_dict()` adds it. On another fit the keyword raises
+`ValueError`. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
+takes the median of the draws' point bounds.
+
+`tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the
+ordinary TMLE $\nu^2$ with one learner and seed. It checks the same equality for the C-TMLE refit.
+A mutation control that reads the selected mechanism instead of the refit gives another $\nu^2$.
 
 #### Omitted-variable limits without coverage evidence
 
@@ -1483,11 +1511,11 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 
 | treatment | parameter | replayed estimator |
 | --- | --- | --- |
-| binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
-| binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
-| binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
+| binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
+| binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
-| binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
 | binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
@@ -1496,6 +1524,14 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
 Every row accepts fixed probability weights under its listed estimators.
+
+An `AdaptiveIPTW` cell refits the stored estimator on the perturbed data (X82 part I). On a fit
+with a declared mechanism, a cell that flips the treatment declares the mechanism of the flipped
+treatment, $(1-k_A)\,g(a\mid W)+k_A\,g(1-a\mid W)$. The flip reads only the latent, so that
+is the exact mechanism of the cell, and the refit keeps its interval. A regime or MSM of an
+`AdaptiveIPTW` fit is refused, as for every estimator other than exact ordinary TMLE.
+`tests/unit/test_adaptive_iptw_refute.py` holds the zero-strength reproduction, a nonzero cell,
+and the check that a known-mechanism cell equals a direct fit with the flipped mechanism.
 
 **Fixed policies and projections.** A regime surface holds its declared density $q(a\mid W)$
 fixed. It refits the observed treatment mechanism and outcome regression after each perturbation.
@@ -2352,6 +2388,34 @@ default, so `refute()` costs about 60 fits. A check that needs more than 20 refi
 The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
 `tests=` to run them. `run_all(include_refits=True)` runs `refute()` with the default tests.
 
+#### Adaptive-propensity IPTW refutation
+
+`refute()` runs every point test on an `AdaptiveIPTW` fit. The estimator fits no outcome
+regression, so three readings differ from a TMLE fit.
+
+| reading | on `AdaptiveIPTW` |
+| --- | --- |
+| `placebo` with a declared mechanism | the refit takes the constant arm shares as its mechanism. In sample, the targeted and one-step forms then equal the arm-mean contrast of the permuted data |
+| `random_common_cause` with a declared mechanism and complete data | no fitted function reads the noise column, so the paired shift is exactly 0 |
+| `negative_control_outcome` | the control refits with the same estimator and no outcome bounds, because the estimator scales no outcome |
+
+A fit with an estimated mechanism reports no interval, and takes the status
+`estimated_mechanism_plugin`. Its readings use `plugin_std_error`, a diagnostic. The subset
+detail names that spread. The generated-outcome tests and the plasmode then print the bias
+reading only. This holds for every status that withholds an interval, so a C-TMLE `oat` fit
+also reads bias only.
+
+The placebo witness enumerates all 252 assignments of 5 treated among 10 units. In sample, each
+refit equals the arm-mean contrast to `1e-12`, and the mean over the assignments is 0 to `1e-12`.
+Cross-fitted, the arm labels swap to the complement assignment and negate the ATE. A mutation
+that keeps two rows at their observed arm moves the mean. With weights, a refit equals the
+weighted arm-mean contrast, and the mean is not exactly 0, because a weighted mean is a ratio.
+`tests/unit/test_adaptive_iptw_refute.py` holds these witnesses.
+
+The registry axis `method` reads `AdaptiveIPTW`, or `AdaptiveIPTW[one_step]` for the one-step
+form. The learner axis fingerprints the reduced-regression learner. A row for these fits waits on
+the follow-up study SI, so every study-backed reading prints descriptively until then.
+
 #### Longitudinal refutation
 
 A longitudinal result stores an unfitted copy of its estimator in `result.estimator`. The copy
@@ -2359,8 +2423,12 @@ fits no bootstrap and no simultaneous band. `refute()` refits it with the origin
 repeat seeds. The `refute` row reads the `rerun_configuration` slot of `replayability()`. That slot needs
 the stored copy and the regimen and MSM declarations, and it does not need seeded learners. The
 table lists the tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
-and the survival, competing-risk, repeated-outcome, and MSM fits. Each test prints its numbers
-with `passed=None`, because no registry row covers a longitudinal fit (X82 plan section 7).
+and the survival, competing-risk, repeated-outcome, and MSM fits.
+
+A test prints a verdict only
+on a fit inside a calibrated scope. Every other test prints its numbers with `passed=None`. The
+[longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) calibrates
+the placebo, subset and negative-control rules on six configurations.
 
 | test | longitudinal draw | reference |
 | --- | --- | --- |
@@ -2617,9 +2685,11 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | test | rule | rung today |
 | --- | --- | --- |
 | `dummy_outcome`, `simulated_outcome` | bias band | `L2` on a point fit, at 400 draws or more |
-| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more. Not printed on a fit whose status withholds an interval |
 | `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
-| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` | t, rho, paired shift, z | descriptive until a registered study adds a row |
+| `placebo`, `subset` on a longitudinal fit | t, rho | `L2` on the six configurations of the [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md): `LTMLE`, `SDR`, `IPSI` and the three baselines, two nodes, GLM nuisances, $n \ge 1000$ |
+| `negative_control_outcome` on a longitudinal fit | z | `L2` on the five end-of-study configurations of the same study, for a Gaussian control |
+| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
 in [0.85, 1.15], and a coverage in [0.88, 0.99]. A reading passes when its 95% interval lies inside

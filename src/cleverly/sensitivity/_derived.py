@@ -19,7 +19,9 @@ if TYPE_CHECKING:  # pragma: no cover
 #: The fitted methods whose cached-nuisance retarget to ``rr`` equals a same-seed fit that
 #: requested ``rr``, point and interval.  ``tests/unit/test_evalue_part_g.py`` holds the
 #: witness for each one, and for each C-TMLE strategy family.
-DERIVED_METHODS: frozenset[str] = frozenset({"tmle", "collaborative_tmle", "drtmle"})
+DERIVED_METHODS: frozenset[str] = frozenset(
+    {"tmle", "collaborative_tmle", "drtmle", "adaptive_iptw"}
+)
 
 
 def _derived_risk_ratio(
