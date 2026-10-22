@@ -2218,6 +2218,7 @@ with `passed=None`, because no registry row covers a longitudinal fit (X82 plan 
 | `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
 | `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
 | `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+| `negative_control_outcome` | the control in place of the outcome. The refit keeps the original split and the fit seed | 0 for a blip coefficient and for a regimen contrast. A level refuses the control |
 | `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
 | `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
 | `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
@@ -2387,6 +2388,57 @@ these requests.
 moves `A_2` and the control gives `|z| > 6`. The same control without that path gives `|z| < 3`. A
 control that `L_2` drives reads 0 with `L_2` in the history. With `L_2` removed, the same
 control gives `|z| > 6`.
+
+#### Structural nested mean refutation
+
+A `StructuralNestedMean` result declares the `structural` assessment family. It keeps a copy of
+its settings, its one outer split, and its fit seed in `result.config.fit_seed`. An unseeded fit
+draws that seed once and uses it for the split and for every ensemble that inherits a seed.
+`refute()` runs the five tests below. Each test prints its numbers with `passed=None`, because no
+registry row covers a structural fit yet.
+
+| test | structural draw | reference |
+| --- | --- | --- |
+| `placebo` | a Markov treatment trajectory per unit, as for a longitudinal fit, with no mask | 0 for a blip coefficient and for a regimen contrast. A level has no reference and refuses the placebo |
+| `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one per node. Each refit keeps the original split and the fit seed | the paired shift against the original fit |
+| `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))`, with the plug-in SE of a fit that reports no interval |
+| `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+| `negative_control_outcome` | the control in place of the outcome. The refit keeps the original split and the fit seed | 0 for a blip coefficient and for a regimen contrast. A level refuses the control |
+
+The placebo law factorizes as `P(O-) x K`. No covariate and not the outcome reads the drawn
+treatment, so `E[Y | H_t, A_t]` is free of `A_t`. Every true blip is then 0, and `psi = 0` solves
+the population g-estimating equation of each node. A regimen contrast is linear in the blips, so
+it is 0 without a positivity condition on the regimen.
+
+`tests/unit/test_structural_refutation.py`
+runs the package g-estimation on an enumerated two-node law. The observed law gives the blips 0.74
+and 0.6. The placebo law gives 0 within `1e-12`. Its mutation control lets the drawn node-2
+treatment read the observed one, and the node-2 blip moves to 0.387.
+
+A subset draw that leaves a fold with fewer than 2 units of a treatment level at some node is
+refused before the first subset refit. The g-estimating equation of that node would have no
+treatment variation in the fold. Raise `subset_fraction`, or drop `subset`.
+
+The negative-control outcome follows the negative-control rules above, and the
+pre-treatment form reads the baseline as its adjustment set. A control outside {0, 1} is a
+regression target, which `regression_learner` fits. When that setting is `None` and the outcome
+learner only classifies, or is a binomial `GLM`, `refute()` refuses the control before any refit.
+The witness test fits a control that `A1` moves beyond its history, and its z exceeds 5. A
+control independent of the treatment gives a z below 2.
+
+The other operations of the family do not run. The table gives the reason of each.
+
+| operation | status | reason |
+| --- | --- | --- |
+| `support`, `nuisance_models` | `unavailable`, `api_redirection` | the fit records its positivity and learner diagnostics in `result.diagnostics` |
+| `score_equations`, `corrections`, `truncation_curve` | `not_applicable` | g-estimation solves its equations by a linear solve, uses no correction system, and applies no mechanism bound |
+| omitted-variable analyses, `evalue` | `unavailable`, `implementation_gap` | no Riesz representer or risk-ratio scale of a blip is derived. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) tracks the bound |
+| `simulated_confounding` | `unavailable`, `implementation_gap` | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `missingness`, `tipping_gamma` | `not_applicable` | the estimator refuses missing outcomes and censoring |
+
+The generated outcomes, the future-treatment control, and the measurement-error bootstrap of a
+structural fit are refused with the roadmap id
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
 
 #### Verdicts and evidence
 

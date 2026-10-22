@@ -602,6 +602,7 @@ class TestTheRefuteRowResolvesEachRequest:
             "adaptive_iptw",
             "learned_rule",
             "estimand",
+            "structural_tests",
             "longitudinal_tests",
             "placebo_mode",
             "placebo_kernel",
