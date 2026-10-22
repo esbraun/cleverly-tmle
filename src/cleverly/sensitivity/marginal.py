@@ -615,10 +615,18 @@ def _median_rule(values: FloatArray, variances: FloatArray) -> tuple[float, floa
     return centre, float(np.median(variances + (values - centre) ** 2))
 
 
-def _limit_reading(result: TMLEResult, outcome_kind: str, estimand: str) -> Resolution:
+def _limit_reading(
+    result: TMLEResult, outcome_kind: str, estimand: str, custom_learners: bool
+) -> Resolution:
     from ..validation._interpretation import fit_configuration, resolve
 
-    rule = outcome_kind + ("+clustered" if result.data.cluster is not None else "")
+    # A study of the continuous rule covers the default quantile and tail learners only.
+    features = [outcome_kind]
+    if outcome_kind == "continuous" and custom_learners:
+        features.append("custom_learners")
+    if result.data.cluster is not None:
+        features.append("clustered")
+    rule = "+".join(features)
     try:
         fit = fit_configuration(result, estimand)
     except (AttributeError, KeyError, TypeError, ValueError):
@@ -754,5 +762,10 @@ def marginal_sensitivity_bounds(
         outcome_kind=outcome_kind,
         quantile_learner=tuple(sorted(quantile_names)),
         pseudo_outcome_learner=tuple(sorted(pseudo_names)),
-        limit_reading=_limit_reading(result, outcome_kind, estimand),
+        limit_reading=_limit_reading(
+            result,
+            outcome_kind,
+            estimand,
+            custom_learners=quantile_learner is not None or pseudo_outcome_learner is not None,
+        ),
     )

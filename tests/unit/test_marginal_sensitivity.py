@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from scipy.optimize import linprog
 from scipy.stats import norm
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
@@ -669,6 +669,24 @@ def test_a_registered_row_licenses_exactly_its_rule(
     )
     assert not marginal_sensitivity_bounds(binary, 1.5).limit_descriptive
     assert marginal_sensitivity_bounds(gaussian, 1.5).limit_descriptive
+
+
+def test_a_continuous_row_covers_the_default_learners_only(
+    monkeypatch: pytest.MonkeyPatch, gaussian: Any
+) -> None:
+    """The study of the continuous rule ran the default learners; custom ones stay descriptive."""
+    monkeypatch.setattr(
+        interpretation,
+        "VERDICT_EVIDENCE",
+        (*interpretation.VERDICT_EVIDENCE, covering_row("continuous")),
+    )
+    assert not marginal_sensitivity_bounds(gaussian, 1.5).limit_descriptive
+    custom = marginal_sensitivity_bounds(
+        gaussian,
+        1.5,
+        quantile_learner=lambda tau: QuantileRegressor(quantile=tau, alpha=0.0, solver="highs"),
+    )
+    assert custom.limit_descriptive
 
 
 # ---------------------------------------------------------------------------------------
