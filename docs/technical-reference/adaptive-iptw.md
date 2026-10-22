@@ -92,7 +92,9 @@ Horvitz-Thompson value, the tilt steps, the rounds and the stop reason.
 
 Contrasts, ratios, `ey_obs`, `par` and `paf` come from the shipped target machinery over the arm
 means. A Horvitz-Thompson mean is not a substitution estimator. A binary-outcome mean can leave
-$(0, 1)$. A request for `rr`, `or` or `paf` raises `DataError` after targeting when a mean it
+$(0, 1)$.
+
+A request for `rr`, `or` or `paf` raises `DataError` after targeting when a mean it
 needs leaves its domain. The test has a margin of `tol` times the summed score scale of the arm's
 keys. For an arm whose observed outcomes are all 1, the score is the mean minus 1. So the fit does
 not resolve that mean closer to 1 than the margin. The default report and `estimands="all"` drop
@@ -137,7 +139,9 @@ $g^{(-k)}(W)$. So no row of fold $k$ reaches $Q_{r,k}$ through a generated desig
 The targeting solves one pooled $\epsilon$ at each row's own fold. The step then moves each fold's
 designs along that fold's own covariate $Q_{r,k} / g_k$, from the first step on. This is the
 cross-validated TMLE shape: fold-specific initial fits and one pooled fluctuation (Zheng and van
-der Laan (2011), Sections 2 and 2.1, pages 2 to 6). After the first step, fold $k$ reaches
+der Laan (2011), Sections 2 and 2.1, pages 2 to 6).
+
+After the first step, fold $k$ reaches
 $Q_{r,k}$ only through $\epsilon$, a parameter of fixed dimension. The interval argument then needs
 the reduced fit to be continuous in $\epsilon$ for a fixed training set. That is condition (S) of
 the DR-TMLE page, restricted to a one-dimensional path. This page does not prove it, so it stays
