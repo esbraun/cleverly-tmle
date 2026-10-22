@@ -236,12 +236,14 @@ def test_both_bounded_laws_are_the_identity_at_zero_strength() -> None:
     observed[5] = False
     latent = rng.normal(size=50)
     assert np.array_equal(_logit_outcome(y, observed, latent, 0.0, (0.0, 1.0)), y)
-    assert np.array_equal(_normal_score_outcome(y, observed, latent, 0.0), y)
+    assert np.array_equal(_normal_score_outcome(y, observed, latent, 0.0, (0.0, 1.0)), y)
     # Without the shortcut, the round trip is the identity up to float error.
-    assert np.allclose(_normal_score_outcome(y, observed, latent, 1e-300), y, rtol=0, atol=1e-12)
+    assert np.allclose(
+        _normal_score_outcome(y, observed, latent, 1e-300, (0.0, 1.0)), y, rtol=0, atol=1e-12
+    )
     # An unrecorded row keeps its placeholder under both laws.
     assert _logit_outcome(y, observed, latent, 3.0, (0.0, 1.0))[5] == y[5]
-    assert _normal_score_outcome(y, observed, latent, 3.0)[5] == y[5]
+    assert _normal_score_outcome(y, observed, latent, 3.0, (0.0, 1.0))[5] == y[5]
 
 
 def test_the_logit_law_matches_its_formula() -> None:
@@ -253,6 +255,41 @@ def test_the_logit_law_matches_its_formula() -> None:
     expected = 2.0 + 3.0 / (1.0 + np.exp(-(np.log(t / (1.0 - t)) - 0.7 * latent)))
     got = _logit_outcome(y, observed, latent, 0.7, (2.0, 5.0))
     assert np.allclose(got, expected, rtol=0, atol=1e-12)
+
+
+def test_the_normal_score_law_matches_its_formula_at_ties() -> None:
+    from scipy.stats import norm
+
+    y = np.array([0.2, 0.5, 0.5, 0.9, 0.1])
+    latent = np.array([0.4, -0.3, -0.3, 1.1, -0.8])
+    observed = np.ones(5, dtype=bool)
+    k = 0.6
+    got = _normal_score_outcome(y, observed, latent, k, (0.0, 1.0))
+    # Hand-computed: average ranks (2, 3.5, 3.5, 5, 1) over m + 1 = 6, then the shifted
+    # score maps back through the sorted outcomes at the positions 1/6, ..., 5/6.
+    ranks = np.array([2.0, 3.5, 3.5, 5.0, 1.0])
+    shifted = norm.ppf(ranks / 6.0) - k * latent
+    expected = np.interp(norm.cdf(shifted), np.arange(1, 6) / 6.0, np.sort(y))
+    assert np.allclose(got, expected, rtol=0, atol=1e-12)
+    # Tied outcomes with equal latent values move together.
+    assert got[1] == got[2]
+    # Y' is monotone in the shifted score.
+    order = np.argsort(shifted)
+    assert np.all(np.diff(got[order]) >= 0.0)
+
+
+def test_the_normal_score_law_clips_to_the_declared_bounds() -> None:
+    # A recorded outcome can lie beyond q_bounds, where the fit clips it.  The empirical
+    # quantile would carry it back out, so the law clips every moved row to the bounds.
+    y = np.array([-0.2, 0.1, 0.4, 0.7, 1.3])
+    latent = np.array([3.0, 0.0, 0.0, 0.0, -3.0])
+    observed = np.ones(5, dtype=bool)
+    got = _normal_score_outcome(y, observed, latent, 2.0, (0.0, 1.0))
+    assert np.all((got >= 0.0) & (got <= 1.0))
+    unclipped = np.interp(
+        NormalDist().cdf(NormalDist().inv_cdf(1 / 6) - 6.0), np.arange(1, 6) / 6.0, np.sort(y)
+    )
+    assert unclipped < 0.0  # mutation control: without the clip the row leaves the bounds
 
 
 def test_a_bounded_law_needs_declared_bounds(cde: Any, bounded: Any) -> None:

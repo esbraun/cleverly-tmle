@@ -611,7 +611,10 @@ def _validate_binary_parameter_state(
             typed_estimand.intermediate == functional.intermediate == result.intermediate_value
         ):
             raise CapabilityError(
-                "simulated_confounding found inconsistent controlled-direct-effect metadata",
+                "simulated_confounding found inconsistent controlled-direct-effect metadata: "
+                f"the estimand fixes the intermediate at {typed_estimand.intermediate!r}, the "
+                f"functional at {functional.intermediate!r}, and the fit at "
+                f"{result.intermediate_value!r}",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
         typed_estimand = typed_estimand.contrast

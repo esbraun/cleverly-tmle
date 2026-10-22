@@ -301,7 +301,7 @@ class SimulatedConfoundingResult:
         The intermediate level the controlled direct effect fixes, else ``None``.
     bounded_outcome_law : {"logit", "normal_score"} or None
         The outcome law on a Gaussian fit whose estimator declares ``q_bounds``, else
-        ``None``.  Every perturbed outcome stays inside the bounds.
+        ``None``.  Every outcome either law moves lands inside the bounds.
     outcome_bounds : tuple of float or None
         The declared ``q_bounds``, else ``None``.
     bounded_share : float or None
@@ -1248,7 +1248,7 @@ def _logit_outcome(
 
     ``t = (Y - lo) / (hi - lo)`` and ``t' = expit(logit(t) - k U)``, so ``Y'`` stays inside
     ``[lo, hi]`` and equals ``Y`` at ``k = 0``.  A recorded row at a bound has an infinite
-    logit and never moves.
+    logit and never moves, and so does a recorded row beyond a bound, which the fit clips.
     """
     if strength == 0.0:
         return values.astype(float).copy()  # exact identity, free of round-trip error
@@ -1266,14 +1266,16 @@ def _normal_score_outcome(
     observed: np.ndarray[Any, Any],
     latent: np.ndarray[Any, Any],
     strength: float,
+    bounds: tuple[float, float],
 ) -> np.ndarray[Any, Any]:
     """Shift a bounded outcome on its normal-score scale.
 
     ``z = Phi^{-1}(rank / (m + 1))`` over the ``m`` recorded outcomes, with average ranks,
     and ``z' = z - k U``.  ``Y' = Q(Phi(z'))``, where ``Q`` interpolates the sorted recorded
     outcomes at the Weibull plotting positions ``i / (m + 1)`` and holds its end values
-    outside them.  ``Y'`` stays inside the observed range and equals ``Y`` at ``k = 0``.
-    The law depends on the empirical quantile of the sample.
+    outside them.  ``Y'`` is then clipped to the declared bounds, because a recorded outcome
+    can lie beyond them where the fit clips it.  The law equals ``Y`` at ``k = 0`` and
+    depends on the empirical quantile of the sample.
     """
     from scipy.stats import norm, rankdata
 
@@ -1285,7 +1287,7 @@ def _normal_score_outcome(
     positions = np.arange(1, m + 1) / (m + 1.0)
     moved = np.interp(norm.cdf(scores - strength * latent[observed]), positions, np.sort(recorded))
     out = values.astype(float).copy()
-    out[observed] = moved
+    out[observed] = np.clip(moved, bounds[0], bounds[1])
     return out
 
 
@@ -1620,7 +1622,8 @@ def simulated_confounding(
         selects ``"logit"`` there.  ``"logit"`` shifts the logit of the outcome scaled to
         the bounds, and a recorded row at a bound never moves.  ``"normal_score"`` shifts
         the normal score of each recorded outcome and maps it back through the empirical
-        quantile, so it depends on the sample.  Both keep every outcome inside the bounds.
+        quantile, so it depends on the sample, and clips the result to the bounds.  Every
+        outcome either law moves lands inside the bounds.
         Any other fit takes ``None`` only.
 
     Returns
@@ -1851,8 +1854,9 @@ def simulated_confounding(
                     data.outcome, data.observed, latent, outcome_strength, request.outcome_bounds
                 )
             elif request.bounded_outcome_law == "normal_score":
+                assert request.outcome_bounds is not None
                 outcome = _normal_score_outcome(
-                    data.outcome, data.observed, latent, outcome_strength
+                    data.outcome, data.observed, latent, outcome_strength, request.outcome_bounds
                 )
             elif result.data.family == "gaussian":
                 outcome = _gaussian_outcome(result.data.outcome, latent, outcome_strength)

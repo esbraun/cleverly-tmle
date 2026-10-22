@@ -1062,10 +1062,10 @@ A controlled direct effect holds its treatment. Each cell flips the intermediate
 `ConfounderStrengthGrid(intermediate=(0.0, 0.2))` and moves the outcome. A nonzero treatment
 strength is refused.
 
-A Gaussian fit whose estimator declares `q_bounds` keeps every perturbed outcome inside the
-bounds. The default `bounded_outcome_law="logit"` shifts the logit of the scaled outcome, and a
-row at a bound never moves. `"normal_score"` shifts the normal score and maps it back through the
-empirical quantile. The outcome strength is then not in outcome SD units, so compare the
+On a Gaussian fit whose estimator declares `q_bounds`, every outcome that a cell moves lands
+inside the bounds. The default `bounded_outcome_law="logit"` shifts the logit of the scaled outcome.
+A row at or beyond a bound never moves. `"normal_score"` shifts the normal score, maps it back
+through the empirical quantile, and clips the result to the bounds. The outcome strength is then not in outcome SD units, so compare the
 `induced_outcome_association` of each cell across fits.
 
 Longitudinal fits need their own ordered latent law.
