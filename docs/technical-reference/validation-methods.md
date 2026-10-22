@@ -965,8 +965,8 @@ study measured.
 | --- | --- |
 | `response` | in-sample `TMLE`, `ate` or `ey1`, binary outcome missing at random, at least 250 events |
 | `intermediate` | in-sample `TMLE`, the CDE at a level of a binary intermediate, at least 250 events |
-| `regime` | in-sample `TMLE`, a regime mean or contrast, at least 350 events |
-| `msm` | in-sample `TMLE`, an MSM coefficient, at least 350 events |
+| `regime` | in-sample `TMLE`, a regime mean or contrast, at least 325 events |
+| `msm` | in-sample `TMLE`, an MSM coefficient, at least 325 events |
 | `shift` | in-sample `TMLE`, a shift mean or contrast on a continuous dose |
 
 Every row also requires a binary outcome, $n \geq 2{,}000$, influence-curve inference, and the
