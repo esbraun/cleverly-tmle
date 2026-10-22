@@ -963,6 +963,9 @@ class AdaptiveIPTW(TMLE):
     """
 
     _assessment_method = "adaptive_iptw"
+    #: ``refit`` refits the targeted propensity on new data, so the simulated common cause
+    #: replays an arm-axis fit (X82 part I).  A regime replay is refused (X81 (d)).
+    simulated_confounding_replay = True
 
     def __init__(
         self,

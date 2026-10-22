@@ -852,6 +852,11 @@ class TMLE:
 
     _assessment_method = "tmle"
 
+    #: Whether :func:`~cleverly.sensitivity.simulated_confounding` replays a binary point fit
+    #: of this class: :meth:`refit` refits every nuisance on a perturbed table.  The surface
+    #: reads the declaration of the exact class, so a subclass declares its own.
+    simulated_confounding_replay = True
+
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 

@@ -17,11 +17,10 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
-from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._refusal import Refusal, RefusalReason
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
-from ..interventions.learned import LEARNED_RULE_REPLAY_REFUSAL
 from ..study import (
     ATC,
     ATE,
@@ -38,9 +37,11 @@ from ._simulated_confounding_common import (
     check_only_declared_axis,
     check_registered_target,
     check_replay_declaration,
+    declares_replay,
     fixed_axis,
     fixed_key_axis,
     point_study_or_refuse,
+    replay_classes,
 )
 from ._simulated_confounding_fixed import fixed_replay_refusal, validate_fixed_replay
 from ._simulated_confounding_incremental import (
@@ -49,6 +50,7 @@ from ._simulated_confounding_incremental import (
     natural_incremental_means,
     validate_incremental_replay,
 )
+from ._simulated_confounding_learned import LEARNED_RULE_TARGETS, validate_learned_rule_replay
 from ._simulated_confounding_longitudinal import longitudinal_fit_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -88,6 +90,9 @@ class _ValidatedRequest:
     bounded_outcome_law: Literal["logit", "normal_score"] | None = None
     #: The declared ``q_bounds`` the bounded law reads.
     outcome_bounds: tuple[float, float] | None = None
+    #: The realized outer splits every cell refits on, on a learned-rule fit whose replay
+    #: holds the fold rules fixed.  ``None`` on every other fit, whose cells draw new folds.
+    frozen_folds: tuple[Any, ...] | None = field(default=None, compare=False)
 
 
 #: The declared estimand type each supported contrast alias must carry.  One map, built
@@ -227,33 +232,24 @@ def _refuse_result_type(result: Any) -> Refusal | None:
     return None
 
 
-def _refuse_learned_rule(result: Any) -> Refusal | None:
-    """Refuse a learned-rule fit, whose replay relearns the rules and so its target."""
-    if result.config.parameter_axis != "learned_rule":
-        return None
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "simulated_confounding does not cover a learned-rule fit: "
-        + LEARNED_RULE_REPLAY_REFUSAL
-        + ".",
-        alternative=NO_ALTERNATIVE,
-        roadmap="X82",
-    )
-
-
 def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
-    """Refuse a risk-ratio tilt fit, whose replay declares no reading of its policy."""
+    """Refuse a risk-ratio tilt fit, which carries no backdoor identification to read.
+
+    The tilt can be fitted only directly with ``TMLE(policies=[RiskRatioTilt(...)])``, and
+    no typed study request reports it, so its result records no identified effect.  X85
+    adds the typed requests and, with them, the policy-reading replay.
+    """
     if result.config.parameter_axis != "rr_tilt":
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
-        "ate_rr_tilt): the tilt is a known randomized rule on the natural treatment, and the "
-        "replay declares no reading of that rule on a perturbed draw.",
+        "ate_rr_tilt): a risk-ratio tilt has no typed study request, so no fit carries the "
+        "backdoor identification this check reads.",
         alternative=(
             "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
         ),
-        roadmap="X82",
+        roadmap="X85",
     )
 
 
@@ -284,25 +280,21 @@ def _refuse_repeat_provenance(result: Any) -> Refusal | None:
 
 
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
-    """Refuse a binary fit made by an estimator this surface cannot replay.
+    """Refuse a binary fit whose estimator class declares no simulated-confounding replay.
 
-    An :class:`~cleverly.estimators.AdaptiveIPTW` fit replays as the others do: each cell
-    refits the stored estimator on the perturbed data (X82 part I). A declared known
-    mechanism travels to the cell as the exact mechanism of the flipped treatment.
+    An :class:`~cleverly.estimators.AdaptiveIPTW` fit declares it: each cell refits the
+    stored estimator on the perturbed data (X82 part I). A declared known mechanism travels
+    to the cell as the exact mechanism of the flipped treatment.
     """
-    from ..estimators.ctmle import CTMLE
-    from ..estimators.drtmle import DRTMLE
-    from ..estimators.iptw import AdaptiveIPTW
-    from ..estimators.tmle import TMLE
-
     estimator = result.estimator
-    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE, AdaptiveIPTW}:
+    if result.data.has_arms and not declares_replay(estimator):
+        names = ", ".join(replay_classes())
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding supports ordinary TMLE, collaborative TMLE, "
-            "complete-outcome DR-TMLE, and adaptive-propensity IPTW; got "
-            f"{type(estimator).__name__}.",
-            alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
+            "simulated_confounding replays a binary fit of a point estimator whose class "
+            f"declares simulated_confounding_replay = True ({names}); "
+            f"got {type(estimator).__name__}.",
+            alternative=f"Fit the data with one of {names} and replay that fit.",
             roadmap="X82",
         )
     return None
@@ -423,7 +415,6 @@ def _refuse_provider(result: Any) -> Refusal | None:
 _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
-    ("learned_rule", _refuse_learned_rule),
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),
@@ -561,6 +552,7 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
             (key.estimand in _BINARY_PARAMETER_TARGETS and key.axis == "arm")
             or fixed_key_axis(key) is not None
             or (key.estimand in INCREMENTAL_TARGETS and key.axis == "ipsi")
+            or (key.estimand in LEARNED_RULE_TARGETS and key.axis == "learned_rule")
         )
         and _replay_refusal(result.estimator, key.estimand) is None
     )
@@ -1671,9 +1663,12 @@ def _validated_parameter(
     refusal = _replay_refusal(estimator, key.estimand)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
+    frozen_folds: tuple[Any, ...] | None = None
     if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
-    elif treatment_family == "binary" and key.estimand in INCREMENTAL_TARGETS:
+    elif key.estimand in LEARNED_RULE_TARGETS:
+        estimator, frozen_folds = validate_learned_rule_replay(result, estimand, key)
+    elif treatment_family in {"binary", "categorical"} and key.estimand in INCREMENTAL_TARGETS:
         estimator = validate_incremental_replay(result, estimand, key)
     elif treatment_family in {"binary", "categorical"}:
         check_only_declared_axis(
@@ -1756,4 +1751,5 @@ def _validated_parameter(
         key.stratum,
         conditioning_code,
         key=key,
+        frozen_folds=frozen_folds,
     )

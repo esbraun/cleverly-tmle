@@ -483,17 +483,19 @@ def test_a_retained_cell_failure_does_not_stop_fixed_policy_replay(
 
 
 class _CustomStochastic(Stochastic):
-    """A protocol-compatible extension lacks the exact fixed-policy replay contract."""
+    """A subclass that declares a known density, which the replay freezes per row."""
 
 
-def test_custom_intervention_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
-    result = _estimate(
-        _study(),
-        RegimeMean((_CustomStochastic(_stochastic_density, name="policy", density_kind="known"),)),
-    )
-    _forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="exact Static, Rule, and Stochastic regimes only"):
-        simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
+def test_a_known_stochastic_subclass_replays_as_its_parent() -> None:
+    def fit(policy: Any) -> Any:
+        return _estimate(_study(), RegimeMean((policy,)))
+
+    custom = fit(_CustomStochastic(_stochastic_density, name="policy", density_kind="known"))
+    parent = fit(Stochastic(_stochastic_density, name="policy", density_kind="known"))
+    surface = simulated_confounding(custom, estimand=_alias(custom), grid=_GRID, random_state=31)
+    expected = simulated_confounding(parent, estimand=_alias(parent), grid=_GRID, random_state=31)
+    assert max(abs(cell.displacement) for cell in surface.cells) > 1e-3
+    assert [cell.estimate for cell in surface.cells] == [cell.estimate for cell in expected.cells]
 
 
 def test_incremental_policy_replays_its_distinct_functional() -> None:
@@ -524,9 +526,10 @@ def test_fixed_replay_requires_exact_ordinary_tmle(target: str) -> None:
     refusal = fixed_replay.fixed_replay_refusal(DRTMLE(), target)
     assert refusal is not None
     assert refusal.condition == (
-        "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only."
+        "simulated_confounding has no fixed-regime or MSM replay for DRTMLE."
     )
     assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert refusal.roadmap == "X50"
 
 
 @pytest.mark.parametrize("component", ["density", "design", "weights"])

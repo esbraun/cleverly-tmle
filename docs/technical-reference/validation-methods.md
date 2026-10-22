@@ -806,7 +806,10 @@ matching capability row therefore carry one reason.
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong. `assume_consistent_mechanism=True` gives a point bound under that assumption |
 | a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does. `assume_consistent_mechanism=True` gives a point bound on a selecting fit |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
-| a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| an `rr_tilt` parameter axis | an implementation. A risk-ratio tilt mean is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| an `msm` axis with a continuous dose or a link other than `"identity"` | a representer. A continuous dose reads the treatment density at quadrature doses, and under another link the coefficient is not linear in the outcome regression |
+| a `policy` axis with a randomized, fold-tuned, or joint policy set | a combination of the component representers |
+| a `policy` axis on a continuous dose, where an observed or a shifted dose is not a declared dose atom | a derived representer for a fitted dose density, and a guarantee for $\hat\nu^2$. On a binned density, the doubly robust $\hat\nu^2$ is often negative |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
@@ -849,6 +852,46 @@ the [standard error](#standard-error-of-the-omitted-variable-bound) states. Unde
 | `TestTheResidualVariance` | $\sigma^2$ masks $R$ and averages every row. A mutation removes $1\{Z = z\}$ from $R$ |
 | `TestTheStratumShareCurve` | the curve of $\hat\nu^2$ equals a finite-difference Gateaux derivative on every row. A mutation removes the share term |
 | `TestOneStratumIsTheMarginalBound` | a stratum that holds every row gives the marginal bound |
+
+#### Regime, shift, and MSM parameters
+
+The bound covers the regime, shift, and MSM parameters in the table below. Each parameter is a
+linear functional of the outcome regression. The representer is the fit's own clever covariate
+times $R$, as in the table above. In each row, $m(O, \alpha)$ reads the counterfactual blocks of
+the clever covariate.
+
+| axis | parameter | representer $\alpha$ | $m(O, \alpha)$ | feature |
+| --- | --- | --- | --- | --- |
+| `regime` | `ey_regime`, `ate_regime` | $g^\star_r(A \mid W) / g(A \mid W)$, over $\pi$ and $q_z$ where the fit has them | $\sum_a g^\star_r(a \mid W) \alpha(a, W)$ | `regime` |
+| `policy` | `ey_policy`, `ate_policy` | the shift's ratio of dose probabilities $h_s(A, W)$, on declared dose atoms | $\alpha(d_s(A, W), W)$, at the dose the policy assigns | `shift` |
+| `msm` | `msm[term]` | $e_j^\top M^{-1} h(A, V) \varphi(A, V) / g(A \mid W)$ | $\sum_a e_j^\top M^{-1} h(a, V) \varphi(a, V) \alpha(a, W)$ | `msm` |
+
+$M = P_n \sum_a h \varphi \varphi^\top$ is the observation-weighted Gram matrix that the
+coefficient inverts. A contrast takes the difference of two representers and of two $m$ terms.
+
+The MSM estimate of $\nu^2$ reads $\hat M$. Its curve therefore adds the influence of $\hat M$,
+$-2 w [\sum_a h_a (z^\top \varphi_a)(\varphi_a^\top b) - \nu^2]$, with $b = M^{-1} e_j$ and
+$z = M^{-1} K b$. Here $K$ is the matrix with $\nu^2 = b^\top K b$. The term is zero on every row
+of a marginal MSM, because each row's Gram contribution is $M$. The package derives this term,
+and no cited source gives it.
+
+A shift representer is a ratio of dose probabilities. The bound covers a shift only when
+`dose_atoms` holds every observed dose and every shifted dose. A shift on a continuous dose refuses
+with `implementation_gap` under both estimators of $\nu^2$.
+`test_a_continuous_dose_shift_is_refused` in `tests/unit/test_omitted_variable_refusals.py` checks
+the refusal.
+
+`benchmark()` refits without the named covariates. The refit evaluates the declared regime,
+policy, or working model again. When a dropped covariate changes or breaks that declaration, the
+call refuses, because the short model would estimate another target.
+
+`tests/unit/test_omitted_variable_axes.py` checks these claims:
+
+- The Riesz identity holds on exact laws for each axis to `rtol=1e-12`, with wrong mechanisms as
+  the nonzero witness. A stochastic regime's density has a mutation control.
+- A static regime and a saturated MSM give the arm bound's $\nu^2$.
+- The MSM curve equals the Gateaux derivative on a design that reads $V$. A mutation that drops
+  the $\hat M$ term departs from it.
 
 #### The bound after repeated cross-fitting
 
@@ -1517,19 +1560,21 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
-| binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
-| binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
-| binary | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
+| binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; any intervention whose density is declared known, frozen per row |
+| binary, multi-arm, or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; any link registered in `cleverly.msm.LINKS`, with fixed projection measure |
+| binary or multi-arm | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
 | continuous | one explicitly named marginal or baseline-stratum `ey_policy[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
 Every row accepts fixed probability weights under its listed estimators.
 
+A binary row admits an estimator whose class declares `simulated_confounding_replay = True`. `TMLE`, `CTMLE`, `DRTMLE` and `AdaptiveIPTW` declare it. `tests/unit/test_simulated_confounding_gate.py` collects every declaring class and checks a zero-strength refit and one nonzero cell for each.
+
 An `AdaptiveIPTW` cell refits the stored estimator on the perturbed data (X82 part I). On a fit
 with a declared mechanism, a cell that flips the treatment declares the mechanism of the flipped
 treatment, $(1-k_A)\,g(a\mid W)+k_A\,g(1-a\mid W)$. The flip reads only the latent, so that
 is the exact mechanism of the cell, and the refit keeps its interval. A regime or MSM of an
-`AdaptiveIPTW` fit is refused, as for every estimator other than exact ordinary TMLE.
+`AdaptiveIPTW` fit is refused ([X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (d)).
 `tests/unit/test_adaptive_iptw_refute.py` holds the zero-strength reproduction, a nonzero cell,
 and the check that a known-mechanism cell equals a direct fit with the flipped mechanism.
 
@@ -1581,6 +1626,9 @@ stochastic-regime, and MSM studies validate the unchanged estimator paths.
 The estimator rebuilds $q_\delta=\delta g/(\delta g+1-g)$ and retains its mechanism targeting contribution.
 The surface therefore compares the same multiplier rule under different fitted laws.
 It does not preserve the original intervention probabilities.
+
+The summary states this reading on its `incremental reading` line.
+On a multi-arm fit, $q_\delta(a \mid W) = \delta_a g(a \mid W) / \sum_b \delta_b g(b \mid W)$, and the cells swap the declared `arm_pair`.
 Kennedy (2019), equation (1) and Corollaries 1–2, supplies the parameter and influence curve.
 The [source audit](../references.md#sensitivity-analysis) separates that result from the qualitative perturbation.
 
@@ -1588,6 +1636,28 @@ A multiplier-one mean equals the natural-course mean and is refused before a ran
 A contrast against that reference remains supported. Means and contrasts report additive movement.
 The operation validates every stored repeat against its own initial, untruncated propensity predictions.
 It checks intervention names, multipliers, densities, clever weights, derivatives, and the reference.
+
+**Learned rules.** A refit of a learned-rule fit relearns the rule inside each training fold.
+A perturbed refit would then estimate the value of other rules.
+
+The replay keeps the outer folds of the fit.
+It also keeps the realized rule $d_v(W_i)$ of each row, which `result.nuisance.regimes` stores.
+The perturbation changes no covariate, so each frozen rule value stays defined.
+Each cell evaluates $\sum_v V^{-1} n_v^{-1} \sum_{i \in v} \bar Q(d_v(W_i), W_i)$ on the perturbed table.
+The weights are the $1/V$ fold weights of the learned-rule record.
+The [learned-rule contract](point-treatment-tmle.md#learned-rules) defines this target.
+
+The summary states the reading on its `learned-rule reading` line.
+A cell reads confounding of the value of these fixed rules, not of the learned-rule procedure.
+`FrozenLearnedRule`, in `src/cleverly/interventions/learned.py`, carries the frozen values.
+
+| check | witness in `tests/unit/test_simulated_confounding_learned_rule.py` |
+| --- | --- |
+| zero strength | the cell equals the reported estimate exactly |
+| nonzero cells | each cell equals a manual frozen-rule refit of its perturbed table |
+| frozen rules | a perturbed refit keeps every row's rule and the folds, and a relearning refit changes some rules |
+| fold weights | on folds of 81 and 80 rows, the cell equals the mean of the fold values and not the row-weighted mean |
+| mutation controls | a replay that relearns the rule, or that redraws the folds, fails the nonzero cell check |
 
 **Nonlinear and continuous MSMs.** The surface preserves built-in identity, log, and logit links.
 It invokes the existing complete projection and targeting solver in each cell.
@@ -1612,6 +1682,7 @@ Outcome diagnostics remain available; integration-grid positions never become tr
 | --- | --- |
 | `tests/unit/test_simulated_confounding_incremental.py` | nonzero complete refits, mechanism rebuilding, natural-course refusals, repeated provenance, and persisted assessment |
 | `tests/unit/test_simulated_confounding_msm.py` | built-in links, fixed quadrature, observed-dose rebuilding, support masks, and corrupted cached arrays |
+| `tests/unit/test_simulated_confounding_off_axis.py` | on a saturated finite law, a multi-arm incremental cell, a stratum incremental cell and a multi-arm MSM coefficient each equal the hand g-formula on the refitted table. A frozen-mechanism control misses the incremental cell. A stratum continuous-MSM cell equals a manual refit |
 | existing incremental and MSM estimator tests | unchanged targeting, influence curves, and projections |
 
 These are deterministic diagnostic checks, not new repeated-sampling or interval claims.
@@ -1803,15 +1874,17 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 **Refusals.** `_FIT_WIDE_RULES`, in
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
-walks that table and returns the first reason that applies. Three missing-science stops apply
-in this order: longitudinal, learned-rule, and risk-ratio tilt fits. The longitudinal stop applies
+walks that table and returns the first reason that applies.
+
+Two named stops apply in this order: longitudinal and risk-ratio tilt fits. The longitudinal stop waits on a declared law.
+The tilt stop waits on a typed study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). The longitudinal stop applies
 the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
 point rule. Each one has a row in the
 refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
 and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
-The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
+The `result_type` stop runs second, before the risk-ratio tilt stop, because every later rule reads a
 field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
 below gives all twelve in contract order.
 
@@ -1832,11 +1905,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all fifteen. A fit that reaches the `provider` stop reports
+execution name the same stop for all fourteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the three fit-wide missing-science stops and the three grid stops, plus the estimands and compositions the
+The rows below record the two fit-wide named stops and the three grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1845,15 +1918,13 @@ of the roadmap also has a part that waits on published theory, as the
 | refused | code | why |
 | --- | --- | --- |
 | a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
-| a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
-| a risk-ratio tilt fit | `implementation_gap` | the replay declares no reading of the tilt rule on a perturbed draw. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (d) |
+| a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves the treatment of a controlled direct effect | `implementation_gap` | a flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. The intermediate and outcome axes run. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
 | identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (a) |
-| a custom intervention type | `implementation_gap` | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (b) |
+| a binary fit under an estimator class that does not declare `simulated_confounding_replay = True` | `implementation_gap` | the surface refits the stored estimator, and the declaration states that its `refit` refits every nuisance. The class itself must declare it, so a subclass does not inherit it. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, further replays (e) |
 | a regime, incremental target, or MSM under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for regimes and MSMs, and [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) for incremental targets |
 | continuous-treatment C-TMLE and DR-TMLE | `implementation_gap` | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | PAR or PAF under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks a score or correction for these observed-law contrasts. See [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (h), which depends on [X50](../roadmap.md#x50-further-dr-tmle-compositions), [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) and [X62](../roadmap.md#x62-other-dr-tmle-and-c-tmle-compositions) |
@@ -2310,6 +2381,11 @@ the ATT or ATC population by the frozen probability of that population's arm.
 | `ey_obs` | the mean of `m(A, W)` at each row's own arm | three readings when `m(A, W)` is constant over the rows; else bias only |
 | `par` | `ey_obs` minus the level of the reference arm `r` | three readings when `m(A, W) - m(r, W)` is constant over the rows; else bias only |
 | `paf` | `par` divided by `ey_obs` | three readings when `m(A, W)` and `m(r, W)` are constant over the rows; else bias only |
+| `ey_regime` | the mean of `sum_a q(a \| W) m(a, W)`, with `q` the declared regime | three readings when that sum is constant over the rows; else bias only |
+| `ate_regime` | `ey_regime` of the value regime minus that of the reference regime | three readings when the difference of the two sums is constant over the rows; else bias only |
+| `ey_ipsi`, `ate_ipsi` | as `ey_regime` and `ate_regime`, with `q` the tilt of the true mechanism | refused. The plasmode reads them |
+| `ey_policy`, `ate_policy` | as `ey_regime` and `ate_regime`, with `q` the policy applied to the natural treatment | three readings when the sum, or the difference of the two sums, is constant over the rows; else bias only |
+| `msm` | one coefficient of the projection of `m(a, W)` onto the working model | three readings when the coefficient's covariate part is constant over the rows; else bias only |
 
 The code reads the constancy from the generated law. A Gaussian process and an identity link have
 a constant arm contrast. A logit link with a nonzero effect does not. The plasmode reads all three
@@ -2322,6 +2398,39 @@ rows cover every point target, so no study is needed.
 The held-design truth of `ey_obs`, `par` and `paf` reads the held arm of each row. The plasmode
 truth reads the frozen arm probabilities. A stratum target, such as `ate[S=1]`, sums over the
 rows of its stratum only.
+
+The intervention targets need the law `q(a | W)` of the arms at each row. The table gives its
+source.
+
+| intervention | `q(a \| W)` | held design | plasmode |
+| --- | --- | --- | --- |
+| `Static`, `Rule`, known `Stochastic` regime | the declared density, evaluated on the fitted rows | yes | yes, on the support points |
+| `Incremental` tilt with factors `f` | `f_a g(a \| W) / sum_b f_b g(b \| W)` (Kennedy 2019) | no, because the held design does not know the true `g` | yes, with the frozen treatment model as `g` |
+| modified treatment policy `d` on arms | `sum_s P(A = s \| W) T(s -> a \| W)`, with `T` the probability that `d` moves arm `s` to arm `a` (Díaz et al. 2023, Section 4) | yes, with the held arm of each row as `A` | yes, with the frozen treatment model as `P(A = s \| W)` |
+| modified treatment policy `d` on a continuous dose | the branch probability on the dose `d(A, W)` of each branch | yes, with the held dose of each row as `A` | no, because the plasmode has no frozen law of a dose |
+
+An MSM coefficient solves the working-model normal equations of `cleverly.msm` with `m(a, W)` in
+place of the outcome regression. `Projection` in `validation/_point_generated.py` solves them by
+its own Gauss-Newton iteration for the identity, log and logit links. The covariate part of a
+coefficient is `e_j' M^-1 sum_a h m' phi (m(a, W) - m(a, V; beta))`. Under a Gaussian process and
+the linear model `MSM.linear()`, the slope's part is 0 at every row, so the slope reads
+all three. The intercept's part is `f(W)` minus its mean, so the intercept reads bias only.
+
+A shift `a + delta` under a Gaussian process has the contrast `effect * delta` at every row, so
+`ate_policy` against the natural course reads all three. A cap that keeps some rows at their own
+dose makes the contrast vary over the rows, so the target reads bias only.
+`tests/unit/test_generated_policies.py` checks both cases and a randomized policy.
+
+The refit draws a new outcome, so a policy that reads the outcome law cannot apply. The table
+gives the policy requests that are refused, and the roadmap id of each.
+
+| request | refusal | roadmap |
+| --- | --- | --- |
+| a policy target on a fit with a missing treatment, in the held design | the held design reads the held arm as the natural arm. An unrecorded row has none | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) |
+| a cap that a tuner such as `DoseQuantile` resolves | the truth applies the declared map. A tuned cap has no map until a fit resolves it | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) |
+| `arm_effects` on a continuous treatment | a dose has no arms. The scalar `effect` gives the term `effect * dose` | none. Declare `effect` |
+| a risk-ratio tilt | the tilt reads the true mechanism, so only a plasmode can read it. That plasmode is not built | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part E (c) |
+| a learned rule | no generated truth | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 
 The held design keeps every observation indicator and the intermediate `Z`. The draw replaces
 the outcome only, so a missing outcome stays missing at random. The table gives the rules for
@@ -2704,20 +2813,27 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `learned_rule` | any test except `placebo` on a learned-rule fit, whose refit relearns the rules and so changes the target. The placebo law gives every rule the value `E[Y]`, so the placebo reads the learned-rule level against the weighted mean of the outcome. The default `refute` row reads `unavailable` for the fit |
-| 3 | `estimand` | an estimand that the fit did not report |
-| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
-| 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
-| 6 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
-| 7 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
-| 8 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
-| 9 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
-| 10 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
-| 11 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
-| 12 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
-| 13 | `generated_budget` | a generated-outcome draw count below 10 |
+| 2 | `estimand` | an estimand that the fit did not report |
+| 3 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
+| 4 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
+| 5 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
+| 6 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
+| 7 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
+| 8 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
+| 9 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
+| 10 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
+| 11 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
+| 12 | `generated_budget` | a generated-outcome draw count below 10 |
 
-Rules 7, 10 and 11 call the validators that the tests run, so the table copies no check. The argument
+On a learned-rule fit, `random_common_cause`, `subset`, `bootstrap_stability` and `bootstrap_measurement_error` hold the realized rule of each original row fixed.
+A subset or a resample carries the rule of each kept row, so a duplicated row carries it twice.
+The measurement-error draw perturbs the covariates after the resample, so each unit keeps the rule at its recorded covariates.
+Each refit then estimates the value of the fit's own rules, as the [learned-rule replay](#simulated-common-cause-stress-surface) does.
+The placebo refits as the fit did, because the placebo law gives every rule the value `E[Y]`.
+The placebo reads the learned-rule level against the weighted mean of the outcome.
+`tests/unit/test_refute_learned_rule.py` recomputes each refit by hand and relearns the rule as a mutation control.
+
+Rules 6, 9 and 10 call the validators that the tests run, so the table copies no check. The argument
 check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
 any refit when that array is absent.
 
@@ -2856,8 +2972,9 @@ check every condition in the table before the operation refits anything. Each ro
 | a treatment that is not binary | code one against code zero |
 | an intermediate node or a controlled direct effect | no intermediate node |
 | a fit with missing outcomes | complete outcomes |
-| an MSM functional or the `msm` axis | the `arm` axis |
-| an intervention-indexed functional | the `arm` axis with no declared interventions |
+| a modified-policy, risk-ratio-tilt or learned-rule axis | the `arm`, `regime`, `ipsi` or `msm` axis |
+| an `ipsi` target in the held design | the plasmode |
+| an MSM with a link other than identity, log or logit | one of those three links |
 | a parameter key that is not a structured `ParameterKey` | a structured key for the selected estimand |
 | a ratio estimand, or any other non-additive contrast | `ate`, `att`, or `atc` |
 | disagreement between the functional target, the identified estimand, and the parameter key | one estimand named by all three |

@@ -61,7 +61,11 @@ The tests, and what a reading means:
     Resample units from the empirical law of the covariates, draw treatment from a frozen
     model and the outcome from the ``simulated_outcome`` declaration, then refit.  The truth
     is a finite sum over the support points, so bias, standard-error ratio and coverage are
-    read against their equivalence bands.
+    read against their equivalence bands.  Arm targets, regimes and MSM coefficients have an
+    exact truth in both designs.  An incremental tilt reads the true treatment mechanism, so
+    only the plasmode, whose frozen model is that mechanism, reads it.  A modified treatment
+    policy moves the natural treatment: the held design reads each row's held arm or dose,
+    and the plasmode of an arm treatment reads its frozen model.
 
 ``bootstrap_stability``
     Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
@@ -91,8 +95,17 @@ from ..utils.text import format_table
 from . import _interpretation
 from ._interpretation import FitConfiguration, Resolution, Rung
 from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
+from ._point_generated import (
+    PROJECTION_LINKS,
+    InterventionLaw,
+    PointTarget,
+    Projection,
+    TargetKind,
+    arm_means,
+    held_mixture,
+    held_weights,
+)
 from ._point_generated import PlasmodeLaw as _PlasmodeLaw
-from ._point_generated import PointTarget, TargetKind, arm_means, held_mixture, held_weights
 from ._readings import (
     DEFAULT_BAND_REPLICATES,
     BandReading,
@@ -125,6 +138,7 @@ from .simulation import ReplicationFailure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
+    from ..interventions.learned import FrozenLearnedRule
 
 __all__ = [
     "DEFAULT_OUTCOME_REPLICATES",
@@ -1111,20 +1125,6 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
-def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
-    from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
-
-    # Read defensively: a stub result without a configuration meets the later rules.
-    if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
-        return None
-    # The placebo law makes every rule's value ``E[Y]``, so a relearned rule does not move
-    # its target (X82 plan 5.1.1). Only the placebo may refit a learned-rule fit.
-    if all(name == "placebo" for name in request.tests):
-        return None
-    return LEARNED_RULE_REFIT_REFUSAL
-
-
 def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
     if request.estimand in result.estimates:
@@ -1458,6 +1458,17 @@ def _is_learned_rule_fit(result: Any) -> bool:
     return getattr(getattr(result, "config", None), "parameter_axis", None) == "learned_rule"
 
 
+def _frozen_rule(result: Any) -> FrozenLearnedRule | None:
+    """The realized fold rules of a learned-rule fit, or ``None`` for any other fit.
+
+    A refit that changes no covariate value holds these rules fixed, so it estimates the
+    value of the fit's own rules and not of rules relearned on the refit data (X82 part F4).
+    """
+    from ..interventions.learned import freeze_learned_rule
+
+    return freeze_learned_rule(result) if _is_learned_rule_fit(result) else None
+
+
 def _learned_rule_reference(data: Any) -> float:
     """Return the weighted mean of the observed outcomes, the placebo value of any rule.
 
@@ -1788,7 +1799,6 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
-    ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("structural_tests", _refuse_structural_tests),
     ("longitudinal_tests", _refuse_longitudinal_tests),
@@ -2556,13 +2566,7 @@ def _validate_generated_eligibility(
             roadmap="X82",
         )
     if getattr(data, "is_continuous_treatment", False):
-        raise CapabilityError(
-            f"{name} has no arm target on a continuous treatment; the arm-indexed truths "
-            "need declared arms.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
-        )
+        _refuse_continuous_point_target(functional, process, name)
     has_intermediate = bool(getattr(data, "has_intermediate", False))
     if getattr(process, "intermediate_effect", 0.0) and not has_intermediate:
         raise CapabilityError(
@@ -2577,16 +2581,40 @@ def _validate_generated_eligibility(
             "noise. Leave cluster_sd at 0",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if functional.msm is not None or functional.axis == "msm":
+    axis = functional.axis
+    if axis not in _POINT_TARGET_AXES or (axis == "arm" and functional.interventions):
         raise CapabilityError(
-            f"{name} has no MSM outcome process or coefficient derivation.",
+            f"{name} has no outcome process or effect derivation for the {axis!r} axis. "
+            "The generated laws cover arm targets, regimes, incremental tilts, modified "
+            "treatment policies and MSM coefficients. A risk-ratio tilt reads the true "
+            "treatment mechanism, so only a plasmode can read it, and that plasmode is not "
+            "built yet; learned rules have no generated truth yet.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
         )
-    if functional.axis != "arm" or functional.interventions:
+    if (functional.msm is not None) != (axis == "msm"):
         raise CapabilityError(
-            f"{name} has no intervention-indexed outcome process or effect derivation.",
+            f"{name} found inconsistent registered target provenance: an MSM on the {axis!r} axis",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if axis == "ipsi" and name != "plasmode":
+        raise CapabilityError(
+            f"{name} has no truth for an incremental tilt: the tilt multiplies the odds of "
+            "the true treatment mechanism, which the held design does not know.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Run tests=('plasmode',), whose frozen treatment model is the true "
+                "mechanism of its generated law."
+            ),
+        )
+    if axis == "policy" and name != "plasmode" and getattr(data, "has_missing_treatment", False):
+        # A policy moves each row's natural arm, and the held design reads the held arm as
+        # that natural arm. An unrecorded row has none.
+        raise CapabilityError(
+            f"{name} has no held-design truth for a modified treatment policy on a fit with "
+            "a missing treatment: the policy moves each row's natural treatment, and an "
+            "unrecorded row's treatment is unknown.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
@@ -2605,7 +2633,9 @@ def _validate_generated_eligibility(
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=(
                 "Choose an arm contrast (ate, att, atc), an arm level (ey, ey1, ey0), a "
-                "ratio (rr, or) or a natural-course target (ey_obs, par, paf)."
+                "ratio (rr, or), a natural-course target (ey_obs, par, paf), a regime "
+                "target (ey_regime, ate_regime), an incremental target (ey_ipsi, ate_ipsi), "
+                "a policy target (ey_policy, ate_policy) or an MSM coefficient (msm)."
             ),
             roadmap="X82",
         )
@@ -2678,6 +2708,30 @@ def _validate_generated_eligibility(
             arms=codes,
             **shared,
         )
+    elif kind in ("intervention", "intervention_difference"):
+        if axis == "policy":
+            laws = _policy_laws(result, functional, key, name)
+        else:
+            laws = _intervention_laws(result, functional, key, name)
+        laws.setdefault("arms", codes)
+        target = PointTarget(
+            kind=kind,
+            population="all",
+            value_code=None,
+            reference_code=None,
+            **shared,
+            **laws,
+        )
+    elif kind == "msm":
+        target = PointTarget(
+            kind="msm",
+            population="all",
+            value_code=None,
+            reference_code=None,
+            arms=codes,
+            projection=_msm_projection(result, functional, key, name),
+            **shared,
+        )
     elif kind in ("par", "paf"):
         # The key value of ``par`` and ``paf`` is the reference arm r of ``ey_obs - ey[r]``.
         endpoint = key.value if key.value is not None else data.arm_codes[0]
@@ -2731,7 +2785,212 @@ _POINT_TARGET_KINDS: dict[str, TargetKind] = {
     "ey_obs": "natural",
     "par": "par",
     "paf": "paf",
+    "ey_regime": "intervention",
+    "ate_regime": "intervention_difference",
+    "ey_ipsi": "intervention",
+    "ate_ipsi": "intervention_difference",
+    "ey_policy": "intervention",
+    "ate_policy": "intervention_difference",
+    "msm": "msm",
 }
+
+#: The parameter axes whose targets have a point generated law (part E3).
+_POINT_TARGET_AXES = ("arm", "regime", "ipsi", "policy", "msm")
+
+
+def _refuse_continuous_point_target(functional: Any, process: Any, name: str) -> None:
+    """Refuse a continuous-treatment request that has no generated truth (part E3b).
+
+    The held design has a policy truth on a continuous treatment, because each row's held
+    dose is its natural dose. An arm target has no arms to sum over. The plasmode would need
+    a frozen law of the dose, which part E3b does not draw.
+    """
+    if functional.axis != "policy":
+        raise CapabilityError(
+            f"{name} has no {functional.axis!r} target on a continuous treatment; the "
+            "arm-indexed truths need declared arms. A modified treatment policy has a "
+            "held-design truth on a continuous treatment.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    if name == "plasmode":
+        raise CapabilityError(
+            f"{name} has no law of a continuous treatment: the plasmode draws each arm from "
+            "a frozen treatment model, and a continuous dose has no frozen model yet.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Run tests=('generated_outcome',), whose held design reads each row's held "
+                "dose as its natural dose."
+            ),
+            roadmap="X82",
+        )
+    if getattr(process, "arm_effects", None) is not None:
+        raise CapabilityError(
+            f"{name} declares arm_effects on a continuous treatment, which has no arms. "
+            "Declare the scalar effect, whose term is effect times the dose",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+
+
+def _policy_laws(result: Any, functional: Any, key: Any, name: str) -> dict[str, Any]:
+    """Return the value and reference laws of a modified treatment policy (part E3b).
+
+    On an arm treatment each law is the policy's transition ``T[i, s, a]``, the probability
+    that the policy moves natural arm ``s`` to arm ``a`` at row ``i``. On a continuous
+    treatment each branch of a policy gets its own code, the code's dose at each row is the
+    branch applied to the held dose, and the law puts the branch's probability on that code.
+    """
+    from ..interventions.policy import discrete_assignments, lazy_frame, policy_branches
+
+    data = result.data
+    declared: tuple[Any, ...] = tuple(functional.interventions)
+    labels = [str(policy.name) for policy in declared]
+    reference = key.reference if key.estimand == "ate_policy" else None
+    if key.value not in labels or (reference is not None and reference not in labels):
+        raise CapabilityError(
+            f"{name} found a parameter key for {key.value!r} against {reference!r}, which "
+            f"the declared policies {labels} do not name",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    wanted = [key.value] if reference is None else [key.value, reference]
+    policies = {str(policy.name): policy for policy in declared}
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {column: data.covariates[:, j] for j, column in enumerate(data.covariate_names)}
+        )
+    )
+    try:
+        if data.is_continuous_treatment:
+            return _continuous_policy_laws(policies, wanted, data, frame, policy_branches)
+        levels = tuple(data.treatment_levels)
+        rows = np.ones(data.n, dtype=bool)
+        laws: dict[str, Any] = {}
+        for label in wanted:
+            transition = np.zeros((data.n, len(levels), len(levels)), dtype=float)
+            assignments = discrete_assignments(policies[label], levels, frame, rows)
+            for probability, assigned in assignments:
+                np.add.at(
+                    transition,
+                    (np.arange(data.n)[:, None], np.arange(len(levels))[None, :], assigned),
+                    probability,
+                )
+            laws[label] = InterventionLaw(label, transition=transition)
+    except CapabilityError as error:
+        raise CapabilityError(
+            f"{name} cannot evaluate the declared policy on the fitted rows: {error}",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        ) from error
+    return {
+        "value_law": laws[key.value],
+        "reference_law": None if reference is None else laws[reference],
+    }
+
+
+def _continuous_policy_laws(
+    policies: dict[str, Any],
+    wanted: list[str],
+    data: Any,
+    frame: Any,
+    policy_branches: Any,
+) -> dict[str, Any]:
+    """Return the branch codes, their doses, and the laws of continuous-dose policies."""
+    held = np.asarray(data.treatment, dtype=float)
+    doses: dict[float, np.ndarray] = {}
+    columns: dict[str, list[tuple[float, float]]] = {}
+    for label in wanted:
+        columns[label] = []
+        for probability, branch in policy_branches(policies[label]):
+            code = float(len(doses))
+            doses[code] = np.asarray(branch.assign(held, frame), dtype=float).reshape(-1)
+            columns[label].append((code, float(probability)))
+    arms = tuple(doses)
+    laws: dict[str, InterventionLaw] = {}
+    for label in wanted:
+        values = np.zeros((data.n, len(arms)), dtype=float)
+        for code, probability in columns[label]:
+            values[:, arms.index(code)] = probability
+        laws[label] = InterventionLaw(label, values=values)
+    reference = wanted[1] if len(wanted) > 1 else None
+    return {
+        "arms": arms,
+        "doses": doses,
+        "value_law": laws[wanted[0]],
+        "reference_law": None if reference is None else laws[reference],
+    }
+
+
+def _intervention_laws(result: Any, functional: Any, key: Any, name: str) -> dict[str, Any]:
+    """Return the value and reference laws of a regime or incremental target (part E3).
+
+    A regime's law is its declared density on the fitted rows, which the regime evaluates
+    from ``W`` alone. An incremental tilt's law is its odds factors, and the truth applies
+    them to the true mechanism of the generated law.
+    """
+    from ..interventions import RegimeSet
+    from ..interventions.base import as_interventions
+
+    data = result.data
+    declarations: tuple[Any, ...] = tuple(functional.interventions)
+    if functional.axis == "regime":
+        declarations = as_interventions(functional.interventions)
+    labels = tuple(str(item.name) for item in declarations)
+    if functional.axis == "regime":
+        evaluated = RegimeSet.evaluate(declarations, data, reference=functional.reference)
+        laws = {
+            label: InterventionLaw(label, values=np.asarray(evaluated.values[:, :, index]))
+            for index, label in enumerate(evaluated.names)
+        }
+    else:
+        laws = {
+            str(item.name): InterventionLaw(
+                str(item.name),
+                factors=np.asarray(item.factors(data.treatment_levels), dtype=float),
+            )
+            for item in declarations
+        }
+    reference = None
+    if key.estimand.startswith("ate_"):
+        reference = key.reference
+    if key.value not in laws or (reference is not None and reference not in laws):
+        raise CapabilityError(
+            f"{name} found a parameter key for {key.value!r} against {reference!r}, which "
+            f"the declared interventions {list(labels)} do not name",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return {
+        "value_law": laws[key.value],
+        "reference_law": None if reference is None else laws[reference],
+    }
+
+
+def _msm_projection(result: Any, functional: Any, key: Any, name: str) -> Projection:
+    """Return the working model of an MSM coefficient on the fitted rows (part E3)."""
+    from ..msm import MSMSet
+
+    model = functional.msm
+    if str(model.link) not in PROJECTION_LINKS:
+        raise CapabilityError(
+            f"{name} has no projection truth for an MSM with link {model.link!r}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=f"Declare the working model with a link in {list(PROJECTION_LINKS)}.",
+            roadmap="X82",
+        )
+    evaluated = MSMSet.evaluate(model, result.data)
+    if key.term not in evaluated.terms:
+        raise CapabilityError(
+            f"{name} found a parameter key for the term {key.term!r}, which the working "
+            f"model {list(evaluated.terms)} does not name",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return Projection(
+        design=np.asarray(evaluated.design, dtype=float),
+        weights=np.asarray(evaluated.weights, dtype=float),
+        link=str(model.link),
+        term=evaluated.terms.index(key.term),
+    )
 
 
 def _bounds_tuple(bounds: Any) -> tuple[float, float]:
@@ -2779,6 +3038,10 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
     """
     covariates = np.asarray(data.covariates, dtype=float)
     codes = tuple(float(code) for code in data.arm_codes)
+    if target.doses is not None:
+        # A continuous treatment has no arms. Its codes are the policy branches, and the
+        # law must be admissible at the dose each branch assigns.
+        codes = target.codes
     # A process with an intermediate term is a law only if its mean is admissible at both
     # values of the binary intermediate, since the held rows and the plasmode read both.
     settings: tuple[float | None, ...] = (None,)
@@ -2794,6 +3057,7 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
                 data,
                 bounds=target.outcome_bounds,
                 intermediate=setting,
+                doses=target.doses,
             )
         except ValueError as error:
             raise CapabilityError(
@@ -2819,6 +3083,7 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
             data,
             bounds=target.outcome_bounds,
             intermediate=target.intermediate,
+            doses=target.doses,
         )
         levels = target.levels(means, held_weights(target, data), held_mixture(target, data))
         upper = 1.0 if target.kind == "or" else np.inf
@@ -2840,6 +3105,7 @@ def _run_empirical_refits(
     expected_family: str,
     retain_preparation_failures: bool = False,
     refit_options: Callable[[int], dict[str, Any]] | None = None,
+    refit_estimator: Callable[[int], Any] | None = None,
 ) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
     """Run, validate, and retain empirical refits through one failure contract.
 
@@ -2865,6 +3131,10 @@ def _run_empirical_refits(
     refit_options : callable or None
         Maps a replicate index to extra keyword arguments of the refit, for example the
         frozen fold labels of a resample.
+    refit_estimator : callable or None
+        Maps a replicate index to the estimator that refits it, for example the frozen
+        rules of a learned-rule fit on the rows of a resample. ``None`` refits with
+        ``result.estimator``.
 
     Returns
     -------
@@ -2892,7 +3162,8 @@ def _run_empirical_refits(
             )
             continue
         try:
-            refitted = result.estimator.refit(
+            estimator = result.estimator if refit_estimator is None else refit_estimator(replicate)
+            refitted = estimator.refit(
                 prepared,
                 **_intermediate_option(result),
                 random_state=child_seed,
@@ -3211,6 +3482,10 @@ class _CopyFolds:
         sample = self._data.subset(index)
         return sample if codes is None else replace(sample, cluster=codes)
 
+    def rows(self, replicate: int) -> np.ndarray:
+        """The original row of each row of the sample drawn for ``replicate``."""
+        return self._index[replicate]
+
     def options(self, replicate: int) -> dict[str, Any]:
         sliced = _sliced_folds(self._result, self._index[replicate])
         options: dict[str, Any] = {} if sliced is None else {"frozen_folds": sliced}
@@ -3271,12 +3546,22 @@ def _bootstrap_stability_test(
     folds.frozen_seeds = [item.seed for item in repeats] if repeats else None
     if is_structural(result):
         folds.frozen_seeds = structural_fit_seeds(result)
+    from ..interventions.learned import frozen_rule_replay
+
+    frozen = _frozen_rule(result)
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
         replacement=lambda replicate, seed: folds.sample(replicate),
         refit_options=folds.options,
+        refit_estimator=(
+            None
+            if frozen is None
+            else lambda replicate: frozen_rule_replay(
+                result.estimator, frozen, folds.rows(replicate)
+            )
+        ),
         expected_family=data.family,
         retain_preparation_failures=True,
     )
@@ -3336,6 +3621,11 @@ def _bootstrap_measurement_error_test(
     )
     draw_by_replicate = {draw.replicate: draw for draw in design.draws}
     folds = _CopyFolds(result, data, design, draw_by_replicate)
+    from ..interventions.learned import frozen_rule_replay
+
+    # A learned-rule fit holds each source unit's realized rule, the rule at its true
+    # covariates, so every refit targets the value of the fit's own rules (X82 part F4).
+    frozen = _frozen_rule(result)
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
@@ -3344,6 +3634,13 @@ def _bootstrap_measurement_error_test(
             folds.sample(replicate), declaration, seed=seed
         ),
         refit_options=folds.options,
+        refit_estimator=(
+            None
+            if frozen is None
+            else lambda replicate: frozen_rule_replay(
+                result.estimator, frozen, folds.rows(replicate)
+            )
+        ),
         expected_family=data.family,
         # A cluster or stratum bootstrap draw can hold too few rows to subset, and that is
         # a property of the draw rather than of the request. ``run_bootstrap`` drops such a
@@ -3501,6 +3798,7 @@ def _generated_outcome_test(
             data,
             bounds=target.outcome_bounds,
             intermediate=target.intermediate,
+            doses=target.doses,
         )
         weights = held_weights(target, data)
         mixture = held_mixture(target, data)
@@ -4298,19 +4596,34 @@ def refute(
     panel = longitudinal or structural
     kernel = MarkovKernel.fit(data) if panel and "placebo" in requested else None
 
+    from ..interventions.learned import frozen_rule_replay
+
+    frozen_rule = _frozen_rule(result)
+
     def refit(
         replacement: Any,
         *,
         seed: int = seed,
         frozen_folds: Sequence[Any] | None = None,
         frozen_seeds: Sequence[int] | None = None,
+        rule_rows: np.ndarray | None = None,
+        hold_rule: bool = False,
     ) -> tuple[float, float]:
+        """Refit ``replacement``; ``hold_rule`` holds a learned-rule fit's realized rules.
+
+        ``rule_rows`` gives the original row of each row of ``replacement`` on a subset.
+        """
         options: dict[str, Any] = {}
         if frozen_folds is not None:
             options["frozen_folds"] = frozen_folds
         if frozen_seeds is not None:
             options["frozen_seeds"] = frozen_seeds
-        refitted = estimator.refit(
+        fitter = (
+            estimator
+            if frozen_rule is None or not hold_rule
+            else frozen_rule_replay(estimator, frozen_rule, rule_rows)
+        )
+        refitted = fitter.refit(
             replacement,
             **_intermediate_option(result),
             random_state=seed,
@@ -4485,6 +4798,7 @@ def refute(
                     seed=fit_seed,
                     frozen_folds=noise_folds,
                     frozen_seeds=repeat_seeds,
+                    hold_rule=True,
                 )
                 for index in range(replicate_count)
             ]
@@ -4496,7 +4810,10 @@ def refute(
             extras = [("spread of the paired differences (SE units)", shift_sd)]
             if seed_spread:
                 child = _generated_child_seeds(seed, name, replicate_count)
-                base_fits = [refit(data, seed=child[index]) for index in range(replicate_count)]
+                base_fits = [
+                    refit(data, seed=child[index], hold_rule=True)
+                    for index in range(replicate_count)
+                ]
                 _, _, seed_only = paired_shift(
                     [on_scale(psi) for psi, _ in base_fits],
                     [on_scale(psi) for psi, _ in base_fits],
@@ -4534,7 +4851,12 @@ def refute(
                 # at the Jacobian floor part way through the test refuses it first.
                 raise CapabilityError.from_refusal(thin)
             fits = [
-                refit(data.subset(index), frozen_folds=_sliced_folds(result, index))
+                refit(
+                    data.subset(index),
+                    frozen_folds=_sliced_folds(result, index),
+                    rule_rows=index,
+                    hold_rule=True,
+                )
                 for index, _, _ in drawn
             ]
             values = tuple(psi for psi, _ in fits)

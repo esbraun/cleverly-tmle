@@ -307,7 +307,7 @@ result on nine fits.
 | `diagnostics.truncation_curve` | refused: `implementation_gap`, [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) |
 | `diagnostics.refute` | supported for every point test. [Refutation operations](validation-methods.md#refutation-operations) gives, under "Adaptive-propensity IPTW refutation", the readings that differ from TMLE |
 | `sensitivity.omitted_confounding`, `robustness_value`, `elements`, `benchmark`, `contour` | refused: `api_redirection` to TMLE. The bound needs an outcome regression |
-| `sensitivity.simulated_confounding` | supported on the arm axis: arm means, ATE, risk ratio and odds ratio, marginal or in a baseline stratum. A regime is refused, as for every estimator other than exact ordinary TMLE |
+| `sensitivity.simulated_confounding` | supported on the arm axis: arm means, ATE, risk ratio and odds ratio, marginal or in a baseline stratum. A regime is refused ([X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (d)) |
 | `sensitivity.missingness`, `tipping_gamma` | refused: `api_redirection` to TMLE |
 
 ## Differences from `drtmle`

@@ -562,6 +562,8 @@ class DRTMLE(TMLE):
     """
 
     _assessment_method = "drtmle"
+    #: The refit refits the reduced regressions on the perturbed table.
+    simulated_confounding_replay = True
 
     def __init__(
         self,
