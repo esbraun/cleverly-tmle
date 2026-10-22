@@ -27,6 +27,26 @@ doubly_robust = effect.estimate(
 Call `effect.available_methods()` before fitting when method availability matters. An unavailable
 method comes with a capability reason.
 
+`AdaptiveIPTWMethod` selects the adaptive-propensity IPTW estimator for a point-treatment
+functional. It fits no outcome regression. Its `reduced_outcome_learner` fits the regression of
+the outcome on the fitted propensity, and it falls back to `models.outcome_learner`. The estimator
+reports a point estimate for every supported fit. It reports a standard error, an interval and a
+p-value only when the treatment probabilities are declared and the data are complete.
+[Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract and the
+reason.
+
+```python
+from cleverly import AdaptiveIPTWMethod
+
+adaptive = effect.estimate(
+    method=AdaptiveIPTWMethod(models=parametric),
+    random_state=3,
+)
+print(adaptive.inference_status)
+```
+
+This fit estimates the mechanism, so it prints `estimated_mechanism_plugin`.
+
 `SDRMethod` selects the sequentially doubly robust estimator for a longitudinal functional. A
 point-treatment functional lists it as unavailable. The estimator fits no fluctuation, so it
 refuses a non-default `submodel_alpha`, `max_iter`, `tol`, `stopping`, `step_bound`, `step_search`

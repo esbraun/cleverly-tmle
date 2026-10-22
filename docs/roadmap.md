@@ -126,7 +126,6 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
-| BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
@@ -608,24 +607,6 @@ The R comparators named above are deferred to
 [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
 evidence only. Do not remove this row until the studies land.
 
-### X21. Adaptive-propensity IPTW
-
-`cleverly` has no inverse-probability-weighted estimator. `drtmle` 1.1.2 ships `adaptive_iptw()`,
-which reports an IPTW estimate with a targeted propensity, in two forms: `iptw_tmle` and
-`iptw_os`. Van der Laan (2014), *International Journal of Biostatistics* 10(1), derives it. With a
-propensity fitted by a flexible learner and targeted, the IPTW estimator is asymptotically
-linear, and its curve needs no outcome regression.
-
-Read the derivation for the targeting of the propensity, the reduced regression it needs, and the
-interval conditions. `drtmle` also fits it with missing outcomes and several treatment levels.
-Each of those is a separate composition with its own contract.
-
-Acceptance:
-
-- exact-law witnesses with a nonzero targeting step;
-- a mutation control that drops the propensity targeting;
-- a registered study against the pinned `drtmle` that reuses the DR-TMLE laws.
-
 ### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
 
 This item gives the per-arm outcome-adaptive design a corrected interval in a restricted scope. It
@@ -876,19 +857,34 @@ Acceptance:
   below the standard error of the shipped form;
 - truth-only registered study cells.
 
-### X36. Intervals for AdaptiveIPTW with an estimated mechanism
+### X36. Projected variance for AdaptiveIPTW with a declared parametric mechanism
 
 An `AdaptiveIPTW` fit with an estimated treatment or missingness mechanism reports a point estimate
 and the status `estimated_mechanism_plugin`. Theorem 1 of van der Laan (2012), WP302, needs a term
 that is linear in $g_n - g_0$ to vanish. The term vanishes when the reduced regression is a
 function of the true $g$, or when the fitted $g$ is a function of the true one. No fit can check
-either condition.
+either condition. [The contract page](technical-reference/adaptive-iptw.md#when-an-interval-is-reported)
+gives the derivation.
+
+This item gives an interval for a declared fixed-design parametric mechanism, in sample. The
+influence curve is $IC_{Th1} - \Pi(IC_{Th1} \mid T_g)$, where $T_g$ is the tangent space of the
+mechanism model. It is the Theorem 1 curve with its projection on the GLM score removed. A stacked
+M-estimation of the GLM score and the IPTW equation computes it.
+
+The base result is the projection
+theorem for an estimating function that is unbiased over a parametric nuisance model. WP302,
+Section 2.1, states it for the untargeted IPTW. The verifier simulation of the plan gave a
+projected standard error ratio of 0.97 to 1.00 and a coverage of 0.942 to 0.949.
 
 | part | request | step |
 | --- | --- | --- |
 | (a) | an interval under a declared parametric mechanism | the curve that includes the estimation term of the mechanism, derived for a main-terms GLM |
+| (b) | a status for each parameter, in place of one status for each fit | a per-parameter status table (`PARAMETER_STATUSES`). A fit that mixes a known and an estimated key could then report an interval for the known key. Today a fit has one status, and a user fits the known keys on their own |
 
-Acceptance: an exact-law witness of the term with a nonzero value; a registered coverage study.
+Acceptance: an exact-law witness of the term with a nonzero value; a `Q_r`-basis misspecification
+term or a full stacked sandwich; a registered coverage study with its own calibration cells. The
+item does not cover super learners or cross-fitting. Readiness: post-beta. The record of the
+status names this item as `reopened_by`.
 
 ### X5. Natural and interventional mediation effects
 
@@ -1693,9 +1689,9 @@ probabilities, and no source read here defines a trim of them.
 
 | part | request | step |
 | --- | --- | --- |
-| (a) | `repeats > 1` | a repeat aggregate of the targeted propensity, with the median rule of the other estimators |
-| (b) | a regime with missing data, cross-fitted | the composite indicator on the cross-fitted regime key. The pooled reduced cross-fit term of [F21](#f21-other-missing-outcome-cv-tmle-variants) stays open |
-| (c) | `truncation_curve` | a retargeting of the IPTW propensity at each bound |
+| (a) | `repeats > 1` | a repeat aggregate of the targeted propensity, with the median rule of the other estimators. No read source states one for this estimator |
+| (b) | a regime with missing data, cross-fitted | the composite indicator on the cross-fitted regime key. The base result is the in-sample key of the [contract page](technical-reference/adaptive-iptw.md#contract). The pooled reduced cross-fit term of [F21](#f21-other-missing-outcome-cv-tmle-variants) stays open |
+| (c) | `truncation_curve` | a retargeting of the IPTW propensity at each bound. The base result is Lemma 2 of WP302 for the loop at that bound |
 
 Acceptance: a pre-fit refusal test for each request that stays refused; a registered study for
 each request that ships.
@@ -2251,6 +2247,15 @@ names this item. A C-TMLE selector fit takes `working_mechanism_plugin`, which
 [F18](#f18-selector-path-c-tmle-inference) holds. Every `strategy="oat"` fit takes
 `generated_design_plugin`, which [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference)
 holds.
+
+`AdaptiveIPTW` cross-fits the composite with the same pooled reduced regression, so it shares term
+[B]. It reports point estimates only there. Point consistency does not need term [B] to vanish at
+the root-n rate. [X53](#x53-missing-outcome-cv-tmle-variants) part (c) holds the construction of
+the composite mechanism from out-of-fold factor fits. `AdaptiveIPTW` cites it for that mechanism
+only.
+
+Triage question: could the point-only reduction reopen the cross-fitted missing-data refusals of
+`DRTMLE` or `TMLE`?
 
 ### F22. Grouped cross-fitting beyond point-treatment TMLE
 
