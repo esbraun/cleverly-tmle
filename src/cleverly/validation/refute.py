@@ -2223,6 +2223,11 @@ def _longitudinal_plasmode_target(
         (bool(data.is_weighted), "a weighted panel"),
         (declares_tuned(result.config.regimens), "a regimen with a tuned cap"),
         (declares_tilt(result.config.regimens), "an odds tilt of the treatment mechanism"),
+        (
+            bool(data.has_mixed_node)
+            or not all(_zero_one_levels(levels) for levels in data.treatment_levels),
+            "a non-binary treatment node",
+        ),
     )
     for present, structure in structures:
         if present:
@@ -2232,7 +2237,7 @@ def _longitudinal_plasmode_target(
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
     draws: int | None = None
-    if not law.binary:
+    if not law.enumerable:
         # Size N so the Monte Carlo error is at most 2% of the fit's standard error (plan 6).
         pilot = sum(
             law.truth(process, regimens[part], draws=PILOT_DRAWS, seed=index)[1] ** 2
@@ -3971,7 +3976,11 @@ def _generated_outcome_test(
             "intervals are undefined"
         )
     else:
-        shown = band_readings(scaled, errors, reference_value, bands)
+        # A Monte Carlo truth widens the bias and coverage intervals in quadrature.
+        truth_variance = (
+            target.monte_carlo_se**2 if isinstance(target, _LongitudinalPlasmode) else 0.0
+        )
+        shown = band_readings(scaled, errors, reference_value, bands, truth_variance=truth_variance)
         # A fit whose status withholds an interval has no standard error or coverage to
         # read; its plug-in spread is a diagnostic (X82 plan, matrix notes 8 and 15).
         status = result[estimand].inference
@@ -4032,7 +4041,8 @@ def _generated_outcome_test(
             else:
                 sentences.append(
                     f"The truth averages {target.draws} simulated histories per support point; "
-                    f"its Monte Carlo standard error is {target.monte_carlo_se:.3g}."
+                    f"its Monte Carlo standard error is {target.monte_carlo_se:.3g}, which the "
+                    "bias and coverage readings add in quadrature."
                 )
         elif not isinstance(target, PointTarget):
             design = "the held history"

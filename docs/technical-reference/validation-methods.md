@@ -2561,10 +2561,16 @@ that it fits on the panel once and then holds fixed. The table gives the model o
 | outcome | `mu + f(W) + effect * (A_1 + ... + A_T) + history_effect * h(L) + e` | `h` is the root-count standardized sum of every time-varying column |
 
 The truth is the sequential g-formula of the frozen law under the regimen, with no censoring.
-When every time-varying column is binary, the truth enumerates every branch of every history, so
-it is exact. Otherwise it averages `N` simulated histories per support point. A pilot of 64
-histories sizes `N` so that the Monte Carlo standard error is at most 2% of the fit's standard
-error, with `N` at most 2,048. The report prints `N` and that standard error. The plasmode
+The table gives the two forms of the truth.
+
+| law | truth |
+| --- | --- |
+| every time-varying column is binary, and at most 4,096 branches per support point | enumerates every branch of every history, so it is exact |
+| any other law | averages `N` simulated histories per support point |
+
+A pilot of 64 histories sizes `N` so that the Monte Carlo standard error is at most 2% of the
+fit's standard error, with `N` at most 2,048. The report prints `N` and that standard error. The
+bias and coverage readings add that standard error to each interval in quadrature. The plasmode
 resamples `W`, so every target reads all three readings.
 
 Only the plasmode reads `history_effect`. The held design keeps `L`, whose law under a regimen
@@ -2576,6 +2582,9 @@ binary `L_2` that reads `A_1`. It checks a static regimen, a rule, and a stochas
 the enumerated truth to `1e-12`. Its mutation control holds `L_2` at its law under the observed
 `A_1`, and that naive truth differs by more than 0.05. A static contrast and a rule pass at
 R = 400 on that panel, and a contrast passes on a panel with a Gaussian `L_2`.
+
+Two tests in the same file lower the limits. Past the branch limit, the truth samples. At a draw
+cap of 4, the bias interval widens.
 
 The table gives the panels that the plasmode refuses, with roadmap id
 [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).

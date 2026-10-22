@@ -23,6 +23,7 @@ from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE, DynamicRegimen, Regimen
 from cleverly.validation import GaussianAdjustmentOutcome, refute
+from cleverly.validation import _longitudinal_plasmode as plasmode_module
 from cleverly.validation._longitudinal_plasmode import LongitudinalPlasmodeLaw
 from cleverly.validation.refute import _longitudinal_plasmode_target
 from tests.unit.test_longitudinal_generated_events import HAZARD, _survival_panel
@@ -129,7 +130,18 @@ class TestTruthByHand:
         return f, risk, history
 
     def test_the_law_is_binary_so_the_truth_enumerates(self, law: Any) -> None:
-        assert law.binary
+        assert law.binary and law.enumerable
+
+    def test_a_law_past_the_branch_limit_samples_its_truth(
+        self, binary: Any, law: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # One L column and two nodes have 2**3 branches per support point.
+        monkeypatch.setattr(plasmode_module, "MAX_BRANCHES", 4)
+        assert law.binary and not law.enumerable
+        with pytest.raises(ValueError, match="more branches"):
+            law.truth(PROCESS, RULE, draws=None)
+        target = _longitudinal_plasmode_target(binary, "ey_regimen[rule]", PROCESS, "plasmode")
+        assert target.draws is not None and target.monte_carlo_se > 0.0
 
     @pytest.mark.parametrize("arms", [(1, 1), (0, 0), (1, 0)])
     def test_a_static_regimen(self, law: Any, arms: tuple[int, int]) -> None:
@@ -204,6 +216,25 @@ class TestEndToEnd:
         test = _run(result, "ate_regimen[never vs always]")
         assert test.passed is True
         assert "simulated histories per support point" in test.scope_sentence
+        assert "in quadrature" in test.scope_sentence
+
+    def test_a_capped_monte_carlo_truth_widens_the_bias_reading(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = _gaussian_history_fit(_gaussian_history_panel())
+        estimand = "ate_regimen[never vs always]"
+        monkeypatch.setattr(plasmode_module, "MAX_DRAWS", 4)
+        target = _longitudinal_plasmode_target(result, estimand, PROCESS, "plasmode")
+        share = target.monte_carlo_se / float(result[estimand].plugin_std_error)
+        assert target.draws == 4 and share > plasmode_module.MONTE_CARLO_SHARE
+        capped = _run(result, estimand, draws=40)
+        monkeypatch.setattr(plasmode_module, "MAX_DRAWS", 2048)
+        sized = _run(result, estimand, draws=40)
+        width = {
+            name: next(r.upper - r.lower for r in test.readings if r.name == "bias")
+            for name, test in (("capped", capped), ("sized", sized))
+        }
+        assert width["capped"] > width["sized"]
 
 
 class _Overridden:
@@ -227,6 +258,8 @@ class TestRefusals:
             ({"known_mechanisms": object()}, "a declared known mechanism"),
             ({"cluster": np.zeros(1)}, "a clustered panel"),
             ({"is_weighted": True}, "a weighted panel"),
+            ({"treatment_levels": ((0, 1, 2), (0, 1))}, "a non-binary treatment node"),
+            ({"has_mixed_node": True}, "a non-binary treatment node"),
         ],
     )
     def test_a_structure_the_draw_does_not_cover(

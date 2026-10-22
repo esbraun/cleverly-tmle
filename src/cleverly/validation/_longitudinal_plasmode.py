@@ -10,8 +10,9 @@ the fit's ``g`` bounds, and the censoring after node ``t`` from a logistic model
 ``W``, the treatments and, through ``history_effect``, the time-varying columns.
 
 The truth is the sequential g-formula of that law under the declared regimen, with no
-censoring. When every time-varying column is binary it enumerates every branch of every
-history, so the truth is exact. Otherwise it averages ``N`` simulated histories per support
+censoring. When every time-varying column is binary and the branches number at most
+``MAX_BRANCHES`` per support point, it enumerates every branch of every history, so the truth
+is exact. Otherwise it averages ``N`` simulated histories per support
 point and reports the Monte Carlo standard error.
 """
 
@@ -25,7 +26,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from .outcome_processes import GaussianAdjustmentOutcome, standardized_sum
 
-#: The largest number of enumerated histories per support point before the truth samples.
+#: The largest number of histories per support point that the truth enumerates. A law with
+#: more possible branches gets a Monte Carlo truth.
 MAX_BRANCHES = 4096
 
 #: The Monte Carlo standard error the truth may carry, as a share of the fit's standard error.
@@ -183,8 +185,18 @@ class LongitudinalPlasmodeLaw:
 
     @property
     def binary(self) -> bool:
-        """Return whether every time-varying column is binary, so the truth can enumerate."""
+        """Return whether every time-varying column is binary."""
         return all(isinstance(model, _Logistic) for node in self.covariates for model in node)
+
+    @property
+    def enumerable(self) -> bool:
+        """Return whether the truth can enumerate every branch within :data:`MAX_BRANCHES`.
+
+        The count is the bound before any zero-weight branch is pruned: two levels for each
+        time-varying column and each treatment node.
+        """
+        columns = sum(len(node) for node in self.covariates) + len(self.treatment)
+        return self.binary and 2**columns <= MAX_BRANCHES
 
     # ---------------------------------------------------------------- the outcome
 
@@ -323,6 +335,8 @@ class LongitudinalPlasmodeLaw:
             The value, and its Monte Carlo standard error (0 when enumerated).
         """
         data = self.support
+        if draws is None and not self.enumerable:
+            raise ValueError("this law has more branches than the truth enumerates")
         rng = np.random.default_rng(seed)
         count = 1 if draws is None else int(draws)
         rows = np.repeat(np.arange(data.n), count)
@@ -364,8 +378,6 @@ class LongitudinalPlasmodeLaw:
             keep = weight > 0.0
             rows, weight, treatment = rows[keep], weight[keep], treatment[keep]
             blocks = [block[keep] for block in blocks]
-            if exact and rows.size > MAX_BRANCHES * data.n:
-                raise ValueError("the enumerated histories exceed the branch limit")
         mean = self.outcome_mean(process, rows, blocks, treatment)
         per_point = np.bincount(rows, weights=weight * mean, minlength=data.n)
         value = float(np.mean(per_point))

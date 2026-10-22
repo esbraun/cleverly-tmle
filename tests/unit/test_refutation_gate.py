@@ -243,6 +243,13 @@ class TestEquivalenceBands:
         wide = band_readings(psi, se, 0.0, EquivalenceBands(), truth_variance=0.5)[0]
         assert wide.upper - wide.lower > narrow.upper - narrow.lower
 
+    def test_the_monte_carlo_truth_variance_widens_each_coverage_interval(self) -> None:
+        # A draw at 2 SE misses the exact truth and is a hit once V_T widens its interval.
+        psi, se = np.full(10, 2.0) + np.linspace(0.0, 0.01, 10), np.ones(10)
+        exact = band_readings(psi, se, 0.0, EquivalenceBands())[2]
+        sampled = band_readings(psi, se, 0.0, EquivalenceBands(), truth_variance=0.1)[2]
+        assert exact.estimate == 0.0 and sampled.estimate == 1.0
+
 
 class TestRegistry:
     def test_every_non_exact_row_names_a_study(self) -> None:
