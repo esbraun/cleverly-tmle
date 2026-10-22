@@ -1112,8 +1112,10 @@ SEPARATION_METHOD = "no finite unpenalized logistic fit (separation); strength n
 #: The method text of a binary calibration whose unpenalized fit did not converge.
 NONCONVERGENCE_METHOD = "unpenalized logistic fit did not converge; strength not defined"
 
-#: The smallest linear-programme objective that counts as a separating direction.
-_SEPARATION_TOLERANCE = 1e-7
+#: The smallest linear-programme objective, per margin row, that counts as a separating
+#: direction.  A non-separated law has optimum zero, and the solver's feasibility tolerance
+#: can leave noise of that order in each margin, so the threshold scales with the rows.
+_SEPARATION_TOLERANCE = 1e-6
 
 
 def _classes_separate(design: np.ndarray[Any, Any], target: np.ndarray[Any, Any]) -> bool:
@@ -1164,7 +1166,7 @@ def _classes_separate(design: np.ndarray[Any, Any], target: np.ndarray[Any, Any]
         bounds=(-1.0, 1.0),
         method="highs",
     )
-    return bool(solved.status == 0 and -solved.fun > _SEPARATION_TOLERANCE)
+    return bool(solved.status == 0 and -solved.fun > _SEPARATION_TOLERANCE * margins.shape[0])
 
 
 def _binary_calibration(
