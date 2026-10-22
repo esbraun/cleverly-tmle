@@ -91,7 +91,12 @@ def publish_run(
     error after the manifest exists is a failed verdict of a gated study: the record is copied
     and the error is raised again.  A driver error before the manifest exists copies nothing.
     """
-    names = (*ARTIFACT_NAMES, *study.STUDY.extra_artifacts, *RECORD_FILES)
+    names = (
+        *ARTIFACT_NAMES,
+        *study.STUDY.extra_artifacts,
+        *study.STUDY.property_artifacts,
+        *RECORD_FILES,
+    )
     invoked = list(sys.argv)
     sys.argv = ["regenerate", *arguments, "--output", str(output)]
     failure: BaseException | None = None
