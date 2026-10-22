@@ -122,15 +122,15 @@ DEFAULT_OUTCOME_REPLICATES = DEFAULT_BAND_REPLICATES
 #: Draws of ``bootstrap_measurement_error``, a description with no verdict rule.
 _DEFAULT_MEASUREMENT_REPLICATES = 100
 
-#: Eric, 2026-10-22: a check that needs more than five refits is opt-in. The default
-#: placebo and subset therefore refit five times, and a caller asks for the calibrated 20
-#: (``t`` with 19 degrees of freedom) through ``n_replicates``.
-_DEFAULT_PERTURBATION_REPLICATES = 5
-CALIBRATED_PERTURBATION_REPLICATES = 20
+#: Eric, 2026-10-22 01:51Z: a check that needs more than 20 refits is opt-in. The default
+#: placebo and subset therefore refit 20 times (``t`` with 19 degrees of freedom), which is
+#: the count the short studies calibrate.
+_DEFAULT_PERTURBATION_REPLICATES = 20
+CALIBRATED_PERTURBATION_REPLICATES = _DEFAULT_PERTURBATION_REPLICATES
 
 #: The random-common-cause report refits each noise draw under the original fit's seed, so the
 #: original fit is the paired baseline and the report costs one refit per draw.
-_DEFAULT_NOISE_REPLICATES = 5
+_DEFAULT_NOISE_REPLICATES = 20
 
 #: The fewest draws at which the equivalence intervals are defined and worth printing.
 _MINIMUM_BAND_DRAWS = 10
@@ -2426,13 +2426,11 @@ def refute(
         after the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
         ``evaluation=`` companion that lacks it.
     n_replicates : int or None
-        Replicates per randomized test. ``None`` uses five for ``placebo`` and ``subset``,
-        five for ``random_common_cause``, 100 for
+        Replicates per randomized test. ``None`` uses 20 for ``placebo``, ``subset`` and
+        ``random_common_cause`` (``t`` with 19 degrees of freedom for the placebo), 100 for
         ``bootstrap_measurement_error``, and 400 for each generated-outcome test. Any check
-        that needs more than five refits is opt-in, and the calibrated count of the placebo
-        and the subset test is 20. The
-        generated-outcome readings print at ``L1`` below 400 draws, and a budget below ten
-        is refused before any refit.
+        that needs more than 20 refits is opt-in. The generated-outcome readings print at
+        ``L1`` below 400 draws, and a budget below ten is refused before any refit.
     subset_fraction : float
         Share of rows the subset test refits on.
     placebo_mode : {"permute", "draw"}

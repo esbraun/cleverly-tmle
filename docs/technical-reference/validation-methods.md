@@ -1975,8 +1975,8 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 | `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the same three readings, against the declared effect | adjustment and treatment terms in the full pipeline |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 
-The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs five replications by
-default, so `refute()` costs about 15 fits. A check that needs more than five refits is opt-in.
+The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
+default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.
 The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
 `tests=` to run them. `run_all(include_refits=True)` runs `refute()` with the default tests.
 
