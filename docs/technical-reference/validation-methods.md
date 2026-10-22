@@ -1962,21 +1962,102 @@ checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
 ships seven operations. Six test the implementation. The negative-control outcome tests a design,
-and the paragraph below states its boundary.
+and the paragraph below states its boundary. Each operation prints a statistic against a stated
+reference. It prints `passed` only where the evidence registry covers the fit.
 
-| refuter | what it does | what must happen | what it tests |
+| refuter | what it does | statistic and reference | what it tests |
 | --- | --- | --- | --- |
-| `placebo` | permutes the treatment column and refits | an additive contrast approaches zero; a risk or odds ratio approaches one | the pipeline, not the data |
-| `random_common_cause` | adds an irrelevant covariate and refits | the estimate does not move | the adjustment set is not sensitive to noise |
-| `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
-| `negative_control_outcome` | refits on an outcome the treatment cannot affect | an additive contrast approaches zero; a risk or odds ratio approaches one | the design, under the control assumptions the paragraph below states |
-| `dummy_outcome` | draws independent Gaussian noise and refits | the empirical draws include zero | outcome replacement and the full estimator pipeline |
-| `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the empirical draws include the declared effect | adjustment and treatment terms in the full pipeline |
-| `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits | the empirical draws include the original estimate | stability under the declared measurement error |
+| `placebo` | permutes the treatment column and refits | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
+| `random_common_cause` | adds an irrelevant covariate and refits | the paired shift against the original fit, in standard errors | how far the learners move when a noise column joins the adjustment set |
+| `subset` | refits on random subsamples | the scatter ratio rho against `SE * sqrt((n/m - 1) * n/(n - 1))`; `(R - 1) * rho^2` follows a chi-square law on R - 1 degrees of freedom | the reported standard error is the right size |
+| `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
+| `dummy_outcome` | draws independent Gaussian noise and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
+| `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the same three readings, against the declared effect | adjustment and treatment terms in the full pipeline |
+| `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `f(W) + effect * A + epsilon`, and refits | bias, standard-error ratio, and coverage against the same bands, for every eligible contrast | operating characteristics on a law fitted to resemble the data |
+| `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
+| `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
 
-A refuter refits the nuisance models once for each replication. The three default operations use
-five replications each, so `refute()` costs about 15 fits. Empirical refuters use 100 draws by
-default because their rule reads a distribution. `run_all(include_refits=True)` runs `refute()`.
+The placebo reads an MSM coefficient of a point treatment against its value under the placebo
+law. The table names the two cases. The code reads the case from the realised design and weight
+arrays.
+
+| case | reference | reading |
+| --- | --- | --- |
+| identity link, and the coefficient is 0 for every function of the covariates | exactly 0 | the `t` rule |
+| any other coefficient, weight, or link | the projection of the fitted regression `sum_a g(a given W) Qbar(a, W)` | descriptive, with no verdict |
+
+A product weight and a tensor design whose arm factor holds an intercept give the first case. The
+`TestMSMPlacebo` witnesses in `tests/unit/test_refutation_gate.py` enumerate a finite law for each
+case.
+
+The plasmode follows Franklin et al. (2014). Each draw takes `n` units from the empirical law of
+`W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once and
+clipped to the `g` bounds of the fit. A fit with no recorded bounds uses `[0.01, 0.99]`.
+
+The plasmode draws `Y` from the `simulated_outcome` declaration, with
+the adjustment function standardized on the original data. The truth is a finite sum over the `n`
+support points, so all three readings have an exact reference.
+
+The plasmode refuses clusters, strata, weights, a missing treatment, and more than two arms. `tests/unit/test_plasmode_refutation.py` holds the witness and a
+mutation that keeps `W` fixed.
+
+The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
+default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.
+The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
+`tests=` to run them. `run_all(include_refits=True)` runs `refute()` with the default tests.
+
+#### Verdicts and evidence
+
+A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in
+[`validation/_interpretation.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_interpretation.py)
+holds that evidence as frozen `VerdictEvidence` rows. Each row names an instrument, a rule, a
+rung, the theory behind it, and a `CalibrationScope`. A fit outside the scope of every row gets the
+numbers and `passed=None`. The report prints the configuration that the nearest row covers.
+
+| rung | what backs the reading |
+| --- | --- |
+| `L0` | a description of what moved, with no reference law |
+| `L1` | a stated reference law whose size or power has no measurement |
+| `L2` | an exact reference law, or a measured size and power on the configuration of the fit |
+| `L3` | an `L2` reading with a comparator or an external truth beside it |
+
+A verdict needs `L2` or above. A `CalibrationScope` has these axes: method, estimand kind, outcome
+family, treatment kind, learner fingerprints, cross-fitting, inference status, known mechanism, arm
+count, bounds on n, covariates per row, minimum event count, and cluster count. An unset axis
+covers every value.
+
+`passed` has three values. `RefutationResult.passed` is `False` when any test failed. It is `None`
+when any test is descriptive and none failed. It is `True` when every test passed. `bool(report)`
+raises `TypeError` for `None`, so a descriptive report never reads as a pass.
+
+| test | rule | rung today |
+| --- | --- | --- |
+| `dummy_outcome`, `simulated_outcome` | bias band | `L2`, at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` where the covariate part of the influence curve is zero, and at 400 draws or more |
+| `placebo`, `subset`, `random_common_cause`, `negative_control_outcome` | t, rho, paired shift, z | descriptive until a registered study adds a row |
+
+The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
+in [0.85, 1.15], and a coverage in [0.88, 0.99]. A reading passes when its 95% interval lies inside
+its band. The bias interval is exact because the draws are i.i.d. given the held design. The
+coverage interval is the Clopper-Pearson interval.
+
+A budget below 400 draws still runs, and its
+readings print at `L1`. A budget below 10 draws is refused, because an interval needs a spread.
+At 400 draws and no bias, the three readings pass together with probability 0.93. At 100 draws the
+probability is 0.003. `tests/unit/test_refutation_gate.py` checks the bands and the gate.
+
+A `placebo` fit that declared a known treatment mechanism keeps one on the placebo law. The
+placebo law draws treatment independently of the covariates, so the exact mechanism is the arm
+shares of the placebo column, constant in `W`. A refit that re-estimated the mechanism would
+refute another configuration of the estimator.
+
+A `subset` refit keeps the original fold label of each drawn row, in the original repeats. The
+refit redraws no fold. A subset of whole clusters keeps whole clusters on a clustered fit. The
+reference counts sampling units, and the scatter reads the units that the draw kept.
+
+A `random_common_cause` refit reuses the seed of the original fit, so the original fit is the
+paired baseline. `seed_spread=True` adds refits that omit the noise column, to measure the spread
+across seeds. That option doubles the refit count, so it is opt-in.
 
 `random_common_cause` adds one column of independent noise, and the refit must accept that column.
 
@@ -2003,19 +2084,20 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `learned_rule` | a learned-rule fit, whose refit relearns the rules and so changes the target. The `refute` row reads `unavailable` for the whole fit |
+| 2 | `learned_rule` | any test except `placebo` on a learned-rule fit, whose refit relearns the rules and so changes the target. The placebo law gives every rule the value `E[Y]`, so the placebo reads the learned-rule level against the weighted mean of the outcome. The default `refute` row reads `unavailable` for the fit |
 | 3 | `estimand` | an estimand that the fit did not report |
-| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, an MSM coefficient, or a target with no registered null |
-| 5 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit given `split_plan=` |
-| 6 | `generated_rule` | a generated-outcome test under a rule that is not exactly `EmpiricalInclusionRule` |
+| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, or a target with no registered null. `negative_control_outcome` also refuses an MSM coefficient. `placebo` on a point-treatment MSM coefficient refuses only a continuous dose grid |
+| 5 | `row_set_under_plan` | `bootstrap_measurement_error` or `bootstrap_stability` on a fit given `split_plan=` |
+| 6 | `generated_rule` | a generated-outcome test under bands that are not exactly `EquivalenceBands` |
 | 7 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
 | 8 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
 | 9 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
 | 10 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
-| 11 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
-| 12 | `generated_budget` | a generated-outcome draw count below the floor of its rule |
+| 11 | `stability_eligibility` | `bootstrap_stability` on data that is not point-treatment `CausalData`, or with fewer than 2 draws |
+| 12 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
+| 13 | `generated_budget` | a generated-outcome draw count below 10 |
 
-Rules 7 and 10 call the validators that the tests run, so the table copies no check. The argument
+Rules 7, 10 and 11 call the validators that the tests run, so the table copies no check. The argument
 check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
 any refit when that array is absent.
 
@@ -2024,24 +2106,19 @@ default tests. When the default tests meet a refusal and a single default test r
 `deferred` on `tests`, with the call's sentence. A request that names only tests that run lifts the
 deferral. `TestTheRefuteRowResolvesEachRequest` in the same file checks both fits below.
 
-A refutation also runs on a selector-path collaborative fit. The `placebo`, `random_common_cause`,
-`subset`, and `negative_control_outcome` rules scale their tolerance by a standard error. Each rule
-reads that scale through `plugin_std_error`, so the tolerance makes no coverage claim. On a fit
+A refutation also runs on a selector-path collaborative fit. The `placebo`, `subset`,
+`random_common_cause`, and `negative_control_outcome` statistics scale by a standard error. Each
+reads that scale through `plugin_std_error`, so the statistic makes no coverage claim. On a fit
 that supplies no inference, each `RefutationTest` carries `inference`. `RefutationTest.to_frame()`
 and `RefutationResult.draws_frame()` then name the standard-error column `plugin_std_error` in
 place of `std_error`.
 
-A fit that declared `split_plan=` refuses two of these operations. A supplied plan labels the rows
-it was realized on, by position. It cannot label a refit that drops rows or draws them with
-replacement. So `refute()` raises `CapabilityError` for `subset` and for
-`bootstrap_measurement_error` before it refits anything, and it names both the plan and the test.
-
-A `bootstrap_measurement_error` draw holds the declared number of rows, so only the request
-identifies it. The `placebo` and `random_common_cause` operations still run, because each one
-replaces a column and leaves every row in its position. The default tests include `subset`, so the
-`refute` row reads `deferred` on `tests`. A `run_all(include_refits=True)` battery records that
-row as `deferred`, with the refusal's sentence, and continues to the rest of the battery. A request
-with `tests=("placebo", "random_common_cause")` runs. See
+A fit that declared `split_plan=` refuses `bootstrap_measurement_error`. A supplied plan labels the
+rows it was realized on, by position. A bootstrap draw holds the declared number of rows, so the
+labels would land on resampled units. `refute()` raises `CapabilityError` before it refits
+anything, and it names both the plan and the test. The `subset` operation runs under a supplied
+plan, because each kept row carries its original label. The `placebo` and `random_common_cause`
+operations replace a column and leave every row in its position. See
 [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) for the table.
 
 The two no-effect operations read the registered target through the reported parameter key.
@@ -2050,13 +2127,13 @@ reported scale. Outcome and policy means have no fixed no-effect value. An arbit
 coefficient has none either.
 
 Both operations refuse these parameters before any refit. The `subset` and
-`random_common_cause` operations keep their stability interpretations. All ratio verdicts use
+`random_common_cause` operations keep their descriptive interpretations. All ratio statistics use
 log ratios because their standard errors use the log scale. Reports keep the refit ratios on their
 reported scale.
 
-A ratio placebo or noise test reports the geometric mean that its log-scale verdict tests.
-Its `values` remain the individual reported ratios. A ratio subset reports log-scale scatter in
-`refuted_sd` and its expectation. Its `values` also remain reported ratios.
+A ratio placebo or noise test reports the geometric mean of its refits. Its `values` remain the
+individual reported ratios. A ratio subset reports log-scale scatter in `refuted_sd` and its
+expectation. Its `values` also remain reported ratios.
 
 The default tests include `placebo`, so `estimand="ey_obs"` defers on `tests`. A request with
 `tests=("random_common_cause", "subset")` runs. `TestReportedScaleNoEffectNull` checks the
@@ -2076,18 +2153,17 @@ full refit use that child seed. `report.draws_frame(name)` reports every child s
 standard error, family, and failure. The report stores each draw as an
 `EmpiricalRefitRecord`.
 
-`EmpiricalInclusionRule` uses a two-sided empirical rank and inclusive half-ties. It passes only
-when the empirical probability strictly exceeds alpha, matching the maintained DoWhy convention
-that a probability at or below alpha fails. The default rule uses alpha 0.05, requires 40
-successful draws, and fails when any refit fails. A failure stays in the report as the shared
-`ReplicationFailure` record, so the operation never reports only the conditional distribution of
-successful fits.
+Each generated-outcome draw derives a child seed from the recorded root seed. A refit that fails
+stays in the report as the shared `ReplicationFailure` record. The readings need every draw, so a
+failure leaves the test without a verdict. The operation never reports only the conditional
+distribution of successful fits.
 
-The rule count and the draw budget are separate defaults. `DEFAULT_OUTCOME_REPLICATES` is 100 and
-sets `n_replicates`. `EmpiricalInclusionRule()` requires 40 successful draws and sets no budget.
-The operation refuses a budget below the rule's minimum before it refits anything.
+The draw budget has two thresholds. `DEFAULT_OUTCOME_REPLICATES` is 400 and sets the default
+`n_replicates`. `EquivalenceBands().minimum_draws` is also 400, the calibrated minimum. The
+operation refuses a budget below 10 before it refits anything.
 
-Bootstrap measurement error uses the same rule against the original estimate. It draws an iid or
+Bootstrap measurement error reports the empirical probability of the original estimate under
+`EmpiricalInclusionRule` and states no verdict. It draws an iid or
 whole-cluster sample through the inference bootstrap design. It perturbs numeric variables with
 mean-zero Gaussian noise after sampling. The noise scale is the declared multiplier times the
 selected variable's bootstrap-sample standard deviation.
@@ -2118,20 +2194,11 @@ and each message names the variable it rejects.
 The report records the declaration, requested draw count, resolved mode, rule, estimates,
 standard errors, child seeds, and failures.
 
-**Alpha is a width here, and not a false-alarm rate.** The rule decides one question. Does the
-declared effect lie inside the central `1 - alpha` of the refit estimates? At the default alpha
-that is the central 95%.
-
-A correct estimator centres the refit distribution on the declared effect, so each draw falls
-above it with probability about one half. Under 100 draws the rule then fails only when at most
-two draws fall on one side. That probability is `2 * (1 + 100 + 4950) / 2**100`, which is about
-`8e-27`. More draws do not buy power. They stabilise the quantile the rule reads.
-
-The default minimum of 40 draws is the smallest budget at alpha 0.05 that can fail on anything
-short of a one-sided sweep. With 40 draws, one estimate on the minority side gives `2 / 40`, which
-equals alpha and fails. With 39 draws, one estimate on the minority side gives `2 / 39`, which
-exceeds alpha and passes. The rule therefore refuses a declaration whose `minimum_draws * alpha`
-is below 2, because such a rule fails only when every draw falls on one side.
+**Why the bands are equivalence bands.** A significance test of zero bias fails an estimator that
+is biased by a trivial amount once the draws are many, and it passes a biased estimator when the
+draws are few. An equivalence band asks the question that the user needs answered. Does the
+interval of the reading lie inside a stated tolerance? The 95% interval of the bias has a width
+of about 0.20 standard deviations at 400 draws, which is why 400 is the calibrated minimum.
 
 The first process catalog covers Gaussian outcomes and additive `ate`, `att`, or `atc` contrasts.
 `refute()` and its `_validate_generated_eligibility` helper in
@@ -2141,7 +2208,7 @@ check every condition in the table before the operation refits anything. Each ro
 
 | what the operation refuses | what it requires instead |
 | --- | --- |
-| an inclusion rule of any other type | the exact registered `EmpiricalInclusionRule` declaration |
+| bands of any other type | the exact registered `EquivalenceBands` declaration |
 | a process declaration of any other type | the exact registered `GaussianIndependentOutcome` or `GaussianAdjustmentOutcome` |
 | a process whose family is not `"gaussian"` | the Gaussian family, which is the one with an implemented effect derivation |
 | a fit that carries no identification metadata | identification metadata on the result |
@@ -2161,7 +2228,7 @@ check every condition in the table before the operation refits anything. Each ro
 | disagreement between the functional target, the identified estimand, and the parameter key | one estimand named by all three |
 | a missing registered identification artifact | the artifact `TARGETS` records for that target |
 | an arm contrast that does not resolve to two distinct arms | a resolvable contrast of two distinct arms |
-| a draw budget below the rule's minimum | `n_replicates` of at least `minimum_draws` |
+| a draw budget below 10 | `n_replicates` of at least 10 |
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -2198,8 +2265,8 @@ supplies secondary evidence for independent noise and `f(W) + h(A)`. That implem
 normal rule below 100 draws, which `perform_normal_distribution_test` in
 `dowhy/causal_refuter.py` applies. It declares no failure policy at all. The pinned file contains
 no `try` block, and its refits run under `joblib.Parallel`, so one failed refit aborts the whole
-refutation. `cleverly` keeps each failed refit as a `ReplicationFailure` record and fails the
-refutation under the rule stated above.
+refutation. `cleverly` keeps each failed refit as a `ReplicationFailure` record and withholds the
+verdict.
 
 The maintained DoWhy bootstrap refuter at the same revision supplies secondary control-flow
 evidence for measurement-error sampling and refitting. `cleverly` does not copy three defects in

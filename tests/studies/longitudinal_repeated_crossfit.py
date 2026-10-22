@@ -243,7 +243,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "repeat_stability": tuple(
         f"{label}__{kind}"
         for label in STABILITY_LABELS
-        for kind in ("three_repeats", "one_repeat_control")
+        for kind in ("three_repeats", "one_repeat", "second_draw_control")
     ),
     "repeat_increment": (
         *(f"h{h}__{kind}" for h in HORIZONS for kind in ("repeat_median", "single_draw")),

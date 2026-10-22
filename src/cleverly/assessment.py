@@ -2328,6 +2328,7 @@ def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
         bound.arguments["tests"],
         bound.arguments["n_replicates"],
         bound.arguments["negative_control_outcome"],
+        bound.arguments["placebo_mode"],
     )
 
 
@@ -2952,8 +2953,8 @@ class DiagnosticsFacade(_CapabilityFacade):
             negative-control test has no outcome. These checks precede every refusal.
         CapabilityError
             If the fitted estimator cannot be reconstructed, or the row this request
-            resolves to is refused. A fit given ``split_plan=`` refuses ``subset``, and
-            the natural-course mean refuses ``placebo``, so each row defers on ``tests``.
+            resolves to is refused. The natural-course mean refuses ``placebo``, so its row
+            defers on ``tests``.
             A call that omits ``tests`` raises the deferral with the refused test's
             sentence, and a call that names ``tests`` without that test runs.
         """
@@ -3419,17 +3420,23 @@ def _truncation_item(
 def _refute_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
-    failed = [test.name for test in report.tests if not test.passed]
-    return AssessmentItem(
-        "refute",
-        AssessmentStatus.FAILED if failed else AssessmentStatus.PASSED,
-        "all refutation tests passed"
-        if not failed
-        else f"failed tests {failed}; inspect their retained draws",
-        ()
-        if not failed
-        else tuple(f"inspect result.diagnostics.refute().draws_frame({name!r})" for name in failed),
-    )
+    failed = [test.name for test in report.tests if test.passed is False]
+    descriptive = [test.name for test in report.tests if test.passed is None]
+    if failed:
+        return AssessmentItem(
+            "refute",
+            AssessmentStatus.FAILED,
+            f"failed tests {failed}; inspect their retained draws",
+            tuple(f"inspect result.diagnostics.refute().draws_frame({name!r})" for name in failed),
+        )
+    if descriptive:
+        return AssessmentItem(
+            "refute",
+            AssessmentStatus.COMPLETED,
+            f"descriptive tests {descriptive} state no verdict: no registered calibration "
+            "covers this fit; read their statistics and scope sentences",
+        )
+    return AssessmentItem("refute", AssessmentStatus.PASSED, "all refutation tests passed")
 
 
 def _omitted_item(

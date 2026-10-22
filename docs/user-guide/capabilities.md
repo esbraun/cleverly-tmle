@@ -41,7 +41,7 @@ lists its refusals.
 policy, censoring, survival and repeated outcomes. It refuses a static contrast when a feature
 reads a time-varying covariate.
 [Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
-every refusal. Its evidence label is "Python property evidence, with comparator runs pending". A cross-fitted
+every refusal. Its evidence label is "comparator-backed", against EconML 0.17.0 `DynamicDML`. A cross-fitted
 fit that a `G42` row covers reads `supported`, and any other fit reads `experimental`
 ([support label](../technical-reference/structural-dynamic-effects.md#support-label)).
 

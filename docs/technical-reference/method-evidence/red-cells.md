@@ -20,7 +20,7 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows and accounting rows only. Eight study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Nine study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -34,6 +34,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | `reporting` | the replay gates that failed: R's selection replayed in `cleverly` on the same rows | the study page and `replay-summary.csv`. The test fails on a red gate until the roadmap's owner table lists `X16-sequence-reading` |
 | [modified treatment policies at declared boundaries](mtp-boundaries.md) | `reporting` | the `lmtp` exactness witnesses of the `boundaries_ltmle` and `boundaries_sdr` scenarios that exceed the 1e-6 gate | the study page and `exactness.csv` |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | `reporting` | the `lmtp` exactness witnesses of every scenario that exceed the 1e-6 gate | the study page and `exactness.csv` |
+| [structural nested mean model](structural-nested-mean.md) | `reporting` | the EconML `DynamicDML` exactness witnesses of the 21 paired cells that exceed the 1e-9 gate | the study page and `exactness.csv` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
@@ -342,8 +343,8 @@ row. A move to `gated` is a separate registry decision.
 | study | verdicts it publishes | red rows |
 | --- | --- | --- |
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
-| [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
-| [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 84 | 0 |
+| [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 32 | 0 |
+| [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 89 | 0 |
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
@@ -358,7 +359,7 @@ row. A move to `gated` is a separate registry decision.
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
-| [structural nested mean model](structural-nested-mean.md) | 298 | 0 |
+| [structural nested mean model](structural-nested-mean.md) | 340 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
 <!-- /generated -->

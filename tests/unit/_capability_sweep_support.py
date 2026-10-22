@@ -1337,27 +1337,25 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(DiagnosticsFacade, "_refute_gated", _identity_gate),
         frozenset(
             {
-                "split_plan",
                 "natural_course",
                 # The default refute request on a joint fit reads ey_obs, whose placebo has
                 # no fixed null, so the row defers and the identity gate would not.
                 "joint+missing",
                 "natural_course_study",
                 "shift",
-                "msm",
                 "regime",
                 "shift+missing",
                 "regime+missing",
-                "msm+missing",
                 "incremental",
                 "policy_means",
                 "incremental+missing",
             }
         ),
-        # A supplied plan loses the row-set rule. Means and MSM coefficients lose
-        # the fixed-null rule, including its natural-course placebo sentence.
+        # Means lose the fixed-null rule, including its natural-course placebo sentence. A
+        # supplied plan no longer meets a default refusal, because ``subset`` keeps the
+        # original fold labels, and an MSM coefficient has a placebo reference (X82 A2).
         _RAISED.format("refute")
-        + r"(refutation test\(s\) \['subset'\]|the placebo refutation|"
+        + r"(the placebo refutation|"
         + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value)",
     ),
     "M4": Mutation(

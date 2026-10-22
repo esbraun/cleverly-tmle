@@ -245,6 +245,15 @@ def write_manifest(
                 else {}
             ),
             "scenarios": {name: list(names) for name, names in record.scenarios.items()},
+            **(
+                {
+                    "reference_scenarios": {
+                        name: list(names) for name, names in record.reference_scenarios.items()
+                    }
+                }
+                if record.reference_scenarios
+                else {}
+            ),
             **dict(configuration or {}),
             "margins": record.margins.as_json(),
         },

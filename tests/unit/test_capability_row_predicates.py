@@ -80,6 +80,7 @@ from cleverly.validation.refute import (
     DEFAULT_TESTS,
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
+    EquivalenceBands,
     _RefuteRequest,
     refute,
     refute_refusal,
@@ -525,7 +526,7 @@ REFUTE_REQUEST_OF: dict[str, tuple[str, tuple[str, ...]]] = {
 
 #: The kinds whose ``refute`` row read ``available`` before RM23 while the call refused
 #: its default tests.
-DEFERRED_REFUTE_KINDS = ("split_plan", "natural_course")
+DEFERRED_REFUTE_KINDS = ("natural_course",)
 
 
 @pytest.fixture(scope="module")
@@ -607,6 +608,7 @@ class TestTheRefuteRowResolvesEachRequest:
             "measurement_declaration",
             "measurement_rule",
             "measurement_eligibility",
+            "stability_eligibility",
             "measurement_budget",
             "generated_budget",
         ]
@@ -681,8 +683,8 @@ class TestTheRefuteRowResolvesEachRequest:
     @pytest.mark.parametrize(
         ("request_", "message"),
         [
-            ({"tests": ("typo", "subset")}, "unknown refutation test 'typo'"),
-            ({"tests": ("subset",), "n_replicates": 0}, "n_replicates must be positive"),
+            ({"tests": ("typo", "placebo")}, "unknown refutation test 'typo'"),
+            ({"tests": ("placebo",), "n_replicates": 0}, "n_replicates must be positive"),
             (
                 {"tests": ("placebo", "negative_control_outcome")},
                 "the negative_control_outcome test needs an outcome array",
@@ -694,11 +696,11 @@ class TestTheRefuteRowResolvesEachRequest:
     ) -> None:
         """The facade, the row and the function agree on the order: malformed first.
 
-        Each request names ``subset``, which this fit refuses. The facade used to read the
+        Each request names ``placebo``, which this fit refuses. The facade used to read the
         row first and raise that refusal, while the function raised ``ValueError``.
         """
-        result = refute_fits["split_plan"]
-        request = {"estimand": "ate", **request_}
+        result = refute_fits["natural_course"]
+        request = {"estimand": "ey_obs", **request_}
         # The predicate leaves a malformed request to the call, so the row does not refuse.
         assert refute_refusal(result, **request) is None
         assert result.diagnostics._capability_for_arguments("refute", request).available
@@ -710,8 +712,8 @@ class TestTheRefuteRowResolvesEachRequest:
                 call()
             assert not isinstance(error.value, CapabilityError)
         # The nonzero witness: the well-formed request still meets the refusal.
-        with pytest.raises(CapabilityError, match="refit on rows this fit did not run"):
-            result.diagnostics.refute(estimand="ate", tests=("subset",))
+        with pytest.raises(CapabilityError, match="require a fixed no-effect value"):
+            result.diagnostics.refute(estimand="ey_obs", tests=("placebo",))
 
     def test_a_malformed_argument_precedes_the_replay_gate(self) -> None:
         """A reconfigured result whose refit is refused still hears the malformed argument."""
@@ -800,28 +802,39 @@ class TestReportedScaleNoEffectNull:
             estimates={alias: fitted[estimand]},
             parameter_keys={alias: ParameterKey(alias, estimand)},
         )
-        request: dict[str, Any] = {"estimand": alias, "tests": (test,), "n_replicates": 1}
+        request: dict[str, Any] = {"estimand": alias, "tests": (test,), "n_replicates": 5}
         if test == "negative_control_outcome":
             request["negative_control_outcome"] = np.zeros(result.data.n)
-        tolerance = 0.8 / result[alias].plugin_std_error
+            request["n_replicates"] = 1
         assert result.parameter_keys[alias].estimand == estimand
         assert result.diagnostics._capability_for_arguments("refute", request).available
         assert refute_refusal(result, **request) is None
 
+        # The placebo refits straddle one geometrically, so the log-scale deviations
+        # average zero. The negative control sits at two, a log-scale distance of log 2.
+        placebo_values = (0.5, 2.0, 0.25, 4.0, 1.0)
+
         class RatioRefit:
+            calls = 0
+
             def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
-                return {alias: SimpleNamespace(psi=2.0, plugin_std_error=0.8 / tolerance)}
+                value = 2.0 if test == "negative_control_outcome" else placebo_values[self.calls]
+                self.calls += 1
+                return {alias: SimpleNamespace(psi=value, plugin_std_error=0.1)}
 
         controlled = dataclasses.replace(result, estimator=RatioRefit())
-        report = refute(controlled, random_state=0, tolerance=tolerance, **request)[test]
+        report = refute(controlled, random_state=0, **request)[test]
         assert report.expectation == "~ 1"
-        assert report.passed
-        # A raw-scale comparison sees a distance of one and wrongly fails.
+        expected = np.log(2.0) / 0.1 if test == "negative_control_outcome" else 0.0
+        assert report.statistic == pytest.approx(expected, abs=1e-9)
+        # A raw-scale comparison measures the distance from one as a unit, not log 2.
         refute_module = importlib.import_module("cleverly.validation.refute")
         monkeypatch.setattr(
             refute_module, "_no_effect_difference", lambda value, null: value - null
         )
-        assert not refute(controlled, random_state=0, tolerance=tolerance, **request)[test].passed
+        controlled = dataclasses.replace(result, estimator=RatioRefit())
+        mutated = refute(controlled, random_state=0, **request)[test]
+        assert mutated.statistic != pytest.approx(expected, abs=1e-6)
 
     @pytest.mark.parametrize("kind, estimand", (("par", "par"), ("paf", "paf")))
     def test_attributable_parameters_keep_zero(
@@ -854,7 +867,7 @@ class TestReportedScaleNoEffectNull:
             def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
                 value = (1.0, 4.0)[self.calls % 2]
                 self.calls += 1
-                return {"rr": SimpleNamespace(psi=value)}
+                return {"rr": SimpleNamespace(psi=value, plugin_std_error=0.1)}
 
         controlled = dataclasses.replace(result, estimator=RatioRefit())
         report = refute(
@@ -876,7 +889,7 @@ class TestReportedScaleNoEffectNull:
             def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
                 value = (original / 2, original * 2)[self.calls % 2]
                 self.calls += 1
-                return {"rr": SimpleNamespace(psi=value)}
+                return {"rr": SimpleNamespace(psi=value, plugin_std_error=0.1)}
 
         controlled = dataclasses.replace(result, estimator=RatioRefit())
         report = refute(
@@ -887,22 +900,14 @@ class TestReportedScaleNoEffectNull:
             random_state=0,
         )
         noise = report["random_common_cause"]
-        assert noise.passed
         assert noise.mean == pytest.approx(original)
         assert float(report.to_frame()["refuted_mean"].iloc[0]) == pytest.approx(original)
 
     @pytest.mark.parametrize("test", ("random_common_cause", "subset"))
-    def test_ratio_stability_uses_log_scale(
-        self, bound_fits: dict[str, Any], test: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_ratio_stability_uses_log_scale(self, bound_fits: dict[str, Any], test: str) -> None:
         result = bound_fits["ratio_only"]
         original = result["rr"].psi
-        if test == "random_common_cause":
-            values = (original * 1.2,)
-            threshold = (abs(np.log(1.2)) + abs(original * 0.2)) / 2
-        else:
-            values = (1.0, 2.0)
-            threshold = (np.std(np.log(values), ddof=1) + np.std(values, ddof=1)) / 2
+        values = (original * 1.2,) * 2 if test == "random_common_cause" else (1.0, 2.0)
 
         class RatioRefit:
             calls = 0
@@ -910,22 +915,19 @@ class TestReportedScaleNoEffectNull:
             def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
                 value = values[self.calls % len(values)]
                 self.calls += 1
-                return {"rr": SimpleNamespace(psi=value)}
+                return {"rr": SimpleNamespace(psi=value, plugin_std_error=0.1)}
 
         controlled = dataclasses.replace(result, estimator=RatioRefit())
-        tolerance = float(threshold / result["rr"].plugin_std_error)
-        if test == "subset":
-            tolerance *= np.sqrt(0.7)
         request = {"estimand": "rr", "tests": (test,), "n_replicates": len(values)}
-        report = refute(controlled, tolerance=tolerance, random_state=0, **request)[test]
+        report = refute(controlled, random_state=0, **request)[test]
         assert report.values == values
-        assert report.passed
         if test == "subset":
             assert report.spread == pytest.approx(np.std(np.log(values), ddof=1))
             assert report.expectation.startswith("log-scale scatter")
-        refute_module = importlib.import_module("cleverly.validation.refute")
-        monkeypatch.setattr(refute_module, "_stability_value", lambda value, _: value)
-        assert not refute(controlled, tolerance=tolerance, random_state=0, **request)[test].passed
+        else:
+            standard_error = result["rr"].plugin_std_error
+            assert report.statistic == pytest.approx(np.log(1.2) / standard_error)
+            assert "log scale" in report.detail
 
     @pytest.mark.parametrize(
         "target, axis",
@@ -1043,6 +1045,10 @@ class _UnregisteredRule(EmpiricalInclusionRule):
     """An inclusion rule of another type, which the refute rules refuse by type."""
 
 
+class _UnregisteredBands(EquivalenceBands):
+    """Bands of another type, which the generated-outcome rules refuse by type."""
+
+
 #: Each rule the call raised before any refit while the row did not read it, as the fit
 #: and the request it refuses first. ``binary`` is a direct fit, which records no
 #: identification, and ``study`` is a study fit, which records it.
@@ -1052,12 +1058,12 @@ PRE_REFIT_REQUESTS: dict[str, tuple[str, dict[str, Any]]] = {
         {
             "tests": ("dummy_outcome",),
             "n_replicates": 4,
-            "outcome_rule": _UnregisteredRule(alpha=0.5, minimum_draws=4),
+            "outcome_bands": _UnregisteredBands(),
         },
     ),
     "generated_eligibility": (
         "binary",
-        {"tests": ("dummy_outcome",), "n_replicates": 4, "outcome_rule": FOUR_DRAWS},
+        {"tests": ("dummy_outcome",), "n_replicates": 10},
     ),
     "measurement_declaration": (
         "study",
@@ -1087,6 +1093,10 @@ PRE_REFIT_REQUESTS: dict[str, tuple[str, dict[str, Any]]] = {
             "measurement_error_rule": FOUR_DRAWS,
         },
     ),
+    "stability_eligibility": (
+        "study",
+        {"tests": ("bootstrap_stability",), "n_replicates": 1},
+    ),
     "measurement_budget": (
         "study",
         {
@@ -1095,16 +1105,15 @@ PRE_REFIT_REQUESTS: dict[str, tuple[str, dict[str, Any]]] = {
             "bootstrap_measurement_error": MEASURED,
         },
     ),
-    "generated_budget": ("study", {"tests": ("dummy_outcome",), "n_replicates": 1}),
+    "generated_budget": ("study", {"tests": ("dummy_outcome",), "n_replicates": 9}),
 }
 
 #: A request of each test that the call admits on the study fit: the nonzero witness.
 PRE_REFIT_RUNS: dict[str, dict[str, Any]] = {
-    "dummy_outcome": {"tests": ("dummy_outcome",), "n_replicates": 4, "outcome_rule": FOUR_DRAWS},
+    "dummy_outcome": {"tests": ("dummy_outcome",), "n_replicates": 10},
     "simulated_outcome": {
         "tests": ("simulated_outcome",),
-        "n_replicates": 4,
-        "outcome_rule": FOUR_DRAWS,
+        "n_replicates": 10,
     },
     "bootstrap_measurement_error": {
         "tests": ("bootstrap_measurement_error",),

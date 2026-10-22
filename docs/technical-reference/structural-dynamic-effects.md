@@ -386,12 +386,14 @@ $E[\tilde Z_{t,t} \tilde Z_{j,t}^\top]$, the derivative of equation $t$ in $\psi
 orientations agree for a scalar coding. `test_w2_applying_the_transposition_to_cleverly_reproduces_the_econml_covariance`
 shows that applying the transposition to the `cleverly` source reproduces the EconML covariance.
 
-The comparator study with replicates is a later change. The
-[structural nested mean study](method-evidence/structural-nested-mean.md) declares it as pending.
+The [structural nested mean study](method-evidence/structural-nested-mean.md) runs EconML on
+1,600 samples of each paired law. The 21 paired points agree to 2.4e-14. On law `k` the mean SE
+ratio of EconML over `cleverly` is 0.9747 and 1.0306 for the two contrasts, from the transposed
+blocks.
 
 ## Validation
 
-The evidence label is "Python property evidence, with comparator runs pending". The
+The evidence label is "comparator-backed", against EconML 0.17.0 `DynamicDML`. The
 [structural nested mean study](method-evidence/structural-nested-mean.md) gives the
 repeated-sampling evidence, and the tests below give the exact-law evidence.
 
@@ -422,9 +424,9 @@ learner then returns the population conditional means, so the fit returns the po
 The truths come from an independent g-formula in `tests/discrete_law_structural.py`.
 
 The [structural nested mean study](method-evidence/structural-nested-mean.md) is registered.
-All 61 primary tests and all 237 gated property cells pass. The model check has size cells on
-`S2`, `H` and `SP` and power cells on `LU`. The EconML `DynamicDML` runs are pending, so the
-method has no comparator replicates. The `G42` support rows cover the keys that the study fits.
+All 61 primary tests, all 21 EconML truth tests, all 21 paired tests and all 237 gated property
+cells pass. The model check has size cells on `S2`, `H` and `SP` and power cells on `LU`. The
+`G42` support rows cover the keys that the study fits.
 
 The X44 law `N` fits its nuisances with a gradient booster. The booster stops early on a validation
 split. No general proof gives its rate. The claim that the rate suffices rests on a probe of this law.
