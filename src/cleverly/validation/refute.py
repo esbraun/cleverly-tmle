@@ -89,6 +89,7 @@ from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from . import _interpretation
 from ._interpretation import FitConfiguration, Resolution, Rung
+from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
 from ._readings import (
     DEFAULT_BAND_REPLICATES,
     BandReading,
@@ -1069,7 +1070,7 @@ def _validated_tests(
     tests: Sequence[str],
     n_replicates: int | None,
     negative_control_outcome: Any = None,
-    placebo_mode: str = "permute",
+    placebo_mode: str | None = None,
 ) -> tuple[str, ...]:
     """Refuse malformed arguments of :func:`refute` before any refit.
 
@@ -1086,8 +1087,8 @@ def _validated_tests(
         Replicates per randomized test.
     negative_control_outcome : Any
         The outcome required by the negative-control test.
-    placebo_mode : str
-        How the placebo treatment is drawn.
+    placebo_mode : str or None
+        How the placebo treatment is drawn. ``None`` is the result family's own draw.
 
     Returns
     -------
@@ -1112,7 +1113,7 @@ def _validated_tests(
         or n_replicates < 1
     ):
         raise ValueError("n_replicates must be positive and an integer")
-    if placebo_mode not in _PLACEBO_MODES:
+    if placebo_mode is not None and placebo_mode not in _PLACEBO_MODES:
         raise ValueError(
             f"unknown placebo_mode {placebo_mode!r}; choose from {list(_PLACEBO_MODES)}"
         )
@@ -1146,8 +1147,11 @@ class _RefuteRequest:
         The measurement-error declaration.
     measurement_error_rule : EmpiricalInclusionRule
         The rule applied to measurement-error refits.
-    placebo_mode : {"permute", "draw"}
-        How the placebo treatment is drawn.
+    placebo_mode : {"permute", "draw", "markov"} or None
+        How the placebo treatment is drawn. ``None`` is the result family's own draw.
+    noise_nodes : bool
+        Whether ``random_common_cause`` also appends a noise column to every node of a
+        longitudinal fit.
     """
 
     estimand: str
@@ -1158,7 +1162,8 @@ class _RefuteRequest:
     outcome_bands: Any = field(default_factory=EquivalenceBands)
     bootstrap_measurement_error: Any = None
     measurement_error_rule: Any = field(default_factory=EmpiricalInclusionRule)
-    placebo_mode: str = "permute"
+    placebo_mode: str | None = None
+    noise_nodes: bool = False
 
     @property
     def generated(self) -> tuple[str, ...]:
@@ -1240,6 +1245,107 @@ def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> 
     return _invalid(f"estimand {request.estimand!r} was not requested in this fit")
 
 
+def _is_longitudinal(result: Any) -> bool:
+    """Whether ``result`` is a longitudinal fit, which the longitudinal adapter refits."""
+    return getattr(result, "assessment_family", None) == "longitudinal"
+
+
+#: The tests the longitudinal adapter runs (X82 part C1).
+_LONGITUDINAL_TESTS = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
+
+
+def _refuse_longitudinal_tests(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a test the longitudinal adapter does not run yet."""
+    if not _is_longitudinal(result):
+        return None
+    pending = [name for name in request.tests if name not in _LONGITUDINAL_TESTS]
+    if not pending:
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"refutation test(s) {pending} have no longitudinal adapter yet. The negative-control "
+        "outcome and its pre-treatment and future-treatment forms, the held-history generated "
+        "outcomes, and the measurement-error bootstrap are X82 part C work that follows the "
+        "placebo, noise, subset and bootstrap tests.",
+        alternative=(
+            "The placebo, random_common_cause, subset and bootstrap_stability tests run on "
+            "this fit."
+        ),
+        roadmap="X82",
+    )
+
+
+def _refuse_placebo_mode(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a placebo draw that the result's family has no exact null for."""
+    if "placebo" not in request.tests or request.placebo_mode is None:
+        return None
+    if _is_longitudinal(result):
+        if request.placebo_mode == "markov":
+            return None
+        return _invalid(
+            f"placebo_mode={request.placebo_mode!r} is a point-treatment draw. On a "
+            "longitudinal panel a permuted or redrawn trajectory gives a unit at risk the "
+            "missing treatment of a unit that left earlier, and a draw stratified by "
+            "follow-up makes the placebo depend on the event process. The longitudinal "
+            "placebo draws each trajectory from a Markov kernel: leave placebo_mode=None or "
+            "pass 'markov'"
+        )
+    if request.placebo_mode != "markov":
+        return None
+    return _invalid(
+        "placebo_mode='markov' draws treatment trajectories of a longitudinal panel; a "
+        "point-treatment fit permutes ('permute') or draws ('draw') its treatment"
+    )
+
+
+def _refuse_placebo_kernel(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse the longitudinal placebo on a node that has no Markov kernel."""
+    if "placebo" not in request.tests or not _is_longitudinal(result):
+        return None
+    if not getattr(result.data, "has_mixed_node", False):
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "the longitudinal placebo has no Markov kernel for a vector node with a continuous "
+        "component, whose components a drawn code cannot replace.",
+        alternative=(
+            "The random_common_cause, subset and bootstrap_stability tests run on this fit."
+        ),
+        roadmap="X82",
+    )
+
+
+def _refuse_noise_nodes(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse per-node noise columns where no node or no law for them exists."""
+    if not request.noise_nodes or "random_common_cause" not in request.tests:
+        return None
+    if not _is_longitudinal(result):
+        return _invalid(
+            "noise_nodes=True appends a noise column to every node of a longitudinal fit; a "
+            "point-treatment fit has no nodes. Leave noise_nodes=False"
+        )
+    if getattr(result.config, "estimator", None) == "parametric_gformula":
+        return _invalid(
+            "noise_nodes=True on a parametric g-formula fit would add a time-varying "
+            "covariate that the forward simulation must model, and the fit declares no law "
+            "for it. Leave noise_nodes=False: the baseline noise column runs on this fit"
+        )
+    return None
+
+
+def _longitudinal_null(result: Any, estimand: str) -> float | None:
+    """Return the no-effect value of a longitudinal parameter, if it has one."""
+    estimate = result.estimates.get(estimand) if hasattr(result, "estimates") else None
+    if estimate is None:
+        return None
+    scale = getattr(estimate, "scale", None)
+    if scale == "difference":
+        return 0.0
+    if scale == "ratio":
+        return 1.0
+    return None
+
+
 def _target_declaration(result: TMLEResult, estimand: str) -> Any:
     """Read the registered target through a key or the reported alias convention."""
     from ..targets import TARGETS
@@ -1269,6 +1375,8 @@ def _learned_rule_reference(data: Any) -> float:
 
 def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the reported-scale no-effect value of a registered parameter, if defined."""
+    if _is_longitudinal(result):
+        return _longitudinal_null(result, estimand)
     declaration = _target_declaration(result, estimand)
     if declaration is None:
         return None
@@ -1340,6 +1448,42 @@ def _msm_reference(result: Any, estimand: str) -> _MSMReference | None:
     return _MSMReference(float(beta[column]), False)
 
 
+def _longitudinal_msm_reference(result: Any, estimand: str) -> _MSMReference | None:
+    """Return the placebo reference of a longitudinal working-model coefficient, or ``None``.
+
+    Under the placebo law every regimen of a cell has the same mean ``q(V, t)``, a function
+    of the unit and the cell's horizon (X82 plan 5.1.2 and 5.1.4). Under the identity link a
+    coefficient is exactly 0 when, for every unit and every horizon, its row of
+    ``M^-1 sum_c h_c phi_c`` over the cells of that horizon vanishes, whatever ``q`` is. Any
+    other coefficient, or any other link, has no exact placebo value, and the value of the
+    reference is ``nan``.
+    """
+    from ..longitudinal.estimator import CAUSE_INFIX
+
+    for msm_fit in getattr(result, "msm_fits", ()):
+        model = msm_fit.model
+        for column, term in enumerate(model.terms):
+            inside = term if msm_fit.cause is None else f"{term}{CAUSE_INFIX}{msm_fit.cause}"
+            if f"msm_regimen[{inside}]" != estimand:
+                continue
+            if str(model.link) != "identity":
+                return _MSMReference(float("nan"), False)
+            design = np.asarray(model.design, dtype=float)
+            weights = np.asarray(model.weights, dtype=float)
+            sampling = np.asarray(result.data.weights, dtype=float)
+            normal = np.einsum("i,ik,ikp,ikq->pq", sampling, weights, design, design)
+            horizons = np.asarray([cell.horizon for cell in model.cells])
+            for horizon in np.unique(horizons):
+                cells = horizons == horizon
+                rows = np.einsum("i,ik,ikp->pi", sampling, weights[:, cells], design[:, cells, :])
+                operator = np.linalg.solve(normal, rows)
+                scale = max(1.0, float(np.max(np.abs(operator))))
+                if np.max(np.abs(operator[column])) > 1e-9 * scale:
+                    return _MSMReference(float("nan"), False)
+            return _MSMReference(0.0, True)
+    return None
+
+
 def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the value the placebo reads the refit against, or ``None`` when it has none.
 
@@ -1349,7 +1493,11 @@ def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     """
     if _is_learned_rule_fit(result) and estimand in result.estimates:
         return _learned_rule_reference(result.data)
-    reference = _msm_reference(result, estimand)
+    reference = (
+        _longitudinal_msm_reference(result, estimand)
+        if _is_longitudinal(result)
+        else _msm_reference(result, estimand)
+    )
     if reference is not None:
         return reference.value
     return _no_effect_null(result, estimand)
@@ -1538,6 +1686,10 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("estimator", _refuse_missing_estimator),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
+    ("longitudinal_tests", _refuse_longitudinal_tests),
+    ("placebo_mode", _refuse_placebo_mode),
+    ("placebo_kernel", _refuse_placebo_kernel),
+    ("noise_nodes", _refuse_noise_nodes),
     ("no_effect_null", _refuse_no_effect_null),
     ("row_set_under_plan", _refuse_row_set_under_plan),
     ("generated_rule", _refuse_generated_rule),
@@ -1572,7 +1724,8 @@ def refute_refusal(
     outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
-    placebo_mode: str = "permute",
+    placebo_mode: str | None = None,
+    noise_nodes: bool = False,
 ) -> Refusal | None:
     """Return the refusal a :func:`refute` request meets before any refit.
 
@@ -1608,8 +1761,10 @@ def refute_refusal(
         Measurement-error declaration.
     measurement_error_rule : EmpiricalInclusionRule
         Rule applied to measurement-error refits.
-    placebo_mode : {"permute", "draw"}
-        How the placebo treatment is drawn.
+    placebo_mode : {"permute", "draw", "markov"} or None
+        How the placebo treatment is drawn. ``None`` is the result family's own draw.
+    noise_nodes : bool
+        Whether ``random_common_cause`` also appends a noise column to every node.
 
     Returns
     -------
@@ -1618,7 +1773,7 @@ def refute_refusal(
         argument is malformed.
     """
     try:
-        requested = _validated_tests(tests, n_replicates, negative_control_outcome)
+        requested = _validated_tests(tests, n_replicates, negative_control_outcome, placebo_mode)
     except ValueError:
         return None
     request = _RefuteRequest(
@@ -1631,6 +1786,7 @@ def refute_refusal(
         bootstrap_measurement_error,
         measurement_error_rule,
         placebo_mode,
+        bool(noise_nodes),
     )
     return _first_refusal(result, request)
 
@@ -2006,7 +2162,7 @@ def _run_empirical_refits(
         try:
             refitted = result.estimator.refit(
                 prepared,
-                intermediate_value=result.intermediate_value,
+                intermediate_value=getattr(result, "intermediate_value", None),
                 random_state=child_seed,
                 **({} if refit_options is None else refit_options(replicate)),
             )
@@ -2234,11 +2390,12 @@ class _CopyFolds:
 def _validate_stability_eligibility(result: Any, n_replicates: int) -> Any:
     """Validate a ``bootstrap_stability`` request before it refits."""
     from ..data import CausalData
+    from ..longitudinal.data import LongitudinalData
 
     data = getattr(result, "data", None)
-    if type(data) is not CausalData:
+    if type(data) not in (CausalData, LongitudinalData):
         raise CapabilityError(
-            "bootstrap_stability supports point-treatment CausalData results; "
+            "bootstrap_stability supports CausalData and LongitudinalData results; "
             f"got result family {type(result).__name__} with data family {type(data).__name__}.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
@@ -2677,7 +2834,7 @@ def _generated_outcome_test(
     )
 
 
-_PLACEBO_MODES = ("permute", "draw")
+_PLACEBO_MODES = ("permute", "draw", "markov")
 
 _PLACEBO_SENTENCE = (
     "This reads whether the estimator returns the null when treatment is independent of "
@@ -2727,7 +2884,17 @@ def _drawn_treatment(data: Any, rng: np.random.Generator) -> np.ndarray:
     return placebo
 
 
-def _placebo_data(data: Any, rng: np.random.Generator, mode: str) -> Any:
+def _declares_known_treatment(data: Any) -> bool:
+    """Whether ``data`` declares a known treatment mechanism, on either family."""
+    known = getattr(data, "known_mechanisms", None)
+    if known is not None:
+        return bool(known.declares_treatment)
+    return getattr(data, "known_treatment", None) is not None
+
+
+def _placebo_data(
+    data: Any, rng: np.random.Generator, mode: str | None, kernel: MarkovKernel | None = None
+) -> Any:
     """Return ``data`` with the placebo treatment, and its exact mechanism where declared.
 
     A fit that declared a known treatment mechanism keeps one on the placebo law. That law
@@ -2735,8 +2902,17 @@ def _placebo_data(data: Any, rng: np.random.Generator, mode: str) -> Any:
     exact mechanism is those shares, constant in ``W``. A refit that dropped the declaration
     and re-estimated the mechanism would be another configuration of the estimator
     (a known-mechanism fit would become an estimated-mechanism fit).
+
+    A longitudinal panel draws its trajectories from ``kernel``, and each node it declares
+    known takes the kernel's law given the drawn previous treatment (X82 plan 5.1.2).
     """
-    placebo = _permuted_treatment(data, rng) if mode == "permute" else _drawn_treatment(data, rng)
+    if kernel is not None:
+        placebo_matrix = kernel.placebo(data, rng)
+        return data.with_treatment(
+            placebo_matrix,
+            known_mechanisms=placebo_known_mechanisms(data, kernel, placebo_matrix),
+        )
+    placebo = _drawn_treatment(data, rng) if mode == "draw" else _permuted_treatment(data, rng)
     replaced = data.with_treatment(placebo)
     if data.known_treatment is None:
         return replaced
@@ -2750,6 +2926,22 @@ def _placebo_data(data: Any, rng: np.random.Generator, mode: str) -> Any:
     shares = np.asarray([float(np.mean(treatment[recorded] == code)) for code in data.arm_codes])
     values = np.tile(shares, (replaced.n, 1))
     return replace(replaced, known_treatment=KnownMechanism(values, "array"))
+
+
+def _noise_data(data: Any, rng: np.random.Generator, index: int, nodes: bool) -> Any:
+    """Return ``data`` with an independent standard-normal column appended.
+
+    A point-treatment fit and a longitudinal fit both take one baseline column. With
+    ``nodes``, a longitudinal fit also takes one column per node, appended to the covariates
+    measured before that node's treatment (X82 plan 5.2).
+    """
+    noisy = data.with_extra_covariate(rng.normal(size=data.n), f"_noise_{index}")
+    if not nodes:
+        return noisy
+    return noisy.with_node_covariates(
+        rng.normal(size=(data.n, data.n_times)),
+        [f"_noise_{index}_node_{time}" for time in range(1, data.n_times + 1)],
+    )
 
 
 def _subset_draw(
@@ -2804,8 +2996,9 @@ def refute(
     tests: Sequence[str] = DEFAULT_TESTS,
     n_replicates: int | None = None,
     subset_fraction: float = 0.7,
-    placebo_mode: Literal["permute", "draw"] = "permute",
+    placebo_mode: Literal["permute", "draw", "markov"] | None = None,
     seed_spread: bool = False,
+    noise_nodes: bool = False,
     negative_control_outcome: Any = None,
     dummy_outcome: GaussianIndependentOutcome | None = None,
     simulated_outcome: GaussianAdjustmentOutcome | None = None,
@@ -2847,13 +3040,21 @@ def refute(
         ``L1`` below 400 draws, and a budget below ten is refused before any refit.
     subset_fraction : float
         Share of rows the subset test refits on.
-    placebo_mode : {"permute", "draw"}
-        ``"permute"`` permutes the recorded treatment. ``"draw"`` draws i.i.d. from its
-        empirical marginal. Both keep the marginal law, and both give the same null.
+    placebo_mode : {"permute", "draw", "markov"} or None
+        On a point-treatment fit, ``"permute"`` permutes the recorded treatment and
+        ``"draw"`` draws i.i.d. from its empirical marginal. Both keep the marginal law, and
+        both give the same null. On a longitudinal fit, ``"markov"`` draws each unit's
+        treatment trajectory from a first-order kernel fitted to the observed treatments,
+        and masks it by the observed at-risk pattern. ``None`` is ``"permute"`` on a
+        point-treatment fit and ``"markov"`` on a longitudinal fit.
     seed_spread : bool
         Whether ``random_common_cause`` also refits ``n_replicates`` baselines at fresh seeds
         and prints their spread, the movement that fold noise alone gives. It adds that many
         refits, so it is opt-in.
+    noise_nodes : bool
+        On a longitudinal fit, whether ``random_common_cause`` also appends one noise column
+        to the covariates of every node. ``False`` appends one baseline column. A
+        point-treatment fit refuses ``True``.
     negative_control_outcome : str or None
         An outcome the treatment cannot affect.  Required to run that test.
     dummy_outcome : GaussianIndependentOutcome or None
@@ -2902,6 +3103,7 @@ def refute(
         bootstrap_measurement_error,
         measurement_error_rule,
         placebo_mode,
+        bool(noise_nodes),
     )
     refusal = _first_refusal(result, request)
     if refusal is not None:
@@ -2919,7 +3121,11 @@ def refute(
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)
     placebo_null = _placebo_null(result, estimand)
-    msm_reference = _msm_reference(result, estimand)
+    msm_reference = (
+        _longitudinal_msm_reference(result, estimand)
+        if _is_longitudinal(result)
+        else _msm_reference(result, estimand)
+    )
     estimate_scale = getattr(result[estimand], "scale", None)
     declaration = _target_declaration(result, estimand)
     is_ratio = (estimate_scale or getattr(declaration, "scale", None)) == "ratio"
@@ -2945,6 +3151,8 @@ def refute(
     rng = np.random.default_rng(seed)
     data = result.data
     outcomes: list[RefutationTest] = []
+    longitudinal = _is_longitudinal(result)
+    kernel = MarkovKernel.fit(data) if longitudinal and "placebo" in requested else None
 
     def refit(
         replacement: Any,
@@ -2960,7 +3168,7 @@ def refute(
             options["frozen_seeds"] = frozen_seeds
         refitted = estimator.refit(
             replacement,
-            intermediate_value=result.intermediate_value,
+            intermediate_value=getattr(result, "intermediate_value", None),
             random_state=seed,
             **options,
         )
@@ -2984,7 +3192,10 @@ def refute(
         mean_kind: Literal["arithmetic", "geometric"] = "geometric" if is_ratio else "arithmetic"
         if name == "placebo":
             assert placebo_null is not None
-            fits = [refit(_placebo_data(data, rng, placebo_mode)) for _ in range(replicate_count)]
+            fits = [
+                refit(_placebo_data(data, rng, placebo_mode, kernel))
+                for _ in range(replicate_count)
+            ]
             values = tuple(psi for psi, _ in fits)
             learned = _is_learned_rule_fit(result)
             # A learned-rule level and an MSM coefficient read on their reported scale; only
@@ -3010,7 +3221,14 @@ def refute(
             if reading is not None and resolution.licensed:
                 passed = not reading.rejects
             mean = float(np.exp(np.mean(np.log(values)))) if is_ratio else float(np.mean(values))
-            if computed:
+            if computed and np.isnan(placebo_null):
+                detail = (
+                    f"{mean_kind} mean placebo estimate {mean:+.5g}. This working-model "
+                    "coefficient has no exact placebo value under this design, weight and "
+                    "link, and no projection of a longitudinal fit is computed, so the report "
+                    "states no verdict"
+                )
+            elif computed:
                 detail = (
                     f"{mean_kind} mean placebo estimate {mean:+.5g} beside the computed "
                     f"projection {placebo_null:.5g} of the fitted outcome regression. This "
@@ -3040,15 +3258,24 @@ def refute(
                     ". The weight and the design separate the arm from the covariates, so the "
                     "coefficient is exactly 0 under the placebo law"
                 )
-            if data.known_treatment is not None:
-                detail += ". The refit keeps a known mechanism: the placebo law's own arm shares"
+            if longitudinal:
+                detail += (
+                    ". Each trajectory is drawn from a first-order Markov kernel of the "
+                    "observed treatments and masked by the observed at-risk pattern"
+                )
+            if _declares_known_treatment(data):
+                detail += ". The refit keeps a known mechanism: the placebo law's own " + (
+                    "kernel" if longitudinal else "arm shares"
+                )
             outcomes.append(
                 RefutationTest(
                     name=name,
                     estimand=estimand,
                     original=original,
                     values=values,
-                    expectation=f"~ {placebo_null:g}",
+                    expectation=(
+                        "no exact value" if np.isnan(placebo_null) else f"~ {placebo_null:g}"
+                    ),
                     passed=passed,
                     detail=detail,
                     standard_errors=tuple(se for _, se in fits),
@@ -3070,7 +3297,7 @@ def refute(
             repeat_seeds = [item.seed for item in repeats] if repeats else None
             noise_fits = [
                 refit(
-                    data.with_extra_covariate(rng.normal(size=data.n), f"_noise_{index}"),
+                    _noise_data(data, rng, index, noise_nodes),
                     seed=fit_seed,
                     frozen_seeds=repeat_seeds,
                 )

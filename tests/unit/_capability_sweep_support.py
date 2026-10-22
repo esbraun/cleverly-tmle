@@ -941,18 +941,18 @@ KINDS: dict[str, Kind] = {
     "reconfigured_ctmle_clustered": _kind(
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
-    "ltmle": _kind(fit_ltmle, *_READ, "truncation_curve"),
-    "ltmle_hazard": _kind(fit_hazard, *_READ, "truncation_curve"),
-    "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, "truncation_curve"),
-    "ltmle_isotonic": _kind(fit_isotonic, *_READ, "truncation_curve"),
+    "ltmle": _kind(fit_ltmle, *_READ, *_POINT),
+    "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
+    "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
+    "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.
-    "ipsi": _kind(fit_ipsi, "nuisance_models", "support", "truncation_curve"),
+    "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
     # The baselines fit no fluctuation, so no score equation. A g-computation estimate reads
     # no treatment mechanism, so its bounds move nothing and no truncation curve exists.
-    "gcomp": _kind(fit_gcomp, "nuisance_models", "support"),
-    "ipw": _kind(fit_ipw, "nuisance_models", "support", "truncation_curve"),
+    "gcomp": _kind(fit_gcomp, "nuisance_models", "support", "refute"),
+    "ipw": _kind(fit_ipw, "nuisance_models", "support", *_POINT),
     # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
-    "gformula": _kind(fit_gformula, "nuisance_models", "support"),
+    "gformula": _kind(fit_gformula, "nuisance_models", "support", "refute"),
 }
 
 
@@ -1224,6 +1224,12 @@ MUTATIONS: dict[str, Mutation] = {
                 "incremental",
                 "policy_means",
                 "incremental+missing",
+                # A longitudinal regimen fit reports its regimen means first, and a mean
+                # has no fixed null (X82 part C).
+                "ltmle",
+                "gcomp",
+                "ipw",
+                "gformula",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A

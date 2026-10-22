@@ -2006,6 +2006,55 @@ default, so `refute()` costs about 60 fits. A check that needs more than 20 refi
 The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
 `tests=` to run them. `run_all(include_refits=True)` runs `refute()` with the default tests.
 
+#### Longitudinal refutation
+
+A longitudinal result stores an unfitted copy of its estimator in `result.estimator`. The copy
+fits no bootstrap and no simultaneous band. `refute()` refits it with the original fold labels and
+repeat seeds. The table lists the four tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
+and the survival, competing-risk, repeated-outcome, and MSM fits. Each test prints its numbers
+with `passed=None`, because no registry row covers a longitudinal fit (X82 plan section 7).
+
+| test | longitudinal draw | reference |
+| --- | --- | --- |
+| `placebo` | a Markov treatment trajectory per unit, masked by the observed at-risk pattern | 0 for a difference, 1 for a ratio, 0 for an MSM coefficient whose operator row vanishes |
+| `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
+| `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
+| `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+
+The placebo does not permute trajectories. A permuted trajectory gives a unit at risk the missing
+treatment of a unit that left earlier. A permutation within each follow-up pattern makes the
+treatment depend on the event process. `refute()` refuses `placebo_mode="permute"` and
+`placebo_mode="draw"` on a longitudinal fit for this reason.
+
+The placebo fits a covariate-free first-order kernel `K` to the observed treatments. It draws a
+complete trajectory for each unit from `K`, independently of the panel, and then applies the mask.
+So the placebo law factorizes as `P(O-) x K`, where `O-` is every non-treatment variable. Every
+policy then has the value `E[Q_1(W)]`, and every policy contrast is exactly 0.
+
+| node | draw |
+| --- | --- |
+| 1 | a node-1 treatment of a unit at risk |
+| `t >= 2`, categorical previous node | the node-`t` treatment of a donor with the same previous treatment; the node-`t` marginal when no donor has it |
+| `t >= 2`, continuous previous node | the node-`t` treatment of the donor with the nearest previous dose |
+| held decision | the node-1 draw |
+
+A treatment that is constant within each cluster draws one trajectory per cluster. A node that
+the fit declares known keeps a known mechanism, which is the law of `K` given the drawn previous
+treatment. A vector node with a continuous component has no kernel, and the placebo refuses it.
+A parametric g-formula fit refuses `noise_nodes=True`, because the forward simulation would need a
+law for the new covariates.
+
+An MSM coefficient has an exact placebo value under the identity link only. The coefficient is 0
+when its row of `M^-1 sum_c h_c phi_c` vanishes for each unit and horizon. Any other coefficient
+prints its numbers against no reference.
+
+`tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
+panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
+within each follow-up pattern, and the contrast moves by more than `1e-3`. The negative-control,
+pre-treatment, and future-treatment controls and the generated outcomes are
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part C work. A
+request for them is refused with that roadmap id.
+
 #### Verdicts and evidence
 
 A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in

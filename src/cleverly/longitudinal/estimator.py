@@ -1820,6 +1820,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
         models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
         ``None`` on every other fit.  Keyword-only.
+    estimator : object or None
+        The estimator settings the fit ran under, with no bootstrap and no simultaneous
+        band, which a refutation refits.  ``None`` on a result built by hand.  Keyword-only.
 
     Attributes
     ----------
@@ -1917,6 +1920,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
     #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.
     bootstrap_band: BootstrapBand | None = None
+    #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
+    #: runs again on a changed container.  ``None`` on a result built by hand.
+    estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
     #: :attr:`fitted_method`.
@@ -4656,6 +4662,10 @@ class _SequentialEstimator:
 
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
+    #: One outer split per draw that a refit uses instead of drawing its own (:meth:`refit`).
+    _frozen_folds: tuple[Folds, ...] | None = None
+    #: One seed per draw that a refit uses instead of the seeds of ``random_state``.
+    _frozen_seeds: tuple[int, ...] | None = None
 
     def __init__(
         self,
@@ -5458,6 +5468,7 @@ class _SequentialEstimator:
             msm=model,
             fitted_method=self._estimator,
             repeats=repeats,
+            estimator=self._refit_template(),
         )
         first = outcomes[0]
         if (
@@ -5927,6 +5938,73 @@ class _SequentialEstimator:
         replicate.simultaneous = False
         replicate.n_jobs = 1
         return replicate
+
+    def _refit_template(self) -> _SequentialEstimator:
+        """The configuration a result keeps, so that a refutation can refit it.
+
+        A copy, so a later change to this instance does not change what the result says it
+        was fitted with. It runs no bootstrap and builds no simultaneous band, so a refit
+        costs one fit, and it records no support classification. It holds no frozen split.
+        """
+        template = copy.copy(self)
+        template._record_support = False
+        template.n_bootstrap = 0
+        template.simultaneous = False
+        template._frozen_folds = None
+        template._frozen_seeds = None
+        return template
+
+    def refit(
+        self,
+        data: LongitudinalData,
+        *,
+        intermediate_value: float | None = None,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int | None] | None = None,
+    ) -> LongitudinalResult:
+        """Run the whole fit again, nuisances included, on a prepared container.
+
+        :func:`cleverly.validation.refute` calls this on a longitudinal result. It changes a
+        column, draws units, or appends a covariate, and then refits. The estimator is not
+        modified: every setting applies to a copy.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared container to fit, usually ``result.data`` with one array changed.
+        intermediate_value : None
+            A longitudinal fit has no intermediate variable. Any other value is refused.
+        random_state : int or None
+            Seed of the refit. ``None`` keeps this estimator's own.
+        frozen_folds : sequence of Folds or None
+            One realized outer split per draw, for the rows of ``data``. The refit uses
+            these labels instead of drawing a split. ``None`` draws the split as usual.
+        frozen_seeds : sequence of int or None
+            One seed per draw, replacing the seeds the fit would take from
+            ``random_state``. A refit given the original draws' seeds and data with the same
+            row count draws the original folds.
+
+        Returns
+        -------
+        LongitudinalResult
+            The result of the whole fit on ``data``.
+
+        Raises
+        ------
+        ValueError
+            When ``intermediate_value`` is given.
+        """
+        if intermediate_value is not None:
+            raise ValueError("a longitudinal fit has no intermediate variable to hold fixed")
+        estimator = self._refit_template()
+        if random_state is not None:
+            estimator.random_state = random_state
+        if frozen_folds is not None:
+            estimator._frozen_folds = tuple(frozen_folds)
+        if frozen_seeds is not None:
+            estimator._frozen_seeds = tuple(frozen_seeds)  # type: ignore[arg-type]
+        return estimator.fit(data)
 
     def _bootstrap_estimates(self, data: LongitudinalData) -> dict[str, tuple[float, float]]:
         """One bootstrap replicate: a full refit on the resample.
@@ -6547,10 +6625,40 @@ class _SequentialEstimator:
         own cluster in the training fold of the rows it predicts.  A no-op without
         clusters.
         """
+        if self._frozen_folds is not None:
+            frozen = self._frozen_folds
+            seeds_given = self._frozen_seeds
+            if seeds_given is not None and len(seeds_given) != len(frozen):
+                raise ValueError(
+                    "frozen_seeds must hold one seed per frozen split; "
+                    f"got {len(seeds_given)} for {len(frozen)} split(s)"
+                )
+            given: list[tuple[Folds, int | None]] = []
+            for index, folds in enumerate(frozen):
+                if folds.n != data.n:
+                    raise ValueError(
+                        f"a frozen split labels {folds.n} rows and the refit has {data.n}"
+                    )
+                check_integrity(folds, cluster=data.cluster)
+                chosen = None if seeds_given is None else seeds_given[index]
+                seed = None if chosen is None else int(chosen)
+                if seed is None and not folds.is_single:
+                    seed = _fresh_seed() if self.random_state is None else int(self.random_state)
+                given.append((folds, seed))
+            return given
         if self.n_folds <= 1:
             single = Folds.single(data.n)
             check_integrity(single, cluster=data.cluster)
             return [(single, None)]
+        if self._frozen_seeds is not None:
+            draws_by_seed: list[tuple[Folds, int | None]] = []
+            for seed in self._frozen_seeds:
+                if seed is None:
+                    raise ValueError("frozen_seeds holds no seed for a cross-fitted draw")
+                folds = self._folds(data, int(seed))
+                check_integrity(folds, cluster=data.cluster)
+                draws_by_seed.append((folds, int(seed)))
+            return draws_by_seed
         if self.repeats == 1:
             seeds: list[int] = [
                 _fresh_seed() if self.random_state is None else int(self.random_state)

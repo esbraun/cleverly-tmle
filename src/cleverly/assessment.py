@@ -468,19 +468,15 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "refute",
         "longitudinal",
-        artifacts=("fitted sequential estimator configuration",),
+        artifacts=("fitted sequential estimator configuration", "analysis panel"),
         execution="refit",
         deterministic=False,
         cost="expensive",
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "no evidence-backed longitudinal perturbation/refit adapter is implemented.",
-            alternative=NO_ALTERNATIVE,
-            roadmap="X82",
+        accepts_random_state=True,
+        interpretation=(
+            "behavior under a Markov treatment placebo, noise covariates, subsampling, and "
+            "bootstrap resampling of the panel"
         ),
-        interpretation="behavior under longitudinal data perturbations",
     ),
 )
 

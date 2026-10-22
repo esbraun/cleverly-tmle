@@ -1534,7 +1534,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | part | what to add | evidence |
 | --- | --- | --- |
 | A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
-| C | a longitudinal refute adapter: Markov placebo, random common cause, subset, bootstrap stability, held-history generated outcomes, negative-control outcome, and the pre-treatment and future-treatment controls | the exact enumeration of a two-node panel, and a nonzero witness for each control |
+| C | the rest of the longitudinal refute adapter: held-history generated outcomes, negative-control outcome, and the pre-treatment and future-treatment controls. Part C1 ships the Markov placebo, `random_common_cause` with `noise_nodes`, `subset`, and `bootstrap_stability`, all descriptive | the exact enumeration of a two-node panel, and a nonzero witness for each control |
 | D | `assessment_family` and the refute adapter of the structural nested mean model | a blip-null witness and the linear-remainder audit row |
 | E | generated processes beyond the Gaussian ATE: other families, arms, ratios, controlled direct effects, MSMs, interventions, and missing outcomes | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
