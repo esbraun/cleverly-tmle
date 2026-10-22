@@ -337,6 +337,12 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
     # table.  Their citations still reach the user.
     for refusal in (_MISSING_OUTCOME_REFUSAL, _MISSING_TREATMENT_REFUSAL, _INTERMEDIATE_REFUSAL):
         cited.update(ROADMAP_CITATION.findall(refusal.message()))
+    # The longitudinal rule hands a longitudinal result to its own ordered table.
+    from cleverly.sensitivity._simulated_confounding_longitudinal import LONGITUDINAL_RULES
+
+    for _name, rule in LONGITUDINAL_RULES:
+        for text in rule_texts(rule):
+            cited.update(ROADMAP_CITATION.findall(text))
 
     # The negative control.  A rule table read through the wrong attribute, or a citation
     # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
