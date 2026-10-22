@@ -795,6 +795,32 @@ class TestBootstrapStability:
         shift = dict(test.extras)["shift against the original fit"]
         assert shift == pytest.approx(np.mean(test.values) - test.original)
 
+    def test_a_ratio_reads_on_the_log_scale(self) -> None:
+        from cleverly import RiskRatio
+
+        frame, _ = make_binary_outcome(n=200, seed=3)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+        )
+        result = study.identify(RiskRatio()).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+        )
+        estimand = next(name for name in result.estimates if name.startswith("rr"))
+        test = refute(
+            result,
+            estimand=estimand,
+            tests=("bootstrap_stability",),
+            n_replicates=4,
+            random_state=5,
+        )["bootstrap_stability"]
+        shift = dict(test.extras)["shift against the original fit"]
+        expected = np.mean(np.log(test.values)) - np.log(test.original)
+        assert shift == pytest.approx(expected)
+        assert test.mean_kind == "geometric" and test.spread_kind == "log"
+
     def test_one_draw_is_refused(self) -> None:
         result = _binary_fit(cross_fit=True, n=200)
         with pytest.raises(CapabilityError, match="at least 2"):
@@ -937,6 +963,55 @@ class TestMSMPlacebo:
         )["placebo"]
         assert computed.passed is None and computed.statistic is None
         assert "computed projection" in computed.detail
+
+    def test_a_computed_reference_states_no_verdict_under_a_covering_row(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The gate, not only the reference: a covering row must not license a computed null.
+
+        The mutation is a version that builds the ``t`` reading against the computed
+        projection. That version prints a verdict here and fails. The exact-zero fit under
+        the same row is the positive control: the row does license the ``t`` rule.
+        """
+        from cleverly import MSMProjection
+        from cleverly.msm import MSM
+        from tests.unit._simulated_confounding_support import _estimate, _fit_msm, _study
+
+        row = _covering_row("placebo", "t")
+        row = replace(
+            row,
+            scope=replace(
+                row.scope, methods=frozenset({"TMLE"}), estimand_kinds=frozenset({"msm[treatment]"})
+            ),
+        )
+        monkeypatch.setattr(interpretation, "VERDICT_EVIDENCE", (row,))
+        model = MSM(
+            design=lambda a, w: np.column_stack(
+                [
+                    np.ones(len(w)),
+                    np.full(len(w), float(a == 1)),
+                    float(a == 1) * np.asarray(w["W"]),
+                ]
+            ),
+            terms=("intercept", "treatment", "treated_w"),
+            design_kind="known",
+        )
+        computed = refute(
+            _estimate(_study(), MSMProjection(model)),
+            estimand="msm[treatment]",
+            tests=("placebo",),
+            n_replicates=4,
+            random_state=1,
+        )["placebo"]
+        assert computed.passed is None and computed.statistic is None
+        exact = refute(
+            _fit_msm(),
+            estimand="msm[treatment]",
+            tests=("placebo",),
+            n_replicates=4,
+            random_state=1,
+        )["placebo"]
+        assert exact.passed is not None and exact.rung == "L2"
 
     def test_the_negative_control_still_refuses_an_msm_coefficient(self) -> None:
         from tests.unit._simulated_confounding_support import _fit_msm

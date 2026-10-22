@@ -2198,7 +2198,7 @@ def _validate_stability_eligibility(result: Any, n_replicates: int) -> Any:
             f"got result family {type(result).__name__} with data family {type(data).__name__}.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if n_replicates < 2:
         raise CapabilityError(
@@ -2215,6 +2215,7 @@ def _bootstrap_stability_test(
     original: float,
     n_replicates: int,
     root_seed: int,
+    is_ratio: bool = False,
 ) -> RefutationTest:
     """Refit on bootstrap resamples that keep each unit's fold, and describe the spread.
 
@@ -2222,6 +2223,10 @@ def _bootstrap_stability_test(
     seeds and each copy of a unit keeps the unit's original fold, so the shift of the mean
     against the original fit carries no fold or seed noise. No theorem covers a refit
     bootstrap of a cross-fitted estimator, so the report stays descriptive (X82 plan 5.4).
+    A ratio reads on the log scale, with a geometric mean, as ``subset`` does.
+
+    A fit given ``split_plan=`` refuses this test. The frozen folds could carry the plan's
+    labels the way ``subset`` does, which is a possible extension.
     """
     data = _validate_stability_eligibility(result, n_replicates)
     design = _bootstrap_design(
@@ -2241,18 +2246,21 @@ def _bootstrap_stability_test(
         retain_preparation_failures=True,
     )
     values = tuple(item.estimate for item in records)
-    shift = float(np.mean(values) - original) if values else float("nan")
-    spread = float(np.std(values, ddof=1)) if len(values) > 1 else float("nan")
+    scaled = np.log(values) if is_ratio else np.asarray(values, dtype=float)
+    centre = float(np.log(original)) if is_ratio else float(original)
+    shift = float(np.mean(scaled) - centre) if values else float("nan")
+    spread = float(np.std(scaled, ddof=1)) if len(values) > 1 else float("nan")
+    scale = " on the log scale" if is_ratio else ""
     return RefutationTest(
         name="bootstrap_stability",
         estimand=estimand,
         original=original,
         values=values,
-        expectation=f"spread {spread:.4g} around the original fit",
+        expectation=f"spread {spread:.4g}{scale} around the original fit",
         passed=None,
         detail=(
             f"{len(values)} of {n_replicates} resample refits succeeded; the mean moved "
-            f"{shift:.4g} from the same-seed full-data fit"
+            f"{shift:.4g}{scale} from the same-seed full-data fit"
         ),
         standard_errors=tuple(item.std_error for item in records),
         failures=failures,
@@ -2261,6 +2269,8 @@ def _bootstrap_stability_test(
         rung="L0",
         scope_sentence=_STABILITY_SENTENCE,
         extras=(("shift against the original fit", shift),),
+        mean_kind="geometric" if is_ratio else "arithmetic",
+        spread_kind="log" if is_ratio else "reported",
     )
 
 
@@ -3066,6 +3076,7 @@ def refute(
                     original=original,
                     n_replicates=replicate_count,
                     root_seed=seed,
+                    is_ratio=is_ratio,
                 )
             )
         else:
