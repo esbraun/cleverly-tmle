@@ -1,14 +1,20 @@
 """The generated-outcome processes that refutation draws from (X82 plan 5.5 and 5.6).
 
-Each declaration names a law with a known truth. The Gaussian processes replace an outcome
-measured once. The hazard processes replace a survival or competing-risk outcome node by
-node. Parts C and E of X82 share this catalog.
+Each declaration names a law with a known truth. The Gaussian, Bernoulli and bounded processes
+replace an outcome measured once. The hazard processes replace a survival or competing-risk
+outcome node by node. Parts C and E of X82 share this catalog.
+
+Every point process has one mean model ``m(a, W)`` and one arm term ``c(a)``. A scalar
+``effect`` gives ``c(a) = effect * code(a)``. A declared ``arm_effects`` mapping gives each arm
+its own term. The truth of every point target is then a finite sum of ``m`` over the rows
+(X82 part E plan, section 3).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -48,6 +54,91 @@ def standardized_sum(
     # noise scale on a wide adjustment set.
     divisor = np.sqrt(float(np.count_nonzero(active)))
     return np.asarray(adjustment_scale * np.sum(standardized, axis=1) / divisor, dtype=float)
+
+
+def _arm_effects(value: Any, label: str) -> tuple[tuple[Any, float], ...] | None:
+    """Normalize an ``arm_effects`` declaration to a hashable tuple of pairs."""
+    if value is None:
+        return None
+    pairs = tuple(value.items()) if isinstance(value, dict) else tuple(value)
+    normalized: list[tuple[Any, float]] = []
+    for pair in pairs:
+        if not isinstance(pair, tuple) or len(pair) != 2:
+            raise ValueError(f"{label} arm_effects maps each arm label to one effect")
+        arm, effect = pair
+        effect = float(effect)
+        if not np.isfinite(effect):
+            raise ValueError(f"{label} arm_effects must be finite")
+        normalized.append((arm, effect))
+    arms = [arm for arm, _ in normalized]
+    if not arms or len(set(map(repr, arms))) != len(arms):
+        raise ValueError(f"{label} arm_effects names each arm once")
+    return tuple(normalized)
+
+
+def arm_term(
+    process: Any, codes: Any, *, arm_codes: Sequence[float], levels: Sequence[Any]
+) -> np.ndarray:
+    """Evaluate the arm term ``c(a)`` of a point process at each treatment code.
+
+    Parameters
+    ----------
+    process : object
+        A point process with ``effect`` and ``arm_effects``.
+    codes : array-like
+        One internal treatment code per row. A non-finite code reads as the first arm.
+    arm_codes : sequence of float
+        The internal codes of the declared arms, in order.
+    levels : sequence
+        The labels of the declared arms, in the order of ``arm_codes``.
+
+    Returns
+    -------
+    ndarray
+        ``c(a)`` for each row.
+
+    Raises
+    ------
+    ValueError
+        If ``arm_effects`` misses a declared arm, or names an arm that is not declared.
+    """
+    values = np.asarray(codes, dtype=float)
+    # A row with an unrecorded treatment has no code. Its generated outcome is never read,
+    # because the composite indicator is zero there, so the first arm keeps it finite.
+    first = float(arm_codes[0]) if len(arm_codes) else 0.0
+    values = np.where(np.isfinite(values), values, first)
+    declared = getattr(process, "arm_effects", None)
+    if declared is None:
+        return np.asarray(float(process.effect) * values, dtype=float)
+    lookup: dict[float, float] = {}
+    for arm, effect in declared:
+        matches = [
+            float(code)
+            for code, level in zip(arm_codes, levels, strict=True)
+            if level == arm or code == arm
+        ]
+        if not matches:
+            raise ValueError(
+                f"arm_effects names {arm!r}, which is not a declared arm of {list(levels)}"
+            )
+        lookup[matches[0]] = effect
+    missing = [level for code, level in zip(arm_codes, levels, strict=True) if code not in lookup]
+    if missing:
+        raise ValueError(f"arm_effects gives no effect for the declared arm(s) {missing}")
+    out = np.empty(values.shape, dtype=float)
+    for code, effect in lookup.items():
+        out[values == code] = effect
+    unknown = ~np.isin(values, list(lookup))
+    if np.any(unknown):
+        raise ValueError("a treatment code is not a declared arm")
+    return out
+
+
+def _independent_arms(process: Any) -> bool:
+    declared = getattr(process, "arm_effects", None)
+    if declared is None:
+        return float(process.effect) == 0.0
+    return len({effect for _, effect in declared}) == 1
 
 
 @dataclass(frozen=True)
@@ -105,11 +196,58 @@ class GaussianIndependentOutcome:
     treatment_term: str = field(default="none", init=False)
     family: str = field(default="gaussian", init=False)
     known_effect: float = field(default=0.0, init=False)
+    effect: float = field(default=0.0, init=False)
+    arm_effects: None = field(default=None, init=False)
 
     @property
     def noise_law(self) -> GaussianNoise:
         """Return the recorded Gaussian noise declaration."""
         return self.noise
+
+    @property
+    def independent(self) -> bool:
+        """Return whether the outcome reads neither the covariates nor the treatment."""
+        return True
+
+    def mean(self, covariates: Any, arms: Any, **_: Any) -> np.ndarray:
+        """Return the outcome mean of each row: the noise mean.
+
+        Parameters
+        ----------
+        covariates : array-like
+            Covariate matrix with one row per observation.
+        arms : array-like
+            The arm term ``c(a)`` of each row; unused.
+        **_ : Any
+            Standardization and bound keywords of the other processes; unused.
+
+        Returns
+        -------
+        ndarray
+            The noise mean for each row.
+        """
+        del arms
+        return np.full(np.asarray(covariates).shape[0], self.noise.mean, dtype=float)
+
+    def sample(self, rng: np.random.Generator, mean: Any, **_: Any) -> np.ndarray:
+        """Draw one outcome per row around ``mean``.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            Generator that supplies the draw.
+        mean : array-like
+            The outcome mean of each row.
+        **_ : Any
+            Bound keywords of the bounded process; unused.
+
+        Returns
+        -------
+        ndarray
+            Independent Gaussian values.
+        """
+        centre = np.asarray(mean, dtype=float)
+        return np.asarray(centre - self.noise.mean + self.noise.draw(rng, centre.size))
 
     def draw(self, data: Any, *, seed: int) -> np.ndarray:
         """Draw one independent outcome vector.
@@ -131,7 +269,7 @@ class GaussianIndependentOutcome:
 
 @dataclass(frozen=True)
 class GaussianAdjustmentOutcome:
-    r"""Declare ``f(W) + effect * A + epsilon`` with Gaussian noise.
+    r"""Declare ``f(W) + c(a) + epsilon`` with Gaussian noise.
 
     The adjustment function standardizes each nonconstant covariate, sums the standardized
     columns, divides by the square root of how many columns it summed, and multiplies the
@@ -139,22 +277,26 @@ class GaussianAdjustmentOutcome:
     deviation at about ``adjustment_scale`` for any number of approximately independent
     covariates, so the confounding signal does not shrink against the fixed noise scale as
     the adjustment set widens. Correlated columns raise that standard deviation instead,
-    which only makes a failure to adjust easier to detect. The known binary arm contrast is
-    ``effect`` because the treatment term is additive.
+    which only makes a failure to adjust easier to detect. The arm term is
+    ``c(a) = effect * code(a)``, or ``arm_effects[a]`` when that mapping is declared. The
+    arm contrast is ``c(v) - c(r)`` because the arm term is additive.
 
     Parameters
     ----------
     effect : float
-        Declared effect of treatment code one against code zero.
+        Declared effect of one unit of the treatment code.
     adjustment_scale : float
         Multiplier on the root-count normalized standardized covariate sum.
     noise : GaussianNoise
         Gaussian law for ``epsilon``.
+    arm_effects : dict or tuple of tuple or None
+        One effect per declared arm label, in place of ``effect * code``. Point fits only.
     """
 
     effect: float = 1.0
     adjustment_scale: float = 1.0
     noise: GaussianNoise = GaussianNoise()
+    arm_effects: Any = None
     name: str = field(default="gaussian_adjustment_dependent", init=False)
     adjustment_function: str = field(
         default="scaled_standardized_covariate_sum_over_root_count", init=False
@@ -167,16 +309,25 @@ class GaussianAdjustmentOutcome:
             raise ValueError("Gaussian adjustment outcome effect must be finite")
         if not np.isfinite(self.adjustment_scale):
             raise ValueError("Gaussian adjustment outcome adjustment_scale must be finite")
+        effects = _arm_effects(self.arm_effects, "GaussianAdjustmentOutcome")
+        object.__setattr__(self, "arm_effects", effects)
+        if effects is not None:
+            object.__setattr__(self, "treatment_term", "declared_effect_per_arm")
 
     @property
     def known_effect(self) -> float:
-        """Return the derived code-one against code-zero mean contrast."""
+        """Return the effect of one unit of the treatment code."""
         return float(self.effect)
 
     @property
     def noise_law(self) -> GaussianNoise:
         """Return the recorded Gaussian noise declaration."""
         return self.noise
+
+    @property
+    def independent(self) -> bool:
+        """Return whether the outcome reads neither the covariates nor the treatment."""
+        return self.adjustment_scale == 0.0 and _independent_arms(self)
 
     def adjustment(self, covariates: Any, *, centre: Any = None, scale: Any = None) -> np.ndarray:
         """Evaluate the declared adjustment function.
@@ -199,6 +350,52 @@ class GaussianAdjustmentOutcome:
         """
         return standardized_sum(covariates, self.adjustment_scale, centre=centre, scale=scale)
 
+    def mean(
+        self, covariates: Any, arms: Any, *, centre: Any = None, scale: Any = None, **_: Any
+    ) -> np.ndarray:
+        """Return ``f(W) + c(a) + mu`` for each row.
+
+        Parameters
+        ----------
+        covariates : array-like
+            Covariate matrix with one row per observation.
+        arms : array-like
+            The arm term ``c(a)`` of each row.
+        centre : array-like or None
+            Column centres of the adjustment function.
+        scale : array-like or None
+            Column scales of the adjustment function.
+        **_ : Any
+            Bound keywords of the bounded process; unused.
+
+        Returns
+        -------
+        ndarray
+            The outcome mean of each row.
+        """
+        shift = self.adjustment(covariates, centre=centre, scale=scale)
+        return np.asarray(shift + np.asarray(arms, dtype=float) + self.noise.mean, dtype=float)
+
+    def sample(self, rng: np.random.Generator, mean: Any, **_: Any) -> np.ndarray:
+        """Draw one outcome per row around ``mean``.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            Generator that supplies the draw.
+        mean : array-like
+            The outcome mean of each row.
+        **_ : Any
+            Bound keywords of the bounded process; unused.
+
+        Returns
+        -------
+        ndarray
+            One Gaussian value per row.
+        """
+        centre = np.asarray(mean, dtype=float)
+        return np.asarray(centre - self.noise.mean + self.noise.draw(rng, centre.size))
+
     def draw(self, data: Any, *, seed: int) -> np.ndarray:
         """Draw one adjustment-dependent outcome vector.
 
@@ -214,15 +411,285 @@ class GaussianAdjustmentOutcome:
         ndarray
             One generated outcome per analysis row.
         """
-        noise = self.noise.draw(np.random.default_rng(seed), data.n)
-        # A row with an unrecorded treatment has no code to add an effect to.  Its
-        # generated outcome is never read, because the composite indicator is zero there,
-        # so the arm-0 value keeps the vector finite and leaves the known effect intact.
-        treatment = np.where(np.isfinite(data.treatment), data.treatment, 0.0)
-        return np.asarray(
-            self.adjustment(data.covariates) + self.effect * treatment + noise,
-            dtype=float,
+        arms = arm_term(
+            self, data.treatment, arm_codes=data.arm_codes, levels=data.treatment_levels
         )
+        mean = self.mean(data.covariates, arms)
+        return self.sample(np.random.default_rng(seed), mean)
+
+
+#: The link functions of the Bernoulli and bounded processes.
+Link = Literal["logit", "identity"]
+
+
+def _unit_mean(process: Any, covariates: Any, arms: Any, centre: Any, scale: Any) -> np.ndarray:
+    """``m(a, W)`` on the unit interval for the Bernoulli and bounded processes."""
+    terms = np.asarray(arms, dtype=float)
+    if process.link == "logit":
+        shift = standardized_sum(covariates, process.adjustment_scale, centre=centre, scale=scale)
+        return _expit(process.intercept + shift + terms)
+    standard = standardized_sum(covariates, 1.0, centre=centre, scale=scale)
+    return np.asarray(
+        process.intercept + process.adjustment_scale * (_expit(standard) - 0.5) + terms,
+        dtype=float,
+    )
+
+
+def _validate_link(process: Any, label: str) -> None:
+    _finite(process.intercept, f"{label} intercept")
+    _finite(process.effect, f"{label} effect")
+    _finite(process.adjustment_scale, f"{label} adjustment_scale")
+    if process.link not in ("logit", "identity"):
+        raise ValueError(f"{label} link must be 'logit' or 'identity'")
+    object.__setattr__(process, "arm_effects", _arm_effects(process.arm_effects, label))
+
+
+@dataclass(frozen=True)
+class BernoulliAdjustmentOutcome:
+    r"""Declare a binary outcome ``Y ~ Bern(m(a, W))``.
+
+    Under ``link="logit"`` the mean is ``expit(intercept + f(W) + c(a))``, where ``f`` is the
+    standardized sum of :class:`GaussianAdjustmentOutcome`. Under ``link="identity"`` it is
+    ``intercept + adjustment_scale * (expit(s(W)) - 1/2) + c(a)``, where ``s`` is that sum
+    with scale 1. The identity link gives an arm contrast that does not vary with ``W``, so
+    the held design reads the standard-error ratio and the coverage on a binary outcome. A
+    refutation refuses an identity-link declaration whose mean leaves ``[0, 1]`` on a row.
+
+    Parameters
+    ----------
+    intercept : float
+        Log-odds (logit link) or risk (identity link) at ``f(W) = 0`` and ``c(a) = 0``.
+    effect : float
+        Arm term per unit of the treatment code.
+    adjustment_scale : float
+        Multiplier on the covariate term.
+    link : {"logit", "identity"}
+        The link of the mean model.
+    arm_effects : dict or tuple of tuple or None
+        One arm term per declared arm label, in place of ``effect * code``.
+    """
+
+    intercept: float = -0.5
+    effect: float = 1.0
+    adjustment_scale: float = 1.0
+    link: Link = "logit"
+    arm_effects: Any = None
+    name: str = field(default="bernoulli_adjustment_dependent", init=False)
+    family: str = field(default="binomial", init=False)
+
+    def __post_init__(self) -> None:
+        _validate_link(self, "BernoulliAdjustmentOutcome")
+
+    @property
+    def independent(self) -> bool:
+        """Return whether the outcome reads neither the covariates nor the treatment."""
+        return self.adjustment_scale == 0.0 and _independent_arms(self)
+
+    def mean(
+        self, covariates: Any, arms: Any, *, centre: Any = None, scale: Any = None, **_: Any
+    ) -> np.ndarray:
+        """Return the risk ``m(a, W)`` of each row.
+
+        Parameters
+        ----------
+        covariates : array-like
+            Covariate matrix with one row per observation.
+        arms : array-like
+            The arm term ``c(a)`` of each row.
+        centre : array-like or None
+            Column centres of the covariate term.
+        scale : array-like or None
+            Column scales of the covariate term.
+        **_ : Any
+            Bound keywords of the bounded process; unused.
+
+        Returns
+        -------
+        ndarray
+            The risk of each row. The identity link can leave ``[0, 1]``; the refutation
+            refuses such a declaration before it draws.
+        """
+        return _unit_mean(self, covariates, arms, centre, scale)
+
+    def sample(self, rng: np.random.Generator, mean: Any, **_: Any) -> np.ndarray:
+        """Draw one binary outcome per row with risk ``mean``.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            Generator that supplies the draw.
+        mean : array-like
+            The risk of each row, in ``[0, 1]``.
+        **_ : Any
+            Bound keywords of the bounded process; unused.
+
+        Returns
+        -------
+        ndarray
+            Zero-one outcomes.
+        """
+        risk = np.asarray(mean, dtype=float)
+        return np.asarray(rng.random(risk.size) < risk, dtype=float)
+
+    def admissible(self, mean: Any, **_: Any) -> bool:
+        """Return whether every risk lies in ``[0, 1]``.
+
+        Parameters
+        ----------
+        mean : array-like
+            Risks to check.
+        **_ : Any
+            Bound keywords of the bounded process; unused.
+
+        Returns
+        -------
+        bool
+            ``True`` when every risk is a probability.
+        """
+        risk = np.asarray(mean, dtype=float)
+        return bool(np.all(np.isfinite(risk)) and np.all((risk >= 0.0) & (risk <= 1.0)))
+
+
+@dataclass(frozen=True)
+class BoundedAdjustmentOutcome:
+    r"""Declare a bounded continuous outcome on the fit's ``q_bounds``.
+
+    The draw is ``lo + (hi - lo) * B`` with ``B ~ Beta(m phi, (1 - m) phi)``, where
+    ``(lo, hi)`` are the fit's ``q_bounds``, ``phi`` is ``precision``, and ``m = m(a, W)`` is
+    the mean model of :class:`BernoulliAdjustmentOutcome`. The Beta law has mean ``m``
+    exactly, so the outcome mean is ``lo + (hi - lo) m(a, W)`` and every truth is a finite
+    sum. A refutation refuses a declaration whose ``m`` leaves the open interval ``(0, 1)``
+    on a row.
+
+    Parameters
+    ----------
+    intercept : float
+        Log-odds (logit link) or mean (identity link) of ``m`` at ``f(W) = 0`` and
+        ``c(a) = 0``.
+    effect : float
+        Arm term per unit of the treatment code, on the scale of ``m``'s link.
+    adjustment_scale : float
+        Multiplier on the covariate term.
+    link : {"logit", "identity"}
+        The link of the mean model.
+    precision : float
+        The Beta precision ``phi``. A larger value gives less noise around the mean.
+    arm_effects : dict or tuple of tuple or None
+        One arm term per declared arm label, in place of ``effect * code``.
+    """
+
+    intercept: float = 0.0
+    effect: float = 0.5
+    adjustment_scale: float = 1.0
+    link: Link = "logit"
+    precision: float = 20.0
+    arm_effects: Any = None
+    name: str = field(default="bounded_beta_adjustment_dependent", init=False)
+    family: str = field(default="gaussian", init=False)
+
+    def __post_init__(self) -> None:
+        _validate_link(self, "BoundedAdjustmentOutcome")
+        if not np.isfinite(self.precision) or self.precision <= 0.0:
+            raise ValueError("BoundedAdjustmentOutcome precision must be finite and positive")
+
+    @property
+    def independent(self) -> bool:
+        """Return whether the outcome reads neither the covariates nor the treatment."""
+        return self.adjustment_scale == 0.0 and _independent_arms(self)
+
+    def mean(
+        self,
+        covariates: Any,
+        arms: Any,
+        *,
+        centre: Any = None,
+        scale: Any = None,
+        bounds: tuple[float, float] | None = None,
+    ) -> np.ndarray:
+        """Return the outcome mean ``lo + (hi - lo) m(a, W)`` of each row.
+
+        Parameters
+        ----------
+        covariates : array-like
+            Covariate matrix with one row per observation.
+        arms : array-like
+            The arm term ``c(a)`` of each row.
+        centre : array-like or None
+            Column centres of the covariate term.
+        scale : array-like or None
+            Column scales of the covariate term.
+        bounds : tuple of float
+            The fit's ``q_bounds``.
+
+        Returns
+        -------
+        ndarray
+            The outcome mean of each row.
+
+        Raises
+        ------
+        ValueError
+            If ``bounds`` is missing.
+        """
+        lower, upper = _bounds(bounds)
+        unit = _unit_mean(self, covariates, arms, centre, scale)
+        return np.asarray(lower + (upper - lower) * unit, dtype=float)
+
+    def sample(
+        self,
+        rng: np.random.Generator,
+        mean: Any,
+        *,
+        bounds: tuple[float, float] | None = None,
+    ) -> np.ndarray:
+        """Draw one bounded outcome per row with mean ``mean``.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            Generator that supplies the draw.
+        mean : array-like
+            The outcome mean of each row, inside ``bounds``.
+        bounds : tuple of float
+            The fit's ``q_bounds``.
+
+        Returns
+        -------
+        ndarray
+            One value per row in ``bounds``.
+        """
+        lower, upper = _bounds(bounds)
+        unit = (np.asarray(mean, dtype=float) - lower) / (upper - lower)
+        draws = rng.beta(unit * self.precision, (1.0 - unit) * self.precision)
+        return np.asarray(lower + (upper - lower) * draws, dtype=float)
+
+    def admissible(self, mean: Any, *, bounds: tuple[float, float] | None = None) -> bool:
+        """Return whether every mean lies strictly inside ``bounds``.
+
+        Parameters
+        ----------
+        mean : array-like
+            Outcome means to check.
+        bounds : tuple of float
+            The fit's ``q_bounds``.
+
+        Returns
+        -------
+        bool
+            ``True`` when each Beta law is proper.
+        """
+        lower, upper = _bounds(bounds)
+        values = np.asarray(mean, dtype=float)
+        return bool(np.all(np.isfinite(values)) and np.all((values > lower) & (values < upper)))
+
+
+def _bounds(bounds: tuple[float, float] | None) -> tuple[float, float]:
+    if bounds is None:
+        raise ValueError("the bounded process draws on the fit's q_bounds; none were given")
+    lower, upper = float(bounds[0]), float(bounds[1])
+    if not (np.isfinite(lower) and np.isfinite(upper) and lower < upper):
+        raise ValueError("q_bounds must be two finite values with lower < upper")
+    return lower, upper
 
 
 def _expit(values: np.ndarray) -> np.ndarray:

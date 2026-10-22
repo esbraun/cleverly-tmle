@@ -45,6 +45,8 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    cleverly.validation.GaussianNoise
    cleverly.validation.GaussianIndependentOutcome
    cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.BernoulliAdjustmentOutcome
+   cleverly.validation.BoundedAdjustmentOutcome
    cleverly.validation.LogisticHazardOutcome
    cleverly.validation.MultinomialHazardOutcome
    cleverly.validation.RelativeGaussianNoise
