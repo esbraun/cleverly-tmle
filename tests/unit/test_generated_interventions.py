@@ -24,11 +24,16 @@ from cleverly import (
     RegimeContrast,
 )
 from cleverly.exceptions import CapabilityError
-from cleverly.interventions import Incremental, Rule, Static
+from cleverly.interventions import Incremental, RegimeSet, Rule, Static
 from cleverly.interventions.incremental import _tilt_general
-from cleverly.msm import MSM, solve_projection
-from cleverly.validation import GaussianAdjustmentOutcome, refute
-from cleverly.validation._point_generated import InterventionLaw, PointTarget, Projection
+from cleverly.msm import MSM, MSMSet, solve_projection
+from cleverly.validation import BernoulliAdjustmentOutcome, GaussianAdjustmentOutcome, refute
+from cleverly.validation._point_generated import (
+    InterventionLaw,
+    PlasmodeLaw,
+    PointTarget,
+    Projection,
+)
 
 ARMS = (0.0, 1.0)
 
@@ -164,6 +169,26 @@ class TestProjection:
             ours.covariate_part(table, population), expected, rtol=1e-7, atol=1e-10
         )
 
+    @pytest.mark.parametrize("link", ["log", "logit"])
+    def test_the_covariate_part_is_the_gateaux_derivative(self, link: str) -> None:
+        # The part at row i is the derivative of the coefficient in row i's population
+        # weight, times the total weight. A finite difference reads it without M, so it sees
+        # a wrong curvature term, which the identity link cannot.
+        n = 60
+        design, weights, covariate = _msm_arrays(n)
+        table = np.column_stack([_expit(-1.0 + covariate**2), _expit(0.4 + covariate**2)])
+        population = np.random.default_rng(6).uniform(0.5, 1.5, size=n)
+        projection = Projection(design, weights, link, term=1)
+        part = projection.covariate_part(table, population)
+        step = 1e-5
+        for row in (0, 17, 41):
+            up, down = population.copy(), population.copy()
+            up[row] += step
+            down[row] -= step
+            slope = projection.coefficient(table, up) - projection.coefficient(table, down)
+            numeric = slope / (2.0 * step) * float(np.sum(population))
+            assert numeric == pytest.approx(part[row], rel=1e-5, abs=1e-8)
+
     def test_dropping_the_working_weights_moves_the_coefficient(self) -> None:
         n = 200
         design, weights, covariate = _msm_arrays(n)
@@ -177,24 +202,27 @@ class TestProjection:
 # ------------------------------------------------------------------ end to end
 
 
-def _frame(n: int = 300, seed: int = 3) -> pd.DataFrame:
+def _frame(n: int = 300, seed: int = 3, *, binary: bool = False) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     covariates = rng.normal(size=(n, 2))
     treatment = (rng.random(n) < _expit(0.5 * covariates[:, 0])).astype(int)
+    outcome = rng.normal(size=n)
+    if binary:
+        outcome = (outcome > 0.0).astype(float)
     return pd.DataFrame(
-        {"W1": covariates[:, 0], "W2": covariates[:, 1], "A": treatment, "Y": rng.normal(size=n)}
+        {"W1": covariates[:, 0], "W2": covariates[:, 1], "A": treatment, "Y": outcome}
     )
 
 
-def _fit(estimand: Any, frame: pd.DataFrame | None = None) -> Any:
+def _fit(estimand: Any, *, binary: bool = False) -> Any:
     study = CausalStudy(
-        _frame() if frame is None else frame,
+        _frame(binary=binary),
         design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return study.identify(estimand).estimate(
-            outcome_learner=LinearRegression(),
+            outcome_learner=LogisticRegression(max_iter=1000) if binary else LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
             random_state=1,
             cross_fit=False,
@@ -224,7 +252,14 @@ def _run(result: Any, estimand: str, test: str, draws: int = 400) -> Any:
 
 @pytest.fixture(scope="module")
 def regimes() -> Any:
-    return _fit(RegimeContrast((Static(0, name="never"), RULE), reference="never"))
+    return _fit(
+        RegimeContrast((Static(0, name="never"), RULE, Static(1, name="always")), reference="never")
+    )
+
+
+@pytest.fixture(scope="module")
+def binary_regimes() -> Any:
+    return _fit(RegimeContrast((Static(0, name="never"), RULE), reference="never"), binary=True)
 
 
 @pytest.fixture(scope="module")
@@ -237,6 +272,60 @@ def msm() -> Any:
     return _fit(MSMProjection(MSM.linear()))
 
 
+class TestPlasmodeTruth:
+    """The plasmode truth sums over the support points, row for row with the frozen law."""
+
+    PROCESS = BernoulliAdjustmentOutcome(intercept=-0.3, effect=1.2, adjustment_scale=1.5)
+
+    def _hand_means(self, data: Any) -> dict[float, np.ndarray]:
+        # expit(intercept + f(W) + effect * a), with f the root-count standardized sum.
+        covariates = np.asarray(data.covariates, dtype=float)
+        standardized = (covariates - covariates.mean(axis=0)) / covariates.std(axis=0)
+        f = self.PROCESS.adjustment_scale * standardized.sum(axis=1) / np.sqrt(2.0)
+        return {arm: _expit(self.PROCESS.intercept + f + self.PROCESS.effect * arm) for arm in ARMS}
+
+    def test_a_rule_regime_by_hand_over_the_support(self, binary_regimes: Any) -> None:
+        data = binary_regimes.data
+        densities = RegimeSet.evaluate((RULE,), data).values[:, :, 0]
+        target = _target("intervention", value_law=InterventionLaw("rule", values=densities))
+        law = PlasmodeLaw.fit(binary_regimes)
+        means, weights, mixture = law.means(self.PROCESS, data, target)
+        hand = self._hand_means(data)
+        rule = _rule(_frame(binary=True)).astype(float)
+        expected = float(np.mean(rule * hand[1.0] + (1.0 - rule) * hand[0.0]))
+        assert target.truth(means, weights, mixture) == pytest.approx(expected, abs=1e-12)
+        # Mutation: the regime rows out of step with the support points move the truth.
+        shuffled = np.random.default_rng(0).permutation(densities.shape[0])
+        moved = _target(
+            "intervention", value_law=InterventionLaw("rule", values=densities[shuffled])
+        )
+        assert abs(moved.truth(means, weights, mixture) - expected) > 1e-3
+
+    def test_an_msm_coefficient_by_hand_over_the_support(self, binary_regimes: Any) -> None:
+        data = binary_regimes.data
+        evaluated = MSMSet.evaluate(MSM.linear(modifiers=("W1",)), data)
+        term = evaluated.terms.index("a:W1")
+        projection = Projection(evaluated.design, evaluated.weights, "identity", term=term)
+        target = _target("msm", projection=projection)
+        law = PlasmodeLaw.fit(binary_regimes)
+        means, weights, mixture = law.means(self.PROCESS, data, target)
+        hand = self._hand_means(data)
+        # Identity link with unit weights: ordinary least squares on the stacked arm rows.
+        stacked = np.concatenate([evaluated.design[:, k, :] for k in range(2)])
+        response = np.concatenate([hand[0.0], hand[1.0]])
+        expected = np.linalg.lstsq(stacked, response, rcond=None)[0][term]
+        assert target.truth(means, weights, mixture) == pytest.approx(expected, abs=1e-10)
+        # Mutation: the design rows out of step with the support points move the truth.
+        shuffled = np.random.default_rng(0).permutation(data.n)
+        moved = _target(
+            "msm",
+            projection=Projection(
+                evaluated.design[shuffled], evaluated.weights, "identity", term=term
+            ),
+        )
+        assert abs(moved.truth(means, weights, mixture) - expected) > 1e-3
+
+
 class TestEndToEnd:
     def test_a_rule_contrast_in_the_held_design(self, regimes: Any) -> None:
         test = _run(regimes, "ate_regime[rule vs never]", "simulated_outcome")
@@ -244,6 +333,12 @@ class TestEndToEnd:
         assert test.declared_effect == pytest.approx(share, abs=1e-12)
         # The rule reads W, so the contrast has a covariate part and reads bias only.
         assert test.passed is True and [r.name for r in test.readings] == ["bias"]
+
+    def test_a_static_contrast_in_the_held_design_reads_all_three(self, regimes: Any) -> None:
+        # A Gaussian contrast of two static regimes is the constant effect at every row.
+        test = _run(regimes, "ate_regime[always vs never]", "simulated_outcome")
+        assert test.declared_effect == pytest.approx(1.0, abs=1e-12)
+        assert test.passed is True and len(test.readings) == 3
 
     def test_an_incremental_contrast_in_the_plasmode(self, tilts: Any) -> None:
         test = _run(tilts, "ate_ipsi[odds x2 vs natural course]", "plasmode")

@@ -2288,7 +2288,8 @@ A ratio reads `log psi` with the fit's log-scale standard error against
 rows cover every point target, so no study is needed.
 
 The held-design truth of `ey_obs`, `par` and `paf` reads the held arm of each row. The plasmode
-truth reads the frozen arm probabilities.
+truth reads the frozen arm probabilities. A stratum target, such as `ate[S=1]`, sums over the
+rows of its stratum only.
 
 The intervention targets need the law `q(a | W)` of the arms at each row. The table gives its
 source.
@@ -2302,13 +2303,12 @@ An MSM coefficient solves the working-model normal equations of `cleverly.msm` w
 place of the outcome regression. `Projection` in `validation/_point_generated.py` solves them by
 its own Gauss-Newton iteration for the identity, log and logit links. The covariate part of a
 coefficient is `e_j' M^-1 sum_a h m' phi (m(a, W) - m(a, V; beta))`. Under a Gaussian process and
-the saturated linear model `MSM.linear()`, the slope's part is 0 at every row, so the slope reads
+the linear model `MSM.linear()`, the slope's part is 0 at every row, so the slope reads
 all three. The intercept's part is `f(W)` minus its mean, so the intercept reads bias only.
 
 Modified treatment policies, risk-ratio tilts and learned rules have no generated truth. A
 request for one is refused with roadmap id
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator). A stratum target, such as `ate[S=1]`, sums over the
-rows of its stratum only.
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
 
 The held design keeps every observation indicator and the intermediate `Z`. The draw replaces
 the outcome only, so a missing outcome stays missing at random. The table gives the rules for

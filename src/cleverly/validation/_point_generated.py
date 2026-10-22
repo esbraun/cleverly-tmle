@@ -218,12 +218,14 @@ class Projection:
             residual = (means - fitted) * np.sqrt(mass)
             jacobian = gradient.reshape(-1, phi.shape[2])
             step = np.linalg.lstsq(jacobian, residual.reshape(-1), rcond=None)[0]
+            # The full Gauss-Newton step decides convergence. Halving guards a step that
+            # raises the loss beyond rounding, and it never stops the iteration by itself.
+            if float(np.max(np.abs(step))) <= 1e-13 * max(1.0, float(np.max(np.abs(beta)))):
+                return beta
             size, current = 1.0, loss(beta)
-            while loss(beta + size * step) > current and size > 1e-8:
+            while loss(beta + size * step) > current * (1.0 + 1e-12) and size > 1e-8:
                 size /= 2.0
             beta = beta + size * step
-            if float(np.max(np.abs(size * step))) <= 1e-12 * max(1.0, float(np.max(np.abs(beta)))):
-                return beta
         raise ValueError("the working-model projection did not converge")
 
     def coefficient(self, means: np.ndarray, population: np.ndarray) -> float:
