@@ -1783,7 +1783,7 @@ def _validate_generated_eligibility(
             f"{name} has no outcome process or effect derivation for {type(functional).__name__}.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Use a backdoor-identified effect.",
-            roadmap="X67",
+            roadmap="X82",
         )
     provider = getattr(identified, "provider", None)
     if type(provider) is not ExplicitAdjustmentProvider:
@@ -1800,7 +1800,7 @@ def _validate_generated_eligibility(
             "Gaussian outcome configurations.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     estimator = result.estimator
     configured_family = getattr(estimator, "family", "auto")
@@ -1835,7 +1835,7 @@ def _validate_generated_eligibility(
             f"{name} has no longitudinal outcome process or sequential effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if not getattr(data, "is_binary_treatment", False):
         raise CapabilityError(
@@ -1843,35 +1843,35 @@ def _validate_generated_eligibility(
             "process catalog covers code one against code zero.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if getattr(data, "has_intermediate", False) or functional.intermediate is not None:
         raise CapabilityError(
             f"{name} has no controlled-direct-effect outcome process or effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if getattr(data, "has_missing_outcome", False):
         raise CapabilityError(
             f"{name} has no missing-outcome process or observation-model effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if functional.msm is not None or functional.axis == "msm":
         raise CapabilityError(
             f"{name} has no MSM outcome process or coefficient derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if functional.axis != "arm" or functional.interventions:
         raise CapabilityError(
             f"{name} has no intervention-indexed outcome process or effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
@@ -1886,7 +1886,7 @@ def _validate_generated_eligibility(
             f"{name} has no {kind} effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Choose an additive mean contrast (ate, att, or atc).",
-            roadmap="X67",
+            roadmap="X82",
         )
     declared_estimand = getattr(getattr(identified, "estimand", None), "name", None)
     if functional.target != key.estimand or declared_estimand != key.estimand:
@@ -2103,7 +2103,7 @@ def _validate_measurement_error_eligibility(
             f"got result family {type(result).__name__} with data family {type(data).__name__}.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
-            roadmap="X67",
+            roadmap="X82",
         )
     if n_replicates < 1:
         raise ValueError("n_replicates must be positive")
@@ -2122,7 +2122,7 @@ def _validate_measurement_error_eligibility(
                 "Declare BootstrapMeasurementError(variables=...) with the adjustment "
                 "variables other than the strata."
             ),
-            roadmap="X67",
+            roadmap="X82",
         )
     encodings = _measurement_encodings(data)
     generated = data.indicator_sources

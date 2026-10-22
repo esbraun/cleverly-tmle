@@ -2000,7 +2000,8 @@ class StructuralNestedMeanResult:
     simultaneous: SimultaneousBands | None = None
 
     #: The method identity of the result.  The result declares no ``assessment_family``, so
-    #: ``assessment_capabilities`` does not accept it until X74 in ``docs/roadmap.md`` adds one.
+    #: ``assessment_capabilities`` does not accept it until X82 part D in ``docs/roadmap.md``
+    #: adds one.
     fitted_method: ClassVar[str] = "snmm"
 
     # ------------------------------------------------------------- mapping API

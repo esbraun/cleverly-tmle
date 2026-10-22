@@ -2309,15 +2309,15 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
 
 
 #: The roadmap rows each missing-science refusal cites (docs/technical-reference/hard-stop-review.md).
-#: A declarable law cites X47 or X48; a part that stays in the research queue cites its F row.
+#: A declarable law cites X82; a part that stays in the research queue cites its F row.
 _REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
-    (_LONGITUDINAL_REFUSAL, ("X48", "F13")),
-    (_MULTI_ARM_REFUSAL, ("X47",)),
-    (_MISSING_OUTCOME_REFUSAL, ("X47", "F12")),
-    (_MISSING_TREATMENT_REFUSAL, ("X47", "F12")),
-    (_INTERMEDIATE_REFUSAL, ("X47", "F15")),
-    (_ESTIMATED_WEIGHT_REFUSAL, ("X47",)),
-    (_CLUSTERED_REFUSAL, ("X47",)),
+    (_LONGITUDINAL_REFUSAL, ("X82", "F13")),
+    (_MULTI_ARM_REFUSAL, ("X82",)),
+    (_MISSING_OUTCOME_REFUSAL, ("X82", "F12")),
+    (_MISSING_TREATMENT_REFUSAL, ("X82", "F12")),
+    (_INTERMEDIATE_REFUSAL, ("X82", "F15")),
+    (_ESTIMATED_WEIGHT_REFUSAL, ("X82",)),
+    (_CLUSTERED_REFUSAL, ("X82",)),
 )
 
 
@@ -3963,7 +3963,7 @@ def test_unsupported_compositions_are_refused_before_refit(
             "categorical",
             ("G",),
             CapabilityError,
-            r"categorical covariate 'G'; .*\(docs/roadmap\.md X47 tracks a block calibration "
+            r"categorical covariate 'G'; .*\(docs/roadmap\.md X82 part F tracks a block calibration "
             r"of the whole covariate\)\. Name numeric benchmark covariates only",
         ),
         ("constant", ("W1",), CapabilityError, "constant covariate"),

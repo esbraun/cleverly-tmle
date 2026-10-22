@@ -130,7 +130,7 @@ def _natural_course_tilt_refusal(names: Any) -> Refusal:
             "Request the arm means by name with estimands=('ey0', 'ey1', 'ate'), or call "
             "truncation_curve(result, mechanism=True) on this fit."
         ),
-        roadmap="X65",
+        roadmap="X82",
     )
 
 
@@ -167,7 +167,7 @@ def _refuse_natural_course(result: Any) -> Refusal | None:
             "estimands=('ey0', 'ey1', 'ate'), or call truncation_curve(result, "
             "mechanism=True) on this fit."
         ),
-        roadmap="X65",
+        roadmap="X82",
     )
 
 
@@ -282,7 +282,7 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
             "estimands=('ey0', 'ey1', 'ate', 'rr'), and tilt them. For a regime mean or an "
             "MSM coefficient, call truncation_curve(result, mechanism=True)."
         ),
-        roadmap="X65",
+        roadmap="X82",
     )
 
 
