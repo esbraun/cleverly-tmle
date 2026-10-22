@@ -199,20 +199,19 @@ class TestGeneratedProcesses:
         ids=("treatment-removed", "sign-reversed", "arms-reversed"),
     )
     def test_nonzero_mutations_fail(self, mutation: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        def mutated_draw(process: GaussianAdjustmentOutcome, data: Any, *, seed: int) -> np.ndarray:
-            adjustment = process.adjustment(data.covariates)
-            noise = process.noise.draw(np.random.default_rng(seed), data.n)
+        def mutated_term(process: Any, codes: Any, **_: Any) -> np.ndarray:
+            treatment = np.asarray(codes, dtype=float)
             if mutation == "treatment-removed":
-                treatment_term = 0.0
-            elif mutation == "sign-reversed":
-                treatment_term = -process.effect * data.treatment
-            else:
-                treatment_term = process.effect * (1.0 - data.treatment)
-            return np.asarray(adjustment + treatment_term + noise, dtype=float)
+                return np.zeros_like(treatment)
+            if mutation == "sign-reversed":
+                return np.asarray(-process.effect * treatment)
+            return np.asarray(process.effect * (1.0 - treatment))
 
-        # Deliberately mutate the exact registered implementation. Unsupported subclasses
-        # are refused before their draw method can run and therefore are not valid controls.
-        monkeypatch.setattr(GaussianAdjustmentOutcome, "draw", mutated_draw)
+        # Deliberately mutate the arm term the held draw reads. The truth reads its own copy
+        # in ``_point_generated``, so the draw and the truth disagree, as a wrong draw would.
+        import sys
+
+        monkeypatch.setattr(sys.modules["cleverly.validation.refute"], "arm_term", mutated_term)
         report = refute(
             _eligible_result(),
             tests=("simulated_outcome",),
@@ -324,7 +323,7 @@ class TestGeneratedOutcomeRefusals:
             pass
 
         result = _eligible_result()
-        with pytest.raises(CapabilityError, match="exact registered GaussianAdjustmentOutcome"):
+        with pytest.raises(CapabilityError, match="registered declarations"):
             refute(
                 result,
                 tests=("simulated_outcome",),
@@ -485,11 +484,11 @@ class TestGeneratedOutcomeRefusals:
 
 class TestGeneratedOutcomeFailureBoundary:
     def test_generation_errors_propagate(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def broken_draw(process: GaussianAdjustmentOutcome, data: Any, *, seed: int) -> np.ndarray:
-            del process, data, seed
+        def broken_sample(process: GaussianAdjustmentOutcome, *args: Any, **kwargs: Any) -> Any:
+            del process, args, kwargs
             raise DataError("broken generation")
 
-        monkeypatch.setattr(GaussianAdjustmentOutcome, "draw", broken_draw)
+        monkeypatch.setattr(GaussianAdjustmentOutcome, "sample", broken_sample)
         with pytest.raises(DataError, match="broken generation"):
             refute(
                 _eligible_result(),
@@ -539,11 +538,11 @@ class TestGeneratedOutcomeFailureBoundary:
     @pytest.mark.parametrize(
         ("change", "message"),
         [
-            ("nonbinary", "non-binary"),
+            ("continuous", "continuous treatment"),
             ("missing", "missing-outcome"),
             ("axis", "intervention-indexed"),
             ("msm", "MSM"),
-            ("ratio", "ratio"),
+            ("natural-course", "ey_obs effect derivation"),
             ("longitudinal", "longitudinal"),
             ("intermediate-data", "controlled-direct-effect"),
             ("intermediate-functional", "controlled-direct-effect"),
@@ -557,8 +556,8 @@ class TestGeneratedOutcomeFailureBoundary:
         result.data.is_binary_treatment = len(result.data.treatment_levels) == 2
         result.data.has_missing_outcome = not bool(np.all(result.data.observed))
         result.data.has_intermediate = False
-        if change == "nonbinary":
-            result.data.treatment_levels = (0, 1, 2)
+        if change == "continuous":
+            result.data.is_continuous_treatment = True
         elif change == "missing":
             result.data.observed = np.zeros(result.data.n, dtype=bool)
         elif change == "longitudinal":
@@ -580,7 +579,7 @@ class TestGeneratedOutcomeFailureBoundary:
                 result.identified_effect.functional, msm=object()
             )
         else:
-            result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], estimand="rr")
+            result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], estimand="ey_obs")
         result.data.is_binary_treatment = len(result.data.treatment_levels) == 2
         result.data.has_missing_outcome = not bool(np.all(result.data.observed))
         with pytest.raises(CapabilityError, match=message):
