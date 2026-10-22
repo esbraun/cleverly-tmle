@@ -61,7 +61,9 @@ The tests, and what a reading means:
     Resample units from the empirical law of the covariates, draw treatment from a frozen
     model and the outcome from the ``simulated_outcome`` declaration, then refit.  The truth
     is a finite sum over the support points, so bias, standard-error ratio and coverage are
-    read against their equivalence bands.
+    read against their equivalence bands.  Arm targets, regimes and MSM coefficients have an
+    exact truth in both designs.  An incremental tilt reads the true treatment mechanism, so
+    only the plasmode, whose frozen model is that mechanism, reads it.
 
 ``bootstrap_stability``
     Refit on bootstrap samples with no added noise.  Each copy of a unit keeps the unit's
@@ -91,8 +93,17 @@ from ..utils.text import format_table
 from . import _interpretation
 from ._interpretation import FitConfiguration, Resolution, Rung
 from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
+from ._point_generated import (
+    PROJECTION_LINKS,
+    InterventionLaw,
+    PointTarget,
+    Projection,
+    TargetKind,
+    arm_means,
+    held_mixture,
+    held_weights,
+)
 from ._point_generated import PlasmodeLaw as _PlasmodeLaw
-from ._point_generated import PointTarget, TargetKind, arm_means, held_mixture, held_weights
 from ._readings import (
     DEFAULT_BAND_REPLICATES,
     BandReading,
@@ -2587,19 +2598,31 @@ def _validate_generated_eligibility(
             "noise. Leave cluster_sd at 0",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if functional.msm is not None or functional.axis == "msm":
+    axis = functional.axis
+    if axis not in _POINT_TARGET_AXES or (axis == "arm" and functional.interventions):
         raise CapabilityError(
-            f"{name} has no MSM outcome process or coefficient derivation.",
+            f"{name} has no outcome process or effect derivation for the {axis!r} axis. "
+            "The generated laws cover arm targets, regimes, incremental tilts and MSM "
+            "coefficients; modified treatment policies, risk-ratio tilts and learned rules "
+            "have no generated truth yet.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
         )
-    if functional.axis != "arm" or functional.interventions:
+    if (functional.msm is not None) != (axis == "msm"):
         raise CapabilityError(
-            f"{name} has no intervention-indexed outcome process or effect derivation.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
+            f"{name} found inconsistent registered target provenance: an MSM on the {axis!r} axis",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if axis == "ipsi" and name != "plasmode":
+        raise CapabilityError(
+            f"{name} has no truth for an incremental tilt: the tilt multiplies the odds of "
+            "the true treatment mechanism, which the held design does not know.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Run tests=('plasmode',), whose frozen treatment model is the true "
+                "mechanism of its generated law."
+            ),
         )
     key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
@@ -2615,7 +2638,9 @@ def _validate_generated_eligibility(
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=(
                 "Choose an arm contrast (ate, att, atc), an arm level (ey, ey1, ey0), a "
-                "ratio (rr, or) or a natural-course target (ey_obs, par, paf)."
+                "ratio (rr, or), a natural-course target (ey_obs, par, paf), a regime "
+                "target (ey_regime, ate_regime), an incremental target (ey_ipsi, ate_ipsi) "
+                "or an MSM coefficient (msm)."
             ),
             roadmap="X82",
         )
@@ -2688,6 +2713,26 @@ def _validate_generated_eligibility(
             arms=codes,
             **shared,
         )
+    elif kind in ("intervention", "intervention_difference"):
+        target = PointTarget(
+            kind=kind,
+            population="all",
+            value_code=None,
+            reference_code=None,
+            arms=codes,
+            **shared,
+            **_intervention_laws(result, functional, key, name),
+        )
+    elif kind == "msm":
+        target = PointTarget(
+            kind="msm",
+            population="all",
+            value_code=None,
+            reference_code=None,
+            arms=codes,
+            projection=_msm_projection(result, functional, key, name),
+            **shared,
+        )
     elif kind in ("par", "paf"):
         # The key value of ``par`` and ``paf`` is the reference arm r of ``ey_obs - ey[r]``.
         endpoint = key.value if key.value is not None else data.arm_codes[0]
@@ -2741,7 +2786,86 @@ _POINT_TARGET_KINDS: dict[str, TargetKind] = {
     "ey_obs": "natural",
     "par": "par",
     "paf": "paf",
+    "ey_regime": "intervention",
+    "ate_regime": "intervention_difference",
+    "ey_ipsi": "intervention",
+    "ate_ipsi": "intervention_difference",
+    "msm": "msm",
 }
+
+#: The parameter axes whose targets have a point generated law (part E3).
+_POINT_TARGET_AXES = ("arm", "regime", "ipsi", "msm")
+
+
+def _intervention_laws(result: Any, functional: Any, key: Any, name: str) -> dict[str, Any]:
+    """Return the value and reference laws of a regime or incremental target (part E3).
+
+    A regime's law is its declared density on the fitted rows, which the regime evaluates
+    from ``W`` alone. An incremental tilt's law is its odds factors, and the truth applies
+    them to the true mechanism of the generated law.
+    """
+    from ..interventions import RegimeSet
+    from ..interventions.base import as_interventions
+
+    data = result.data
+    declarations: tuple[Any, ...] = tuple(functional.interventions)
+    if functional.axis == "regime":
+        declarations = as_interventions(functional.interventions)
+    labels = tuple(str(item.name) for item in declarations)
+    if functional.axis == "regime":
+        evaluated = RegimeSet.evaluate(declarations, data, reference=functional.reference)
+        laws = {
+            label: InterventionLaw(label, values=np.asarray(evaluated.values[:, :, index]))
+            for index, label in enumerate(evaluated.names)
+        }
+    else:
+        laws = {
+            str(item.name): InterventionLaw(
+                str(item.name),
+                factors=np.asarray(item.factors(data.treatment_levels), dtype=float),
+            )
+            for item in declarations
+        }
+    reference = None
+    if key.estimand.startswith("ate_"):
+        reference = key.reference
+    if key.value not in laws or (reference is not None and reference not in laws):
+        raise CapabilityError(
+            f"{name} found a parameter key for {key.value!r} against {reference!r}, which "
+            f"the declared interventions {list(labels)} do not name",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return {
+        "value_law": laws[key.value],
+        "reference_law": None if reference is None else laws[reference],
+    }
+
+
+def _msm_projection(result: Any, functional: Any, key: Any, name: str) -> Projection:
+    """Return the working model of an MSM coefficient on the fitted rows (part E3)."""
+    from ..msm import MSMSet
+
+    model = functional.msm
+    if str(model.link) not in PROJECTION_LINKS:
+        raise CapabilityError(
+            f"{name} has no projection truth for an MSM with link {model.link!r}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=f"Declare the working model with a link in {list(PROJECTION_LINKS)}.",
+            roadmap="X82",
+        )
+    evaluated = MSMSet.evaluate(model, result.data)
+    if key.term not in evaluated.terms:
+        raise CapabilityError(
+            f"{name} found a parameter key for the term {key.term!r}, which the working "
+            f"model {list(evaluated.terms)} does not name",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return Projection(
+        design=np.asarray(evaluated.design, dtype=float),
+        weights=np.asarray(evaluated.weights, dtype=float),
+        link=str(model.link),
+        term=evaluated.terms.index(key.term),
+    )
 
 
 def _bounds_tuple(bounds: Any) -> tuple[float, float]:

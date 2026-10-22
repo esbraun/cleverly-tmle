@@ -539,8 +539,8 @@ class TestGeneratedOutcomeFailureBoundary:
         ("change", "message"),
         [
             ("continuous", "continuous treatment"),
-            ("axis", "intervention-indexed"),
-            ("msm", "MSM"),
+            ("axis", "effect derivation for the 'policy' axis"),
+            ("msm", "an MSM on the 'arm' axis"),
             ("unknown-target", "nde effect derivation"),
             ("longitudinal", "longitudinal"),
             ("intermediate-data", "none on the functional"),
@@ -569,7 +569,7 @@ class TestGeneratedOutcomeFailureBoundary:
             )
         elif change == "axis":
             result.identified_effect.functional = replace(
-                result.identified_effect.functional, axis="regime"
+                result.identified_effect.functional, axis="policy"
             )
         elif change == "msm":
             result.identified_effect.functional = replace(
