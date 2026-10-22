@@ -98,7 +98,7 @@ def test_the_study_registers_one_row_per_size_reading() -> None:
     }
     found = {(row.instrument, row.study[1].split("/")[1].split("__")[0]) for row in _rows()}
     assert found == expected
-    assert len(_rows()) == 17
+    assert len(_rows()) == 20
 
 
 @pytest.mark.parametrize("row", _rows(), ids=lambda row: f"{row.instrument}-{row.study[1]}")
