@@ -1438,7 +1438,9 @@ def test_repeated_exact_ratio_preserves_combination_and_retargets_each_repeat(mo
     original = source.estimator.retarget
 
     def tracked(*args, **kwargs):
-        calls.append(args[1])
+        # The omitted-variable rows retarget each draw too; count the risk-ratio retargets.
+        if tuple(kwargs["estimands"]) == ("rr",):
+            calls.append(args[1])
         return original(*args, **kwargs)
 
     monkeypatch.setattr(source.estimator, "retarget", tracked)

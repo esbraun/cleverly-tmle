@@ -810,10 +810,6 @@ matching capability row therefore carry one reason.
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
-| a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
-
-The table rule for `repeats=` runs last. A repeated fit that another rule also refuses reports that
-other rule, because one split would not lift it.
 
 #### Second mechanisms and strata of the bound
 
@@ -853,6 +849,36 @@ the [standard error](#standard-error-of-the-omitted-variable-bound) states. Unde
 | `TestTheResidualVariance` | $\sigma^2$ masks $R$ and averages every row. A mutation removes $1\{Z = z\}$ from $R$ |
 | `TestTheStratumShareCurve` | the curve of $\hat\nu^2$ equals a finite-difference Gateaux derivative on every row. A mutation removes the share term |
 | `TestOneStratumIsTheMarginalBound` | a stratum that holds every row gives the marginal bound |
+
+#### The bound after repeated cross-fitting
+
+A fit with `repeats` above 1 has one bound for each draw of the cross-fitting split. Draw $r$ has
+its own estimate $\psi_r$, bias scale $B_r$, and influence curve. The reported quantities combine
+the draws as the table states. One draw reproduces the shipped bound exactly.
+
+| quantity | the combination over draws |
+| --- | --- |
+| each bound | the median of $\psi_r \mp S B_r$, with $S$ the confounding strength |
+| `max_bias` | the median of $B_r$ |
+| each one-sided limit | the median edge $\tilde t$ of the draws, extended by the quantile times $\sqrt{\operatorname{median}_r\{\hat\sigma_r^2 + (t_r - \tilde t)^2\}}$ |
+| `rv` | the strength at which the median bound reaches the null |
+| the confidence-limit robustness value | the strength at which the combined limit reaches the null |
+| each `contour` cell | the median bound at that cell |
+| `benchmark()` | the medians of $\sigma^2$ and $\nu^2$ over draws, before and after the refit |
+| `sensitivity_elements()` | one draw, named by `repeat=`. A bare request refuses, and its capability row requires `repeat` |
+
+The standard error rule is the one that
+[`repeats`](cv-tmle.md#variations) applies to the estimate. Chernozhukov et al.
+(2018, equation 3.14) give it. The rule assumes that $\hat\sigma^2$ and $\hat\nu^2$ are
+asymptotically linear on each draw, with limits common to the draws.
+[X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (b) gives that
+argument for the estimate.
+
+Each draw keeps its point estimate and not its curve, so the bound
+retargets each draw from its own nuisances. The retarget must reproduce the stored estimate of the
+draw, or the call raises `RuntimeError`. The feature `repeats` marks these limits descriptive.
+`tests/unit/test_omitted_variable_repeats.py` checks each row against the fit with one draw at the
+seed of that draw.
 
 #### Omitted-variable limits without coverage evidence
 

@@ -4068,6 +4068,7 @@ class SensitivityFacade(_CapabilityFacade):
             artifacts: Sequence[str],
             interpretation: str,
             cost: Literal["cheap", "moderate", "expensive"] = "cheap",
+            requires_arguments: Sequence[str] = (),
         ) -> AssessmentCapability:
             return _capability(
                 operation,
@@ -4078,6 +4079,7 @@ class SensitivityFacade(_CapabilityFacade):
                 available=available,
                 status=status,
                 refusal=declared_refusal,
+                requires_arguments=requires_arguments,
             )
 
         def tilt(operation: str, *, interpretation: str) -> AssessmentCapability:
@@ -4123,6 +4125,10 @@ class SensitivityFacade(_CapabilityFacade):
                 "elements",
                 artifacts=("fitted representer", "outcome residuals"),
                 interpretation="raw components of the omitted-confounder bias bound",
+                # The elements describe one draw, so a fit with several names the draw.
+                requires_arguments=(
+                    ("repeat",) if int(getattr(self._result, "n_repeats", 1)) > 1 else ()
+                ),
             ),
             _capability(
                 "benchmark",
