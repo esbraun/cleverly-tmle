@@ -201,8 +201,8 @@ class MechanismFluctuation:
     score_initial: FloatArray
     #: Further mechanisms moved by the **same** tilt at the **same** ``epsilon``, in the
     #: order they were passed as ``carry``, and truncated exactly when :attr:`propensity`
-    #: was.  Empty on every fit that did not ask for one --
-    #: :class:`~cleverly.DRTMLE` with ``reduced_crossfit="foldwise"`` is the only caller.
+    #: was.  Empty on every fit that did not ask for one.  :class:`~cleverly.DRTMLE` asks
+    #: for them with an ``evaluation=`` companion and with ``reduced_crossfit="foldwise"``.
     #: Nothing here reads them: they take the tilt and contribute nothing to it.
     carried: tuple[FloatArray, ...] = ()
     converged: bool = True

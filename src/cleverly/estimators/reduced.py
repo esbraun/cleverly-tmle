@@ -109,7 +109,9 @@ REDUCTIONS = ("univariate", "bivariate")
 #: How fold ``k``'s reduced regressions are kept apart from fold ``k``'s data.
 #: ``"foldwise"`` (the :class:`~cleverly.DRTMLE` default) trains fold ``k`` on a slab of
 #: primary arrays from models that left fold ``k`` out, and the alternation tilts that slab
-#: along its own covariate, so no array fold ``k`` reads ever saw fold ``k``.  ``"pooled"``
+#: along its own covariate.  So, given the ``epsilon`` history, no array fold ``k``'s reduced
+#: regressions train on depends on fold ``k``'s data.  The pooled ``epsilon`` is solved on
+#: every row, fold ``k`` included.  ``"pooled"``
 #: reuses the primary split as it stands, which is R ``drtmle``'s ``cvFolds`` construction:
 #: fold ``k``'s data reach its own reduced predictions through the other folds' designs,
 #: targets and tilts.
@@ -525,7 +527,8 @@ def fit_reduced(
     and on rows tilted along covariates built from those folds' reduced regressions.  X83
     measured the resulting bias at +0.23 SD of the ATE at n = 2,000 on the canonical law.
     ``crossfit="foldwise"`` trains fold ``k`` on its slab instead (``nuisance.inner``),
-    whose arrays never saw fold ``k``, and returns the slab's own reduced sets as the fourth
+    whose arrays at the training rows never saw fold ``k`` given the ``epsilon`` history, and
+    returns the slab's own reduced sets as the fourth
     element so the alternation can tilt each slab along its own covariate.
     ``docs/technical-reference/dr-tmle/targeting.md`` carries the argument, its three
     conditions and which learners meet them.

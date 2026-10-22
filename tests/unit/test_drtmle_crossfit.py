@@ -48,7 +48,9 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
+import sklearn.base
 import sklearn.linear_model
 
 from cleverly.data import CausalData
@@ -61,18 +63,24 @@ from cleverly.estimators import targeting as targeting_module
 from cleverly.estimators._nuisance import (
     InitialFit,
     InnerDesigns,
+    NuisanceEstimates,
     Propensity,
+    _screened,
     fit_inner_designs,
 )
-from cleverly.estimators._strata import refuse_untrainable_leave_two_out
+from cleverly.estimators._strata import (
+    refuse_untrainable_leave_two_out,
+    refuse_untrainable_stratum_folds,
+)
 from cleverly.estimators.reduced import ReducedSet, fit_reduced
 from cleverly.estimators.targeting import ONE_STEP_FOLDWISE_REFUSAL
-from cleverly.exceptions import CapabilityError, RefusalReason
+from cleverly.exceptions import CapabilityError, ConvergenceWarning, RefusalReason
 from cleverly.fluctuation.iterative import apply_logistic, split_carry
 from cleverly.fluctuation.mechanism import apply_mechanism_tilt, split_mechanism_carry
 from cleverly.fluctuation.reduced import reduced_mechanism_covariate
 from cleverly.inference import cross_validated_variance
 from cleverly.learners import Folds, make_folds
+from cleverly.utils.bounds import OutcomeScaler
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.discrete_law_longitudinal import CellMeans
@@ -380,28 +388,30 @@ class TestTheCanonicalSourceCVContract:
 
 
 class TestTheSuppliedFoldMappingIsHonoured:
-    """Entry ``k`` is fitted with outer fold ``k`` removed, against the caller's own split.
+    """Each pair ``{k, m}`` is fitted with both folds removed, against the caller's own split.
 
-    The construction is one keyword of
-    :func:`~cleverly.learners.crossfit.cross_fit_predictions` -- ``fit_mask`` with fold ``k``'s
-    rows dropped -- so there is no second split and no new randomness to check.  What there
-    *is* to check is that the mask is fold ``k``'s complement and that the partition passed
-    through is the object the caller supplied.  An off-by-one would nest every fold inside its
-    neighbour and hand back arrays of exactly the right shape, holding exactly plausible
-    probabilities, which is why this is asserted at the call site.
+    The construction is two keywords of
+    :func:`~cleverly.estimators._nuisance.cross_fit_companion`: ``fit_mask`` with fold ``k``'s
+    rows dropped, and ``only`` naming the folds ``m > k``.  So there is no second split and no
+    new randomness to check.  What there *is* to check is that the mask is fold ``k``'s
+    complement, that each pair is fitted once, and that the partition passed through is the
+    object the caller supplied.  An off-by-one would nest every fold inside its neighbour and
+    hand back arrays of exactly the right shape, holding exactly plausible probabilities,
+    which is why this is asserted at the call site.
     """
 
     def test_entry_k_removes_exactly_fold_k_from_the_supplied_split(self, monkeypatch: Any) -> None:
         folds = _folds()
         base = replace(nuisances(WRONG_G, WRONG_Q, folds=folds), folds=folds)
-        seen: list[tuple[Any, np.ndarray]] = []
-        real = nuisance_module.cross_fit_predictions
+        seen: list[tuple[Any, np.ndarray, tuple[int, ...]]] = []
+        real = nuisance_module.cross_fit_companion
 
         def spy(learner: Any, design: Any, target: Any, weights: Any, split: Any, **kw: Any) -> Any:
-            seen.append((split, np.asarray(kw["fit_mask"], dtype=bool).copy()))
+            mask = np.asarray(kw["fit_mask"], dtype=bool).copy()
+            seen.append((split, mask, tuple(kw["only"])))
             return real(learner, design, target, weights, split, **kw)
 
-        monkeypatch.setattr(nuisance_module, "cross_fit_predictions", spy)
+        monkeypatch.setattr(nuisance_module, "cross_fit_companion", spy)
         fit_inner_designs(
             causal_data(),
             base,
@@ -409,18 +419,26 @@ class TestTheSuppliedFoldMappingIsHonoured:
             treatment_learner=CellMeans(),
         )
 
-        assert len(seen) == 2 * FOLDS, "one mechanism and one regression refit per outer fold"
+        # One mechanism and one regression run per fold but the last, which every pair
+        # already covers.
+        assert len(seen) == 2 * (FOLDS - 1)
         assignment = np.asarray(folds.assignment)
         observed = np.asarray(causal_data().observed, dtype=bool)
-        for fold in range(FOLDS):
-            mechanism_split, mechanism_mask = seen[2 * fold]
-            regression_split, regression_mask = seen[2 * fold + 1]
+        pairs = []
+        for fold in range(FOLDS - 1):
+            mechanism_split, mechanism_mask, mechanism_only = seen[2 * fold]
+            regression_split, regression_mask, regression_only = seen[2 * fold + 1]
             # The *same object*, not merely an equal partition: a copy would be a second
             # split, and the whole claim of the construction is that there is not one.
             assert mechanism_split is folds
             assert regression_split is folds
             assert np.array_equal(mechanism_mask, assignment != fold)
             assert np.array_equal(regression_mask, observed & (assignment != fold))
+            assert mechanism_only == regression_only == tuple(range(fold + 1, FOLDS))
+            pairs += [(fold, other) for other in mechanism_only]
+        assert sorted(pairs) == [
+            (first, second) for first in range(FOLDS) for second in range(first + 1, FOLDS)
+        ]
 
 
 class TestIdenticalInnerDesignsReproduceThePooledArrays:
@@ -1148,6 +1166,27 @@ class TestTheRefusalsAndTheDefault:
         DRTMLE(n_folds=2, cross_fit=False)
         DRTMLE(n_folds=2, guard=())
 
+    def test_two_folds_set_after_construction_are_refused_at_the_fit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fit asks again before any learner, with the declaration's own refusal.
+
+        Without that, the fit reaches the post-draw leave-two-out check, whose message
+        blames the split rather than the fold count.  The monkeypatch makes that check
+        raise so that the test fails if the fit gets as far as the draw.
+        """
+
+        def reached(*_: Any) -> None:
+            raise AssertionError("the fit drew folds before refusing n_folds=2")
+
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", reached)
+        estimator = DRTMLE(n_folds=3, simultaneous=False, random_state=0)
+        estimator.n_folds = 2
+        with pytest.raises(CapabilityError, match="leaves two folds out") as raised:
+            estimator.fit(law.frame(), outcome="Y", treatment="A")
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "reduced_crossfit='pooled'" in str(raised.value.refusal.alternative)
+
     def test_the_one_step_walk_is_refused_by_reason(self) -> None:
         """A cost decision rather than a derivation, and it names both ways out."""
         with pytest.raises(CapabilityError, match="one_step") as raised:
@@ -1253,7 +1292,13 @@ class TestEachSlabHoldsTheProductionStateAtItsOwnFold:
 
 
 class TestALeaveTwoOutComplementMustTrainEveryArm:
-    """A pair of folds that holds every row of an arm leaves its slab nothing to fit."""
+    """A pair of folds that holds every row of an arm leaves its slab nothing to fit.
+
+    The leave-two-out primary regressions train on the whole sample outside the pair, so
+    the check is per arm over the whole sample.  A stratum's reduced regressions for fold
+    ``k`` train on the fold-``k`` complement, which ``refuse_untrainable_stratum_folds``
+    checks, so a stratum whose arm sits in two folds is not refused here.
+    """
 
     def test_such_a_split_is_refused_by_name(self) -> None:
         data = causal_data()
@@ -1264,3 +1309,233 @@ class TestALeaveTwoOutComplementMustTrainEveryArm:
 
     def test_a_split_that_spreads_each_arm_passes(self) -> None:
         refuse_untrainable_leave_two_out(causal_data(), _folds())
+
+    def test_a_stratum_whose_arm_sits_in_two_folds_passes(self) -> None:
+        """Stratum ``W = 2``'s treated rows are all in folds 0 and 1, and the fit accepts it.
+
+        The arm still has rows in fold 2 in the other strata, so every leave-two-out fit
+        trains on it.  Each one-fold complement still holds a treated row of the stratum,
+        so the stratum check passes too.  The precondition asserts are the witness: the
+        split does put the stratum's arm in two folds, which a per-stratum pair check
+        refused.
+        """
+        frame = law.frame()
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=["W"], strata=["W"]
+        )
+        rows = np.arange(data.n)
+        corner = (frame["W"].to_numpy() == 2.0) & (frame["A"].to_numpy() == 1.0)
+        assignment = np.where(corner, rows % 2, rows % FOLDS)
+        folds = Folds(assignment, FOLDS)
+        assert set(np.unique(assignment[corner])) == {0, 1}
+        assert np.any((assignment == 2) & (frame["A"].to_numpy() == 1.0))
+
+        refuse_untrainable_leave_two_out(data, folds)
+        refuse_untrainable_stratum_folds(data, folds)
+
+
+def _three_arms() -> Any:
+    """A 900-row, three-arm draw: one normal covariate and a logistic outcome."""
+    rng = np.random.default_rng(1)
+    covariate = rng.normal(size=900)
+    weights = np.exp(np.column_stack([0.0 * covariate, 0.5 * covariate, -0.5 * covariate]))
+    weights /= weights.sum(axis=1, keepdims=True)
+    treatment = np.array([rng.choice(3, p=row) for row in weights])
+    outcome = rng.random(900) < 1.0 / (1.0 + np.exp(-(covariate + 0.3 * treatment)))
+    return pd.DataFrame({"W": covariate, "A": treatment, "Y": outcome.astype(float)})
+
+
+class TestThreeArms:
+    """The identity and the pair cache at three arms, where each mechanism is a matrix."""
+
+    @pytest.mark.parametrize("order", ["drtmle", "benkeser"])
+    def test_each_slab_holds_the_production_state_at_its_own_fold(self, order: str) -> None:
+        refits, worst = _identity_gap(
+            lambda: DRTMLE(
+                outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                n_folds=FOLDS,
+                learner_folds=2,
+                simultaneous=False,
+                random_state=0,
+                update_order=order,
+            ).fit(_three_arms(), outcome="Y", treatment="A")
+        )
+        assert refits >= 2
+        assert worst == 0.0
+
+    def test_each_pair_of_folds_is_fitted_once_and_serves_both_slabs(self) -> None:
+        """Slab ``k`` at fold ``m`` and slab ``m`` at fold ``k`` read one model, fitted once.
+
+        The longhand fit on the rows outside both folds is the witness: a pair served by
+        two different training sets, or a slab handed another pair's model, fails it.
+        """
+        frame = _three_arms()
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"])
+        folds = make_folds(data.n, 4, random_state=0)
+        learner = sklearn.linear_model.LogisticRegression(max_iter=1000)
+        fits: list[int] = []
+        original = nuisance_module.fit_on_rows
+
+        def counted(*args: Any) -> Any:
+            fits.append(1)
+            return original(*args)
+
+        base = NuisanceEstimates(
+            propensity=Propensity(np.full((data.n, 3), 1.0 / 3.0), data.arm_codes),
+            outcome=InitialFit(
+                np.full(data.n, 0.5), {arm: np.full(data.n, 0.5) for arm in data.arm_codes}
+            ),
+            scaler=OutcomeScaler(0.0, 1.0),
+            folds=folds,
+        )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(nuisance_module, "fit_on_rows", counted)
+            inner = fit_inner_designs(
+                data, base, outcome_learner=learner, treatment_learner=learner
+            )
+        assert len(fits) == 2 * 4 * 3 // 2
+        assignment = np.asarray(folds.assignment)
+        design = data.mechanism_covariates
+        for first in range(4):
+            for second in range(first + 1, 4):
+                outside = (assignment != first) & (assignment != second)
+                model = sklearn.base.clone(learner).fit(
+                    design[outside], np.asarray(data.treatment)[outside]
+                )
+                for slab, rows in ((first, second), (second, first)):
+                    expected = model.predict_proba(design[assignment == rows])
+                    got = np.asarray(inner.propensity[slab].values)[assignment == rows]
+                    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12)
+        # The own-fold rows are the production arrays, not a refit.
+        for fold in range(4):
+            own = assignment == fold
+            assert np.all(np.asarray(inner.propensity[fold].values)[own] == 1.0 / 3.0)
+
+
+class TestAScreenedMechanismIsScreenedInEverySlab:
+    """``screen_treatment=True`` screens each leave-two-out fit as it screens production."""
+
+    def test_the_slab_mechanism_is_the_screened_fit_outside_both_folds(self) -> None:
+        from tests.unit.test_stratified_drtmle_exact import SEED, rows
+
+        frame = rows(360, SEED + 2)[["V", "W", "A", "Y"]]
+        frame = frame.assign(N=np.random.default_rng(0).normal(size=len(frame)))
+        covariates = ["W", "V", "N"]
+        result = (
+            DRTMLE(
+                estimands=("ate",),
+                outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                n_folds=FOLDS,
+                simultaneous=False,
+                random_state=0,
+                screen_treatment=True,
+                screen_threshold=0.2,
+                min_retain=1,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            .single()
+        )
+        nuisance = result.repeats[0].nuisance
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=covariates)
+        assignment = np.asarray(nuisance.folds.assignment)
+
+        def gap(learner: Any) -> float:
+            worst = 0.0
+            for slab in range(FOLDS):
+                for other in range(FOLDS):
+                    if other == slab:
+                        continue
+                    outside = (assignment != slab) & (assignment != other)
+                    model = sklearn.base.clone(learner).fit(
+                        data.mechanism_covariates[outside], data.treatment[outside]
+                    )
+                    expected = model.predict_proba(data.mechanism_covariates[assignment == other])
+                    got = nuisance.inner.propensity[slab].arm(1.0)[assignment == other]
+                    worst = max(worst, _largest(got - expected[:, 1]))
+            return worst
+
+        plain = sklearn.linear_model.LogisticRegression(max_iter=1000)
+        assert gap(_screened(plain, 0.2, 1)) <= 1e-12
+        assert gap(plain) > 1e-3, "the screen dropped nothing, so the check is vacuous"
+
+
+class TestAnAlternationThatRunsOutOfRoundsIsAFailure:
+    """A cap exit whose closing pass misses ``spec.tol`` reports ``max_iter_reached``.
+
+    The degenerate case: the 60-cluster informative law of
+    ``tests/unit/test_cluster_ratio_variance.py`` at ``g_bounds=(1e-9, 1 - 1e-9)``.  A
+    foldwise slab takes the pooled ``epsilon`` without a solve of its own, and with no real
+    truncation its mechanism runs toward 0.  The foldwise fit runs to ``max_outer`` with a
+    standard error near ``1.4e5`` while every closing score is inside ``_UNSOLVED``.  So the
+    flag has to come from the cap and not from the scores.  The pooled fit of the same draw
+    exits on tolerance and is the control: it reports no failure and no warning.
+    """
+
+    @pytest.fixture(scope="class")
+    def fits(self) -> dict[str, Any]:
+        from tests.studies import clustered_unequal_laws as laws
+        from tests.unit.test_cluster_ratio_variance import UNIT_LAW, ExactPropensity
+
+        frame = laws.draw_informative(60, np.random.default_rng(20261010), **UNIT_LAW)
+        out: dict[str, Any] = {}
+        for crossfit in ("foldwise", "pooled"):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                result = (
+                    DRTMLE(
+                        outcome_learner=sklearn.linear_model.LogisticRegression(
+                            C=1e6, max_iter=1000
+                        ),
+                        treatment_learner=OracleTreatment(ExactPropensity()),
+                        reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                        reduced_treatment_learner=sklearn.linear_model.LogisticRegression(
+                            max_iter=1000
+                        ),
+                        cross_fit=True,
+                        n_folds=5,
+                        learner_folds=2,
+                        estimands=("ey0",),
+                        simultaneous=False,
+                        random_state=0,
+                        g_bounds=(1e-9, 1.0 - 1e-9),
+                        reduced_crossfit=crossfit,
+                    )
+                    .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cluster")
+                    .single()
+                )
+            out[crossfit] = (result, caught)
+        return out
+
+    def test_the_foldwise_fit_runs_to_the_cap_unsettled(self, fits: dict[str, Any]) -> None:
+        result, _ = fits["foldwise"]
+        reduction = result.fluctuations["mean"].reduction
+        assert reduction.exit_reason == "cap"
+        assert reduction.rounds == reduction.max_outer
+        assert not reduction.converged
+        assert result["ey0"].std_error > 1e3
+
+    def test_it_is_recorded_as_a_targeting_failure(self, fits: dict[str, Any]) -> None:
+        result, _ = fits["foldwise"]
+        fluctuation = result.fluctuations["mean"]
+        assert fluctuation.reduction.failure == "max_iter_reached"
+        assert fluctuation.mechanism.failure == "max_iter_reached"
+        rows = {row.name: row for row in result.diagnostics.score_equations().rows}
+        assert rows["mean (reduced)"].failure == "max_iter_reached"
+
+    def test_and_it_warns(self, fits: dict[str, Any]) -> None:
+        _, caught = fits["foldwise"]
+        messages = [str(w.message) for w in caught if issubclass(w.category, ConvergenceWarning)]
+        assert any("ran out of its 50 rounds" in message for message in messages), messages
+
+    def test_the_pooled_control_exits_on_tolerance_unflagged(self, fits: dict[str, Any]) -> None:
+        result, caught = fits["pooled"]
+        reduction = result.fluctuations["mean"].reduction
+        assert reduction.exit_reason == "tolerance"
+        assert reduction.failure is None
+        assert not [w for w in caught if issubclass(w.category, ConvergenceWarning)]

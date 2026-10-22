@@ -299,12 +299,15 @@ def refuse_untrainable_stratum_folds(
 def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
     """Refuse a foldwise fit whose leave-two-out complements cannot train every arm.
 
-    The foldwise DR-TMLE slabs fit the primary regressions once for each ordered pair of
-    folds ``(k, m)``, on the rows outside both.  Each of those fits needs a row of every arm
-    with an observed outcome, inside every baseline stratum when the fit declares strata.
-    A cluster split removes whole clusters, so a few-cluster split can empty an arm here
-    while every one-fold complement still holds it.  The check reads the data and the
-    drawn folds only, so it runs after the fold draw and before any learner.
+    The foldwise DR-TMLE slabs fit the primary regressions once for each unordered pair of
+    folds ``{k, m}``, on the rows outside both.  Each of those fits trains on the whole
+    sample outside the pair, so it needs a row of every arm with an observed outcome there.
+    Baseline strata do not enter: the primary regressions are not fitted inside a stratum,
+    and a stratum's reduced regressions for fold ``k`` train on the rows of the fold-``k``
+    complement, which :func:`refuse_untrainable_stratum_folds` checks.  A cluster split
+    removes whole clusters, so a few-cluster split can empty an arm here while every
+    one-fold complement still holds it.  The check reads the data and the drawn folds only,
+    so it runs after the fold draw and before any learner.
 
     Parameters
     ----------
@@ -316,7 +319,7 @@ def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
     Raises
     ------
     ValueError
-        If some stratum, arm and pair of folds leave no trainable row outside the pair.
+        If some arm and pair of folds leave no trainable row outside the pair.
     """
     from ..learners.crossfit import _POST_DRAW_REMEDY
 
@@ -325,33 +328,25 @@ def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
     treatment = np.asarray(data.treatment, dtype=float)
     observed = np.asarray(data.observed, dtype=bool)
     assignment = np.asarray(folds.assignment)
-    if data.strata is None:
-        regions = [("the sample", np.ones(data.n, dtype=bool))]
-    else:
-        regions = [
-            (f"baseline stratum {data.stratum_label(code)}", data.strata == code)
-            for code in range(data.n_strata)
-        ]
     pairs = [
         (first, second)
         for first in range(folds.n_folds)
         for second in range(first + 1, folds.n_folds)
     ]
-    for where, inside in regions:
-        for arm in data.arm_codes:
-            trainable = inside & (treatment == float(arm)) & observed
-            for first, second in pairs:
-                outside = (assignment != first) & (assignment != second)
-                if np.any(trainable & outside):
-                    continue
-                raise ValueError(
-                    f"inside {where}: folds {first} and {second} together hold every "
-                    f"trainable row of arm {data.arm_label(arm)!r}, so the leave-two-out "
-                    "regressions of reduced_crossfit='foldwise' cannot be fitted. "
-                    + _POST_DRAW_REMEDY.format(
-                        remedy="fit with reduced_crossfit='pooled' or with fewer folds"
-                    )
+    for arm in data.arm_codes:
+        trainable = (treatment == float(arm)) & observed
+        for first, second in pairs:
+            outside = (assignment != first) & (assignment != second)
+            if np.any(trainable & outside):
+                continue
+            raise ValueError(
+                f"folds {first} and {second} together hold every trainable row of arm "
+                f"{data.arm_label(arm)!r} in the sample, so the leave-two-out primary "
+                "regressions of reduced_crossfit='foldwise' cannot be fitted. "
+                + _POST_DRAW_REMEDY.format(
+                    remedy="fit with reduced_crossfit='pooled' or with more folds"
                 )
+            )
 
 
 def check_stratified_msm_design(msm: object, data: CausalData) -> None:

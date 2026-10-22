@@ -149,24 +149,26 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
     """The rule's inputs, pinned: a changed planning value must change this test too."""
     pilots = properties.PILOTS
     assert {name: pilots[name].bias for name in pilots} == {
-        "primary/treatment_correct": (0.1233, -0.0830, 0.0844),
+        "primary/treatment_correct": (0.1032, -0.0469, 0.0939),
         "primary/outcome_correct": (0.0270, -0.0182, 0.0170),
         "primary/both_correct": (0.0659, -0.0969, -0.0035),
-        "fold_locality": (0.1597, 0.3824),
+        "fold_locality": (0.1023, 0.3170),
         "benkeser_order": (0.0364,),
         "bivariate": (0.1427,),
         "bivariate_oc": (0.0298,),
         "k5": (0.0702,),
         "spline_reduced": (0.1042,),
         "multi_arm": (0.0691,),
-        "stratified": (0.1711, 0.0813, 0.0723, 0.1393),
+        "stratified": (0.0965, 0.0916, 0.0354, 0.0261),
         "both_wrong": (12.6089,),
     }
     assert {name: pilots[name].replicates for name in pilots} == {
         **dict.fromkeys(pilots, 400),
+        "primary/treatment_correct": 1_200,
         "primary/both_correct": 800,
+        "fold_locality": 2_000,
         "both_wrong": 800,
-        "stratified": 200,
+        "stratified": 800,
     }
     for name, pilot in pilots.items():
         correlation = np.asarray(pilot.correlation)
@@ -186,9 +188,9 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
 
 def test_the_regime_tau_is_its_q_profile_upper_bound() -> None:
     tau, mean, spread = properties.regime_tau()
-    assert tau == pytest.approx(0.04327, abs=1e-5)
-    assert mean == pytest.approx(0.09536, abs=1e-5)
-    assert spread == pytest.approx(0.02957, abs=1e-5)
+    assert tau == pytest.approx(0.03797, abs=1e-5)
+    assert mean == pytest.approx(0.09286, abs=1e-5)
+    assert spread == pytest.approx(0.02622, abs=1e-5)
     # The posterior of each regime arm moves toward the pooled mean.
     draws = properties.planning_draws()
     for name in properties.REGIME:
@@ -212,16 +214,16 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
     assert properties.BUDGETS == {
         "primary": 8_000,
         "fold_locality": 8_000,
-        "benkeser_order": 2_000,
-        "bivariate": 5_600,
+        "benkeser_order": 1_600,
+        "bivariate": 4_000,
         "bivariate_oc": 1_600,
-        "k5": 2_400,
-        "spline_reduced": 3_200,
+        "k5": 2_000,
+        "spline_reduced": 2_800,
         "both_wrong": 400,
         "multi_arm": 3_600,
-        "stratified": 8_000,
+        "stratified": 3_200,
     }
-    assert properties.FALLBACK == ("primary", "fold_locality", "stratified")
+    assert properties.FALLBACK == ("primary", "fold_locality")
     assert properties.BUDGETS["primary"] >= properties.PRIMARY_FLOOR
     assert set(properties.GROUPS) | {"primary", "multi_arm"} == set(properties.UNITS)
     for name, group in properties.GROUPS.items():
@@ -232,7 +234,7 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
 def test_the_family_wise_predictive_pass_is_pinned_and_below_target() -> None:
     """The fallback is open: the declared budgets do not reach the family-wise 0.95."""
     value = properties.family_pass()
-    assert value == pytest.approx(0.567, abs=0.003)
+    assert value == pytest.approx(0.897, abs=0.003)
     assert value < properties.STUDY_TARGET
     with pytest.raises(RuntimeError, match="fallback"):
         properties.assert_sized()
@@ -250,7 +252,7 @@ def test_the_unit_rule_is_monotone_and_reads_every_clause(
         kept = tuple(c for c in properties.CLAUSES if c != clause)
         assert properties.unit_pass("primary", 2_000, kept) > full, clause
     assert properties.unit_pass("fold_locality", 2_000, ("displacement",)) == 1.0
-    monkeypatch.setattr(properties, "FOLD_LOCALITY_DISPLACEMENT", 0.249)
+    monkeypatch.setattr(properties, "FOLD_LOCALITY_DISPLACEMENT", 0.230)
     assert properties.unit_pass("fold_locality", 2_000, ("displacement",)) < 0.6
     # The control rows read the discrimination clause: a positive reading of them fails.
     assert properties.unit_pass("both_wrong", 400) == 1.0
@@ -299,10 +301,10 @@ def test_the_leak_control_is_declared_and_its_threshold_resolves_the_pilot() -> 
     assert leak.threshold == properties.FOLD_LOCALITY_DISPLACEMENT == 0.10
     foldwise, pooled = properties.PILOTS["fold_locality"].bias
     displacement = properties.LEAK_SPREAD_RATIO * pooled - foldwise
-    assert displacement == pytest.approx(0.249, abs=5e-4)
+    assert displacement == pytest.approx(0.2304, abs=5e-4)
     assert 0.0 < leak.threshold < displacement / 2
-    # Almost six pilot standard errors (0.517 / sqrt(400)) between the threshold and the pilot.
-    assert (displacement - leak.threshold) / (0.517 / np.sqrt(400)) > 5
+    # Eleven pilot standard errors (0.533 / sqrt(2000)) between the threshold and the pilot.
+    assert (displacement - leak.threshold) / (0.533 / np.sqrt(2000)) > 10
     fits = {cell: (role, fit) for _, cell, role, fit in properties.GROUPS["fold_locality"].fits}
     assert fits["ate__foldwise"] == ("positive", runner.Fit())
     assert fits["ate__pooled"] == ("control", runner.Fit(reduced_crossfit="pooled"))

@@ -23,6 +23,7 @@ This module deliberately does not import :mod:`cleverly.estimators.base`, so
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
@@ -39,7 +40,7 @@ from .._typing import (
     TargetingMethod,
 )
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from ..exceptions import CapabilityError, ConvergenceWarning, DataError, Refusal, RefusalReason
 from ..fluctuation._score import (
     STOP_CONTEXT_MISSING,
     StopContext,
@@ -294,6 +295,43 @@ def _largest(score: FloatArray) -> float:
 #: score magnitude rather than about how the loop ended -- see
 #: :attr:`ReductionFluctuation.exit_reason`.
 ReductionExit = Literal["tolerance", "stall", "cap"]
+
+
+def _capped_failure(
+    unsolved: TargetingFailure | None,
+    exit_reason: ReductionExit,
+    converged: bool,
+    *,
+    group: str,
+    max_outer: int,
+    warn: bool,
+) -> TargetingFailure | None:
+    """The record's failure once an alternation that ran out of rounds is counted as one.
+
+    ``unsolved`` judges the closing pass's scores against :data:`_UNSOLVED` and never reads
+    the round count.  A loop that exhausts ``max_outer`` without meeting ``spec.tol`` can
+    still close below that bar while its state has not settled: on the 60-cluster law of
+    ``tests/unit/test_drtmle_crossfit.py::TestAnAlternationThatRunsOutOfRoundsIsAFailure``
+    the fold-wise slabs ran to the cap with :math:`g_{r,2}` near ``3e7``, a standard error of
+    about ``1.4e5``, and every closing score inside the bar.  Such a fit reports
+    ``"max_iter_reached"`` and, when ``warn`` is set, raises a
+    :class:`~cleverly.exceptions.ConvergenceWarning`, because the score check can pass it.
+    A cap exit whose closing pass meets ``spec.tol`` stays unflagged: the closing pass
+    solved the equations the reported curve is built from.
+    """
+    if exit_reason != "cap" or converged:
+        return unsolved
+    if warn:
+        warnings.warn(
+            f"the doubly-robust alternation of the {group!r} targeting step ran out of its "
+            f"{max_outer} rounds without meeting its tolerance. The closing scores can still "
+            "look solved while the state has not settled, so the standard errors may not "
+            f"describe this estimate. Inspect res.fluctuations[{group!r}].reduction.trace.",
+            ConvergenceWarning,
+            stacklevel=4,
+        )
+    return unsolved or "max_iter_reached"
+
 
 #: Which order the three equations are solved in within a round.  Two routes to one stated
 #: exit rather than two estimators: the 2016 working paper's step 7 states its own
@@ -1258,8 +1296,9 @@ class ReductionFluctuation:
     failure: str | None = None
     #: Which of the loop's three exits fired.  **Not** a restatement of :attr:`failure`, and
     #: the two disagree in both directions: ``failure`` is set from the *closing pass's*
-    #: scores against :data:`_UNSOLVED` and never reads the round count, so a fit that ran
-    #: out of rounds but scores well reports ``None`` while one that stalled at round three
+    #: scores against :data:`_UNSOLVED`, and from the cap only when the closing pass also
+    #: misses ``spec.tol`` (:func:`_capped_failure`).  So a fit that ran out of rounds and
+    #: then closed at the tolerance reports ``None``, while one that stalled at round three
     #: with a bad score reports ``"max_iter_reached"`` -- a name that on its own would have a
     #: reader believe the cap was reached.  Which exit fired is a fact about the loop, it is
     #: recoverable from nowhere else on this record, and it is what a claim of the form "such
@@ -2401,6 +2440,24 @@ def solve_with_reduction(
             and _solved(*equations[2], _UNSOLVED, negligible)
             else "max_iter_reached"
         )
+    # The loop's own exit test, applied to the state the closing pass returns. It used to be
+    # ``worst <= spec.tol`` on the relative maximum, which asks equations (9) and (10) for a
+    # bar :data:`_NEGLIGIBLE` says they cannot reach: measured before this changed, a fit
+    # that exited at ``"tolerance"`` with ``failure=None`` still reported ``converged=False``,
+    # so the field was false on essentially every fit and separated nothing.
+    converged = bool(
+        all(_solved(relative, absolute, spec.tol, negligible) for relative, absolute in equations)
+        if spec.stopping == "relative"
+        else (
+            fluctuation.rule_ratio is not None
+            and fluctuation.rule_ratio <= 1.0
+            and _extra_met(extra_ratio, equations[1], spec.tol, negligible)
+            and _solved(*equations[2], spec.tol, negligible)
+        )
+    )
+    unsolved = _capped_failure(
+        unsolved, exit_reason, converged, group=group, max_outer=max_outer, warn=warn
+    )
     failure = unsolved
     if mechanism is not None:
         mechanism = replace(
@@ -2420,25 +2477,7 @@ def solve_with_reduction(
         trace=tuple(trace),
         rounds=rounds,
         max_outer=max_outer,
-        # The loop's own exit test, applied to the state the closing pass returns. It used to
-        # be ``worst <= spec.tol`` on the relative maximum, which asks equations (9) and (10)
-        # for a bar :data:`_NEGLIGIBLE` says they cannot reach: measured before this changed, a
-        # fit that exited at ``"tolerance"`` with ``failure=None`` still reported
-        # ``converged=False``, so the field was false on essentially every fit and separated
-        # nothing.
-        converged=bool(
-            all(
-                _solved(relative, absolute, spec.tol, negligible)
-                for relative, absolute in equations
-            )
-            if spec.stopping == "relative"
-            else (
-                fluctuation.rule_ratio is not None
-                and fluctuation.rule_ratio <= 1.0
-                and _extra_met(extra_ratio, equations[1], spec.tol, negligible)
-                and _solved(*equations[2], spec.tol, negligible)
-            )
-        ),
+        converged=converged,
         failure=failure,
         exit_reason=exit_reason,
         ill_conditioned=ill_conditioned,
@@ -2477,7 +2516,6 @@ def _solve_missing_outcome_reduction(
     across arms.  With baseline strata every covariate of every block is in stratum form
     (:class:`StratumBlocks`), so each stratum's drift equations are solved apart.
     """
-    del warn  # failures are recorded on the returned targeting objects
     if tuple(reduction.guard) != ("Q", "g") and set(reduction.guard) != {"Q", "g"}:
         raise ValueError("missing-outcome targeting requires both guards")
     if not isinstance(nuisance.reduced, MissingOutcomeReducedSet):
@@ -2737,6 +2775,20 @@ def _solve_missing_outcome_reduction(
             )
             else "max_iter_reached"
         )
+    converged = bool(
+        all(_solved(relative, absolute, spec.tol, negligible) for relative, absolute in equations)
+        if spec.stopping == "relative"
+        else (
+            outcome_ratio <= 1.0
+            and all(
+                _solved(relative, absolute, spec.tol, negligible)
+                for relative, absolute in equations[2:]
+            )
+        )
+    )
+    unsolved = _capped_failure(
+        unsolved, exit_reason, converged, group=group, max_outer=max_outer, warn=warn
+    )
     width = standard_blocks.dim
     record = ReductionFluctuation(
         reduced=reduced,
@@ -2750,20 +2802,7 @@ def _solve_missing_outcome_reduction(
         trace=tuple(trace),
         rounds=len(trace),
         max_outer=max_outer,
-        converged=bool(
-            all(
-                _solved(relative, absolute, spec.tol, negligible)
-                for relative, absolute in equations
-            )
-            if spec.stopping == "relative"
-            else (
-                outcome_ratio <= 1.0
-                and all(
-                    _solved(relative, absolute, spec.tol, negligible)
-                    for relative, absolute in equations[2:]
-                )
-            )
-        ),
+        converged=converged,
         failure=unsolved,
         exit_reason=exit_reason,
         observation=replace(observation_fit, failure=observation_fit.failure or unsolved),

@@ -357,6 +357,8 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     },
     ("src/cleverly/estimators/reduced.py", "must contain only finite values"): _MALFORMED,
     ("src/cleverly/estimators/targeting.py", "intervention that defines it; this"): (_INTERNAL),
+    ("src/cleverly/estimators/targeting.py", "the foldwise slabs carry no reduced"): _INTERNAL,
+    ("src/cleverly/estimators/targeting.py", "does not support foldwise slabs"): _INTERNAL,
     ("src/cleverly/estimators/targeting.py", "model that defines them; this"): (_INTERNAL),
     ("src/cleverly/estimators/targeting.py", "regressions that define them; this"): (_INTERNAL),
     ("src/cleverly/estimators/targeting.py", "has no five-regression refit"): _INTERNAL,

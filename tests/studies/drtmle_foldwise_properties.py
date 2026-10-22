@@ -6,34 +6,37 @@ Every cell fits ``ate`` with ``cross_fit=True`` and, except the leak control, th
 =========================================  =========  =====  ========  ===============================  ================
 cell                                       role       n      R         configuration                    planning (SD)
 =========================================  =========  =====  ========  ===============================  ================
-``fold_locality/ate__foldwise``            positive   1,500  8,000 F   ``treatment_correct``            0.160 +/- 0.050
-``fold_locality/ate__pooled``              control    1,500  8,000 F   the same draw, ``"pooled"``      0.382 +/- 0.050
-``double_robustness/ate__benkeser_order``  positive   3,000  2,000     ``update_order="benkeser"``      0.070 +/- 0.037 P
-``double_robustness/ate__bivariate``       positive   3,000  5,600     ``reduction="bivariate"``        0.115 +/- 0.037 P
+``fold_locality/ate__foldwise``            positive   1,500  8,000 F   ``treatment_correct``            0.102 +/- 0.022
+``fold_locality/ate__pooled``              control    1,500  8,000 F   the same draw, ``"pooled"``      0.317 +/- 0.022
+``double_robustness/ate__benkeser_order``  positive   3,000  1,600     ``update_order="benkeser"``      0.072 +/- 0.035 P
+``double_robustness/ate__bivariate``       positive   3,000  4,000     ``reduction="bivariate"``        0.110 +/- 0.035 P
 ``double_robustness/ate__bivariate_oc``    positive   3,000  1,600     the same, ``outcome_correct``    0.030 +/- 0.050
-``double_robustness/ate__k5``              positive   3,000  2,400     ``n_folds=5``                    0.084 +/- 0.037 P
-``double_robustness/ate__spline_reduced``  positive   3,000  3,200     spline reduced learners          0.099 +/- 0.037 P
+``double_robustness/ate__k5``              positive   3,000  2,000     ``n_folds=5``                    0.084 +/- 0.034 P
+``double_robustness/ate__spline_reduced``  positive   3,000  2,800     spline reduced learners          0.097 +/- 0.034 P
 ``double_robustness/ate__both_wrong``      control    3,000  400       ``both_wrong``                   12.6 (registered)
 ``double_robustness/multi_arm_drtmle__``   positive   2,000  3,600     the multi-arm law                0.069 +/- 0.050
 ``treatment_correct``
-``double_robustness/<label>__stratified``  positive   2,000  8,000 F   the stratified paper law,        0.171, 0.081,
-                                                                       ``outcome_correct``              0.072, 0.139
-                                                                                                        +/- 0.071
+``double_robustness/<label>__stratified``  positive   2,000  3,200     the stratified paper law,        0.097, 0.092,
+                                                                       ``outcome_correct``              0.035, 0.026
+                                                                                                        +/- 0.035
 =========================================  =========  =====  ========  ===============================  ================
 
 The primary phase (:mod:`tests.studies.drtmle_foldwise`) is the tenth unit: three regimes at
-n = 3,000, R = 8,000 F.  Its planning values are ``treatment_correct`` ``ate`` 0.107 +/- 0.037 P,
-``ey0`` -0.072, ``ey1`` 0.073 (pilot ``tc3000``); ``outcome_correct`` 0.028, -0.018, 0.018
-+/- 0.050 (P1); ``both_correct`` 0.066, -0.097, -0.003 +/- 0.035 (``canonical-drtmle``
-pooled).  ``P`` marks a posterior of the pooled ``treatment_correct`` regime (``tau`` bound
-0.043, pooled mean 0.095).  ``F`` marks a unit in :data:`FALLBACK`: no budget up to
-:data:`CEILING` reaches its share, and the ceiling stands in its place.  At these budgets the
-family-wise predictive pass is about 0.57, below the 0.95 target.
+n = 3,000, R = 8,000 F.  Its planning values are ``treatment_correct`` ``ate`` 0.099 +/- 0.025 P,
+``ey0`` -0.044, ``ey1`` 0.091 (pilot ``tc3000``, 1,200 replications); ``outcome_correct`` 0.028,
+-0.018, 0.018 +/- 0.050 (P1); ``both_correct`` 0.066, -0.097, -0.003 +/- 0.035
+(``canonical-drtmle`` pooled).  ``P`` marks a posterior of the pooled ``treatment_correct``
+regime (``tau`` bound 0.038, pooled mean 0.093).  ``F`` marks a unit in :data:`FALLBACK`: no
+budget up to :data:`CEILING` reaches its share, and the ceiling stands in its place.  The
+primary unit fails on the coverage clause of the P1 ``outcome_correct`` rows (pass 0.988 at
+8,000).  The leak unit fails on its pooled control, whose bias sits 0.067 SD outside the margin
+(pass 0.934 at 8,000).  At these budgets the family-wise predictive pass is about 0.90, below
+the 0.95 target.
 
 The paper-law cells fit one regime of the ``canonical-drtmle`` law each.  Under
 ``treatment_correct`` the outcome GLM omits ``W1 W2`` and the mechanism is correct; that is the
-regime where the fold leak shows (pilot ``leak1500``: pooled ``+0.382`` SD, fold-wise ``+0.160``
-SD at n = 1,500).  Each ``treatment_correct`` variant changes one setting of the primary fit
+regime where the fold leak shows (pilot ``leak1500``: pooled ``+0.317`` SD, fold-wise ``+0.102``
+SD at n = 1,500, 2,000 replications).  Each ``treatment_correct`` variant changes one setting of the primary fit
 (review F6, F10, F11).  ``ate__bivariate_oc`` fits the bivariate reduction under
 ``outcome_correct``, where the mechanism is wrong and equation (10)'s slab tilt of the single
 bivariate reduced mechanism is load bearing.  ``ate__both_wrong`` is the double-robustness
@@ -92,7 +95,10 @@ above its floor whose predictive pass reaches the unit share ``0.95 ** (1 / len(
 **Fallback, declared before the run.**  A unit that no budget up to :data:`CEILING` sizes is
 listed in :data:`FALLBACK`.  Its remedy is a larger n for the failing positive arm, planned from
 a pilot at that n.  The margin is never widened.  :func:`assert_sized` refuses a run while
-:data:`FALLBACK` is not empty.
+:data:`FALLBACK` is not empty.  Neither unit now in it has a theory-justified larger n.  The
+primary n is the claim's n, and its binding rows are the n = 2,000 P1 coverages, which a pilot
+at n = 3,000 would plan.  The leak unit fails on its pooled control, and a larger n shrinks the
+leak toward the margin rather than away from it.
 """
 
 from __future__ import annotations
@@ -161,6 +167,8 @@ TAU_LEVEL = 0.80
 
 _PILOT_A = "x83 sizing pilot, reviews/x83/pilot2/pilot_a.csv"
 _PILOT_B = "x83 sizing pilot, reviews/x83/pilot2/pilot_b.csv"
+#: The extension pilot of the three units pilot 2 could not size, same code and columns.
+_PILOT_C = "x83 sizing pilot, reviews/x83/pilot3/pilot_c"
 
 
 @dataclass(frozen=True)
@@ -209,13 +217,13 @@ _ATE_EY = ("ate", "ey0", "ey1")
 #: and estimand, so a pooled value is an upper planning value for its fold-wise row.
 PILOTS: Mapping[str, Pilot] = {
     "primary/treatment_correct": Pilot(
-        f"{_PILOT_A}, cell tc3000",
-        400,
+        f"{_PILOT_A} r < 400 and {_PILOT_C}_tc.csv r 400 to 1,199, cell tc3000",
+        1_200,
         _ATE_EY,
-        (0.1233, -0.0830, 0.0844),
-        ((1.0, -0.6702, 0.6875), (-0.6702, 1.0, 0.0782), (0.6875, 0.0782, 1.0)),
-        se_ratio=(1.0052, 1.0199, 1.0124),
-        coverage=(0.9400, 0.9425, 0.9450),
+        (0.1032, -0.0469, 0.0939),
+        ((1.0, -0.6727, 0.6986), (-0.6727, 1.0, 0.0596), (0.6986, 0.0596, 1.0)),
+        se_ratio=(0.9815, 1.0123, 0.9924),
+        coverage=(0.9392, 0.9442, 0.9483),
     ),
     "primary/outcome_correct": Pilot(
         "X83 probe P1, reviews/x83/p1/r_outcome_correct_foldwise_*.csv, n = 2,000",
@@ -236,11 +244,11 @@ PILOTS: Mapping[str, Pilot] = {
         coverage=(0.94375, 0.9575, 0.9425),
     ),
     "fold_locality": Pilot(
-        f"{_PILOT_A}, cell leak1500",
-        400,
+        f"{_PILOT_A} r < 400 and {_PILOT_C}_leak.csv r 400 to 1,999, cell leak1500",
+        2_000,
         ("foldwise", "pooled"),
-        (0.1597, 0.3824),
-        ((1.0, 0.8771), (0.8771, 1.0)),
+        (0.1023, 0.3170),
+        ((1.0, 0.8659), (0.8659, 1.0)),
         controls=("pooled",),
     ),
     "benkeser_order": Pilot(f"{_PILOT_A}, cell benkeser_order", 400, ("ate",), (0.0364,), _ONE),
@@ -256,15 +264,15 @@ PILOTS: Mapping[str, Pilot] = {
     ),
     "multi_arm": Pilot(f"{_PILOT_A}, cell multi_arm", 400, ("ate",), (0.0691,), _ONE),
     "stratified": Pilot(
-        f"{_PILOT_B}, cell strat_oc",
-        200,
+        f"{_PILOT_B} r < 200 and {_PILOT_C}_strat.csv r 200 to 799, cell strat_oc",
+        800,
         stratified.ATE_LABELS,
-        (0.1711, 0.0813, 0.0723, 0.1393),
+        (0.0965, 0.0916, 0.0354, 0.0261),
         (
-            (1.0, 0.7130, 0.4959, 0.4641),
-            (0.7130, 1.0, -0.0221, 0.0390),
-            (0.4959, -0.0221, 1.0, -0.0767),
-            (0.4641, 0.0390, -0.0767, 1.0),
+            (1.0, 0.7320, 0.5229, 0.4722),
+            (0.7320, 1.0, 0.0211, 0.0575),
+            (0.5229, 0.0211, 1.0, -0.0398),
+            (0.4722, 0.0575, -0.0398, 1.0),
         ),
     ),
     "both_wrong": Pilot(
@@ -283,11 +291,11 @@ REGIME = ("primary/treatment_correct", "benkeser_order", "bivariate", "k5", "spl
 
 #: The leak pilot's ``sd(pooled error) / sd(foldwise error)``, which turns the two rows'
 #: standardized biases into the paired displacement: ``|ratio * b_pooled - b_foldwise|``.  The
-#: pilot's displacement is ``0.249``, with per-replication SD ``0.517``.
-LEAK_SPREAD_RATIO = 1.0688
+#: pilot's displacement is ``0.230``, with per-replication SD ``0.533``.
+LEAK_SPREAD_RATIO = 1.0494
 
-#: The declared joint threshold of the leak control.  The pilot's ``0.249 +/- 0.026`` sits
-#: almost six of its standard errors above it; a construction wired as pooled reads exactly zero.
+#: The declared joint threshold of the leak control.  The pilot's ``0.230 +/- 0.012`` sits
+#: eleven of its standard errors above it; a construction wired as pooled reads exactly zero.
 FOLD_LOCALITY_DISPLACEMENT = 0.10
 
 #: The stratified ``treatment_correct`` rows of ``pilot_b.csv`` (200 replications, one draw
@@ -521,18 +529,18 @@ def family_pass(budgets: Mapping[str, int] | None = None) -> float:
 BUDGETS: Mapping[str, int] = {
     "primary": 8_000,
     "fold_locality": 8_000,
-    "benkeser_order": 2_000,
-    "bivariate": 5_600,
+    "benkeser_order": 1_600,
+    "bivariate": 4_000,
     "bivariate_oc": 1_600,
-    "k5": 2_400,
-    "spline_reduced": 3_200,
+    "k5": 2_000,
+    "spline_reduced": 2_800,
     "both_wrong": 400,
     "multi_arm": 3_600,
-    "stratified": 8_000,
+    "stratified": 3_200,
 }
 
 #: The units no budget up to :data:`CEILING` sizes, each the output of :func:`budget`.
-FALLBACK: tuple[str, ...] = ("primary", "fold_locality", "stratified")
+FALLBACK: tuple[str, ...] = ("primary", "fold_locality")
 
 
 def assert_sized() -> None:

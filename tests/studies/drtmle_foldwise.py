@@ -31,13 +31,13 @@ module declares ``FAILURE_BOUND = 0.01``, in the form ``docs/development/method-
 ("Property fitting failures", "The bound") defines.  A fit that raises, a non-finite score
 audit and an active propensity bound each count as a failed replicate.
 
-**Cost.**  The sizing pilot's seconds per fit, on four busy cores: primary 3.8 (``tc3000``,
-taken for all three regimes and for the both-wrong control), leak pair 6.0 for both fits,
+**Cost.**  The sizing pilots' seconds per fit, on four busy cores: primary 3.8 (``tc3000``,
+taken for all three regimes and for the both-wrong control), leak pair 5.8 for both fits,
 ``benkeser_order`` 4.2, ``bivariate`` 3.3, ``bivariate_oc`` 3.0, ``k5`` 1.8, ``spline_reduced``
-17.9, multi-arm 1.6, stratified 11.4.  At the declared budgets that is about 92 CPU-hours: 25.3
-primary, 13.3 leak, 25.4 stratified, 15.9 spline, and 12 for the other cells.  The three units
-in the property module's ``FALLBACK`` hold their budget at the 8,000 ceiling and carry 64 of
-the 92 hours.  A run is refused while that tuple is not empty.
+17.9, multi-arm 1.6, stratified 11.8.  At the declared budgets that is about 73 CPU-hours: 25.3
+primary, 12.9 leak, 14.0 spline, 10.5 stratified, and 10 for the other cells.  The two units in
+the property module's ``FALLBACK`` hold their budget at the 8,000 ceiling and carry 38 of the
+73 hours.  A run is refused while that tuple is not empty.
 
 **Declared before any run:** the budgets and seeds of this module and of the property module,
 ``publication_policy="gated"``, and the reading the property module states.

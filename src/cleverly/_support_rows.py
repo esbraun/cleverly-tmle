@@ -47,7 +47,14 @@ _POINT: Final[frozenset[Kind]] = frozenset({"point"})
 
 
 def default_options(engine: str) -> dict[str, Any]:
-    """The options a default fit of ``engine`` carries in its key.
+    """The options a support row of ``engine`` carries in its key unless it overrides them.
+
+    For ``"tmle"`` and ``"collaborative_tmle"`` these are the options of a default fit.  For
+    ``"drtmle"`` they differ from a default fit in one option.  The key names
+    ``reduced_crossfit="pooled"``, which :func:`cleverly._support.point_key` records for
+    every fit that runs the in-sample or unguarded path, and which the stacked rows ``D01``
+    to ``D03`` measured against R ``drtmle``.  A default cross-fitted ``DRTMLE`` fit runs
+    ``"foldwise"``, and only a row that overrides ``reduced_crossfit`` covers it.
 
     Parameters
     ----------

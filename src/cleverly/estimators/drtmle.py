@@ -45,7 +45,9 @@ r"""Doubly-robust nonparametric inference: a TMLE with two extra reduced-regress
    3. **The alternation is not guaranteed to converge, though it mostly does.**
       Equation (10)'s covariate becomes small on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
-      the outer cap or an inner solve can stop at working precision. The original 96-fit
+      the outer cap or an inner solve can stop at working precision. A cap exit whose
+      closing pass misses the tolerance reports ``failure="max_iter_reached"`` and raises a
+      :class:`~cleverly.exceptions.ConvergenceWarning`. The original 96-fit
       sweep had cross-fitting disabled and therefore did not cover the shipped 10-fold
       default. A fixed-seed default-path check observed numerical difficulty in 3 of 46
       rounds at ``n=200``, 2 of 16 at ``n=1000``, and none of 8 at ``n=3000``; every final
@@ -160,7 +162,7 @@ from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
-from ._nuisance import NuisanceEstimates, fit_inner_designs
+from ._nuisance import NuisanceEstimates, _screened, fit_inner_designs
 from ._strata import refuse_untrainable_leave_two_out, refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
@@ -404,15 +406,17 @@ class DRTMLE(TMLE):
         Where fold ``k``'s reduced regressions train on a cross-fitted fit.
         ``"foldwise"`` (default) trains them on slab ``k``: leave-two-out primary arrays
         at the other folds' rows, tilted along slab ``k``'s own covariates at the pooled
-        ``epsilon``.  No array in the slab saw fold ``k``.  ``"pooled"`` trains them on
+        ``epsilon``.  Given the ``epsilon`` history, no array in the slab outside fold ``k``
+        depends on fold ``k``'s data.  ``"pooled"`` trains them on
         the other folds' production arrays, which is R ``drtmle``'s ``cvFolds``
         construction: fold ``k``'s data reach its own reduced regressions through those
         rows (X83 measured +0.23 SD of ATE bias against foldwise at n = 2,000).
         ``docs/technical-reference/dr-tmle/targeting.md`` gives the argument.
 
         Foldwise is refused below ``n_folds=3`` and with ``targeting="one_step"``.  It
-        costs ``K`` times the primary nuisance fitting, paid once.  In sample there is
-        one fold, so both settings run the same path.
+        costs ``K(K-1)/2`` extra fits of each primary learner, paid once.  A saved
+        foldwise result carries ``K`` slabs.  In sample there is one fold, so both
+        settings run the same path.
     evaluation:
         An independent draw -- a dataframe or a prepared
         :class:`~cleverly.data.CausalData` -- at which this fit's nuisances are **also**
@@ -499,9 +503,10 @@ class DRTMLE(TMLE):
       axes -- each is a different score equation with no reduced-dimension derivation;
     * ``intermediate=``, whose mechanism factor would sit inside the reduced regressions;
     * a missing treatment beside ``randomized=True`` or ``treatment_probabilities=``, and
-      ``evaluation=`` or ``reduced_crossfit="foldwise"`` on the composite construction.  The
-      shared gate in :func:`~cleverly.estimators.composite.missing_treatment_refusal` names
-      every composition a missing treatment refuses;
+      ``evaluation=`` on the composite construction.  The shared gate in
+      :func:`~cleverly.estimators.composite.missing_treatment_refusal` names every
+      composition a missing treatment refuses.  The composite construction is in-sample
+      only, so ``reduced_crossfit=`` has no effect there and is not refused;
     * ``delta=`` with ``cross_fit=True``, at every ``guard`` including ``guard=()``. The
       published missing-outcome theorem does not establish a cross-validated extension;
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
@@ -642,6 +647,23 @@ class DRTMLE(TMLE):
         """
         return bool(self.guard) and self.cross_fit and self.reduced_crossfit == "foldwise"
 
+    def _refuse_foldwise_folds(self) -> None:
+        # Asked in the constructor and again at the fit, before the fold draw's own checks,
+        # so that an estimator whose ``n_folds`` changes after construction meets this
+        # refusal rather than the post-draw leave-two-out one.
+        if self._foldwise() and self.n_folds < 3:
+            raise CapabilityError(
+                "reduced_crossfit='foldwise' leaves two folds out at a time -- the fold "
+                "being predicted and the fold being trained on -- so it needs at least "
+                f"three; got n_folds={self.n_folds}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Pass n_folds=3 or more, or reduced_crossfit='pooled' (R drtmle's "
+                    "cvFolds construction, which lets each fold's data reach its own "
+                    "reduced regressions)."
+                ),
+            )
+
     def _refuse_one_step_foldwise(self) -> None:
         # Asked at the fit and at a guarded truncation curve rather than in the
         # constructor, so that an estimator whose ``targeting`` or ``reduced_crossfit``
@@ -754,18 +776,7 @@ class DRTMLE(TMLE):
                 "cvFolds construction, in which each fold's data reach its own reduced "
                 "regressions through the other folds."
             )
-        if self._foldwise() and self.n_folds < 3:
-            raise CapabilityError(
-                "reduced_crossfit='foldwise' leaves two folds out at a time -- the fold "
-                "being predicted and the fold being trained on -- so it needs at least "
-                f"three; got n_folds={self.n_folds}.",
-                reason=RefusalReason.INVALID_DECLARATION,
-                alternative=(
-                    "Pass n_folds=3 or more, or reduced_crossfit='pooled' (R drtmle's "
-                    "cvFolds construction, which lets each fold's data reach its own "
-                    "reduced regressions)."
-                ),
-            )
+        self._refuse_foldwise_folds()
         if self.evaluation is not None:
             # Each refused because the companion would come back describing a fit nobody
             # ran, and none of the three would raise on its own.
@@ -856,6 +867,9 @@ class DRTMLE(TMLE):
             # Before the reductions, because they read it. Once per fit rather than once
             # per round: every refit inside the alternation moves these slabs, each along
             # its own covariate, rather than re-learning them.
+            treatment = self._resolve_learner(
+                self.treatment_learner, task="classification", seed=seed
+            )
             base = replace(
                 base,
                 inner=fit_inner_designs(
@@ -864,8 +878,12 @@ class DRTMLE(TMLE):
                     outcome_learner=self._resolve_learner(
                         self.outcome_learner, task=base.outcome_task, seed=seed
                     ),
-                    treatment_learner=self._resolve_learner(
-                        self.treatment_learner, task="classification", seed=seed
+                    # Screened inside each training set exactly as the production
+                    # mechanism is, so a slab's arrays come from the production learner.
+                    treatment_learner=(
+                        _screened(treatment, self.screen_threshold, self.min_retain)
+                        if self.screen_treatment
+                        else treatment
                     ),
                     n_jobs=self.n_jobs,
                     outcome_by_arm=self.outcome_by_arm,
@@ -1221,6 +1239,7 @@ class DRTMLE(TMLE):
                 alternative="Fit DRTMLE or CTMLE alone.",
                 roadmap="F5",
             )
+        self._refuse_foldwise_folds()
         self._refuse_one_step_foldwise()
         if not data.has_arms:
             refuse_unsupported("continuous")

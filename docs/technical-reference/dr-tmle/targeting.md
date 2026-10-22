@@ -234,7 +234,9 @@ At n = 2,000 the pooled ATE interval covers 0.915 of `treatment_correct` draws, 
 interval covers 0.950. The pooled-minus-in-sample bias falls from +0.326 SD to +0.156 SD between
 n = 2,000 and 8,000. Standardized bias falls like `n^(−1/2)` when the bias falls like `1/n`, so
 the leak is second order. It is large at the sample sizes of the registered studies. The probe
-files are in the plans repository under `reviews/x83/`.
+output is not a committed artifact. The registered `drtmle-foldwise` study
+(`tests/studies/drtmle_foldwise.py`) repeats the pooled and foldwise fits on the
+`canonical-drtmle` draws.
 
 ### The argument for the foldwise construction
 
@@ -285,31 +287,37 @@ The foldwise construction keeps two second-order terms.
 | `TestTheSlabsTiltAlongTheirOwnCovariates` | with the slabs carried along the production covariates, a foldwise fit equals a pooled fit bit for bit |
 | `TestADataIndependentPrimaryLearnerLeavesOnlyTheTiltChannel` | with identical initial designs, the two settings still give different estimates |
 | `TestEachSlabHoldsTheProductionStateAtItsOwnFold` | own-fold slab rows equal the production state at every refit, with strata and with an `evaluation=` companion |
+| `TestThreeArms` | the same identity at three arms in both update orders. Each pair of folds is fitted once per learner, and the longhand fit outside the pair reproduces both of its slab entries |
+| `TestAScreenedMechanismIsScreenedInEverySlab` | with `screen_treatment=True` each leave-two-out mechanism equals a screened fit outside its pair. An unscreened fit differs by more than `1e-3` |
 
 ### Limits of the foldwise construction
 
 | limit | statement |
 | --- | --- |
-| folds | `n_folds` must be at least 3. A fit with fewer folds raises `CapabilityError` (`INVALID_DECLARATION`) before any learner, and names `reduced_crossfit="pooled"` |
-| trainable rows | each pair of folds must leave a trainable row of every arm, inside each baseline stratum. A split that does not is refused after the fold draw and before any learner |
+| folds | `n_folds` must be at least 3. A fit with fewer folds raises `CapabilityError` (`INVALID_DECLARATION`) before any learner, and names `reduced_crossfit="pooled"`. The fit asks again when `n_folds` changes after construction |
+| trainable rows | each pair of folds must leave a trainable row of every arm in the whole sample. The leave-two-out primary regressions do not train inside a baseline stratum. A split that does not leave such a row is refused after the fold draw and before any learner |
 | `targeting="one_step"` | refused on cost: the one-step walk would carry one slab per fold. The refusal names `targeting="iterative"` and `reduced_crossfit="pooled"` |
-| truncation | a slab takes the pooled `epsilon` without a solve of its own. Without a real truncation a slab's mechanism can run to 0. A cross-fitted fit at `g_bounds=(1e-9, 1 − 1e-9)` on the informative cluster law reached the outer cap with `g_{r,2}` near 3e7. The same fit at `(0.01, 0.99)` and at `"auto"` exits on tolerance in 5 or 6 rounds (`tests/unit/test_cluster_ratio_variance.py`) |
+| truncation | a slab takes the pooled `epsilon` without a solve of its own. Without a real truncation a slab's mechanism can run to 0. A cross-fitted fit at `g_bounds=(1e-9, 1 − 1e-9)` on the informative cluster law reaches the outer cap with `g_{r,2}` near 3e7 and a standard error near 1.4e5. The fit reports `failure="max_iter_reached"` and raises a `ConvergenceWarning`. The pooled fit of the same draw exits on tolerance (`TestAnAlternationThatRunsOutOfRoundsIsAFailure` in `tests/unit/test_drtmle_crossfit.py`) |
+| saved results | a foldwise result carries `K` slabs of primary arrays and reduced sets, so a saved artifact grows about `K`-fold. A retarget, such as `truncation_curve()`, reads the slabs |
 | `targeting_scheme="fold"` | refused. The foldwise construction is pooled in the tilt |
 | in sample | `cross_fit=False` has one fold and no complement, so both settings run one in-sample path |
 
 ### Cost of the foldwise construction
 
-The foldwise construction fits each primary nuisance once more for every pair of folds. With
-`n_folds=K` that is `K(K − 1)/2` extra fits of each primary learner. Pass explicit learners and
-fewer folds when the default learner library is too slow.
+The foldwise construction fits each primary nuisance once more for every unordered pair of
+folds. One fit serves both slabs of the pair. With `n_folds=K` that is `K(K − 1)/2` extra fits of
+each primary learner. `TestThreeArms` in `tests/unit/test_drtmle_crossfit.py` counts the fits.
+Pass explicit learners and fewer folds when the default learner library is too slow.
 
 The table gives one measurement. The setting is the `both_correct` law of
 `tests/studies/canonical_drtmle.py` at n = 500, the default learner library, the default 10 folds,
-and one core.
+and one core. The measurement ran before the pair cache. That implementation made `K²` extra
+fits of each learner: it fitted each pair twice and refitted each production model. At `K = 10`
+the extra fits now number 45 per learner in place of 100. The time was not measured again.
 
 | phase | `"pooled"` | `"foldwise"` |
 | --- | --- | --- |
-| initial nuisance fits | about 80 s | about 910 s (45 leave-two-out pairs) |
+| initial nuisance fits | about 80 s | about 910 s (100 leave-two-out fits per learner) |
 | first refit of the reduced regressions | 192 s | 195 s |
 | one outer round after the first | not measured | about 200 s |
 
