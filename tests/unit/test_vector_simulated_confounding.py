@@ -164,9 +164,9 @@ def test_mv1_a_latent_draw_per_component_is_caught(monkeypatch: pytest.MonkeyPat
         "_perturb_components",
         [
             (
-                "_perturb_treatment(values[:, index], latent, strengths[name], family)",
-                "_perturb_treatment(values[:, index], np.roll(latent, index), "
-                "strengths[name], family)",
+                "values[:, index], latent, strengths[name], family, pairs.get(name)",
+                "values[:, index], np.roll(latent, index), strengths[name], family, "
+                "pairs.get(name)",
             )
         ],
     )
@@ -181,7 +181,12 @@ def test_mv2_a_dose_read_by_the_flip_law_is_caught(monkeypatch: pytest.MonkeyPat
         surface_module,
         surface_module,
         "_perturb_components",
-        [('"binary" if levels else "continuous"', '"binary"')],
+        [
+            (
+                '"continuous" if not levels else "categorical" if name in pairs else "binary"',
+                '"binary"',
+            )
+        ],
     )
     result = _fit()
     surface = _surface(result)
@@ -253,3 +258,72 @@ def test_the_natural_course_mean_of_a_vector_is_refused() -> None:
         grid=ConfounderStrengthGrid(treatment={"F": (0.0,), "D": (0.0, 0.5)}, outcome=(0.0,)),
         random_state=5,
     ).complete
+
+
+# ------------------------------------------------------------------ a categorical component
+
+
+def _three_level_fit() -> Any:
+    """The mixed law with a third flag level on a fifth of the rows (X82 part F (a))."""
+    frame = law.mixed_sample(400, 21)
+    third = np.random.default_rng(4).random(len(frame)) < 0.2
+    frame.loc[third, "F"] = 2.0
+    study = CausalStudy(frame, design=spine.point_design(continuous_treatment=["D"]))
+    identified = study.identify(
+        ModifiedTreatmentPolicyEffect(
+            policies=[point_tests.joint("natural"), point_tests.joint("dose up")],
+            reference="natural",
+        )
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return identified.estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            simultaneous=False,
+            ratio="classifier",
+            random_state=5,
+        )
+
+
+def test_a_three_level_component_swaps_its_declared_pair_and_keeps_its_third_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _three_level_fit()
+    alias = "ate_policy[dose up vs natural]"
+    grid = ConfounderStrengthGrid(treatment={"F": (0.0, 0.3), "D": (0.0,)}, outcome=(0.0,))
+    with pytest.raises(ValueError, match="must name exactly the categorical components"):
+        simulated_confounding(result, estimand=alias, grid=grid)
+    seen: list[Any] = []
+    original = result.estimator.refit
+
+    def refit(data: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(data)
+        return original(data, *args, **kwargs)
+
+    monkeypatch.setattr(result.estimator, "refit", refit)
+    data = result.data
+    levels = data.component_levels[data.component_names.index("F")]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        surface = simulated_confounding(
+            result,
+            estimand=alias,
+            grid=grid,
+            random_state=5,
+            arm_pair={"F": (levels[2], levels[0])},
+        )
+    assert surface.arm_pair == (("F", (levels[2], levels[0])),)
+    (replacement,) = seen
+    latent = np.random.default_rng(surface.latent_seed).normal(size=data.n)
+    tail = latent >= NormalDist().inv_cdf(1 - 0.3)
+    f = data.component_names.index("F")
+    before = data.treatment_components[:, f]
+    after = replacement.treatment_components[:, f]
+    expected = before.copy()
+    expected[tail & (before == 2.0)] = 0.0
+    expected[tail & (before == 0.0)] = 2.0
+    assert np.array_equal(after, expected)
+    assert np.array_equal(after[before == 1.0], before[before == 1.0])
+    assert np.any(after != before)

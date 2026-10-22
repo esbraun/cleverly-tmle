@@ -244,6 +244,22 @@ class SimulatedConfoundingResult:
         The component columns of a vector treatment, in the grid's order, or ``()``.  Each
         cell's ``treatment_strength`` and ``induced_treatment_association`` then hold one
         value per component in this order.
+    arm_pair : tuple or None
+        The two arm labels ``(a, b)`` that the pairwise swap of a multi-arm treatment
+        exchanges, or ``None`` on every other treatment.  Each cell's
+        ``induced_treatment_association`` then reads the indicator of arm ``a`` on the rows
+        in arm ``a`` or ``b``.
+    latent_level : {"row", "cluster", "mixed"}
+        The declared level of the latent cause.  ``"cluster"`` draws one value per
+        cluster.  ``"mixed"`` draws ``sqrt(rho) U_cluster + sqrt(1 - rho) e_row``, which
+        keeps each row's latent standard normal.
+    latent_rho : float or None
+        The intra-cluster correlation of a ``"mixed"`` latent, else ``None``.
+    n_clusters : int or None
+        The cluster count of a clustered fit, else ``None``.
+    weights_estimated : bool
+        Whether the fit declared its observation weights estimated.  Every cell holds them
+        fixed at their supplied values, so each cell targets the fit's weighted population.
     known_mechanism_carried : bool
         Whether the fitted data declared a known treatment mechanism.  The flip of
         strength :math:`s` is drawn from a latent normal independent of :math:`W`, so the
@@ -286,6 +302,11 @@ class SimulatedConfoundingResult:
     conditioning_arm: Any = None
     known_mechanism_carried: bool = False
     treatment_components: tuple[str, ...] = ()
+    arm_pair: tuple[Any, Any] | None = None
+    latent_level: Literal["row", "cluster", "mixed"] = "row"
+    latent_rho: float | None = None
+    n_clusters: int | None = None
+    weights_estimated: bool = False
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -322,20 +343,44 @@ class SimulatedConfoundingResult:
             One ``label: value`` line for each population field, in a fixed order.
         """
         return (
-            f"target population: {self.population}",
-            f"conditioning arm: {self.conditioning_arm!r}",
-            f"baseline stratum: {self.stratum!r}",
-            f"strata columns: {self.strata_names!r}",
-            f"association population: {self.association_population}",
-            f"calibration population: {self.calibration_population}",
-            f"refit population: {self.refit_population}",
-        ) + (
             (
-                "treatment mechanism: known on the data; each cell that flips the treatment "
-                "declares the flipped mechanism (1 - s) g0 + s (1 - g0)",
+                f"target population: {self.population}",
+                f"conditioning arm: {self.conditioning_arm!r}",
+                f"baseline stratum: {self.stratum!r}",
+                f"strata columns: {self.strata_names!r}",
+                f"association population: {self.association_population}",
+                f"calibration population: {self.calibration_population}",
+                f"refit population: {self.refit_population}",
             )
-            if self.known_mechanism_carried
-            else ()
+            + (
+                (
+                    "treatment mechanism: known on the data; each cell that flips the treatment "
+                    "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
+                    if self.arm_pair is None
+                    else "treatment mechanism: known on the data; each cell that swaps the arms "
+                    "declares (1 - s) g_a + s g_b for arm a, (1 - s) g_b + s g_a for arm b, "
+                    "and the other arms unchanged",
+                )
+                if self.known_mechanism_carried
+                else ()
+            )
+            + (
+                (
+                    f"latent level: {self.latent_level}"
+                    + (f" (rho {self.latent_rho:.4g})" if self.latent_rho is not None else "")
+                    + f" over {self.n_clusters} clusters",
+                )
+                if self.n_clusters is not None
+                else ()
+            )
+            + (
+                (
+                    "observation weights: declared estimated; every cell holds them fixed at "
+                    "the supplied values, so each cell targets the fit's weighted population",
+                )
+                if self.weights_estimated
+                else ()
+            )
         )
 
     @property
@@ -490,6 +535,7 @@ class SimulatedConfoundingResult:
                 *self.population_lines(),
                 self.treatment_law,
                 self.outcome_law,
+                *self._calibration_lines(),
                 "",
                 format_table(
                     [
@@ -523,6 +569,16 @@ class SimulatedConfoundingResult:
             ]
         )
 
+    def _calibration_lines(self) -> tuple[str, ...]:
+        """Name the calibration rows whose unpenalized fit separated, if any."""
+        separated = sum(1 for row in self.calibrations if row.method == SEPARATION_METHOD)
+        if not separated:
+            return ()
+        return (
+            f"calibration: {separated} of {len(self.calibrations)} strengths are nan, because "
+            "the unpenalized logistic fit separates the classes and has no finite solution",
+        )
+
     def _reading_guard(self) -> tuple[str, ...]:
         """Return the lines that say which cells carry a confounding path."""
         if self.treatment_family == "vector":
@@ -533,6 +589,23 @@ class SimulatedConfoundingResult:
                 "its associations.",
                 "A cell whose treatment strengths are all zero also has no confounding path. "
                 "Its movement reports the outcome perturbation alone.",
+            )
+        if self.treatment_family == "categorical":
+            return (
+                "The association reads the indicator of arm {!r} on the rows in arms {!r} "
+                "and {!r}.".format(self.arm_pair[0], *self.arm_pair)
+                if self.arm_pair is not None
+                else "",
+                "An association near zero says the swap moved the estimate by "
+                "misclassification between the two arms and not by confounding.",
+                *(
+                    (
+                        "The estimate can also move because each cell rebuilds its ATT or "
+                        "ATC population from the swapped treatment.",
+                    )
+                    if self.population == "perturbed_treatment_group"
+                    else ()
+                ),
             )
         if self.treatment_family == "binary":
             if self.population == "perturbed_treatment_group":
@@ -579,6 +652,28 @@ def _format_values(value: Any, spec: str) -> str:
     if isinstance(value, tuple):
         return "(" + ", ".join("n/a" if v is None else format(v, spec) for v in value) + ")"
     return format(value, spec)
+
+
+def _pair_labels(data: Any, request: _ValidatedRequest) -> Any:
+    """The labels of the swapped pair, ``a`` first.
+
+    A one-column multi-arm treatment gives ``(a, b)``.  A vector treatment gives one
+    ``(component, (a, b))`` entry per component that swaps a pair, in component order.
+    """
+    if request.component_pairs:
+        return tuple(
+            (
+                name,
+                (
+                    data.component_levels[data.component_names.index(name)][int(first)],
+                    data.component_levels[data.component_names.index(name)][int(second)],
+                ),
+            )
+            for name, (first, second) in request.component_pairs
+        )
+    assert request.arm_codes is not None
+    first, second = request.arm_codes
+    return (data.arm_label(first), data.arm_label(second))
 
 
 def _is_anchor(strength: float | tuple[float, ...], outcome: float) -> bool:
@@ -682,6 +777,14 @@ def _baseline_treatment_association(
         Pearson correlation, or ``None`` when the treatment has zero standard deviation.
     """
     mask = request.baseline_mask
+    if request.arm_codes is not None:
+        # The swap acts on the rows of the two declared arms, and the association reads
+        # the indicator of arm ``a`` among them.
+        first, second = request.arm_codes
+        mask = mask & ((treatment == first) | (treatment == second))
+        return _weighted_correlation(
+            latent[mask], (treatment[mask] == first).astype(float), weights[mask]
+        )
     return _weighted_correlation(latent[mask], treatment[mask], weights[mask])
 
 
@@ -705,6 +808,98 @@ def _latent_child_seed(root_seed: int) -> int:
     """
     sequence = np.random.SeedSequence([root_seed, _LATENT_SEED_TAG])
     return int(sequence.generate_state(1)[0])
+
+
+def _draw_latent(
+    n: int,
+    latent_seed: int,
+    cluster: np.ndarray[Any, Any] | None,
+    level: Literal["row", "cluster", "mixed"],
+    rho: float | None,
+) -> np.ndarray[Any, Any]:
+    """Draw the shared latent vector at its declared level.
+
+    ``"row"`` draws ``n`` standard normals, the stream every unclustered surface has used.
+    ``"cluster"`` draws one standard normal per cluster code and gives it to every row of
+    the cluster.  ``"mixed"`` draws the cluster values first and the row values second from
+    the same generator, and returns ``sqrt(rho) U_c + sqrt(1 - rho) e``, so each row's
+    latent stays standard normal and a flip strength stays a flip probability.
+
+    Parameters
+    ----------
+    n : int
+        The row count.
+    latent_seed : int
+        The tagged child seed of the latent draw.
+    cluster : ndarray or None
+        The contiguous cluster code of each row, or ``None`` on an unclustered fit.
+    level : {"row", "cluster", "mixed"}
+        The declared level.
+    rho : float or None
+        The intra-cluster correlation of a ``"mixed"`` latent.
+
+    Returns
+    -------
+    ndarray
+        One latent value per row.
+    """
+    generator = np.random.default_rng(latent_seed)
+    if level == "row":
+        return generator.normal(size=n)
+    assert cluster is not None
+    codes = np.asarray(cluster, dtype=int)
+    shared = generator.normal(size=int(codes.max()) + 1)[codes]
+    if level == "cluster":
+        return shared
+    assert rho is not None
+    return np.sqrt(rho) * shared + np.sqrt(1.0 - rho) * generator.normal(size=n)
+
+
+def _swap_arms(
+    values: np.ndarray[Any, Any], mask: np.ndarray[Any, Any], arms: tuple[float, float]
+) -> np.ndarray[Any, Any]:
+    """Exchange arms ``a`` and ``b`` on the masked rows, and keep every other arm.
+
+    The pairwise swap of a multi-arm treatment: the binary tail flip applied to the two arms
+    of the declared pair.  The mask does not read the arm, so the law is the same whichever
+    of the two is named first.
+    """
+    first, second = arms
+    swapped = values.copy()
+    swapped[mask & (values == first)] = second
+    swapped[mask & (values == second)] = first
+    return swapped
+
+
+def swapped_mechanism(
+    values: np.ndarray[Any, Any], strength: float, arms: tuple[int, int]
+) -> np.ndarray[Any, Any]:
+    r"""The known mechanism of a multi-arm treatment after the pairwise swap.
+
+    The swap mask is independent of :math:`W` and :math:`A` with probability :math:`s`, so
+    :math:`g_s(a \mid W) = (1 - s)\, g_0(a \mid W) + s\, g_0(b \mid W)`, the same with
+    :math:`a` and :math:`b` exchanged, and every other arm keeps :math:`g_0`.
+
+    Parameters
+    ----------
+    values : ndarray
+        The declared ``(n, K)`` mechanism, one column per arm in code order.
+    strength : float
+        The swap probability :math:`s`.
+    arms : tuple of int
+        The column indices of the two swapped arms.
+
+    Returns
+    -------
+    ndarray
+        The ``(n, K)`` mechanism of the swapped treatment.
+    """
+    declared = np.asarray(values, dtype=float)
+    first, second = arms
+    out = declared.copy()
+    out[:, first] = (1.0 - strength) * declared[:, first] + strength * declared[:, second]
+    out[:, second] = (1.0 - strength) * declared[:, second] + strength * declared[:, first]
+    return out
 
 
 def _flip_mask(latent: np.ndarray[Any, Any], strength: float) -> np.ndarray[Any, Any]:
@@ -752,10 +947,14 @@ def _perturb_treatment(
     values: np.ndarray[Any, Any],
     latent: np.ndarray[Any, Any],
     strength: float,
-    family: Literal["binary", "continuous"],
+    family: Literal["binary", "categorical", "continuous"],
+    arms: tuple[float, float] | None = None,
 ) -> np.ndarray[Any, Any]:
     if family == "continuous":
         return _linear_treatment(values, latent, strength)
+    if family == "categorical":
+        assert arms is not None
+        return _swap_arms(values, _flip_mask(latent, strength), arms)
     return _flip_binary(values, _flip_mask(latent, strength))
 
 
@@ -763,10 +962,12 @@ def _perturb_components(
     data: Any,
     latent: np.ndarray[Any, Any],
     strengths: Mapping[str, float],
+    pairs: Mapping[str, tuple[float, float]] | None = None,
 ) -> np.ndarray[Any, Any]:
     """Perturb each component of a vector treatment through the one shared latent vector.
 
-    A binary component is flipped in the upper latent tail, and a dose takes
+    A binary component is flipped in the upper latent tail, a categorical component with
+    more than two levels swaps its declared pair of levels in that tail, and a dose takes
     ``D' = D + k_D U``, the laws of a one-column treatment.  Every component reads the same
     ``U``, so one simulated common cause reaches every component and the outcome.
 
@@ -778,18 +979,26 @@ def _perturb_components(
         The shared latent vector.
     strengths : mapping of str to float
         Each component column's strength.
+    pairs : mapping of str to tuple of float, or None
+        The level codes ``(a, b)`` that each categorical component with more than two
+        levels swaps.
 
     Returns
     -------
     ndarray
         The ``(n, d)`` perturbed component values, in the data's component order.
     """
+    pairs = pairs or {}
     values = np.asarray(data.treatment_components, dtype=float).copy()
     for index, (name, levels) in enumerate(
         zip(data.component_names, data.component_levels, strict=True)
     ):
-        family: Literal["binary", "continuous"] = "binary" if levels else "continuous"
-        values[:, index] = _perturb_treatment(values[:, index], latent, strengths[name], family)
+        family: Literal["binary", "categorical", "continuous"] = (
+            "continuous" if not levels else "categorical" if name in pairs else "binary"
+        )
+        values[:, index] = _perturb_treatment(
+            values[:, index], latent, strengths[name], family, pairs.get(name)
+        )
     return values
 
 
@@ -800,15 +1009,23 @@ def _component_associations(
     values: np.ndarray[Any, Any],
     columns: tuple[str, ...],
 ) -> tuple[float | None, ...]:
-    """The induced association of each component, in ``columns`` order."""
-    mask = request.baseline_mask
+    """The induced association of each component, in ``columns`` order.
+
+    A component that swaps a declared pair reads the indicator of its arm ``a`` on the
+    rows at level ``a`` or ``b``, as a one-column multi-arm treatment does.
+    """
+    pairs = dict(request.component_pairs)
     weights = data.weights
-    return tuple(
-        _weighted_correlation(
-            latent[mask], values[mask, data.component_names.index(name)], weights[mask]
-        )
-        for name in columns
-    )
+    out: list[float | None] = []
+    for name in columns:
+        column = values[:, data.component_names.index(name)]
+        mask = request.baseline_mask
+        if name in pairs:
+            first, second = pairs[name]
+            mask = mask & ((column == first) | (column == second))
+            column = (column == first).astype(float)
+        out.append(_weighted_correlation(latent[mask], column[mask], weights[mask]))
+    return tuple(out)
 
 
 def _weights_are_constant(weights: np.ndarray[Any, Any]) -> bool:
@@ -876,24 +1093,66 @@ def _gaussian_outcome(
     return values - strength * latent
 
 
+#: The method text of a calibration whose unpenalized logistic fit has no finite solution.
+SEPARATION_METHOD = "no finite unpenalized logistic fit (separation); strength not defined"
+
+
 def _binary_calibration(
     design: np.ndarray[Any, Any],
     target: np.ndarray[Any, Any],
-    index: int,
+    block: list[int],
     weights: np.ndarray[Any, Any],
-) -> float:
-    model = LogisticRegression(max_iter=1000)
-    if _weights_are_constant(weights):
+) -> tuple[float, str]:
+    """Measure the class-prediction change of removing one covariate block.
+
+    The fit is an unpenalized logistic regression (multinomial on more than two classes)
+    of ``target`` on the standardized design.  The strength is the weighted share of rows
+    whose predicted class changes when every column of ``block`` is set to its weighted
+    mean, which is zero after standardizing.  An unpenalized fit is invariant to the
+    parametrization of a categorical covariate, so its block strength does not depend on
+    the dropped reference level (hard-stop review F10).  An L2 penalty is not invariant.
+
+    A fit that classifies every row correctly has completely separated classes, so the
+    maximum-likelihood fit does not exist.  The strength is then ``nan`` with
+    :data:`SEPARATION_METHOD`.
+
+    Parameters
+    ----------
+    design : ndarray
+        The standardized adjustment design.
+    target : ndarray
+        The treatment codes or the binary outcome.
+    block : list of int
+        The design columns of the benchmarked covariate.
+    weights : ndarray
+        Normalized fixed row masses.
+
+    Returns
+    -------
+    tuple of (float, str)
+        The strength and the method text.
+    """
+    model = LogisticRegression(C=np.inf, max_iter=1000)
+    constant = _weights_are_constant(weights)
+    if constant:
         model.fit(design, target)
     else:
         model.fit(design, target, sample_weight=weights)
     baseline = model.predict(design)
+    classes = np.unique(target).size
+    method = (
+        "unpenalized logistic class-prediction change fraction"
+        if classes <= 2
+        else "unpenalized multinomial class-prediction change fraction"
+    )
+    if bool(np.all(baseline == target)) or int(np.max(model.n_iter_)) >= model.max_iter:
+        return float("nan"), SEPARATION_METHOD
     removed = design.copy()
-    removed[:, index] = 0.0
+    removed[:, block] = 0.0
     changed = model.predict(removed) != baseline
-    if _weights_are_constant(weights):
-        return float(np.mean(changed))
-    return float(np.average(changed, weights=weights))
+    if constant:
+        return float(np.mean(changed)), method
+    return float(np.average(changed, weights=weights)), method
 
 
 def _continuous_calibration(
@@ -907,34 +1166,80 @@ def _continuous_calibration(
     return correlation * _weighted_std(target, weights)
 
 
-def _component_calibrations(
-    data: Any, design: np.ndarray[Any, Any], name: str, index: int
-) -> list[ObservedConfounderCalibration]:
-    """The treatment calibration of one covariate against each component of a vector."""
-    rows = []
-    for position, (column, levels) in enumerate(
-        zip(data.component_names, data.component_levels, strict=True)
-    ):
-        values = data.treatment_components[:, position]
-        if levels:
-            strength = _binary_calibration(design, values, index, data.weights)
-            family: Literal["binomial", "gaussian"] = "binomial"
-            method = "logistic class-prediction change fraction"
-        else:
-            strength = _continuous_calibration(data.covariates[:, index], values, data.weights)
-            family = "gaussian"
-            method = "signed standardized marginal coefficient"
-        rows.append(
-            ObservedConfounderCalibration(
-                covariate=name,
-                role="treatment",
-                family=family,
-                strength=strength,
-                method=method,
-                component=column,
-            )
-        )
-    return rows
+#: The method text of the Gaussian calibration of one numeric covariate.
+_NUMERIC_GAUSSIAN_METHOD = "signed standardized marginal coefficient"
+#: The method text of the Gaussian calibration of one categorical covariate's block.
+_BLOCK_GAUSSIAN_METHOD = "block multiple correlation times target SD (unsigned)"
+
+
+def _block_continuous_calibration(
+    columns: np.ndarray[Any, Any],
+    target: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
+) -> float:
+    """``R * sd(target)`` for a block, with ``R`` the multiple correlation of the block.
+
+    ``R`` is the square root of the weighted coefficient of determination of an
+    unpenalized least-squares fit of ``target`` on the block with an intercept.  A block
+    has no sign, so the strength is unsigned.  For a block of one column ``R`` is the
+    absolute correlation, so the strength is the absolute numeric strength.
+    """
+    w = weights / np.sum(weights)
+    design = np.column_stack((np.ones(target.size), columns))
+    root = np.sqrt(w)
+    coefficients, *_ = np.linalg.lstsq(design * root[:, None], target * root, rcond=None)
+    fitted = design @ coefficients
+    mean = float(np.sum(w * target))
+    total = float(np.sum(w * np.square(target - mean)))
+    if total == 0.0:
+        return float("nan")
+    explained = float(np.sum(w * np.square(fitted - mean)))
+    return float(np.sqrt(min(max(explained / total, 0.0), 1.0))) * _weighted_std(target, weights)
+
+
+def _block_columns(data: Any, name: str) -> list[int]:
+    """The design columns of one benchmark covariate: itself, or a categorical's indicators."""
+    encoding = next((item for item in data.encodings if item.column == name), None)
+    if encoding is None:
+        return [data.covariate_names.index(name)]
+    return [
+        data.covariate_names.index(column)
+        for column in encoding.generated
+        if column in data.covariate_names
+    ]
+
+
+def _calibration_row(
+    data: Any,
+    design: np.ndarray[Any, Any],
+    name: str,
+    block: list[int],
+    target: np.ndarray[Any, Any],
+    binary: bool,
+    role: Literal["treatment", "outcome"],
+    component: str | None = None,
+) -> ObservedConfounderCalibration:
+    """One calibration row of one covariate against one perturbed variable."""
+    categorical = any(encoding.column == name for encoding in data.encodings)
+    if binary:
+        strength, method = _binary_calibration(design, target, block, data.weights)
+        family: Literal["binomial", "gaussian"] = "binomial"
+    elif categorical:
+        strength = _block_continuous_calibration(data.covariates[:, block], target, data.weights)
+        method = _BLOCK_GAUSSIAN_METHOD
+        family = "gaussian"
+    else:
+        strength = _continuous_calibration(data.covariates[:, block[0]], target, data.weights)
+        method = _NUMERIC_GAUSSIAN_METHOD
+        family = "gaussian"
+    return ObservedConfounderCalibration(
+        covariate=name,
+        role=role,
+        family=family,
+        strength=strength,
+        method=method,
+        component=component,
+    )
 
 
 def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderCalibration, ...]:
@@ -948,47 +1253,39 @@ def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderC
         design = scaler.transform(data.covariates)
     rows: list[ObservedConfounderCalibration] = []
     for name in names:
-        index = data.covariate_names.index(name)
+        block = _block_columns(data, name)
         if data.treatment_kind == "vector":
             # One treatment row per component, by that component's law.
-            rows.extend(_component_calibrations(data, design, name, index))
+            for position, (column, levels) in enumerate(
+                zip(data.component_names, data.component_levels, strict=True)
+            ):
+                rows.append(
+                    _calibration_row(
+                        data,
+                        design,
+                        name,
+                        block,
+                        data.treatment_components[:, position],
+                        bool(levels),
+                        "treatment",
+                        component=column,
+                    )
+                )
         else:
-            if data.is_continuous_treatment:
-                treatment_strength = _continuous_calibration(
-                    data.covariates[:, index], data.treatment, data.weights
-                )
-                treatment_family: Literal["binomial", "gaussian"] = "gaussian"
-                treatment_method = "signed standardized marginal coefficient"
-            else:
-                treatment_strength = _binary_calibration(
-                    design, data.treatment, index, data.weights
-                )
-                treatment_family = "binomial"
-                treatment_method = "logistic class-prediction change fraction"
             rows.append(
-                ObservedConfounderCalibration(
-                    covariate=name,
-                    role="treatment",
-                    family=treatment_family,
-                    strength=treatment_strength,
-                    method=treatment_method,
+                _calibration_row(
+                    data,
+                    design,
+                    name,
+                    block,
+                    data.treatment,
+                    not data.is_continuous_treatment,
+                    "treatment",
                 )
             )
-        if data.family == "binomial":
-            outcome_strength = _binary_calibration(design, data.outcome, index, data.weights)
-            method = "logistic class-prediction change fraction"
-        else:
-            outcome_strength = _continuous_calibration(
-                data.covariates[:, index], data.outcome, data.weights
-            )
-            method = "signed standardized marginal coefficient"
         rows.append(
-            ObservedConfounderCalibration(
-                covariate=name,
-                role="outcome",
-                family=data.family,
-                strength=outcome_strength,
-                method=method,
+            _calibration_row(
+                data, design, name, block, data.outcome, data.family == "binomial", "outcome"
             )
         )
     return tuple(rows)
@@ -1001,6 +1298,9 @@ def simulated_confounding(
     grid: ConfounderStrengthGrid,
     benchmark_covariates: tuple[str, ...] = (),
     random_state: int | None = None,
+    arm_pair: tuple[Any, Any] | None = None,
+    latent_level: Literal["row", "cluster", "mixed"] | None = None,
+    latent_rho: float | None = None,
 ) -> SimulatedConfoundingResult:
     """Refit a selected parameter across a simulated common-cause strength grid.
 
@@ -1029,6 +1329,16 @@ def simulated_confounding(
         Numeric observed covariates for optional calibration on the full original population.
     random_state : int or None
         Root seed. ``None`` uses the fitted estimator's seed or draws a recorded seed.
+    arm_pair : tuple or None
+        The two arm labels ``(a, b)`` that the pairwise swap of a multi-arm treatment
+        exchanges.  A two-arm contrast such as ``ate[a vs b]`` declares its pair, so the
+        argument is needed only for another parameter of a multi-arm fit, such as an arm
+        mean.  ``a`` names the arm whose indicator the induced association reads.
+    latent_level : {"row", "cluster", "mixed"} or None
+        The level of the latent cause.  A clustered fit must declare it.  ``None`` on an
+        unclustered fit means ``"row"``.
+    latent_rho : float or None
+        The intra-cluster correlation of a ``"mixed"`` latent, strictly between 0 and 1.
 
     Returns
     -------
@@ -1121,7 +1431,15 @@ def simulated_confounding(
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
-    request = _validate_request(result, estimand, grid, benchmark_covariates)
+    request = _validate_request(
+        result,
+        estimand,
+        grid,
+        benchmark_covariates,
+        arm_pair=arm_pair,
+        latent_level=latent_level,
+        latent_rho=latent_rho,
+    )
     calibrations = _calibrate(result, request.calibration_names)
     root_seed = resolve_assessment_seed(result, random_state)
     # Every non-anchor cell refits under the root seed, not a spawned child. Same convention
@@ -1134,7 +1452,13 @@ def simulated_confounding(
     # child seed, so it stays independent of the splits.
     refit_seed = root_seed
     latent_seed = _latent_child_seed(root_seed)
-    latent = np.random.default_rng(latent_seed).normal(size=result.data.n)
+    latent = _draw_latent(
+        result.data.n,
+        latent_seed,
+        result.data.cluster,
+        request.latent_level,
+        request.latent_rho,
+    )
     original_parameter = result[estimand]
     original = float(original_parameter.psi)
     original_inference = original_parameter.inference_value
@@ -1174,7 +1498,10 @@ def simulated_confounding(
         try:
             if isinstance(treatment_strength, tuple):
                 treatment = _perturb_components(
-                    data, latent, dict(zip(columns, treatment_strength, strict=True))
+                    data,
+                    latent,
+                    dict(zip(columns, treatment_strength, strict=True)),
+                    dict(request.component_pairs),
                 )
             else:
                 treatment = _perturb_treatment(
@@ -1182,6 +1509,7 @@ def simulated_confounding(
                     latent,
                     treatment_strength,
                     request.treatment_family,  # type: ignore[arg-type]
+                    request.arm_codes,
                 )
             association, population_fraction = diagnostics(treatment)
             replacement = result.data.with_treatment(treatment)
@@ -1191,8 +1519,15 @@ def simulated_confounding(
                 and not isinstance(treatment_strength, tuple)
             ):
                 # A zero-strength axis keeps the treatment, and with it the declaration.
+                declared = result.data.known_treatment.values
                 replacement = replacement.with_known_mechanism(
-                    flipped_mechanism(result.data.known_treatment.values, treatment_strength)
+                    flipped_mechanism(declared, treatment_strength)
+                    if request.arm_codes is None
+                    else swapped_mechanism(
+                        declared,
+                        treatment_strength,
+                        (int(request.arm_codes[0]), int(request.arm_codes[1])),
+                    )
                 )
             if result.data.family == "gaussian":
                 outcome = _gaussian_outcome(result.data.outcome, latent, outcome_strength)
@@ -1259,6 +1594,9 @@ def simulated_confounding(
         treatment_law=(
             "Treatment is flipped in the declared upper latent-normal tail."
             if request.treatment_family == "binary"
+            else "Arms {!r} and {!r} are exchanged in the declared upper latent-normal tail; "
+            "every other arm keeps its rows.".format(*_pair_labels(result.data, request))
+            if request.treatment_family == "categorical"
             else "Each binary component is flipped in the declared upper latent-normal tail, "
             "and each dose adds signed strength times the shared latent value. Every "
             "component reads the same latent value."
@@ -1273,6 +1611,17 @@ def simulated_confounding(
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
         treatment_components=columns,
+        arm_pair=(
+            None
+            if request.arm_codes is None and not request.component_pairs
+            else _pair_labels(result.data, request)
+        ),
+        latent_level=request.latent_level,
+        latent_rho=request.latent_rho,
+        n_clusters=(
+            None if result.data.cluster is None else int(np.unique(result.data.cluster).size)
+        ),
+        weights_estimated=result.data.declares_estimated_weights,
         backend=result.data.backend,
         stratum=request.stratum,
         strata_names=() if request.stratum is None else result.data.strata_names,
