@@ -19,9 +19,9 @@ from .._refusal import Refusal, RefusalReason
 from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
-from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import _as_array, as_interventions, check_regime_density
-from ..msm import MSM, MSMSet, _DataBoundArmFunction, _design_kind
+from ..interventions import RegimeSet, Static
+from ..interventions.base import Intervention, _as_array, as_interventions, check_regime_density
+from ..msm import LINKS, MSM, MSMSet, _DataBoundArmFunction, _design_kind
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, RegimeContrast, RegimeMean
 from ..targets.base import parameter_name
@@ -31,6 +31,7 @@ from ._simulated_confounding_common import (
     check_only_declared_axis,
     check_registered_target,
     check_replay_declaration,
+    declares_replay,
     fixed_axis,
     fixed_key_axis,
     point_study_or_refuse,
@@ -48,42 +49,49 @@ _FIXED_TARGET_TYPES: dict[str, type] = {
 
 def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     """Describe a fixed-policy boundary without evaluating user callbacks."""
-    from ..estimators.tmle import TMLE
-
     if fixed_axis(target) is None:
         return None
-    if type(estimator) is not TMLE:
-        # X50 holds the DR-TMLE regimes and MSMs, X51 the C-TMLE ones, and X82 part F
-        # the other estimators.
-        roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(
-            getattr(estimator, "_assessment_method", ""), "X82"
-        )
+    method = getattr(estimator, "_assessment_method", "")
+    # X50 holds the DR-TMLE regimes and MSMs, and X51 the C-TMLE ones.  Any other class
+    # passes when it declares the replay, as the binary arm axis requires.
+    roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(method)
+    if roadmap is not None or not declares_replay(estimator):
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only.",
+            "simulated_confounding has no fixed-regime or MSM replay for "
+            f"{type(estimator).__name__}.",
             alternative="Fit the regimes or the MSM with the ordinary TMLE and replay that fit.",
-            roadmap=roadmap,
+            roadmap=roadmap or "X82",
         )
     if target == "msm":
         model = estimator.msm
-        if type(model) is not MSM or model.link not in {"identity", "log", "logit"}:
+        if type(model) is not MSM or model.link not in LINKS:
             return Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
-                "simulated_confounding supports exact MSM with identity, log, or logit link only.",
-                alternative="Fit the MSM with the identity, log, or logit link.",
+                "simulated_confounding replays an MSM declared by the MSM class under a "
+                f"registered link, one of {sorted(LINKS)}.",
+                alternative="Declare the model with MSM(...) and a link from cleverly.msm.LINKS.",
                 roadmap="X82",
             )
-    elif any(type(item) not in {Static, Rule, Stochastic} for item in estimator.interventions):
+    elif not all(_known_regime(item) for item in estimator.interventions):
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding supports exact Static, Rule, and Stochastic regimes only.",
-            alternative=(
-                "Write the regime as Static, Rule(..., rule_kind='known') or "
-                "Stochastic(..., density_kind='known')."
-            ),
+            "simulated_confounding replays a regime whose density is declared known: Static, "
+            "Rule(..., rule_kind='known'), Stochastic(..., density_kind='known'), or an "
+            "Intervention class with density_kind = 'known'.",
+            alternative="Declare density_kind='known' on each regime of the fit.",
             roadmap="X82",
         )
     return None
+
+
+def _known_regime(item: Any) -> bool:
+    """Whether a regime is an :class:`Intervention` whose density is declared known.
+
+    A fit refuses any other declaration before a learner runs, so this check defends stored
+    provenance.  The frozen replay copies the density values per row and the declaration.
+    """
+    return isinstance(item, Intervention) and getattr(item, "density_kind", None) == "known"
 
 
 @dataclass(frozen=True)
@@ -225,7 +233,7 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
             not (a is b or (type(a) is Static and type(b) is Static and a == b))
             for a, b in zip(estimator.interventions, declarations, strict=True)
         )
-        or any(type(item) not in {Static, Rule, Stochastic} for item in declarations)
+        or not all(_known_regime(item) for item in declarations)
         or typed.reference != functional.reference
         or typed.horizons is not None
     ):
@@ -276,7 +284,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
         type(model) is not MSM
         or typed.model is not model
         or estimator.msm is not model
-        or model.link not in {"identity", "log", "logit"}
+        or model.link not in LINKS
         or bool(model.doses) != data.is_continuous_treatment
         or typed.regimens is not None
         or typed.horizons is not None

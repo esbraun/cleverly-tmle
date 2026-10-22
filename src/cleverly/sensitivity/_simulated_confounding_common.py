@@ -36,6 +36,49 @@ def replay_error(error: ReplayError) -> CapabilityError:
     return CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
 
 
+def declares_replay(estimator: Any) -> bool:
+    """Whether the exact class of a point estimator declares a simulated-confounding replay.
+
+    The surface reads ``simulated_confounding_replay`` from the class's own namespace, so a
+    subclass that inherits the attribute without declaring it is not admitted.  The class
+    also needs a ``refit``, which every cell calls.
+
+    Parameters
+    ----------
+    estimator : Any
+        The replay estimator stored on the fitted result.
+
+    Returns
+    -------
+    bool
+        ``True`` when the class declares ``simulated_confounding_replay = True`` and the
+        estimator has a callable ``refit``.
+    """
+    return vars(type(estimator)).get("simulated_confounding_replay") is True and callable(
+        getattr(estimator, "refit", None)
+    )
+
+
+def replay_classes() -> tuple[str, ...]:
+    """Name the package's point estimator classes that declare a simulated-confounding replay.
+
+    Returns
+    -------
+    tuple of str
+        The class names in breadth-first order from ``TMLE``, for a refusal to quote.
+    """
+    from ..estimators.tmle import TMLE
+
+    found: list[str] = []
+    pending: list[type] = [TMLE]
+    while pending:
+        cls = pending.pop(0)
+        if cls.__module__.startswith("cleverly.") and vars(cls).get("simulated_confounding_replay"):
+            found.append(cls.__name__)
+        pending.extend(cls.__subclasses__())
+    return tuple(found)
+
+
 _AXIS_SLOTS = {
     "arm": (),
     "policy": ("policies",),

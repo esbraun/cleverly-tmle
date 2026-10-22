@@ -977,6 +977,8 @@ class AdaptiveIPTW(TMLE):
     """
 
     _assessment_method = "adaptive_iptw"
+    #: The fit has no outcome regression for a simulated common cause to perturb.
+    simulated_confounding_replay = False
 
     def __init__(
         self,

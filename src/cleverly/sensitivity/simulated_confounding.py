@@ -1647,7 +1647,7 @@ def simulated_confounding(
         mean, risk ratio, odds ratio, population attributable contrast, or continuous
         modified-policy fit. Ordinary binary TMLE also supports fixed regime means,
         regime contrasts, and incremental means and contrasts. Ordinary TMLE also supports
-        binary and continuous MSM coefficients under built-in links.
+        binary and continuous MSM coefficients under any registered link.
         Baseline strata require estimator support for their targeting.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
@@ -1739,11 +1739,14 @@ def simulated_confounding(
     evidences no collaborative score and no reduced-dimension correction for these
     observed-law contrasts, so it offers neither C-TMLE nor DR-TMLE for them.
 
-    Binary ordinary TMLE supports fixed Static, Rule, and Stochastic regimes.
-    The operation validates declared policy arrays against every stored cross-fitting
-    draw and freezes those arrays on the original baseline rows.
-    MSMs support built-in identity, log, and logit links for binary and continuous
-    treatments. Grid designs and raw projection weights stay fixed. Continuous MSMs
+    A binary fit replays under an estimator whose class declares
+    ``simulated_confounding_replay = True``: ``TMLE``, ``CTMLE`` and ``DRTMLE``.
+    Binary ordinary TMLE supports a fixed regime of any class whose density is declared
+    known, such as Static, Rule, and Stochastic. The operation validates declared policy
+    arrays against every stored cross-fitting draw and freezes those arrays on the original
+    baseline rows.
+    MSMs support every link registered in ``cleverly.msm.LINKS`` for binary and
+    continuous treatments. Grid designs and raw projection weights stay fixed. Continuous MSMs
     reevaluate the declared deterministic functions at each perturbed observed dose;
     the estimator rebuilds observed weights and the integration-support mask.
     Coefficient movement is a difference on the stored coefficient scale, including
@@ -1753,8 +1756,8 @@ def simulated_confounding(
     Complete refits rebuild intervention densities from the refitted treatment mechanism
     and retain its targeting contribution. Movement includes this intervention change.
     A multiplier-one mean is the natural course and is refused before a draw; contrasts
-    against that reference remain supported. Custom intervention types and MSM links
-    remain refused. All these extensions use exact ordinary TMLE only. Incremental
+    against that reference remain supported. All these extensions use exact ordinary TMLE
+    only. Incremental
     targets and nonlinear or continuous MSMs refuse baseline strata upstream.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the

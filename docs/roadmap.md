@@ -163,6 +163,7 @@ not change the package version.
 | after beta | Data-tuned policies beyond the shipped tuned caps | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) |
 | after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
+| after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1682,11 +1683,11 @@ reading of the strengths. No part makes an interval claim.
 
 | part | request | step |
 | --- | --- | --- |
-| (a) | an MSM with a link other than identity, log or logit | the replay refits the MSM under its own link. The law does not read the link |
-| (b) | a regime class other than `Static`, `Rule` and `Stochastic` | the replay of a regime that is a known function of $W$. A user `Intervention` with `density_kind="known"` qualifies |
-| (d) | a risk-ratio tilt fit | the contract declares one of the two shipped readings. The replay can rebuild the mechanism on each perturbed draw, as the incremental replay does. It can also apply the known rule to the perturbed treatment, as the policy replay does. `RiskRatioTilt` is a known rule: the `lmtp` `ipsi` rule, with a known two-point randomizer on the natural value |
-| (e) | a binary replay under a method other than `TMLE`, `CTMLE` and `DRTMLE` | a refit of the stored estimator on each perturbed draw, with a zero-strength reproduction witness for each estimator |
-| (g) | a fixed-policy replay under a method other than `TMLE`, `DRTMLE` and `CTMLE` | as part (e). X50 and X51 hold the DR-TMLE and C-TMLE regimes and MSMs |
+| (a), shipped | an MSM with any registered link | the replay refits the MSM under its own link. The law does not read the link |
+| (b), shipped | any regime class with a known density | the replay of a regime that is a known function of $W$. A user `Intervention` with `density_kind="known"` qualifies |
+| (d), moved to [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) | a risk-ratio tilt fit | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the replay reads. X85 adds the requests and the replay |
+| (e), shipped | a binary replay under any point estimator whose class declares `simulated_confounding_replay = True` | a refit of the stored estimator on each perturbed draw, with a zero-strength reproduction witness for each estimator. An enumeration test runs every declaring class |
+| (g), shipped | a fixed-policy replay under a declaring class | as part (e). X50 and X51 hold the DR-TMLE and C-TMLE regimes and MSMs |
 | (i) | a binary replay of a parameter off the arm axis, and a continuous replay of a parameter off the policy axis | the replay applied to the refit of that parameter, with a declared reading for each parameter. A parameter that reads $g$ follows part (d) |
 
 Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness for each part.
@@ -1759,6 +1760,21 @@ Acceptance needs each check below.
 - a nonzero witness for each changed term;
 - a mutation control for each part that adds a term;
 - a registered study for each part that reports a confidence limit.
+
+### X85. Typed study requests for the risk-ratio tilt
+
+`study._refuse_typed_tilts` refuses a `RiskRatioTilt` in `ModifiedTreatmentPolicy` and
+`ModifiedTreatmentPolicyEffect`. A tilt fit is direct, `TMLE(policies=[RiskRatioTilt(...)])`,
+and it records no identified effect. `simulated_confounding` reads backdoor identification, so it
+refuses a tilt fit.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | typed requests that report `ey_rr_tilt` and `ate_rr_tilt` | a typed mean and a typed contrast on the `rr_tilt` axis, each with its identification artifact |
+| (b) | `simulated_confounding` on a tilt fit | the policy reading: the replay applies the known tilt rule to the perturbed treatment of each cell. The incremental reading rebuilds the mechanism, and it belongs to the odds tilt `ipsi` |
+
+Acceptance: the typed requests reproduce the direct fit; the replay at zero strength reproduces the
+estimate; on a finite law, a cell equals a hand application of the rule to the perturbed treatment.
 
 ### P1. EP learner
 
