@@ -912,16 +912,19 @@ KINDS: dict[str, Kind] = {
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
     "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
-    "regime+missing": _kind(fit_regime_missing, *_LIVE),
-    "msm+missing": _kind(fit_msm_missing, *_LIVE),
-    "rr+missing": _kind(fit_rr_missing, *_LIVE, "evalue"),
-    # PAR and PAF alone report no arm mean, so neither tilt row answers.
-    "par+missing": _kind(fit_attributable_missing, *_LIVE),
-    # The default tilt sweep answers for ey0. A bare tipping_gamma() defers on the estimand,
-    # because the one arm mean is not what a fit that reads the natural course asked about.
+    # Three regime parameters, so a bare tipping_gamma() defers on the estimand.
+    "regime+missing": _kind(fit_regime_missing, *_LIVE, "missingness"),
+    # Two coefficients, so a bare tipping_gamma() defers on the estimand.
+    "msm+missing": _kind(fit_msm_missing, *_LIVE, "missingness"),
+    "rr+missing": _kind(fit_rr_missing, *_LIVE, *_TILT, "evalue"),
+    # PAR and PAF, so a bare tipping_gamma() defers on the estimand.
+    "par+missing": _kind(fit_attributable_missing, *_LIVE, "missingness"),
+    # Four tiltable parameters, so a bare tipping_gamma() defers on the estimand.
     "joint+missing": _kind(fit_joint_natural_course, *_LIVE, "missingness"),
     # No treatment mechanism is fitted, so no support row answers.
-    "natural_course": _kind(fit_natural_course, "nuisance_models", "score_equations", *_POINT),
+    "natural_course": _kind(
+        fit_natural_course, "nuisance_models", "score_equations", *_POINT, *_TILT
+    ),
     # One covariate, which benchmark cannot drop.
     "split_plan": _kind(fit_split_plan, *_LIVE, *_BOUND),
     "drtmle_companion": _kind(fit_drtmle_companion, *_LIVE, "corrections"),
@@ -1091,9 +1094,10 @@ def ran(result: Any, arguments: dict[str, dict[str, Any]]) -> frozenset[str]:
 
 _TILT_RULE = SensitivityFacade._tilt_rule
 
-#: The tilt rules the rows read before RM23: the longitudinal literal, the natural course,
-#: and the missing-outcome flag. Every later rule was the call's alone.
-_PRE_RM23_TILT_RULES = ("longitudinal", "natural_course", "missing_outcome")
+#: The tilt rules the rows read before RM23: the longitudinal literal and the
+#: missing-outcome flag. Every later rule was the call's alone. The natural-course rule
+#: the rows also read then no longer exists, because the tilt covers that mean now.
+_PRE_RM23_TILT_RULES = ("longitudinal", "missing_outcome")
 
 
 def _pre_rm23_tilt_rule(self: SensitivityFacade) -> tuple[str, Refusal] | None:
@@ -1181,9 +1185,10 @@ class Mutation:
     signature: str
 
 
-#: The kinds whose tilt rows read ``available`` before RM23 while both tilt calls refused.
-DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing", "regime+missing")
-DECLINED_TILT_KINDS += ("msm+missing", "rr+missing", "par+missing")
+#: The kinds whose tilt rows read ``available`` before RM23 while both tilt calls refuse.
+#: The regime, MSM, ratio and attributable kinds left this list when X82 part G gave
+#: them a tilt.
+DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing")
 
 #: What the sweep reports for a row that reads available while its call refuses.
 _RAISED = "{} reads available, and its call raised "

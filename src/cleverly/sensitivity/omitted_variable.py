@@ -93,7 +93,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ParamSpec
 
 import numpy as np
@@ -113,7 +113,6 @@ from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
 from ..interventions.learned import LEARNED_RULE_BOUND_REFUSAL
 from ..targets import parameter_stem
-from ..targets.population_intervention import natural_course_names, reads_natural_course_mean
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
@@ -287,23 +286,13 @@ _REPEATS_REASON = (
     "function of the median bound."
 )
 
-#: Appended to the response refusal on a fit that can still run the tilt.  A
-#: natural-course, shift, incremental, regime, MSM, or ratio-only fit cannot: both tilt
-#: rows are unavailable there
+#: Appended to the response refusal on a fit that can still run the tilt.  A shift or an
+#: incremental fit cannot: both tilt rows are unavailable there
 #: (:func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal`), so the pointer would
 #: send the reader to a second refusal.
 _RESPONSE_TILT_POINTER = (
     " The missingness tilt remains the sensitivity analysis for response: call "
     "sensitivity.missingness() or sensitivity.tipping_gamma()."
-)
-
-#: The pointer on a fit that also reports a target read from the natural-course mean.
-#: The tilt covers the arm means only, so the pointer says so rather than sending a PAR
-#: or PAF request to a tilt that refuses it.
-_RESPONSE_ARM_TILT_POINTER = (
-    " The missingness tilt remains the sensitivity analysis for response on this fit's "
-    "arm means, and not on a target read from the natural-course mean: call "
-    "sensitivity.missingness() or sensitivity.tipping_gamma() and name the arm means."
 )
 
 
@@ -367,17 +356,12 @@ def _refuse_response_mechanism(result: Any) -> Refusal | None:
 
     The sentence points at the tilt only when
     :func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal` admits the fit, which
-    is the predicate both tilt rows read.  Any narrower test, such as a natural-course
-    check alone, would send a shift or a regime fit to a tilt that refuses.
+    is the predicate both tilt rows read.  Any narrower test, such as a check of the
+    treatment kind alone, would send a shift fit to a tilt that refuses.
     """
     if not result.data.has_missing_outcome:
         return None
-    if fit_wide_tilt_refusal(result) is not None:
-        pointer = ""
-    elif reads_natural_course_mean(result):
-        pointer = _RESPONSE_ARM_TILT_POINTER
-    else:
-        pointer = _RESPONSE_TILT_POINTER
+    pointer = "" if fit_wide_tilt_refusal(result) is not None else _RESPONSE_TILT_POINTER
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         _RESPONSE_BOUND_REFUSAL,
@@ -657,14 +641,6 @@ def sensitivity_elements(
     _resolved_nu2_estimator(nu2_estimator)
     refusal = fit_wide_bound_refusal(result)
     if refusal is not None:
-        # The tilt pointer is fit-wide: a joint natural-course fit can tilt its arm
-        # means. The tilt refuses a target read from the natural-course mean, so a
-        # request for one is not sent there.
-        if natural_course_names([estimand]) and refusal.alternative in {
-            _RESPONSE_TILT_POINTER.strip(),
-            _RESPONSE_ARM_TILT_POINTER.strip(),
-        }:
-            refusal = replace(refusal, alternative=NO_ALTERNATIVE)
         raise CapabilityError.from_refusal(refusal)
     parameter = resolve_parameter(result, estimand)
     return _elements_for(result, result.repeats[0], parameter, nu2_estimator)

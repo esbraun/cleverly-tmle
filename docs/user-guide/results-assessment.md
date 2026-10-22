@@ -670,15 +670,16 @@ not approach, can clear the refusal. The
 [learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
 lists every key.
 
-The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
-linear contrasts. The table gives each missing-outcome fit where both are unavailable.
+The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means and their
+contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away
+from $\gamma = 0$, every parameter but an arm mean or a linear contrast reports its spread under
+the `plugin_` column names, and `tipping_gamma(use_ci=True)` refuses it. The table gives each
+missing-outcome fit where both are unavailable.
 
 | fit | reason |
 | --- | --- |
-| `NaturalCourseMean()` | the natural-course target needs its own sensitivity parameter |
 | a shift fit | whether the tilted parameter is still the shift parameter has not been derived |
 | an incremental fit | its targeting also solves a score in the treatment mechanism, and no derivation covers the tilt of that fixed point |
-| a regime, MSM, or ratio-only fit | the fit reports no arm-indexed mean and no linear contrast |
 
 A per-arm outcome-adaptive `CTMLE` fit regresses its observation factor on the outcome regression
 only. Both methods read the full-covariate model `nuisance.tilt_missingness` on that fit, and no
