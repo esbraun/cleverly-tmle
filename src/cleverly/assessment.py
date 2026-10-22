@@ -4153,8 +4153,9 @@ class SensitivityFacade(_CapabilityFacade):
                     else AssessmentStatus.UNAVAILABLE
                 ),
                 refusal=simulated_refusal,
+                # A longitudinal fit reports no bare ``ate``, so the call names its estimand.
                 requires_arguments=("grid", "estimand")
-                if continuous or needs_estimand
+                if continuous or needs_estimand or longitudinal
                 else ("grid",),
                 accepts_random_state=True,
                 requires_replay="refit_nuisances",
