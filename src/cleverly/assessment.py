@@ -2304,6 +2304,7 @@ def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
         bound.arguments["tests"],
         bound.arguments["n_replicates"],
         bound.arguments["negative_control_outcome"],
+        bound.arguments["placebo_mode"],
     )
 
 
@@ -3395,17 +3396,23 @@ def _truncation_item(
 def _refute_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
-    failed = [test.name for test in report.tests if not test.passed]
-    return AssessmentItem(
-        "refute",
-        AssessmentStatus.FAILED if failed else AssessmentStatus.PASSED,
-        "all refutation tests passed"
-        if not failed
-        else f"failed tests {failed}; inspect their retained draws",
-        ()
-        if not failed
-        else tuple(f"inspect result.diagnostics.refute().draws_frame({name!r})" for name in failed),
-    )
+    failed = [test.name for test in report.tests if test.passed is False]
+    descriptive = [test.name for test in report.tests if test.passed is None]
+    if failed:
+        return AssessmentItem(
+            "refute",
+            AssessmentStatus.FAILED,
+            f"failed tests {failed}; inspect their retained draws",
+            tuple(f"inspect result.diagnostics.refute().draws_frame({name!r})" for name in failed),
+        )
+    if descriptive:
+        return AssessmentItem(
+            "refute",
+            AssessmentStatus.COMPLETED,
+            f"descriptive tests {descriptive} state no verdict: no registered calibration "
+            "covers this fit; read their statistics and scope sentences",
+        )
+    return AssessmentItem("refute", AssessmentStatus.PASSED, "all refutation tests passed")
 
 
 def _omitted_item(

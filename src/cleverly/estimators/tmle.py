@@ -977,6 +977,10 @@ class TMLE:
             refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
 
+    #: Realized outer splits that a refit uses in place of drawing one. Only the copy that
+    #: :meth:`refit` builds sets it, so no constructor argument and no fitted result holds it.
+    _frozen_folds: tuple[Folds, ...] | None = None
+
     def __init__(
         self,
         *,
@@ -1511,6 +1515,7 @@ class TMLE:
         *,
         intermediate_value: float | None = None,
         random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
     ) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
 
@@ -1561,6 +1566,11 @@ class TMLE:
             The value of the intermediate variable the controlled direct effect fixes.
         random_state : int or None
             Seed of the refit.  ``None`` keeps this estimator's own.
+        frozen_folds : sequence of Folds or None
+            One realized outer split per repeat, for the rows of ``data``.  The refit uses
+            these labels instead of drawing a split.  The data-subset refutation passes the
+            original fit's labels of the drawn units, so the refit's fold noise is the
+            original's and no split is redrawn.  ``None`` draws the split as usual.
 
         Returns
         -------
@@ -1568,6 +1578,10 @@ class TMLE:
             The result of the whole fit on ``data``.
         """
         estimator = self._configured_for_refit(data)
+        if frozen_folds is not None:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator._frozen_folds = tuple(frozen_folds)
         plan = estimator.split_plan
         if plan is not None and plan.source_fingerprint is not None:
             if estimator is self:
@@ -3704,7 +3718,14 @@ class TMLE:
             _fresh_seed() if seed is None else seed for seed in self.crossfit_plan(data).seeds()
         )
         supplied = self.split_plan
-        if supplied is None:
+        if self._frozen_folds is not None:
+            folds = self._frozen_folds
+            if len(folds) != len(seeds) or any(draw.n != data.n for draw in folds):
+                raise DataError(
+                    "frozen_folds must hold one split of the refit's rows per repeat; "
+                    f"got {len(folds)} split(s) for {len(seeds)} repeat(s)"
+                )
+        elif supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
             # The record check comes first: labels the recorded generator does not draw

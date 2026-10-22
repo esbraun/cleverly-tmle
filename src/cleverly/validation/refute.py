@@ -2,28 +2,37 @@ r"""Refutation tests: try to break the fit on purpose.
 
 Diagnostics tell you about the fit you have.  Refutation tests -- in the spirit of
 DoWhy's refuters -- perturb the *problem* in ways whose correct answer is known in
-advance, and check that the estimator gives that answer.  They cannot prove the
-identification assumptions hold, but they do catch real defects: leakage, a
-mis-specified estimand, an implementation that is quietly picking up an artefact.
+advance, and read what the estimator gives.  They cannot prove the identification
+assumptions hold, but they can show a defect: leakage, a mis-specified estimand, an
+implementation that is quietly picking up an artefact.
 
-The tests, and what a failure means:
+A test prints a verdict only where evidence licenses its rule.  Each test computes a
+statistic against a stated reference.  :mod:`cleverly.validation._interpretation` holds
+the registry of evidence, and a rule that no registered row covers prints its numbers and
+no verdict (``passed`` is ``None``).  The rungs are ``L0`` (a description), ``L1`` (a stated
+reference with no measured size), ``L2`` (an exact reference, or a measured size and power
+on the fit's configuration) and ``L3`` (``L2`` with a comparator beside it).
+
+The tests, and what a reading means:
 
 ``placebo``
-    Replace treatment with a random permutation of itself, destroying any real
-    effect while preserving its marginal distribution.  The estimate should be
-    indistinguishable from the parameter's no-effect value. A non-null placebo
-    estimate can mean leakage between folds or a misdefined estimand.
+    Replace treatment with a random permutation of itself (or independent draws from its
+    marginal), destroying any real effect while preserving its marginal distribution.  The
+    refit is exactly null on the permuted law, so the one-sample ``t`` of the draws against
+    the null value is the reading.  It checks that the estimator returns the null when
+    treatment is independent of covariates and outcome.  It says nothing about confounding
+    in your data.
 
 ``random_common_cause``
-    Add an irrelevant random covariate.  The estimate should barely move; the
-    adjustment set is supposed to be robust to noise.  A large shift means the
-    nuisance models are unstable at this sample size.
+    Add an irrelevant random covariate.  The target does not change, so the paired shift
+    (each noise refit against the original fit, under its seed and folds) is a description of the
+    learners' stability at this sample size.
 
 ``subset``
-    Refit on random subsamples.  The estimates should scatter around the full-sample
-    estimate by roughly the standard error.  Scatter far exceeding it points to
-    influential observations -- usually the same handful of units the positivity
-    diagnostics flag.
+    Refit on random subsamples that keep the original fold labels of the drawn units.  Given
+    the data, the scatter of an asymptotically linear estimator has the reference
+    ``SE * sqrt((n/m - 1) n/(n-1))``, and ``(R - 1) rho^2`` is approximately chi-squared.
+    A large ratio reads "the estimator varies more than its standard error says".
 
 ``negative_control_outcome``
     Refit with an outcome that the treatment cannot plausibly affect.  Under a valid,
@@ -32,23 +41,21 @@ The tests, and what a failure means:
     A null estimate does not prove that unmeasured confounding is absent.
 
 ``dummy_outcome``
-    Generate Gaussian noise independent of treatment and adjustment variables, then
-    fully refit.  Its declared effect is zero; exclusion from the empirical refit
-    distribution reveals a pipeline that manufactures signal from a null outcome.
+    Generate Gaussian noise independent of treatment and adjustment variables, hold the
+    design, and refit ``n_replicates`` times.  Its declared effect is zero.  The draws are
+    i.i.d. given the held design, so the bias, the standard-error ratio and the coverage have
+    exact Monte Carlo references.  Each reading passes when its 95% interval lies inside an
+    equivalence band (:class:`EquivalenceBands`).
 
 ``simulated_outcome``
-    Generate a Gaussian outcome from a recorded adjustment function, additive treatment
-    term, and noise law, then fully refit.  The declared treatment effect must lie inside
-    the empirical refit distribution.  Failure reveals that the pipeline cannot recover
-    a known effect under its first registered generated-outcome process.
+    The same readings for a Gaussian outcome generated from a recorded adjustment function,
+    additive treatment term, and noise law.
 
 ``bootstrap_measurement_error``
     Draw a bootstrap sample, add declared measurement error to the selected adjustment
-    variables, then fully refit.  Mild measurement error should move the estimate by less
-    than sampling noise, so the original estimate must lie inside the empirical refit
-    distribution.  Exclusion means the fit rests on adjustment variables it cannot
-    tolerate any error in.  A draw that fails to sample, perturb, or refit is retained as
-    a failure rather than raised, because a bootstrap draw fails per sample.
+    variables, then fully refit.  The noise changes the target, so the draws describe how far
+    the estimate moves under that error.  A draw that fails to sample, perturb, or refit is
+    retained as a failure rather than raised, because a bootstrap draw fails per sample.
 
 Each test refits the model, so a full run costs several times a single fit.
 """
@@ -60,6 +67,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+from scipy import stats
 
 from .._inference_status import InferenceStatus
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
@@ -68,6 +76,18 @@ from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
+from . import _interpretation
+from ._interpretation import FitConfiguration, Resolution, Rung
+from ._readings import (
+    DEFAULT_BAND_REPLICATES,
+    BandReading,
+    EquivalenceBands,
+    SubsetReading,
+    band_readings,
+    paired_shift,
+    placebo_reading,
+    subset_reading,
+)
 from .simulation import ReplicationFailure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -76,9 +96,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "DEFAULT_OUTCOME_REPLICATES",
     "DEFAULT_TESTS",
+    "BandReading",
     "BootstrapMeasurementError",
     "EmpiricalInclusionRule",
     "EmpiricalRefitRecord",
+    "EquivalenceBands",
     "GaussianAdjustmentOutcome",
     "GaussianIndependentOutcome",
     "GaussianNoise",
@@ -92,10 +114,26 @@ __all__ = [
 #: control outcome only the analyst can supply.
 DEFAULT_TESTS: tuple[str, ...] = ("placebo", "random_common_cause", "subset")
 
-#: Generated outcomes and measurement-error refits need an empirical distribution.
-#: The other perturbation tests use five refits by default.
-DEFAULT_OUTCOME_REPLICATES = 100
+#: A generated-outcome report needs 400 draws: at that count a calibrated estimator passes
+#: all three equivalence readings with probability 0.93, and at 100 draws with probability
+#: 0.003 (X82 plan 4.2.1). Below it the readings print at ``L1`` and state no verdict.
+DEFAULT_OUTCOME_REPLICATES = DEFAULT_BAND_REPLICATES
+
+#: Draws of ``bootstrap_measurement_error``, a description with no verdict rule.
+_DEFAULT_MEASUREMENT_REPLICATES = 100
+
+#: Eric, 2026-10-22: a check that needs more than five refits is opt-in. The default
+#: placebo and subset therefore refit five times, and a caller asks for the calibrated 20
+#: (``t`` with 19 degrees of freedom) through ``n_replicates``.
 _DEFAULT_PERTURBATION_REPLICATES = 5
+CALIBRATED_PERTURBATION_REPLICATES = 20
+
+#: The random-common-cause report refits each noise draw under the original fit's seed, so the
+#: original fit is the paired baseline and the report costs one refit per draw.
+_DEFAULT_NOISE_REPLICATES = 5
+
+#: The fewest draws at which the equivalence intervals are defined and worth printing.
+_MINIMUM_BAND_DRAWS = 10
 
 
 @dataclass(frozen=True)
@@ -543,8 +581,10 @@ class RefutationTest:
         Estimates the refutation produced.
     expectation : str
         What those values should look like if the fit is sound.
-    passed : bool
-        Whether they did.
+    passed : bool or None
+        Whether they did, where evidence licenses a verdict. ``None`` is a descriptive
+        reading: the statistic is printed against its reference, and no registered
+        calibration covers this fit (:attr:`rung`, :attr:`scope_sentence`).
     detail : str
         What was seen, in the test's own terms.
     standard_errors : tuple of float
@@ -588,6 +628,26 @@ class RefutationTest:
     spread_kind : str
         ``"log"`` for ratio subset scatter tested on the log scale. Other reports use
         reported-scale scatter. The underlying ``values`` remain on the reported scale.
+    rung : {"L0", "L1", "L2", "L3"}
+        The evidence rung the verdict rule stands on for this fit. ``"L0"`` is a
+        description, and a verdict needs ``"L2"`` or above.
+    scope_sentence : str
+        The only interpretation text this test prints: the covering registry row's sentence,
+        or the line that names the covered configuration.
+    statistic : float or None
+        The test statistic: ``t`` (placebo), the scatter ratio ``rho`` (subset), the paired
+        shift in standard errors (random common cause), or ``z`` (negative control).
+    statistic_name : str
+        Name of :attr:`statistic`.
+    statistic_pvalue : float or None
+        Two-sided probability of :attr:`statistic` under its stated reference law, printed
+        for the reader. A descriptive reading states no verdict from it.
+    readings : tuple of BandReading
+        The equivalence readings of a generated-outcome report, each with its interval and
+        band.
+    extras : tuple of tuple
+        Further named numbers the test prints beside its statistic, such as the scale ratio
+        of the placebo draws.
     """
 
     name: str
@@ -595,7 +655,7 @@ class RefutationTest:
     original: float
     values: tuple[float, ...]
     expectation: str
-    passed: bool
+    passed: bool | None
     detail: str
     standard_errors: tuple[float, ...] = ()
     declaration: Any = None
@@ -610,6 +670,20 @@ class RefutationTest:
     inference: InferenceStatus = "influence_curve"
     mean_kind: Literal["arithmetic", "geometric"] = "arithmetic"
     spread_kind: Literal["reported", "log"] = "reported"
+    rung: Rung = "L0"
+    scope_sentence: str = ""
+    statistic: float | None = None
+    statistic_name: str = ""
+    statistic_pvalue: float | None = None
+    readings: tuple[BandReading, ...] = ()
+    extras: tuple[tuple[str, float], ...] = ()
+
+    @property
+    def verdict(self) -> str:
+        """Return ``"passed"``, ``"failed"`` or ``"descriptive"``."""
+        if self.passed is None:
+            return "descriptive"
+        return "passed" if self.passed else "failed"
 
     @property
     def mean(self) -> float:
@@ -747,12 +821,31 @@ class RefutationResult:
     random_state: int | None = None
 
     @property
-    def passed(self) -> bool:
-        """Return whether every required check passed."""
-        return all(test.passed for test in self.tests)
+    def passed(self) -> bool | None:
+        """Return the verdict of the whole report.
+
+        Returns
+        -------
+        bool or None
+            ``False`` when any test failed. ``None`` when no test failed and at least one is
+            descriptive, because a descriptive test states no verdict. ``True`` when every
+            test passed.
+        """
+        if any(test.passed is False for test in self.tests):
+            return False
+        if any(test.passed is None for test in self.tests):
+            return None
+        return True
 
     def __bool__(self) -> bool:
-        return self.passed
+        verdict = self.passed
+        if verdict is None:
+            raise TypeError(
+                "this refutation report is descriptive: at least one test states no verdict "
+                "because no registered calibration covers the fit. Read report.tests and "
+                "each test's rung and scope_sentence instead of the truth value"
+            )
+        return verdict
 
     def __getitem__(self, name: str) -> RefutationTest:
         for test in self.tests:
@@ -788,6 +881,11 @@ class RefutationResult:
             "requested_draws": [test.requested_draws for test in self.tests],
             "resampling": [test.resampling for test in self.tests],
             "expectation": [test.expectation for test in self.tests],
+            "statistic_name": [test.statistic_name or None for test in self.tests],
+            "statistic": [test.statistic for test in self.tests],
+            "statistic_pvalue": [test.statistic_pvalue for test in self.tests],
+            "rung": [test.rung for test in self.tests],
+            "verdict": [test.verdict for test in self.tests],
             "passed": [test.passed for test in self.tests],
         }
         return emit_frame(payload, data, backend=self.backend)
@@ -819,13 +917,19 @@ class RefutationResult:
         Returns
         -------
         str
-            A printable table, one line per refutation test.
+            A printable table, one line per refutation test, then the statistic and the
+            interpretation sentence of each test. A descriptive test prints a dash in the
+            ``ok`` column and no verdict.
         """
+
+        def mark(test: RefutationTest) -> str:
+            return "-" if test.passed is None else ("yes" if test.passed else "NO")
+
         lines = [
             f"Refutation tests for {self.estimand!r}",
             "-" * 34,
             format_table(
-                ["test", "original", "refuted (mean)", "sd", "expected", "ok"],
+                ["test", "original", "refuted (mean)", "sd", "expected", "rung", "ok"],
                 [
                     [
                         test.name,
@@ -833,15 +937,16 @@ class RefutationResult:
                         f"{test.mean:.5g}",
                         f"{test.spread:.4g}" if np.isfinite(test.spread) else "-",
                         test.expectation,
-                        "yes" if test.passed else "NO",
+                        test.rung,
+                        mark(test),
                     ]
                     for test in self.tests
                 ],
             ),
         ]
         for test in self.tests:
+            lines.append("")
             if test.declaration is not None:
-                lines.append("")
                 if isinstance(test.declaration, BootstrapMeasurementError):
                     variables = ", ".join(test.declaration.variables)
                     lines.append(
@@ -855,13 +960,38 @@ class RefutationResult:
                         f"effect={_format_number(test.declared_effect)}; "
                         f"successful={len(test.records)}; failed={test.n_failed}"
                     )
-                lines.append(f"rule: {test.detail}")
-            if not test.passed and test.declaration is None:
-                lines.append("")
+                lines.append(f"reading: {test.detail}")
+            else:
                 lines.append(f"{test.name}: {test.detail}")
-        if self.passed:
-            lines.append("")
-            lines.append("VERDICT: all refutation tests behaved as they should.")
+            if test.statistic is not None:
+                p_text = (
+                    ""
+                    if test.statistic_pvalue is None
+                    else f" (two-sided p = {test.statistic_pvalue:.3g} under its reference)"
+                )
+                lines.append(f"  {test.statistic_name} = {test.statistic:.5g}{p_text}")
+            for reading in test.readings:
+                low, high = reading.band
+                lines.append(
+                    f"  {reading.name} = {reading.estimate:.4g}, 95% interval "
+                    f"[{reading.lower:.4g}, {reading.upper:.4g}], band [{low:g}, {high:g}]: "
+                    + ("inside" if reading.inside else "outside")
+                )
+            for label, value in test.extras:
+                lines.append(f"  {label} = {value:.4g}")
+            if test.scope_sentence:
+                lines.append(f"  {test.scope_sentence}")
+        verdict = self.passed
+        lines.append("")
+        if verdict is True:
+            lines.append("VERDICT: every refutation test with a verdict passed it.")
+        elif verdict is None:
+            lines.append(
+                "VERDICT: none. At least one test is descriptive, and no test with a verdict "
+                "failed."
+            )
+        else:
+            lines.append("VERDICT: at least one refutation test failed.")
         return "\n".join(lines)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -886,7 +1016,10 @@ _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 #: column and keeps each row in its position, which is what makes a supplied
 #: :class:`~cleverly.SplitPlan` still apply.
 _ROW_SET_TESTS = ("subset", "bootstrap_measurement_error")
-_CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
+#: ``subset`` refits on the original fold labels of the drawn units, so a supplied plan
+#: labels the refit's rows by position and the test does not refuse it.
+_PLAN_REFUSING_TESTS = ("bootstrap_measurement_error",)
+_CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2, "random_common_cause": 3}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
 
@@ -911,7 +1044,10 @@ def _permuted_treatment(data: Any, rng: np.random.Generator) -> np.ndarray:
 
 
 def _validated_tests(
-    tests: Sequence[str], n_replicates: int | None, negative_control_outcome: Any = None
+    tests: Sequence[str],
+    n_replicates: int | None,
+    negative_control_outcome: Any = None,
+    placebo_mode: str = "permute",
 ) -> tuple[str, ...]:
     """Refuse malformed arguments of :func:`refute` before any refit.
 
@@ -928,6 +1064,8 @@ def _validated_tests(
         Replicates per randomized test.
     negative_control_outcome : Any
         The outcome required by the negative-control test.
+    placebo_mode : str
+        How the placebo treatment is drawn.
 
     Returns
     -------
@@ -937,8 +1075,8 @@ def _validated_tests(
     Raises
     ------
     ValueError
-        If a test name is unknown, ``n_replicates`` is not a positive integer, or the
-        negative-control test has no outcome.
+        If a test name is unknown, ``n_replicates`` is not a positive integer, the
+        placebo mode is unknown, or the negative-control test has no outcome.
     """
     requested = tuple(tests)
     unknown = [name for name in requested if name not in _KNOWN_TESTS]
@@ -952,6 +1090,10 @@ def _validated_tests(
         or n_replicates < 1
     ):
         raise ValueError("n_replicates must be positive and an integer")
+    if placebo_mode not in _PLACEBO_MODES:
+        raise ValueError(
+            f"unknown placebo_mode {placebo_mode!r}; choose from {list(_PLACEBO_MODES)}"
+        )
     if "negative_control_outcome" in requested and negative_control_outcome is None:
         raise ValueError(
             "the negative_control_outcome test needs an outcome array that treatment "
@@ -976,12 +1118,14 @@ class _RefuteRequest:
         The independent process declaration, or ``None`` for the default.
     simulated_outcome : GaussianAdjustmentOutcome or None
         The adjustment-dependent process declaration, or ``None`` for the default.
-    outcome_rule : EmpiricalInclusionRule
-        The rule applied to generated-outcome refits.
+    outcome_bands : EquivalenceBands
+        The equivalence bands applied to generated-outcome refits.
     bootstrap_measurement_error : BootstrapMeasurementError or None
         The measurement-error declaration.
     measurement_error_rule : EmpiricalInclusionRule
         The rule applied to measurement-error refits.
+    placebo_mode : {"permute", "draw"}
+        How the placebo treatment is drawn.
     """
 
     estimand: str
@@ -989,9 +1133,10 @@ class _RefuteRequest:
     n_replicates: int | None = None
     dummy_outcome: Any = None
     simulated_outcome: Any = None
-    outcome_rule: Any = field(default_factory=EmpiricalInclusionRule)
+    outcome_bands: Any = field(default_factory=EquivalenceBands)
     bootstrap_measurement_error: Any = None
     measurement_error_rule: Any = field(default_factory=EmpiricalInclusionRule)
+    placebo_mode: str = "permute"
 
     @property
     def generated(self) -> tuple[str, ...]:
@@ -1000,7 +1145,12 @@ class _RefuteRequest:
 
     @property
     def draws(self) -> int:
-        """The draw budget of a generated-outcome or measurement-error test."""
+        """The draw budget of a measurement-error test."""
+        return _DEFAULT_MEASUREMENT_REPLICATES if self.n_replicates is None else self.n_replicates
+
+    @property
+    def generated_draws(self) -> int:
+        """The draw budget of a generated-outcome test."""
         return DEFAULT_OUTCOME_REPLICATES if self.n_replicates is None else self.n_replicates
 
     def process(self, name: str) -> Any:
@@ -1148,7 +1298,7 @@ def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> R
     supplied_plan = getattr(result.estimator, "split_plan", None)
     if supplied_plan is None:
         return None
-    resampled = [name for name in request.tests if name in _ROW_SET_TESTS]
+    resampled = [name for name in request.tests if name in _PLAN_REFUSING_TESTS]
     if not resampled:
         return None
     return _invalid(
@@ -1163,12 +1313,11 @@ def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> R
 
 
 def _refuse_generated_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a generated-outcome test under a rule other than the registered one."""
-    if not request.generated or type(request.outcome_rule) is EmpiricalInclusionRule:
+    """Refuse a generated-outcome test under bands other than the registered ones."""
+    if not request.generated or type(request.outcome_bands) is EquivalenceBands:
         return None
     return _invalid(
-        "generated-outcome refutations require the exact registered "
-        "EmpiricalInclusionRule declaration"
+        "generated-outcome refutations require the exact registered EquivalenceBands declaration"
     )
 
 
@@ -1243,18 +1392,19 @@ def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> R
 
 
 def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a generated-outcome draw budget below its rule's floor.
+    """Refuse a generated-outcome draw budget too small for the equivalence intervals.
 
-    A budget below the rule's own floor can only end in "too few draws", and the caller
-    can see that before any refit is paid for.
+    The intervals of the three readings need a spread of draws to exist, and the caller
+    can see that before any refit is paid for. A budget below the bands' calibrated
+    minimum (400) still runs, and its readings print at ``L1``.
     """
-    floor = request.outcome_rule.minimum_draws
-    if not request.generated or request.draws >= floor:
+    floor = _MINIMUM_BAND_DRAWS
+    if not request.generated or request.generated_draws >= floor:
         return None
     return _invalid(
-        f"a generated-outcome refutation was asked for {request.draws} draw(s) under a rule "
-        f"that requires {floor}; raise n_replicates to at least "
-        f"{floor}, or declare a rule with a smaller minimum_draws"
+        f"a generated-outcome refutation was asked for {request.generated_draws} draw(s); "
+        f"its equivalence intervals need at least {floor}. Raise n_replicates to at least "
+        f"{floor} ({DEFAULT_OUTCOME_REPLICATES} is the calibrated minimum)"
     )
 
 
@@ -1296,9 +1446,10 @@ def refute_refusal(
     negative_control_outcome: Any = None,
     dummy_outcome: GaussianIndependentOutcome | None = None,
     simulated_outcome: GaussianAdjustmentOutcome | None = None,
-    outcome_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    placebo_mode: str = "permute",
 ) -> Refusal | None:
     """Return the refusal a :func:`refute` request meets before any refit.
 
@@ -1328,12 +1479,14 @@ def refute_refusal(
         Independent Gaussian process declaration.
     simulated_outcome : GaussianAdjustmentOutcome or None
         Adjustment-dependent additive process declaration.
-    outcome_rule : EmpiricalInclusionRule
-        Rule applied to generated-outcome refits.
+    outcome_bands : EquivalenceBands
+        Bands applied to generated-outcome readings.
     bootstrap_measurement_error : BootstrapMeasurementError or None
         Measurement-error declaration.
     measurement_error_rule : EmpiricalInclusionRule
         Rule applied to measurement-error refits.
+    placebo_mode : {"permute", "draw"}
+        How the placebo treatment is drawn.
 
     Returns
     -------
@@ -1351,9 +1504,10 @@ def refute_refusal(
         n_replicates,
         dummy_outcome,
         simulated_outcome,
-        outcome_rule,
+        outcome_bands,
         bootstrap_measurement_error,
         measurement_error_rule,
+        placebo_mode,
     )
     return _first_refusal(result, request)
 
@@ -1923,19 +2077,20 @@ def _bootstrap_measurement_error_test(
         retain_preparation_failures=True,
     )
     values = tuple(item.estimate for item in records)
-    passed, probability, detail = rule.evaluate(values, original, failures)
+    # The rule's tail probability is a number to print. The declared noise changes the
+    # target, so "the draws include the original" describes the movement and tests nothing.
+    _, probability, detail = rule.evaluate(values, original, failures)
     families = {item.family for item in records}
     family = next(iter(families)) if len(families) == 1 else None
     if len(families) > 1:
-        passed = False
         detail = f"successful refits reported inconsistent outcome families {sorted(families)}"
     return RefutationTest(
         name="bootstrap_measurement_error",
         estimand=estimand,
         original=original,
         values=values,
-        expectation=f"includes {original:.5g}",
-        passed=passed,
+        expectation=f"moves from {original:.5g} under the declared error",
+        passed=None,
         detail=detail,
         standard_errors=tuple(item.std_error for item in records),
         declaration=declaration,
@@ -1947,7 +2102,61 @@ def _bootstrap_measurement_error_test(
         declared_effect=original,
         requested_draws=n_replicates,
         resampling=design.resampling,
+        rung="L0",
+        scope_sentence=_MEASUREMENT_ERROR_SENTENCE,
     )
+
+
+_MEASUREMENT_ERROR_SENTENCE = (
+    "The declared measurement error changes the target, toward the confounded contrast. The "
+    "draws describe how far the estimate moves under that error, and the report states no "
+    "verdict."
+)
+
+
+def _covariate_part_vanishes(
+    *, difference_contrast: bool, effect_varies_with_covariates: bool
+) -> bool:
+    """Return whether the covariate part of the target's influence curve is identically zero.
+
+    The held design fixes ``(W, A)`` and redraws ``Y``. Given the held ``W``, the part of the
+    influence curve that depends on ``W`` alone is fixed, so a correct estimator reads a
+    standard-error ratio above one and an over-covering interval (X82 plan 5.5.1, B2). That
+    part vanishes for a difference contrast of means (ATE, ATT, ATC) under an effect that
+    does not depend on ``W``. Only then do the held-design standard-error ratio and coverage
+    have the right reference.
+
+    Parameters
+    ----------
+    difference_contrast : bool
+        Whether the target is an additive contrast of two arm means.
+    effect_varies_with_covariates : bool
+        Whether the generated treatment effect ``tau(W)`` depends on the covariates.
+
+    Returns
+    -------
+    bool
+        ``True`` when the standard-error ratio and the coverage have an exact reference.
+    """
+    return difference_contrast and not effect_varies_with_covariates
+
+
+def _read_configuration(result: Any, estimand: str) -> FitConfiguration | None:
+    """Read the scope axes of ``result``, or ``None`` when a stand-in result lacks them.
+
+    A fit that cannot be read matches only a registry row of unrestricted scope, which
+    exists for exact references and nothing else.
+    """
+    try:
+        return _interpretation.fit_configuration(result, estimand)
+    except (AttributeError, KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
+def _resolve(instrument: str, rule: str, fit: FitConfiguration | None) -> Resolution:
+    """Ask the registry, reading :data:`~cleverly.validation._interpretation.VERDICT_EVIDENCE`
+    at call time so a test may patch it."""
+    return _interpretation.resolve(instrument, rule, fit)
 
 
 def _generated_outcome_test(
@@ -1957,11 +2166,12 @@ def _generated_outcome_test(
     estimand: str,
     original: float,
     process: GaussianIndependentOutcome | GaussianAdjustmentOutcome,
-    rule: EmpiricalInclusionRule,
+    bands: EquivalenceBands,
     n_replicates: int,
     root_seed: int,
     value_code: float,
     reference_code: float,
+    fit: FitConfiguration | None,
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
@@ -1975,33 +2185,210 @@ def _generated_outcome_test(
         expected_family=process.family,
     )
     values = tuple(item.estimate for item in records)
+    errors = tuple(item.std_error for item in records)
     # The additive treatment term makes the arm contrast linear in the code difference, so
     # the declared effect is the process effect signed by the key's own direction.
     declared_effect = float(process.known_effect * (value_code - reference_code))
-    passed, probability, detail = rule.evaluate(values, declared_effect, failures)
     families = {item.family for item in records}
     family = next(iter(families)) if len(families) == 1 else None
+
+    readings: tuple[BandReading, ...] = ()
+    passed: bool | None = None
+    rung: Rung = "L0"
+    sentences: list[str] = []
     if len(families) > 1:
-        passed = False
         detail = f"successful refits reported inconsistent outcome families {sorted(families)}"
+    elif failures:
+        detail = (
+            f"{len(failures)} refit(s) failed and failure_policy='fail' keeps every failure; "
+            "the equivalence readings need every draw"
+        )
+    elif len(values) < _MINIMUM_BAND_DRAWS or float(np.std(values, ddof=1)) <= 0.0:
+        detail = (
+            f"only {len(values)} usable draw(s), or draws that do not vary; the equivalence "
+            "intervals are undefined"
+        )
+    else:
+        shown = band_readings(values, errors, declared_effect, bands)
+        # A difference contrast under a constant effect has a zero covariate part, which is
+        # every contrast and process this test accepts. A process whose effect varies with
+        # the covariates would fail this guard and read bias only.
+        covariate_part = _covariate_part_vanishes(
+            difference_contrast=True, effect_varies_with_covariates=False
+        )
+        by_rule = {"bias": "bias_band", "se_ratio": "se_ratio_band", "coverage": "coverage_band"}
+        readings = tuple(reading for reading in shown if reading.name == "bias" or covariate_part)
+        calibrated = len(values) >= bands.minimum_draws
+        licensed_inside: list[bool] = []
+        for reading in readings:
+            resolution = _resolve("generated_outcome", by_rule[reading.name], fit)
+            if resolution.licensed and calibrated:
+                licensed_inside.append(reading.inside)
+                sentences.append(resolution.sentence)
+        if licensed_inside:
+            passed = all(licensed_inside)
+            rung = "L2"
+        elif not calibrated:
+            rung = "L1"
+            sentences.append(
+                f"{len(values)} draws are below the calibrated minimum of "
+                f"{bands.minimum_draws}, so the readings state no verdict."
+            )
+        else:
+            sentences.append(_interpretation.DESCRIPTIVE_SENTENCE)
+        detail = "; ".join(
+            f"{reading.name} {reading.estimate:.4g} "
+            f"[{reading.lower:.4g}, {reading.upper:.4g}] "
+            f"{'inside' if reading.inside else 'outside'} "
+            f"[{reading.band[0]:g}, {reading.band[1]:g}]"
+            for reading in readings
+        )
+        if not covariate_part:
+            detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
+        sentences.append(
+            f"Generated law: {process.name}, {len(values)} draws on the held design, "
+            f"effect {declared_effect:.5g}."
+        )
     return RefutationTest(
         name=name,
         estimand=estimand,
         original=original,
         values=values,
-        expectation=f"includes {declared_effect:.5g}",
+        expectation=f"readings inside their bands around {declared_effect:.5g}",
         passed=passed,
         detail=detail,
-        standard_errors=tuple(item.std_error for item in records),
+        standard_errors=errors,
         declaration=process,
-        rule=rule,
+        rule=None,
         records=records,
         failures=failures,
         family=family,
-        empirical_pvalue=probability,
+        empirical_pvalue=None,
         declared_effect=declared_effect,
         requested_draws=n_replicates,
+        rung=rung,
+        scope_sentence=" ".join(dict.fromkeys(sentences)),
+        readings=readings,
     )
+
+
+_PLACEBO_MODES = ("permute", "draw")
+
+_PLACEBO_SENTENCE = (
+    "This reads whether the estimator returns the null when treatment is independent of "
+    "covariates and outcome. It does not test the effect, and it says nothing about "
+    "confounding in your data."
+)
+_SUBSET_SENTENCE = (
+    "This compares the scatter of subsample refits with the sampling reference for your "
+    "standard error. It cannot indicate bias."
+)
+_NOISE_SENTENCE = (
+    "The target does not change when an irrelevant column joins the adjustment set. The "
+    "paired shift describes how far the learners move at this sample size, and no reference "
+    "law gives it a verdict."
+)
+_NEGATIVE_CONTROL_SENTENCE = (
+    "Under negative-control assumptions that this report does not check, a non-null "
+    "estimate can reveal residual bias. It can also mean the control is a bad one. A null "
+    "estimate does not show that unmeasured confounding is absent."
+)
+
+
+def _drawn_treatment(data: Any, rng: np.random.Generator) -> np.ndarray:
+    """The independent-draw placebo: i.i.d. draws from the empirical marginal of treatment.
+
+    Every arm of a categorical treatment stays present, because the refit must estimate the
+    parameter of the same declaration. A vector treatment draws whole component rows, so the
+    joint law of the components is the empirical one. A continuous dose draws from observed
+    values and so keeps the observed support.
+    """
+    if data.treatment_kind == "vector":
+        rows = rng.integers(0, data.n, size=data.n)
+        return np.asarray(data.treatment_components, dtype=float)[rows]
+    recorded = (
+        data.treatment_recorded if data.has_missing_treatment else np.ones(data.n, dtype=bool)
+    )
+    source = np.asarray(data.treatment, dtype=float)[recorded]
+    arms = None if data.is_continuous_treatment else np.unique(source)
+    for _ in range(1000):
+        drawn = rng.choice(source, size=source.size, replace=True)
+        if arms is None or np.array_equal(np.unique(drawn), arms):
+            break
+    else:  # pragma: no cover - a 1000-fold failure needs an arm share near zero
+        raise RuntimeError("the placebo draw dropped an arm of the treatment 1000 times")
+    placebo = np.asarray(data.treatment, dtype=float).copy()
+    placebo[recorded] = drawn
+    return placebo
+
+
+def _placebo_data(data: Any, rng: np.random.Generator, mode: str) -> Any:
+    """Return ``data`` with the placebo treatment, and its exact mechanism where declared.
+
+    A fit that declared a known treatment mechanism keeps one on the placebo law. That law
+    draws treatment independently of the covariates with the empirical arm shares, so the
+    exact mechanism is those shares, constant in ``W``. A refit that dropped the declaration
+    and re-estimated the mechanism would be another configuration of the estimator
+    (a known-mechanism fit would become an estimated-mechanism fit).
+    """
+    placebo = _permuted_treatment(data, rng) if mode == "permute" else _drawn_treatment(data, rng)
+    replaced = data.with_treatment(placebo)
+    if data.known_treatment is None:
+        return replaced
+    from ..data.known_mechanism import KnownMechanism
+
+    treatment = np.asarray(replaced.treatment, dtype=float)
+    recorded = replaced.treatment_recorded if replaced.has_missing_treatment else slice(None)
+    shares = np.asarray(
+        [float(np.mean(treatment[recorded] == code)) for code in replaced.arm_codes]
+    )
+    values = np.tile(shares, (replaced.n, 1))
+    return replace(replaced, known_treatment=KnownMechanism(values, "array"))
+
+
+def _subset_draw(
+    data: Any, rng: np.random.Generator, fraction: float
+) -> tuple[np.ndarray, int, int]:
+    """Draw the rows of one subset, whole clusters on a clustered fit.
+
+    Returns
+    -------
+    tuple
+        The selected row positions, the number of sampling units, and the number drawn.
+    """
+    if data.cluster is None:
+        units = int(data.n)
+        size = min(units, max(20, int(fraction * units)))
+        return np.sort(rng.choice(units, size=size, replace=False)), units, size
+    labels = np.unique(data.cluster)
+    units = int(labels.size)
+    size = min(units, max(2, int(fraction * units)))
+    chosen = rng.choice(labels, size=size, replace=False)
+    return np.flatnonzero(np.isin(data.cluster, chosen)), units, size
+
+
+def _sliced_folds(result: Any, index: np.ndarray) -> tuple[Any, ...] | None:
+    """The original fold labels of the drawn rows, one split per repeat.
+
+    A subset refit that redrew its folds would mix a new source of fold noise into the
+    scatter it measures. Each drawn unit keeps its original label, so the fold sizes vary
+    slightly and no split is redrawn. ``None`` for a stand-in result that holds no repeats.
+    """
+    from ..learners.crossfit import Folds
+
+    repeats = getattr(result, "repeats", None)
+    if not repeats:
+        return None
+    sliced: list[Folds] = []
+    for repeat in repeats:
+        folds = repeat.folds
+        if folds.is_single:
+            sliced.append(Folds.single(int(index.size)))
+            continue
+        labels = np.asarray(folds.assignment)[index]
+        _, compact = np.unique(labels, return_inverse=True)
+        sliced.append(Folds(compact.astype(np.int64), int(compact.max()) + 1))
+    return tuple(sliced)
 
 
 def refute(
@@ -2011,16 +2398,22 @@ def refute(
     tests: Sequence[str] = DEFAULT_TESTS,
     n_replicates: int | None = None,
     subset_fraction: float = 0.7,
+    placebo_mode: Literal["permute", "draw"] = "permute",
+    seed_spread: bool = False,
     negative_control_outcome: Any = None,
     dummy_outcome: GaussianIndependentOutcome | None = None,
     simulated_outcome: GaussianAdjustmentOutcome | None = None,
-    outcome_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
     random_state: int | None = None,
-    tolerance: float = 3.0,
 ) -> RefutationResult:
     """Run refutation tests against a fitted model.
+
+    Each test prints its statistic against a stated reference. It prints a verdict
+    (``passed``) only where the registry of evidence covers the fit. Otherwise ``passed`` is
+    ``None`` and the report says what the numbers describe. The generated-outcome tests have
+    exact references and print a verdict from the equivalence bands.
 
     Parameters
     ----------
@@ -2031,9 +2424,8 @@ def refute(
     tests : sequence of str
         Which refutations to run. Parameters without a fixed reported-scale no-effect
         value refuse ``placebo`` and ``negative_control_outcome`` before any refit.
-        Differences use zero; risk and odds ratios use one. ``subset`` and
-        ``random_common_cause`` keep their stability interpretations. A fit
-        given ``split_plan=`` refuses ``subset`` and ``bootstrap_measurement_error``
+        Differences use zero; risk and odds ratios use one. A fit
+        given ``split_plan=`` refuses ``bootstrap_measurement_error``
         before any refit. ``refute_refusal`` holds these refusals, and every refusal of a
         generated-outcome or measurement-error request. The ``refute`` capability row
         reads it for the same request, and defers on ``tests`` when the default tests meet
@@ -2042,37 +2434,46 @@ def refute(
         after the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
         ``evaluation=`` companion that lacks it.
     n_replicates : int or None
-        Replicates per randomized test. ``None`` uses five for each established
-        perturbation, and 100 for each generated-outcome test and for
-        ``bootstrap_measurement_error``. Each of those three tests refuses a budget below
-        its rule's ``minimum_draws`` before any refit.
+        Replicates per randomized test. ``None`` uses five for ``placebo`` and ``subset``,
+        five for ``random_common_cause``, 100 for
+        ``bootstrap_measurement_error``, and 400 for each generated-outcome test. Any check
+        that needs more than five refits is opt-in, and the calibrated count of the placebo
+        and the subset test is 20. The
+        generated-outcome readings print at ``L1`` below 400 draws, and a budget below ten
+        is refused before any refit.
     subset_fraction : float
         Share of rows the subset test refits on.
+    placebo_mode : {"permute", "draw"}
+        ``"permute"`` permutes the recorded treatment. ``"draw"`` draws i.i.d. from its
+        empirical marginal. Both keep the marginal law, and both give the same null.
+    seed_spread : bool
+        Whether ``random_common_cause`` also refits ``n_replicates`` baselines at fresh seeds
+        and prints their spread, the movement that fold noise alone gives. It adds that many
+        refits, so it is opt-in.
     negative_control_outcome : str or None
         An outcome the treatment cannot affect.  Required to run that test.
     dummy_outcome : GaussianIndependentOutcome or None
         Independent Gaussian process declaration. ``None`` uses the default declaration.
     simulated_outcome : GaussianAdjustmentOutcome or None
         Adjustment-dependent additive process. ``None`` uses the default declaration.
-    outcome_rule : EmpiricalInclusionRule
-        Recorded rule applied to generated-outcome refits.
+    outcome_bands : EquivalenceBands
+        Equivalence bands applied to the generated-outcome readings.
     bootstrap_measurement_error : BootstrapMeasurementError or None
         Measurement-error declaration. Required when the named test is requested.
     measurement_error_rule : EmpiricalInclusionRule
         Recorded rule that compares the original estimate with measurement-error refits.
+        It supplies the tail probability the report prints, and no verdict.
     random_state : int or None
         Seed for the randomised tests.  ``None`` uses the seed the fit was run with, so a
         seeded fit gives the same refutation every time.  An unseeded fit draws a seed, and
         the refits run under it too.  Either way the report records it under
         ``random_state``, and passing that value back repeats the report.
-    tolerance : float
-        How many standard errors a null test may deviate before failing.  The default of
-        3 keeps the false-alarm rate low across several tests.
 
     Returns
     -------
     RefutationResult
-        One record per test run, with what it expected and what it saw.
+        One record per test run, with what it expected, what it saw, the rung of evidence
+        behind its verdict rule, and the verdict or ``None``.
 
     Raises
     ------
@@ -2089,13 +2490,14 @@ def refute(
     # request this line admits.
     request = _RefuteRequest(
         estimand,
-        _validated_tests(tests, n_replicates, negative_control_outcome),
+        _validated_tests(tests, n_replicates, negative_control_outcome, placebo_mode),
         n_replicates,
         dummy_outcome,
         simulated_outcome,
-        outcome_rule,
+        outcome_bands,
         bootstrap_measurement_error,
         measurement_error_rule,
+        placebo_mode,
     )
     refusal = _first_refusal(result, request)
     if refusal is not None:
@@ -2115,14 +2517,15 @@ def refute(
     estimate_scale = getattr(result[estimand], "scale", None)
     declaration = _target_declaration(result, estimand)
     is_ratio = (estimate_scale or getattr(declaration, "scale", None)) == "ratio"
-    # A tolerance scale for the refutation comparisons below, not a coverage claim, so
-    # the plug-in accessor answers on a selector-path collaborative fit too.
+    # The standard error on the inference scale (log for a ratio). The plug-in accessor
+    # answers on a selector-path collaborative fit too, and the reading then says so.
     std_error = result[estimand].plugin_std_error
     # Every refit reruns this estimator, so each test's standard errors carry the fit's
     # own inference status. ``RefutationTest.to_frame`` names its column from it, and a
     # detail below names the unit it counts in from it.
     status = result[estimand].inference
     unit = spread_name("standard errors", status)
+    fit = _read_configuration(result, estimand)
     # The package convention for a stochastic operation on a fitted object: an explicit seed
     # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
     # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
@@ -2137,39 +2540,69 @@ def refute(
     data = result.data
     outcomes: list[RefutationTest] = []
 
-    def refit(replacement: Any) -> float:
+    def refit(
+        replacement: Any, *, seed: int = seed, frozen_folds: Sequence[Any] | None = None
+    ) -> tuple[float, float]:
+        options: dict[str, Any] = {}
+        if frozen_folds is not None:
+            options["frozen_folds"] = frozen_folds
         refitted = estimator.refit(
             replacement,
             intermediate_value=result.intermediate_value,
             random_state=seed,
+            **options,
         )
-        return refitted[estimand].psi
+        estimate = refitted[estimand]
+        return float(estimate.psi), float(estimate.plugin_std_error)
+
+    def on_scale(value: float) -> float:
+        return float(np.log(value)) if is_ratio else float(value)
 
     for name in requested:
-        replicate_count = (
-            n_replicates
-            if n_replicates is not None
-            else (
-                DEFAULT_OUTCOME_REPLICATES
-                if name in _GENERATED_TESTS or name == "bootstrap_measurement_error"
-                else _DEFAULT_PERTURBATION_REPLICATES
-            )
-        )
+        if n_replicates is not None:
+            replicate_count = n_replicates
+        elif name in _GENERATED_TESTS:
+            replicate_count = DEFAULT_OUTCOME_REPLICATES
+        elif name == "bootstrap_measurement_error":
+            replicate_count = _DEFAULT_MEASUREMENT_REPLICATES
+        elif name == "random_common_cause":
+            replicate_count = _DEFAULT_NOISE_REPLICATES
+        else:
+            replicate_count = _DEFAULT_PERTURBATION_REPLICATES
+        mean_kind: Literal["arithmetic", "geometric"] = "geometric" if is_ratio else "arithmetic"
         if name == "placebo":
             assert no_effect_null is not None
-            values = tuple(
-                refit(data.with_treatment(_permuted_treatment(data, rng)))
-                for _ in range(replicate_count)
-            )
-            # Permuting treatment removes the effect, so each replicate is a draw from a
-            # null distribution whose spread is about the original standard error.
-            threshold = tolerance * std_error / np.sqrt(max(1, replicate_count))
-            mean_kind: Literal["arithmetic", "geometric"] = (
-                "geometric" if is_ratio else "arithmetic"
-            )
+            fits = [refit(_placebo_data(data, rng, placebo_mode)) for _ in range(replicate_count)]
+            values = tuple(psi for psi, _ in fits)
+            if replicate_count < 2:
+                reading = None
+            else:
+                reading = placebo_reading(
+                    [_no_effect_difference(psi, no_effect_null) for psi in values],
+                    std_error=std_error,
+                    plugin_std_errors=[se for _, se in fits],
+                    scale=original,
+                )
+            resolution = _resolve("placebo", "t", fit)
+            passed: bool | None = None
+            if reading is not None and resolution.licensed:
+                passed = not reading.rejects
             mean = float(np.exp(np.mean(np.log(values)))) if is_ratio else float(np.mean(values))
-            distance = abs(_no_effect_difference(mean, no_effect_null))
-            passed = bool(distance <= max(threshold, tolerance * std_error / 2))
+            if reading is None:
+                detail = "one placebo draw carries no spread, so the t statistic is undefined"
+            elif reading.kind == "constant_zero":
+                detail = (
+                    f"{mean_kind} mean placebo estimate {mean:+.5g}: the estimate does not "
+                    "move with the treatment"
+                )
+            else:
+                detail = (
+                    f"{mean_kind} mean placebo estimate {mean:+.5g} against the exact null "
+                    f"{no_effect_null:g}; the t statistic of the {replicate_count} draws is "
+                    f"{reading.t:+.4g} on {reading.df} degrees of freedom"
+                )
+            if data.known_treatment is not None:
+                detail += ". The refit keeps a known mechanism: the placebo law's own arm shares"
             outcomes.append(
                 RefutationTest(
                     name=name,
@@ -2178,30 +2611,45 @@ def refute(
                     values=values,
                     expectation=f"~ {no_effect_null:g}",
                     passed=passed,
-                    detail=(
-                        f"{mean_kind} mean placebo estimate {mean:+.5g} is "
-                        f"{_standardized_distance(distance, std_error):.1f} {unit} "
-                        f"from {no_effect_null:g}. A large gap can indicate fold leakage "
-                        "or a misdefined estimand"
-                        + (
-                            ". The known treatment mechanism was dropped for each permuted "
-                            "treatment and re-estimated"
-                            if data.known_treatment is not None
-                            else ""
-                        )
-                    ),
+                    detail=detail,
+                    standard_errors=tuple(se for _, se in fits),
                     mean_kind=mean_kind,
+                    rung=resolution.rung,
+                    scope_sentence=f"{_PLACEBO_SENTENCE} {resolution.sentence}",
+                    statistic=None if reading is None else reading.t,
+                    statistic_name="t",
+                    statistic_pvalue=None if reading is None else reading.pvalue,
+                    extras=()
+                    if reading is None or reading.scale_ratio is None
+                    else (("mean reported SE over SD of the draws", reading.scale_ratio),),
                 )
             )
 
         elif name == "random_common_cause":
-            values = tuple(
-                refit(data.with_extra_covariate(rng.normal(size=data.n), f"_noise_{index}"))
+            repeats = getattr(result, "repeats", None)
+            fit_seed = repeats[0].seed if repeats else seed
+            noise_fits = [
+                refit(
+                    data.with_extra_covariate(rng.normal(size=data.n), f"_noise_{index}"),
+                    seed=fit_seed,
+                )
                 for index in range(replicate_count)
+            ]
+            values = tuple(psi for psi, _ in noise_fits)
+            baseline = [on_scale(original)] * replicate_count
+            shift, shift_sd, _ = paired_shift(
+                [on_scale(psi) for psi in values], baseline, std_error=std_error
             )
-            shift = float(np.mean([_stability_value(value, is_ratio) for value in values]))
-            shift -= _stability_value(original, is_ratio)
-            passed = bool(abs(shift) <= tolerance * std_error)
+            extras = [("spread of the paired differences (SE units)", shift_sd)]
+            if seed_spread:
+                child = _generated_child_seeds(seed, name, replicate_count)
+                base_fits = [refit(data, seed=child[index]) for index in range(replicate_count)]
+                _, _, seed_only = paired_shift(
+                    [on_scale(psi) for psi, _ in base_fits],
+                    [on_scale(psi) for psi, _ in base_fits],
+                    std_error=std_error,
+                )
+                extras.append(("spread across seeds with no noise column (SE units)", seed_only))
             outcomes.append(
                 RefutationTest(
                     name=name,
@@ -2209,46 +2657,72 @@ def refute(
                     original=original,
                     values=values,
                     expectation=f"~ {original:.4g}",
-                    passed=passed,
+                    passed=None,
                     detail=(
-                        f"adding an irrelevant covariate moved the estimate by {shift:+.5g} "
-                        f"{'on the log scale ' if is_ratio else ''}"
-                        f"({_standardized_distance(abs(shift), std_error):.1f} {unit}); "
-                        "a large shift can indicate unstable nuisance models"
+                        f"adding an irrelevant covariate moved the estimate by {shift:+.4g} "
+                        f"{unit} {'on the log scale ' if is_ratio else ''}against the "
+                        "original fit, under its seed and folds"
                     ),
-                    mean_kind="geometric" if is_ratio else "arithmetic",
+                    standard_errors=tuple(se for _, se in noise_fits),
+                    mean_kind=mean_kind,
+                    rung="L0",
+                    scope_sentence=_NOISE_SENTENCE,
+                    statistic=shift,
+                    statistic_name=f"paired shift in {unit}",
+                    extras=tuple(extras),
                 )
             )
 
         elif name == "subset":
-            size = max(20, int(subset_fraction * data.n))
-            values = tuple(
-                refit(data.subset(rng.choice(data.n, size=size, replace=False)))
-                for _ in range(replicate_count)
+            drawn = [_subset_draw(data, rng, subset_fraction) for _ in range(replicate_count)]
+            fits = [
+                refit(data.subset(index), frozen_folds=_sliced_folds(result, index))
+                for index, _, _ in drawn
+            ]
+            values = tuple(psi for psi, _ in fits)
+            units, size = drawn[0][1], drawn[0][2]
+            reading_s: SubsetReading | None = (
+                None
+                if replicate_count < 2
+                else subset_reading(
+                    [on_scale(psi) for psi in values], std_error=std_error, n=units, m=size
+                )
             )
-            expected = std_error * np.sqrt(1.0 / subset_fraction - 1.0 + 1.0)
-            scaled_values = [_stability_value(value, is_ratio) for value in values]
-            spread = float(np.std(scaled_values, ddof=1)) if len(values) > 1 else 0.0
-            passed = bool(spread <= tolerance * expected)
+            resolution = _resolve("subset", "rho", fit)
+            passed = None
+            if reading_s is not None and np.isfinite(reading_s.rho) and resolution.licensed:
+                passed = bool(reading_s.pvalue >= 0.05)
+            spread = float("nan") if reading_s is None else reading_s.spread
+            expectation = (
+                (
+                    f"log-scale scatter ~ {reading_s.reference_sd:.4g}"
+                    if is_ratio
+                    else f"scatter ~ {reading_s.reference_sd:.4g}"
+                )
+                if reading_s is not None and np.isfinite(reading_s.reference_sd)
+                else "scatter"
+            )
             outcomes.append(
                 RefutationTest(
                     name=name,
                     estimand=estimand,
                     original=original,
                     values=values,
-                    expectation=(
-                        f"log-scale scatter <~ {tolerance * expected:.4g}"
-                        if is_ratio
-                        else f"scatter <~ {tolerance * expected:.4g}"
-                    ),
+                    expectation=expectation,
                     passed=passed,
                     detail=(
                         f"subsample estimates scatter by {spread:.5g} "
-                        f"{'on the log scale ' if is_ratio else ''}against {expected:.5g} "
-                        "expected from sampling alone. A large spread can indicate "
-                        "influential observations"
+                        f"{'on the log scale ' if is_ratio else ''}against "
+                        f"{'nan' if reading_s is None else format(reading_s.reference_sd, '.5g')} "
+                        f"from sampling {size} of {units} units alone"
                     ),
+                    standard_errors=tuple(se for _, se in fits),
                     spread_kind="log" if is_ratio else "reported",
+                    rung=resolution.rung,
+                    scope_sentence=f"{_SUBSET_SENTENCE} {resolution.sentence}",
+                    statistic=None if reading_s is None else reading_s.rho,
+                    statistic_name="scatter ratio rho",
+                    statistic_pvalue=None if reading_s is None else reading_s.pvalue,
                 )
             )
 
@@ -2264,8 +2738,11 @@ def refute(
             )
             value = refitted[estimand].psi
             control_se = refitted[estimand].plugin_std_error
-            distance = abs(_no_effect_difference(value, no_effect_null))
-            passed = bool(distance <= tolerance * control_se)
+            deviation = _no_effect_difference(value, no_effect_null)
+            z = deviation / control_se if control_se > 0 else float("nan")
+            pvalue = float(2.0 * stats.norm.sf(abs(z))) if np.isfinite(z) else float("nan")
+            resolution = _resolve("negative_control_outcome", "z", fit)
+            passed = bool(pvalue >= 0.05) if resolution.licensed and np.isfinite(z) else None
             outcomes.append(
                 RefutationTest(
                     name=name,
@@ -2276,11 +2753,13 @@ def refute(
                     passed=passed,
                     detail=(
                         f"the negative-control outcome shows an estimate of {value:+.5g} "
-                        f"({_standardized_distance(distance, control_se):.1f} {unit} "
-                        f"from the no-effect value {no_effect_null:g}). Under a valid, "
-                        "comparable control design, a large gap can flag residual bias. "
-                        "It can also indicate that the negative-control assumptions fail"
+                        f"(z = {z:+.3g} {unit} from the no-effect value {no_effect_null:g})"
                     ),
+                    rung=resolution.rung,
+                    scope_sentence=f"{_NEGATIVE_CONTROL_SENTENCE} {resolution.sentence}",
+                    statistic=z,
+                    statistic_name="z",
+                    statistic_pvalue=pvalue,
                 )
             )
 
@@ -2292,11 +2771,12 @@ def refute(
                     estimand=estimand,
                     original=original,
                     process=processes[name],
-                    rule=outcome_rule,
+                    bands=outcome_bands,
                     n_replicates=replicate_count,
                     root_seed=seed,
                     value_code=contrasts[name][0],
                     reference_code=contrasts[name][1],
+                    fit=fit,
                 )
             )
         else:
