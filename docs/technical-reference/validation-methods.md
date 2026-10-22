@@ -2271,7 +2271,7 @@ narrower and is not shipped.
 | more than two arms, weights, strata, missing outcomes, `CTMLE`, `AdaptiveIPTW` | `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part H2 |
 | a controlled direct effect, a missing treatment | `implementation_gap`, [X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
 | a longitudinal fit | `implementation_gap`, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
-| a continuous treatment, a policy, a regime, an MSM, a structural nested mean model | `different_estimand` |
+| a continuous treatment, a policy, a regime, an incremental intervention, an MSM, a structural nested mean model | `different_estimand` |
 | a fit whose estimate has no influence-curve inference | `inference_gap` |
 
 **Evidence.** `tests/unit/test_marginal_sensitivity.py` solves the linear program on a finite law
@@ -2281,6 +2281,10 @@ with oracle nuisances, each reproduce the sharp bound to `rtol=1e-12`. Mutation 
 quantile to the other side, change the correction weight to $1/\hat e$, and replace both
 nuisances. Each moves the value off the sharp bound. At $\Gamma = 1$ the bounds equal an
 independent AIPW computation.
+
+On a Gaussian law, a quantile error $\delta$ moves the continuous side by $O(\delta^2)$. The
+control at the quantile of the other side moves it by $O(\delta)$.
+A parametrized test refuses each composition in the scope table before a learner fits.
 
 **Confidence limits.** The limits resolve through the evidence registry with the instrument
 `msm_bound_limit`. The rule is `continuous` or `binary`, with `+clustered` on a clustered fit. The

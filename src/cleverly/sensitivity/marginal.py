@@ -321,12 +321,12 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             "a controlled direct effect also needs a bound on confounding of the intermediate "
             "and the outcome, which the model does not state."
         )
-    if getattr(data, "treatment_observed", None) is not None:
+    if data.has_missing_treatment:
         return _gap(
             "a missing treatment needs a joint model of U on the treatment and on its "
             "observation, which no read source defines."
         )
-    if bool(np.any(~np.asarray(data.observed, dtype=bool))):
+    if data.has_missing_outcome:
         return _gap("the bounds on a fit with missing outcomes are not implemented yet.", _PART_H2)
     if not data.is_binary_treatment:
         return _gap(
@@ -343,15 +343,6 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             f"{data.family!r}.",
             alternative=NO_ALTERNATIVE,
         )
-    if data.family == "binomial":
-        values = np.unique(np.asarray(data.outcome, dtype=float))
-        if not np.all(np.isin(values, (0.0, 1.0))):
-            return Refusal(
-                RefusalReason.DIFFERENT_ESTIMAND,
-                "a binomial fit with outcomes other than 0 and 1 is neither binary nor "
-                "continuous, and the bound's quantile route covers neither case.",
-                alternative=NO_ALTERNATIVE,
-            )
     status = result.inference_status
     status = status() if callable(status) else status
     if status != "influence_curve":

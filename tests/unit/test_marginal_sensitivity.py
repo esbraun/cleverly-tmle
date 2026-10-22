@@ -14,11 +14,13 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.optimize import linprog
+from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import influence_variance
+from cleverly.interventions import Incremental
 from cleverly.sensitivity import marginal as marginal_module
 from cleverly.sensitivity.marginal import (
     MSM_BOUND_INSTRUMENT,
@@ -312,6 +314,75 @@ def test_the_continuous_side_reproduces_the_sharp_bound(arm: int, upper: bool) -
     assert abs(moved.value - side.value) > 1e-3
 
 
+def gaussian_population(rows_per_cell: int = 4000) -> dict[str, np.ndarray]:
+    """Y | A = 1, W = w is N(w, 1), held as equal-weight quantile-grid rows; P(A = 1 | W) = 1/2."""
+    grid = norm.ppf((np.arange(rows_per_cell) + 0.5) / rows_per_cell)
+    w_rows, a_rows, y_rows = [], [], []
+    for w in range(3):
+        for a in (1.0, 0.0):
+            w_rows.append(np.full(rows_per_cell, w))
+            a_rows.append(np.full(rows_per_cell, a))
+            y_rows.append(w + grid)
+    w_all = np.concatenate(w_rows)
+    return {
+        "w": w_all,
+        "treated": np.concatenate(a_rows),
+        "y": np.concatenate(y_rows),
+        "e": np.full(w_all.shape[0], 0.5),
+        "mu": w_all.astype(float),
+    }
+
+
+def side_at_quantile(population: dict[str, np.ndarray], gamma: float, q: dict[int, float]) -> float:
+    """The upper arm-1 side with the quantile oracle at ``q`` and the exact tail regression."""
+    tau = gamma / (1 + gamma)
+    rows = population["treated"] > 0.5
+    tails = {}
+    for w, value in q.items():
+        y = population["y"][rows & (population["w"] == w)]
+        tails[w] = float(np.mean(value + np.maximum(y - value, 0.0) / (1 - tau)))
+    side = _continuous_side(
+        population["w"][:, None].astype(float),
+        population["y"],
+        population["treated"],
+        population["e"],
+        population["mu"],
+        gamma,
+        True,
+        np.arange(population["y"].shape[0]) % 5,
+        5,
+        lambda tau: Oracle(q),
+        Oracle(tails),
+        0,
+    )
+    return side.value
+
+
+def test_the_quantile_enters_the_side_at_second_order() -> None:
+    """Orthogonality: an error delta in the tau-quantile moves the side by O(delta^2).
+
+    The ratio of the moves at 2 delta and delta is 4 near the tau-quantile. Mutation
+    control: near the (1 - tau)-quantile the side moves at first order, with ratio 2.
+    """
+    gamma = 2.0
+    population = gaussian_population()
+
+    def moves(level: float) -> tuple[float, float]:
+        base = {w: w + float(norm.ppf(level)) for w in range(3)}
+        at = side_at_quantile(population, gamma, base)
+        return tuple(  # type: ignore[return-value]
+            side_at_quantile(population, gamma, {w: v + delta for w, v in base.items()}) - at
+            for delta in (0.1, 0.2)
+        )
+
+    small, large = moves(gamma / (1 + gamma))
+    assert small > 0.0
+    assert large / small == pytest.approx(4.0, rel=0.05)
+    small, large = moves(1 / (1 + gamma))
+    assert 1.5 < large / small < 2.5
+    assert abs(small) > 0.02
+
+
 def test_the_correction_weight_is_the_odds_of_the_other_arm() -> None:
     """Mutation control: weight 1/e in place of (1 - e)/e breaks the exact value."""
     gamma = 2.0
@@ -389,7 +460,9 @@ def binary_frame(n: int = 400, seed: int = 0) -> pd.DataFrame:
 
 def gaussian_fit(frame: pd.DataFrame | None = None, **options: Any) -> Any:
     frame = gaussian_frame() if frame is None else frame
-    columns = {key: options.pop(key) for key in ("id", "weights") if key in options}
+    columns = {
+        key: options.pop(key) for key in ("id", "weights", "treatment_delta") if key in options
+    }
     return (
         TMLE(
             outcome_learner=LinearRegression(),
@@ -643,6 +716,92 @@ def test_a_multi_arm_fit_is_refused() -> None:
 def test_a_weighted_fit_is_refused() -> None:
     frame = gaussian_frame().assign(wt=np.linspace(0.5, 1.5, 400))
     refused_with(gaussian_fit(frame, weights="wt"), "implementation_gap", "X82")
+
+
+def refusal_frame(n: int = 300, seed: int = 4) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    z = rng.binomial(1, 1 / (1 + np.exp(-(w + a))))
+    y = w + a + z + rng.normal(size=n)
+    return pd.DataFrame(
+        {
+            "W1": w,
+            "W2": rng.normal(size=n),
+            "A": a,
+            "Z": z,
+            "Y": y,
+            "V": rng.integers(0, 2, size=n),
+            "D": (rng.random(n) < 0.8).astype(float),
+            "DeltaA": (rng.random(n) < 0.8).astype(float),
+        }
+    )
+
+
+def _linear(**overrides: Any) -> dict[str, Any]:
+    return {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(),
+        "random_state": 0,
+        "n_folds": 3,
+        "q_bounds": (-12.0, 12.0),
+        **overrides,
+    }
+
+
+def _composition(kind: str) -> Any:
+    frame = refusal_frame()
+    columns: dict[str, Any] = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
+    settings = _linear()
+    if kind == "intermediate":
+        settings["intermediate_learner"] = LogisticRegression()
+        columns["intermediate"] = "Z"
+    elif kind == "missing_outcome":
+        settings["missingness_learner"] = LogisticRegression()
+        frame = frame.assign(Y=np.where(frame["D"] > 0, frame["Y"], np.nan))
+        columns["delta"] = "D"
+    elif kind == "missing_treatment":
+        settings["missingness_learner"] = LogisticRegression()
+        settings["cross_fit"] = False
+        frame = frame.assign(A=np.where(frame["DeltaA"] > 0, frame["A"], np.nan))
+        columns["treatment_delta"] = "DeltaA"
+    elif kind == "strata":
+        columns["strata"] = ["V"]
+        columns["covariates"] = ["W1", "W2", "V"]
+    elif kind == "incremental":
+        settings["incremental"] = [Incremental(2.0)]
+    fits = TMLE(**settings).fit(frame, **columns)
+    # A controlled direct effect returns one result per level of the intermediate.
+    return fits[0.0] if kind == "intermediate" else fits.single()
+
+
+@pytest.mark.parametrize(
+    ("kind", "reason", "owner"),
+    [
+        ("intermediate", "implementation_gap", "X87"),
+        ("missing_treatment", "implementation_gap", "X87"),
+        ("missing_outcome", "implementation_gap", "X82"),
+        ("strata", "implementation_gap", "X82"),
+        ("incremental", "different_estimand", None),
+    ],
+)
+def test_each_composition_is_refused_before_a_fit(kind: str, reason: str, owner: str) -> None:
+    refused_with(_composition(kind), reason, owner)
+
+
+def test_a_declared_treatment_record_with_nothing_missing_is_bounded() -> None:
+    """R1: the refusal reads a missing treatment, not a declared observation column."""
+    frame = gaussian_frame().assign(DeltaA=1.0)
+    fit = gaussian_fit(frame, missingness_learner=LogisticRegression(), treatment_delta="DeltaA")
+    assert fit.data.treatment_observed is not None
+    assert marginal_bound_refusal(fit) is None
+    bounds = marginal_sensitivity_bounds(
+        fit,
+        (1.0, 1.5),
+        quantile_learner=lambda tau: LinearRegression(),
+        pseudo_outcome_learner=LinearRegression(),
+    )
+    assert len(bounds.rows) == 2
 
 
 def test_a_fit_without_influence_curve_inference_is_refused() -> None:
