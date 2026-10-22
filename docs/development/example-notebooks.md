@@ -227,12 +227,24 @@ of the technical reference describes each one and says which of them is a bound.
 
 | kind of fit | the sensitivity analysis to run | how to read it |
 | --- | --- | --- |
-| point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator | a bound. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means |
-| C-TMLE | `robustness_value()` and `omitted_confounding()` on the ordinary TMLE fit of the declared adjustment set only. A collaborative fit other than `strategy="derivative"` refuses the bound. Do not run `simulated_confounding()` | a bound for the ordinary fit. It does not cover the collaborative estimate |
-| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients | a bound on each arm contrast, not on the MSM coefficient. The `msm` axis itself is refused |
-| a fit with missing outcomes | `missingness()` and `tipping_gamma()` | the tilt of the unobserved outcomes at which the estimate reaches its null |
-| longitudinal TMLE, with or without a time-to-event outcome | refit without one recorded covariate at a time, and print each move in standard errors | a benchmark, not a bound. Each move is signed and specific to the dropped covariate |
-| a regime, shift, or incremental intervention | state that no omitted-variable bound exists for these contrasts ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G). If the page runs `simulated_confounding()`, a fit that declares `q_bounds` admits only a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`. One flip strength is enough | a treatment-only cell moves the estimate by misclassification of the treatment, not by confounding. It is not a bound. Say so in the reading, or omit the step |
+| point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator. Add `evalue()` and `simulated_confounding()` | a bound for the first three. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means. `evalue()` reads the risk ratio, or a standardized-difference approximation for a continuous outcome, and `simulated_confounding()` is a stress surface that is not a bound |
+| C-TMLE | `robustness_value()`, `omitted_confounding()`, and `simulated_confounding()` on the selecting fit. A collaborative fit other than `strategy="derivative"` refuses the bound unless the call declares `assume_consistent_mechanism=True` | a point bound under that declaration, with the declaration stated in the reading. Without it, read the bound of the ordinary TMLE fit of the declared adjustment set. It does not cover the collaborative selection |
+| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients. Add the bound on the slope and `simulated_confounding()` on the slope | a bound on each arm contrast and on the slope. The `msm` axis itself is refused |
+| a fit with missing outcomes | `missingness()` and `tipping_gamma()`, `evalue()` with the missing-at-random plug-in of the outcome SD, and the omitted-variable bound | the tilt of the unobserved outcomes at which the estimate reaches its null. Do not run the outcome-axis `simulated_confounding()` when the response mechanism reads the arm |
+| longitudinal TMLE, with or without a time-to-event outcome | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only on an uncensored end-of-study fit with no time-varying covariate after the first treatment node | a benchmark, not a bound. Each move is signed and specific to the dropped covariate |
+| a regime, shift, or incremental intervention | `omitted_confounding()` on the contrast ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G2c) and `simulated_confounding()` where the intervention has a known density. A fit that declares `q_bounds` admits only a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`. One flip strength is enough | the bound reads the contrast. A treatment-only cell moves the estimate by misclassification of the treatment, not by confounding. It is not a bound. Say so in the reading, or omit the step |
+
+Run the checks below on the fit of the page as well. The tutorial runs each one that the fit
+supports and states each refused one as a limit.
+
+| check | what to run | how to read it |
+| --- | --- | --- |
+| refutation | `refute()`: `placebo`, `subset`, and `random_common_cause` at the default `R`. Add `negative_control_outcome` where the data hold a pre-treatment measure | a verdict prints only where a `VERDICT_EVIDENCE` row covers the fit. Otherwise the numbers print with `passed=None`. Quote the scope sentence the registry prints |
+| generated outcomes | `dummy_outcome`, `simulated_outcome`, and `plasmode` at a small `R` | a level-1 reading. The level-2 bands need `R` = 400, so run that version once as a review probe outside the notebook |
+| tilt | `missingness()` and `tipping_gamma()` | the tilt at which the estimate reaches its null |
+
+A tutorial cell runs offline in the fast suite at its documented size, and the suite shrinks only
+`n=` and `density_bins=`. Keep `R` at its default or at a small count in every executed cell.
 
 ### The method-evidence step
 

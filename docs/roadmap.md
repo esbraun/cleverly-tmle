@@ -164,6 +164,7 @@ not change the package version.
 | after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
+| beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1771,6 +1772,38 @@ refuses a tilt fit.
 
 Acceptance: the typed requests reproduce the direct fit; the replay at zero strength reproduces the
 estimate; on a finite law, a cell equals a hand application of the rule to the perturbed treatment.
+
+### X86. Refutation and sensitivity checks in every tutorial notebook
+
+Each notebook under `docs/examples/` shows the X82 checks that fit its design and estimand, and only
+those. A check that the fit refuses is not run. The notebook states the limit in one sentence with
+its roadmap id, as `docs/development/example-notebooks.md` requires. No cell prints a refusal.
+Each item is one pull request that edits one notebook and its
+`tests/unit/tutorial_semantics/` module.
+
+| item | notebook | what it adds | waits on |
+| --- | --- | --- | --- |
+| (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
+| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | (0), SP, SG |
+| (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
+| (b) | `cross-fitting.ipynb` | fold noise beside the shift, the clustered plasmode, `bootstrap_stability`, and the bound under the median rule | (0), SP, SG |
+| (c) | `collaborative-tmle.ipynb` | `refute`, the risk-ratio E-value, and the bound under `assume_consistent_mechanism=True` | (0), SP, SG |
+| (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
+| (e) | `msm-projections.ipynb` | the MSM tensor placebo, generated truths of the coefficients, and the slope replay | (0), SP, SG |
+| (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
+| (g) | `longitudinal-survival.ipynb` | the longitudinal checks on a `RegimeContrast` fit, and held-history generated outcomes | (0) |
+| (h) | `sequential-offers.ipynb` | the longitudinal checks, with each limit stated | (0) |
+| (i) | `sequential-pricing.ipynb` | the longitudinal checks on the renewal and revenue contrasts | (0) |
+| (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
+
+SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers
+the fit, so a notebook that runs before SP or SG lands would commit readings that the registry
+later changes.
+
+Acceptance: every new call runs and no cell prints a refusal; every verdict, limit and scope
+sentence in the prose matches the committed output; the notebook executes; the fast suite and the
+docs build pass; the fast-tier cell time stays within 1.5 times its time before the item, or the
+pull request states the increase; an implementation review approves.
 
 ### P1. EP learner
 
