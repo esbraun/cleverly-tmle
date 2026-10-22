@@ -27,6 +27,8 @@ from tests.studies import canonical_multi_arm_drtmle as multi_arm
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_properties as gated_properties
 from tests.studies import multi_arm_drtmle_properties as multi_arm_properties
+from tests.studies import refuter_calibration_longitudinal as refuter
+from tests.studies import refuter_calibration_longitudinal_properties as refuter_properties
 from tests.studies.evidence import manifest
 from tests.studies.evidence.registry import ROOT
 
@@ -41,10 +43,16 @@ def _multi_arm(here: Path) -> None:
     )
 
 
+def _refuter(here: Path) -> None:
+    declared_run.run(refuter, refuter_properties, here=here)
+
+
 #: ``(study module, entry point, the reference the driver must receive)``.
 STUDIES: dict[str, tuple[Any, Callable[[Path], None], Reference | None]] = {
     "learned-rule-cvtmle": (gated, _learned_rule, None),
     "canonical-multi-arm-drtmle": (multi_arm, _multi_arm, multi_arm_regenerate.REFERENCE),
+    # A study with a property artifact (``cells.csv``) that the copy must carry.
+    "refuter-calibration-longitudinal": (refuter, _refuter, None),
 }
 
 
@@ -81,7 +89,7 @@ def _writing_driver(
         if fail == "before":
             raise RuntimeError("a fit failed")
         record = study.STUDY
-        names = (*ARTIFACT_NAMES, *record.extra_artifacts)
+        names = (*ARTIFACT_NAMES, *record.extra_artifacts, *record.property_artifacts)
         if optional:
             names = (*names, *regenerate.OPTIONAL_ARTIFACT_NAMES)
         paths = [output / name for name in names]
@@ -260,6 +268,7 @@ class TestTheRecord:
         expected = {
             *ARTIFACT_NAMES,
             *module.STUDY.extra_artifacts,
+            *module.STUDY.property_artifacts,
             *declared_run.RECORD_FILES,
         }
         assert {path.name for path in here.iterdir()} == expected
@@ -310,6 +319,9 @@ class TestTheRecord:
     def test_the_multi_arm_record_declares_the_diagnostics_the_copy_carries(self) -> None:
         assert multi_arm.STUDY.extra_artifacts == ("fit-diagnostics.csv",)
         assert multi_arm.STUDY.artifacts.resolve() == multi_arm_regenerate.HERE
+
+    def test_the_refuter_record_declares_the_cells_file_the_copy_carries(self) -> None:
+        assert refuter.STUDY.property_artifacts == ("cells.csv",)
 
     def test_a_failed_gated_verdict_still_publishes_the_run(
         self, study: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

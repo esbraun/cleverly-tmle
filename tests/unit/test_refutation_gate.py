@@ -853,13 +853,13 @@ class TestLearnedRulePlacebo:
         assert test.expectation == f"~ {mean:g}"
         assert "outcome mean" in test.detail
 
-    def test_every_other_test_still_refuses_a_learned_rule_fit(self) -> None:
+    def test_the_other_refit_tests_meet_no_learned_rule_stop(self) -> None:
+        """X82 part F4 holds the realized rules on every other refit test."""
+        from cleverly.validation.refute import refute_refusal
         from tests.unit import _learned_rule_support as support
 
-        result = self._fit()
-        for name in ("random_common_cause", "subset"):
-            with pytest.raises(CapabilityError, match="relearns the rule"):
-                refute(result, estimand=support.NAME, tests=("placebo", name))
+        tests = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
+        assert refute_refusal(self._fit(), estimand=support.NAME, tests=tests) is None
 
     def test_the_reference_is_exact_over_every_permutation(self) -> None:
         """An IPW value of a fixed rule, with the marginal ``g``, averages to the weighted mean."""

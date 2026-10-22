@@ -20,6 +20,7 @@ Each trial draws `n = 1000` units with two treatment nodes and fits one cell.
 | B1 | `SequentialGComputation`, GLM, in sample | E | placebo, subset, negative control |
 | B2 | `SequentialIPW` (Hajek), GLM, in sample | E | placebo, subset, negative control |
 | B3 | `ParametricGFormula`, GLM models, 10 draws per unit, in sample | E | placebo, subset, negative control |
+| SN1 | `StructuralNestedMean`, intercept blips, GLM, five folds | E | placebo, subset, negative control |
 
 Law E is an end-of-study law with a Gaussian outcome, a time-varying confounder `L2`, and an
 unmeasured `U` that drives the first treatment and the confounded control only. Law S is the
@@ -29,6 +30,11 @@ docstring of `tests/studies/refuter_calibration_longitudinal.py` states both law
 On law E every mechanism GLM and every static-regimen outcome GLM is correctly specified.
 IPSI's iterated regression under the odds tilt is not linear, so I1's outcome model is
 misspecified. A red I1 subset cell has that pre-identified cause, and it goes to diagnosis.
+
+SN1 (X82 follow-up SD) fits intercept-only blips, which are correctly specified on law E. Its
+nuisance `E[A2 | W, A1]` is not logistic-linear. The influence-curve SE omits a term that is
+nonzero when that nuisance is wrong. A red SN1 subset or control cell has that pre-identified
+cause. A pre-run check on 400 draws read an SE ratio of 1.033.
 
 L1 reads no negative control. The shipped `refute` refuses a negative-control outcome on a
 survival fit, because no replacement keeps the risk sets.

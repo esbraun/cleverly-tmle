@@ -262,13 +262,13 @@ def check(namespace: dict[str, Any]) -> None:
     attention = {item.name for item in assessment.attention}
     assert attention == {"support"}
     assert namespace["scores"].passed
-    # The status table prints only the rows that ran or run on request. The omitted-variable
-    # operations, which Step 13 runs on the arm contrasts instead, stay off the page.
+    # The status table prints only the rows that ran or run on request. The fit reports two
+    # coefficients, so each omitted-variable row waits on an estimand (X82 part G2c).
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
     stored = stored_output(NOTEBOOK, "assessment")
     for operation in OMITTED_VARIABLE_OPERATIONS:
-        assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
-        assert not re.search(rf"sensitivity\s+{operation}\b", stored)
+        assert str(ledger.loc[("sensitivity", operation)]) == "deferred"
+        assert re.search(rf"sensitivity\s+{operation}\s+deferred", stored)
     assert "unavailable" not in stored and "not_applicable" not in stored
     assert str(ledger.loc[("validation", "support")]) == "warning"
     assert re.search(r"support\s+warning", stored)
@@ -300,9 +300,13 @@ def check(namespace: dict[str, Any]) -> None:
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
     # Step 13 reads the omitted-variable bound on the arm contrasts of the ATE fit, whose
-    # influence curves are those of the saturated coefficients (checked above).
+    # influence curves are those of the saturated coefficients (checked above), and on the
+    # slope of the trend fit.
     robustness = namespace["robustness"]
-    assert set(robustness) == {"ate[medium vs low]", "ate[high vs low]"}
+    assert set(robustness) == {"ate[medium vs low]", "ate[high vs low]", "msm[assigned contacts]"}
     assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
     for values in robustness.values():
         assert 0.0 < values["rva"] < values["rv"] < 1.0
+    # "The slope's confidence-limit value is descriptive."
+    assert robustness["msm[assigned contacts]"]["limit_licensed"] is False
+    assert "limit_licensed" not in robustness["ate[high vs low]"]

@@ -32,6 +32,7 @@ on a longitudinal fit. The zero-row equivalence artifact records the absence of 
 | cell B1 | `SequentialGComputation` with a Gaussian GLM, in sample, on law E |
 | cell B2 | `SequentialIPW` (Hajek) with a logistic GLM, in sample, on law E |
 | cell B3 | `ParametricGFormula` with GLM models and 10 simulation draws per unit, in sample, on law E |
+| cell SN1 | `StructuralNestedMean` with intercept-only blips, GLM nuisances and five folds, on law E (X82 follow-up SD) |
 | size cells | 200 trials per rule and cell. A cell passes at no more than 17 rejections |
 | power cells | trials 0 to 49 of the size cell under a declared defect. A cell passes at no fewer than 38 detections |
 | defects | a stale-row placebo for the placebo rule, a halved and a doubled reported standard error for the subset rule, and a confounded control for the negative-control rule |
@@ -90,6 +91,10 @@ The cell name gives the configuration, then the reading.
 | `refuter_power` | `S1__placebo_stale_rows` | control | SDR, law E: the placebo t rule, with a declared share of stale rows | at least 38 detections in 50 trials | detections 49 of 50 | pass |
 | `refuter_power` | `S1__subset_double_se` | control | SDR, law E: the subset rho rule, at the reported SE doubled | at least 38 detections in 50 trials | detections 49 of 50 | pass |
 | `refuter_power` | `S1__subset_half_se` | control | SDR, law E: the subset rho rule, at the reported SE halved | at least 38 detections in 50 trials | detections 50 of 50 | pass |
+| `refuter_power` | `SN1__negative_control_confounded` | control | StructuralNestedMean, law E: the negative-control z rule, on a control that reads an unmeasured cause of A1 | at least 38 detections in 50 trials | detections 50 of 50 | pass |
+| `refuter_power` | `SN1__placebo_stale_rows` | control | StructuralNestedMean, law E: the placebo t rule, with a declared share of stale rows | at least 38 detections in 50 trials | detections 50 of 50 | pass |
+| `refuter_power` | `SN1__subset_double_se` | control | StructuralNestedMean, law E: the subset rho rule, at the reported SE doubled | at least 38 detections in 50 trials | detections 50 of 50 | pass |
+| `refuter_power` | `SN1__subset_half_se` | control | StructuralNestedMean, law E: the subset rho rule, at the reported SE halved | at least 38 detections in 50 trials | detections 48 of 50 | pass |
 | `refuter_size` | `B1__negative_control` | positive | SequentialGComputation, law E: the negative-control z rule on a valid control | no more than 17 rejections in 200 trials | rejections 7 of 200 | pass |
 | `refuter_size` | `B1__placebo` | positive | SequentialGComputation, law E: the placebo t rule against the exact Markov null | no more than 17 rejections in 200 trials | rejections 10 of 200 | pass |
 | `refuter_size` | `B1__subset` | positive | SequentialGComputation, law E: the subset rho rule, both tails | no more than 17 rejections in 200 trials | rejections 12 of 200 | pass |
@@ -107,13 +112,16 @@ The cell name gives the configuration, then the reading.
 | `refuter_size` | `S1__negative_control` | positive | SDR, law E: the negative-control z rule on a valid control | no more than 17 rejections in 200 trials | rejections 6 of 200 | pass |
 | `refuter_size` | `S1__placebo` | positive | SDR, law E: the placebo t rule against the exact Markov null | no more than 17 rejections in 200 trials | rejections 12 of 200 | pass |
 | `refuter_size` | `S1__subset` | positive | SDR, law E: the subset rho rule, both tails | no more than 17 rejections in 200 trials | rejections 9 of 200 | pass |
+| `refuter_size` | `SN1__negative_control` | positive | StructuralNestedMean, law E: the negative-control z rule on a valid control | no more than 17 rejections in 200 trials | rejections 11 of 200 | pass |
+| `refuter_size` | `SN1__placebo` | positive | StructuralNestedMean, law E: the placebo t rule against the exact Markov null | no more than 17 rejections in 200 trials | rejections 9 of 200 | pass |
+| `refuter_size` | `SN1__subset` | positive | StructuralNestedMean, law E: the subset rho rule, both tails | no more than 17 rejections in 200 trials | rejections 14 of 200 | pass |
 <!-- /generated -->
 
 ## Result
 
-All 40 property cells pass. The size cells reject in 6 to 14 of 200 trials, below the limit of
+All 47 property cells pass. The size cells reject in 6 to 14 of 200 trials, below the limit of
 17. The power cells detect their defect in 48 to 50 of 50 trials, above the floor of 38. The
-registry `VERDICT_EVIDENCE` therefore holds one row for each of the 17 size readings. Each row's
+registry `VERDICT_EVIDENCE` therefore holds one row for each of the 20 size readings. Each row's
 scope is the configuration that its cells recorded in `cells.csv`.
 
 `tests/unit/test_refuter_calibration_longitudinal_registry.py` checks each scope against the
@@ -138,8 +146,8 @@ from the committed results and checked at the precision printed.
 | `independent_tests_passed` | 0 | of those, passing |
 | `paired_tests_total` | 0 | external comparisons declared |
 | `paired_tests_passed` | 0 | external comparisons passing |
-| `property_cells_total` | 40 | repeated-sampling property cells |
-| `property_cells_passed` | 40 | cells whose own and family verdicts pass |
+| `property_cells_total` | 47 | repeated-sampling property cells |
+| `property_cells_passed` | 47 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.1186 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9150 | lowest measured primary-study coverage |
 | `min_se_ratio_ci_lower` | 0.8235 | lowest bootstrap primary SE-ratio endpoint |
@@ -181,6 +189,7 @@ from the committed results and checked at the precision printed.
 | Two nodes, two arms and GLM nuisances only | A fit with another learner, another node count or another regimen kind prints no verdict |
 | No negative-control row on a survival fit | `refute` refuses a negative-control outcome on a survival fit, because no replacement keeps the risk sets |
 | I1's iterated regression is misspecified | Under the odds tilt the node-1 regression is not linear. The mechanisms are correct, so the nulls stay exact. The I1 subset cell passed with 11 rejections |
+| SN1 reads the regimen contrast with intercept-only blips | A blip coefficient, a level, or a fit with other blip features prints no verdict. The nuisance $E[A_2 \mid W, A_1]$ is not logistic-linear on law E. The SN1 subset cell passed with 14 rejections |
 | B3's simulation error is outside its standard error | The subset scatter includes the g-formula's Monte Carlo error. Only the shipped 10 draws per unit are in scope |
 | The primary phase is under-resolved | 200 replications cannot put the 99% coverage limit above 0.90. The two truth rows are red with an owner, and no rule row reads them |
 

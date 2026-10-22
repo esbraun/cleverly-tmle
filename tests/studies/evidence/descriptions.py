@@ -4846,6 +4846,7 @@ def _refuter_calibration_cells() -> None:
         "B1": "SequentialGComputation, law E",
         "B2": "SequentialIPW, law E",
         "B3": "ParametricGFormula, law E",
+        "SN1": "StructuralNestedMean, law E",
     }
     size = "no more than 17 rejections in 200 trials"
     power = "at least 38 detections in 50 trials"

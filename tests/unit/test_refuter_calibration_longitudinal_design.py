@@ -108,7 +108,7 @@ class TestDefectSizing:
         assert exact > 0.0
 
     def test_the_confounded_contrast_vanishes_without_u(self) -> None:
-        for cell in ("S1", "I1"):
+        for cell in ("S1", "I1", "SN1"):
             assert study.confounded_contrast(cell, delta=0.0) == 0.0
 
     def test_the_placebo_floor_gives_power_0_95_at_the_default_refits(self) -> None:
@@ -163,11 +163,11 @@ class TestCountRules:
 
 class TestCells:
     def test_the_cells_are_the_plan_cells(self) -> None:
-        assert set(study.CELLS) == {"L1", "S1", "I1", "B1", "B2", "B3"}
+        assert set(study.CELLS) == {"L1", "S1", "I1", "B1", "B2", "B3", "SN1"}
         full = {name for name, cell in study.CELLS.items() if cell.readings == study.READINGS_ALL}
-        assert full == {"S1", "I1", "B1", "B2", "B3"}
-        assert len(study.PROPERTY_CELLS[study.SIZE_FAMILY]) == 17
-        assert len(study.PROPERTY_CELLS[study.POWER_FAMILY]) == 23
+        assert full == {"S1", "I1", "B1", "B2", "B3", "SN1"}
+        assert len(study.PROPERTY_CELLS[study.SIZE_FAMILY]) == 20
+        assert len(study.PROPERTY_CELLS[study.POWER_FAMILY]) == 27
 
     def test_every_power_trial_is_a_size_trial(self) -> None:
         assert study.POWER_TRIALS <= study.SIZE_TRIALS
@@ -199,6 +199,7 @@ class TestConfiguration:
             ("B1", "SequentialGComputation", "off", 2),
             ("B2", "SequentialIPW", "off", 1),
             ("B3", "ParametricGFormula", "off", 3),
+            ("SN1", "StructuralNestedMean", "folds=5", 3),
         ],
     )
     def test_a_trial_records_the_fitted_configuration(
@@ -217,6 +218,31 @@ class TestConfiguration:
         # Plan 5.13 admits the subset and control verdicts only on an influence-curve
         # interval; a plug-in-only spread would leave every row descriptive.
         assert configuration["inference"] == "influence_curve"
+
+    def test_the_structural_cell_records_glm_fingerprints_for_every_learner(self) -> None:
+        """The registry scope of SN1 names these three fingerprints (X82 SD rev 2, note 2)."""
+        frame = study.draw_law("end_of_study", study.N, seed=6)
+        result = study.fit_cell("SN1", frame, seed=7)
+        configuration = study.trial_configuration(result, study.CELLS["SN1"].estimand)
+        assert configuration["learners"].split(" | ") == [
+            "GLM(family='gaussian')",
+            "GLM()",
+            "GLM(family='gaussian')",
+        ]
+        assert configuration["estimand_kind"] == "ate_regimen"
+        assert configuration["treatment_kind"] == "discrete"
+        assert configuration["arms"] == 2
+
+    def test_the_structural_control_contrast_weights_each_stratum_by_its_variance(self) -> None:
+        """SN1's g-estimation weights ``W2`` by ``g (1 - g)``; the static cells weight by 1/2."""
+        means = study.a1_posterior_means()
+        weights = {w: study.a1_propensity(w) * (1 - study.a1_propensity(w)) for w in (0, 1)}
+        gaps = {w: means[(w, 1)] - means[(w, 0)] for w in (0, 1)}
+        expected = (
+            study.CONTROL_DELTA * sum(weights[w] * gaps[w] for w in (0, 1)) / sum(weights.values())
+        )
+        assert study.confounded_contrast("SN1") == pytest.approx(expected, rel=1e-14)
+        assert study.confounded_contrast("SN1") != study.confounded_contrast("S1")
 
     @staticmethod
     def _rows(configurations: Mapping[str, Sequence[Mapping[str, object]]]) -> pd.DataFrame:

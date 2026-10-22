@@ -398,6 +398,9 @@ def test_the_structural_configuration_reads_the_fit(structural_result) -> None: 
     assert fit.cross_fitting == "folds=2"
     assert fit.outcome_family == "binomial"
     assert fit.min_event_count is not None
+    # The unset regression learner resolves to the outcome learner, not the default library.
+    assert fit.learners[2] == fit.learners[0]
+    assert "default-library" not in fit.learners
 
 
 def test_a_level_refuses_the_placebo_before_any_refit(structural_result, monkeypatch) -> None:  # type: ignore[no-untyped-def]

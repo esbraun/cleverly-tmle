@@ -1400,7 +1400,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M8": Mutation(
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
-        frozenset({"split_plan"}),
+        # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
+        frozenset({"split_plan", "regime", "regime+missing"}),
         _RAISED.format("benchmark") + "benchmark cannot drop every covariate",
     ),
     "M9": Mutation(

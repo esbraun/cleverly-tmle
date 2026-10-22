@@ -253,9 +253,16 @@ def structural_configuration(result: Any, estimand: str) -> FitConfiguration:
     estimator = result.estimator
     estimate = result[estimand]
     n = int(data.n)
+    outcome = getattr(estimator, "outcome_learner", None)
+    regression = getattr(estimator, "regression_learner", None)
+    # An unset regression learner is the outcome learner, as the fit resolves it.
     learners = tuple(
-        learner_fingerprint(getattr(estimator, name, None), n)
-        for name in ("outcome_learner", "treatment_learner", "regression_learner")
+        learner_fingerprint(learner, n)
+        for learner in (
+            outcome,
+            getattr(estimator, "treatment_learner", None),
+            outcome if regression is None else regression,
+        )
     )
     folds = int(result.config.n_folds)
     if data.has_continuous_node:
