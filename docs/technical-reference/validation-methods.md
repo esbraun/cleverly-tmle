@@ -1421,11 +1421,11 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 
 | treatment | parameter | replayed estimator |
 | --- | --- | --- |
-| binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
-| binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
-| binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
+| binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
+| binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
-| binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, complete-outcome DR-TMLE, or `AdaptiveIPTW` |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
 | binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
@@ -1434,6 +1434,14 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
 Every row accepts fixed probability weights under its listed estimators.
+
+An `AdaptiveIPTW` cell refits the stored estimator on the perturbed data (X82 part I). On a fit
+with a declared mechanism, a cell that flips the treatment declares the mechanism of the flipped
+treatment, $(1-k_A)\,g(a\mid W)+k_A\,g(1-a\mid W)$. The flip reads only the latent, so that
+is the exact mechanism of the cell, and the refit keeps its interval. A regime or MSM of an
+`AdaptiveIPTW` fit is refused, as for every estimator other than exact ordinary TMLE.
+`tests/unit/test_adaptive_iptw_refute.py` holds the zero-strength reproduction, a nonzero cell,
+and the check that a known-mechanism cell equals a direct fit with the flipped mechanism.
 
 **Fixed policies and projections.** A regime surface holds its declared density $q(a\mid W)$
 fixed. It refits the observed treatment mechanism and outcome regression after each perturbation.
@@ -2164,6 +2172,34 @@ default, so `refute()` costs about 60 fits. A check that needs more than 20 refi
 The generated-outcome tests default to `DEFAULT_OUTCOME_REPLICATES` (400) draws. Pass them in
 `tests=` to run them. `run_all(include_refits=True)` runs `refute()` with the default tests.
 
+#### Adaptive-propensity IPTW refutation
+
+`refute()` runs every point test on an `AdaptiveIPTW` fit. The estimator fits no outcome
+regression, so three readings differ from a TMLE fit.
+
+| reading | on `AdaptiveIPTW` |
+| --- | --- |
+| `placebo` with a declared mechanism | the refit takes the constant arm shares as its mechanism. In sample, the targeted and one-step forms then equal the arm-mean contrast of the permuted data |
+| `random_common_cause` with a declared mechanism and complete data | no fitted function reads the noise column, so the paired shift is exactly 0 |
+| `negative_control_outcome` | the control refits with the same estimator and no outcome bounds, because the estimator scales no outcome |
+
+A fit with an estimated mechanism reports no interval, and takes the status
+`estimated_mechanism_plugin`. Its readings use `plugin_std_error`, a diagnostic. The subset
+detail names that spread. The generated-outcome tests and the plasmode then print the bias
+reading only. This holds for every status that withholds an interval, so a C-TMLE `oat` fit
+also reads bias only.
+
+The placebo witness enumerates all 252 assignments of 5 treated among 10 units. In sample, each
+refit equals the arm-mean contrast to `1e-12`, and the mean over the assignments is 0 to `1e-12`.
+Cross-fitted, the arm labels swap to the complement assignment and negate the ATE. A mutation
+that keeps two rows at their observed arm moves the mean. With weights, a refit equals the
+weighted arm-mean contrast, and the mean is not exactly 0, because a weighted mean is a ratio.
+`tests/unit/test_adaptive_iptw_refute.py` holds these witnesses.
+
+The registry axis `method` reads `AdaptiveIPTW`, or `AdaptiveIPTW[one_step]` for the one-step
+form. The learner axis fingerprints the reduced-regression learner. A row for these fits waits on
+the follow-up study SI, so every study-backed reading prints descriptively until then.
+
 #### Longitudinal refutation
 
 A longitudinal result stores an unfitted copy of its estimator in `result.estimator`. The copy
@@ -2377,7 +2413,7 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | test | rule | rung today |
 | --- | --- | --- |
 | `dummy_outcome`, `simulated_outcome` | bias band | `L2` on a point fit, at 400 draws or more |
-| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more |
+| `dummy_outcome`, `simulated_outcome` | standard-error ratio band and coverage band | `L2` on a point fit where the covariate part of the influence curve is zero, and at 400 draws or more. Not printed on a fit whose status withholds an interval |
 | `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` | t, rho, paired shift, z | descriptive until a registered study adds a row |
 

@@ -275,10 +275,9 @@ An operation on the result refuses by name as well.
 | --- | --- | --- |
 | `validate` | `api_redirection` | use `diagnostics.nuisance_models()` |
 | `diagnostics.truncation_curve` | `implementation_gap` | [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (c) |
-| `diagnostics.refute` | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
 | `sensitivity.omitted_confounding`, `robustness_value`, `elements`, `benchmark`, `contour` | `api_redirection` | use `TMLE`. The bound needs an outcome regression |
-| `sensitivity.simulated_confounding` | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
 | `sensitivity.missingness`, `tipping_gamma` | `api_redirection` | use `TMLE`. Each tilts an outcome regression |
+| `sensitivity.simulated_confounding` on a regime or MSM | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, the fixed-policy replay under another method |
 
 ### Experimental compositions
 
