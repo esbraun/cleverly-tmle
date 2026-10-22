@@ -92,7 +92,7 @@ from . import _interpretation
 from ._interpretation import FitConfiguration, Resolution, Rung
 from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
 from ._point_generated import PlasmodeLaw as _PlasmodeLaw
-from ._point_generated import PointTarget, arm_means, held_weights
+from ._point_generated import PointTarget, TargetKind, arm_means, held_mixture, held_weights
 from ._readings import (
     DEFAULT_BAND_REPLICATES,
     BandReading,
@@ -2029,20 +2029,28 @@ def _resolve_arm_code(data: Any, endpoint: Any, role: str, name: str) -> float:
 def _validate_plasmode_eligibility(result: Any) -> None:
     """Refuse a plasmode on data whose generated law Part A does not build (plan 5.6)."""
     data = result.data
-    unsupported = [
-        reason
-        for present, reason in (
-            (data.cluster is not None, "clusters, which need whole-cluster resampling"),
+    if data.weights_name is not None:
+        raise CapabilityError(
+            "plasmode has no generated law for a fit with weights: rows drawn from the "
+            "unweighted empirical law that keep their weights describe a mixed law.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X82",
+        )
+    observation = [
+        label
+        for present, label in (
+            (bool(getattr(data, "has_missing_outcome", False)), "a missing outcome"),
             (bool(getattr(data, "has_missing_treatment", False)), "a missing treatment"),
-            (data.strata is not None, "selected strata"),
-            (data.weights_name is not None, "weights, whose rows would mix two laws"),
+            (bool(getattr(data, "has_intermediate", False)), "an intermediate"),
         )
         if present
     ]
-    if unsupported:
+    if len(observation) > 1:
         raise CapabilityError(
-            f"plasmode has no generated law for a fit with {unsupported[0]}. Part A draws "
-            "independent units, a frozen treatment model, and the declared outcome process.",
+            f"plasmode has no generated law for a fit with {' and '.join(observation)}: each "
+            "frozen observation model reads (W, A) alone, so two of them together would "
+            "drop the dependence of one on the other.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
@@ -2234,6 +2242,12 @@ def _longitudinal_generated_target(
         raise CapabilityError(
             f"{name} on a longitudinal panel adds its effect once per treated node; "
             "arm_effects declares a point-treatment arm term. Declare effect= instead",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if getattr(process, "intermediate_effect", 0.0) or getattr(process, "cluster_sd", 0.0):
+        raise CapabilityError(
+            f"{name} on a longitudinal panel has no intermediate and no clustered plasmode; "
+            "intermediate_effect and cluster_sd declare point-treatment terms. Leave both 0",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     if data.family != process.family:
@@ -2556,19 +2570,19 @@ def _validate_generated_eligibility(
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X82",
         )
-    if getattr(data, "has_intermediate", False) or functional.intermediate is not None:
+    has_intermediate = bool(getattr(data, "has_intermediate", False))
+    if getattr(process, "intermediate_effect", 0.0) and not has_intermediate:
         raise CapabilityError(
-            f"{name} has no controlled-direct-effect outcome process or effect derivation.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
+            f"{name} declares intermediate_effect={process.intermediate_effect:g}, and this "
+            "fit has no intermediate for it to read. Leave intermediate_effect at 0",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
-    if getattr(data, "has_missing_outcome", False):
+    if getattr(process, "cluster_sd", 0.0) and (name != "plasmode" or data.cluster is None):
         raise CapabilityError(
-            f"{name} has no missing-outcome process or observation-model effect derivation.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=_STABILITY_ALTERNATIVE,
-            roadmap="X82",
+            f"{name} declares cluster_sd={process.cluster_sd:g}, which only the plasmode of a "
+            "clustered fit draws: the held design keeps every row and draws independent "
+            "noise. Leave cluster_sd at 0",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if functional.msm is not None or functional.axis == "msm":
         raise CapabilityError(
@@ -2597,8 +2611,8 @@ def _validate_generated_eligibility(
             f"{name} has no {key.estimand} effect derivation.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=(
-                "Choose an arm contrast (ate, att, atc), an arm level (ey, ey1, ey0) or a "
-                "ratio (rr, or)."
+                "Choose an arm contrast (ate, att, atc), an arm level (ey, ey1, ey0), a "
+                "ratio (rr, or) or a natural-course target (ey_obs, par, paf)."
             ),
             roadmap="X82",
         )
@@ -2614,6 +2628,8 @@ def _validate_generated_eligibility(
         )
     declared_estimand = getattr(getattr(identified, "estimand", None), "name", None)
     expected_estimand = "ey" if key.estimand in ("ey1", "ey0") else key.estimand
+    if functional.intermediate is not None:
+        expected_estimand = "controlled_direct_effect"
     if functional.target != key.estimand or declared_estimand != expected_estimand:
         raise CapabilityError(
             f"{name} found inconsistent registered target provenance: functional target "
@@ -2638,17 +2654,48 @@ def _validate_generated_eligibility(
             f"{name} needs the registered identification artifact for target {functional.target!r}",
             reason=RefusalReason.INVALID_DECLARATION,
         )
+    if has_intermediate and functional.intermediate is None:
+        raise CapabilityError(
+            f"{name} found an intermediate on the data and none on the functional; the "
+            "controlled direct effect fixes it at a declared value",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    shared: dict[str, Any] = {
+        "outcome_bounds": _bounds_tuple(q_bounds) if bounded else None,
+        "stratum": _stratum_code(data, key, name),
+        "intermediate": (
+            None if functional.intermediate is None else float(result.intermediate_value)
+        ),
+    }
+    codes = tuple(float(code) for code in data.arm_codes)
     if kind == "level":
         endpoint = key.value
         if endpoint is None:
             endpoint = 1 if key.estimand == "ey1" else 0
         value_code = _resolve_arm_code(data, endpoint, "the parameter key value", name)
         target = PointTarget(
-            kind="level",
+            kind="level", population="all", value_code=value_code, reference_code=None, **shared
+        )
+    elif kind == "natural":
+        target = PointTarget(
+            kind="natural",
+            population="all",
+            value_code=None,
+            reference_code=None,
+            arms=codes,
+            **shared,
+        )
+    elif kind in ("par", "paf"):
+        # The key value of ``par`` and ``paf`` is the reference arm r of ``ey_obs - ey[r]``.
+        endpoint = key.value if key.value is not None else data.arm_codes[0]
+        value_code = _resolve_arm_code(data, endpoint, "the parameter key value", name)
+        target = PointTarget(
+            kind=kind,
             population="all",
             value_code=value_code,
             reference_code=None,
-            outcome_bounds=_bounds_tuple(q_bounds) if bounded else None,
+            arms=codes,
+            **shared,
         )
     else:
         value_code, reference_code = _contrast_codes(data, key, name)
@@ -2658,14 +2705,28 @@ def _validate_generated_eligibility(
             population=population,  # type: ignore[arg-type]
             value_code=value_code,
             reference_code=reference_code,
-            outcome_bounds=_bounds_tuple(q_bounds) if bounded else None,
+            **shared,
         )
     _validate_generated_law(target, process, data, name)
     return target
 
 
+def _stratum_code(data: Any, key: Any, name: str) -> int | None:
+    """Return the code of the stratum a parameter key names, or ``None`` for every row."""
+    if key.stratum is None:
+        return None
+    levels = tuple(getattr(data, "strata_levels", ()))
+    if tuple(key.stratum) not in levels:
+        raise CapabilityError(
+            f"{name} found a parameter key for stratum {key.stratum!r}, which the data does "
+            f"not declare among {list(levels)}",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return levels.index(tuple(key.stratum))
+
+
 #: The point targets of the catalog and the functional of the arm levels each reads.
-_POINT_TARGET_KINDS: dict[str, Literal["difference", "level", "rr", "or"]] = {
+_POINT_TARGET_KINDS: dict[str, TargetKind] = {
     "ate": "difference",
     "att": "difference",
     "atc": "difference",
@@ -2674,6 +2735,9 @@ _POINT_TARGET_KINDS: dict[str, Literal["difference", "level", "rr", "or"]] = {
     "ey0": "level",
     "rr": "rr",
     "or": "or",
+    "ey_obs": "natural",
+    "par": "par",
+    "paf": "paf",
 }
 
 
@@ -2722,15 +2786,29 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
     """
     covariates = np.asarray(data.covariates, dtype=float)
     codes = tuple(float(code) for code in data.arm_codes)
-    try:
-        means = arm_means(process, covariates, codes, data, bounds=target.outcome_bounds)
-    except ValueError as error:
-        raise CapabilityError(
-            f"{name} cannot evaluate {type(process).__name__} on this fit: {error}",
-            reason=RefusalReason.INVALID_DECLARATION,
-        ) from error
+    # A process with an intermediate term is a law only if its mean is admissible at both
+    # values of the binary intermediate, since the held rows and the plasmode read both.
+    settings: tuple[float | None, ...] = (None,)
+    if getattr(data, "has_intermediate", False):
+        settings = (0.0, 1.0)
     admissible = getattr(process, "admissible", None)
-    if admissible is not None:
+    for setting in settings:
+        try:
+            means = arm_means(
+                process,
+                covariates,
+                codes,
+                data,
+                bounds=target.outcome_bounds,
+                intermediate=setting,
+            )
+        except ValueError as error:
+            raise CapabilityError(
+                f"{name} cannot evaluate {type(process).__name__} on this fit: {error}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            ) from error
+        if admissible is None:
+            continue
         for code, values in means.items():
             if not admissible(values, bounds=target.outcome_bounds):
                 place = "[0, 1]" if target.outcome_bounds is None else "inside q_bounds"
@@ -2740,13 +2818,22 @@ def _validate_generated_law(target: PointTarget, process: Any, data: Any, name: 
                     "rows. Lower adjustment_scale or move the intercept or effects",
                     reason=RefusalReason.INVALID_DECLARATION,
                 )
-    if target.ratio:
-        levels = target.levels(means, held_weights(target, data))
+    if target.ratio or target.kind == "paf":
+        means = arm_means(
+            process,
+            covariates,
+            target.codes,
+            data,
+            bounds=target.outcome_bounds,
+            intermediate=target.intermediate,
+        )
+        levels = target.levels(means, held_weights(target, data), held_mixture(target, data))
         upper = 1.0 if target.kind == "or" else np.inf
         if not all(0.0 < level < upper for level in levels):
             raise CapabilityError(
-                f"{name} has no {target.kind} truth under this declaration: an arm level "
-                f"{[round(level, 6) for level in levels]} is outside (0, {upper:g})",
+                f"{name} has no {target.kind} truth under this declaration: a level "
+                f"{[round(level, 6) for level in levels]} it divides by is outside "
+                f"(0, {upper:g})",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
 
@@ -3380,38 +3467,55 @@ def _generated_outcome_test(
     elif plasmode:
         law = _PlasmodeLaw.fit(result)
         frozen = law
-        means, weights = frozen.means(process, data, target)
+        means, weights, mixture = frozen.means(process, data, target)
 
         def replacement(_replicate: int, seed: int) -> Any:
             return frozen.draw(data, process, seed=seed, target=target)
 
-        declared_effect = target.truth(means, weights)
+        declared_effect = target.truth(means, weights, mixture)
         # The plasmode resamples W, so its SE ratio and coverage have the unconditional
         # reference for every target (plan 5.6) and need no covariate-part check.
         covariate_part = True
     else:
         covariates = np.asarray(data.covariates, dtype=float)
-        observed = process.mean(
-            covariates,
-            arm_term(
-                process, data.treatment, arm_codes=data.arm_codes, levels=data.treatment_levels
-            ),
-            bounds=target.outcome_bounds,
+        terms = arm_term(
+            process, data.treatment, arm_codes=data.arm_codes, levels=data.treatment_levels
         )
+        if data.has_intermediate:
+            # The held design keeps Z, and the process adds gamma * Z with no arm interaction.
+            terms = terms + float(process.intermediate_effect) * np.asarray(
+                data.intermediate, dtype=float
+            )
+        observed = process.mean(covariates, terms, bounds=target.outcome_bounds)
+        unrecorded = ~np.asarray(data.treatment_recorded, dtype=bool)
+        first_recorded = int(np.flatnonzero(~unrecorded)[0])
 
         def replacement(_replicate: int, seed: int) -> Any:
             drawn = process.sample(
                 np.random.default_rng(seed), observed, bounds=target.outcome_bounds
             )
+            if np.any(unrecorded):
+                # An unrecorded row's outcome is never read, but a Gaussian fit scales the
+                # outcome by its range over every row. Copying a recorded row's value keeps
+                # that range a function of the recorded rows (part E plan review, R2).
+                drawn = np.where(unrecorded, drawn[first_recorded], drawn)
             return data.with_outcome(drawn, family=process.family)
 
-        means = arm_means(process, covariates, target.codes, data, bounds=target.outcome_bounds)
+        means = arm_means(
+            process,
+            covariates,
+            target.codes,
+            data,
+            bounds=target.outcome_bounds,
+            intermediate=target.intermediate,
+        )
         weights = held_weights(target, data)
+        mixture = held_mixture(target, data)
         # The truth is the sample-conditional functional of the held rows. The held design
         # reads the SE ratio and coverage only where the covariate part of the curve is
         # identically 0 on this law, which the law itself decides (plan 5.5.1).
-        declared_effect = target.truth(means, weights)
-        covariate_part = target.covariate_part_vanishes(means, weights)
+        declared_effect = target.truth(means, weights, mixture)
+        covariate_part = target.covariate_part_vanishes(means, weights, mixture)
 
     records, failures = _run_empirical_refits(
         result,
@@ -3516,7 +3620,15 @@ def _generated_outcome_test(
             )
             if len(law.arm_codes) > 2:
                 clip += f", smallest arm probability {law.floor:.3g}"
-            design = f"resampled covariates and {clip}"
+            for model in law.observation_models:
+                clip += f", a frozen {model} model"
+            units = "covariates"
+            if law.clusters is not None:
+                units = "whole clusters"
+                cluster_sd = float(getattr(process, "cluster_sd", 0.0))
+                if cluster_sd > 0.0:
+                    units += f" with a cluster intercept of SD {cluster_sd:g}"
+            design = f"resampled {units} and {clip}"
         precision = getattr(process, "precision", None)
         law_name = process.name if precision is None else f"{process.name} (phi {precision:g})"
         sentences.append(
@@ -4036,14 +4148,21 @@ def refute(
     future_treatment_node : int
         The node ``t``. The test regresses the control on the treatment at ``t + 1``,
         adjusted for that treatment's history, on the units at risk at ``t + 1``.
-    dummy_outcome : GaussianIndependentOutcome, LogisticHazardOutcome or None
-        Independent process declaration. ``None`` uses the default Gaussian declaration. A
-        survival fit takes a hazard with ``effect=0`` and ``adjustment_scale=0``, and a
-        competing-risk fit takes a multinomial hazard with every effect 0.
-    simulated_outcome : GaussianAdjustmentOutcome, LogisticHazardOutcome or None
-        Adjustment-dependent process. ``None`` uses the default Gaussian declaration. A
-        survival fit takes a :class:`LogisticHazardOutcome`, and a competing-risk fit takes
-        a :class:`MultinomialHazardOutcome`.
+    dummy_outcome : object or None
+        Independent process declaration: a :class:`GaussianIndependentOutcome`, or a
+        Bernoulli or bounded process with ``effect=0`` and ``adjustment_scale=0``. ``None``
+        uses the default Gaussian declaration. A survival fit takes a hazard with
+        ``effect=0`` and ``adjustment_scale=0``, and a competing-risk fit takes a
+        multinomial hazard with every effect 0.
+    simulated_outcome : object or None
+        Adjustment-dependent process, which ``simulated_outcome`` and ``plasmode`` draw. A
+        point fit takes a :class:`GaussianAdjustmentOutcome`, a
+        :class:`BernoulliAdjustmentOutcome` or a :class:`BoundedAdjustmentOutcome` of its
+        outcome family. It covers arm contrasts, arm levels, ratios, ``ey_obs``, ``par``
+        and ``paf``, on fits with strata, missing outcomes, a missing treatment or an
+        intermediate. ``None`` uses the default Gaussian declaration. A survival fit takes a
+        :class:`LogisticHazardOutcome`, and a competing-risk fit takes a
+        :class:`MultinomialHazardOutcome`.
     outcome_bands : EquivalenceBands
         Equivalence bands applied to the generated-outcome readings.
     bootstrap_measurement_error : BootstrapMeasurementError or None
