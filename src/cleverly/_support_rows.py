@@ -843,7 +843,13 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["strata"],
             cells=["stratified_both_correct"],
-            limits=["Two truth cells and the small-stratum cell are red (X8).", LEAK],
+            limits=[
+                "Two truth cells and the small-stratum cell are red (X8).",
+                LEAK,
+                "Foldwise reduced regressions do not remove the stratified treatment_correct "
+                "bias: the X83 pilot (200 draws, n = 2,000) read foldwise marginal 0.29, v1 0.30, "
+                "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
+            ],
         ),
         point_row(
             "D04",
@@ -977,9 +983,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             cells=["three_arm_mar_outcome_and_treatment"],
         ),
     ]
-    return _merged(
-        rows, {"D06.qg": ["D06.qg", "D07.known_g"]}
-    )
+    return _merged(rows, {"D06.qg": ["D06.qg", "D07.known_g"]})
 
 
 def _c_rows() -> tuple[SupportRow, ...]:

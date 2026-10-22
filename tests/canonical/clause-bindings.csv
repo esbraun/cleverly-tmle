@@ -582,6 +582,7 @@ deterministic-regimes,targeting_necessity,bias equivalent,bias
 deterministic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 deterministic-regimes,type_i_error,coverage floor,coverage/0.5
 deterministic-regimes,type_i_error,rejection ceiling,rejection/0.1
+drtmle-foldwise,double_robustness,bias discriminated,pair_collapse
 drtmle-foldwise,double_robustness,bias equivalent,bias
 drtmle-foldwise,double_robustness,se ratio in union band,se/0.05
 drtmle-foldwise,fold_locality,bias discriminated,pair_collapse

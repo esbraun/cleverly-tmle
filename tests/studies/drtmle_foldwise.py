@@ -31,6 +31,14 @@ module declares ``FAILURE_BOUND = 0.01``, in the form ``docs/development/method-
 ("Property fitting failures", "The bound") defines.  A fit that raises, a non-finite score
 audit and an active propensity bound each count as a failed replicate.
 
+**Cost.**  The sizing pilot's seconds per fit, on four busy cores: primary 3.8 (``tc3000``,
+taken for all three regimes and for the both-wrong control), leak pair 6.0 for both fits,
+``benkeser_order`` 4.2, ``bivariate`` 3.3, ``bivariate_oc`` 3.0, ``k5`` 1.8, ``spline_reduced``
+17.9, multi-arm 1.6, stratified 11.4.  At the declared budgets that is about 92 CPU-hours: 25.3
+primary, 13.3 leak, 25.4 stratified, 15.9 spline, and 12 for the other cells.  The three units
+in the property module's ``FALLBACK`` hold their budget at the 8,000 ceiling and carry 64 of
+the 92 hours.  A run is refused while that tuple is not empty.
+
 **Declared before any run:** the budgets and seeds of this module and of the property module,
 ``publication_policy="gated"``, and the reading the property module states.
 """
@@ -69,11 +77,12 @@ ESTIMANDS = canonical.ESTIMANDS
 #: The replications ``canonical-drtmle`` registered per scenario, which this study pairs with.
 REGISTERED_REPLICATES = canonical.PRIMARY_REPLICATES
 
-#: The primary budget per scenario: the smallest multiple of 400 at or above 1,200 whose
-#: pass probability over the nine gated primary rows, at their planning points, clears its share
-#: of the study-wise 0.95 (:mod:`tests.studies.drtmle_foldwise_properties`, "Sizes").  The rows
-#: ``r < 800`` pair with ``canonical-drtmle``.
-PRIMARY_REPLICATES = 2_000
+#: The primary budget per scenario, the output of the arm-pooled joint predictive rule
+#: (:mod:`tests.studies.drtmle_foldwise_properties`, "Sizes").  No budget up to 8,000 reaches
+#: the primary unit's share of the family-wise 0.95, so the unit is in that module's
+#: ``FALLBACK`` and the ceiling stands here.  The rows ``r < 800`` pair with
+#: ``canonical-drtmle``.
+PRIMARY_REPLICATES = 8_000
 
 #: The share of a cell's replicates that a run may lose, declared before the first run.
 FAILURE_BOUND = 0.01
@@ -83,7 +92,7 @@ FAILURE_BOUND = 0.01
 FOLDWISE = "foldwise"
 POOLED = "pooled"
 
-#: The flexible reduced learners of the ``adaptive_reduced`` cell (review F10): a cubic
+#: The flexible reduced learners of the ``spline_reduced`` cell (review F10): a cubic
 #: B-spline basis of the scalar reduced design with :data:`SPLINE_KNOTS` knots, under least
 #: squares for the reduced outcome regression and a near-unpenalized logistic fit for the
 #: reduced mechanism.  The fit predicts in sample at the slab's training rows, which is the
@@ -95,8 +104,16 @@ POOLED = "pooled"
 #: 100-neighbour k-NN did the same at about 225 seconds.  A piecewise-constant reduced learner
 #: leaves equation (10)'s solve near singular in both constructions, so the cell would measure
 #: the cap and not the fold-wise slab.  The spline basis is smooth and converged on the pilot.
+#: :data:`REDUCED_LEARNER_LIMIT` states the finding as a limit of the evidence.
 SPLINE_KNOTS = 5
 SPLINE_LOGISTIC_C = 1e4
+#: The limit the piecewise-constant pilot fits set, published in :data:`CONFIGURATION`.
+REDUCED_LEARNER_LIMIT = (
+    "Piecewise-constant reduced learners (HistGradientBoosting with 10 iterations of depth 2, "
+    "100-neighbour k-NN) reached max_outer = 100 under both foldwise and pooled reduced "
+    "regressions on two pilot draws of the paper law at n = 3,000. The study covers smooth "
+    "reduced learners only: the canonical GLMs and the spline basis."
+)
 
 
 @dataclass(frozen=True)
@@ -267,8 +284,10 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "double_robustness": (
         "ate__benkeser_order",
         "ate__bivariate",
+        "ate__bivariate_oc",
         "ate__k5",
-        "ate__adaptive_reduced",
+        "ate__spline_reduced",
+        "ate__both_wrong",
         "marginal_ate__stratified",
         "v0_ate__stratified",
         "v1_ate__stratified",
@@ -342,10 +361,11 @@ CONFIGURATION: dict[str, Any] = {
     "nuisance_models": dict(canonical.CONFIGURATION["nuisance_models"]),
     "comparator": "none: Python property evidence, no comparator",
     "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
-    "adaptive_reduced_learners": (
+    "spline_reduced_learners": (
         f"cubic B-spline basis with {SPLINE_KNOTS} knots; least squares for the reduced "
         f"outcome regression, logistic with C = {SPLINE_LOGISTIC_C:g} for the reduced mechanism"
     ),
+    "reduced_learner_limit": REDUCED_LEARNER_LIMIT,
 }
 
 
@@ -390,7 +410,15 @@ def _replicate(
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
-    """Draw and fit every declared primary replication."""
+    """Draw and fit every declared primary replication.
+
+    A run at the declared budget is refused while a unit of the sizing rule waits on its
+    fallback (:func:`tests.studies.drtmle_foldwise_properties.assert_sized`).
+    """
+    if replicates >= PRIMARY_REPLICATES:
+        from tests.studies.drtmle_foldwise_properties import assert_sized
+
+        assert_sized()
     outcomes = replication.fit_primary(
         [(scenario, replicate, n) for scenario in SCENARIOS for replicate in range(replicates)],
         _replicate,

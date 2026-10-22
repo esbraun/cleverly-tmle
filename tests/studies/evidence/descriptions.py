@@ -1506,8 +1506,8 @@ PROPERTIES: dict[str, str] = {
         "mechanism is correct"
     ),
     "fold_locality": (
-        "each fold's rule is learned on that fold's training rows, so no row that evaluates a "
-        "rule helped to learn it"
+        "each fold's learned functions are fitted without that fold's rows, directly or through "
+        "another fitted model, so no row that evaluates a learned function helped to fit it"
     ),
     "fold_policy": (
         "each split the fit draws is drawn under a named policy, on one law and one set of "
@@ -3748,9 +3748,10 @@ for _fit, _name in (("ltmle_static", "`LTMLE`"), ("sdr_static", "`SDR`")):
     )
 
 
-#: The ``drtmle-foldwise`` cells (X83).  Every cell fits ``treatment_correct``: the outcome GLM
-#: omits a term and the mechanism is correct.  The fits are cross-fitted with fold-wise reduced
-#: regressions unless a cell says otherwise.
+#: The ``drtmle-foldwise`` cells (X83).  Each cell names its nuisance regime: the leak pair and
+#: four variants fit ``treatment_correct``, ``bivariate_oc`` and the stratified cells fit
+#: ``outcome_correct``, and the control fits ``both_wrong``.  The fits are cross-fitted with
+#: fold-wise reduced regressions unless a cell says otherwise.
 _FOLDWISE_SLUG = "drtmle-foldwise"
 _FOLDWISE_POSITIVE = (
     "bias interval inside the equivalence margin, with the reported standard error on the "
@@ -3759,7 +3760,7 @@ _FOLDWISE_POSITIVE = (
 STUDY_ARMS[(_FOLDWISE_SLUG, "multi_arm_drtmle")] = "medium-versus-high ATE of the three-arm law"
 for (_family, _arm, _base), _words in {
     ("fold_locality", "ate", "foldwise"): (
-        "only the treatment mechanism is correct, n = 2,000, ten folds; each fold's reduced "
+        "only the treatment mechanism is correct, n = 1,500, ten folds; each fold's reduced "
         "regressions train on leave-two-out designs",
         "bias interval inside the equivalence margin",
     ),
@@ -3777,13 +3778,24 @@ for (_family, _arm, _base), _words in {
         "mechanism",
         _FOLDWISE_POSITIVE,
     ),
+    ("double_robustness", "ate", "bivariate_oc"): (
+        "only the outcome regression is correct, n = 3,000, the single bivariate reduced mechanism",
+        _FOLDWISE_POSITIVE,
+    ),
     ("double_robustness", "ate", "k5"): (
         "only the treatment mechanism is correct, n = 3,000, five folds",
         _FOLDWISE_POSITIVE,
     ),
-    ("double_robustness", "ate", "adaptive_reduced"): (
-        "only the treatment mechanism is correct, n = 3,000, cubic-spline reduced regressions",
+    ("double_robustness", "ate", "spline_reduced"): (
+        "only the treatment mechanism is correct, n = 3,000, cubic-spline reduced regressions; "
+        "piecewise-constant reduced learners (capped boosting, k-NN) reached max_outer = 100 "
+        "under both constructions on the pilot, so the study covers smooth reduced learners only",
         _FOLDWISE_POSITIVE,
+    ),
+    ("double_robustness", "ate", "both_wrong"): (
+        "both nuisances are misspecified, n = 3,000, ten folds",
+        "bias interval must fall entirely outside the margin, with the reported standard error "
+        "on the scale of the empirical spread",
     ),
     ("double_robustness", "multi_arm_drtmle", "treatment_correct"): (
         "only the treatment mechanism is correct, n = 2,000, five folds, on the draws of the "

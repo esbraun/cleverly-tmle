@@ -10,6 +10,9 @@ and none runs the study.
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,6 +20,7 @@ import pytest
 from cleverly.validation._seeds import sample_seed_streams
 from tests.studies import canonical_drtmle as canonical
 from tests.studies import canonical_multi_arm_drtmle, multi_arm_drtmle_properties
+from tests.studies import canonical_stratified_drtmle as stratified
 from tests.studies import drtmle_foldwise as runner
 from tests.studies import drtmle_foldwise_properties as properties
 from tests.studies.evidence import descriptions, property_verdicts
@@ -141,44 +145,169 @@ def test_the_failure_bound_is_one_percent_in_every_module() -> None:
     assert rule.families == frozenset({"fold_locality"})
 
 
+def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
+    """The rule's inputs, pinned: a changed planning value must change this test too."""
+    pilots = properties.PILOTS
+    assert {name: pilots[name].bias for name in pilots} == {
+        "primary/treatment_correct": (0.1233, -0.0830, 0.0844),
+        "primary/outcome_correct": (0.0270, -0.0182, 0.0170),
+        "primary/both_correct": (0.0659, -0.0969, -0.0035),
+        "fold_locality": (0.1597, 0.3824),
+        "benkeser_order": (0.0364,),
+        "bivariate": (0.1427,),
+        "bivariate_oc": (0.0298,),
+        "k5": (0.0702,),
+        "spline_reduced": (0.1042,),
+        "multi_arm": (0.0691,),
+        "stratified": (0.1711, 0.0813, 0.0723, 0.1393),
+        "both_wrong": (12.6089,),
+    }
+    assert {name: pilots[name].replicates for name in pilots} == {
+        **dict.fromkeys(pilots, 400),
+        "primary/both_correct": 800,
+        "both_wrong": 800,
+        "stratified": 200,
+    }
+    for name, pilot in pilots.items():
+        correlation = np.asarray(pilot.correlation)
+        assert correlation.shape == (len(pilot.rows), len(pilot.rows)), name
+        assert np.allclose(correlation, correlation.T), name
+        assert np.allclose(np.diag(correlation), 1.0), name
+        assert len(pilot.se_ratio) == len(pilot.coverage), name
+        assert pilot.se_ratio == () or name.startswith("primary/"), name
+    assert pilots["fold_locality"].controls == ("pooled",)
+    assert pilots["both_wrong"].controls == ("ate",)
+    assert properties.REGIME[0] == "primary/treatment_correct"
+    assert properties.PLANNING_DRAWS == 20_000
+    assert properties.PLANNING_SEED == 2026102283
+    assert properties.TAU_LEVEL == 0.80
+    assert properties.MARGIN == 0.25
+
+
+def test_the_regime_tau_is_its_q_profile_upper_bound() -> None:
+    tau, mean, spread = properties.regime_tau()
+    assert tau == pytest.approx(0.04327, abs=1e-5)
+    assert mean == pytest.approx(0.09536, abs=1e-5)
+    assert spread == pytest.approx(0.02957, abs=1e-5)
+    # The posterior of each regime arm moves toward the pooled mean.
+    draws = properties.planning_draws()
+    for name in properties.REGIME:
+        observed = properties.PILOTS[name].bias[0]
+        planned = float(draws.bias[name][:, 0].mean())
+        assert abs(planned - mean) < abs(observed - mean) + 0.002, name
+
+
 def test_every_budget_is_the_output_of_the_declared_rule() -> None:
     assert set(properties.BUDGETS) == set(properties.UNITS)
+    assert pytest.approx(0.95 ** (1 / len(properties.UNITS))) == properties.UNIT_TARGET
+    unsized = []
     for unit, declared in properties.BUDGETS.items():
-        replicates, _, _ = properties.budget(unit)
+        replicates, value, sized = properties.budget(unit)
         assert declared == replicates, unit
         assert declared % properties.STEP == 0
+        assert (value >= properties.UNIT_TARGET) == sized, unit
+        if not sized:
+            unsized.append(unit)
+    assert tuple(unsized) == properties.FALLBACK
+    assert properties.BUDGETS == {
+        "primary": 8_000,
+        "fold_locality": 8_000,
+        "benkeser_order": 2_000,
+        "bivariate": 5_600,
+        "bivariate_oc": 1_600,
+        "k5": 2_400,
+        "spline_reduced": 3_200,
+        "both_wrong": 400,
+        "multi_arm": 3_600,
+        "stratified": 8_000,
+    }
+    assert properties.FALLBACK == ("primary", "fold_locality", "stratified")
     assert properties.BUDGETS["primary"] >= properties.PRIMARY_FLOOR
     assert set(properties.GROUPS) | {"primary", "multi_arm"} == set(properties.UNITS)
     for name, group in properties.GROUPS.items():
         assert group.replicates == properties.BUDGETS[name]
-    gated = {row for rows, _ in properties.UNITS.values() for row in rows}
-    assert gated == set(properties.PLANNING)
+        assert properties.UNITS[name][0] == (name,)
 
 
-def test_the_unit_rule_is_monotone_and_the_target_shares_the_study_wise_rate() -> None:
-    assert pytest.approx(0.95 ** (1 / len(properties.UNITS))) == properties.UNIT_TARGET
+def test_the_family_wise_predictive_pass_is_pinned_and_below_target() -> None:
+    """The fallback is open: the declared budgets do not reach the family-wise 0.95."""
+    value = properties.family_pass()
+    assert value == pytest.approx(0.567, abs=0.003)
+    assert value < properties.STUDY_TARGET
+    with pytest.raises(RuntimeError, match="fallback"):
+        properties.assert_sized()
+
+
+def test_the_unit_rule_is_monotone_and_reads_every_clause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     for unit in properties.UNITS:
-        for judge in (properties.unit_pass, properties.point_pass):
-            values = [judge(unit, r) for r in (400, 1_200, 4_000)]
-            assert values == sorted(values), unit
-    assert properties.study_pass(point=True) >= properties.STUDY_TARGET
-    assert 0.0 < properties.study_pass() < properties.study_pass(point=True)
+        values = [properties.unit_pass(unit, r) for r in (400, 1_200, 4_000, 8_000)]
+        assert values == sorted(values), unit
+    # A nonzero witness for each clause: dropping it raises the pass where it binds.
+    full = properties.unit_pass("primary", 2_000)
+    for clause in ("bias", "se_ratio", "coverage"):
+        kept = tuple(c for c in properties.CLAUSES if c != clause)
+        assert properties.unit_pass("primary", 2_000, kept) > full, clause
+    assert properties.unit_pass("fold_locality", 2_000, ("displacement",)) == 1.0
+    monkeypatch.setattr(properties, "FOLD_LOCALITY_DISPLACEMENT", 0.249)
+    assert properties.unit_pass("fold_locality", 2_000, ("displacement",)) < 0.6
+    # The control rows read the discrimination clause: a positive reading of them fails.
+    assert properties.unit_pass("both_wrong", 400) == 1.0
+    for name in ("both_wrong", "fold_locality"):
+        pilot = properties.PILOTS[name]
+        monkeypatch.setitem(properties.PILOTS, name, dataclasses.replace(pilot, controls=()))  # type: ignore[arg-type]
+        assert properties.unit_pass(name, 2_000, ("bias",)) < 0.01, name
 
 
-def test_the_leak_control_is_declared_and_its_threshold_resolves_p1() -> None:
+def test_stratified_treatment_correct_is_not_gated_by_the_pilot() -> None:
+    gate = properties.STRATIFIED_TC_GATE
+    assert gate == 0.12
+    foldwise = [abs(pair[0]) for pair in properties.STRATIFIED_TC_PILOT.values()]
+    assert max(foldwise) > properties.MARGIN > gate
+    assert properties.STRATIFIED_SCENARIO == "outcome_correct"
+    assert properties.GROUPS["stratified"].scenario == "outcome_correct"
+
+
+def test_the_stratified_fit_is_canonical_stratified_fit_cleverly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cell calls the registered study's fit, with only ``reduced_crossfit`` replaced."""
+    calls: list[tuple[object, ...]] = []
+
+    def spy(frame: object, configuration: str, *, reduced_crossfit: str) -> str:
+        calls.append((frame, configuration, reduced_crossfit))
+        return "fitted"
+
+    monkeypatch.setattr(stratified, "fit_cleverly", spy)
+    frame = object()
+    assert properties.stratified_fit(frame, runner.Fit()) == "fitted"  # type: ignore[arg-type]
+    assert properties.stratified_fit(frame, runner.Fit(reduced_crossfit="pooled")) == "fitted"  # type: ignore[arg-type]
+    assert calls == [
+        (frame, "outcome_correct", "foldwise"),
+        (frame, "outcome_correct", "pooled"),
+    ]
+    monkeypatch.undo()
+    default = inspect.signature(stratified.fit_cleverly).parameters["reduced_crossfit"].default
+    assert default == stratified.CONFIGURATION["reduced_crossfit"] == "pooled"
+
+
+def test_the_leak_control_is_declared_and_its_threshold_resolves_the_pilot() -> None:
     leak = properties.LEAK
     assert leak.family == "fold_locality"
     assert leak.arms == ("foldwise", "pooled")
-    assert leak.threshold == properties.FOLD_LOCALITY_DISPLACEMENT
-    mean, spread = properties.LEAK_PAIRED
-    assert 0.0 < leak.threshold < mean / 2
-    # Five P1 standard errors between the threshold and P1's paired value.
-    assert (mean - leak.threshold) / 0.025 > 5
+    assert leak.threshold == properties.FOLD_LOCALITY_DISPLACEMENT == 0.10
+    foldwise, pooled = properties.PILOTS["fold_locality"].bias
+    displacement = properties.LEAK_SPREAD_RATIO * pooled - foldwise
+    assert displacement == pytest.approx(0.249, abs=5e-4)
+    assert 0.0 < leak.threshold < displacement / 2
+    # Almost six pilot standard errors (0.517 / sqrt(400)) between the threshold and the pilot.
+    assert (displacement - leak.threshold) / (0.517 / np.sqrt(400)) > 5
     fits = {cell: (role, fit) for _, cell, role, fit in properties.GROUPS["fold_locality"].fits}
     assert fits["ate__foldwise"] == ("positive", runner.Fit())
     assert fits["ate__pooled"] == ("control", runner.Fit(reduced_crossfit="pooled"))
-    assert properties.GROUPS["fold_locality"].n == properties.LEAK_N == 2_000
-    assert spread > 0
+    assert properties.GROUPS["fold_locality"].n == properties.LEAK_N == 1_500
+    assert properties.GROUPS["fold_locality"].scenario == "treatment_correct"
 
 
 def test_the_leak_pair_is_a_nonzero_witness_on_one_draw() -> None:
@@ -193,14 +322,18 @@ def test_the_leak_pair_is_a_nonzero_witness_on_one_draw() -> None:
 def test_each_variant_changes_one_setting_of_the_primary_fit() -> None:
     base = runner.Fit()
     changed = {
-        "benkeser_order": {"update_order": "benkeser"},
-        "bivariate": {"reduction": "bivariate"},
-        "k5": {"n_folds": 5},
-        "adaptive_reduced": {"reduced": "spline"},
+        "benkeser_order": ("treatment_correct", {"update_order": "benkeser"}),
+        "bivariate": ("treatment_correct", {"reduction": "bivariate"}),
+        "bivariate_oc": ("outcome_correct", {"reduction": "bivariate"}),
+        "k5": ("treatment_correct", {"n_folds": 5}),
+        "spline_reduced": ("treatment_correct", {"reduced": "spline"}),
     }
-    for name, fields in changed.items():
-        ((_, _, role, fit),) = properties.GROUPS[name].fits
-        assert role == "positive"
+    for name, (scenario, fields) in changed.items():
+        group = properties.GROUPS[name]
+        ((family, cell, role, fit),) = group.fits
+        assert (family, cell, role) == ("double_robustness", f"ate__{name}", "positive")
+        assert group.scenario == scenario, name
+        assert group.n == properties.PAPER_N == 3_000
         assert fit == runner.Fit(**fields), name
         differing = {field for field in vars(base) if getattr(fit, field) != getattr(base, field)}
         assert differing == set(fields), name
@@ -208,6 +341,15 @@ def test_each_variant_changes_one_setting_of_the_primary_fit() -> None:
     assert int(frame["fold"].max()) + 1 == 5
     again, _ = runner.draw_paper("treatment_correct", 300, 11)
     assert frame.drop(columns="fold").equals(again.drop(columns="fold"))
+
+
+def test_the_both_wrong_control_is_the_primary_fit_with_both_nuisances_wrong() -> None:
+    group = properties.GROUPS["both_wrong"]
+    assert (group.law, group.scenario, group.n) == ("paper", "both_wrong", 3_000)
+    assert group.fits == (("double_robustness", "ate__both_wrong", "control", runner.Fit()),)
+    assert group.replicates == 400
+    outcome, treatment = canonical._learners("both_wrong")
+    assert outcome.columns is not None and treatment.columns is not None
 
 
 def test_a_key_writes_the_cells_it_names() -> None:
@@ -230,7 +372,8 @@ def test_every_cell_and_the_implementation_are_described() -> None:
     for family, cells in runner.STUDY.property_cells.items():
         assert descriptions.claim(family)
         for cell in cells:
-            tested, required = descriptions.cell(family, cell, slug=SLUG, role="positive")
+            role = "control" if cell in ("ate__pooled", "ate__both_wrong") else "positive"
+            tested, required = descriptions.cell(family, cell, slug=SLUG, role=role)
             assert tested and required
 
 
@@ -240,6 +383,7 @@ def test_every_used_clause_has_a_binding_row() -> None:
     )
     own = bindings.loc[bindings["subject"] == SLUG]
     assert set(zip(own["property"], own["clause"], strict=True)) == {
+        ("double_robustness", "bias discriminated"),
         ("double_robustness", "bias equivalent"),
         ("double_robustness", "se ratio in union band"),
         ("fold_locality", "bias discriminated"),

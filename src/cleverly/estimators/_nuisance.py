@@ -2371,8 +2371,7 @@ def fit_inner_designs(
     """
     if data.is_continuous_treatment:
         raise CapabilityError(
-            "the foldwise construction reads a per-arm mechanism, and a continuous dose has "
-            "none.",
+            "the foldwise construction reads a per-arm mechanism, and a continuous dose has none.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit TMLE on the continuous dose.",
             roadmap="F5",
