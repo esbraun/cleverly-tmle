@@ -1,0 +1,4 @@
+group_id,scenarios,replicates,attempt,class,stage,call,message,seed
+g000005402,k,1100,1,fitting_failure,dynamic dml markov fit,__main__:logistic_coefficients,LinAlgError: the logistic fit did not converge,
+g000005586,k,1192,1,fitting_failure,dynamic dml markov fit,__main__:logistic_coefficients,LinAlgError: the logistic fit did not converge,
+g000005760,k,1279,1,fitting_failure,dynamic dml markov fit,__main__:logistic_coefficients,LinAlgError: the logistic fit did not converge,

@@ -485,6 +485,12 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
+        if study.reference_scenarios:
+            assert configuration["reference_scenarios"] == {
+                name: list(names) for name, names in study.reference_scenarios.items()
+            }
+        else:
+            assert "reference_scenarios" not in configuration
         recorded = _recorded_failures(study)
         # RM39b2: a stated primary bound equals the record's.  A manifest without it ran under
         # bound 0, which is consistent only when that run recorded no failure.
@@ -1741,13 +1747,15 @@ class TestNegativeControls:
         ]
         valid = set(zip(subject["scenario"], subject["estimand"], strict=True))
         # The first subject-valid cell of any scenario, so a study whose first scenario is red
-        # throughout still hosts the mutations.
+        # throughout still hosts the mutations.  A reference that reports a subset has rows only
+        # on the paired cells, so the mutated implementation is the reference there.
+        paired = study.paired_cells()
         scenario, estimand = next(
             (
                 (scenario, name)
                 for scenario, names in study.scenarios.items()
                 for name in names
-                if (scenario, name) in valid
+                if (scenario, name) in valid and (scenario, name) in paired
             ),
             (None, None),
         )

@@ -850,7 +850,7 @@ mean model with the declared blip features. Every row of the summary and of `to_
 that label. A blip that depends on an undeclared earlier treatment or covariate makes the
 coefficients answer a different question.
 
-The evidence label is "Python property evidence, with comparator runs pending". The
+The evidence label is "comparator-backed", against EconML 0.17.0 `DynamicDML`. The
 [structural nested mean study](../technical-reference/method-evidence/structural-nested-mean.md)
 covers cross-fitted fits with `GLM` nuisances on binary, three-level and dose nodes. It also
 covers known weights and 40 or more clusters. A fit inside those rows reads `supported`. Any other fit, such as an in-sample fit, reads `experimental`. The summary
