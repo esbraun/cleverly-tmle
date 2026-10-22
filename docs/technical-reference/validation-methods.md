@@ -2320,7 +2320,7 @@ A longitudinal result stores an unfitted copy of its estimator in `result.estima
 fits no bootstrap and no simultaneous band. `refute()` refits it with the original fold labels and
 repeat seeds. The `refute` row reads the `rerun_configuration` slot of `replayability()`. That slot needs
 the stored copy and the regimen and MSM declarations, and it does not need seeded learners. The
-table lists the eight tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
+table lists the tests that run on `LTMLE`, `SDR`, `IPSI`, the baselines,
 and the survival, competing-risk, repeated-outcome, and MSM fits.
 
 A test prints a verdict only
@@ -2338,6 +2338,7 @@ the placebo, subset and negative-control rules on six configurations.
 | `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
 | `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
 | `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
+| `bootstrap_measurement_error` | units drawn with replacement; each copy keeps the unit's fold. Each declared column takes noise at every node where it appears | no reference |
 
 The placebo does not permute trajectories. A permuted trajectory gives a unit at risk the missing
 treatment of a unit that left earlier. A permutation within each follow-up pattern makes the
@@ -2371,9 +2372,8 @@ prints its numbers against no reference.
 `tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
 panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
 within each follow-up pattern, and the contrast moves by more than `1e-3`. The longitudinal
-plasmode and the measurement-error bootstrap are
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) work. A request
-for them is refused with that roadmap id.
+plasmode is [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) work.
+A request for it is refused with that roadmap id.
 
 #### Generated outcomes on the held history
 
@@ -2724,6 +2724,21 @@ selected variable's bootstrap-sample standard deviation.
 Each sampled cluster occurrence receives a distinct code before perturbation. Repeated draws of
 one source cluster therefore remain separate during the refit.
 
+A declared strata variable keeps its recorded values, so each reported stratum keeps its rows.
+The operation perturbs the other declared variables, and the report names the held strata
+variables. A declaration of strata variables only is refused.
+
+A longitudinal result perturbs each declared column at every node where the column appears. A
+baseline name moves once. A long-panel name such as `l` moves at each node, where the panel
+names it `l@t`. The noise scale of each node is the multiplier times the column's standard
+deviation at that node, over the recorded rows. A missing value stays missing. The report names
+the nodes of each column.
+
+A panel carries no categorical metadata, so the operation refuses a
+column whose values are all 0 or 1. It also refuses an outcome of the panel, a constant column,
+and a name that is not a baseline or node covariate. `tests/unit/test_measurement_error_panels.py`
+holds the witnesses.
+
 The categorical path recovers original logical levels from `CausalData.encodings`. Each changed
 row draws uniformly from the other levels. The operation then rebuilds the complete drop-first
 indicator block. Boolean covariates use the same two-level path.
@@ -2735,9 +2750,9 @@ and each message names the variable it rejects.
 
 | what the operation refuses | what it requires instead |
 | --- | --- |
-| a result whose data is not point-treatment `CausalData` | a point-treatment `CausalData` result |
+| a result whose data is neither `CausalData` nor `LongitudinalData` | a point-treatment or longitudinal result |
 | `resampling="cluster"` on data that carries no cluster ids | declared cluster ids, or iid resampling |
-| a selected strata variable | a variable outside the strata, because the operation cannot perturb target metadata coherently |
+| a declaration of strata variables only | at least one adjustment variable outside the strata, because the strata keep their recorded values |
 | a generated indicator name | the original categorical variable that the indicator encodes |
 | a name that is not an original adjustment variable | one of the original names the message lists |
 | a categorical variable whose encoded block lost an indicator to duplicate-column removal | a retained indicator for every level the encoding generated |

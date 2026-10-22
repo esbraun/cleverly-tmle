@@ -244,6 +244,19 @@ class TestPlasmodeObservation:
             assert set(np.unique(sample.treatment[recorded])) == {0.0, 1.0}
             assert np.all(np.isnan(sample.treatment[~recorded]))
 
+    def test_the_arm_retry_is_rare(self, frame: pd.DataFrame) -> None:
+        """Review nit: a retry conditions the draw, so it must almost never happen."""
+        result = _fit(frame, ATE(), treatment="Ag", treatment_missingness="R")
+        law = PlasmodeLaw.fit(result)
+        recorded = law.recording
+        assert recorded is not None
+        # Each drawn row is a uniform support point, recorded and of arm a with probability
+        # p = mean_i r_i g(a | W_i), so a draw holds no such row with probability (1 - p)^n.
+        n = result.data.n
+        for index in range(len(law.arm_codes)):
+            p = float(np.mean(recorded * law.probabilities[:, index]))
+            assert n * np.log1p(-p) < np.log(1e-12)
+
     def test_a_clustered_draw_resamples_and_relabels_whole_clusters(
         self, frame: pd.DataFrame
     ) -> None:
