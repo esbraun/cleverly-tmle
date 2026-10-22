@@ -1016,14 +1016,13 @@ source conventions for numeric covariates. It does not change the declared grid.
 
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
-check is one ordered list, and it stops at the first boundary your fit meets. Six stops wait on
-a declared law: longitudinal, learned-rule, risk-ratio tilt, missing-outcome, missing-treatment,
-and intermediate fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+check is one ordered list, and it stops at the first boundary your fit meets. Three stops wait on
+a declared law: longitudinal, learned-rule, and risk-ratio tilt fits. Twelve provenance and shape stops read the result type, the replay estimator, the
 repeat provenance, the outcome family, the observation weights, and the identification metadata.
 The result-type stop runs second, because every later stop reads a field that only a
 point-treatment result declares.
 
-The capability row names the same stop that direct execution would raise, for all eighteen. Take a
+The capability row names the same stop that direct execution would raise, for all fifteen. Take a
 fit whose backdoor provenance is not a registered explicit adjustment set. Its row reports
 `available=False` and the reason
 `"simulated_confounding needs registered explicit-adjustment backdoor provenance"`. The
@@ -1053,9 +1052,24 @@ plug-in.
 The R `ctmle` and archived `ctmle3` sources provide no weighted comparator. The fixed-weight
 collaborative surface makes no numerical parity claim with those implementations.
 
-Missing-outcome replay needs a joint law for the response indicator, treatment, and outcome.
-Holding the response indicator fixed can break missing at random after treatment changes.
-Intermediate and longitudinal fits need their own ordered latent laws.
+A fit with a missing outcome or a missing treatment perturbs the recorded values only, and it
+keeps every observation indicator. Outcome-axis cells run as they are. A cell that moves the
+treatment needs `observation_reads=("W1", "W2")`, the covariates that every observation mechanism
+reads. A mechanism that reads the treatment breaks missing at random under the flip, so the
+surface refuses the treatment axis without that declaration. The report states the declaration,
+because the surface cannot verify it.
+
+A controlled direct effect holds its treatment. Each cell flips the intermediate with
+`ConfounderStrengthGrid(intermediate=(0.0, 0.2))` and moves the outcome. A nonzero treatment
+strength is refused.
+
+On a Gaussian fit whose estimator declares `q_bounds`, every outcome that a cell moves lands
+inside the bounds. The default `bounded_outcome_law="logit"` shifts the logit of the scaled outcome.
+A row at or beyond a bound never moves. `"normal_score"` shifts the normal score, maps it back
+through the empirical quantile, and clips the result to the bounds. The outcome strength is then not in outcome SD units, so compare the
+`induced_outcome_association` of each cell across fits.
+
+Longitudinal fits need their own ordered latent law.
 
 A combined call excludes refits and retargets by default. A row skipped for cost alone names the
 flag that would run it. A row that also needs a choice names the choice instead. Longitudinal
