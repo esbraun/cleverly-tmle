@@ -194,6 +194,25 @@ def validate_replicates(
                 f"{record.slug}: {scenario} has estimands {sorted(set(subset['estimand']))}, "
                 f"declared {sorted(estimands)}"
             )
+    if record.reference_scenarios:
+        # A reference that reaches part of the study must report exactly its declared cells,
+        # and the subject every cell, so a lost cell is refused rather than left unpaired.
+        for implementation in record.implementations:
+            own = rows.loc[rows["implementation"] == implementation]
+            present = set(
+                zip(own["scenario"].astype(str), own["estimand"].astype(str), strict=True)
+            )
+            declared = {
+                (scenario, name)
+                for scenario, names in record.reported(implementation).items()
+                for name in names
+            }
+            if present != declared:
+                raise ValueError(
+                    f"{record.slug}: {implementation} reports the cells "
+                    f"{sorted(present - declared)} beyond and lacks {sorted(declared - present)} "
+                    "of its declared cells"
+                )
     counts = rows.groupby(["implementation", "scenario", "estimand"], sort=True).size()
     wrong = counts[counts != record.replicates]
     if failures is not None and not failures.empty:

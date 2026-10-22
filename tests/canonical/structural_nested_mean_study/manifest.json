@@ -5,19 +5,24 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-structural-nested-mean",
-      "cleverly_version": "0.1.4",
-      "cleverly_commit": "4f9038c0bf0130f38416be82c541fcb5391d69e8",
-      "cleverly_worktree_clean": true,
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "2b8158327d8918cb2689195deda00b34ce01baa9",
+      "cleverly_worktree_clean": false,
       "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.0.6",
       "scikit_learn": "1.9.1"
     },
-    "reference": null
+    "reference": {
+      "implementation": "econml",
+      "econml_version": "0.17.0",
+      "python_base_image": "python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641",
+      "requirements_sha256": "db82abfde18ad9373bc540c15863b0905b6b3a81e0946988bd0fb79c985cd10f"
+    }
   },
   "configuration": {
-    "replicates": 1000,
+    "replicates": 1600,
     "n": 2000,
     "seed": 20261444,
     "resampling_seed": 2026144401,
@@ -121,6 +126,39 @@
         "blip[A1:1.0:intercept]",
         "ey_reference",
         "ey_regimen[r11]",
+        "ate_regimen[r11 vs r00]"
+      ]
+    },
+    "reference_scenarios": {
+      "s2": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "ate_regimen[r11 vs r00]"
+      ],
+      "s3": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "blip[A3:1.0:intercept]",
+        "ate_regimen[r111 vs r000]",
+        "ate_regimen[r101 vs r000]"
+      ],
+      "k": [
+        "blip[A1:1.0:intercept]",
+        "blip[A1:2.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "blip[A2:2.0:intercept]",
+        "ate_regimen[r12 vs r00]",
+        "ate_regimen[r21 vs r00]"
+      ],
+      "c": [
+        "blip[A1:dose:intercept]",
+        "blip[A2:dose:intercept]",
+        "ate_regimen[dose_mid vs dose0]",
+        "ate_regimen[dose_high vs dose0]"
+      ],
+      "m": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
         "ate_regimen[r11 vs r00]"
       ]
     },
@@ -458,7 +496,93 @@
       }
     },
     "expected_red": [],
-    "reference": "none yet; the EconML 0.17.0 DynamicDML comparator is pending",
+    "reference": "EconML 0.17.0 DynamicDML (tests/canonical/econml_dynamic_dml/run_study.py)",
+    "comparator": {
+      "paired": {
+        "s2": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "ate_regimen[r11 vs r00]"
+        ],
+        "s3": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "blip[A3:1.0:intercept]",
+          "ate_regimen[r111 vs r000]",
+          "ate_regimen[r101 vs r000]"
+        ],
+        "k": [
+          "blip[A1:1.0:intercept]",
+          "blip[A1:2.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "blip[A2:2.0:intercept]",
+          "ate_regimen[r12 vs r00]",
+          "ate_regimen[r21 vs r00]"
+        ],
+        "c": [
+          "blip[A1:dose:intercept]",
+          "blip[A2:dose:intercept]",
+          "ate_regimen[dose_mid vs dose0]",
+          "ate_regimen[dose_high vs dose0]"
+        ],
+        "m": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "ate_regimen[r11 vs r00]"
+        ]
+      },
+      "markov": {
+        "s2": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "ate_regimen[r11 vs r00]"
+        ],
+        "s3": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "blip[A3:1.0:intercept]",
+          "ate_regimen[r111 vs r000]",
+          "ate_regimen[r101 vs r000]"
+        ],
+        "k": [
+          "blip[A1:1.0:intercept]",
+          "blip[A1:2.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "blip[A2:2.0:intercept]",
+          "ate_regimen[r12 vs r00]",
+          "ate_regimen[r21 vs r00]"
+        ],
+        "h": [
+          "blip[A1:1.0:intercept]",
+          "blip[A1:1.0:W]",
+          "blip[A2:1.0:intercept]",
+          "blip[A2:1.0:W]",
+          "ate_regimen[r11 vs r00]",
+          "ate_regimen[r10 vs r00]"
+        ],
+        "p": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "ate_regimen[r11 vs r00]"
+        ],
+        "m": [
+          "blip[A1:1.0:intercept]",
+          "blip[A2:1.0:intercept]",
+          "ate_regimen[r11 vs r00]"
+        ]
+      },
+      "markov_features": {
+        "h": [
+          "W"
+        ]
+      },
+      "markov_orders": {
+        "binary": 3,
+        "categorical": 4
+      },
+      "fold_seed": 0,
+      "markov_margin": 0.25
+    },
     "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
@@ -487,38 +611,36 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_structural_nested_mean.py": "445a2a7e9ae899af4633469824f7cac3d7782259a91d0143ee1a8d5f746747cf",
+    "tests/studies/canonical_structural_nested_mean.py": "db38363fdea27d1340b4191ef8f6aaa7bc3e518f936fbe46b918629500713851",
     "tests/studies/structural_nested_mean_properties.py": "f00b9c528a6c557e2145c2c24fe9d73b854cfe60289b9e641dbef419965417f1",
-    "tests/studies/structural_nested_mean_laws.py": "809b32f607b3db3cdb93f489f8baa35d0749e37542aa4516d7870cde8fad7e83",
+    "tests/studies/structural_nested_mean_laws.py": "aaa971da23220b11c2cb334f9c76fdaabac51cd6852cab5cb3234171da046917",
     "tests/discrete_law_structural.py": "3254b27091063f548e3e3a8b5970a34e5407f0b5a7be83d59b8491456786491e",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
-    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/econml_dynamic_dml/Dockerfile": "c0d26c98de198101c54300e4988ed28481422385f54562a388d2024a411d0bd3",
+    "tests/canonical/econml_dynamic_dml/run_study.py": "0a8ba17ad4a03119f3b44999c817b14037c6dfddcf609301a025c82936e48fae",
+    "tests/canonical/econml_dynamic_dml/requirements.txt": "db82abfde18ad9373bc540c15863b0905b6b3a81e0946988bd0fb79c985cd10f",
+    "tests/canonical/econml_dynamic_dml/generate_parity_fixture.py": "070398b1e62b712887e819c779e44c6bb0d14008cd2451d5debc64f6c3a8ad8f"
+  },
   "sha256": {
-    "replicates.parquet": "8f1a9d9aece06d966c8b28b8d877350c8b2a9f614a818894cf14103bef82a556",
-    "summary.csv": "c7cee48ebf373c8f4044641b4d13085997034bbecc196c90f2c510dae0dbd330",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "6a8662eef910ac773a98fc895ac10693eb4af993287e77fc1d4f3078c8ef3883",
+    "replicates.parquet": "c785780cdf27bf36b0ce7d044ad7356655c89e45606add3911d09124efbf0ea8",
+    "summary.csv": "3d26234605ec38e64858866522172737e952900655925a304abb3b27d81534c6",
+    "equivalence.csv": "5bbc940c14ef9ad347fe710c76fc2e884ba64df1eb777e1454780cdc42b2cabd",
+    "performance-tests.csv": "da86c7e17964f6292d3bad611d85c1c92077cd8d9ecf7e34cd3e0e7e39f35991",
     "property-replicates.parquet": "750e5b583c5b3b48b37f9e0cc75d2b30db6ebe65becc0f1bd53b48e991a098c4",
     "properties.csv": "81192f5bcc71da3b108290ead3906fb3f91865dea1a7e19a913fe2483dcb53be",
+    "econml-markov-replicates.csv.gz": "e461d36cc30b5103b4ab02a4e9defb70c1804f2932cb3f431e1f93102729e47e",
+    "econml-markov.csv": "309c320dd1e122e25b50ff01d1ce83c3ce285e8df3592a1828dfda893f9e7987",
+    "econml-markov-failures.csv": "2978b5711eee667564c2d26c6e6dc9b30bbe5218c6b65953437e8958213a283f",
+    "exactness.csv": "0883dc51e185a45f6ff090e3243991e604a8b3984dcc1f45ca8f458a65de045e",
     "property-failures.csv": "8622819b7f347a09b3f325b21b8592f2b7b00d8b6f569b62d551b3b9e575822c",
     "property-failure-accounting.csv": "20dc42e8466b84141e9c7fb25c32224041bfdd5c02416061dd81017dde83ac8c",
     "property-failure-witnesses.parquet": "9317807135ffe95e969a8bbf7ca4587c127072e276682f9f084c1576ec243a89"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "econml",
-    "reason": "the EconML 0.17.0 DynamicDML runs are queued as Study queue row 43 in TRACKER.md, a local container phase (tests/canonical/econml_dynamic_dml); a method merges once its Python studies pass and a later change registers the comparator runs",
-    "metadata": {},
-    "declared_sources_sha256": {
-      "tests/canonical/econml_dynamic_dml/Dockerfile": "6a03b883deaa142f62a75c8f9469304fb3021981c30cb80d3061dec81b26325a",
-      "tests/canonical/econml_dynamic_dml/generate_parity_fixture.py": "070398b1e62b712887e819c779e44c6bb0d14008cd2451d5debc64f6c3a8ad8f",
-      "tests/canonical/econml_dynamic_dml/requirements.txt": "db82abfde18ad9373bc540c15863b0905b6b3a81e0946988bd0fb79c985cd10f"
-    }
   }
 }

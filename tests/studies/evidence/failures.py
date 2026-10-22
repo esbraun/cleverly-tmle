@@ -251,22 +251,24 @@ def expand(failures: pd.DataFrame | None, record: StudyRecord) -> pd.DataFrame:
     """Every (implementation, scenario, estimand, replicate) a failure record covers.
 
     A record names the scenarios its group held, or ``*`` when the frame carried no scenario
-    column.  It costs every estimand the study declares for each of those scenarios.
+    column.  It costs every estimand its implementation reports for each of those scenarios
+    (:meth:`~tests.studies.evidence.registry.StudyRecord.reported`).
     """
     columns = ["implementation", "scenario", "estimand", "replicate"]
     if failures is None or failures.empty:
         return pd.DataFrame(columns=columns)
     out: list[tuple[str, str, str, int]] = []
     for row in failures.itertuples(index=False):
+        reported = record.reported(str(row.implementation))
         scenarios = [part for part in str(row.scenarios).split(";") if part]
         if scenarios == ["*"]:
-            scenarios = list(record.scenarios)
-        unknown = sorted(set(scenarios) - set(record.scenarios))
+            scenarios = list(reported)
+        unknown = sorted(set(scenarios) - set(reported))
         if unknown:
             raise ValueError(f"{record.slug}: failure {row.group_id} names unknown {unknown}")
         replicates = [int(part) for part in str(row.replicates).split(";") if part]
         for scenario in scenarios:
-            for estimand in record.scenarios[scenario]:
+            for estimand in reported[scenario]:
                 for replicate in replicates:
                     out.append((str(row.implementation), scenario, estimand, replicate))
     frame = pd.DataFrame(out, columns=columns)
@@ -289,6 +291,18 @@ def induced(subject: pd.DataFrame, *, record: StudyRecord) -> pd.DataFrame:
     if record.reference is None:
         raise ValueError(f"{record.slug}: no reference to lose a paired input")
     out = subject.loc[:, list(FAILURE_COLUMNS)].copy()
+    if record.reference_scenarios:
+        # A reference that reaches part of the study loses only the scenarios it reports.
+        covered = record.reported(record.reference)
+
+        def kept(scenarios: str) -> str:
+            names = [part for part in str(scenarios).split(";") if part]
+            if names == ["*"]:
+                return ";".join(covered)
+            return ";".join(name for name in names if name in covered)
+
+        out["scenarios"] = [kept(value) for value in out["scenarios"]]
+        out = out.loc[out["scenarios"] != ""]
     out["implementation"] = record.reference
     out["attempt"] = 1
     out["class"] = PAIRED_INPUT_MISSING
@@ -296,7 +310,7 @@ def induced(subject: pd.DataFrame, *, record: StudyRecord) -> pd.DataFrame:
     out["call"] = ""
     out["message"] = [
         f"the subject's fit {group} failed, so this replicate has no reference input"
-        for group in subject["group_id"]
+        for group in out["group_id"]
     ]
     return out.reset_index(drop=True)
 
@@ -1108,6 +1122,14 @@ def paired_accounting(
         return pd.DataFrame(columns=list(ACCOUNTING_COLUMNS))
     subject, reference = record.implementation, str(record.reference)
     own = _own(failures, record)
+    # A subject loss in a cell the reference does not report has no paired row to correct.
+    paired_cells = record.paired_cells()
+    lost = lost.loc[
+        [
+            (str(scenario), str(estimand)) in paired_cells
+            for scenario, estimand in zip(lost["scenario"], lost["estimand"], strict=True)
+        ]
+    ]
     payloads = []
     for key, group in lost.groupby(["scenario", "estimand"], sort=True):
         scenario, estimand = str(key[0]), str(key[1])

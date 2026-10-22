@@ -203,7 +203,7 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         ),
         "failure_rate": lambda data: (
             float(failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference)))
-            / float(record.replicates * len(record.scenarios))
+            / float(record.replicates * len(record.reported(str(record.reference))))
         ),
         "subject_failures": lambda data: float(
             failures.missing_fits(data.get(FAILURES), record, subject)

@@ -4323,6 +4323,9 @@ IMPLEMENTATIONS["cleverly-structural-nested-mean"] = (
     "`cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow "
     "booster on law N)"
 )
+IMPLEMENTATIONS["econml"] = (
+    "EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design"
+)
 ESTIMANDS["ey_reference"] = "mean outcome with every treatment at its reference level"
 SCENARIOS.update(
     {

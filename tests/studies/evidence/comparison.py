@@ -329,7 +329,13 @@ def equivalence(
     subject, reference = record.implementation, record.reference
     margins = record.margins
     verdicts = performance.set_index(["implementation", "scenario", "estimand"])["passed"]
-    cells = list(rows.groupby(["scenario", "estimand"], sort=True))
+    # A reference that reaches part of the study pairs only on its declared cells.
+    paired_cells = record.paired_cells()
+    cells = [
+        (key, group)
+        for key, group in rows.groupby(["scenario", "estimand"], sort=True)
+        if (str(key[0]), str(key[1])) in paired_cells
+    ]
     bounds = map_parallel(
         _bounds,
         [
