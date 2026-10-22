@@ -356,6 +356,27 @@ regimen all run. A fit that no `G42` row covers reads `experimental`, and the
 
 `tests/unit/test_structural_nested_mean.py` (W7) pins the code of each refusal.
 
+## Assessment and refutation
+
+The result declares the `structural` assessment family. `cleverly.assessment.assessment_capabilities`
+returns one row per diagnostic operation, and `result.sensitivity` returns one row per sensitivity
+operation. Each row runs, or refuses with its reason code. Each `implementation_gap` refusal names
+its roadmap item. The attribute `result.diagnostics` stays the fit's own positivity and learner
+record, so the support and nuisance rows redirect there.
+
+`cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`, and
+`bootstrap_stability` tests. The placebo reads every blip coefficient and every regimen contrast
+against 0. The [refutation operations](validation-methods.md#refutation-operations) page gives
+each draw, reference, and witness. Every test prints its numbers with `passed=None` until a
+registered study cell covers a structural fit.
+
+The interval of this estimator has no linear-remainder exposure. Every nuisance regresses an
+observed variable on $H_t$, and the remainder $R_t$ of [the estimating
+equation](#the-estimating-equation) is a sum of products of nuisance errors. So a reading that uses
+the fit's standard error, such as `subset`, inherits no first-order bias from a nuisance fitted on
+an estimated index. The theory admits a verdict for `subset` within a calibrated scope, and the
+report prints none until a study registers that scope.
+
 ## Comparator
 
 The comparator is EconML 0.17.0 `DynamicDML`. It solves the same estimating equation with three

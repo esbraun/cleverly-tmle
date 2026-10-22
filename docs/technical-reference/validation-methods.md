@@ -2158,6 +2158,47 @@ pre-treatment, and future-treatment controls and the generated outcomes are
 [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part C work. A
 request for them is refused with that roadmap id.
 
+#### Structural nested mean refutation
+
+A `StructuralNestedMean` result declares the `structural` assessment family. It keeps a copy of
+its settings, its one outer split, and its fit seed in `result.config.fit_seed`. An unseeded fit
+draws that seed once and uses it for the split and for every ensemble that inherits a seed.
+`refute()` runs the four tests below. Each test prints its numbers with `passed=None`, because no
+registry row covers a structural fit yet.
+
+| test | structural draw | reference |
+| --- | --- | --- |
+| `placebo` | a Markov treatment trajectory per unit, as for a longitudinal fit, with no mask | 0 for a blip coefficient and for a regimen contrast. A level has no reference and refuses the placebo |
+| `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one per node. Each refit keeps the original split and the fit seed | the paired shift against the original fit |
+| `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))`, with the plug-in SE of a fit that reports no interval |
+| `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
+
+The placebo law factorizes as `P(O-) x K`. No covariate and not the outcome reads the drawn
+treatment, so `E[Y | H_t, A_t]` is free of `A_t`. Every true blip is then 0, and `psi = 0` solves
+the population g-estimating equation of each node. A regimen contrast is linear in the blips, so
+it is 0 without a positivity condition on the regimen. `tests/unit/test_structural_refutation.py`
+runs the package g-estimation on an enumerated two-node law. The observed law gives the blips 0.74
+and 0.6. The placebo law gives 0 within `1e-12`. Its mutation control lets the drawn node-2
+treatment read the observed one, and the node-2 blip moves to 0.387.
+
+A subset draw that leaves a fold with fewer than 2 units of a treatment level at some node is
+refused before the first subset refit. The g-estimating equation of that node would have no
+treatment variation in the fold. Raise `subset_fraction`, or drop `subset`.
+
+The other operations of the family do not run. The table gives the reason of each.
+
+| operation | status | reason |
+| --- | --- | --- |
+| `support`, `nuisance_models` | `unavailable`, `api_redirection` | the fit records its positivity and learner diagnostics in `result.diagnostics` |
+| `score_equations`, `corrections`, `truncation_curve` | `not_applicable` | g-estimation solves its equations by a linear solve, uses no correction system, and applies no mechanism bound |
+| omitted-variable analyses, `evalue` | `unavailable`, `implementation_gap` | no Riesz representer or risk-ratio scale of a blip is derived. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) tracks the bound |
+| `simulated_confounding` | `unavailable`, `implementation_gap` | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `missingness`, `tipping_gamma` | `not_applicable` | the estimator refuses missing outcomes and censoring |
+
+The negative-control outcome, the generated outcomes, and the measurement-error bootstrap of a
+structural fit are refused with the roadmap id
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
+
 #### Verdicts and evidence
 
 A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in

@@ -1425,10 +1425,9 @@ contrast, a mutation control that drops the covariate-law term, and a registered
 
 ### X74. Assessment and study integration for the structural nested mean model
 
-`StructuralNestedMeanResult` declares `fitted_method = "snmm"` and no `assessment_family`.
-`cleverly.assessment.assessment_capabilities` therefore raises a bare `TypeError` that names the
-missing family. [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part D adds that family. `CausalStudy` offers no method that fits
-`StructuralNestedMean`.
+`StructuralNestedMeanResult` declares the `structural` assessment family
+([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part D). `CausalStudy` offers no
+method that fits `StructuralNestedMean`.
 
 | part | what to add | evidence |
 | --- | --- | --- |
@@ -1536,7 +1535,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | --- | --- | --- |
 | A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
 | C | the rest of the longitudinal refute adapter: held-history generated outcomes, negative-control outcome, and the pre-treatment and future-treatment controls. Part C1 ships the Markov placebo, `random_common_cause` with `noise_nodes`, `subset`, and `bootstrap_stability`, all descriptive | the exact enumeration of a two-node panel, and a nonzero witness for each control |
-| D | `assessment_family` and the refute adapter of the structural nested mean model | a blip-null witness and the linear-remainder audit row |
+| D | the negative-control outcome, the held-design generated outcomes, and the measurement-error bootstrap of the structural nested mean model. Part D ships the `structural` assessment family, one declaration per operation, and the placebo, `random_common_cause`, `subset`, and `bootstrap_stability` tests, all descriptive | a nonzero witness for each control, and an exact effect for each generated process |
 | E | generated processes beyond the Gaussian ATE: other families, arms, ratios, controlled direct effects, MSMs, interventions, and missing outcomes | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
@@ -1570,12 +1569,14 @@ for each request that stays refused.
 
 #### Part D: structural nested mean model assessment
 
-`StructuralNestedMeanResult` declares no `assessment_family`, so
-`cleverly.assessment.assessment_capabilities` raises a bare `TypeError`.
+Part D ships the `structural` assessment family. Each operation runs or refuses with a reason
+code, and `tests/unit/test_structural_refutation.py` checks every row. The rest of the part is in
+the table.
 
 | part | what to add | evidence |
 | --- | --- | --- |
-| D | an `assessment_family` for the result, with one declaration per assessment operation. Each declaration is available, or refuses with a reason code and a roadmap id | a test that every operation of `assessment_capabilities` runs or refuses with a code and an id on a structural fit |
+| D | `negative_control_outcome` and its pre-treatment form on a structural fit | a control that an unmeasured cause of the treatment and the control moves, and one it does not |
+| D | held-design generated outcomes on a structural fit | the blips of each generated process computed exactly |
 
 #### Part F: simulated common cause
 

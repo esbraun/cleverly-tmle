@@ -100,6 +100,14 @@ from ._readings import (
     placebo_reading,
     subset_reading,
 )
+from ._structural_refute import (
+    is_structural,
+    structural_fit_seeds,
+    structural_frozen_folds,
+    structural_null,
+    structural_subset_refusal,
+    structural_tests_refusal,
+)
 from .simulation import ReplicationFailure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -1250,6 +1258,18 @@ def _is_longitudinal(result: Any) -> bool:
     return getattr(result, "assessment_family", None) == "longitudinal"
 
 
+def _is_panel(result: Any) -> bool:
+    """Whether ``result`` fits a treatment panel: a longitudinal or a structural fit."""
+    return _is_longitudinal(result) or is_structural(result)
+
+
+def _refuse_structural_tests(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a test the structural adapter does not run (X82 part D)."""
+    if not is_structural(result):
+        return None
+    return structural_tests_refusal(request.tests)
+
+
 #: The tests the longitudinal adapter runs (X82 part C1).
 _LONGITUDINAL_TESTS = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
 
@@ -1279,7 +1299,7 @@ def _refuse_placebo_mode(result: TMLEResult, request: _RefuteRequest) -> Refusal
     """Refuse a placebo draw that the result's family has no exact null for."""
     if "placebo" not in request.tests or request.placebo_mode is None:
         return None
-    if _is_longitudinal(result):
+    if _is_panel(result):
         if request.placebo_mode == "markov":
             return None
         return _invalid(
@@ -1300,7 +1320,7 @@ def _refuse_placebo_mode(result: TMLEResult, request: _RefuteRequest) -> Refusal
 
 def _refuse_placebo_kernel(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse the longitudinal placebo on a node that has no Markov kernel."""
-    if "placebo" not in request.tests or not _is_longitudinal(result):
+    if "placebo" not in request.tests or not _is_panel(result):
         return None
     if not getattr(result.data, "has_mixed_node", False):
         return None
@@ -1319,7 +1339,7 @@ def _refuse_noise_nodes(result: TMLEResult, request: _RefuteRequest) -> Refusal 
     """Refuse per-node noise columns where no node or no law for them exists."""
     if not request.noise_nodes or "random_common_cause" not in request.tests:
         return None
-    if not _is_longitudinal(result):
+    if not _is_panel(result):
         return _invalid(
             "noise_nodes=True appends a noise column to every node of a longitudinal fit; a "
             "point-treatment fit has no nodes. Leave noise_nodes=False"
@@ -1375,6 +1395,8 @@ def _learned_rule_reference(data: Any) -> float:
 
 def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the reported-scale no-effect value of a registered parameter, if defined."""
+    if is_structural(result):
+        return structural_null(result, estimand)
     if _is_longitudinal(result):
         return _longitudinal_null(result, estimand)
     declaration = _target_declaration(result, estimand)
@@ -1484,6 +1506,15 @@ def _longitudinal_msm_reference(result: Any, estimand: str) -> _MSMReference | N
     return None
 
 
+def _working_model_reference(result: Any, estimand: str) -> _MSMReference | None:
+    """The placebo reference of a working-model coefficient; a structural fit has none."""
+    if is_structural(result):
+        return None
+    if _is_longitudinal(result):
+        return _longitudinal_msm_reference(result, estimand)
+    return _msm_reference(result, estimand)
+
+
 def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the value the placebo reads the refit against, or ``None`` when it has none.
 
@@ -1493,11 +1524,7 @@ def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     """
     if _is_learned_rule_fit(result) and estimand in result.estimates:
         return _learned_rule_reference(result.data)
-    reference = (
-        _longitudinal_msm_reference(result, estimand)
-        if _is_longitudinal(result)
-        else _msm_reference(result, estimand)
-    )
+    reference = _working_model_reference(result, estimand)
     if reference is not None:
         return reference.value
     return _no_effect_null(result, estimand)
@@ -1686,6 +1713,7 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("estimator", _refuse_missing_estimator),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
+    ("structural_tests", _refuse_structural_tests),
     ("longitudinal_tests", _refuse_longitudinal_tests),
     ("placebo_mode", _refuse_placebo_mode),
     ("placebo_kernel", _refuse_placebo_kernel),
@@ -2437,6 +2465,8 @@ def _bootstrap_stability_test(
     folds = _CopyFolds(result, data, design, draw_by_replicate)
     repeats = getattr(result, "repeats", None)
     folds.frozen_seeds = [item.seed for item in repeats] if repeats else None
+    if is_structural(result):
+        folds.frozen_seeds = structural_fit_seeds(result)
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
@@ -3009,6 +3039,8 @@ def _sliced_folds(result: Any, index: np.ndarray) -> tuple[Any, ...] | None:
     """
     from ..learners.crossfit import Folds
 
+    if is_structural(result):
+        return structural_frozen_folds(result, index)
     repeats = getattr(result, "repeats", None)
     if not repeats:
         return None
@@ -3156,11 +3188,7 @@ def refute(
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)
     placebo_null = _placebo_null(result, estimand)
-    msm_reference = (
-        _longitudinal_msm_reference(result, estimand)
-        if _is_longitudinal(result)
-        else _msm_reference(result, estimand)
-    )
+    msm_reference = _working_model_reference(result, estimand)
     estimate_scale = getattr(result[estimand], "scale", None)
     declaration = _target_declaration(result, estimand)
     is_ratio = (estimate_scale or getattr(declaration, "scale", None)) == "ratio"
@@ -3187,7 +3215,9 @@ def refute(
     data = result.data
     outcomes: list[RefutationTest] = []
     longitudinal = _is_longitudinal(result)
-    kernel = MarkovKernel.fit(data) if longitudinal and "placebo" in requested else None
+    structural = is_structural(result)
+    panel = longitudinal or structural
+    kernel = MarkovKernel.fit(data) if panel and "placebo" in requested else None
 
     def refit(
         replacement: Any,
@@ -3227,7 +3257,13 @@ def refute(
         mean_kind: Literal["arithmetic", "geometric"] = "geometric" if is_ratio else "arithmetic"
         if name == "placebo":
             assert placebo_null is not None
-            gap = None if kernel is None else _placebo_positivity_gap(result, kernel)
+            # A structural contrast is read from the blips, which are 0 on the placebo law
+            # whatever regimen the kernel draws, so only a longitudinal fit checks the gap.
+            gap = (
+                None
+                if not longitudinal or kernel is None
+                else (_placebo_positivity_gap(result, kernel))
+            )
             if gap is not None:
                 # A regimen the kernel never draws has no placebo value to refit toward,
                 # so the test reports the reason and runs no refit (X82 plan 5.1.2).
@@ -3316,6 +3352,12 @@ def refute(
                     ". Each trajectory is drawn from a first-order Markov kernel of the "
                     "observed treatments and masked by the observed at-risk pattern"
                 )
+            if structural:
+                detail += (
+                    ". Each trajectory is drawn from a first-order Markov kernel of the "
+                    "observed treatments, so every blip and every regimen contrast is "
+                    "exactly 0 on the placebo law"
+                )
             if _declares_known_treatment(data):
                 detail += ". The refit keeps a known mechanism: the placebo law's own " + (
                     "kernel" if longitudinal else "arm shares"
@@ -3348,10 +3390,16 @@ def refute(
             repeats = getattr(result, "repeats", None)
             fit_seed = repeats[0].seed if repeats else seed
             repeat_seeds = [item.seed for item in repeats] if repeats else None
+            # A structural fit holds one split and one fit seed. Each noise refit reuses both,
+            # so the shift carries no fold or learner-seed noise on an unseeded fit.
+            noise_folds = structural_frozen_folds(result) if structural else None
+            if structural:
+                repeat_seeds = structural_fit_seeds(result)  # type: ignore[assignment]
             noise_fits = [
                 refit(
                     _noise_data(data, rng, index, noise_nodes),
                     seed=fit_seed,
+                    frozen_folds=noise_folds,
                     frozen_seeds=repeat_seeds,
                 )
                 for index in range(replicate_count)
@@ -3396,6 +3444,11 @@ def refute(
 
         elif name == "subset":
             drawn = [_subset_draw(data, rng, subset_fraction) for _ in range(replicate_count)]
+            thin = structural_subset_refusal(result, [d[0] for d in drawn]) if structural else None
+            if thin is not None:
+                # Every draw is read before the first subset refit, so a draw that would stop
+                # at the Jacobian floor part way through the test refuses it first.
+                raise CapabilityError.from_refusal(thin)
             fits = [
                 refit(data.subset(index), frozen_folds=_sliced_folds(result, index))
                 for index, _, _ in drawn

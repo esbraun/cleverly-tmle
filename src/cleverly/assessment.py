@@ -308,6 +308,14 @@ class AssessmentCapability:
         return None if self.refusal is None else self.refusal.message()
 
 
+#: The fitted methods each result family declares by default.
+_FAMILY_METHODS: dict[str, tuple[str, ...]] = {
+    "point": ("tmle", "collaborative_tmle", "drtmle"),
+    "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
+    "structural": ("snmm",),
+}
+
+
 def _capability(
     operation: str,
     family: str,
@@ -328,15 +336,7 @@ def _capability(
     return AssessmentCapability(
         operation=operation,
         result_family=family,
-        methods=tuple(
-            methods
-            if methods is not None
-            else (
-                ("tmle", "collaborative_tmle", "drtmle")
-                if family == "point"
-                else ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula")
-            )
-        ),
+        methods=tuple(methods if methods is not None else _FAMILY_METHODS[family]),
         available=available,
         status=status,
         required_artifacts=tuple(artifacts),
@@ -467,6 +467,95 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "refute",
         "longitudinal",
         artifacts=("fitted sequential estimator configuration", "analysis panel"),
+        execution="refit",
+        deterministic=False,
+        cost="expensive",
+        accepts_random_state=True,
+        requires_replay="rerun_configuration",
+        interpretation=(
+            "behavior under a Markov treatment placebo, noise covariates, subsampling, and "
+            "bootstrap resampling of the panel"
+        ),
+    ),
+    # The structural nested mean model (X82 part D). The fit keeps its own positivity and
+    # learner record in ``result.diagnostics``, so the two summaries redirect there.
+    _capability(
+        "support",
+        "structural",
+        artifacts=("standardized Jacobian eigenvalues", "extreme class-probability shares"),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=Refusal(
+            RefusalReason.API_REDIRECTION,
+            "a structural fit records its positivity in its own diagnostics: the smallest "
+            "standardized eigenvalue of each diagonal Jacobian block, below which the fit "
+            "refuses, and the share of extreme class probabilities at each node.",
+            alternative=(
+                "Read result.diagnostics.smallest_eigenvalue and result.diagnostics.extreme_share."
+            ),
+        ),
+        interpretation="whether each node's treatment varies given the history",
+    ),
+    _capability(
+        "nuisance_models",
+        "structural",
+        artifacts=("nuisance learner diagnostics",),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=Refusal(
+            RefusalReason.API_REDIRECTION,
+            "a structural fit records the Super Learner diagnostics of every outcome and "
+            "product-mean regression in its own diagnostics, and builds no held-out nuisance "
+            "report.",
+            alternative=(
+                "Read result.diagnostics.learner_diagnostics and "
+                "result.diagnostics.n_constant_fits."
+            ),
+        ),
+        interpretation="held-out fit of the outcome means and the product means",
+    ),
+    _capability(
+        "score_equations",
+        "structural",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "g-estimation solves its linear estimating equations exactly, by a backward linear "
+            "solve over the nodes, and no targeting step iterates toward them.",
+        ),
+        interpretation="the score equations the selected method actually solved",
+    ),
+    _capability(
+        "corrections",
+        "structural",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "g-estimation does not use the point-treatment correction system.",
+        ),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "structural",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "no mechanism bound enters a g-estimation fit: positivity_margin counts extreme "
+            "probabilities and truncates nothing, so no bound moves the estimate.",
+        ),
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
+        "refute",
+        "structural",
+        artifacts=("fitted structural estimator configuration", "analysis panel"),
         execution="refit",
         deterministic=False,
         cost="expensive",
@@ -1265,6 +1354,19 @@ class Replayability:
 def replayability(result: Any) -> Replayability:
     """Derive replay capabilities from stored artifacts and the normalized method."""
 
+    if _family(result) == "structural":
+        # A structural fit keeps its settings and its split. It reruns on a changed panel;
+        # it stores no targeting state or representer to retarget or evaluate.
+        rerun = getattr(result, "estimator", None) is not None
+        return Replayability(
+            True,
+            False,
+            False,
+            False,
+            False,
+            () if rerun else ("estimator configuration",),
+            rerun_configuration=rerun,
+        )
     if _family(result) == "longitudinal":
         from .longitudinal.estimator import (
             LONGITUDINAL_REPLAY_MSM_DECLARATION,
@@ -3912,6 +4014,131 @@ def _reduction_conditioning_warning(result: Any) -> str | None:
     )
 
 
+#: Why a structural fit has no omitted-variable analysis. The bound needs the Riesz
+#: representer of the estimand, and no representer of a g-estimation blip is derived.
+_STRUCTURAL_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "no omitted-variable bound is derived for a structural nested mean model: the bound "
+    "needs the Riesz representer of the estimand, and no representer of a g-estimated blip "
+    "or of a regimen contrast read from the blips is derived.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="F16",
+)
+
+#: Why a structural fit has no E-value.
+_STRUCTURAL_EVALUE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "no E-value conversion is derived for a structural nested mean model: a blip "
+    "coefficient is a model parameter on the outcome scale, and no source gives the risk "
+    "ratio scale it would convert from.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="F16",
+)
+
+#: Why a structural fit has no simulated common cause.
+_STRUCTURAL_SIMULATED_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "no simulated-confounding replay is derived for a structural nested mean model: the "
+    "pinned DoWhy law perturbs one treatment, and the longitudinal latent of X82 part F "
+    "covers the sequential estimators only.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="F13",
+)
+
+#: Why the missingness tilt does not apply to a structural fit.
+_STRUCTURAL_TILT_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "a structural fit has no missing outcome and no censoring, because the estimator refuses "
+    "both, so no observation mechanism exists to tilt.",
+)
+
+
+def _structural_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of a structural fit, each refused with its record."""
+
+    def refused(
+        operation: str,
+        refusal: Refusal,
+        *,
+        artifacts: Sequence[str],
+        interpretation: str,
+        status: AssessmentStatus = AssessmentStatus.UNAVAILABLE,
+    ) -> AssessmentCapability:
+        return _capability(
+            operation,
+            "structural",
+            artifacts=artifacts,
+            interpretation=interpretation,
+            available=False,
+            status=status,
+            refusal=refusal,
+        )
+
+    representer = ("fitted representer", "outcome residuals")
+    return (
+        refused(
+            "omitted_confounding",
+            _STRUCTURAL_BOUND_REFUSAL,
+            artifacts=representer,
+            interpretation="omitted-confounder bias for the fitted orthogonal score",
+        ),
+        refused(
+            "robustness_value",
+            _STRUCTURAL_BOUND_REFUSAL,
+            artifacts=representer,
+            interpretation="confounding strength needed to move the estimate to its null",
+        ),
+        refused(
+            "elements",
+            _STRUCTURAL_BOUND_REFUSAL,
+            artifacts=representer,
+            interpretation="raw components of the omitted-confounder bias bound",
+        ),
+        refused(
+            "benchmark",
+            _STRUCTURAL_BOUND_REFUSAL,
+            artifacts=("fitted estimator configuration",),
+            interpretation="calibration against named observed covariates",
+        ),
+        refused(
+            "simulated_confounding",
+            _STRUCTURAL_SIMULATED_REFUSAL,
+            artifacts=("fitted estimator configuration", "analysis data"),
+            interpretation="estimate movement under a simulated common cause",
+        ),
+        refused(
+            "contour",
+            _STRUCTURAL_BOUND_REFUSAL,
+            artifacts=representer,
+            interpretation="bias bounds over a grid of confounding strengths",
+        ),
+        refused(
+            "evalue",
+            _STRUCTURAL_EVALUE_REFUSAL,
+            artifacts=("structured arm contrast", "ratio or derivation artifacts"),
+            interpretation="minimum risk-ratio association needed to explain away an effect",
+        ),
+        refused(
+            "missingness",
+            _STRUCTURAL_TILT_REFUSAL,
+            artifacts=("observation mechanism", "published tilt identification"),
+            interpretation="departure from missing-at-random identification",
+            status=AssessmentStatus.NOT_APPLICABLE,
+        ),
+        refused(
+            "tipping_gamma",
+            _STRUCTURAL_TILT_REFUSAL,
+            artifacts=("observation mechanism", "published tilt identification"),
+            interpretation="missingness departure at which the conclusion reaches its null",
+            status=AssessmentStatus.NOT_APPLICABLE,
+        ),
+    )
+
+
+#: The sensitivity declarations of a structural fit (X82 part D).
+_STRUCTURAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _structural_sensitivity_rows()
+
+
 class SensitivityFacade(_CapabilityFacade):
     """Access sensitivity analyses supported by a fitted causal result.
 
@@ -3979,6 +4206,8 @@ class SensitivityFacade(_CapabilityFacade):
     @cached_property
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         family = _family(self._result)
+        if family == "structural":
+            return _STRUCTURAL_SENSITIVITY
         longitudinal = family == "longitudinal"
         # The two tilt rows read the table both tilt entry points raise from.  Its
         # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
@@ -4223,7 +4452,7 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue":
+        if operation == "evalue" and _family(self._result) != "structural":
             # The E-value selects for itself from a ``None`` sentinel rather than through
             # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
             return self._evalue_row(arguments.get("estimand"))
@@ -4605,7 +4834,8 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        if not explicit_evalue:
+        # A structural fit declares every row refused, so an explicit estimand lifts none.
+        if not explicit_evalue or _family(self._result) == "structural":
             self._require(operation)
         return self._invoke(operation, args, kwargs)
 
