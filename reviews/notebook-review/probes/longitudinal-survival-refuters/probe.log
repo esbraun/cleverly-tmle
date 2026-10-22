@@ -1,0 +1,23 @@
+fit: 0.0223, SE 0.0181
+dummy_outcome at 400 draws, 38 s, verdict descriptive
+  true value 0.0000, mean estimate -0.0000
+  bias -0.0008 (-0.0988, 0.0972), band (-0.2, 0.2), inside True
+  se_ratio 0.9775 (0.9076, 1.0527), band (0.85, 1.15), inside True
+  coverage 0.9425 (0.9150, 0.9632), band (0.88, 0.99), inside True
+simulated_outcome at 400 draws, 38 s, verdict descriptive
+  true value 0.1391, mean estimate 0.1401
+  bias 0.0400 (-0.0580, 0.1380), band (-0.2, 0.2), inside True
+plasmode at 400 draws, 44 s, verdict passed
+  true value 0.1602, mean estimate 0.1591
+  bias -0.0585 (-0.1568, 0.0398), band (-0.2, 0.2), inside True
+  se_ratio 0.9775 (0.9187, 1.0401), band (0.85, 1.15), inside True
+  coverage 0.9500 (0.9238, 0.9692), band (0.88, 0.99), inside True
+placebo and subset at 100 draws, seed 61, 18 s
+  placebo: mean 0.0003, SD 0.0169, t 0.1685, p = 0.8666
+  subset: mean 0.0212, SD 0.0118, scatter ratio rho 0.9961, p = 0.9943
+placebo and subset at 100 draws, seed 62, 18 s
+  placebo: mean -0.0011, SD 0.0174, t -0.6148, p = 0.5401
+  subset: mean 0.0199, SD 0.0127, scatter ratio rho 1.0698, p = 0.3086
+placebo and subset at 100 draws, seed 63, 18 s
+  placebo: mean -0.0002, SD 0.0145, t -0.1536, p = 0.8782
+  subset: mean 0.0221, SD 0.0109, scatter ratio rho 0.9226, p = 0.2913

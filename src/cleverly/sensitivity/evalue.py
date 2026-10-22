@@ -53,8 +53,9 @@ is calibrated only where that interval's coverage is.  The branches this module 
 before X82 part G read intervals with registered coverage evidence.  Each configuration
 part G adds resolves its limit through the registry of
 :mod:`cleverly.validation._interpretation`, instrument :data:`EVALUE_LIMIT_INSTRUMENT`.
-Until a registered coverage cell adds the matching row, the limit prints with the
-registry's descriptive sentence.
+The ``evalue-limit-coverage`` study registers rows for ``stratum`` and ``time_to_event``
+on its measured configurations.  Every other configuration prints with the registry's
+descriptive sentence.
 """
 
 from __future__ import annotations

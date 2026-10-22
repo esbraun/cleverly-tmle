@@ -165,6 +165,7 @@ not change the package version.
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
+| after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1583,7 +1584,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Part E2 ships missing outcomes, missing treatments, controlled direct effects, `ey_obs`, PAR, PAF, strata, and the clustered plasmode. Part E5 ships the measurement-error bootstrap on panels and on strata variables. Part E3 ships regimes, incremental tilts, modified treatment policies, and MSM coefficients. Part E4 ships the longitudinal plasmode of an end-of-study, survival or competing-risk panel. Risk-ratio tilts, the continuous-dose plasmode, the DR-TMLE estimated-index witness, and the repeated-outcome plasmode remain | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
-| H | marginal sensitivity model bounds for the point-treatment ATE and arm means | a source read of Dorn, Guo and Kallus before the documentation cites it |
+| H | marginal sensitivity model bounds. Part H1 ships the two-arm ATE and arm means of a `TMLE` or `DRTMLE` fit with a Gaussian or binary outcome, clusters and repeats, descriptive until study SH registers its rows. Part H2 adds multi-arm treatments under the one-against-rest model, ATT and ATC, risk and odds ratios, weights, strata, missing outcomes, and `CTMLE` and `AdaptiveIPTW` fits through a refit of the full mechanism | the linear program of the model solved on a finite law, and a mutation control for each nuisance |
 | I | every applicable instrument for `AdaptiveIPTW`, shipped: every point `refute` test, simulated confounding on the arm axis, and the derived risk ratio of the E-value. Each study-backed reading stays descriptive until the follow-up study SI registers its rows | an exact enumeration of the placebo law, a zero paired shift on a known mechanism, and a zero-strength reproduction |
 
 Each short-study follow-up adds the registry rows that its passing cells license. A failed cell
@@ -1791,9 +1792,6 @@ Each item is one pull request that edits one notebook and its
 | (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
 | (e) | `msm-projections.ipynb` | the MSM tensor placebo, generated truths of the coefficients, and the slope replay | (0), SP, SG |
 | (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
-| (g) | `longitudinal-survival.ipynb` | the longitudinal checks on a `RegimeContrast` fit, and held-history generated outcomes | (0) |
-| (h) | `sequential-offers.ipynb` | the longitudinal checks, with each limit stated | (0) |
-| (i) | `sequential-pricing.ipynb` | `subset`, `random_common_cause` and `bootstrap_stability` on the renewal contrast, and one sentence for each check the design cannot run. Shipped | (0) |
 | (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
 
 SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers
@@ -1804,6 +1802,21 @@ Acceptance: every new call runs and no cell prints a refusal; every verdict, lim
 sentence in the prose matches the committed output; the notebook executes; the fast suite and the
 docs build pass; the fast-tier cell time stays within 1.5 times its time before the item, or the
 pull request states the increase; an implementation review approves.
+
+### X87. Marginal sensitivity model bounds that need a second sensitivity parameter
+
+`sensitivity.marginal_sensitivity_bounds` refuses the requests below. The marginal sensitivity
+model bounds how an unobserved `U` moves the odds of treatment. Each request needs a bound on a
+second mechanism, and no read source defines it. A longitudinal fit is refused under
+[F16](#f16-longitudinal-sensitivity-bound-estimation).
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | a controlled direct effect | a bound on the confounding of the intermediate and the outcome, with its own parameter |
+| (b) | a missing treatment | a joint model of `U` on the treatment and on its observation |
+
+Acceptance: a read source for each bound; the linear program of the joint model solved on a finite
+law; a registered coverage study for each interval.
 
 ### P1. EP learner
 

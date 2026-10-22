@@ -1943,6 +1943,19 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 ## Sensitivity analysis
 
+- Tan (2006), [*A distributional approach for causal inference using propensity scores*](https://doi.org/10.1198/016214506000000023),
+  *Journal of the American Statistical Association* 101(476):1619–1637. Section 4.2, eq. (9),
+  defines the marginal sensitivity model that
+  [marginal sensitivity model bounds](technical-reference/validation-methods.md#marginal-sensitivity-model-bounds)
+  use.
+- Dorn, Guo & Kallus, replication code,
+  [`CausalML/DoublyValidDoublySharpSensitivity`](https://github.com/CausalML/DoublyValidDoublySharpSensitivity)
+  at commit `26cbbf6e` (22 March 2024), `simplified_dvds.R`. The functions `phi.continuous` and
+  `dvds.binary` give the estimator and the set interval that the bounds match term by term. The
+  published paper (*JASA* 120(549):331–342) was not read, so no theorem of it is cited.
+- Imbens & Manski (2004), *Confidence intervals for partially identified parameters*,
+  *Econometrica* 72(6):1845–1857. This package did not read it. It is named only as the
+  interval for the parameter alone that the bounds do not ship.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026),
   [*Long Story Short: Omitted Variable Bias in Causal Machine
   Learning*](https://doi.org/10.1162/REST.a.1705), *The Review of Economics and Statistics*,

@@ -102,7 +102,7 @@ class LongitudinalPlasmodeLaw:
         The fitted panel. Its baseline rows are the support points.
     covariates : tuple of tuple
         Per node, one frozen model per time-varying column, in column order.
-    treatment : tuple of _Logistic
+    mechanisms : tuple of _Logistic
         Per node, the frozen model of ``P(A_t = 1 | H_t)``.
     censoring : tuple of _Logistic or None
         Per node, the frozen model of ``P(uncensored after t | H_t, A_t)``, or ``None``
@@ -121,7 +121,7 @@ class LongitudinalPlasmodeLaw:
 
     support: Any
     covariates: tuple[tuple[_Logistic | _Linear, ...], ...]
-    treatment: tuple[_Logistic, ...]
+    mechanisms: tuple[_Logistic, ...]
     censoring: tuple[_Logistic | None, ...]
     lower: float
     centre: np.ndarray
@@ -179,7 +179,7 @@ class LongitudinalPlasmodeLaw:
         return cls(
             support=data,
             covariates=tuple(covariates),
-            treatment=tuple(mechanisms),
+            mechanisms=tuple(mechanisms),
             censoring=tuple(censoring),
             lower=lower,
             centre=np.mean(baseline, axis=0),
@@ -200,7 +200,7 @@ class LongitudinalPlasmodeLaw:
         The count is the bound before any zero-weight branch is pruned: two levels for each
         time-varying column and each treatment node.
         """
-        columns = sum(len(node) for node in self.covariates) + len(self.treatment)
+        columns = sum(len(node) for node in self.covariates) + len(self.mechanisms)
         return self.binary and 2**columns <= MAX_BRANCHES
 
     # ---------------------------------------------------------------- the outcome
@@ -294,7 +294,7 @@ class LongitudinalPlasmodeLaw:
         rng = np.random.default_rng(seed)
         data = self.support
         rows = np.asarray(rng.integers(0, data.n, size=data.n))
-        nodes = len(self.treatment)
+        nodes = len(self.mechanisms)
         blocks: list[np.ndarray] = []
         treatment = np.zeros((rows.size, nodes))
         stays = np.ones((rows.size, nodes), dtype=bool)
@@ -356,7 +356,7 @@ class LongitudinalPlasmodeLaw:
         return np.column_stack(columns) if columns else np.zeros((baseline.shape[0], 0))
 
     def _propensity(self, node: int, history: np.ndarray) -> np.ndarray:
-        probability = self.treatment[node].probability(history)
+        probability = self.mechanisms[node].probability(history)
         return np.clip(probability, self.lower, 1.0 - self.lower)
 
     # ---------------------------------------------------------------- the truth
@@ -399,7 +399,7 @@ class LongitudinalPlasmodeLaw:
         rng = np.random.default_rng(seed)
         survival = bool(data.is_survival)
         count = 1 if draws is None else int(draws)
-        nodes = len(self.treatment) if horizon is None else int(horizon)
+        nodes = len(self.mechanisms) if horizon is None else int(horizon)
         rows = np.repeat(np.arange(data.n), count)
         weight = np.full(rows.size, 1.0 / count)
         # The event of a survival law is integrated out: each history carries its survival
