@@ -832,6 +832,180 @@ def _longitudinal_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The registered study that calibrated the point-treatment refutation rules (X82 SP).
+_POINT_STUDY = "refuter-calibration-point"
+
+_LOGISTIC = "LogisticRegression(C=inf,max_iter=2000)"
+_BOOSTER = (
+    "HistGradientBoostingClassifier(categorical_features='from_dtype',class_weight=None,"
+    "early_stopping=False,interaction_cst=None,l2_regularization=0.0,learning_rate=0.1,"
+    "loss='log_loss',max_bins=255,max_depth=2,max_features=1.0,max_iter=100,"
+    "max_leaf_nodes=31,min_samples_leaf=20,monotonic_cst=None,n_iter_no_change=10,"
+    "random_state=None,scoring='loss',tol=1e-07,validation_fraction=0.1,verbose=0,"
+    "warm_start=False)"
+)
+
+#: The calibrated cells of the SP study: method, outcome family, learner fingerprints,
+#: inference, whether the mechanism is declared known, the fit the sentence names, the
+#: smallest arm event count of the outcome over the cell's trials, and that of the binary
+#: negative control. ``cells.csv`` records every axis but the control's event count, which
+#: ``tests/unit/test_refuter_calibration_point_registry.py`` recomputes from the draws.
+_POINT_CELLS: Final[
+    dict[str, tuple[str, str, tuple[str, ...], str, bool, str, int | None, int | None]]
+] = {
+    "T1": (
+        "TMLE",
+        "gaussian",
+        ("LinearRegression()", _LOGISTIC),
+        "influence_curve",
+        False,
+        "TMLE, linear and logistic GLM nuisances",
+        None,
+        None,
+    ),
+    "T2": (
+        "TMLE",
+        "binomial",
+        (_LOGISTIC,),
+        "influence_curve",
+        False,
+        "TMLE, logistic GLM nuisances",
+        54,
+        47,
+    ),
+    "T3": (
+        "TMLE",
+        "binomial",
+        (_BOOSTER,),
+        "influence_curve",
+        False,
+        "TMLE, depth-2 HistGradientBoosting nuisances with early stopping off",
+        51,
+        None,
+    ),
+    "C1": (
+        "CTMLE[greedy]",
+        "binomial",
+        (_LOGISTIC,),
+        "working_mechanism_plugin",
+        False,
+        "greedy C-TMLE, logistic GLM nuisances",
+        50,
+        None,
+    ),
+    "D1": (
+        "DRTMLE",
+        "binomial",
+        (_LOGISTIC,),
+        "influence_curve",
+        True,
+        "DR-TMLE with a declared treatment mechanism, a logistic GLM outcome",
+        54,
+        53,
+    ),
+    "D2": (
+        "DRTMLE",
+        "binomial",
+        (_LOGISTIC,),
+        "influence_curve",
+        False,
+        "DR-TMLE, logistic GLM nuisances",
+        51,
+        None,
+    ),
+}
+
+#: The readings of each SP cell, as the study declares them.
+_POINT_CELL_READINGS: Final[dict[str, tuple[str, ...]]] = {
+    "T1": ("placebo", "subset", "negative_control_outcome"),
+    "T2": ("placebo", "subset", "negative_control_outcome"),
+    "T3": ("placebo",),
+    "C1": ("placebo",),
+    "D1": ("placebo", "subset", "negative_control_outcome"),
+    "D2": ("placebo",),
+}
+
+#: Per instrument: rule, size reading, power readings, refit count, plan section, defect.
+_POINT_READINGS: Final[dict[str, tuple[str, str, tuple[str, ...], int, str, str]]] = {
+    "placebo": (
+        "t",
+        "placebo",
+        ("placebo_stale_rows",),
+        20,
+        "5.1.1",
+        "a stale-row placebo that keeps a declared share of recorded treatments",
+    ),
+    "subset": (
+        "rho",
+        "subset",
+        ("subset_half_se", "subset_double_se"),
+        20,
+        "5.3",
+        "a reported standard error halved and doubled",
+    ),
+    "negative_control_outcome": (
+        "z",
+        "negative_control",
+        ("negative_control_confounded",),
+        1,
+        "5.7",
+        "a control that also reads an unmeasured cause of the treatment",
+    ),
+}
+
+
+def _point_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the X82 SP study's passing size and power cells license."""
+    rows: list[VerdictEvidence] = []
+    for instrument, (rule, size, powers, refits, section, defect) in _POINT_READINGS.items():
+        for cell, values in _POINT_CELLS.items():
+            if instrument not in _POINT_CELL_READINGS[cell]:
+                continue
+            method, family, learners, inference, known, fit, events, control_events = values
+            # A negative-control reading is scoped by the control's own event count; the
+            # control has the outcome's family.
+            floor = control_events if instrument == "negative_control_outcome" else events
+            rows.append(
+                VerdictEvidence(
+                    instrument=instrument,
+                    rule=rule,
+                    rung="L2",
+                    theory=(
+                        f"X82 plan {section}, 8.3 and 8.5. "
+                        + _GROSS_MISCALIBRATION.format(defect=defect)
+                    ),
+                    scope=CalibrationScope(
+                        methods=frozenset({method}),
+                        estimand_kinds=frozenset({"ate"}),
+                        outcome_families=frozenset({family}),
+                        treatment_kinds=frozenset({"discrete"}),
+                        learners=frozenset(learners),
+                        cross_fitting=frozenset({"folds=5"}),
+                        inference=frozenset({inference}),
+                        known_mechanism=frozenset({known}),
+                        arms=frozenset({2}),
+                        replicates=frozenset({refits}),
+                        nodes=frozenset({None}),
+                        n_min=2000,
+                        covariates_per_row_max=0.01,
+                        min_event_count_min=floor,
+                    ),
+                    sentence=(
+                        f"Calibrated against gross miscalibration on the study's point law "
+                        f"with a {family} outcome at n = 2,000 with 20 covariates: {fit}, "
+                        "five-fold cross-fitting. A rule with true size 0.15 fails this check "
+                        "with probability above 0.99."
+                    ),
+                    study=(
+                        _POINT_STUDY,
+                        f"refuter_size/{cell}__{size}",
+                        *(f"refuter_power/{cell}__{power}" for power in powers),
+                    ),
+                )
+            )
+    return tuple(rows)
+
+
 #: The saturated logistic learner of the X82 SG omitted-variable cells: a logistic regression on
 #: every pairwise product of its inputs, practically unpenalized.
 _SG_SATURATED = (
@@ -1106,6 +1280,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         exact=True,
     ),
     *_longitudinal_rows(),
+    *_point_rows(),
     *_sg_rows(),
 )
 

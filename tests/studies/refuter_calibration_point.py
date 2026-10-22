@@ -247,7 +247,6 @@ STUDY = StudyRecord(
 )
 
 CONFIGURATION = {
-    "n": N,
     "folds": N_FOLDS,
     "refits": REFITS,
     "size_trials": SIZE_TRIALS,
