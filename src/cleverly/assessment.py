@@ -3667,6 +3667,10 @@ def _evalue_item(
     )
     if report.limit == 1.0:
         detail += "; the interval already includes the null"
+    if getattr(report, "bias_factor", "single") == "per_arm_product":
+        detail += "; a bounding factor per arm, so both E-values invert sqrt(RR)"
+    if getattr(report, "limit_descriptive", False):
+        detail += "; the limit is descriptive: no coverage evidence covers this configuration"
     truncated = getattr(report, "truncated_bound", None)
     if truncated is not None:
         # The reported lower bound is the boundary of the parameter space, not a converted
@@ -4234,7 +4238,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         status: AssessmentStatus
         refusal: Refusal | None
-        execution: Literal["summarize", "retarget"]
+        execution: Literal["summarize", "retarget", "refit"]
         requires_arguments: tuple[str, ...]
         try:
             selected = self._evalue_selection(estimand)
@@ -4254,6 +4258,9 @@ class SensitivityFacade(_CapabilityFacade):
         else:
             available, status, refusal = True, AssessmentStatus.PASSED, None
             execution = "retarget" if selected.branch == _DERIVED_RR else "summarize"
+            if "response_sd" in selected.features:
+                # One more outcome regression, of Y^2, fitted on the fit's folds.
+                execution = "refit"
             requires_arguments = ()
         return _capability(
             "evalue",
@@ -4265,7 +4272,7 @@ class SensitivityFacade(_CapabilityFacade):
             status=status,
             refusal=refusal,
             execution=execution,
-            cost="cheap",
+            cost="moderate" if execution == "refit" else "cheap",
             requires_arguments=requires_arguments,
         )
 

@@ -1775,25 +1775,34 @@ The selected path depends on the reported contrast and retained artifacts.
 | request | E-value path |
 | --- | --- |
 | reported risk ratio | use it directly and mark the result exact |
-| unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
+| unambiguous default binary marginal ATE or odds ratio from `TMLE`, `CTMLE` or `DRTMLE` | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE and CV evaluation |
+| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes CV evaluation |
 | Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
-| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
+| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | standardize by the missing-at-random plug-in of the population `sd(Y)` and mark the result approximate. The plug-in fits one more outcome regression, so the default assessment defers it. A fit that also misses treatments reports `unavailable`, because an unrecorded row has no $A$ for the regression |
+| a contrast within a baseline stratum, from `strata=` | apply the path of the marginal contrast to the stratum's rows. The derived risk ratio and the standardizing `sd(Y)` read the stratum |
+| two reported risks at one horizon of a `TimeToEvent` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator, kind="rr")` and mark the result exact. Both regimens must be static |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G holds the per-arm bound |
+| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | take the path of the same request without the intermediate variable, then invert the per-arm product below. A result that names only the column or only the level reports `unavailable` |
+| a `TimeToEvent` fit without an explicit pair | report `deferred` and name the reported risks |
+| any other longitudinal fit, or a `TimeToEvent` pair with a dynamic regimen or with two horizons | report `unavailable` and name [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) or [F34](../roadmap.md#f34-e-values-beyond-the-total-population-arm-contrast) |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-`_select_evalue` in `cleverly.sensitivity.evalue` runs three fit-wide checks before it resolves
-the estimand. A longitudinal fit and a controlled-direct-effect fit report `unavailable`. A fit
-with a continuous treatment reports `not_applicable`. The checks run in this order. So a
-continuous-treatment fit with an intermediate variable reports `not_applicable`. A request for
-`ey1` on a controlled-direct-effect fit reports `unavailable`, and a multi-arm
-controlled-direct-effect fit does not defer.
+`_select_evalue` in `cleverly.sensitivity.evalue` runs four fit-wide checks before it resolves
+the estimand. The table gives them in the order they run.
+
+| check | status |
+| --- | --- |
+| a longitudinal fit, other than a `TimeToEvent` pair | `unavailable`, or `deferred` on a `TimeToEvent` fit |
+| a continuous treatment | `not_applicable` |
+| a learned-rule fit | `unavailable` |
+| a result that names only one half of an intermediate variable | `unavailable` |
+
+So a continuous-treatment fit with an intermediate variable reports `not_applicable`.
 
 The status refusal follows the `not_applicable` check of the request. A request for `ey1` on a
 collaborative fit therefore still reports `not_applicable`. Several eligible contrasts require an
@@ -1833,12 +1842,34 @@ It then applies the common-outcome square-root approximation before calculating 
 The resulting conversion is $RR \approx \exp((1.81 / 2)d) = \exp(0.905d)$.
 This retains an approximate analysis, not an exact continuous-outcome risk ratio.
 
-This package has no implemented E-value bound for its fitted controlled direct effect and
-confounding model. That fit invokes assumptions about treatment-outcome and
-intermediate-outcome confounding (`estimators/direct_effect.py`, assumptions 2 and 3).
-The ordinary conversion does not by itself quantify sensitivity for that target.
-[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G holds the specialization: the bias
-splits into one bounding factor per arm, and the E-value inverts their product. `tests/unit/test_evalue_direct_effect_refusals.py` pins the refusal.
+#### Controlled direct effect
+
+A fit with `intermediate=` reports the risk ratio of arms $a$ and $a'$ at the fixed level $z$. The
+bias of that ratio splits into one factor per arm. The split is an identity. Ding and VanderWeele
+(2016), arXiv:1507.03984v1, eAppendix Proposition A.2, bounds each factor by its own bounding
+factor. Smith, Mathur and VanderWeele (2021), arXiv:2005.02908v1, Result 1, uses the same per-arm
+product.
+
+| term | definition |
+| --- | --- |
+| treated-arm strength | $\sup_u P(u \mid A = a, Z = z, W) / P(u \mid W)$. It mixes the association of $U$ with $A$ and with $Z$ |
+| control-arm strength | $\sup_u P(u \mid W) / P(u \mid A = a', Z = z, W)$, the reciprocal direction |
+| outcome strength | one $RR_{UY}$ for each arm |
+| conditions | $Y_{az} \perp A \mid W, U$ and $Y_{az} \perp Z \mid A, W, U$; $U$ is a baseline latent that $A$ does not affect; positivity given $(W, U)$; no confounder of $Z$ and $Y$ that $A$ affects |
+| inversion | with four equal strengths the product is $BF(E, E)^2$, so the E-value is the ordinary E-value of $\sqrt{RR}$ |
+
+The square root comes after the path's own conversion. An odds ratio therefore enters as
+$OR^{1/4}$, and a Gaussian contrast as $\exp(0.905d)^{1/2}$. The confidence limit takes the root
+of the limit nearest the null. The report states the four strengths and the conditions. The
+derived risk ratio passes the fitted level of $Z$ to the retarget.
+
+`tests/unit/test_evalue_part_g.py` checks the bound on two finite laws. On the first law each
+per-arm factor alone, and the treated factor squared, is below the bias, and the product bounds it.
+The second law explains its ratio away with every strength at most 9. The per-arm E-value of that
+ratio is 4.76, and an inversion without the square root asks for 13.6.
+
+VanderWeele (2010) assumes that the latent confounds only the intermediate and the outcome, so it is
+context and not the base. The table below lists the other sources that the review read.
 
 | source, and the version read | what it covers | what it does not cover |
 | --- | --- | --- |
@@ -1867,6 +1898,25 @@ A weighted fit standardizes by the weighted outcome standard deviation.
 The estimate targets the population the observation weights describe, and the standardizing scale describes the same population.
 The weighted form divides by the reliability-weight correction $\sum w - \sum w^2 / \sum w$.
 That correction is $n - 1$ when every weight is one, so an unweighted fit reports the plain sample standard deviation.
+
+#### Confidence limits without coverage evidence
+
+Five configurations print a confidence-limit E-value that no registered study covers yet. Each
+report asks the evidence registry before it prints, with the instrument `evalue_limit` and one rule
+per configuration. Two configurations on one fit join with `+`, for example `cde+stratum`.
+
+| rule | configuration |
+| --- | --- |
+| `cde` | a controlled direct effect |
+| `stratum` | a contrast within a baseline stratum |
+| `response_sd` | the standardized path with a response mechanism |
+| `derived_collaborative_tmle`, `derived_drtmle` | the derived risk ratio of a `CTMLE` or `DRTMLE` fit |
+| `time_to_event` | the risk ratio of a `TimeToEvent` pair |
+
+The registry has no `evalue_limit` row, so each of these limits prints as descriptive.
+`EValue.limit_reading` holds the resolution, and `EValue.limit_descriptive` is true. A `DRTMLE`
+fit with an estimated mechanism also states that its remainder is linear in the mechanism error.
+A registered coverage study adds one row for the configuration it measured.
 
 ### Missingness tilt and tipping gamma
 

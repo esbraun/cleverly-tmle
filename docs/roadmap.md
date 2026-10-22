@@ -256,7 +256,7 @@ It moved each part that an established method or a natural extension carries to 
 | The `ctmleGlmnet` type-2 path | a type-2 candidate sequence and its fluctuation | algorithm definition. No published source defines the type-2 sequence, and the R code disagrees with itself | `strategy="lasso"` runs the C-TMLE1 construction only, and no keyword selects a type-2 path | [F29](#f29-the-ctmleglmnet-type-2-path) |
 | Fold policies that read the treatment or the outcome | outer folds stratified on the treatment or the outcome | asymptotic | unstratified folds, `stratify_by="none"`, which is the default. A split that reads $A$ or $Y$ refuses before any learner | [F32](#f32-fold-policies-that-read-the-treatment-or-the-outcome) |
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
-| E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, and the standardized ATT and ATC E-value on a gaussian outcome. [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part G holds the controlled direct effect and the other sensitivity requests | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
+| E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, of a controlled direct effect, and the standardized ATT and ATC E-value on a gaussian outcome | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 | Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
 
@@ -1693,8 +1693,11 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 
-Part G has four tables: other linear functionals, the controlled direct effect, the DR-TMLE and
-C-TMLE bound, and further sensitivity requests.
+Part G has three tables: other linear functionals, the DR-TMLE and C-TMLE bound, and further
+sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
+standardized contrast with a response mechanism, of a derived `CTMLE` or `DRTMLE` ratio, and of a
+`TimeToEvent` pair has shipped. Its confidence limit prints as descriptive until a registered study
+covers it ([E-value](technical-reference/validation-methods.md#e-value)).
 
 ##### Other linear functionals
 
@@ -1727,24 +1730,6 @@ C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
 
-##### Controlled direct effect
-
-The target is the package's controlled-direct-effect risk ratio between arms $a$ and $a'$ at a
-fixed $Z = z$. The [hard-stop review](technical-reference/hard-stop-review.md) records the verdict.
-
-| item | contract |
-| --- | --- |
-| step 1 | the bias of the ratio splits into one factor per arm. The split is an identity |
-| step 2 | each factor is bounded by the bounding factor of Ding and VanderWeele (2016, *Epidemiology*), eAppendix Proposition A.2 (arXiv:1507.03984v1). The strengths are suprema over $w$. Arm $a$ uses the ratio $\sup_u P(u \mid a, z, W) / P(u \mid W)$. Arm $a'$ uses the reciprocal direction $\sup_u P(u \mid W) / P(u \mid a', z, W)$. Each arm has its own $RR_{UY \mid \cdot}$ |
-| precedent | Smith, Mathur and VanderWeele (2021), arXiv:2005.02908v1, Result 1, whose $BF_s$ is a per-arm product |
-| inversion | with equal strengths, the ordinary E-value of $\sqrt{RR}$. The limit uses the confidence limit nearest the null, as the shipped `rr` E-value does. The odds-ratio and Gaussian conversions keep their approximation label |
-| reading | the cell ratio $\sup_u P(u \mid A = a, Z = z, W) / P(u \mid W)$ mixes the association of $U$ with $A$ and with $Z$, and the report names it so |
-| inherited conditions | $Y_{az} \perp A \mid W, U$ and $Y_{az} \perp Z \mid A, W, U$, with $U$ a baseline latent that $A$ does not affect; positivity given $(W, U)$. The strengths are suprema over $w$ |
-| context | VanderWeele (2010), *Epidemiology* 21(4):540-551, Theorem 1, assumes that $U$ confounds only $Z$ and $Y$. It is context, not the base |
-
-Acceptance: a nonzero finite law where a single bounding factor fails and the product holds; a
-wrong-arm control that fails.
-
 ##### DR-TMLE and C-TMLE bound
 
 | part | request | step |
@@ -1759,11 +1744,8 @@ or the controls, and the E-value of a regime or policy contrast.
 
 | part | request | step |
 | --- | --- | --- |
-| (a) | the standardized E-value with a response mechanism | a plug-in population standard deviation $\{\hat E[Y^2] - \hat E[Y]^2\}^{1/2}$. It reads two natural-course means under missing at random, of $Y$ and of $Y^2$, each with a fixed `q_bounds`. The shipped conversion uses its standard deviation as a plug-in, and this part does the same. The part depends on a continuous natural-course mean |
-| (b) | the E-value, the derived risk ratio and the omitted-variable bound of a stratum-conditional estimand | the marginal result applied inside each stratum. The step is a finite partition |
-| (c) | the derived risk ratio for a method other than `TMLE` | a same-seed equality witness for each method. No new theory is needed |
+| (b) | the omitted-variable bound of a stratum-conditional estimand | the marginal result applied inside each stratum. The step is a finite partition |
 | (d) | the derived risk ratio after fold evaluation | the fold-evaluated ratio of X61 part (c). No new theory is needed beyond that part |
-| (e) | the derived risk ratio of a controlled direct effect | the cached retargeting passes the fitted intermediate level. No new theory is needed |
 | (f) | the omitted-variable bound after `repeats` above 1 | the bound computed on each draw, then the median, under the argument of X53 part (b). Each draw shares the first-order curve, so the median bound uses that curve, not a coordinatewise median of influence terms. X53 part (b) carries the TMLE point only. The contract therefore states that $\hat\sigma^2$ and $\hat\nu^2$ are each asymptotically linear, with common limits over the draws |
 | (g) | a benchmark that drops every covariate | an intercept-only short model. It depends on X63 part (c) |
 | (h) | the missingness tilt and `tipping_gamma` of the natural-course mean | the point curve $E[\Delta Y + (1 - \Delta)\bar Q_\gamma(A, W)]$. The spread columns take the `plugin_` names, as X57 part (d) |
@@ -2066,7 +2048,7 @@ longitudinal strategies. The table gives the three kept claims.
 | --- | --- | --- |
 | (a) a sample estimate of the bounds | asymptotic | the consistency of a nested sample program with generated pseudo-outcomes at each period. Tan, arXiv:2308.15725v1, Section 3.1, leaves estimation with sample data to future work. Shen, Bacak and Kennedy, arXiv:2601.17779v1, Section 5.2, do the same for the incremental analogue |
 | (b) an interval for that estimate | regularity | sampling inference for non-smooth bound functionals over periods. Bonvini et al., arXiv:2210.04681v2, Section 6.1, leave the time-varying constraint to future work |
-| (c) an omitted-variable bound or an E-value on a longitudinal fit | identification | a per-period latent law that identifies the bias of a sequential g-formula target. The bound of Ding and VanderWeele (2016) reads a point exposure. Chernozhukov et al., arXiv:2112.13398v5, Section 4, bound a functional of a known regression form |
+| (c) an omitted-variable bound or an E-value on a longitudinal fit | identification | a per-period latent law that identifies the bias of a sequential g-formula target. The bound of Ding and VanderWeele (2016) reads a point exposure. Chernozhukov et al., arXiv:2112.13398v5, Section 4, bound a functional of a known regression form. The risk-ratio E-value of two static regimens of a `TimeToEvent` fit ships, because one baseline treatment is a point exposure |
 | (d) a missingness tilt of the censoring nodes on a longitudinal fit | identification | a tilt law at each censoring node of a sequential g-formula target. No source read here gives one for `LTMLE` or for a confounded regime |
 
 Both longitudinal refusals cite this item.
@@ -2532,8 +2514,8 @@ carries. This item keeps the compositions that need an argument of a new kind.
 
 The shipped E-value converts a risk ratio of two exposure levels in the total population. Ding and
 VanderWeele (2016), *Sensitivity analysis without assumptions*, give its bounding factor.
-[X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part G applies that bound to each arm of a controlled
-direct effect. The requests below refuse before any computation.
+The [controlled-direct-effect E-value](technical-reference/validation-methods.md#e-value)
+applies that bound to each arm. The requests below refuse before any computation.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |

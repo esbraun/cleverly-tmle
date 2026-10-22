@@ -1,10 +1,10 @@
-"""The controlled-direct-effect fits that the sensitivity refusal tests share.
+"""The controlled-direct-effect fits that the sensitivity tests share.
 
-Every sensitivity surface refuses a fit with an intermediate variable: the E-value, the
-omitted-variable bound, and the simulated-confounding replay. Their tests fit one law, the RM21
-probe law, and build the two results that only ``dataclasses.replace`` can make: a level with no
-intermediate column, and a column with no level. They live here once, so the surfaces are tested
-on the same fits.
+The omitted-variable bound and the simulated-confounding replay refuse a fit with an
+intermediate variable, and the E-value inverts a product of per-arm factors on it. Their tests
+fit one law, the RM21 probe law, and build the two results that only ``dataclasses.replace`` can
+make: a level with no intermediate column, and a column with no level. They live here once, so
+the surfaces are tested on the same fits.
 """
 
 from __future__ import annotations
