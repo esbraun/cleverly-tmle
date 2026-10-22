@@ -1558,6 +1558,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # X33's binding witness: the iterated-mean cell answers to two share floors, and the
         # hazard cell carries the diagnostic role and states no verdict.
         "binding_witness",
+        # X21's bias rows of AdaptiveIPTW: a positive row's standardized bias inside the
+        # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
+        "bias",
+        "root_n_points",
     }
 )
 
@@ -1566,7 +1570,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
-    "survival-node-bounds": frozenset({"binding_witness", "interval_calibration"}),
+    "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
+    # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
+    # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
+    # the fit that the bias row reads.
+    "adaptive-iptw": (
+        frozenset({"bias", "interval_calibration"}),
+        frozenset({"bias", "targeting_necessity"}),
+    ),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
@@ -1596,6 +1607,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
+        # declared reading and no verdict (the interval is withheld for a fitted mechanism).
+        "spread",
         # X44's weak-positivity fit of the structural estimator, reported with no verdict.
         "positivity_reporting",
         # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
@@ -2058,7 +2072,8 @@ class TestTheStudyStillMeasuresTheCode:
         collisions = {
             stream: sorted(properties)
             for stream, properties in by_stream.items()
-            if len(properties) > 1 and frozenset(properties) != SAME_DRAW_FAMILIES.get(study.slug)
+            if len(properties) > 1
+            and frozenset(properties) not in SAME_DRAW_FAMILIES.get(study.slug, ())
         }
         assert not collisions, f"property families reuse sample streams: {collisions}"
 
@@ -3395,6 +3410,7 @@ UNCOMMITTED_MODULES = (
     "tests.studies.long_horizon_ltmle_properties",
     "tests.studies.long_horizon_categorical_ltmle_properties",
     "tests.studies.long_horizon_sdr_properties",
+    "tests.studies.adaptive_iptw_properties",
 )
 
 
