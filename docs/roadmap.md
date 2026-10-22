@@ -2466,7 +2466,7 @@ carries. This item keeps the compositions that need an argument of a new kind.
 
 The shipped E-value converts a risk ratio of two exposure levels in the total population. Ding and
 VanderWeele (2016), *Sensitivity analysis without assumptions*, give its bounding factor.
-The [controlled-direct-effect E-value](technical-reference/validation-methods.md#controlled-direct-effect)
+The [controlled-direct-effect E-value](technical-reference/validation-methods.md#e-value)
 applies that bound to each arm. The requests below refuse before any computation.
 
 | kept claim | kind | missing argument |

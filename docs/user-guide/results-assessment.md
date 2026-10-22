@@ -487,7 +487,7 @@ The returned E-value records that source in `source_estimand`.
 On a `TimeToEvent` fit, name two reported risks at one horizon, numerator first:
 `result.sensitivity.evalue(("risk_regimen[a1 @ t=2]", "risk_regimen[a0 @ t=2]"))`.
 Some configurations have no coverage study for their confidence limit yet. The
-[E-value reference](../technical-reference/validation-methods.md#confidence-limits-without-coverage-evidence)
+[E-value reference](../technical-reference/validation-methods.md#e-value)
 lists them. Each prints its confidence-limit E-value as descriptive, and `EValue.limit_descriptive` is true.
 
 The omitted-confounding row says "at the default strengths" when you omit both strength arguments.

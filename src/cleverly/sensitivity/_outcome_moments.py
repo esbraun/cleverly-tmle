@@ -16,9 +16,9 @@ fit's folds.  Both moments are untargeted plug-ins.  The E-value conversion read
 standard deviation as a constant and ignores its sampling error, as the complete-outcome
 standardized branch does, so a targeted moment would add no claim.
 
-The plug-in is the population form, so it divides by the summed weight and not by the
-reliability-corrected count of the complete-outcome branch.  With every outcome observed the
-two differ by the factor :math:`\{(n - 1)/n\}^{1/2}` on an unweighted fit.
+The variance carries the reliability-weight correction of the complete-outcome branch,
+:math:`\sum w / (\sum w - \sum w^2 / \sum w)`, which is :math:`n / (n - 1)` when every weight is
+one.  So with every outcome observed the two branches give the same standard deviation.
 """
 
 from __future__ import annotations
@@ -88,7 +88,11 @@ def _draw_sd(result: TMLEResult, repeat: RepeatFit, rows: BoolArray | None) -> f
         weights = weights * rows
     mean = float(np.average(np.where(observed, outcome, first), weights=weights))
     square = float(np.average(np.where(observed, outcome**2, second), weights=weights))
-    return float(np.sqrt(square - mean**2)) if square > mean**2 else 0.0
+    total = float(np.sum(weights))
+    correction = total - float(np.sum(weights**2)) / total
+    if square <= mean**2 or correction <= 0.0:
+        return 0.0
+    return float(np.sqrt((square - mean**2) * total / correction))
 
 
 def missing_at_random_sd(result: TMLEResult, rows: BoolArray | None = None) -> float:

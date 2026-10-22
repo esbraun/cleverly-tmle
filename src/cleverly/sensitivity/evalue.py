@@ -994,9 +994,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         # square root keeps a limit on its side of the null.
         note = (note + " " if note else "") + _PER_ARM_CONDITIONS
         point = evalue_from_rr(float(np.sqrt(rr)))
-        limit_value = _evalue_for_limit(
-            float(np.sqrt(limit)) if limit >= 0 else limit, above_null=above_null
-        )
+        limit_value = _evalue_for_limit(float(np.sqrt(limit)), above_null=above_null)
     else:
         point = evalue_from_rr(rr)
         limit_value = _evalue_for_limit(limit, above_null=above_null)
@@ -1033,6 +1031,7 @@ def _limit_reading(result: TMLEResult, selection: _EValueSelection) -> Resolutio
     try:
         fit = fit_configuration(result, selection.source)
     except (AttributeError, KeyError, TypeError, ValueError):
+        # An unreadable configuration licenses only through an unrestricted, exact row.
         fit = None
     reading = resolve(EVALUE_LIMIT_INSTRUMENT, "+".join(selection.features), fit)
     if (

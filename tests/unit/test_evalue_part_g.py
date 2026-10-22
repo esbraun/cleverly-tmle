@@ -568,12 +568,24 @@ def missing_fit(frame: Any) -> Any:
 class TestTheMissingAtRandomScale:
     """The standardized E-value divides by the population sd(Y), not the respondents'."""
 
-    def test_every_outcome_observed_gives_the_population_formula(self) -> None:
-        """Exact witness: with no missing row both moments are sample moments."""
+    def test_every_outcome_observed_gives_the_complete_outcome_scale(self) -> None:
+        """Exact witness: with no missing row both branches divide by one standard deviation.
+
+        The stratum mask reaches the plug-in too: on the rows with ``W = 1`` it equals the
+        complete-outcome scale of those rows, which differs from the whole sample's.
+        """
         frame, _, _ = missing_frame()
         frame = frame.assign(Y=frame["Y"].fillna(0.0), D=1)
         result = missing_fit(frame)
-        assert missing_at_random_sd(result) == pytest.approx(float(np.std(frame["Y"])), rel=1e-12)
+        assert missing_at_random_sd(result) == pytest.approx(
+            evalue_module._standardising_sd(result)[0], rel=1e-12
+        )
+        # Mutation: the population form without the reliability correction.
+        assert abs(missing_at_random_sd(result) - float(np.std(frame["Y"]))) > 1e-6
+        rows = np.asarray(frame["W"] == 1.0)
+        within = missing_at_random_sd(result, rows)
+        assert within == pytest.approx(evalue_module._standardising_sd(result, rows)[0], rel=1e-12)
+        assert abs(within - missing_at_random_sd(result)) > 0.01
 
     def test_the_plugin_recovers_the_population_scale(self) -> None:
         frame, population, respondents = missing_frame()
