@@ -61,7 +61,9 @@ PENDING_REASON = (
     "the drtmle pairing runs in the study adaptive-iptw-pairing (X21-plan.md 3.6): its R "
     "runners draw_folds.R, run_study.R and print_fixtures.R are written with that study and "
     "have not run, and the nuisance gate of the 1e-8 rule runs there before its declaration. "
-    "This gate study runs no R process"
+    "This gate study runs no R process. The declared reference sources in the manifest are the "
+    "pinned drtmle image and its runner, a placeholder until adaptive-iptw-pairing lands; that "
+    "change clears pending_reference and comparison"
 )
 SEED = 20262101
 RESAMPLING_SEED = 2026210101
@@ -85,7 +87,7 @@ R_LADDER = 1_000
 R_VL = 1_200
 #: The scenes whose readers need more than ``R_BIAS`` (items 1 and 4).  The design test
 #: computes each from the pass probabilities of the rows the scene hosts.
-R_RAISED: dict[str, int] = {"m_rate": 600, "p_rate": 600, "rm": 800}
+R_RAISED: dict[str, int] = {"p_rate": 600, "rm": 800}
 
 #: The declared sample sizes.  A clustered size is the number of clusters.
 N_PD = 2_000
@@ -426,11 +428,15 @@ def fit_pd_regimes(
 
 
 def fit_m(frame: pd.DataFrame, n: int, seed: int, *, rate: bool = False) -> Any:
-    """Law M, three arms, five folds: the correct multinomial fit, or the ``n^(-1/3)`` fit."""
+    """Law M, three arms, five folds: the correct multinomial fit, or the fit shrunk to uniform.
+
+    The shrinkage ``2 n^(-1/3)`` maps each arm probability by a function of the true one, so it
+    keeps the level sets of ``g_a`` (law M is not H1, so a shift along a covariate would not).
+    """
     return (
         _estimator(
             DEGREE["m"],
-            treatment=laws.ShiftedMultinomial(2.0 if rate else 0.0, n),
+            treatment=laws.ShrunkMultinomial(2.0 if rate else 0.0, n),
             folds=M_FOLDS,
             seed=seed,
             estimands=["ey", "ate"],
@@ -763,10 +769,7 @@ def label_of(key: str) -> str:
     return KEY_LABELS[key]
 
 
-def _calibration(
-    scene: str, fit: str, cell: str, keys: Sequence[str], truth_law: str
-) -> list[Reader]:
-    del truth_law
+def _calibration(scene: str, fit: str, cell: str, keys: Sequence[str]) -> list[Reader]:
     return [
         Reader(
             "interval_calibration",
@@ -842,15 +845,13 @@ ROLE_OVERRIDES: dict[str, str] = {}
 
 def _readers() -> tuple[Reader, ...]:
     cal: list[Reader] = []
-    cal += _calibration("pd_known", "pd_arms", "known_arms", PD_ARM_KEYS, "pd")
-    cal += _calibration("pd_known", "pd_arms_one_step", "one_step_known_arms", PD_ARM_KEYS, "pd")
-    cal += _calibration("pd_known", "pd_regimes", "known_regimes", PD_REGIME_KEYS, "pd")
-    cal += _calibration(
-        "pd_known", "pd_regimes_one_step", "one_step_known_regimes", PD_REGIME_KEYS, "pd"
-    )
-    cal += _calibration("wt_known", "wt_known", "known_weighted", P_KEYS, "wt")
-    cal += _calibration("cl_known", "cl_known", "known_clustered", P_KEYS, "cl")
-    cal += _calibration("st_known", "st_known", "known_stratified", ST_KEYS, "st")
+    cal += _calibration("pd_known", "pd_arms", "known_arms", PD_ARM_KEYS)
+    cal += _calibration("pd_known", "pd_arms_one_step", "one_step_known_arms", PD_ARM_KEYS)
+    cal += _calibration("pd_known", "pd_regimes", "known_regimes", PD_REGIME_KEYS)
+    cal += _calibration("pd_known", "pd_regimes_one_step", "one_step_known_regimes", PD_REGIME_KEYS)
+    cal += _calibration("wt_known", "wt_known", "known_weighted", P_KEYS)
+    cal += _calibration("cl_known", "cl_known", "known_clustered", P_KEYS)
+    cal += _calibration("st_known", "st_known", "known_stratified", ST_KEYS)
 
     out = [
         *cal,
@@ -931,20 +932,12 @@ PRE_ROUTED_GROUPS: dict[str, str] = {
     ),
 }
 
-#: The cells the design test (item 2) routes to reporting because their predicted bias leaves no
-#: replication count at most ``DESIGN_R_CAP`` that passes with probability 0.90.  Each reading is
-#: the cell's predicted standardized bias ``b``.
-DESIGN_ROUTED: dict[str, str] = {
-    "bias/ey_low__rate_reduced": (
-        "the predicted standardized bias of the law M rate learner is b = -0.198 for ey[low]; "
-        "no replication count of at most 1,600 passes it with probability 0.90 (item 2)"
-    ),
-    "bias/ate_low__rate_reduced": (
-        "the predicted standardized bias of the law M rate learner is b = -0.196 for "
-        "ate[low vs high]; no replication count of at most 1,600 passes it with probability "
-        "0.90 (item 2)"
-    ),
-}
+#: The middle-band cells the design test (item 2, rev 3.9) routes to reporting, because no
+#: replication count of at most 1,600 passes their predicted standardized bias ``b`` with
+#: probability 0.90 or because ``|b|`` does not fall from ``n`` to ``4 n``.  Each reading holds
+#: the cell's ``b``.  The set is empty: the law P ``rate`` rows are second order and fall with
+#: ``n``, and the law M ``rate`` learner keeps the level sets of each arm mechanism.
+DESIGN_ROUTED: dict[str, str] = {}
 
 
 def _routed() -> dict[str, str]:
@@ -961,6 +954,43 @@ def _routed() -> dict[str, str]:
 
 
 PRE_ROUTED: dict[str, str] = _routed()
+
+#: The reading of a red row, declared before any run (``X21-plan.md`` 3.5, rev 3.9, and
+#: ``AGENT-BRIEF.md``, "Reading a red calibration row").  The routing names above enter the
+#: manifest through :data:`CONFIGURATION`, and no verdict code reads them: a pre-routed row
+#: publishes its verdict, and this reading says how to take a red there.
+RED_READING: dict[str, str] = {
+    "primary": "a red primary row blocks the merge and gets a diagnosis",
+    "calibration": (
+        "a red calibration row is a finite-sample red only when the 99% interval of its SE ratio "
+        "contains 1, its coverage interval contains 0.95 or lies inside [0.92, 0.98], and the "
+        "diagnosis finds no defect; it then goes to reporting with an owner"
+    ),
+    "bias": (
+        "a red positive bias row is a finite-sample red only when the 99% interval of its "
+        "standardized bias contains the design-predicted b, the other rows of its scene are "
+        "consistent with their own b, and the diagnosis finds no defect; it then goes to "
+        "reporting with an owner"
+    ),
+    "ladder": (
+        "a red root_n_points rung or root_n_rate slope reads as a bias row does: finite-sample "
+        "only when its interval contains the predicted b of the rung"
+    ),
+    "necessity": (
+        "a targeted positive row reads as a bias row; a red displacement, or an untargeted "
+        "control that does not fail, is a defect suspect and never a finite-sample red"
+    ),
+    "control": (
+        "a control that does not fail is a defect suspect in the instrument, never a "
+        "finite-sample red"
+    ),
+}
+
+#: The red rows a correct estimator is expected to show by chance, from the design pass
+#: probabilities (the design test computes both numbers).  A run with about this many reds,
+#: read by :data:`RED_READING`, is the expected outcome and no defect.
+EXPECTED_CHANCE_REDS: dict[str, float] = {"calibration": 2.0, "bias_ladder_necessity": 1.5}
+EXPECTED_CHANCE_REDS_TOTAL = 3.4
 
 
 def property_cells() -> dict[str, tuple[str, ...]]:
@@ -1063,6 +1093,9 @@ CONFIGURATION = {
     },
     "replicates": {"cal": R_CAL, "bias": R_BIAS, "ladder": R_LADDER, "vl": R_VL},
     "pre_routed": dict(PRE_ROUTED),
+    "raised_replicates": dict(R_RAISED),
+    "red_reading": dict(RED_READING),
+    "expected_chance_reds": {**EXPECTED_CHANCE_REDS, "total": EXPECTED_CHANCE_REDS_TOTAL},
     "reference": "none yet; the drtmle 538a3a2 pairing runs in adaptive-iptw-pairing",
 }
 

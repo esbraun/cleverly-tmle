@@ -22,12 +22,15 @@ item    what the test computes
 8       the chance a binary arm mean leaves ``(0, 1)`` at the declared size
 ======  ==================================================================================
 
-**The role rule** (item 2).  ``b`` is the population fixed point of the targeting loop at the
-learner's limit minus the truth, over the SD of the estimator at that limit, times
-``sqrt(n)``.  ``|b| <= 0.05`` is positive and ``|b| >= 0.5`` is a control.  A row between the
-two stays positive when some replication count of at most :data:`R_CAP` passes it with
-probability 0.90, and that count becomes the scene's.  A row that no such count passes is
-routed to reporting before the run (:data:`~tests.studies.canonical_adaptive_iptw.DESIGN_ROUTED`).
+**The role rule** (item 2, amended in rev 3.9).  ``b`` is the population fixed point of the
+targeting loop at the learner's limit minus the truth, over the SD of the estimator at that
+limit, times ``sqrt(n)``.  ``|b| <= 0.05`` is positive and ``|b| >= 0.5`` is a control.  A row
+between the two stays positive only when two things hold.  Some replication count of at most
+:data:`R_CAP` passes it with probability 0.90, and that count becomes the scene's.  The bias
+falls with the size, ``|b(4n)| < |b(n)|``, which is the sign of a second-order remainder.  A
+row that fails either condition is routed to reporting before the run
+(:data:`~tests.studies.canonical_adaptive_iptw.DESIGN_ROUTED`).  A bias that grows with ``n``
+is the first-order validity term, and no replication count gives it a valid positive.
 
 **The SD** is the SD of the Theorem 1 curve with the declared-basis ``Qr``, less the projection
 onto the score of the mechanism model when the mechanism is a fitted logistic regression (laws
@@ -260,6 +263,7 @@ def necessity_table() -> dict[str, dict[str, float]]:
             "displacement": abs(float(result["untargeted"])),
             "targeted_b": float(result["b"]),
             "ratio": ratio,
+            "exact_variance": float(spec.population.paired_variance(key)),
             "n": spec.n,
         }
     return out
@@ -314,15 +318,45 @@ def scene_replicates(scene: str) -> int:
     raise AssertionError(f"{scene}: no replication count up to {R_CAP} passes its rows")
 
 
+def population_at(source: str, n: int) -> Spec:
+    """The population of a middle-band source at size ``n``, for the trend condition."""
+    degree = study.DEGREE
+    if source == "p_rate" or source.startswith("p_ladder_"):
+        return Spec(support.build_p("p", "rate", n, laws, degree["p"]), n, True)
+    if source == "m_rate":
+        return Spec(support.build_m("rate", n, multi, degree["m"]), n, False)
+    raise KeyError(f"no trend is defined for the source {source}")
+
+
+def trend(reader: study.Reader) -> tuple[float, float]:
+    """``(b(n), b(4n))`` of a bias-reading row, from one population at two sizes."""
+    source = SOURCES[(reader.scene, reader.fit)]
+    assert source is not None and source != "flexible"
+    spec = specs()[source]
+    larger = population_at(source, 4 * spec.n)
+    at = spec.population.key_bias(reader.key, spec.n, projected=spec.projected)["b"]
+    at_four = larger.population.key_bias(reader.key, larger.n, projected=larger.projected)["b"]
+    return float(at), float(at_four)
+
+
 @functools.cache
 def routed_cells() -> dict[str, float]:
-    """Item 2: the positive rows that no count up to :data:`R_CAP` passes, with their ``b``."""
+    """Item 2: the middle-band positive rows routed to reporting, with their ``b``.
+
+    A row is routed when no count up to :data:`R_CAP` passes it with probability 0.90 or when
+    its bias does not fall from ``n`` to ``4 n``.  A row with ``|b|`` at most
+    :data:`POSITIVE_LIMIT` is never routed.
+    """
     out = {}
     for r in bias_readers():
         result = bias_of(r)
         if isinstance(result, str) or r.role != "positive":
             continue
-        if support.bias_pass_probability(result["b"], R_CAP) < ROW_TARGET:
+        if abs(result["b"]) <= POSITIVE_LIMIT:
+            continue
+        at, at_four = trend(r)
+        unreachable = support.bias_pass_probability(result["b"], R_CAP) < ROW_TARGET
+        if unreachable or abs(at_four) >= abs(at):
             out[f"{r.family}/{r.cell}"] = float(result["b"])
     return out
 
@@ -354,6 +388,16 @@ class TestNecessityPower:
             replicates = study.SCENES[scene].replicates
             assert row["displacement"] >= DISPLACEMENT_FLOOR, label
             assert displacement_probability(row, replicates) >= STRICT_TARGET, (label, replicates)
+
+    def test_the_exact_paired_variance_gives_the_same_verdict_as_the_bound(self) -> None:
+        """Report the exact paired variance beside the independent-arms bound (m7)."""
+        for label, row in necessity_table().items():
+            replicates = study.SCENES[study.NECESSITY_LABELS[label][0]].replicates
+            exact = support.displacement_pass_probability(
+                row["displacement"], row["exact_variance"], replicates, floor=DISPLACEMENT_FLOOR
+            )
+            assert exact >= STRICT_TARGET, (label, exact)
+            assert exact >= displacement_probability(row, replicates) - 1e-9, label
 
     def test_the_rows_are_the_new_key_kinds_with_a_passing_item_and_the_p_arms(self) -> None:
         """RM's S11 key fails the item, so it has no row; the other new kinds pass."""
@@ -425,22 +469,62 @@ class TestPredictedBiasAndRole:
             else:
                 assert abs(result["b"]) < CONTROL_LIMIT, reader.cell
 
-    def test_a_row_between_the_limits_is_positive_or_routed_by_the_count_rule(self) -> None:
-        """The middle band: positive if some count up to the cap passes it, else routed."""
+    def test_a_row_between_the_limits_is_positive_only_with_a_count_and_a_falling_bias(
+        self,
+    ) -> None:
+        """The middle band: positive if a count passes it and its bias falls, else routed."""
         middle = {}
         for reader in bias_readers():
             result = bias_of(reader)
             if isinstance(result, str) or reader.role == "control":
                 continue
             if abs(result["b"]) > POSITIVE_LIMIT:
-                middle[f"{reader.family}/{reader.cell}"] = float(result["b"])
-        for name, b in middle.items():
+                middle[f"{reader.family}/{reader.cell}"] = (reader, float(result["b"]))
+        assert middle, "the middle band is empty, so the trend condition reads nothing"
+        for name, (reader, b) in middle.items():
             reachable = support.bias_pass_probability(b, R_CAP) >= ROW_TARGET
-            assert (name in routed_cells()) is (not reachable), name
+            at, at_four = trend(reader)
+            falling = abs(at_four) < abs(at)
+            assert (name in routed_cells()) is (not (reachable and falling)), name
         design_routed = set(routed_cells())
         assert design_routed == set(study.DESIGN_ROUTED)
         for name, reading in study.DESIGN_ROUTED.items():
             assert f"b = {routed_cells()[name]:+.3f}" in reading, name
+
+    def test_every_middle_band_row_of_the_study_has_a_falling_bias(self) -> None:
+        """The rows the study keeps positive on the middle band are second order.
+
+        Law P ``rate`` is H1, so its bias is the second-order remainder of the learner and it
+        falls with ``n``.  The table is the evidence page's.
+        """
+        rows = {}
+        for reader in bias_readers():
+            result = bias_of(reader)
+            if isinstance(result, str) or reader.role == "control":
+                continue
+            if abs(result["b"]) > POSITIVE_LIMIT and reader.family == "bias":
+                rows[reader.cell] = trend(reader)
+        for cell, (at, at_four) in rows.items():
+            assert abs(at_four) < abs(at), (cell, at, at_four)
+
+    def test_the_trend_condition_catches_a_level_set_breaking_error(self) -> None:
+        """Deliberate-mutation control: a bias that grows with ``n`` fails the condition.
+
+        Law VL1 with the ``lsb`` learner shifts the logit along a covariate, which breaks the
+        level sets of ``g_0``.  Its ``b`` grows with ``n``, as the old law M rate error did
+        (``b`` of ``ey[low]``: -0.198 at 2,000, -0.375 at 32,000).
+        """
+        at = specs()["vl1_lsb"]
+        larger = support.build_vl("vl1", "lsb", 4 * at.n, laws, study.DEGREE["vl"])
+        small = at.population.key_bias("ey1", at.n, projected=True)["b"]
+        large = larger.key_bias("ey1", 4 * at.n, projected=True)["b"]
+        assert abs(large) > abs(small)
+        # The shrunk multinomial of the study keeps every level set: b is below 1e-3 at both sizes (the cubic basis is not exact).
+        for n in (study.N_M, 4 * study.N_M):
+            population = support.build_m("rate", n, multi, study.DEGREE["m"])
+            assert all(abs(population.key_bias(k, n)["b"]) < 1e-3 for k in population.keys)
+            # Nonzero witness: the untargeted mean is displaced, so the zero is the targeting.
+            assert abs(population.key_bias("ey[low]", n)["untargeted"]) > 0.05
 
     def test_the_declared_roles_are_the_roles_the_rule_gives(self) -> None:
         """No role override: the readers declare the rule's roles, and the records agree."""
@@ -653,6 +737,58 @@ def slope_pass_probability(replicates: int) -> float:
     inside = norm.cdf(margin / scale) - norm.cdf(-margin / scale)
     excludes = 1.0 if half < (0.5 - 0.25) else 0.0
     return float(inside * excludes)
+
+
+def expected_chance_reds() -> dict[str, float]:
+    """The expected number of red verdict rows when every row behaves as designed.
+
+    Each verdict row has a design pass probability ``p`` (item 4), so it is red by chance with
+    probability ``1 - p``.  The rows are independent in this sum.  Rows that share draws are
+    positively correlated, which raises the chance that none is red and lowers the expected
+    count by nothing, so the sum is the expected count.  Rows pre-routed to reporting add
+    nothing, because a red there is the declared reading.
+    """
+    routed = set(routed_cells()) | set(study.PRE_ROUTED)
+    calibration = 0.0
+    for reader in study.READERS:
+        if reader.family in ("interval_calibration", "simultaneous_coverage"):
+            scene = study.SCENES[reader.scene]
+            if reader.family == "simultaneous_coverage":
+                p = calibration_pass_probability(
+                    scene.replicates, true_se_ratio=1.0, se_band=(0.0, 10.0), se_noise=0.0
+                )
+            else:
+                p = calibration_pass_probability(
+                    scene.replicates, true_se_ratio=1.0, se_noise=SE_NOISE
+                )
+            calibration += 1.0 - p
+    bias = 0.0
+    for reader in bias_readers():
+        result = bias_of(reader)
+        if isinstance(result, str) or f"{reader.family}/{reader.cell}" in routed:
+            continue
+        scene = study.SCENES[reader.scene]
+        replicates = scene.extra_replicates if reader.fit in scene.extra_fits else scene.replicates
+        bias += 1.0 - _passes(reader, result["b"], replicates)
+    table = necessity_table()
+    for label, row in table.items():
+        replicates = study.SCENES[study.NECESSITY_LABELS[label][0]].replicates
+        bias += 1.0 - displacement_probability(row, replicates)
+    bias += 1.0 - slope_pass_probability(study.R_LADDER)
+    return {"calibration": calibration, "bias_ladder_necessity": bias}
+
+
+class TestChanceReds:
+    """The record states how many red rows a correct estimator is expected to show."""
+
+    def test_the_declared_expected_counts_are_the_computed_ones(self) -> None:
+        got = expected_chance_reds()
+        assert {k: round(v, 1) for k, v in got.items()} == study.EXPECTED_CHANCE_REDS
+        assert round(sum(got.values()), 1) == study.EXPECTED_CHANCE_REDS_TOTAL
+
+    def test_a_reading_exists_for_each_kind_of_red_row(self) -> None:
+        kinds = {"calibration", "bias", "ladder", "necessity", "control", "primary"}
+        assert kinds <= set(study.RED_READING)
 
 
 # ------------------------------------------------------------------------------------ item 5

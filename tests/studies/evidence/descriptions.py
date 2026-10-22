@@ -4660,16 +4660,20 @@ def _adaptive_cells() -> None:
         ),
         (
             "rate",
-            "a mechanism whose logit is off by a multiple of n^(-1/3), cross-fitted",
+            "a mechanism whose logit is off by 2 n^(-1/3) (1 + W2), cross-fitted, on the law with a correct reduced regression",
             positive,
         ),
         ("insample_correct", "the correct logistic mechanism, fitted in sample", positive),
-        ("wrong_mechanism", "an intercept-only mechanism that omits the confounder", control),
+        (
+            "wrong_mechanism",
+            "a main-terms logistic mechanism that omits the W1 W2 interaction of the true mechanism",
+            control,
+        ),
         ("flexible", "a gradient-boosting mechanism, cross-fitted", flexible),
         ("three_arm", "the correct multinomial mechanism on a three-arm law, five folds", positive),
         (
             "rate_reduced",
-            "a multinomial mechanism off by a multiple of n^(-1/3), five folds",
+            "a multinomial mechanism shrunk toward uniform by 2 n^(-1/3), five folds, on a law where the reduced regression is not exact; each arm probability stays a function of the true one, so the level sets survive",
             positive,
         ),
         (
@@ -4709,7 +4713,7 @@ def _adaptive_cells() -> None:
         ),
         (
             "regime",
-            "the regime fit with a mechanism off by a multiple of n^(-1/3), on the effect-modified law",
+            "the regime fit with the mechanism logit scaled by 1 + 2 n^(-1/3), on the effect-modified law, where the scaling keeps the level sets",
             positive,
         ),
         (
@@ -4739,7 +4743,7 @@ def _adaptive_cells() -> None:
         ),
         (
             "level_set_breaking",
-            "a mechanism whose error moves along the level sets of the true mechanism, on a law where the reduced regression is not exact",
+            "a mechanism whose error moves across the level sets of the true mechanism (it adds n^(-1/3) W2 to the logit), on a law where the reduced regression is not exact",
             control,
         ),
         (

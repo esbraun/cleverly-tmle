@@ -502,11 +502,15 @@ class CellFrequency(BaseEstimator, ClassifierMixin):
         return np.column_stack([1.0 - p, p])
 
 
-class ShiftedMultinomial(BaseEstimator, ClassifierMixin):
-    """The multinomial logistic mechanism of law M, optionally moved by ``n^(-1/3)``.
+class ShrunkMultinomial(BaseEstimator, ClassifierMixin):
+    """The multinomial logistic mechanism of law M, optionally shrunk to uniform by ``n^(-1/3)``.
 
-    The fit is ``LogisticRegression(C=1e6)``.  The returned logit of every class but the first
-    moves by ``size * n^(-1/3) * (1 + W_1)``, with ``W_1`` the first design column.
+    The fit is ``LogisticRegression(C=1e6)``.  The returned probabilities are
+    ``(1 - e) p + e / K`` with ``e = size * n^(-1/3)`` and ``K`` the number of arms.  Every
+    returned arm probability is a function of the correct one alone, so the error keeps the level
+    sets of each ``g_a`` and the validity term of the estimator stays second order.  A shift of
+    the logits along a covariate, as law VL1 uses, would break those level sets.  Law M is not
+    H1, so the choice decides whether the cell tests the rate conditions.
 
     Parameters
     ----------
@@ -520,28 +524,25 @@ class ShiftedMultinomial(BaseEstimator, ClassifierMixin):
         self.size = size
         self.n = n
 
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ShiftedMultinomial:
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ShrunkMultinomial:
         self.model_ = LogisticRegression(C=1e6, max_iter=5000)
         self.model_.fit(np.asarray(X, dtype=float), np.asarray(y), sample_weight=sample_weight)
         self.classes_ = self.model_.classes_
         return self
 
     def predict_proba(self, X: Any) -> np.ndarray:
-        design = np.asarray(X, dtype=float)
+        proba = np.asarray(self.model_.predict_proba(np.asarray(X, dtype=float)))
         if self.size == 0.0:
-            return np.asarray(self.model_.predict_proba(design))
-        eta = np.asarray(self.model_.decision_function(design), dtype=float)
-        eta[:, 1:] += self.size * float(self.n) ** (-1.0 / 3.0) * (1.0 + design[:, [0]])
-        eta -= eta.max(axis=1, keepdims=True)
-        weights = np.exp(eta)
-        return np.asarray(weights / weights.sum(axis=1, keepdims=True))
+            return proba
+        step = self.size * float(self.n) ** (-1.0 / 3.0)
+        return np.asarray((1.0 - step) * proba + step / proba.shape[1])
 
 
 __all__ = [
     "CellFrequency",
     "DesignBasisGLM",
     "RateLogistic",
-    "ShiftedMultinomial",
+    "ShrunkMultinomial",
     "ValidityLogistic",
     "gauss_hermite_grid",
     "known_matrix",

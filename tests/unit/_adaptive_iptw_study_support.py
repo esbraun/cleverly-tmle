@@ -629,15 +629,17 @@ def build_m(learner: str, n: int, multi: Any, degree: int, *, nodes: int = 20) -
     codes = {"high": 0.0, "low": 1.0, "medium": 2.0}
     order = sorted(labels)
 
-    def softmax(shift: float) -> dict[str, np.ndarray]:
-        raw = {k: eta[k] + (shift * (1.0 + w0) if k != order[0] else 0.0) for k in order}
-        top = np.max(np.column_stack([raw[k] for k in order]), axis=1)
-        weights = {k: np.exp(raw[k] - top) for k in order}
-        total = sum(weights.values())
-        return {k: weights[k] / total for k in order}
-
-    g = softmax(0.0)
-    limit = g if learner == "correct" else softmax(rate_step(n))
+    top = np.max(np.column_stack([eta[k] for k in order]), axis=1)
+    weights = {k: np.exp(eta[k] - top) for k in order}
+    total = sum(weights.values())
+    g = {k: weights[k] / total for k in order}
+    if learner == "correct":
+        limit = g
+    else:
+        # The learner shrinks every arm probability to uniform by ``2 n^(-1/3)`` (a function of
+        # the true ``g_a`` alone, so each level set of ``g_a`` survives).
+        step = rate_step(n)
+        limit = {k: (1.0 - step) * g[k] + step / len(order) for k in order}
     q = {k: expit(-0.5 + 0.6 * codes[k] + 0.6 * w0 - 0.3 * w1 + 0.2 * w2) for k in order}
     arm_idx, y_idx, i_idx = _cells(len(order), 2, points)
     prob = np.zeros(len(arm_idx))
