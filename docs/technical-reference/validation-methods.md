@@ -779,8 +779,10 @@ $$
 |\text{bias}| \le |\rho| \sqrt{\frac{c_D^2}{1-c_D^2}}\; c_Y \sqrt{\sigma^2 \nu^2},
 $$
 
-with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer. The
-two primitives are exposed as `elements()`.
+with $\sigma^2 = E[R (Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer.
+$R$ is the indicator of the rows the representer reads. On complete data $R$ is one on every row.
+[Second mechanisms and strata](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
+fits. The two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
 model. On a wrong model, the doubly robust estimate of $\nu^2$ falls below $\nu_0^2$ by
@@ -803,18 +805,65 @@ matching capability row therefore carry one reason.
 | --- | --- |
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
 | a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does |
-| a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
-| a fit with a declared missing treatment | a derivation. The representer of the implemented bound is derived for a recorded treatment. This fit divides by the composite mechanism $P(A = a, \Delta_A = 1 \mid W)$, or $P(A = a, \Delta_A = 1, \Delta = 1 \mid W)$ with `delta=`, and no representer or confounding strength is derived for it. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G |
-| a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
-| an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or complete-outcome `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
+| an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
 | a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
 
 The table rule for `repeats=` runs last. A repeated fit that another rule also refuses reports that
 other rule, because one split would not lift it.
+
+#### Second mechanisms and strata of the bound
+
+The bound also covers the fits in the table below. Each representer is the fit's own clever
+covariate times the indicator $R$ of the rows that it reads. The submodel applies $\Delta$ through
+the mask of the fluctuation, so the bound multiplies it into the representer. $\sigma^2$ is the
+mean over every row of the residual that $R$ masks.
+
+| fit | representer $\alpha$ | $m(O, \alpha)$ | $R$ | feature |
+| --- | --- | --- | --- | --- |
+| a response mechanism | $\Delta 1\{A = a\} / (g_a \pi_a)$ | $1 / (g_a \pi_a)$ at each arm | $\Delta$ | `response` |
+| a declared missing treatment | $C_a / g_{c,a}$, with $C_a = \Delta_A \Delta 1\{A = a\}$ | $1 / g_{c,a}$ at each arm | $\Delta_A \Delta$ | `missing_treatment` |
+| an intermediate variable at the level $z$ | $\Delta 1\{A = a\} 1\{Z = z\} / (g_a q_z \pi_a)$ | $1 / (g_a q_z \pi_a)$ at each arm | $\Delta 1\{Z = z\}$ | `intermediate` |
+| a stratum-conditional parameter | the marginal $\alpha$ times $1\{S = s\} / p$ | the marginal $m$ times $1\{S = s\} / p^2$ | the marginal $R$ times $1\{S = s\}$ | `stratum` |
+
+For a mean or a difference of means in a stratum, $p = P_w(S = s)$. For an ATT or an ATC in a
+stratum, $p = P_w(A = c, S = s)$, and it replaces the marginal share $P_w(A = c)$. The composite
+mechanism $g_{c,a}$ is the one that the
+[composite construction](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) targets.
+
+Each functional is linear in the regression on the rows that $R$ marks, so Theorem 2 of the cited
+paper covers it. Only $R$ and the representer differ from the shipped bound. On complete data
+$R = 1$, and each quantity equals the shipped one.
+
+On the first three rows, $c_D$ measures a joint strength over the treatment mechanism and a second
+mechanism. The summary names that second mechanism as the response, recording, or intermediate
+mechanism. `benchmark()` refits every mechanism without the named covariates, so it measures the
+same joint strength. The curve of $\nu^2$ in a stratum carries the influence of the share $p$, as
+the [standard error](#standard-error-of-the-omitted-variable-bound) states. Under
+`nu2_estimator="plugin"` these fits report the point bounds. Their limits refuse with the key
+`configuration`, because the mechanism stack carries the score of the treatment mechanism alone.
+
+| witness in `tests/unit/test_omitted_variable_part_g.py` | what it checks |
+| --- | --- |
+| `TestTheRieszIdentityOnAnExactLaw` | $\hat\nu^2 = \nu_0^2 - E[(\hat\alpha - \alpha_0)^2]$ to a relative tolerance of $10^{-12}$ on each configuration. The mechanisms are wrong, so the error term is not zero |
+| `TestTheOracleRepresenter` | at the law's own mechanisms, the representer equals $\alpha_0$ on every row. One mutation drops each weight: $\Delta$, $1\{Z = z\}$, $\Delta_A$, and $1\{S = s\}$ |
+| `TestTheResidualVariance` | $\sigma^2$ masks $R$ and averages every row. A mutation removes $1\{Z = z\}$ from $R$ |
+| `TestTheStratumShareCurve` | the curve of $\hat\nu^2$ equals a finite-difference Gateaux derivative on every row. A mutation removes the share term |
+| `TestOneStratumIsTheMarginalBound` | a stratum that holds every row gives the marginal bound |
+
+#### Omitted-variable limits without coverage evidence
+
+The one-sided limits of these configurations print without coverage evidence. Each bound asks the
+evidence registry with the instrument `ovb_limit`. The rule is the features of the fit, joined with
+`+`, for example `response+stratum`. The registry has no `ovb_limit` row, so each limit prints as
+descriptive. `SensitivityBounds.limit_reading` holds the resolution, and
+`SensitivityBounds.limit_descriptive` is true. `to_dict()` adds `features`, `limit_rung`,
+`limit_licensed`, and `limit_sentence`. `robustness_value()` adds `limit_licensed` and
+`limit_sentence`. A registered coverage study adds one row for the configuration that it measured.
+The shipped bound asks the registry nothing, and its output does not change.
 
 `nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
 `"doubly_robust"`. A value outside those three raises `ValueError` before the table above refuses a
@@ -915,19 +964,27 @@ includes the null, its robustness threshold is zero.
 | quantity | curve per row | source |
 | --- | --- | --- |
 | estimate | the estimate's own influence curve. For the ATT and the ATC it includes the share term of $\theta_s$ | Online Appendix A, "Statistical Inference", Equation (15) |
-| $\sigma^2$ | $w ((Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
-| $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (1\{A = c\} - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
-| $\nu^2$, plug-in | $w (\alpha^2 - \nu^2) + \psi^\gamma - 2 \nu^2 w (1\{A = c\} - p) / p$. The mechanism term $\psi^\gamma$ is zero for a declared known mechanism. The last term applies to the ATT and the ATC only | Saul and Hudgens (2020), Section 2, Equation (1), for $\psi^\gamma$. The share term is this package's derivation, as for the doubly robust curve. [Plug-in limits](#plug-in-limits-and-the-learner-rule) defines $\psi^\gamma$ |
+| $\sigma^2$ | $w (R (Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
+| $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (I - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
+| $\nu^2$, plug-in | $w (\alpha^2 - \nu^2) + \psi^\gamma - 2 \nu^2 w (I - p) / p$. The mechanism term $\psi^\gamma$ is zero for a declared known mechanism. The last term applies to the ATT and the ATC only | Saul and Hudgens (2020), Section 2, Equation (1), for $\psi^\gamma$. The share term is this package's derivation, as for the doubly robust curve. [Plug-in limits](#plug-in-limits-and-the-learner-rule) defines $\psi^\gamma$ |
 | bias scale $S$ | $(\sigma^2 \psi_{\nu^2} + \nu^2 \psi_{\sigma^2}) / (2 \sqrt{\sigma^2 \nu^2})$ | Theorem 4 |
 
-The second term of the $\nu^2$ curve applies to the ATT and the ATC only. Here $c$ is the arm the
-parameter conditions on: the contrast arm for an ATT and the reference for an ATC. With more than
-two arms each contrast has its own $c$, and $p$ is the weighted share $P_w(A = c)$ of that arm.
+The second term of the $\nu^2$ curve applies to the ATT, the ATC, and a stratum-conditional
+parameter. $I$ is the indicator of the rows the parameter conditions on, and $p = P_w(I = 1)$.
+
+| parameter | $I$ |
+| --- | --- |
+| an ATT or an ATC | $1\{A = c\}$ |
+| a mean or a difference of means in the stratum $s$ | $1\{S = s\}$ |
+| an ATT or an ATC in the stratum $s$ | $1\{A = c, S = s\}$ |
+
+Here $c$ is the arm the parameter conditions on: the contrast arm for an ATT and the reference for
+an ATC. With more than two arms each contrast has its own $c$.
 
 The representer and $m(O, \alpha)$ both divide by $p$, so the estimate is $\hat F / \hat p^2$. The
 Riesz identity makes $\hat F$ insensitive to the fitted mechanism at first order, so its curve is
-the Lemma 3 score. The curve of $\hat p$ is $w (1\{A = c\} - p)$, and the derivative of $F / p^2$ in $p$
-is $-2 \nu^2 / p$. The delta method gives the second term.
+the Lemma 3 score. The curve of $\hat p$ is $w (I - p)$, and the derivative of $F / p^2$ in $p$ is
+$-2 \nu^2 / p$. The delta method gives the second term.
 
 The paper gives no such term for $\nu^2$. Equation (15) of Online Appendix A gives the term for the
 estimate $\theta_s$ only. The R package `dml.sensemakr` carries the same $\nu^2$ term since commit
@@ -2026,10 +2083,12 @@ treatment's recording at it.
 A bare `tipping_gamma()` on a fit with several tiltable parameters reads `deferred` and requires
 `estimand`. `tests/unit/test_attributable_mar_capabilities.py` checks the natural-course rows.
 
-The omitted-variable bound refuses a fit with a response mechanism. Its sentence points at the tilt
-only when this table admits the fit. `TestTheTiltRowsReadTheCallsPredicate` and
-`TestTheBoundPointsAtTheTiltOnlyWhereItRuns` in `tests/unit/test_capability_row_predicates.py`
-check the rows and the pointer.
+The omitted-variable bound also answers on a fit with a response mechanism, with a joint strength
+over the treatment and response mechanisms
+([second mechanisms and strata](#omitted-variable-bounds-robustness-value-benchmark-and-contours)). The two analyses
+answer different questions. The tilt moves the recording of the outcome away from missing at
+random. The bound measures an omitted confounder. `TestTheTiltRowsReadTheCallsPredicate` in
+`tests/unit/test_capability_row_predicates.py` checks the tilt rows.
 
 The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all of it. Only the
 three spread columns read an interval that those paths refuse. Such a fit therefore receives

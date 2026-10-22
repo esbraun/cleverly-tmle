@@ -184,17 +184,19 @@ class TestTheTargetSpecificRefusals:
         with pytest.raises(CapabilityError, match="paf compares the natural course"):
             complete.sensitivity.evalue("paf")
 
-    def test_the_omitted_variable_pointer_names_the_tilt(self, joint: Any) -> None:
-        with pytest.raises(CapabilityError) as caught:
-            joint.sensitivity.omitted_confounding("ey0")
-        assert "missingness tilt remains" in str(caught.value)
+    def test_the_omitted_variable_bound_answers_for_the_arm_mean(self, joint: Any) -> None:
+        """X82 part G: the response mechanism no longer refuses the bound of ``ey0``."""
+        bound = joint.sensitivity.omitted_confounding("ey0")
+        assert bound.features == ("response",)
+        assert bound.max_bias > 0.0
 
-    def test_a_par_bound_request_is_pointed_at_the_tilt(self, joint: Any) -> None:
+    def test_a_par_bound_request_names_the_linear_estimands(self, joint: Any) -> None:
         from cleverly.sensitivity.omitted_variable import sensitivity_elements
 
         with pytest.raises(CapabilityError) as caught:
             sensitivity_elements(joint, "par")
-        assert "missingness tilt remains" in str(caught.value)
+        assert "is not one" in str(caught.value)
+        assert "missingness tilt" not in str(caught.value)
 
     def test_the_default_tilt_sweep_covers_the_natural_course_targets(self, joint: Any) -> None:
         frame = joint.sensitivity.missingness()
