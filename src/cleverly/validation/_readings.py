@@ -19,6 +19,8 @@ from typing import Final, Literal
 import numpy as np
 from scipy import stats
 
+from ..inference.delta import two_sided_pvalue
+
 __all__ = [
     "DEFAULT_BAND_REPLICATES",
     "BandReading",
@@ -130,7 +132,7 @@ def placebo_reading(
         p = float("nan") if kind == "constant_zero" else 0.0
         return PlaceboReading(t, p, mean, sd, r - 1, kind, ratio)
     t = mean / (sd / np.sqrt(r))
-    p = float(2.0 * stats.t.sf(abs(t), r - 1))
+    p = float(two_sided_pvalue(t, 1.0, df=r - 1))
     return PlaceboReading(float(t), p, mean, sd, r - 1, "t", ratio)
 
 

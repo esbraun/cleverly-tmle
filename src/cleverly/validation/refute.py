@@ -72,11 +72,11 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-from scipy import stats
 
 from .._inference_status import InferenceStatus
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
+from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -3018,7 +3018,7 @@ def refute(
             control_se = refitted[estimand].plugin_std_error
             deviation = _no_effect_difference(value, no_effect_null)
             z = deviation / control_se if control_se > 0 else float("nan")
-            pvalue = float(2.0 * stats.norm.sf(abs(z))) if np.isfinite(z) else float("nan")
+            pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
             # The control's own outcome family and event count are the scope axes of a
             # negative-control reading, not the primary outcome's.
             control_fit = (
