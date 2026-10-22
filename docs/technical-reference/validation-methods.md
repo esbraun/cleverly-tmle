@@ -1973,6 +1973,7 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
 | `dummy_outcome` | draws independent Gaussian noise and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
 | `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the same three readings, against the declared effect | adjustment and treatment terms in the full pipeline |
+| `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `f(W) + effect * A + epsilon`, and refits | bias, standard-error ratio, and coverage against the same bands, for every eligible contrast | operating characteristics on a law fitted to resemble the data |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 | `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
 
@@ -1988,6 +1989,15 @@ arrays.
 A product weight and a tensor design whose arm factor holds an intercept give the first case. The
 `TestMSMPlacebo` witnesses in `tests/unit/test_refutation_gate.py` enumerate a finite law for each
 case.
+
+The plasmode follows Franklin et al. (2014). Each draw takes `n` units from the empirical law of
+`W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once and
+clipped to the `g` bounds of the fit. It draws `Y` from the `simulated_outcome` declaration, with
+the adjustment function standardized on the original data. The truth is a finite sum over the `n`
+support points, so all three readings have an exact reference.
+
+The plasmode refuses clusters, strata, and a missing treatment. `tests/unit/test_plasmode_refutation.py` holds the witness and a
+mutation that keeps `W` fixed.
 
 The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
 default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.
