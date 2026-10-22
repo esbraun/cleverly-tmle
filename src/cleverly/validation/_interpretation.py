@@ -832,6 +832,179 @@ def _longitudinal_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The saturated logistic learner of the X82 SG omitted-variable cells: a logistic regression on
+#: every pairwise product of its inputs, practically unpenalized.
+_SG_SATURATED = (
+    "Pipeline(memory=None,steps=[('polynomialfeatures', PolynomialFeatures(include_bias=False, "
+    "interaction_only=True)), ('logisticregression', LogisticRegression(C=100000000.0, "
+    "max_iter=10000))],transform_input=None,verbose=False)"
+)
+
+#: The theory line of every X82 SG coverage row.
+_SG_THEORY = (
+    "X82-SG-plan.md rev 2. Measured, not proved: 1,600 replications at n = 2,000, each "
+    "row's 99% exact coverage limit above 0.90, and 4,000 further draws per cell whose SE "
+    "ratio and coverage intervals lie inside the calibration bands."
+)
+
+#: The ``ovb_limit`` cells of ``ovb-limit-coverage``: rule, estimand kinds, treatment kind,
+#: arm count, smallest event count (the recorded draw's, rounded down to 50), the law the
+#: sentence names, and the cell's rows.
+_SG_OVB_CELLS: Final[
+    dict[str, tuple[str, tuple[str, ...], str, int, int | None, str, tuple[str, ...]]]
+] = {
+    "O1": (
+        "response",
+        ("ate", "ey1"),
+        "discrete",
+        2,
+        250,
+        "a binary law with the outcome missing at random given A and W",
+        ("ate", "ey1"),
+    ),
+    "O2": (
+        "intermediate",
+        ("ate",),
+        "discrete",
+        2,
+        250,
+        "a binary law with a binary intermediate Z",
+        ("cde_z0", "cde_z1"),
+    ),
+    "O3": (
+        "regime",
+        ("ey_regime[coin]", "ate_regime[coin vs always]"),
+        "discrete",
+        2,
+        350,
+        "a binary law with a stochastic regime named coin",
+        ("coin", "coin_vs_always"),
+    ),
+    "O4": (
+        "msm",
+        ("msm[W2]", "msm[a:W2]"),
+        "discrete",
+        2,
+        350,
+        "a binary law with the linear MSM of modifier W2",
+        ("w2", "a_w2"),
+    ),
+    "O5": (
+        "shift",
+        ("ey_policy[+1]", "ate_policy[+1 vs natural course]"),
+        "continuous",
+        1,
+        None,
+        "a binary-outcome law with four declared dose atoms and the shift +1",
+        ("plus1", "plus1_vs_natural"),
+    ),
+}
+
+
+def _sg_scope(**axes: Any) -> CalibrationScope:
+    return CalibrationScope(
+        cross_fitting=frozenset({"off"}),
+        inference=frozenset({"influence_curve"}),
+        known_mechanism=frozenset({False}),
+        n_min=2000,
+        covariates_per_row_max=0.001,
+        **axes,
+    )
+
+
+def _sg_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the passing cells of the X82 SG coverage studies license."""
+    rows: list[VerdictEvidence] = []
+    for cell, (rule, kinds, treatment, arms, events, law, labels) in _SG_OVB_CELLS.items():
+        rows.append(
+            VerdictEvidence(
+                instrument="ovb_limit",
+                rule=rule,
+                rung="L2",
+                theory=_SG_THEORY,
+                scope=_sg_scope(
+                    methods=frozenset({"TMLE"}),
+                    estimand_kinds=frozenset(kinds),
+                    outcome_families=frozenset({"binomial"}),
+                    treatment_kinds=frozenset({treatment}),
+                    learners=frozenset({_SG_SATURATED}),
+                    arms=frozenset({arms}),
+                    nodes=frozenset({None}),
+                    min_event_count_min=events,
+                ),
+                sentence=(
+                    f"The 95% limits of this bound covered at the nominal level on {law} at "
+                    "n = 2,000: in-sample TMLE, saturated logistic nuisances, cf_y 0.3, cf_d "
+                    "0.2. Another law or learner is not covered."
+                ),
+                study=(
+                    "ovb-limit-coverage",
+                    *(
+                        f"interval_calibration/{cell}_{label}_{end}__correctly_specified"
+                        for label in labels
+                        for end in ("lower", "upper")
+                    ),
+                ),
+            )
+        )
+    rows.append(
+        VerdictEvidence(
+            instrument="evalue_limit",
+            rule="stratum",
+            rung="L2",
+            theory=_SG_THEORY,
+            scope=_sg_scope(
+                methods=frozenset({"TMLE"}),
+                estimand_kinds=frozenset({"rr[V=0]", "rr[V=1]", "rr[V=2]"}),
+                outcome_families=frozenset({"binomial"}),
+                treatment_kinds=frozenset({"discrete"}),
+                learners=frozenset({"LogisticRegression(C=1000000.0,max_iter=2000)"}),
+                arms=frozenset({2}),
+                nodes=frozenset({None}),
+                min_event_count_min=200,
+            ),
+            sentence=(
+                "The risk-ratio interval behind this limit covered at the nominal level in "
+                "each of three strata of a binary law at n = 2,000: in-sample TMLE, logistic "
+                "nuisances. Another law or learner is not covered."
+            ),
+            study=(
+                "evalue-limit-coverage",
+                *(
+                    f"interval_calibration/E3_rr[V={stratum}]__correctly_specified"
+                    for stratum in (0, 1, 2)
+                ),
+            ),
+        )
+    )
+    rows.append(
+        VerdictEvidence(
+            instrument="evalue_limit",
+            rule="time_to_event",
+            rung="L2",
+            theory=_SG_THEORY,
+            scope=_sg_scope(
+                methods=frozenset({"LTMLE"}),
+                estimand_kinds=frozenset({"risk_regimen"}),
+                outcome_families=frozenset({"survival"}),
+                treatment_kinds=frozenset({"discrete"}),
+                learners=frozenset({"LogisticRegression(C=inf,max_iter=1000)"}),
+                arms=frozenset({2}),
+                nodes=frozenset({5}),
+                min_event_count_min=100,
+            ),
+            sentence=(
+                "The risk-ratio interval behind this limit covered at the nominal level for "
+                "two static regimens at t = 5 on the registered point-treatment survival law "
+                "at n = 2,000: in-sample hazard LTMLE, unpenalized logistic hazards. Another "
+                "law or learner is not covered."
+            ),
+            study=("evalue-limit-coverage", "interval_calibration/E4_rr_t5__correctly_specified"),
+        )
+    )
+    return tuple(rows)
+
+
 #: The plasmode rows cover every fit, a clustered one included: the readings are exact
 #: whatever the cluster count, because whole clusters are the i.i.d. units of a draw.
 _PLASMODE_SCOPE = CalibrationScope(clusters_min=1)
@@ -933,6 +1106,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         exact=True,
     ),
     *_longitudinal_rows(),
+    *_sg_rows(),
 )
 
 
