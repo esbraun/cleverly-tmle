@@ -26,7 +26,6 @@ from cleverly.validation import GaussianAdjustmentOutcome, refute
 from cleverly.validation import _longitudinal_plasmode as plasmode_module
 from cleverly.validation._longitudinal_plasmode import LongitudinalPlasmodeLaw
 from cleverly.validation.refute import _longitudinal_plasmode_target
-from tests.unit.test_longitudinal_generated_events import HAZARD, _survival_panel
 from tests.unit.test_longitudinal_generated_outcomes import _fit as _gaussian_history_fit
 from tests.unit.test_longitudinal_generated_outcomes import _panel as _gaussian_history_panel
 
@@ -271,21 +270,6 @@ class TestRefusals:
                 result, "ate_regimen[never vs always]", PROCESS, "plasmode"
             )
         assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-
-    def test_a_survival_fit(self) -> None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = _ltmle({"always": 1, "never": 0}).fit(
-                _survival_panel(),
-                outcome=["Y1", "Y2"],
-                treatment=["A1", "A2"],
-                baseline=["W"],
-                time_varying=[[], ["L2"]],
-                censoring=["C1", "C2"],
-            )
-        estimand = next(key for key in result.estimates if key.startswith("ate"))
-        with pytest.raises(CapabilityError, match="a survival or competing-risk fit"):
-            _run(result, estimand, draws=10, process=HAZARD)
 
     def test_a_history_effect_in_the_held_design(self, binary: Any) -> None:
         with warnings.catch_warnings():

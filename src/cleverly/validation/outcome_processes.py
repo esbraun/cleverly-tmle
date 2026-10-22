@@ -801,10 +801,11 @@ class LogisticHazardOutcome:
     r"""Declare a discrete-time event hazard for a survival fit.
 
     At node ``t`` a unit still at risk has the event with probability
-    ``expit(intercept + f(W) + effect * d_t)``. ``f`` is the standardized covariate sum of
-    :class:`GaussianAdjustmentOutcome`, and ``d_t`` is the number of treated decision nodes up
-    to ``t``. With ``effect=0`` and ``adjustment_scale=0`` the hazard reads nothing, and that
-    declaration is the independent process of ``dummy_outcome``.
+    ``expit(intercept + f(W) + effect * d_t + history_effect * h_t)``. ``f`` is the
+    standardized covariate sum of :class:`GaussianAdjustmentOutcome`, and ``d_t`` is the number
+    of treated decision nodes up to ``t``. With ``effect``, ``adjustment_scale`` and
+    ``history_effect`` at 0 the hazard reads nothing, and that declaration is the independent
+    process of ``dummy_outcome``.
 
     Parameters
     ----------
@@ -814,11 +815,16 @@ class LogisticHazardOutcome:
         Log-odds change per treated decision node.
     adjustment_scale : float
         Multiplier on the standardized covariate sum.
+    history_effect : float
+        Log-odds change per unit of ``h_t``, the root-count normalized standardized sum of the
+        time-varying columns of nodes 1 to ``t``. Only the longitudinal plasmode reads it,
+        because it draws the history from frozen models and so knows its law under a regimen.
     """
 
     intercept: float = -2.0
     effect: float = 0.5
     adjustment_scale: float = 1.0
+    history_effect: float = 0.0
     name: str = field(default="logistic_hazard", init=False)
     family: str = field(default="binomial", init=False)
 
@@ -826,6 +832,7 @@ class LogisticHazardOutcome:
         _finite(self.intercept, "LogisticHazardOutcome intercept")
         _finite(self.effect, "LogisticHazardOutcome effect")
         _finite(self.adjustment_scale, "LogisticHazardOutcome adjustment_scale")
+        _finite(self.history_effect, "LogisticHazardOutcome history_effect")
 
     @property
     def causes(self) -> int:
@@ -835,7 +842,7 @@ class LogisticHazardOutcome:
     @property
     def independent(self) -> bool:
         """Return whether the hazard reads neither the covariates nor the treatment."""
-        return self.effect == 0.0 and self.adjustment_scale == 0.0
+        return self.effect == 0.0 and self.adjustment_scale == 0.0 and self.history_effect == 0.0
 
     def probabilities(self, adjustment: Any, dose: Any) -> np.ndarray:
         """Return the event probability of each unit at one node.
@@ -863,8 +870,9 @@ class MultinomialHazardOutcome:
 
     At node ``t`` a unit still at risk has the event of cause ``j`` with probability
     ``exp(eta_j) / (1 + sum_k exp(eta_k))``, where ``eta_j = intercepts[j] + f(W) +
-    effects[j] * d_t``. The probabilities of no event and of each cause sum to 1 at every
-    node. Independent per-cause logistic hazards could sum above 1, so this catalog has none.
+    effects[j] * d_t + history_effect * h_t``. The probabilities of no event and of each cause
+    sum to 1 at every node. Independent per-cause logistic hazards could sum above 1, so this
+    catalog has none.
 
     Parameters
     ----------
@@ -874,11 +882,17 @@ class MultinomialHazardOutcome:
         One log-odds change per treated decision node per cause.
     adjustment_scale : float
         Multiplier on the standardized covariate sum.
+    history_effect : float
+        Log-odds change of every cause per unit of ``h_t``, the root-count normalized
+        standardized sum of the time-varying columns of nodes 1 to ``t``. Only the
+        longitudinal plasmode reads it, because it draws the history from frozen models and so
+        knows its law under a regimen.
     """
 
     intercepts: tuple[float, ...] = (-2.5, -2.5)
     effects: tuple[float, ...] = (0.5, 0.0)
     adjustment_scale: float = 1.0
+    history_effect: float = 0.0
     name: str = field(default="multinomial_hazard", init=False)
     family: str = field(default="binomial", init=False)
 
@@ -894,6 +908,7 @@ class MultinomialHazardOutcome:
         for value in (*intercepts, *effects):
             _finite(value, "MultinomialHazardOutcome intercepts and effects")
         _finite(self.adjustment_scale, "MultinomialHazardOutcome adjustment_scale")
+        _finite(self.history_effect, "MultinomialHazardOutcome history_effect")
 
     @property
     def causes(self) -> int:
@@ -903,7 +918,11 @@ class MultinomialHazardOutcome:
     @property
     def independent(self) -> bool:
         """Return whether the hazards read neither the covariates nor the treatment."""
-        return all(effect == 0.0 for effect in self.effects) and self.adjustment_scale == 0.0
+        return (
+            all(effect == 0.0 for effect in self.effects)
+            and self.adjustment_scale == 0.0
+            and self.history_effect == 0.0
+        )
 
     def probabilities(self, adjustment: Any, dose: Any) -> np.ndarray:
         """Return the probability of each cause for each unit at one node.
