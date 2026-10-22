@@ -1787,7 +1787,6 @@ Each item is one pull request that edits one notebook and its
 | (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
 | (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | (0), SP, SG |
 | (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
-| (b) | `cross-fitting.ipynb` | fold noise beside the shift, the clustered plasmode, `bootstrap_stability`, and the bound under the median rule | (0), SP, SG |
 | (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
 | (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
 | (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
