@@ -37,10 +37,24 @@ Conversions for other effect scales are approximations and are flagged as such:
   :func:`cleverly.sensitivity.omitted_variable_bounds` for a continuous outcome,
   which needs no such conversion.
 
-This package has no implemented E-value bound for its fitted controlled direct effect
-and confounding model. :func:`_select_evalue` refuses every request on a fit with an
-intermediate variable, because the ordinary conversion does not establish sensitivity
-to unmeasured confounding for that target.
+**Controlled direct effect.**  On a fit with an intermediate variable the target is the
+risk ratio :math:`E[Y_{az}] / E[Y_{a'z}]` at the fitted level :math:`z`.  Its bias splits
+into one factor per arm, an identity, and Ding and VanderWeele (2016), eAppendix
+Proposition A.2, bounds each factor by its own bounding factor.  Arm :math:`a` reads the
+cell ratio :math:`\sup_u P(u \mid A = a, Z = z, W) / P(u \mid W)` and arm :math:`a'` the
+reciprocal direction, each with its own :math:`RR_{UY}`.  Smith, Mathur and VanderWeele
+(2021), Result 1, write the same per-arm product.  With four equal strengths the product
+is :math:`BF(E, E)^2`, so the E-value inverts :math:`\sqrt{RR}`: first the branch's own
+conversion to the risk-ratio scale, then the square root.  :attr:`EValue.bias_factor`
+records ``"per_arm_product"``.
+
+**Readings without coverage evidence.**  A confidence-limit E-value reads an interval, so it
+is calibrated only where that interval's coverage is.  The branches this module shipped
+before X82 part G read intervals with registered coverage evidence.  Each configuration
+part G adds resolves its limit through the registry of
+:mod:`cleverly.validation._interpretation`, instrument :data:`EVALUE_LIMIT_INSTRUMENT`.
+Until a registered coverage cell adds the matching row, the limit prints with the
+registry's descriptive sentence.
 """
 
 from __future__ import annotations
@@ -67,28 +81,12 @@ from ._parameters import arm_parameter_keys
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
     from ..inference.influence import ParameterEstimate
+    from ..validation._interpretation import Resolution
 
 __all__ = ["EValue", "evalue", "evalue_from_rr"]
 
 #: Chinn's OR-to-SMD factor followed by the common-outcome square-root conversion.
 _SMD_TO_LOG_RR = 1.81 / 2
-
-#: Why the standardized conversion stops on a fit with a response mechanism.  It names
-#: the quantity the conversion lacks, which is the *population* standard deviation of the
-#: outcome, and it says which E-value branches stay open.
-_STANDARDISED_MISSING_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "the standardized E-value has no population outcome standard deviation for a fit "
-    "with a response mechanism. The conversion divides the difference by sd(Y) computed "
-    "from the observed rows alone, and under missing at random the respondents' standard "
-    "deviation estimates a different quantity from the population standard deviation the "
-    "estimate is standardized against.",
-    alternative=(
-        "An E-value computed from a reported risk ratio or odds ratio reads only the "
-        "estimate and its interval, so it stays available."
-    ),
-    roadmap="X82",
-)
 
 #: Why every E-value branch stops on a fit that supplies no inference.  Each branch reads
 #: the estimate's interval, or the reference arm's standard error, and such a fit supplies
@@ -98,25 +96,47 @@ _STANDARDISED_MISSING_REFUSAL = Refusal(
 #: sentence.
 _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
 
-#: Why every E-value branch stops on a fit with an intermediate variable. This package
-#: has no implemented bound for its fitted controlled direct effect and confounding model.
-#: The E-value section of ``docs/technical-reference/validation-methods.md`` gives the
-#: support boundary, and X82 part G in ``docs/roadmap.md`` holds the per-arm bound that fills the
-#: gap. Raised in
-#: :func:`_select_evalue` before the
-#: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
-#: treatment, a multi-arm fit included, and no branch computes.  A continuous-treatment fit
-#: meets the check before it and reads ``not_applicable``, so it is refused as well.
-_DIRECT_EFFECT_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "this package has no implemented E-value bound for the fitted controlled direct "
-    "effect and its confounding model. Applying the ordinary E-value conversion does "
-    "not establish sensitivity to unmeasured treatment-outcome or intermediate-outcome "
-    "confounding for this target, because its bias splits into one bounding factor per "
-    "arm and the ordinary conversion inverts one factor. docs/roadmap.md X82 part G tracks the "
-    "E-value of their product.",
-    alternative=NO_ALTERNATIVE,
-    roadmap="X82",
+#: Why a result that names an intermediate variable by one half only has no E-value.  A
+#: controlled direct effect needs both the intermediate column and the fitted level ``z``.
+#: A fit always records both, so only an edited result reaches this refusal.
+_INCOMPLETE_INTERMEDIATE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "this result names an intermediate variable without both its column and its fitted "
+    "level, so the controlled direct effect it would report is not defined.",
+)
+
+#: The registry instrument of the confidence-limit readings that X82 part G adds.  Each
+#: rule is one configuration, the ``+``-joined :data:`_EValueSelection.features`.
+EVALUE_LIMIT_INSTRUMENT = "evalue_limit"
+
+#: The conditions of the per-arm bounding factor, printed beside a controlled-direct-effect
+#: E-value.  The last one is a condition of the controlled direct effect itself.
+_PER_ARM_CONDITIONS = (
+    "The per-arm bound assumes Y_az independent of A given (W, U) and of Z given (A, W, U), "
+    "with U a baseline latent that A does not affect, positivity given (W, U), and no "
+    "confounder of Z and Y that A affects. Each arm's treatment association is the cell "
+    "ratio sup_u P(u | A = a, Z = z, W) / P(u | W), which mixes the association of U with A "
+    "and with Z. The E-value is the equal strength of the four associations, two per arm."
+)
+
+#: The request a ``TimeToEvent`` fit answers, named in each of its refusals.
+_TIME_TO_EVENT_FORM = (
+    "On a TimeToEvent fit, pass the two reported risks at one horizon, "
+    "evalue(result, ('risk_regimen[a1 @ t=2]', 'risk_regimen[a0 @ t=2]')), for the E-value "
+    "of their risk ratio (kind='rr'; an odds ratio has no conversion here)."
+)
+
+#: The conditions of the ``TimeToEvent`` risk-ratio E-value, printed beside it.
+_TIME_TO_EVENT_CONDITIONS = (
+    "The risk at a horizon t is the mean of the binary outcome 1(T <= t), here for the event "
+    "of the reported cause. The bound needs U to confound the treatment and the event only: "
+    "censoring is at random given (A, W), and U does not affect censoring given (A, W)."
+)
+
+#: Printed beside the limit of a DR-TMLE fit whose treatment mechanism is estimated.
+_LINEAR_REMAINDER_NOTE = (
+    "DR-TMLE with an estimated treatment mechanism has a remainder that is linear in the "
+    "mechanism error, so its interval is descriptive here."
 )
 
 
@@ -219,6 +239,14 @@ class EValue:
     support : Support
         The support of the source estimate, combined with the derived ratio's when the
         row derives one. An E-value built outside a classified fit is experimental.
+    bias_factor : {"single", "per_arm_product"}
+        ``"single"`` inverts one bounding factor. ``"per_arm_product"`` is the controlled
+        direct effect, whose bias is a product of one bounding factor per arm, so the
+        E-values invert the square root of the risk ratio and its limit.
+    limit_reading : Resolution or None
+        What the registry licenses for the confidence-limit E-value of a configuration that
+        X82 part G added. ``None`` on the branches whose intervals carry registered
+        coverage evidence.
     """
 
     estimand: str
@@ -232,6 +260,20 @@ class EValue:
     source_estimand: str | None = None
     truncated_bound: float | None = None
     support: Support = UNCLASSIFIED
+    bias_factor: Literal["single", "per_arm_product"] = "single"
+    limit_reading: Resolution | None = None
+
+    @property
+    def limit_descriptive(self) -> bool:
+        """Whether the confidence-limit E-value prints without coverage evidence.
+
+        Returns
+        -------
+        bool
+            ``True`` when :attr:`limit_reading` holds a resolution the registry does not
+            license.
+        """
+        return self.limit_reading is not None and not self.limit_reading.licensed
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -251,9 +293,15 @@ class EValue:
             f"E-value, point estimate     : {self.point:.4f}",
             f"E-value, confidence limit   : {self.limit:.4f}",
             "",
-            f"If its two risk-ratio associations had equal strength, an unmeasured "
-            f"confounder would need {self.point:.2f} with both treatment and outcome, "
-            f"beyond the measured covariates, to explain away the point estimate; "
+            (
+                f"If its two risk-ratio associations had equal strength, an unmeasured "
+                f"confounder would need {self.point:.2f} with both treatment and outcome, "
+                f"beyond the measured covariates, to explain away the point estimate; "
+                if self.bias_factor == "single"
+                else f"If its four risk-ratio associations, two per arm, had equal strength, "
+                f"an unmeasured confounder would need {self.point:.2f} with each of them, "
+                f"beyond the measured covariates, to explain away the point estimate; "
+            )
             + (
                 f"{self.limit:.2f} to move the interval to the null."
                 if self.limit > 1.0
@@ -262,6 +310,8 @@ class EValue:
             "Unequal strengths can trade off: one association may be below the E-value "
             "if the other is above it.",
         ]
+        if self.limit_reading is not None:
+            lines.extend(["", f"confidence limit: {self.limit_reading.sentence}"])
         if self.note:
             lines.extend(["", self.note])
         if self.support.label == "experimental":
@@ -293,6 +343,10 @@ class EValue:
             "source_estimand": self.source_estimand,
             "truncated_bound": self.truncated_bound,
             "support": self.support.label,
+            "bias_factor": self.bias_factor,
+            "limit_rung": None if self.limit_reading is None else self.limit_reading.rung,
+            "limit_licensed": None if self.limit_reading is None else self.limit_reading.licensed,
+            "limit_sentence": None if self.limit_reading is None else self.limit_reading.sentence,
         }
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -335,6 +389,7 @@ _Branch = Literal[
     "derived_rr",
     "fixed_baseline_ate",
     "gaussian_difference",
+    "time_to_event_rr",
 ]
 
 
@@ -347,8 +402,18 @@ _DERIVED_RR: _Branch = "derived_rr"
 
 @dataclass(frozen=True)
 class _EValueSelection:
+    """One request's branch, and the part G configurations it reads.
+
+    ``features`` names each configuration that X82 part G added and that this request
+    reads, in a fixed order.  An empty tuple is a shipped configuration.  The ``+``-joined
+    features are the registry rule of the confidence-limit reading.
+    """
+
     source: str
     branch: _Branch
+    features: tuple[str, ...] = ()
+    #: The denominator level of a ``time_to_event_rr`` request; ``None`` on every other branch.
+    versus: str | None = None
 
 
 def _default_estimand(result: TMLEResult, keys: dict[str, Any]) -> str:
@@ -382,9 +447,9 @@ def _baseline_mean(result: TMLEResult, estimand: str, keys: dict[str, Any]) -> s
     """The reported mean under the arm ``estimand`` is contrasted against, if any.
 
     The risk-difference conversion divides by the baseline risk, and the baseline is the
-    contrast's *reference* arm rather than arm ``0``: with ``reference=1`` a two-armed
-    fit's ``ate`` is ``E[Y^0] - E[Y^1]`` and dividing by ``EY0`` would convert a
-    difference into a ratio of the wrong pair.  Found by arm through
+    contrast's *reference* arm, in the contrast's own stratum, rather than arm ``0``: with
+    ``reference=1`` a two-armed fit's ``ate`` is ``E[Y^0] - E[Y^1]`` and dividing by ``EY0``
+    would convert a difference into a ratio of the wrong pair.  Found by arm through
     :func:`~cleverly.sensitivity._parameters.arm_parameter_keys`, so ``ey0`` and
     ``ey[low]`` are both recognised -- whichever of them the fit was asked for.
     """
@@ -400,22 +465,104 @@ def _baseline_mean(result: TMLEResult, estimand: str, keys: dict[str, Any]) -> s
             and candidate.estimand in {"ey", "ey0", "ey1"}
             and candidate.reference is None
             and candidate.value == parameter.reference
-            and candidate.stratum is None
+            and candidate.stratum == parameter.stratum
         ),
         None,
     )
 
 
-def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection:
+def _is_time_to_event(result: Any) -> bool:
+    r"""Whether a longitudinal result holds one baseline decision and a binned event time.
+
+    :meth:`~cleverly.longitudinal.LongitudinalData.from_time_to_event` alone records a
+    time grid, and it holds the decision over every node and admits no covariate measured
+    after baseline.  So the risk at a grid time is a point-treatment risk of the binary
+    outcome :math:`1(T \le t)`.
+    """
+    data = getattr(result, "data", None)
+    return (
+        getattr(data, "time_grid", None) is not None
+        and bool(getattr(data, "treatment_held", False))
+        and bool(getattr(data, "is_survival", False))
+        and getattr(result, "msm", None) is None
+    )
+
+
+def _time_to_event_refusal(condition: str) -> _EValueRefusal:
+    """A refusal of a ``TimeToEvent`` E-value request that names the accepted form."""
+    return _EValueRefusal(
+        AssessmentStatus.UNAVAILABLE,
+        condition,
+        reason=RefusalReason.INVALID_DECLARATION,
+        alternative=_TIME_TO_EVENT_FORM,
+    )
+
+
+def _select_time_to_event(result: Any, estimand: Any) -> _EValueSelection:
+    """Admit the risk ratio of two static regimens at one horizon of a ``TimeToEvent`` fit."""
+    if not (isinstance(estimand, tuple) and len(estimand) == 2):
+        raise _time_to_event_refusal(
+            "an E-value on a TimeToEvent fit reads the risk ratio of two reported risks at "
+            f"one horizon, and the request names {estimand!r}."
+        )
+    numerator, denominator = (str(name) for name in estimand)
+    index = getattr(result, "parameter_index", None) or {}
+    missing = [name for name in (numerator, denominator) if name not in index]
+    if missing:
+        raise _time_to_event_refusal(
+            f"{missing} are not risks this fit reports; it reports {sorted(index)}."
+        )
+    (first, cause, horizon), (second, cause_b, horizon_b) = index[numerator], index[denominator]
+    if (cause, horizon) != (cause_b, horizon_b) or first == second:
+        raise _time_to_event_refusal(
+            f"{numerator!r} and {denominator!r} are not the risks of two regimens at one "
+            "cause and one horizon."
+        )
+    from ..longitudinal.regimen import Regimen
+
+    plans = {plan.label: plan for plan in result.config.regimens}
+    dynamic = [name for name in (first, second) if type(plans.get(name)) is not Regimen]
+    if dynamic:
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE,
+            f"regimens {dynamic} are not static arms, and the E-value of a regime contrast "
+            "has no derivation here.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="F34",
+        )
+    for name in (numerator, denominator):
+        if not result.estimates[name].supplies_inference:
+            raise _refuse(
+                AssessmentStatus.UNAVAILABLE,
+                _evalue_inference_refusal(result.estimates[name].inference),
+            )
+    return _EValueSelection(
+        numerator, "time_to_event_rr", features=("time_to_event",), versus=denominator
+    )
+
+
+def _select_evalue(result: TMLEResult, estimand: Any) -> _EValueSelection:
     """Select the exact, approximate, or refusal branch for one request."""
     if getattr(result, "assessment_family", None) != "point":
+        time_to_event = _is_time_to_event(result)
+        if time_to_event and estimand is not None:
+            return _select_time_to_event(result, estimand)
+        if time_to_event:
+            raise _EValueRefusal(
+                AssessmentStatus.DEFERRED,
+                "an E-value on a TimeToEvent fit reads the risk ratio of two reported risks "
+                "at one horizon; choose them as estimand=(numerator, denominator) from "
+                f"{sorted(getattr(result, 'parameter_index', None) or {})}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,
             "no longitudinal sensitivity derivation is registered for an E-value: the "
             "bounding factor needs a per-period latent law for a sequential g-formula "
             "target (docs/roadmap.md F16 tracks this stop).",
             reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=NO_ALTERNATIVE,
+            alternative=_TIME_TO_EVENT_FORM if time_to_event else NO_ALTERNATIVE,
             roadmap="F16",
         )
     if not result.data.has_arms:
@@ -432,9 +579,33 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             alternative=NO_ALTERNATIVE,
             roadmap="F27",
         )
-    # Fit-wide and ahead of the estimand, so a level or a multi-arm default refuses here too.
+    # Fit-wide and ahead of the estimand: an edited result that names one half of an
+    # intermediate variable reports no controlled direct effect to bound.
+    if declares_intermediate(result) and (
+        not result.data.has_intermediate or result.intermediate_value is None
+    ):
+        raise _refuse(AssessmentStatus.UNAVAILABLE, _INCOMPLETE_INTERMEDIATE_REFUSAL)
+    selection = _select_branch(result, estimand)
+    return replace(selection, features=_features(result, selection))
+
+
+def _features(result: TMLEResult, selection: _EValueSelection) -> tuple[str, ...]:
+    """The part G configurations a selected request reads, in one fixed order."""
+    features: list[str] = []
     if declares_intermediate(result):
-        raise _refuse(AssessmentStatus.UNAVAILABLE, _DIRECT_EFFECT_REFUSAL)
+        features.append("cde")
+    key = arm_parameter_keys(result).get(selection.source)
+    if key is not None and key.stratum is not None:
+        features.append("stratum")
+    if selection.branch == "gaussian_difference" and result.data.has_missing_outcome:
+        features.append("response_sd")
+    if selection.branch == _DERIVED_RR and result.fitted_method != "tmle":
+        features.append(f"derived_{result.fitted_method}")
+    return tuple(features)
+
+
+def _select_branch(result: TMLEResult, estimand: str | None) -> _EValueSelection:
+    """Select the branch of one request on a fit that :func:`_select_evalue` admitted."""
     keys = arm_parameter_keys(result)
     explicit = estimand is not None
     source = _default_estimand(result, keys) if estimand is None else estimand
@@ -486,18 +657,6 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             f"an E-value needs a two-arm contrast; target {key.estimand!r} has no reference arm",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if key.stratum is not None:
-        raise _EValueRefusal(
-            AssessmentStatus.NOT_APPLICABLE,
-            "this package requires an unconditioned marginal arm contrast; this contrast "
-            "is conditional on a baseline stratum.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=(
-                "Call evalue on the marginal alias of the same fit, or fit the stratum's "
-                "rows as their own study."
-            ),
-            roadmap="X82",
-        )
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
     # reference arm's ``std_error``, so no branch survives a fit that supplies neither.
@@ -515,13 +674,8 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if key.estimand == "or" and explicit:
         return _EValueSelection(source, "reported_or")
     if result.config.family == "gaussian" and key.estimand in {"ate", "att", "atc"}:
-        # Raised here, in the selection, rather than in the execution below.  The
-        # capability row is built from this function, so a refusal placed in
-        # ``_evalue_from_selection`` would leave the row advertising ``available=True``
-        # beside a call that raises.  Branch-scoped rather than fit-wide: the reported and
-        # derived ratio branches read no standard deviation at all.
-        if result.data.has_missing_outcome:
-            raise _refuse(AssessmentStatus.UNAVAILABLE, _STANDARDISED_MISSING_REFUSAL)
+        # With a response mechanism the branch standardizes by a missing-at-random
+        # plug-in of the population standard deviation (``_features`` names it).
         return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(
@@ -600,27 +754,35 @@ def _reject_unusable_baseline(
         )
 
 
-def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
+def evalue(result: TMLEResult, estimand: str | tuple[str, str] | None = None) -> EValue:
     """E-value for a fitted result.
 
-    ``estimand=None`` prefers a reported risk ratio. For an eligible binomial
-    ordinary-TMLE result that reports only a marginal ATE or odds ratio, it retargets the
-    retained nuisances to the matching exact risk ratio. An explicit odds-ratio request
+    ``estimand=None`` prefers a reported risk ratio. For an eligible binomial TMLE,
+    C-TMLE, or DR-TMLE result that reports only a marginal ATE or odds ratio, it retargets
+    the retained nuisances to the matching exact risk ratio. An explicit odds-ratio request
     preserves the caller's chosen square-root approximation. Routing uses structured
     parameter keys or forward-composed fitted arm identities; display aliases are never parsed.
     Unsupported exact retargets can use a reported reference risk for an approximate ATE
     conversion. That conversion needs a reference risk its own standard error separates
     from zero, and it refuses a difference that implies a nonpositive risk in the contrast
     arm. Gaussian ATE, ATT, and ATC use the standardized-difference approximation, which
-    divides by the weighted outcome standard deviation on a weighted fit.
+    divides by the weighted outcome standard deviation on a weighted fit, and by a
+    missing-at-random plug-in of it on a fit with a response mechanism.
+
+    A contrast within a baseline stratum reads that stratum's rows. A controlled direct
+    effect inverts a product of one bounding factor per arm. A ``TimeToEvent`` fit takes
+    two reported risks at one horizon, and the E-value reads their risk ratio. These
+    configurations print their confidence-limit E-value as descriptive until a coverage
+    study registers them (``EValue.limit_reading``).
 
     Parameters
     ----------
     result : TMLEResult
         A fitted result.
-    estimand : str or None
+    estimand : str, tuple of (str, str), or None
         Alias to report on. ``None`` picks the ratio-scale estimand the fit
-        reported, which is the scale an E-value is defined on.
+        reported, which is the scale an E-value is defined on. On a ``TimeToEvent`` fit,
+        the two risks whose ratio the E-value reads, numerator first.
 
     Returns
     -------
@@ -630,14 +792,28 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     Raises
     ------
     CapabilityError
-        If no branch covers the request. A fit with an intermediate variable estimates a
-        controlled direct effect, and every request on it refuses because this package
-        has no implemented E-value bound for its fitted target and confounding model.
+        If no branch covers the request. A fit with an intermediate variable reports a
+        controlled direct effect, and its E-value inverts a product of one bounding factor
+        per arm; a result that names only one half of that variable refuses.
     """
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
 
-def _standardising_sd(result: TMLEResult) -> tuple[float, bool]:
+def _stratum_rows(result: TMLEResult, source: str) -> np.ndarray | None:
+    """The rows of the baseline stratum ``source`` conditions on, or ``None`` if marginal.
+
+    The marginal E-value applied inside a stratum is a finite partition: every quantity the
+    branch reads is computed on the stratum's rows, as the stratum's own study would.
+    """
+    key = arm_parameter_keys(result).get(source)
+    if key is None or key.stratum is None:
+        return None
+    data = result.data
+    code = list(data.strata_levels).index(tuple(key.stratum))
+    return np.asarray(data.strata == code, dtype=bool)
+
+
+def _standardising_sd(result: TMLEResult, rows: np.ndarray | None = None) -> tuple[float, bool]:
     """The outcome standard deviation the Gaussian conversion divides by.
 
     A weighted fit estimates a weighted parameter, so the standard deviation that
@@ -651,6 +827,9 @@ def _standardising_sd(result: TMLEResult) -> tuple[float, bool]:
     ----------
     result : TMLEResult
         A fitted result whose outcome is observed on at least two rows.
+    rows : ndarray of bool or None
+        The rows of a baseline stratum, for a stratum-conditional contrast. ``None`` reads
+        every row.
 
     Returns
     -------
@@ -664,8 +843,11 @@ def _standardising_sd(result: TMLEResult) -> tuple[float, bool]:
         variance. One observed row gives ``w - w^2 / w = 0``, and no observed row of
         positive weight gives ``0`` as well.
     """
-    observed = result.data.outcome[result.data.observed]
-    weights = np.asarray(result.data.weights, dtype=float)[result.data.observed]
+    keep = np.asarray(result.data.observed, dtype=bool)
+    if rows is not None:
+        keep = keep & rows
+    observed = result.data.outcome[keep]
+    weights = np.asarray(result.data.weights, dtype=float)[keep]
     total = float(np.sum(weights))
     correction = total - float(np.sum(weights**2)) / total if total > 0 else 0.0
     if correction <= 0:
@@ -689,7 +871,15 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
     truncated_bound: float | None = None
     support = estimate.support
 
-    if selection.branch == "reported_rr":
+    if selection.branch == "time_to_event_rr":
+        assert selection.versus is not None
+        ratio = result.ratio(source, selection.versus, kind="rr")
+        estimate = ratio
+        reported_estimand = ratio.name
+        support = ratio.support
+        rr, ci, approximate, scale = ratio.psi, ratio.ci, False, "risk ratio"
+        note = _TIME_TO_EVENT_CONDITIONS
+    elif selection.branch == "reported_rr":
         rr, ci, approximate, note, scale = (
             estimate.psi,
             (low, high),
@@ -708,6 +898,12 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         )
     elif selection.branch == "derived_rr":
         derived = _derived_risk_ratio(result, source)
+        if not derived.supplies_inference:
+            # The source supplied inference, so the selection admitted the request. A
+            # retargeted ratio whose status supplies none has no interval to read.
+            raise _refuse(
+                AssessmentStatus.UNAVAILABLE, _evalue_inference_refusal(derived.inference)
+            )
         rr, ci, approximate, scale = derived.psi, derived.ci, False, "risk ratio"
         reported_estimand = derived.name
         support = combine_support([estimate.support, derived.support], kind="derived")
@@ -751,7 +947,14 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
                 "interval can still exclude the null."
             )
     elif selection.branch == "gaussian_difference":
-        sd, weighted = _standardising_sd(result)
+        rows = _stratum_rows(result, source)
+        response = result.data.has_missing_outcome
+        if response:
+            from ._outcome_moments import missing_at_random_sd
+
+            sd, weighted = missing_at_random_sd(result, rows), bool(result.data.is_weighted)
+        else:
+            sd, weighted = _standardising_sd(result, rows)
         if not np.isfinite(sd) or sd <= 0:
             raise CapabilityError(
                 "cannot standardise the effect: the outcome has no variance",
@@ -763,8 +966,14 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
             float(np.exp(_SMD_TO_LOG_RR * high / sd)),
         )
         approximate, scale = True, "mean difference"
+        within = "" if rows is None else " within the stratum"
+        plugin = (
+            "the missing-at-random plug-in of the population "
+            if response
+            else ("weighted " if weighted else "")
+        )
         note = (
-            f"Standardised by {'weighted ' if weighted else ''}sd(Y) = {sd:.4g}. "
+            f"Standardised by {plugin}sd(Y){within} = {sd:.4g}. "
             "Chinn's log(OR) / 1.81 step maps the "
             "standardised mean difference to an odds ratio. The subsequent common-outcome "
             "square-root conversion and E-value calculation are additional approximations."
@@ -777,16 +986,59 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
 
     above_null = rr >= 1.0
     limit = ci[0] if above_null else ci[1]
+    per_arm = "cde" in selection.features
+    if per_arm:
+        # The bias of a controlled-direct-effect ratio is a product of one bounding factor
+        # per arm. With equal strengths the product is BF(E, E)^2, so each E-value inverts
+        # the square root, after the branch's own conversion to the risk-ratio scale. The
+        # square root keeps a limit on its side of the null.
+        note = (note + " " if note else "") + _PER_ARM_CONDITIONS
+        point = evalue_from_rr(float(np.sqrt(rr)))
+        limit_value = _evalue_for_limit(
+            float(np.sqrt(limit)) if limit >= 0 else limit, above_null=above_null
+        )
+    else:
+        point = evalue_from_rr(rr)
+        limit_value = _evalue_for_limit(limit, above_null=above_null)
     return EValue(
         estimand=reported_estimand,
         scale=scale,
         risk_ratio=rr,
         risk_ratio_ci=ci,
-        point=evalue_from_rr(rr),
-        limit=_evalue_for_limit(limit, above_null=above_null),
+        point=point,
+        limit=limit_value,
         approximate=approximate,
         note=note,
         source_estimand=source,
         truncated_bound=truncated_bound,
         support=support,
+        bias_factor="per_arm_product" if per_arm else "single",
+        limit_reading=_limit_reading(result, selection),
     )
+
+
+def _limit_reading(result: TMLEResult, selection: _EValueSelection) -> Resolution | None:
+    """Ask the registry what a part G confidence-limit E-value may print.
+
+    A shipped configuration reads an interval with registered coverage evidence, and
+    returns ``None`` without asking.  Every other configuration resolves its ``+``-joined
+    features as one rule, so a registered coverage cell switches on exactly the
+    configuration it measured.  The import is local because
+    :mod:`cleverly.validation` imports this package.
+    """
+    if not selection.features:
+        return None
+    from ..validation._interpretation import fit_configuration, resolve
+
+    try:
+        fit = fit_configuration(result, selection.source)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        fit = None
+    reading = resolve(EVALUE_LIMIT_INSTRUMENT, "+".join(selection.features), fit)
+    if (
+        not reading.licensed
+        and result.fitted_method == "drtmle"
+        and result.data.known_treatment is None
+    ):
+        reading = replace(reading, sentence=f"{reading.sentence} {_LINEAR_REMAINDER_NOTE}")
+    return reading
