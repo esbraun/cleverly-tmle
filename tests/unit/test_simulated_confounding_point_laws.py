@@ -14,6 +14,7 @@ mutation control that shows the witness can fail.
 from __future__ import annotations
 
 import importlib
+import warnings
 from statistics import NormalDist
 from typing import Any
 
@@ -24,11 +25,27 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
-from cleverly import ATE, CausalStudy, CounterfactualMean, CrossFitting, PointTreatment, TMLEMethod
+from cleverly import (
+    ATC,
+    ATE,
+    ATT,
+    CausalStudy,
+    CounterfactualMean,
+    CrossFitting,
+    OddsRatio,
+    PointTreatment,
+    PopulationAttributableFraction,
+    PopulationAttributableRisk,
+    RegimeMean,
+    RiskRatio,
+    TMLEMethod,
+)
 from cleverly.datasets import make_multi_arm
 from cleverly.exceptions import CapabilityError
+from cleverly.interventions import Static
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity.simulated_confounding import (
+    NONCONVERGENCE_METHOD,
     SEPARATION_METHOD,
     _binary_calibration,
     _block_continuous_calibration,
@@ -214,6 +231,39 @@ def test_an_arm_mean_of_a_multi_arm_fit_swaps_its_declared_pair() -> None:
     )
     assert surface.complete
     assert surface.arm_pair == ("high", "medium")
+
+
+_MULTI_ARM_TARGETS = (
+    ("att", lambda: ATT(reference="low"), "gaussian"),
+    ("atc", lambda: ATC(reference="low"), "gaussian"),
+    ("rr", lambda: RiskRatio(reference="low"), "binomial"),
+    ("or", lambda: OddsRatio(reference="low"), "binomial"),
+    ("par", lambda: PopulationAttributableRisk(reference="low"), "binomial"),
+    ("paf", lambda: PopulationAttributableFraction(reference="low"), "binomial"),
+    ("regime", lambda: RegimeMean((Static("high", name="h"),)), "gaussian"),
+)
+
+
+@pytest.mark.parametrize(("label", "target", "family"), _MULTI_ARM_TARGETS, ids=lambda v: v)
+def test_every_arm_target_of_a_multi_arm_fit_runs_its_declared_pair(
+    label: str, target: Any, family: str
+) -> None:
+    """Each eligible target reads the swap, and a nonzero cell moves its estimate."""
+    frame, _ = make_multi_arm(n=300, seed=13, family=family)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+    )
+    result = _estimate(study, target(), binary=family == "binomial")
+    alias = next(name for name in result.estimates if "medium" not in name)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.25), outcome=(0.0,))
+    surface = simulated_confounding(
+        result, alias, grid=grid, random_state=4, arm_pair=("high", "low")
+    )
+    assert surface.complete, label
+    zero, moved = surface.cells
+    assert zero.estimate == pytest.approx(surface.original_estimate, rel=1e-10, abs=1e-12)
+    assert moved.estimate != pytest.approx(surface.original_estimate, rel=1e-6, abs=1e-9)
 
 
 def test_the_swapped_mechanism_mixes_the_pair_and_keeps_the_rest() -> None:
@@ -504,6 +554,52 @@ def test_a_separated_calibration_reports_nan_and_says_why() -> None:
     strength, method = _binary_calibration(design, overlap, [0], np.ones(120))
     assert np.isfinite(strength)
     assert method == "unpenalized logistic class-prediction change fraction"
+
+
+def test_quasi_complete_and_one_class_separation_report_nan() -> None:
+    """No MLE exists when one class is separated, though other rows overlap."""
+    rng = np.random.default_rng(8)
+    n = 300
+    design = rng.normal(size=(n, 2))
+    # Binary, quasi-complete: x0 = -1 gives 0 and x0 = 1 gives 1; x0 = 0 holds both.
+    design[:, 0] = rng.integers(-1, 2, size=n).astype(float)
+    target = np.where(design[:, 0] == 0.0, rng.random(n) < 0.5, design[:, 0] > 0.0)
+    target = target.astype(float)
+    assert not np.all(target == (design[:, 0] > 0.0))
+    # Mutation control: the optimizer stops at its tolerance with a finite fit, so a guard
+    # on fitted probabilities near one would miss this separation.
+    fitted = LogisticRegression(C=np.inf, max_iter=1000).fit(design, target)
+    assert fitted.n_iter_[0] < fitted.max_iter
+    own = fitted.predict_proba(design)[np.arange(n), target.astype(int)]
+    assert float(own.max()) < 1.0 - 1e-8
+    strength, method = _binary_calibration(design, target, [0], np.ones(n))
+    assert np.isnan(strength)
+    assert method == SEPARATION_METHOD
+    # Multinomial: class 2 sits alone at x0 > 1, classes 0 and 1 overlap below it.
+    spread = rng.normal(size=(n, 2))
+    three = np.where(spread[:, 0] > 1.0, 2.0, (rng.random(n) < 0.5).astype(float))
+    strength, method = _binary_calibration(spread, three, [0], np.ones(n))
+    assert np.isnan(strength)
+    assert method == SEPARATION_METHOD
+
+
+def test_an_unconverged_calibration_is_not_called_separation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rng = np.random.default_rng(8)
+    design = rng.normal(size=(200, 2))
+    target = (design[:, 0] + rng.normal(size=200) > 0.0).astype(float)
+    original = surface_module.LogisticRegression
+
+    def stalled(**kwargs: Any) -> Any:
+        return original(**{**kwargs, "max_iter": 1})
+
+    monkeypatch.setattr(surface_module, "LogisticRegression", stalled)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        strength, method = _binary_calibration(design, target, [0], np.ones(200))
+    assert np.isnan(strength)
+    assert method == NONCONVERGENCE_METHOD
 
 
 def test_the_summary_counts_the_separated_calibrations() -> None:

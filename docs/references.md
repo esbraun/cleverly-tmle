@@ -2051,6 +2051,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- Albert and Anderson (1984), *On the existence of maximum likelihood estimates in logistic
+  regression models*, Biometrika 71(1), 1–10. The paper classifies a sample as completely
+  separated, quasi-completely separated, or overlapping, and finds a finite maximum-likelihood fit
+  only under overlap. Konis (2007), *Linear programming algorithms for detecting separated data
+  in binary logistic regression models*, DPhil thesis, University of Oxford, gives the linear
+  programme that tests for separation. The simulated common-cause calibration applies that
+  programme to $K$ classes (`_classes_separate`). The witnesses in
+  `tests/unit/test_simulated_confounding_point_laws.py` check it on complete, quasi-complete and
+  one-class separation. No review in this project has read either source in full.
 - Carnegie, Harada and Dorie, R package [`treatSens`](https://github.com/vdorie/treatSens) 3.0
   (`DESCRIPTION` dated 2024-02-03), read on the `master` branch. The hard-stop review read
   `R/genU_contY.R`, `R/treatSensMLM.R` and `man/treatSens.Rd`. `treatSensMLM` declares the latent

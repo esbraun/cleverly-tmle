@@ -659,7 +659,7 @@ def _validate_binary_parameter_state(
         )
     elif target in _ATTRIBUTABLE_TYPES and type(typed_estimand) is _ATTRIBUTABLE_TYPES[target]:
         typed_attributable: Any = typed_estimand
-        expected_alias = parameter_name(target)
+        expected_alias = arm_alias(target, arm=key.value, collapse=result.data.is_binary_treatment)
         fitted_reference = result.data.arm_label(result.config.reference_arm)
         declared_reference = (
             levels[0] if typed_attributable.reference is None else typed_attributable.reference
@@ -1349,47 +1349,57 @@ def _latent_level(
                 f"got latent_level={latent_level!r}"
             )
         rho = None
-    if (
-        clustered
-        and latent_level != "cluster"
-        and _moves_treatment(grid)
-        and _treatment_constant_within_clusters(data)
-    ):
+    moved_constant = (
+        _moved_cluster_constant_columns(data, grid)
+        if clustered and latent_level != "cluster"
+        else ()
+    )
+    if moved_constant:
         raise CapabilityError(
             f"simulated_confounding refuses latent_level={latent_level!r} with a nonzero "
-            f"treatment strength: treatment {data.treatment_name!r} is constant within every "
-            f"cluster of {data.cluster_name!r}, and a latent that varies within a cluster "
-            "would move single rows of a cluster-level assignment.",
+            f"treatment strength on {', '.join(map(repr, moved_constant))}: that treatment is "
+            f"constant within every cluster of {data.cluster_name!r}, and a latent that varies "
+            "within a cluster would move single rows of a cluster-level assignment.",
             reason=RefusalReason.INVALID_DECLARATION,
             alternative=(
-                "Declare latent_level='cluster', or keep every treatment strength at zero for "
-                "an outcome-only surface."
+                "Declare latent_level='cluster', or keep the strength of every cluster-level "
+                "treatment at zero."
             ),
         )
     return latent_level, rho
 
 
-def _moves_treatment(grid: ConfounderStrengthGrid) -> bool:
-    """Whether any grid point gives a treatment axis a nonzero strength."""
-    for point in grid.treatment_points:
-        values = point if isinstance(point, tuple) else (point,)
-        if any(value != 0.0 for value in values):
-            return True
-    return False
+def _moved_cluster_constant_columns(data: Any, grid: ConfounderStrengthGrid) -> tuple[str, ...]:
+    """The treatment columns that hold one value per cluster and that some grid point moves.
 
-
-def _treatment_constant_within_clusters(data: Any) -> bool:
-    """Whether every cluster holds one treatment value (every component, on a vector)."""
-    values = np.asarray(
-        data.treatment_components if data.treatment_components is not None else data.treatment,
-        dtype=float,
-    ).reshape(data.n, -1)
+    A vector is read per component: a row-varying latent may move a component that varies
+    within clusters, but not a component that is constant within every cluster.
+    """
     cluster = np.asarray(data.cluster)
-    for column in values.T:
-        pairs = np.unique(np.column_stack((cluster, column)), axis=0)
-        if pairs.shape[0] != np.unique(cluster).size:
-            return False
-    return True
+    n_clusters = np.unique(cluster).size
+    if (data.treatment_components is not None) != bool(grid.components):
+        return ()  # _check_component_grid refuses this grid shape
+    if grid.components:
+        values = np.asarray(data.treatment_components, dtype=float)
+        names = tuple(data.component_names)
+        moved = {
+            name
+            for point in grid.treatment_points
+            for name, value in zip(grid.components, point, strict=True)  # type: ignore[arg-type]
+            if value != 0.0
+        }
+    else:
+        values = np.asarray(data.treatment, dtype=float).reshape(data.n, 1)
+        names = (data.treatment_name,)
+        moved = (
+            {data.treatment_name} if any(value != 0.0 for value in grid.treatment_points) else set()
+        )
+    return tuple(
+        name
+        for name, column in zip(names, values.T, strict=True)
+        if name in moved
+        and np.unique(np.column_stack((cluster, column)), axis=0).shape[0] == n_clusters
+    )
 
 
 def _check_component_grid(data: Any, grid: ConfounderStrengthGrid) -> None:

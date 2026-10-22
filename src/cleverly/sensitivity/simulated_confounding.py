@@ -570,14 +570,27 @@ class SimulatedConfoundingResult:
         )
 
     def _calibration_lines(self) -> tuple[str, ...]:
-        """Name the calibration rows whose unpenalized fit separated, if any."""
+        """Name the calibration rows without a finite strength, and the sign conventions."""
+        total = len(self.calibrations)
         separated = sum(1 for row in self.calibrations if row.method == SEPARATION_METHOD)
-        if not separated:
-            return ()
-        return (
-            f"calibration: {separated} of {len(self.calibrations)} strengths are nan, because "
-            "the unpenalized logistic fit separates the classes and has no finite solution",
-        )
+        stalled = sum(1 for row in self.calibrations if row.method == NONCONVERGENCE_METHOD)
+        lines = []
+        if separated:
+            lines.append(
+                f"calibration: {separated} of {total} strengths are nan, because the "
+                "unpenalized logistic fit separates the classes and has no finite solution"
+            )
+        if stalled:
+            lines.append(
+                f"calibration: {stalled} of {total} strengths are nan, because the "
+                "unpenalized logistic fit did not converge"
+            )
+        if any(row.method == _BLOCK_GAUSSIAN_METHOD for row in self.calibrations):
+            lines.append(
+                "calibration: a categorical block strength is unsigned and a numeric "
+                "Gaussian strength is signed, so compare their sizes, not their signs"
+            )
+        return tuple(lines)
 
     def _reading_guard(self) -> tuple[str, ...]:
         """Return the lines that say which cells carry a confounding path."""
@@ -1096,6 +1109,63 @@ def _gaussian_outcome(
 #: The method text of a calibration whose unpenalized logistic fit has no finite solution.
 SEPARATION_METHOD = "no finite unpenalized logistic fit (separation); strength not defined"
 
+#: The method text of a binary calibration whose unpenalized fit did not converge.
+NONCONVERGENCE_METHOD = "unpenalized logistic fit did not converge; strength not defined"
+
+#: The smallest linear-programme objective that counts as a separating direction.
+_SEPARATION_TOLERANCE = 1e-7
+
+
+def _classes_separate(design: np.ndarray[Any, Any], target: np.ndarray[Any, Any]) -> bool:
+    """Whether some linear rule separates the classes completely or quasi-completely.
+
+    The maximum-likelihood logistic or multinomial fit exists exactly when no such rule
+    exists (Albert and Anderson 1984).  The check is the linear programme of Konis (2007),
+    written for ``K`` classes: find class coefficients ``b_k``, with an intercept, such that
+    ``(b_{y_i} - b_k) . x_i >= 0`` for every row ``i`` and every other class ``k``, and
+    maximize the sum of those margins inside the box ``|b| <= 1``.  A positive optimum
+    is a direction along which the likelihood rises without bound.
+
+    Parameters
+    ----------
+    design : ndarray
+        The ``(n, p)`` design of the rows that carry weight.
+    target : ndarray
+        The class of each row.
+
+    Returns
+    -------
+    bool
+        ``True`` when a separating direction exists.
+    """
+    from scipy.optimize import linprog
+
+    classes, codes = np.unique(target, return_inverse=True)
+    n_classes = classes.size
+    rows = np.column_stack((np.ones(design.shape[0]), design))
+    width = rows.shape[1]
+    blocks = []
+    for other in range(n_classes):
+        keep = codes != other
+        if not np.any(keep):
+            continue
+        # One margin row per (row, other class): the coefficient block of the row's own
+        # class gets +x_i and the block of the other class gets -x_i.
+        kept = rows[keep]
+        block = np.zeros((kept.shape[0], n_classes, width))
+        block[np.arange(kept.shape[0]), codes[keep]] = kept
+        block[:, other] = -kept
+        blocks.append(block.reshape(kept.shape[0], n_classes * width))
+    margins = np.vstack(blocks)
+    solved = linprog(
+        -margins.sum(axis=0),
+        A_ub=-margins,
+        b_ub=np.zeros(margins.shape[0]),
+        bounds=(-1.0, 1.0),
+        method="highs",
+    )
+    return bool(solved.status == 0 and -solved.fun > _SEPARATION_TOLERANCE)
+
 
 def _binary_calibration(
     design: np.ndarray[Any, Any],
@@ -1112,9 +1182,11 @@ def _binary_calibration(
     parametrization of a categorical covariate, so its block strength does not depend on
     the dropped reference level (hard-stop review F10).  An L2 penalty is not invariant.
 
-    A fit that classifies every row correctly has completely separated classes, so the
-    maximum-likelihood fit does not exist.  The strength is then ``nan`` with
-    :data:`SEPARATION_METHOD`.
+    Complete or quasi-complete separation leaves no maximum-likelihood fit, and the
+    optimizer can stop at its tolerance with large finite coefficients.  The function
+    therefore tests separation directly with :func:`_classes_separate` and reports ``nan``
+    with :data:`SEPARATION_METHOD`.  A fit that stops at its iteration limit without
+    separation reports ``nan`` with :data:`NONCONVERGENCE_METHOD`.
 
     Parameters
     ----------
@@ -1132,6 +1204,9 @@ def _binary_calibration(
     tuple of (float, str)
         The strength and the method text.
     """
+    carried = weights > 0.0
+    if _classes_separate(design[carried], target[carried]):
+        return float("nan"), SEPARATION_METHOD
     model = LogisticRegression(C=np.inf, max_iter=1000)
     constant = _weights_are_constant(weights)
     if constant:
@@ -1145,8 +1220,8 @@ def _binary_calibration(
         if classes <= 2
         else "unpenalized multinomial class-prediction change fraction"
     )
-    if bool(np.all(baseline == target)) or int(np.max(model.n_iter_)) >= model.max_iter:
-        return float("nan"), SEPARATION_METHOD
+    if int(np.max(model.n_iter_)) >= model.max_iter:
+        return float("nan"), NONCONVERGENCE_METHOD
     removed = design.copy()
     removed[:, block] = 0.0
     changed = model.predict(removed) != baseline
