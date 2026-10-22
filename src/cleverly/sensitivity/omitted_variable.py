@@ -124,7 +124,12 @@ from .._support import record_refusal_site
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.composite import composite_state
-from ..estimators.ctmle import CTMLEDerivativeFit, CTMLESelection, declares_no_selection
+from ..estimators.ctmle import (
+    CTMLEDerivativeFit,
+    CTMLESelection,
+    declares_no_selection,
+    is_per_arm_oat,
+)
 from ..estimators.direct_effect import declares_intermediate, targeted_rows
 from ..estimators.iptw import OPERATION_REFUSALS
 from ..estimators.targeting import build_submodel
@@ -895,6 +900,17 @@ def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> 
             "assume_consistent_mechanism=True refits the treatment mechanism of a CTMLE fit on "
             "every covariate, and no refit of the composite mechanism of a missing treatment "
             "is implemented.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit the ordinary TMLE on the same data for the bound.",
+            roadmap="X82",
+        )
+    if method == "collaborative_tmle" and is_per_arm_oat(result.estimator):
+        raise CapabilityError(
+            "assume_consistent_mechanism=True refits the fit's treatment learner on every "
+            "covariate, and a per-arm outcome-adaptive fit declares a learner that reads one "
+            "column, the outcome prediction at one arm. The fit declares no learner for the "
+            "mechanism on the full adjustment set, so the representer of the point bound has "
+            "no source.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit the ordinary TMLE on the same data for the bound.",
             roadmap="X82",
