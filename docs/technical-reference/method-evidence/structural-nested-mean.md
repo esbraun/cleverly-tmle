@@ -130,7 +130,7 @@ variant lost no fit.
 
 The standard errors are not gated, and `exactness.csv` publishes their ratios. On every scalar
 node the reference SE over the subject SE is 0.99975, which is $\sqrt{(n - 1) / n}$ at
-$n$ = 2,000. On the three-level law `k`, EconML fills the off-diagonal Jacobian blocks of the
+$n$ = 2,000. The `A2` blips of `k` also read 0.99975. On the three-level law `k`, EconML fills the off-diagonal Jacobian blocks of the
 categorical coding in the transposed order (`tests/unit/test_structural_econml_parity.py`). The
 table gives the mean ratio of each `k` estimand.
 
@@ -141,10 +141,24 @@ table gives the mean ratio of each `k` estimand.
 | `blip[A1:1.0:intercept]` | 1.0009 | 0.9949 to 1.0110 |
 | `blip[A1:2.0:intercept]` | 0.9985 | 0.9898 to 1.0079 |
 
-The `k` contrast `ate_regimen[r12 vs r00]` reads `superior`. The points of the two
-implementations are identical, so the verdict comes from the reference's SE defect on the
-categorical node. It does not show that the subject estimates better. The 21 `econml` truth rows
+The `k` contrast `ate_regimen[r12 vs r00]` reads `superior`. The verdict comes from the
+coverage leg alone: the coverage difference is 0.0056, its lower bound is 0.0019, the RMSE ratio
+is 1 and the points are identical. Two pieces of evidence attribute it to the transposed
+categorical SE blocks of EconML: the parity tests in
+`tests/unit/test_structural_econml_parity.py`, and the subject's R = 8,000 calibration cell, where
+the SE ratio is 0.98 to 1.02. The 1,600-replicate primary rows alone cannot tell which SE is
+wrong. The verdict does not show that the subject estimates better. The 21 `econml` truth rows
 all pass in the accuracy table.
+
+**Declared deviation.** The pre-run reading said that subject replicates 0 to 999 would equal the
+earlier committed rows bit for bit. They do not. Of 61,000 subject rows, 59,559 differ in the last
+1 to 2 ULP: by at most 4.4e-16 in `estimate` and in `truth`, and by at most 1.1e-14 relative in
+`std_error`. The column `covered` is identical in all 61,000 rows, so no verdict moves. 
+
+The `truth` column moves while `tests/discrete_law_structural.py` keeps its hash. This points to the
+run host or the library build (`cleverly` 0.1.4 to 0.1.5), not to study code. The manifest also
+records `cleverly_worktree_clean: false` for the run at 2b815832. The gated reference and study
+module hashes equal the committed files.
 
 <!-- generated: agreement -->
 Comparator-backed: a paired comparison with `econml` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
