@@ -41,7 +41,10 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 PRIMARY_REPLICATES = 1_600
-PRIMARY_N = 2_000
+#: An estimated quantile biases each end outward at second order, by about ``0.29`` SD at
+#: ``n = 2000`` in SH1 (the pilot of ``X82-H-plan.md`` section 8). The bias falls like
+#: ``1 / sqrt(n)``, so ``n = 8000`` holds it near ``0.15`` SD.
+PRIMARY_N = 8_000
 SEED = 20262321
 RESAMPLING_SEED = 20262322
 
