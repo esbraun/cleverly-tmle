@@ -563,7 +563,7 @@ verdict. `bool(report)` raises `TypeError` for a descriptive report, so test `re
 Checks that need more than five refits are opt-in. The default tests run five
 replications each. A generated-outcome call defaults to `DEFAULT_OUTCOME_REPLICATES`, which is 400
 draws, and a budget below 400 prints its readings without a verdict. A budget below 10 is refused.
-[The technical reference](../technical-reference/validation-methods.md#verdicts-and-evidence)
+[The technical reference](../technical-reference/validation-methods.md#refutation-operations)
 states the bands and the evidence ladder. Generated outcomes apply only to identified additive
 contrasts for binary point treatments.
 
