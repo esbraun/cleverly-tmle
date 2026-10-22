@@ -141,6 +141,53 @@ def _independent_arms(process: Any) -> bool:
     return len({effect for _, effect in declared}) == 1
 
 
+def treatment_term(
+    process: Any,
+    codes: Any,
+    *,
+    arm_codes: Sequence[float],
+    levels: Sequence[Any],
+    intermediate: Any = None,
+) -> np.ndarray:
+    """Evaluate the additive treatment term ``c(a) + gamma z`` of a point process.
+
+    The term is the arm term of :func:`arm_term` plus ``intermediate_effect`` times the
+    intermediate value. The process reads the term inside its link, so the intermediate
+    enters without an interaction with the arm.
+
+    Parameters
+    ----------
+    process : object
+        A point process with ``effect``, ``arm_effects`` and ``intermediate_effect``.
+    codes : array-like
+        One internal treatment code per row.
+    arm_codes : sequence of float
+        The internal codes of the declared arms, in order.
+    levels : sequence
+        The labels of the declared arms, in the order of ``arm_codes``.
+    intermediate : array-like, float or None
+        The intermediate value of each row, one value for every row, or ``None`` when the
+        fit has no intermediate.
+
+    Returns
+    -------
+    ndarray
+        The treatment term of each row.
+    """
+    terms = arm_term(process, codes, arm_codes=arm_codes, levels=levels)
+    gamma = float(getattr(process, "intermediate_effect", 0.0))
+    if intermediate is None or gamma == 0.0:
+        return terms
+    return np.asarray(terms + gamma * np.asarray(intermediate, dtype=float), dtype=float)
+
+
+def _validate_extras(process: Any, label: str) -> None:
+    _finite(getattr(process, "intermediate_effect", 0.0), f"{label} intermediate_effect")
+    cluster_sd = getattr(process, "cluster_sd", 0.0)
+    if not np.isfinite(cluster_sd) or cluster_sd < 0.0:
+        raise ValueError(f"{label} cluster_sd must be finite and nonnegative")
+
+
 @dataclass(frozen=True)
 class GaussianNoise:
     """Declare one Gaussian noise law for a generated outcome.
@@ -188,9 +235,14 @@ class GaussianIndependentOutcome:
     ----------
     noise : GaussianNoise
         Gaussian law that generates every outcome value.
+    cluster_sd : float
+        Standard deviation of a cluster random intercept that the clustered plasmode adds
+        to each drawn cluster. The default 0 adds none. The intercept has mean 0, so no
+        truth changes.
     """
 
     noise: GaussianNoise = GaussianNoise()
+    cluster_sd: float = 0.0
     name: str = field(default="gaussian_independent_noise", init=False)
     adjustment_function: str = field(default="none", init=False)
     treatment_term: str = field(default="none", init=False)
@@ -198,6 +250,10 @@ class GaussianIndependentOutcome:
     known_effect: float = field(default=0.0, init=False)
     effect: float = field(default=0.0, init=False)
     arm_effects: None = field(default=None, init=False)
+    intermediate_effect: float = field(default=0.0, init=False)
+
+    def __post_init__(self) -> None:
+        _validate_extras(self, "GaussianIndependentOutcome")
 
     @property
     def noise_law(self) -> GaussianNoise:
@@ -291,12 +347,21 @@ class GaussianAdjustmentOutcome:
         Gaussian law for ``epsilon``.
     arm_effects : dict or tuple of tuple or None
         One effect per declared arm label, in place of ``effect * code``. Point fits only.
+    intermediate_effect : float
+        Effect ``gamma`` of the binary intermediate ``Z`` of a controlled direct effect.
+        The mean adds ``gamma z`` with no arm interaction. Point fits only.
+    cluster_sd : float
+        Standard deviation of a cluster random intercept that the clustered plasmode adds
+        to each drawn cluster. The default 0 adds none. The intercept has mean 0, so no
+        truth changes.
     """
 
     effect: float = 1.0
     adjustment_scale: float = 1.0
     noise: GaussianNoise = GaussianNoise()
     arm_effects: Any = None
+    intermediate_effect: float = 0.0
+    cluster_sd: float = 0.0
     name: str = field(default="gaussian_adjustment_dependent", init=False)
     adjustment_function: str = field(
         default="scaled_standardized_covariate_sum_over_root_count", init=False
@@ -309,6 +374,7 @@ class GaussianAdjustmentOutcome:
             raise ValueError("Gaussian adjustment outcome effect must be finite")
         if not np.isfinite(self.adjustment_scale):
             raise ValueError("Gaussian adjustment outcome adjustment_scale must be finite")
+        _validate_extras(self, "GaussianAdjustmentOutcome")
         effects = _arm_effects(self.arm_effects, "GaussianAdjustmentOutcome")
         object.__setattr__(self, "arm_effects", effects)
         if effects is not None:
@@ -327,7 +393,11 @@ class GaussianAdjustmentOutcome:
     @property
     def independent(self) -> bool:
         """Return whether the outcome reads neither the covariates nor the treatment."""
-        return self.adjustment_scale == 0.0 and _independent_arms(self)
+        return (
+            self.adjustment_scale == 0.0
+            and _independent_arms(self)
+            and self.intermediate_effect == 0.0
+        )
 
     def adjustment(self, covariates: Any, *, centre: Any = None, scale: Any = None) -> np.ndarray:
         """Evaluate the declared adjustment function.
@@ -441,6 +511,7 @@ def _validate_link(process: Any, label: str) -> None:
     _finite(process.adjustment_scale, f"{label} adjustment_scale")
     if process.link not in ("logit", "identity"):
         raise ValueError(f"{label} link must be 'logit' or 'identity'")
+    _validate_extras(process, label)
     object.__setattr__(process, "arm_effects", _arm_effects(process.arm_effects, label))
 
 
@@ -467,6 +538,9 @@ class BernoulliAdjustmentOutcome:
         The link of the mean model.
     arm_effects : dict or tuple of tuple or None
         One arm term per declared arm label, in place of ``effect * code``.
+    intermediate_effect : float
+        Effect ``gamma`` of the binary intermediate ``Z`` of a controlled direct effect,
+        added inside the link with no arm interaction. Point fits only.
     """
 
     intercept: float = -0.5
@@ -474,6 +548,7 @@ class BernoulliAdjustmentOutcome:
     adjustment_scale: float = 1.0
     link: Link = "logit"
     arm_effects: Any = None
+    intermediate_effect: float = 0.0
     name: str = field(default="bernoulli_adjustment_dependent", init=False)
     family: str = field(default="binomial", init=False)
 
@@ -483,7 +558,11 @@ class BernoulliAdjustmentOutcome:
     @property
     def independent(self) -> bool:
         """Return whether the outcome reads neither the covariates nor the treatment."""
-        return self.adjustment_scale == 0.0 and _independent_arms(self)
+        return (
+            self.adjustment_scale == 0.0
+            and _independent_arms(self)
+            and self.intermediate_effect == 0.0
+        )
 
     def mean(
         self, covariates: Any, arms: Any, *, centre: Any = None, scale: Any = None, **_: Any
@@ -576,6 +655,9 @@ class BoundedAdjustmentOutcome:
         The Beta precision ``phi``. A larger value gives less noise around the mean.
     arm_effects : dict or tuple of tuple or None
         One arm term per declared arm label, in place of ``effect * code``.
+    intermediate_effect : float
+        Effect ``gamma`` of the binary intermediate ``Z`` of a controlled direct effect,
+        added inside the link with no arm interaction. Point fits only.
     """
 
     intercept: float = 0.0
@@ -584,6 +666,7 @@ class BoundedAdjustmentOutcome:
     link: Link = "logit"
     precision: float = 20.0
     arm_effects: Any = None
+    intermediate_effect: float = 0.0
     name: str = field(default="bounded_beta_adjustment_dependent", init=False)
     family: str = field(default="gaussian", init=False)
 
@@ -595,7 +678,11 @@ class BoundedAdjustmentOutcome:
     @property
     def independent(self) -> bool:
         """Return whether the outcome reads neither the covariates nor the treatment."""
-        return self.adjustment_scale == 0.0 and _independent_arms(self)
+        return (
+            self.adjustment_scale == 0.0
+            and _independent_arms(self)
+            and self.intermediate_effect == 0.0
+        )
 
     def mean(
         self,
