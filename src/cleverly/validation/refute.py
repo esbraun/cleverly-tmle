@@ -1235,11 +1235,38 @@ def _refuse_placebo_kernel(result: TMLEResult, request: _RefuteRequest) -> Refus
     if "placebo" not in request.tests or not _is_panel(result):
         return None
     if not getattr(result.data, "has_mixed_node", False):
-        return None
+        return _refuse_row_varying_support(result)
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "the longitudinal placebo has no Markov kernel for a vector node with a continuous "
         "component, whose components a drawn code cannot replace.",
+        alternative=(
+            "The random_common_cause, subset and bootstrap_stability tests run on this fit."
+        ),
+        roadmap="X82",
+    )
+
+
+def _refuse_row_varying_support(result: TMLEResult) -> Refusal | None:
+    """Refuse the Markov placebo on a dose whose declared support reads the history.
+
+    The kernel draws a donor's dose without reading the receiving unit's covariates, so a
+    drawn dose can leave a support that moves with the history. The refit would then stop
+    on the declared-support check partway through the replicates.
+    """
+    supports = getattr(result.data, "dose_supports", ())
+    if not any(
+        callable(bound)
+        for support in supports
+        if support is not None and not isinstance(support, tuple)
+        for bound in (support.lower, support.upper)
+    ):
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "the longitudinal placebo draws each dose from a donor without reading the unit's "
+        "history, so a dose can leave a declared support whose bounds are functions of the "
+        "history.",
         alternative=(
             "The random_common_cause, subset and bootstrap_stability tests run on this fit."
         ),

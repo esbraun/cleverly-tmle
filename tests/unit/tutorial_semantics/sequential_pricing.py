@@ -42,6 +42,7 @@ from cleverly.datasets import (
 from cleverly.interventions import ModifiedPolicy, Piece
 from cleverly.longitudinal import DynamicRegimen
 from cleverly.utils.bounds import logit
+from cleverly.validation.refute import refute_refusal
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -119,6 +120,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_support(namespace)
     _check_assessment(namespace)
     _check_refusals(namespace)
+    _check_refits(namespace)
     _check_probe_logs()
     _check_prose_phrases(namespace)
 
@@ -715,6 +717,71 @@ class _NeverFit(LogisticRegression):
 
     def fit(self, *args: Any, **kwargs: Any) -> Any:
         raise AssertionError("the fit reached a learner")
+
+
+def _check_refits(namespace: dict[str, Any]) -> None:
+    """Step 11: the refits are descriptive, and each check the page skips is refused for its reason."""
+    reports = namespace["reports"]
+    estimand = namespace["estimand"]
+    assert estimand == _key("price_up")
+    assert tuple(reports) == ("renewal", "revenue")
+    expected = {
+        "renewal": ("subset", "random_common_cause", "bootstrap_stability"),
+        "revenue": ("subset", "random_common_cause"),
+    }
+    for name, report in reports.items():
+        assert report.estimand == estimand
+        assert tuple(test.name for test in report.tests) == expected[name]
+        for test in report.tests:
+            # "Every row is descriptive": no registry row covers the fit.
+            assert test.rung == "L0" and test.passed is None
+        assert report.passed is None
+    printed = stored_output(NOTEBOOK, "refute")
+    assert "This fit differs on outcome family 'binomial'" in printed
+    assert "This fit differs on outcome family 'gaussian'" in printed
+    # The subset ratios and the noise-column shifts that the reading quotes.
+    subset = {name: reports[name]["subset"] for name in reports}
+    assert subset["renewal"].statistic == pytest.approx(0.86, abs=0.005)
+    assert subset["revenue"].statistic == pytest.approx(0.88, abs=0.005)
+    assert subset["renewal"].statistic_pvalue == pytest.approx(0.66, abs=0.005)
+    assert subset["revenue"].statistic_pvalue == pytest.approx(0.71, abs=0.005)
+    noise = {name: reports[name]["random_common_cause"].statistic for name in reports}
+    assert noise["renewal"] == pytest.approx(-0.019, abs=0.0005)
+    assert noise["revenue"] == pytest.approx(-0.020, abs=0.0005)
+    table = reports["renewal"].to_frame().set_index("test")
+    spread = float(table.loc["bootstrap_stability", "refuted_sd"])
+    assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
+        0.88, abs=0.01
+    )
+    # The five checks the page does not run are refused before any refit, for the reasons it gives.
+    for fit in (namespace["result"], namespace["revenue_result"]):
+        refusal = refute_refusal(fit, estimand=estimand, tests=("placebo",))
+        assert refusal is not None and "functions of the history" in refusal.message()
+        refusal = refute_refusal(
+            fit,
+            estimand=estimand,
+            tests=("future_treatment",),
+            future_treatment_control=np.zeros(len(namespace["frame"])),
+        )
+        assert refusal is not None and "binary treatment at the later node" in refusal.message()
+    refusal = refute_refusal(namespace["result"], estimand=estimand, tests=("simulated_outcome",))
+    assert refusal is not None and "family='binomial'" in refusal.message()
+    refusal = refute_refusal(
+        namespace["revenue_result"], estimand=estimand, tests=("simulated_outcome",)
+    )
+    assert refusal is not None and "q_bounds=(0.0, 10.0)" in refusal.message()
+    refusal = refute_refusal(
+        namespace["result"],
+        estimand=estimand,
+        tests=("negative_control_outcome",),
+        negative_control_outcome=namespace["frame"]["usage"].to_numpy(),
+        negative_control_kind="pre_treatment",
+    )
+    assert refusal is not None and "adjustment" in refusal.message().lower()
+    from cleverly.sensitivity import evalue
+
+    with pytest.raises(CapabilityError, match="F16"):
+        evalue(namespace["result"], estimand)
 
 
 def _check_refusals(namespace: dict[str, Any]) -> None:

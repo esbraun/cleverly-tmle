@@ -1793,7 +1793,7 @@ Each item is one pull request that edits one notebook and its
 | (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
 | (g) | `longitudinal-survival.ipynb` | the longitudinal checks on a `RegimeContrast` fit, and held-history generated outcomes | (0) |
 | (h) | `sequential-offers.ipynb` | the longitudinal checks, with each limit stated | (0) |
-| (i) | `sequential-pricing.ipynb` | the longitudinal checks on the renewal and revenue contrasts | (0) |
+| (i) | `sequential-pricing.ipynb` | `subset`, `random_common_cause` and `bootstrap_stability` on the renewal and revenue contrasts, and one sentence for each check the design cannot run. Shipped | (0) |
 | (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
 
 SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers
