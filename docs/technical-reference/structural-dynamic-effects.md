@@ -373,9 +373,9 @@ registered study cell covers a structural fit.
 The interval of this estimator has no linear-remainder exposure. Every nuisance regresses an
 observed variable on $H_t$, and the remainder $R_t$ of [the estimating
 equation](#the-estimating-equation) is a sum of products of nuisance errors. So a reading that uses
-the fit's standard error, such as `subset`, inherits no first-order bias from a nuisance fitted on
-an estimated index. The theory admits a verdict for `subset` within a calibrated scope, and the
-report prints none until a study registers that scope.
+the fit's standard error, such as `subset` or the negative control, inherits no first-order bias
+from a nuisance fitted on an estimated index. The theory admits a verdict for those two tests within
+a calibrated scope. The report prints none until a study registers that scope.
 
 ## Comparator
 
