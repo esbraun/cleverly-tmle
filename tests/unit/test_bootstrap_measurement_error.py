@@ -927,7 +927,7 @@ class TestPreflightRefusals:
         _refuse_before_any_refit(
             _data(strata=True),
             BootstrapMeasurementError(("group",)),
-            r"cannot perturb selected strata variables .*\['group'\]",
+            r"names only strata variables \['group'\]\. No column is left to perturb",
         )
 
     def test_incomplete_categorical_block_refuses_before_refit(self) -> None:
