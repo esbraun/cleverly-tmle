@@ -7,10 +7,12 @@ quotes. Nothing here fits an estimator.
 
 from __future__ import annotations
 
+import json
 import math
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy import stats
 
@@ -53,6 +55,8 @@ class TestLaw:
 class TestDefectSizing:
     @pytest.mark.parametrize("family", ["gaussian", "binomial"])
     def test_the_stale_share_moves_the_placebo_by_0_85_sd(self, family: str) -> None:
+        # The population shift. One trial's shift varies about it by roughly sqrt(q)
+        # permutation SD, so the per-trial power of 0.95 it buys is approximate.
         assert study.placebo_shift(family, study.STALE_SHARE[family], law=LAW) >= (
             PLACEBO_SHIFT_FLOOR
         )
@@ -125,6 +129,56 @@ class TestCells:
     def test_every_power_trial_is_a_size_trial(self) -> None:
         assert study.POWER_TRIALS <= study.SIZE_TRIALS
 
+    def test_the_cell_configurations_are_a_committed_artifact(self) -> None:
+        assert study.STUDY.property_artifacts == (properties.CELLS_FILE,)
+
+
+class TestConfiguration:
+    def test_the_booster_resolves_early_stopping_off(self) -> None:
+        from cleverly.validation._interpretation import learner_fingerprint
+
+        fingerprint = learner_fingerprint(study._booster(), study.N)
+        assert "early_stopping=False" in fingerprint
+        assert "max_depth=2" in fingerprint
+
+    def test_a_trial_records_the_fitted_configuration(self) -> None:
+        frame = study.draw_law("binomial", study.N, seed=4)
+        result = study.fit_cell("D1", frame, seed=5)
+        configuration = study.trial_configuration(result)
+        assert configuration["method"] == "DRTMLE"
+        assert configuration["known_mechanism"] is True
+        assert configuration["cross_fitting"] == f"folds={study.N_FOLDS}"
+        assert configuration["replicates"] == study.REFITS
+        assert configuration["n"] == study.N
+
+    @staticmethod
+    def _rows(configurations: dict[str, list[dict[str, object]]]) -> pd.DataFrame:
+        records = [
+            {"cell": f"{name}__placebo", "configuration": json.dumps(fit, sort_keys=True)}
+            for name, fits in configurations.items()
+            for fit in fits
+        ]
+        return pd.DataFrame(records)
+
+    def test_one_configuration_per_cell_is_recorded_with_its_event_range(self) -> None:
+        fits = {
+            name: [
+                {"method": "TMLE", "min_event_count": 70},
+                {"method": "TMLE", "min_event_count": 64},
+            ]
+            for name in study.CELLS
+        }
+        table = properties.cell_configurations(self._rows(fits))
+        assert list(table["cell"]) == list(study.CELLS)
+        assert set(table["min_event_count_min"]) == {64}
+        assert set(table["min_event_count_max"]) == {70}
+
+    def test_a_cell_whose_configuration_varies_stops_the_run(self) -> None:
+        fits = {name: [{"method": "TMLE", "min_event_count": 70}] for name in study.CELLS}
+        fits["T3"].append({"method": "CTMLE", "min_event_count": 70})
+        with pytest.raises(RuntimeError, match="cell T3 fitted 2 configurations"):
+            properties.cell_configurations(self._rows(fits))
+
 
 class TestMutations:
     def test_the_stale_patch_keeps_the_declared_share_and_restores(self) -> None:
@@ -147,8 +201,8 @@ class TestMutations:
 
         rng = np.random.default_rng(3)
         values = rng.normal(scale=0.02, size=study.REFITS)
-        original = subset_reading(values, std_error=0.03, n=2000, m=1400)
-        doubled = subset_reading(values, std_error=0.06, n=2000, m=1400)
+        original = subset_reading(values.tolist(), std_error=0.03, n=2000, m=1400)
+        doubled = subset_reading(values.tolist(), std_error=0.06, n=2000, m=1400)
         mutated = study.rescaled_subset(original.rho, 2.0)
         assert mutated.statistic == pytest.approx(doubled.rho, rel=1e-12)
         assert mutated.pvalue == pytest.approx(doubled.pvalue, rel=1e-10)

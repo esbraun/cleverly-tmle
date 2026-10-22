@@ -27,14 +27,23 @@ A size cell has 200 trials and passes at no more than 17 rejections. A power cel
 
 | defect | rule | construction |
 | --- | --- | --- |
-| stale rows | placebo | a declared share of rows keeps the recorded treatment |
+| stale rows | placebo | a declared share of rows keeps the recorded treatment. On D1 the stale rows also make the declared arm shares wrong for the placebo column |
 | half SE, double SE | subset | the same trial's `rho` at the reported SE halved and doubled |
 | confounded control | negative control | the control also reads the unmeasured cause of the treatment |
 
 `tests/unit/test_refuter_calibration_point_design.py` sizes each defect from the declared law
-so that its per-trial power is at least 0.95.
+so that its per-trial power is at least 0.95. For the stale-row placebo this power is
+approximate. The test sizes the population shift, and the shift of one trial varies about it.
+The power rule passes with probability 0.999 at a per-trial power of 0.90.
+
+Each trial records the configuration of its fit, read off the fitted result. The run stops if
+any axis except the smallest arm event count varies within a cell. `cells.csv` records each
+cell's configuration and the range of its event count.
 
 No canonical implementation is compared. `equivalence.csv` is empty and schema-valid.
+
+The run costs about 40 CPU-hours. The greedy `CTMLE` cell C1 takes about 21 and the booster
+cell T3 about 15. A pilot of 20 trials per cell measured these times.
 
 Run the declared study from the repository root:
 

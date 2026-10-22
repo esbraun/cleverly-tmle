@@ -8,6 +8,10 @@ the defect.
 
 Each trial draws its own sample from ``stream_seed(STUDY, "property_sample", cell, trial)``.
 
+Each trial also records the configuration of its fit. :func:`generate_property_artifacts`
+stops the run if a cell's configuration varies, and writes the one configuration of each cell
+to ``cells.csv``.
+
 The verdicts are the plan's count rules. The failure accounting reads them through the exact
 99% Clopper-Pearson interval of the shared S3 clause: :data:`SIZE_CEILING` lies strictly
 between the upper endpoints at 17 and 18 rejections of 200, and :data:`POWER_FLOOR` strictly
@@ -17,6 +21,7 @@ and the count rule agree, and :func:`count_rule_agrees` proves it for every coun
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pandas as pd
@@ -28,7 +33,6 @@ from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
-from tests.studies.evidence.seeds import stream_seed
 from tests.studies.refuter_calibration_point import (
     CELLS,
     POWER_FAMILY,
@@ -42,7 +46,13 @@ from tests.studies.refuter_calibration_point import (
     N,
     draw_law,
     trial_readings,
+    trial_seed,
 )
+
+#: The committed file that records each cell's fit configuration.
+CELLS_FILE = "cells.csv"
+_CONFIGURATION = "configuration"
+
 
 _LEVEL = STUDY.margins.confidence_level
 
@@ -90,7 +100,13 @@ def _reference(reading: str) -> float:
 
 
 def _row(
-    family: str, cell: str, role: str, trial: int, requested: int, reading: Any
+    family: str,
+    cell: str,
+    role: str,
+    trial: int,
+    requested: int,
+    reading: Any,
+    configuration: str,
 ) -> dict[str, Any]:
     reading_name = cell.split("__", 1)[1]
     return {
@@ -106,32 +122,90 @@ def _row(
         "std_error": float("nan"),
         "covered": int(not reading.rejected),
         "rejected": int(reading.rejected),
+        _CONFIGURATION: configuration,
     }
 
 
-def _seed(name: str, trial: int) -> int:
-    return stream_seed(STUDY, "property_sample", name, trial)
-
-
 def _draw(name: str, trial: int) -> Any:
-    return draw_law(CELLS[name].family, N, _seed(name, trial))
+    return draw_law(CELLS[name].family, N, trial_seed("property_sample", name, trial))
 
 
 def _replicate(name: str, trial: int, drawn: Any) -> list[dict[str, Any]]:
     cell = CELLS[name]
-    readings = trial_readings(name, drawn, _seed(name, trial), power=trial < POWER_TRIALS)
+    result = trial_readings(name, drawn, trial, power=trial < POWER_TRIALS)
+    readings = result.readings
+    configuration = json.dumps(result.configuration, sort_keys=True)
     rows = [
-        _row(SIZE_FAMILY, f"{name}__{reading}", "positive", trial, SIZE_TRIALS, readings[reading])
+        _row(
+            SIZE_FAMILY,
+            f"{name}__{reading}",
+            "positive",
+            trial,
+            SIZE_TRIALS,
+            readings[reading],
+            configuration,
+        )
         for reading in cell.readings
     ]
     if trial < POWER_TRIALS:
         rows += [
             _row(
-                POWER_FAMILY, f"{name}__{defect}", "control", trial, POWER_TRIALS, readings[defect]
+                POWER_FAMILY,
+                f"{name}__{defect}",
+                "control",
+                trial,
+                POWER_TRIALS,
+                readings[defect],
+                configuration,
             )
             for defect in cell.defects
         ]
     return rows
+
+
+def cell_configurations(rows: pd.DataFrame) -> pd.DataFrame:
+    """One row per cell: the configuration every trial of the cell fitted.
+
+    The smallest arm event count differs from one sample to the next, so the row records its
+    range over the cell's trials (a calibration scope covers event counts at or above its
+    floor). Every other axis must be the same on every trial.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The property rows with their configuration column.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per cell of :data:`CELLS`.
+
+    Raises
+    ------
+    RuntimeError
+        If a cell's trials fitted more than one configuration.
+    """
+    names = rows["cell"].str.split("__", n=1).str[0]
+    records = []
+    for name in CELLS:
+        fits = [json.loads(text) for text in set(rows.loc[names == name, _CONFIGURATION])]
+        events = [fit.pop("min_event_count") for fit in fits]
+        axes = {json.dumps(fit, sort_keys=True) for fit in fits}
+        if len(axes) != 1:
+            raise RuntimeError(f"cell {name} fitted {len(axes)} configurations, expected one")
+        counted = [count for count in events if count is not None]
+        records.append(
+            {
+                "cell": name,
+                **json.loads(axes.pop()),
+                "min_event_count_min": min(counted) if counted else None,
+                "min_event_count_max": max(counted) if counted else None,
+            }
+        )
+    table = pd.DataFrame(records)
+    for column in ("min_event_count_min", "min_event_count_max"):
+        table[column] = table[column].astype("Int64")
+    return table
 
 
 def _cells_of(key: tuple[str, int]) -> list[str]:
@@ -165,10 +239,23 @@ def payloads(
     return [(name, trial) for name in cells for trial in range(trials)]
 
 
-def generate_property_rows(
+def generate_property_artifacts(
     *, n_jobs: int = STUDY_JOBS, replicates: int = SIZE_TRIALS
-) -> pd.DataFrame:
-    """Fit every trial and return one row per cell and trial."""
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Fit every trial and return the rows and the cell configurations.
+
+    Parameters
+    ----------
+    n_jobs : int
+        Worker processes.
+    replicates : int
+        Trials per size cell.
+
+    Returns
+    -------
+    tuple
+        The property rows, one per cell and trial, and :data:`CELLS_FILE` by file name.
+    """
     outcomes = fit_properties(
         payloads(trials=replicates),
         splat_drawn(_replicate),
@@ -183,7 +270,28 @@ def generate_property_rows(
         cells = set(rows.loc[rows["property"] == family, "cell"])
         if cells != set(declared):
             raise RuntimeError(f"{family} cells {sorted(cells ^ set(declared))} differ")
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    return rows.loc[:, list(REPLICATE_COLUMNS)], {CELLS_FILE: cell_configurations(rows)}
+
+
+def generate_property_rows(
+    *, n_jobs: int = STUDY_JOBS, replicates: int = SIZE_TRIALS
+) -> pd.DataFrame:
+    """Fit every trial and return one row per cell and trial.
+
+    Parameters
+    ----------
+    n_jobs : int
+        Worker processes.
+    replicates : int
+        Trials per size cell.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The property rows.
+    """
+    rows, _ = generate_property_artifacts(n_jobs=n_jobs, replicates=replicates)
+    return rows
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

@@ -51,12 +51,17 @@ D2    ``DRTMLE``, estimated mechanism, GLM                 binary    placebo
 **Power cells.** Trials 0 to 49 of each size cell also run the defects below. A power reading
 passes when it detects its defect in at least 38 of 50 trials. Each defect is sized from the
 declared law so that its per-trial power is at least 0.95 (``tests/unit/test_refuter_calibration_point_design.py``).
+For the stale-row placebo the 0.95 is approximate: the design test sizes the population shift,
+and the shift of one trial's placebo varies about it by roughly ``sqrt(q)`` permutation SD. The
+count rule passes with probability 0.999 at a per-trial power of 0.90, so the slack is harmless.
 
 ====================  ==========================================================================
 defect                construction
 ====================  ==========================================================================
 stale rows            the placebo keeps the recorded treatment on a declared share ``q`` of rows
-                      and permutes the rest among themselves (:data:`STALE_SHARE`)
+                      and permutes the rest among themselves (:data:`STALE_SHARE`). On D1 the
+                      stale rows also make the declared arm shares wrong for the placebo
+                      column, which is a second defect the placebo should catch
 half SE, double SE    the subset ``rho`` of the same trial recomputed with the reported SE halved
                       and doubled. ``rho`` is linear in ``1 / SE``, so this is exact and costs no fit
 confounded control    the negative-control fit on ``NCU`` instead of ``NC`` (:data:`CONTROL_DELTA`)
@@ -64,6 +69,13 @@ confounded control    the negative-control fit on ``NCU`` instead of ``NC`` (:da
 
 The power cells are the controls of the size cells: a rule that never rejects passes its size
 cell and fails its power cell.
+
+**Fit configuration.** Every trial reads the configuration off its fitted result
+(:func:`~cleverly.validation._interpretation.fit_configuration` with ``replicates = 20``),
+including each learner's fingerprint with the booster's resolved ``early_stopping``. The run
+stops if any axis but the smallest arm event count varies across a cell's trials. ``cells.csv``
+records the one configuration of each cell and the range of its event count. A registry row
+licensed by this study covers that configuration.
 
 **Red reading** (declared before the run). A size red is a defect suspect until diagnosed. A red
 with no defect goes to reporting with an owner, and the rule's registry row stays descriptive.
@@ -78,7 +90,7 @@ import importlib
 import math
 import warnings
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -91,11 +103,12 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.validation import refute
+from cleverly.validation._interpretation import fit_configuration
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate, replicate_seed
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 N = 2_000
 N_FOLDS = 5
@@ -137,7 +150,8 @@ CONTROL_DELTA = {"gaussian": 0.45, "binomial": 1.5}
 GAUSSIAN_Q_BOUNDS = (-12.0, 12.0)
 
 #: The booster of cell T3, as the plan names it. ``early_stopping="auto"`` resolves to off at
-#: ``n = 2,000``; :func:`fit_cell` checks the resolution on each fit.
+#: ``n = 2,000``. Each trial records the resolved value in its fit configuration
+#: (:func:`trial_configuration`), and the design test checks the resolution.
 BOOSTER = {"max_depth": 2, "max_iter": 100}
 
 SIZE_FAMILY = "refuter_size"
@@ -226,6 +240,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.refuter_calibration_point",
     properties_module="tests.studies.refuter_calibration_point_properties",
     property_cells=PROPERTY_CELLS,
+    property_artifacts=("cells.csv",),
     publication_policy="reporting",
 )
 
@@ -571,10 +586,36 @@ def stale_rows(share: float) -> Iterator[None]:
         module._permuted_treatment = original
 
 
-def trial_readings(name: str, frame: pd.DataFrame, seed: int, *, power: bool) -> dict[str, Reading]:
-    """Every size reading of one trial, and its power readings when ``power``."""
+def trial_seed(stream: str, name: str, trial: int) -> int:
+    """The seed of one named stream of one property trial.
+
+    The streams are ``"property_sample"`` (the draw), ``"property_fit"`` (the fit's folds and
+    learners), ``"refute_size"``, ``"refute_stale"`` and ``"refute_control"`` (the refits).
+    """
+    return stream_seed(STUDY, stream, name, trial)
+
+
+def trial_configuration(result: Any) -> dict[str, Any]:
+    """The fit configuration of one trial, read off the fitted result, as one flat row."""
+    configuration = replace(fit_configuration(result, "ate"), replicates=REFITS)
+    row = asdict(configuration)
+    row["learners"] = " | ".join(configuration.learners)
+    return row
+
+
+@dataclass(frozen=True)
+class Trial:
+    """One trial's readings by name, and the configuration of its fit."""
+
+    readings: dict[str, Reading]
+    configuration: dict[str, Any]
+
+
+def trial_readings(name: str, frame: pd.DataFrame, trial: int, *, power: bool) -> Trial:
+    """Every size reading of one trial, its power readings when ``power``, and its fit."""
     cell = CELLS[name]
-    result = fit_cell(name, frame, seed)
+    result = fit_cell(name, frame, trial_seed("property_fit", name, trial))
+    configuration = trial_configuration(result)
     tests = ["placebo"]
     if "subset" in cell.readings:
         tests.append("subset")
@@ -589,7 +630,7 @@ def trial_readings(name: str, frame: pd.DataFrame, seed: int, *, power: bool) ->
             negative_control_outcome=frame["NC"].to_numpy(dtype=float)
             if "negative_control" in cell.readings
             else None,
-            random_state=seed + 1,
+            random_state=trial_seed("refute_size", name, trial),
         )
     out = {"placebo": _reading(report["placebo"])}
     if "subset" in cell.readings:
@@ -597,10 +638,15 @@ def trial_readings(name: str, frame: pd.DataFrame, seed: int, *, power: bool) ->
     if "negative_control" in cell.readings:
         out["negative_control"] = _reading(report["negative_control_outcome"])
     if not power:
-        return out
+        return Trial(out, configuration)
     with warnings.catch_warnings(), stale_rows(STALE_SHARE[cell.family]):
         warnings.simplefilter("ignore")
-        stale = refute(result, tests=("placebo",), n_replicates=REFITS, random_state=seed + 2)
+        stale = refute(
+            result,
+            tests=("placebo",),
+            n_replicates=REFITS,
+            random_state=trial_seed("refute_stale", name, trial),
+        )
     out["placebo_stale_rows"] = _reading(stale["placebo"])
     if "subset" in cell.readings:
         rho = out["subset"].statistic
@@ -613,10 +659,10 @@ def trial_readings(name: str, frame: pd.DataFrame, seed: int, *, power: bool) ->
                 result,
                 tests=("negative_control_outcome",),
                 negative_control_outcome=frame["NCU"].to_numpy(dtype=float),
-                random_state=seed + 3,
+                random_state=trial_seed("refute_control", name, trial),
             )
         out["negative_control_confounded"] = _reading(confounded["negative_control_outcome"])
-    return out
+    return Trial(out, configuration)
 
 
 # ---- the primary phase --------------------------------------------------------------------
