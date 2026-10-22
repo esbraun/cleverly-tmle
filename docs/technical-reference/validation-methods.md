@@ -2511,6 +2511,7 @@ the placebo, subset and negative-control rules on seven configurations.
 | `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
 | `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
 | `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
+| `plasmode` | resampled baselines, and a history drawn from frozen node models | the g-formula value of the frozen law |
 | `bootstrap_measurement_error` | units drawn with replacement; each copy keeps the unit's fold. Each declared column takes noise at every node where it appears | no reference |
 
 The placebo does not permute trajectories. A permuted trajectory gives a unit at risk the missing
@@ -2544,9 +2545,58 @@ prints its numbers against no reference.
 
 `tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
 panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
-within each follow-up pattern, and the contrast moves by more than `1e-3`. The longitudinal
-plasmode is [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) work.
-A request for it is refused with that roadmap id.
+within each follow-up pattern, and the contrast moves by more than `1e-3`.
+
+#### The longitudinal plasmode
+
+The plasmode resamples the baseline rows of the fit. It draws the rest of each history from models
+that it fits on the panel once and then holds fixed. The table gives the model of each node.
+
+| variable | frozen model | design |
+| --- | --- | --- |
+| a time-varying column with values 0 and 1 | logistic | `W`, the earlier columns, and `A_1` to `A_{t-1}` |
+| any other time-varying column | Gaussian linear, with the residual standard deviation | the same |
+| `A_t` | logistic, clipped to the fit's `g` bounds | `W`, `L_1` to `L_t`, and `A_1` to `A_{t-1}` |
+| censoring after node `t` | logistic | `W`, `L_1` to `L_t`, and `A_1` to `A_t` |
+| outcome | `mu + f(W) + effect * (A_1 + ... + A_T) + history_effect * h(L) + e` | `h` is the root-count standardized sum of every time-varying column |
+
+The truth is the sequential g-formula of the frozen law under the regimen, with no censoring.
+The table gives the two forms of the truth.
+
+| law | truth |
+| --- | --- |
+| every time-varying column is binary, and at most 4,096 branches per support point | enumerates every branch of every history, so it is exact |
+| any other law | averages `N` simulated histories per support point |
+
+A pilot of 64 histories sizes `N` so that the Monte Carlo standard error is at most 2% of the
+fit's standard error, with `N` at most 2,048. The report prints `N` and that standard error. The
+bias and coverage readings add that standard error to each interval in quadrature. The plasmode
+resamples `W`, so every target reads all three readings.
+
+Only the plasmode reads `history_effect`. The held design keeps `L`, whose law under a regimen
+it does not know, so `simulated_outcome` refuses a nonzero `history_effect`. A point fit also
+refuses it.
+
+`tests/unit/test_longitudinal_plasmode.py` works the g-formula by hand on a two-node panel with a
+binary `L_2` that reads `A_1`. It checks a static regimen, a rule, and a stochastic node against
+the enumerated truth to `1e-12`. Its mutation control holds `L_2` at its law under the observed
+`A_1`, and that naive truth differs by more than 0.05. A static contrast and a rule pass at
+R = 400 on that panel, and a contrast passes on a panel with a Gaussian `L_2`.
+
+Two tests in the same file lower the limits. Past the branch limit, the truth samples. At a draw
+cap of 4, the bias interval widens.
+
+The table gives the panels that the plasmode refuses, with roadmap id
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator).
+
+| panel | reason |
+| --- | --- |
+| a survival, competing-risk, or repeated outcome | the draw has no event or repeated-outcome process yet |
+| a held baseline decision, or a node with no treatment decision | the draw draws one treatment at each node |
+| a declared known mechanism | the frozen model replaces the declared one |
+| a clustered or weighted panel | resampled rows do not carry the cluster or weight law |
+| a regimen with a tuned cap or an odds tilt | the truth has no frozen map for the node |
+| a treatment node with levels other than 0 and 1 | the outcome adds the effect once per treated node |
 
 #### Generated outcomes on the held history
 

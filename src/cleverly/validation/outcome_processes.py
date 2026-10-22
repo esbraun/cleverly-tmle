@@ -354,6 +354,10 @@ class GaussianAdjustmentOutcome:
         Standard deviation of a cluster random intercept that the clustered plasmode adds
         to each drawn cluster. The default 0 adds none. The intercept has mean 0, so no
         truth changes.
+    history_effect : float
+        Multiplier on the root-count normalized standardized sum of every time-varying
+        column of a longitudinal panel. Only the longitudinal plasmode reads it, because it
+        draws the history from frozen models and so knows its law under a regimen.
     """
 
     effect: float = 1.0
@@ -362,6 +366,7 @@ class GaussianAdjustmentOutcome:
     arm_effects: Any = None
     intermediate_effect: float = 0.0
     cluster_sd: float = 0.0
+    history_effect: float = 0.0
     name: str = field(default="gaussian_adjustment_dependent", init=False)
     adjustment_function: str = field(
         default="scaled_standardized_covariate_sum_over_root_count", init=False
@@ -374,6 +379,8 @@ class GaussianAdjustmentOutcome:
             raise ValueError("Gaussian adjustment outcome effect must be finite")
         if not np.isfinite(self.adjustment_scale):
             raise ValueError("Gaussian adjustment outcome adjustment_scale must be finite")
+        if not np.isfinite(self.history_effect):
+            raise ValueError("Gaussian adjustment outcome history_effect must be finite")
         _validate_extras(self, "GaussianAdjustmentOutcome")
         effects = _arm_effects(self.arm_effects, "GaussianAdjustmentOutcome")
         object.__setattr__(self, "arm_effects", effects)
@@ -397,6 +404,7 @@ class GaussianAdjustmentOutcome:
             self.adjustment_scale == 0.0
             and _independent_arms(self)
             and self.intermediate_effect == 0.0
+            and self.history_effect == 0.0
         )
 
     def adjustment(self, covariates: Any, *, centre: Any = None, scale: Any = None) -> np.ndarray:
