@@ -46,7 +46,6 @@ from cleverly.interventions.learned import (
     LEARNED_RULE_EVALUE_REFUSAL,
     LEARNED_RULE_REFIT_REFUSAL,
     LEARNED_RULE_REMEDY,
-    LEARNED_RULE_REPLAY_REFUSAL,
     LEARNED_RULE_TILT_REFUSAL,
 )
 from cleverly.learners.crossfit import _LEARNED_RULE_METHOD_CLAUSE, _POST_DRAW_REMEDY
@@ -581,9 +580,10 @@ class TestTheStudyRefusesTheSameRows:
 
 
 class TestTheAssessmentRows:
-    """A refit relearns the rules, so no refutation or sensitivity analysis runs.
+    """A refit relearns the rules, so no refutation or bound runs.
 
-    Each row reads unavailable, and each call refuses with the same sentence.  The
+    Each such row reads unavailable, and each call refuses with the same sentence.
+    Simulated confounding runs, because its replay freezes the fold rules (X82 part F4).  The
     summarize rows and ``truncation_curve`` run; the capability sweep
     (``tests/unit/test_capability_row_sweep.py``, kind ``learned_rule``) pins that.
     """
@@ -608,7 +608,6 @@ class TestTheAssessmentRows:
             ("contour", "X11 (n)"),
             ("benchmark", "X11 (n)"),
             ("evalue", "F27"),
-            ("simulated_confounding", "X82 part F"),
             ("missingness", "F27"),
             ("tipping_gamma", "F27"),
         ],
@@ -620,11 +619,21 @@ class TestTheAssessmentRows:
         assert not row.available
         assert f"{item} in docs/roadmap.md" in (row.reason or "")
 
+    def test_simulated_confounding_has_no_learned_rule_stop(self, result: Any) -> None:
+        """X82 part F4 replays the fit with its fold rules frozen.
+
+        This direct fit records no identification, so the replay stops there instead.
+        ``test_simulated_confounding_learned_rule.py`` runs the replay on a study fit.
+        """
+        refusal = simulated_confounding_refusal(result, support.NAME)
+        assert refusal is not None
+        assert "identification metadata" in refusal.message()
+        assert "relearn" not in refusal.message()
+
     def test_each_call_refuses_with_its_row_sentence(self, result: Any) -> None:
         for reason, sentence in (
             (fit_wide_bound_refusal(result), LEARNED_RULE_BOUND_REFUSAL),
             (fit_wide_tilt_refusal(result), LEARNED_RULE_TILT_REFUSAL),
-            (simulated_confounding_refusal(result, support.NAME), LEARNED_RULE_REPLAY_REFUSAL),
         ):
             assert reason is not None and sentence in reason.message()
         with pytest.raises(CapabilityError) as caught:

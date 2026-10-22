@@ -1700,7 +1700,8 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 
 | part | request | step | readiness |
 | --- | --- | --- | --- |
-| (o) simulated confounding and `refute` | either on a learned-rule fit | a new fold-evaluated replay path with the fold rules frozen. It reads as confounding of the value of these fixed rules | natural extension |
+| (o) simulated confounding, shipped | `simulated_confounding` on a learned-rule fit | each cell refits on the fit's folds with every row's realized fold rule held fixed (`FrozenLearnedRule`), with the $1/V$ fold weights. It reads as confounding of the value of these fixed rules. See [learned rules](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) | natural extension |
+| (o) `refute` | a refutation that refits a learned-rule fit | the same frozen-rule replay. A subset or resampled draw carries each kept row's rule value | natural extension |
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 

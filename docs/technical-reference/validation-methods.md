@@ -1594,6 +1594,28 @@ A contrast against that reference remains supported. Means and contrasts report 
 The operation validates every stored repeat against its own initial, untruncated propensity predictions.
 It checks intervention names, multipliers, densities, clever weights, derivatives, and the reference.
 
+**Learned rules.** A refit of a learned-rule fit relearns the rule inside each training fold.
+A perturbed refit would then estimate the value of other rules.
+
+The replay keeps the outer folds of the fit.
+It also keeps the realized rule $d_v(W_i)$ of each row, which `result.nuisance.regimes` stores.
+The perturbation changes no covariate, so each frozen rule value stays defined.
+Each cell evaluates $\sum_v V^{-1} n_v^{-1} \sum_{i \in v} \bar Q(d_v(W_i), W_i)$ on the perturbed table.
+The weights are the $1/V$ fold weights of the learned-rule record.
+The [learned-rule contract](point-treatment-tmle.md#learned-rules) defines this target.
+
+The summary states the reading on its `learned-rule reading` line.
+A cell reads confounding of the value of these fixed rules, not of the learned-rule procedure.
+`FrozenLearnedRule`, in `src/cleverly/interventions/learned.py`, carries the frozen values.
+
+| check | witness in `tests/unit/test_simulated_confounding_learned_rule.py` |
+| --- | --- |
+| zero strength | the cell equals the reported estimate exactly |
+| nonzero cells | each cell equals a manual frozen-rule refit of its perturbed table |
+| frozen rules | a perturbed refit keeps every row's rule and the folds, and a relearning refit changes some rules |
+| fold weights | on folds of 81 and 80 rows, the cell equals the mean of the fold values and not the row-weighted mean |
+| mutation controls | a replay that relearns the rule, or that redraws the folds, fails the nonzero cell check |
+
 **Nonlinear and continuous MSMs.** The surface preserves built-in identity, log, and logit links.
 It invokes the existing complete projection and targeting solver in each cell.
 Movement remains a coefficient difference, including coefficients on log or logit scales.
@@ -1811,7 +1833,7 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
 walks that table and returns the first reason that applies.
 
-Three named stops apply in this order: longitudinal, learned-rule, and risk-ratio tilt fits. The first two wait on a declared law.
+Two named stops apply in this order: longitudinal and risk-ratio tilt fits. The longitudinal stop waits on a declared law.
 The tilt stop waits on a typed study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). The longitudinal stop applies
 the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
 point rule. Each one has a row in the
@@ -1819,7 +1841,7 @@ refusal table below, and each one carries a roadmap item. The missing-outcome, m
 and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
-The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
+The `result_type` stop runs second, before the risk-ratio tilt stop, because every later rule reads a
 field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
 below gives all twelve in contract order.
 
@@ -1840,11 +1862,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all fifteen. A fit that reaches the `provider` stop reports
+execution name the same stop for all fourteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the three fit-wide named stops and the three grid stops, plus the estimands and compositions the
+The rows below record the two fit-wide named stops and the three grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -1853,7 +1875,6 @@ of the roadmap also has a part that waits on published theory, as the
 | refused | code | why |
 | --- | --- | --- |
 | a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
-| a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, learned rules (o) |
 | a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |

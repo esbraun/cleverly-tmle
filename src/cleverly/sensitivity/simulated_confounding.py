@@ -436,6 +436,15 @@ class SimulatedConfoundingResult:
             )
             + (
                 (
+                    "learned-rule reading: every cell refits on the fit's folds with each row's "
+                    "realized fold rule held fixed, so a cell reads confounding of the value of "
+                    "these fixed rules, not of the learned-rule procedure",
+                )
+                if self.estimand.startswith("ey_learned_rule[")
+                else ()
+            )
+            + (
+                (
                     "treatment mechanism: known on the data; each cell that flips the treatment "
                     "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
                     if self.arm_pair is None
@@ -1973,6 +1982,11 @@ def simulated_confounding(
                 replacement,
                 intermediate_value=result.intermediate_value,
                 random_state=refit_seed,
+                **(
+                    {}
+                    if request.frozen_folds is None
+                    else {"frozen_folds": list(request.frozen_folds)}
+                ),
             )
             # ``inference.influence.median_estimates`` drops a name that is absent from any
             # draw, so ``refitted[estimand]`` would raise "was not requested" for an estimand
