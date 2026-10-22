@@ -2269,7 +2269,7 @@ node `t + 1`. `future_treatment_node=t` selects the node, and the default is 1.
 The test uses the outcome and treatment learners and the fold count of the fit. The bounds rule
 and the learner rule of the negative-control outcome apply to the control.
 
-The reading is valid only when `C` has no effect on `A_{t+1}` and no feedback from `A_{t+1}`. The
+The reading is valid only when `C` is measured before `A_{t+1}`, has no effect on `A_{t+1}`, and gets no feedback from `A_{t+1}`. The
 code cannot check this condition, so the report states it and stays at `L0`. `refute()` refuses
 these requests.
 
@@ -2279,6 +2279,7 @@ these requests.
 | one decision, or a held design | no later treatment exists |
 | `future_treatment_node` at the last node | no node `t + 1` exists |
 | a control equal to a column of `H_{t+1}` | the fit adjusts for it by design |
+| a control whose cross-fitted residual share on `H_{t+1}` is below `negative_control_floor` | it is nearly a function of the history, so it is associated with `A_{t+1}` by design |
 | a control constant on the units at risk | its estimate is 0 by construction |
 | a later node that is not binary | `IMPLEMENTATION_GAP`, roadmap X82 |
 

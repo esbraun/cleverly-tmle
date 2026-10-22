@@ -351,6 +351,23 @@ class TestFutureTreatment:
         assert error.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert "'L2'" in error.refusal.message()
 
+    def test_a_function_of_the_history_is_refused(self, fitted: Any, frame: pd.DataFrame) -> None:
+        # The sum of two history columns equals no column, and is associated with A2 by
+        # design. The residual floor refuses it, and a floor of 0 admits it.
+        control = frame["W"].to_numpy() + frame["L2"].to_numpy()
+        error = _refused(fitted, tests=("future_treatment",), future_treatment_control=control)
+        assert "nearly a function of the history" in error.refusal.message()
+        assert (
+            refute_refusal(
+                fitted,
+                estimand=CONTRAST,
+                tests=("future_treatment",),
+                future_treatment_control=control,
+                negative_control_floor=0.0,
+            )
+            is None
+        )
+
     def test_a_constant_control_is_refused(self, fitted: Any, frame: pd.DataFrame) -> None:
         error = _refused(
             fitted, tests=("future_treatment",), future_treatment_control=np.ones(len(frame))

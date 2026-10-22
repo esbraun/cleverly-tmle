@@ -1016,7 +1016,8 @@ class _RefuteRequest:
     future_treatment_node : int
         The node ``t`` whose next treatment is the exposure.
     negative_control_floor : float
-        The least cross-fitted residual variance share of a pre-treatment control.
+        The least cross-fitted residual variance share of a pre-treatment or future-treatment
+        control.
     """
 
     estimand: str
@@ -1351,6 +1352,17 @@ def _refuse_future_treatment(result: TMLEResult, request: _RefuteRequest) -> Ref
             f"adjusts the treatment at node {node} for. A declared cause of that treatment is "
             "associated with it by design, so its estimate is no confounding signal"
         )
+    # A control that is nearly a function of the history is associated with the later
+    # treatment by design too, for example the sum of two history columns.
+    reason = _control_residual_reason(
+        control[rows],
+        history[rows],
+        request.negative_control_floor,
+        noun="the control",
+        adjustment=f"the history of the treatment at node {node}",
+    )
+    if reason is not None:
+        return _invalid(reason)
     values = control[rows]
     mean = float(np.mean(values)) if values.size else 0.0
     if np.unique(values).size <= 1 or float(np.var(values)) <= 1e-12 * max(1.0, mean**2):
@@ -1811,8 +1823,7 @@ def refute_refusal(
     negative_control_kind : str or None
         ``"pre_treatment"`` for a control measured before treatment, else ``None``.
     negative_control_floor : float
-        The residual-variance floor of a pre-treatment control. The floor is checked when
-        the test runs, because it needs a fit.
+        The residual-variance floor of a pre-treatment or future-treatment control.
     future_treatment_control : Any
         The control of the future-treatment test.
     future_treatment_node : int
@@ -3349,7 +3360,9 @@ _PRE_TREATMENT_SENTENCE = (
 )
 #: What the future-treatment reading assumes (X82 plan 5.7.2).
 _FUTURE_TREATMENT_SENTENCE = (
-    "The reading assumes no feedback: the history the fit declares for the later treatment "
+    "The reading assumes that the control was measured before the later treatment, which the "
+    "code cannot check from an array. It also assumes no feedback: the history the fit "
+    "declares for the later treatment "
     "is its full set of parents, so the treatment is independent of the control given that "
     "history. The code cannot check this. A nonzero estimate means an unmeasured common cause "
     "of the later treatment and the control, or feedback that the declaration excludes. The "
@@ -3357,7 +3370,14 @@ _FUTURE_TREATMENT_SENTENCE = (
 )
 
 
-def _control_residual_reason(values: np.ndarray, features: np.ndarray, floor: float) -> str | None:
+def _control_residual_reason(
+    values: np.ndarray,
+    features: np.ndarray,
+    floor: float,
+    *,
+    noun: str = "the pre-treatment control",
+    adjustment: str = "the adjustment set",
+) -> str | None:
     """Why a pre-treatment control is nearly a function of the adjustment set, or ``None``.
 
     The share is the two-fold cross-fitted residual variance of a linear regression of the
@@ -3371,10 +3391,7 @@ def _control_residual_reason(values: np.ndarray, features: np.ndarray, floor: fl
 
     total = float(np.var(values))
     if total <= 0.0:
-        return (
-            "the pre-treatment control is constant on the analysis rows, so its estimate is 0 "
-            "by construction"
-        )
+        return f"{noun} is constant on the analysis rows, so its estimate is 0 by construction"
     if not features.shape[1] or values.size < 4:
         return None
     residual = np.empty_like(values)
@@ -3385,7 +3402,7 @@ def _control_residual_reason(values: np.ndarray, features: np.ndarray, floor: fl
     if share >= floor:
         return None
     return (
-        f"the pre-treatment control is nearly a function of the adjustment set: its "
+        f"{noun} is nearly a function of {adjustment}: its "
         f"cross-fitted residual variance is {share:.3g} of its variance, below the floor "
         f"{floor:g}. Its estimate would be 0 because that component vanishes, not because "
         "confounding is absent"
@@ -3770,11 +3787,13 @@ def refute(
         residual variance on the adjustment set is below ``negative_control_floor`` of its
         variance. ``None`` declares a control measured after treatment.
     negative_control_floor : float
-        The residual-variance share below which a pre-treatment control is refused.
+        The cross-fitted residual-variance share below which a pre-treatment control, or a
+        future-treatment control regressed on its history, is refused.
     future_treatment_control : array-like or None
         The control of the ``future_treatment`` test on a longitudinal fit: one value per
         unit, measured before the treatment at node ``future_treatment_node + 1`` and outside
-        the history that the fit adjusts that treatment for. Required to run that test.
+        the history that the fit adjusts that treatment for. The code cannot check the time
+        of measurement from an array. Required to run that test.
     future_treatment_node : int
         The node ``t``. The test regresses the control on the treatment at ``t + 1``,
         adjusted for that treatment's history, on the units at risk at ``t + 1``.
