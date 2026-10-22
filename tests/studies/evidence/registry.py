@@ -656,6 +656,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.refuter_calibration_longitudinal import (
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
+    from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -753,6 +754,7 @@ def registered() -> tuple[StudyRecord, ...]:
         EVALUE_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
         REFUTER_CALIBRATION_LONGITUDINAL,
+        REFUTER_CALIBRATION_POINT,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

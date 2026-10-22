@@ -2955,6 +2955,8 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `dummy_outcome`, `simulated_outcome` on a longitudinal fit | all three bands | descriptive until a registered study adds a row |
 | `placebo`, `subset` on a longitudinal fit | t, rho | `L2` on the seven configurations of the [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md): `LTMLE`, `SDR`, `IPSI`, the three baselines and `StructuralNestedMean`, two nodes, GLM nuisances, $n \ge 1000$ |
 | `negative_control_outcome` on a longitudinal fit | z | `L2` on the six end-of-study configurations of the same study, for a Gaussian control |
+| `placebo` on a point fit | t | `L2` on the six configurations of the [point refutation study](method-evidence/refuter-calibration-point.md): `TMLE` with GLM nuisances on a Gaussian and a binary outcome, `TMLE` with a depth-2 booster, greedy `CTMLE`, and `DRTMLE` with a declared and an estimated mechanism. Each covers the ATE of two arms, five folds and $n \ge 2000$ |
+| `subset`, `negative_control_outcome` on a point fit | rho, z | `L2` on the T1, T2 and D1 configurations of the same study: `TMLE` with GLM nuisances on either outcome, and `DRTMLE` with a declared mechanism |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio

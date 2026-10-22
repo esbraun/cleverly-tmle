@@ -123,6 +123,7 @@ ovb-limit-coverage
 evalue-limit-coverage
 calibration-slope-warning
 refuter-calibration-longitudinal
+refuter-calibration-point
 default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts
 ```
