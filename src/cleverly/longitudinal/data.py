@@ -2466,6 +2466,171 @@ class LongitudinalData:
             panel=panel,
         )
 
+    def with_treatment(
+        self,
+        treatment: Any,
+        *,
+        known_mechanisms: KnownNodeMechanisms | Literal["keep"] | None = "keep",
+    ) -> LongitudinalData:
+        """A copy whose treatment matrix is replaced, every other array unchanged.
+
+        The refutations of :func:`cleverly.validation.refute` replace the treatment of a
+        longitudinal fit with a placebo. A ``nan`` treatment means that the unit is not at
+        risk at the node, which the other arrays decide, so the replacement must hold
+        ``nan`` exactly where the observed treatment does.
+
+        Parameters
+        ----------
+        treatment : array-like
+            The ``(n, T)`` replacement, in the codes of :attr:`treatment` at a categorical
+            node and as a dose at a continuous node.
+        known_mechanisms : KnownNodeMechanisms or None or "keep"
+            The declared mechanism of the replacement. ``"keep"`` keeps the declaration of
+            this container, which is right only when the declaration does not read the
+            treatment.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        CapabilityError
+            On a container with a mixed node, whose components a matrix of codes cannot
+            replace.
+        DataError
+            When the replacement has another shape, another ``nan`` pattern, a code outside
+            a node's levels, or a held node that differs from the decision.
+        """
+        if self.has_mixed_node:
+            raise CapabilityError(
+                "a treatment matrix cannot replace a vector node with a continuous component, "
+                "whose components it does not hold.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=NO_ALTERNATIVE,
+                roadmap="X82",
+            )
+        values = np.asarray(treatment, dtype=float)
+        if values.shape != self.treatment.shape:
+            raise DataError(
+                f"the replacement treatment has shape {values.shape}; the container holds "
+                f"{self.treatment.shape}"
+            )
+        if not np.array_equal(np.isnan(values), np.isnan(self.treatment)):
+            raise DataError(
+                "the replacement treatment holds nan on other cells than the observed one. A "
+                "nan treatment means that the unit is not at risk at the node, which the "
+                "censoring and event arrays decide"
+            )
+        for time in range(1, self.n_times + 1):
+            column = values[:, time - 1]
+            present = column[~np.isnan(column)]
+            if self.is_held_node(time):
+                first = values[~np.isnan(column), 0]
+                if not np.array_equal(present, first):
+                    raise DataError(
+                        f"node {time} of a held design must repeat the decision at node 1"
+                    )
+                continue
+            if self.node_kind(time) == "continuous":
+                if not np.all(np.isfinite(present)):
+                    raise DataError(f"the replacement dose at node {time} is not finite")
+                continue
+            levels = len(self.treatment_levels[time - 1])
+            if not np.all(np.isin(present, np.arange(levels, dtype=float))):
+                raise DataError(
+                    f"the replacement treatment at node {time} holds a code outside the "
+                    f"{levels} level code(s) of the node"
+                )
+        declared = self.known_mechanisms if known_mechanisms == "keep" else known_mechanisms
+        return replace(self, treatment=values, known_mechanisms=declared)
+
+    def with_extra_covariate(self, values: Any, name: str) -> LongitudinalData:
+        """A copy with one more baseline covariate, appended after the others.
+
+        Parameters
+        ----------
+        values : array-like
+            One finite value per unit.
+        name : str
+            The new column's name, which no column of the container may hold.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        DataError
+            When the values are not one finite value per unit, or the name is taken.
+        """
+        column = np.asarray(values, dtype=float).reshape(-1)
+        if column.shape[0] != self.n or not np.all(np.isfinite(column)):
+            raise DataError(f"a new baseline covariate needs {self.n} finite values")
+        self._refuse_taken_name(name)
+        return replace(
+            self,
+            baseline=np.column_stack([self.baseline, column]),
+            baseline_names=(*self.baseline_names, name),
+        )
+
+    def with_node_covariates(self, values: Any, names: Sequence[str]) -> LongitudinalData:
+        """A copy with one more time-varying covariate at every node, appended to each block.
+
+        Parameters
+        ----------
+        values : array-like
+            ``(n, T)``: column ``t`` joins the covariates measured before the node-``t``
+            treatment. A value on a row that is not at risk at the node is never read.
+        names : sequence of str
+            One new name per node, which no column of the container may hold.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        DataError
+            When the values are not ``(n, T)`` and finite, or a name is taken or repeated.
+        """
+        block = np.asarray(values, dtype=float)
+        if block.shape != (self.n, self.n_times) or not np.all(np.isfinite(block)):
+            raise DataError(
+                f"new node covariates need finite values of shape {(self.n, self.n_times)}"
+            )
+        labels = tuple(names)
+        if len(labels) != self.n_times or len(set(labels)) != len(labels):
+            raise DataError(f"new node covariates need {self.n_times} distinct names")
+        for name in labels:
+            self._refuse_taken_name(name)
+        return replace(
+            self,
+            time_varying=tuple(
+                np.column_stack([existing, block[:, index]])
+                for index, existing in enumerate(self.time_varying)
+            ),
+            time_varying_names=tuple(
+                (*existing, labels[index]) for index, existing in enumerate(self.time_varying_names)
+            ),
+        )
+
+    def _refuse_taken_name(self, name: str) -> None:
+        """Refuse a new column name that the container already uses."""
+        taken = {
+            *self.baseline_names,
+            *(item for block in self.time_varying_names for item in block),
+            *self.treatment_names,
+            *self.censoring_names,
+            *self.event_names,
+            self.outcome_name,
+        }
+        if not isinstance(name, str) or not name or name in taken:
+            raise DataError(f"the new column name {name!r} is empty or already in use")
+
     # ------------------------------------------------------------------ masks
 
     def uncensored_through(self, time: int) -> BoolArray:

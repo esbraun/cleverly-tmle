@@ -468,19 +468,16 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "refute",
         "longitudinal",
-        artifacts=("fitted sequential estimator configuration",),
+        artifacts=("fitted sequential estimator configuration", "analysis panel"),
         execution="refit",
         deterministic=False,
         cost="expensive",
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "no evidence-backed longitudinal perturbation/refit adapter is implemented.",
-            alternative=NO_ALTERNATIVE,
-            roadmap="X82",
+        accepts_random_state=True,
+        requires_replay="rerun_configuration",
+        interpretation=(
+            "behavior under a Markov treatment placebo, noise covariates, subsampling, and "
+            "bootstrap resampling of the panel"
         ),
-        interpretation="behavior under longitudinal data perturbations",
     ),
 )
 
@@ -1252,6 +1249,10 @@ class Replayability:
         Whether the fitted result can score new observations.
     unreconstructible : tuple of str
         Missing components that prevent reconstruction.
+    rerun_configuration : bool
+        Whether the stored estimator configuration can fit changed data, without the
+        promise of an exact reproduction. A longitudinal fit with unseeded learners reruns
+        and cannot replay; a refutation needs only the rerun.
     """
 
     summarize_existing_artifacts: bool
@@ -1260,6 +1261,7 @@ class Replayability:
     refit_nuisances: bool
     evaluate_new_data: bool
     unreconstructible: tuple[str, ...] = ()
+    rerun_configuration: bool = False
 
 
 def replayability(result: Any) -> Replayability:
@@ -1288,7 +1290,16 @@ def replayability(result: Any) -> Replayability:
             refuse_evaluated_msm_functions(result.msm)
         except (CapabilityError, DataError):
             missing.append(LONGITUDINAL_REPLAY_MSM_DECLARATION)
-        return Replayability(True, False, False, not missing, False, tuple(missing))
+        # A rerun needs the stored template and the declarations a fit checks. It does not
+        # need seeded learners, because no rerun promises the fitted numbers.
+        declared = not {
+            LONGITUDINAL_REPLAY_REGIMEN_DECLARATION,
+            LONGITUDINAL_REPLAY_MSM_DECLARATION,
+        } & set(missing)
+        rerun = declared and getattr(result, "estimator", None) is not None
+        return Replayability(
+            True, False, False, not missing, False, tuple(missing), rerun_configuration=rerun
+        )
 
     estimator = getattr(result, "estimator", None)
     if estimator is None:
@@ -1303,7 +1314,7 @@ def replayability(result: Any) -> Replayability:
     data = getattr(result, "data", None)
     if callable(refit_refusal) and data is not None and refit_refusal(data) is not None:
         return Replayability(True, True, False, False, False, (POINT_REPLAY_REFIT_CONFIGURATION,))
-    return Replayability(True, True, False, True, False)
+    return Replayability(True, True, False, True, False, rerun_configuration=True)
 
 
 #: What each :class:`Replayability` slot lets an operation do, in the words a refusal uses.
@@ -1312,6 +1323,7 @@ _REPLAY_WORK: dict[str, str] = {
     "retarget_cached_nuisances": "retargeting the cached nuisances",
     "evaluate_stored_representer": "evaluating the stored representer",
     "refit_nuisances": "refitting the nuisance models",
+    "rerun_configuration": "rerunning the fitted estimator configuration",
     "evaluate_new_data": "scoring new observations",
 }
 

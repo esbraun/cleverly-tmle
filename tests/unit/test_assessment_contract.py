@@ -428,10 +428,10 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     assert capability.status is AssessmentStatus.UNAVAILABLE
     assert capability.refusal == reason
     assert _fit_wide_refusal(longitudinal_result) == reason
-    # A ``LongitudinalResult`` stores no replay estimator, so there is no ``refit`` to
-    # forbid.  Asserted rather than assumed: the day it gains one, this guard must cover it.
-    assert not hasattr(longitudinal_result, "estimator")
-    forbid_draw_and_refit(monkeypatch, None)
+    # A ``LongitudinalResult`` stores its refit template for the refutation adapter, so
+    # the guard forbids its ``refit`` too.
+    assert longitudinal_result.estimator is not None
+    forbid_draw_and_refit(monkeypatch, longitudinal_result.estimator)
     grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
     with pytest.raises(CapabilityError) as facade_refusal:
         longitudinal_result.sensitivity.simulated_confounding(grid=grid)
@@ -885,6 +885,8 @@ def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-u
         "grid": ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         # Every fixture in this module adjusts for ``W1``.
         "covariates": ["W1"],
+        # A test every refutable estimand runs.
+        "tests": ("random_common_cause",),
     }
 
 
@@ -897,7 +899,7 @@ def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-u
         ("multi_arm_result", "sensitivity", True),
         ("att_result", "diagnostics", True),
         ("att_result", "sensitivity", False),
-        ("longitudinal_result", "diagnostics", False),
+        ("longitudinal_result", "diagnostics", True),
         ("longitudinal_result", "sensitivity", False),
     ],
 )
@@ -930,7 +932,13 @@ def test_a_deferred_capability_is_never_deferred_once_its_arguments_arrive(  # t
         assert capability.requires_arguments, f"{capability.operation} names no argument"
         supplied = {name: values[name] for name in capability.requires_arguments}
         resolved = surface._capability_for_arguments(capability.operation, supplied)
-        assert resolved.status is not AssessmentStatus.DEFERRED, capability.operation
+        # A supplied argument can resolve the row to a deferral on a different argument:
+        # a longitudinal regimen mean refuses the default placebo, so its row then defers
+        # on ``tests``. The chain must move forward and end.
+        while resolved.status is AssessmentStatus.DEFERRED:
+            assert not set(resolved.requires_arguments) & set(supplied), capability.operation
+            supplied |= {name: values[name] for name in resolved.requires_arguments}
+            resolved = surface._capability_for_arguments(capability.operation, supplied)
 
     assert bool(deferred) is defers, deferred
 
