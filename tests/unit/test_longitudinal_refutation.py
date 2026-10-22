@@ -438,7 +438,7 @@ class TestAdapter:
         nothing = SimpleNamespace(
             assessment_family="longitudinal", data=SimpleNamespace(has_mixed_node=False)
         )
-        assert _refuse_placebo_kernel(nothing, request) is None
+        assert _refuse_placebo_kernel(nothing, request) is None  # type: ignore[arg-type]
 
     def test_a_history_dependent_support_refuses_the_placebo(self) -> None:
         request = _RefuteRequest(estimand=CONTRAST, tests=("placebo",))
