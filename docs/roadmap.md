@@ -1571,7 +1571,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | --- | --- | --- |
 | A2 | the MSM tensor placebo, the learned-rule placebo against the sample outcome mean, point plasmode, and the fold rule of `bootstrap_measurement_error` with `bootstrap_stability` | an exact enumeration of the placebo law for each placebo, and a mutation control for each reference value |
 | C | the longitudinal refute adapter, shipped. Part C1 ships the Markov placebo, `random_common_cause` with `noise_nodes`, `subset`, and `bootstrap_stability`. Part C2 ships the negative-control outcome, its pre-treatment form, and the future-treatment control. These are descriptive. Part C3 ships the held-history generated outcomes on end-of-study, repeated, survival and competing-risk fits, descriptive until a longitudinal study registers its rows | the exact enumeration of a two-node panel, and a nonzero witness for each control |
-| D | the negative-control outcome, the held-design generated outcomes, and the measurement-error bootstrap of the structural nested mean model. Part D ships the `structural` assessment family, one declaration per operation, and the placebo, `random_common_cause`, `subset`, and `bootstrap_stability` tests, all descriptive | a nonzero witness for each control, and an exact effect for each generated process |
+| D | the held-design generated outcomes, the future-treatment control, and the measurement-error bootstrap of the structural nested mean model. Part D ships the `structural` assessment family, one declaration per operation, and the placebo, `random_common_cause`, `subset`, `bootstrap_stability`, and `negative_control_outcome` tests, all descriptive | a nonzero witness for each control, and an exact effect for each generated process |
 | E | generated processes beyond the Gaussian ATE: other families, arms, ratios, controlled direct effects, MSMs, interventions, and missing outcomes | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
@@ -1611,8 +1611,9 @@ the table.
 
 | part | what to add | evidence |
 | --- | --- | --- |
-| D | `negative_control_outcome` and its pre-treatment form on a structural fit | a control that an unmeasured cause of the treatment and the control moves, and one it does not |
+| D | `future_treatment` on a structural fit | a later treatment that an unmeasured cause of the earlier treatment moves, and one it does not |
 | D | held-design generated outcomes on a structural fit | the blips of each generated process computed exactly |
+| D | `bootstrap_measurement_error` on a structural fit | a declared error that moves the blips by a known amount |
 
 #### Part F: simulated common cause
 

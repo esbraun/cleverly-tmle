@@ -364,9 +364,9 @@ operation. Each row runs, or refuses with its reason code. Each `implementation_
 its roadmap item. The attribute `result.diagnostics` stays the fit's own positivity and learner
 record, so the support and nuisance rows redirect there.
 
-`cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`, and
-`bootstrap_stability` tests. The placebo reads every blip coefficient and every regimen contrast
-against 0. The [refutation operations](validation-methods.md#refutation-operations) page gives
+`cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,
+`bootstrap_stability`, and `negative_control_outcome` tests. The placebo and the negative control
+read every blip coefficient and every regimen contrast against 0. The [refutation operations](validation-methods.md#refutation-operations) page gives
 each draw, reference, and witness. Every test prints its numbers with `passed=None` until a
 registered study cell covers a structural fit.
 
