@@ -2056,9 +2056,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   `R/genU_contY.R`, `R/treatSensMLM.R` and `man/treatSens.Rd`. `treatSensMLM` declares the latent
   at the individual or the group level (`trt.level`, lines 4 to 7). `contYZU` in `R/genU_contY.R`
   draws one latent value per group for a group-level treatment (lines 37 to 84).
-  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. Roadmap item
-  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (b), cites it as a
-  design precedent for the latent level, not as a base.
+  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. The
+  [clustered point law](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+  cites it as a design precedent for the latent level, not as a base.
 - Qin and Yang, R package [`mediationsens`](https://cran.r-project.org/package=mediationsens)
   0.0.3, read in the CRAN reference manual. `sens()` simulates a pretreatment latent that enters
   the mediator and outcome models, and the treatment model when the treatment is not randomized.
@@ -2161,16 +2161,16 @@ sizes only the cluster sum is the delta-method variance of the row mean
   procedure. The abstract on page 1014 states that scope. The method encodes the impact of
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
-  latent treatment perturbation and no refit law for this surface. Roadmap item X82, part F, point laws (a),
-  cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
+  latent treatment perturbation and no refit law for this surface. The multi-arm point law of the
+  simulated common-cause surface cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
   2.3.1, Theorem 2.1 and Remark 2.
 - Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
   Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
   arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
   a bias correction from those models. That construction does not perturb the treatment and the
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
-  and a mixed latent cause for this surface. Roadmap item X82, part F, point laws (b), cites it as a negative
-  finding.
+  and a mixed latent cause for this surface. The clustered point law of the simulated common-cause surface
+  cites it as a negative finding.
 
 ## Negative controls
 
