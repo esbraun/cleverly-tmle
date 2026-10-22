@@ -51,19 +51,10 @@ UNPRINTED_DECIMALS = {
     "0.5225": f"coverage of crossfit_overfitting/in_sample_control: {_STUDY}",
     "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
     "0.84125": f"coverage of clustered_inference/iid_control: {_CLUSTERED}",
-    "0.02134": f"team plasmode bias reading at 400 draws: {_REFUTATION}/team.log",
-    "0.1193": f"upper end of that bias interval: {_REFUTATION}/team.log",
-    "0.9906": f"team plasmode standard-error ratio at 400 draws: {_REFUTATION}/team.log",
-    "0.9242": f"lower end of that ratio interval: {_REFUTATION}/team.log",
-    "1.062": f"upper end of that ratio interval: {_REFUTATION}/team.log",
-    "0.9179": f"lower end of the 400-draw coverage interval: {_REFUTATION}/team.log",
-    "0.9652": f"upper end of the 400-draw coverage interval: {_REFUTATION}/team.log",
     "0.06185": f"upper end of that bias interval: {_REFUTATION}/main_generated.log",
     "0.13804": f"mean of the 400 refits: {_REFUTATION}/main_generated.log",
     "-0.03615": f"main bounded generated-outcome bias reading: {_REFUTATION}/main_generated.log",
     "-0.1341": f"lower end of that bias interval: {_REFUTATION}/main_generated.log",
-    "-0.07666": f"lower end of the team plasmode bias interval: {_REFUTATION}/team.log",
-    "27.8": f"seconds of the 400-draw team plasmode: {_REFUTATION}/team.log",
 }
 
 
@@ -333,30 +324,32 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert "truth 0.1382" in stored_output(NOTEBOOK, "bounded-truth")
     assert "standard-error ratio and coverage withheld" in stored_output(NOTEBOOK, "bounded-truth")
 
-    # The team plasmode: whole teams resampled, 20 draws, no verdict.  The page's 0.11614 truth
-    # is the declared law's, and the clustered fit's estimate is the Step 7 one.
+    # The team plasmode runs at the 400 draws of the equivalence bands, so it prints a verdict.
+    # The page's 0.11614 truth is the declared law's, and the estimate is the Step 7 one.
     plasmode = namespace["team_plasmode"].tests[0]
-    assert plasmode.passed is None and plasmode.rung == "L1" and len(plasmode.values) == 20
+    assert plasmode.passed is True and plasmode.rung == "L2" and len(plasmode.values) == 400
     assert plasmode.original == pytest.approx(namespace["clustered"]["ate"].psi)
     plasmode_output = stored_output(NOTEBOOK, "team-plasmode")
     assert "resampled whole clusters" in plasmode_output and "truth 0.11614" in plasmode_output
-    assert "bias -0.1578" in plasmode_output and "se_ratio 0.8736" in plasmode_output
+    assert "bias 0.02134 [-0.07666, 0.1193] inside [-0.2, 0.2]" in plasmode_output
+    assert "se_ratio 0.9906 [0.9242, 1.062] inside [0.85, 1.15]" in plasmode_output
+    assert "coverage 0.945 [0.9179, 0.9652] inside [0.88, 0.99]" in plasmode_output
     _assert_refutation_probe()
 
-    # Bootstrap stability on the repeated fit: five resamples, no verdict.
-    stability = namespace["repeated_stability"].tests[0]
-    assert stability.passed is None and len(stability.values) == 5
-    repeated = namespace["repeated"]["ate"]
-    assert stability.original == pytest.approx(repeated.psi)
-    assert round(float(np.mean(stability.values)), 4) == 0.1597
-    assert round(float(np.std(stability.values, ddof=1)), 5) == 0.00356
-    assert 0.6 < float(np.std(stability.values, ddof=1)) / repeated.std_error < 0.7
+    # The shift is systematic: the mean of the five paired shifts is about four standard errors
+    # from zero, and below the 0.2008 SE that one new fold draw gives.
+    assert 3.5 < abs(shift.mean()) / (np.std(shift, ddof=1) / np.sqrt(len(shift))) < 4.5
+
+    # The median-rule fit prints the limit line, and the single-fit bound does not.
+    assert "confidence limits:" in stored_output(NOTEBOOK, "repeated-bounds")
+    assert "confidence limits:" not in stored_output(NOTEBOOK, "sensitivity")
 
     # Step 11: the E-value, the median-rule bound of the repeated fit, and the team surface.
     evalue_output = stored_output(NOTEBOOK, "evalue")
     assert "E-value, point estimate     : 3.0920" in evalue_output
     assert "E-value, confidence limit   : 2.9358" in evalue_output
     assert "risk ratio 1.844" in evalue_output
+    repeated = namespace["repeated"]["ate"]
     bounds = namespace["repeated_bounds"]
     assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (0.03, 0.03, 1.0)
     assert 0.0 < bounds.ci_lower < bounds.lower < repeated.psi < bounds.upper < bounds.ci_upper
