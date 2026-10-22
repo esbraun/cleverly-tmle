@@ -111,6 +111,8 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 N = 2_000
+#: The row count of every fit, as the shared driver reads it.
+PRIMARY_N = N
 N_FOLDS = 5
 COVARIATES = tuple(f"W{j}" for j in range(1, 21))
 SEED = 20268251

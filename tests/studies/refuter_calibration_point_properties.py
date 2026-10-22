@@ -22,6 +22,7 @@ and the count rule agree, and :func:`count_rule_agrees` proves it for every coun
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import pandas as pd
@@ -109,6 +110,10 @@ def _row(
     configuration: str,
 ) -> dict[str, Any]:
     reading_name = cell.split("__", 1)[1]
+    reference = _reference(reading_name)
+    # The placebo's constant-zero case has no statistic and does not reject; its row records
+    # the reference value, since the framework requires a finite estimate.
+    statistic = reading.statistic if math.isfinite(reading.statistic) else reference
     return {
         "property": family,
         "cell": cell,
@@ -117,9 +122,11 @@ def _row(
         "n": N,
         "requested_replicates": requested,
         "failed_replicates": 0,
-        "truth": _reference(reading_name),
-        "estimate": reading.statistic,
-        "std_error": float("nan"),
+        "truth": reference,
+        "estimate": statistic,
+        # Each statistic is already on its standardized scale (``t``, ``rho`` or ``z``), so
+        # the row's scale is 1. No verdict reads it; the framework requires a positive value.
+        "std_error": 1.0,
         "covered": int(not reading.rejected),
         "rejected": int(reading.rejected),
         _CONFIGURATION: configuration,
