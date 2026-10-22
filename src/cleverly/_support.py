@@ -545,8 +545,11 @@ def point_key(
         "multiplier_kind": estimator.multiplier_kind,
     }
     if method == "drtmle":
-        for name in ("guard", "reduction", "reduced_crossfit", "update_order", "randomized"):
+        for name in ("guard", "reduction", "update_order", "randomized"):
             options[name] = getattr(estimator, name)
+        # The construction that runs: only a guarded, cross-fitted fit builds the foldwise
+        # slabs, and every other fit runs the one in-sample or unguarded path.
+        options["reduced_crossfit"] = "foldwise" if estimator._foldwise() else "pooled"
         options["evaluation"] = estimator.evaluation is not None
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never

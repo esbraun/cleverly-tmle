@@ -106,14 +106,14 @@ __all__ = [
 #: the pair of reduced mechanisms.
 REDUCTIONS = ("univariate", "bivariate")
 
-#: How fold ``k``'s reduced regression gets its **training** rows' design and target.
-#: ``"pooled"`` reuses the primary split as it stands and is what ships; ``"nested"`` takes
-#: them from models that left fold ``k`` out as well, which is the reference construction
-#: The cross-fitting diagnostic measures the first against the second. A diagnostic keyword rather
-#: than a tuning one, exactly as :data:`~cleverly.estimators.drtmle.UPDATE_ORDERS` is: what
-#: is in question is whether the cheap construction's induced dependence is higher order,
-#: and the expensive one exists so that is a run rather than an argument.
-REDUCED_CROSSFITS = ("pooled", "nested")
+#: How fold ``k``'s reduced regressions are kept apart from fold ``k``'s data.
+#: ``"foldwise"`` (the :class:`~cleverly.DRTMLE` default) trains fold ``k`` on a slab of
+#: primary arrays from models that left fold ``k`` out, and the alternation tilts that slab
+#: along its own covariate, so no array fold ``k`` reads ever saw fold ``k``.  ``"pooled"``
+#: reuses the primary split as it stands, which is R ``drtmle``'s ``cvFolds`` construction:
+#: fold ``k``'s data reach its own reduced predictions through the other folds' designs,
+#: targets and tilts.
+REDUCED_CROSSFITS = ("foldwise", "pooled")
 
 #: One complete-outcome reduced-regression family.  A refit inside the alternation asks
 #: for only the family its next score equation consumes; an initial fit asks for all of
@@ -434,7 +434,12 @@ def fit_reduced(
     families: Sequence[ReducedFamily] | None = None,
     companion: CompanionEstimates | None = None,
     n_jobs: int = 1,
-) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]], tuple[ReducedSet, ...]]:
+) -> tuple[
+    ReducedSet,
+    dict[str, list[SuperLearnerDiagnostics]],
+    tuple[ReducedSet, ...],
+    tuple[ReducedSet, ...],
+]:
     r"""Fit selected reduced-dimension regressions out of fold, one set per arm.
 
     Parameters
@@ -457,10 +462,10 @@ def fit_reduced(
         The truncation :math:`g_{r,2}`'s target divides by -- see below.
     crossfit:
         One of :data:`REDUCED_CROSSFITS`.  ``"pooled"`` reuses the primary split as it
-        stands and is what ships; ``"nested"`` reads fold ``k``'s training designs and
-        targets off :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner`, whose
-        models left fold ``k`` out as well.  A reference construction rather than a
-        production path -- see the last two paragraphs of the notes.
+        stands (R ``drtmle``'s ``cvFolds``); ``"foldwise"`` reads fold ``k``'s training
+        designs and targets off slab ``k`` of
+        :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner`, whose models left
+        fold ``k`` out, and also predicts fold ``k``'s model at every row of that slab.
     families:
         Which regression families to fit. ``None`` fits every family in the selected
         construction and is the initial-fit behavior. A proper subset is a refit inside
@@ -477,8 +482,10 @@ def fit_reduced(
 
     Returns
     -------
-    The evaluated set, the Super Learner diagnostics keyed by the families fitted, and one
-    companion set per outer fold -- empty without a companion.
+    The evaluated set, the Super Learner diagnostics keyed by the families fitted, one
+    companion set per outer fold (empty without a companion), and one slab set per outer
+    fold (empty unless ``crossfit="foldwise"``): fold ``k``'s models at every row of slab
+    ``k``, which the alternation needs to tilt that slab along its own covariate.
 
     Notes
     -----
@@ -584,14 +591,14 @@ def fit_reduced(
             "a partial reduced-regression refit needs nuisance.reduced from the same "
             "construction so omitted families can be carried forward"
         )
-    inner = nuisance.inner if crossfit == "nested" else None
-    if crossfit == "nested":
+    inner = nuisance.inner if crossfit == "foldwise" else None
+    if crossfit == "foldwise":
         if inner is None:
             raise ValueError(
-                "crossfit='nested' needs the fold-free primary designs on "
+                "crossfit='foldwise' needs the fold-free primary slabs on "
                 "NuisanceEstimates.inner, and this object carries none. They are built by "
                 "fit_inner_designs at the initial fit; a refit that dropped them would be "
-                "pooled while reporting itself as nested."
+                "pooled while reporting itself as foldwise."
             )
         if inner.n_folds != nuisance.folds.n_folds:
             # The designs are keyed to *a* split -- entry `k` is what left outer fold `k`
@@ -613,6 +620,11 @@ def fit_reduced(
             f"{nuisance.folds.n_folds}; fold k's reduced model predicts at fold k's own "
             "companion design, so a mismatch would pair a model with another fold's arrays"
         )
+    if partial and inner is not None and len(inner.reduced) != inner.n_folds:
+        raise ValueError(
+            "a partial foldwise refit needs one current slab reduced set per outer fold so "
+            "omitted families can be carried forward"
+        )
     if partial and companion is not None and len(companion.reduced) != companion.n_folds:
         raise ValueError(
             "a partial reduced-regression refit at evaluation rows needs one current "
@@ -624,11 +636,22 @@ def fit_reduced(
         if companion is None or data.strata is None
         else companion_stratum_codes(data, companion.data)
     )
+    # The slab rows are the fitting rows, so a foldwise fit predicts each fold's model at
+    # the evaluation rows and then at its own slab, in one stacked design per fold, and
+    # splits the result. The strata of the stacked rows are stacked the same way.
+    m = 0 if companion is None else companion.data.n
+    if inner is not None and data.strata is not None:
+        own = np.asarray(data.strata)
+        companion_strata = (
+            own if companion_strata is None else np.concatenate([companion_strata, own])
+        )
     names = selected
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {name: [] for name in names}
     columns: dict[str, list[FloatArray]] = {name: [] for name in names}
     # ``(K, m)`` per role per arm, assembled into one ``ReducedSet`` per fold at the end.
     companion_columns: dict[str, list[FloatArray]] = {name: [] for name in names}
+    # ``(K, n)`` per role per arm: fold ``k``'s model at every row of slab ``k``.
+    slab_columns: dict[str, list[FloatArray]] = {name: [] for name in names}
 
     for arm in arms:
         indicator = (np.asarray(data.treatment, dtype=float) == float(arm)).astype(float)
@@ -695,12 +718,25 @@ def fit_reduced(
                 if spec.observed_arm_only
                 else None
             )
+            stacked: list[FloatArray] | None = (
+                None if elsewhere is None else [each[name] for each in elsewhere]
+            )
+            if training is not None:
+                slab = [each[name][0] for each in training]
+                stacked = (
+                    slab
+                    if stacked is None
+                    else [
+                        np.concatenate([there, here], axis=0)
+                        for there, here in zip(stacked, slab, strict=True)
+                    ]
+                )
             values, at_companion = _reduced_column(
                 learner,
                 design=design,
                 target=target,
                 training=None if training is None else [each[name] for each in training],
-                companion=None if elsewhere is None else [each[name] for each in elsewhere],
+                companion=stacked,
                 fit_mask=fit_mask,
                 data=data,
                 nuisance=nuisance,
@@ -712,7 +748,10 @@ def fit_reduced(
             )
             columns[name].append(values)
             if at_companion is not None:
-                companion_columns[name].append(at_companion)
+                if companion is not None:
+                    companion_columns[name].append(at_companion[:, :m])
+                if training is not None:
+                    slab_columns[name].append(at_companion[:, m:])
 
     at_folds: tuple[ReducedSet, ...] = ()
     if companion is not None:
@@ -740,6 +779,34 @@ def fit_reduced(
                 )
         at_folds = tuple(companions)
 
+    at_slabs: tuple[ReducedSet, ...] = ()
+    if inner is not None:
+        slabs: list[ReducedSet] = []
+        for fold in range(inner.n_folds):
+            fresh_slab = {
+                name: np.column_stack([column[fold] for column in slab_columns[name]])
+                for name in names
+            }
+            if partial:
+                slabs.append(_replace_families(inner.reduced[fold], fresh_slab))
+            else:
+                gr1 = fresh_slab["gr1"]
+                slabs.append(
+                    ReducedSet(
+                        qr=fresh_slab["qr"],
+                        gr1=gr1,
+                        gr2=(
+                            fresh_slab["gr2"]
+                            if reduction == "univariate"
+                            else np.full_like(gr1, np.nan)
+                        ),
+                        arms=arms,
+                        g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
+                        reduction=reduction,
+                    )
+                )
+        at_slabs = tuple(slabs)
+
     fresh = {name: np.column_stack(columns[name]) for name in names}
     if partial:
         assert base is not None  # validated above; narrows the type for static checking
@@ -755,7 +822,7 @@ def fit_reduced(
             reduction=reduction,
         )
 
-    return evaluated, diagnostics, at_folds
+    return evaluated, diagnostics, at_folds, at_slabs
 
 
 def _roles(

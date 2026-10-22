@@ -359,14 +359,24 @@ class InnerDesigns:
         One per outer fold, in fold order, each full length.  Both are the ordinary types
         rather than bare arrays, so a fold's copy is shape-checked on construction and its
         arm keys cannot silently disagree with the fit's.
+    reduced:
+        Fold ``k``'s reduced regressions evaluated at every row of slab ``k``, one
+        :class:`~cleverly.estimators.reduced.ReducedSet` per outer fold.  Empty until the
+        reductions are first fitted.  The own-fold rows of slab ``k`` equal the production
+        arrays, because the ``m = k`` slice is the production model.
 
-    Carried on :attr:`NuisanceEstimates.inner` and used only by
-    :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``, which is a reference
-    construction used to diagnose generated-regressor leakage rather than a production path.
+    Carried on :attr:`NuisanceEstimates.inner` and used by :class:`~cleverly.DRTMLE` with
+    ``reduced_crossfit="foldwise"``.  Entry ``k`` is fold ``k``'s **slab**: every array in it
+    comes from a model that never saw outer fold ``k``.  The alternation tilts each slab along
+    the covariate built from that slab and fold ``k``'s own reduced regressions, at the
+    pooled ``epsilon``, so fold ``k``'s reduced regressions stay functions of the fold-``k``
+    complement at every round (``docs/technical-reference/dr-tmle/targeting.md``,
+    "Reduced-regression cross-fitting").
     """
 
     outcome: tuple[InitialFit, ...]
     propensity: tuple[Propensity, ...]
+    reduced: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.outcome) != len(self.propensity):

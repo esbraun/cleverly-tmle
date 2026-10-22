@@ -1407,8 +1407,10 @@ class DRTMLEMethod(TMLEMethod):
         Learner for the reduced outcome regression.
     reduced_treatment_learner : estimator or None, default=None
         Learner for the reduced treatment regression.
-    reduced_crossfit : {"pooled", "nested"}, default="pooled"
-        Cross-fitting policy for reduced regressions.
+    reduced_crossfit : {"foldwise", "pooled"}, default="foldwise"
+        Cross-fitting construction for the reduced regressions. ``"foldwise"`` keeps each
+        fold's reduced regressions apart from that fold's data; ``"pooled"`` is R
+        ``drtmle``'s ``cvFolds`` construction.
     update_order : {"drtmle", "benkeser"}, default="drtmle"
         Order of reduced targeting updates.
     evaluation : dataframe or None, default=None
@@ -1451,7 +1453,7 @@ class DRTMLEMethod(TMLEMethod):
     reduction: str = "univariate"
     reduced_outcome_learner: Any = None
     reduced_treatment_learner: Any = None
-    reduced_crossfit: str = "pooled"
+    reduced_crossfit: str = "foldwise"
     update_order: str = "drtmle"
     evaluation: Any = None
     randomized: bool = False

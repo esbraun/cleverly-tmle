@@ -164,7 +164,7 @@ from ._nuisance import NuisanceEstimates, fit_inner_designs
 from ._strata import refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
-    composite_nested_refusal,
+    COMPOSITE_EVALUATION_REFUSAL,
     composite_state,
     missing_data_route,
     unidentified_targets,
@@ -183,7 +183,7 @@ from .reduced import (
 from .targeting import (
     DEFAULT_MAX_OUTER,
     ONE_STEP_CARRY_COST,
-    ONE_STEP_NESTED_REFUSAL,
+    ONE_STEP_FOLDWISE_REFUSAL,
     ReductionOrder,
     ReductionSpec,
 )
@@ -571,7 +571,7 @@ class DRTMLE(TMLE):
         reduction: str = "univariate",
         reduced_outcome_learner: Any = None,
         reduced_treatment_learner: Any = None,
-        reduced_crossfit: str = "pooled",
+        reduced_crossfit: str = "foldwise",
         update_order: ReductionOrder = "drtmle",
         evaluation: Any = None,
         randomized: bool = False,
@@ -628,13 +628,21 @@ class DRTMLE(TMLE):
             ]
         )
 
-    def _refuse_one_step_nested(self) -> None:
+    def _foldwise(self) -> bool:
+        """Whether this fit builds the foldwise slabs.
+
+        Only a guarded, cross-fitted fit has reduced regressions to keep apart from a fold.
+        In sample there is one fold and no complement, so ``"foldwise"`` and ``"pooled"``
+        run the same in-sample construction.
+        """
+        return bool(self.guard) and self.cross_fit and self.reduced_crossfit == "foldwise"
+
+    def _refuse_one_step_foldwise(self) -> None:
         # Asked at the fit and at a guarded truncation curve rather than in the
         # constructor, so that an estimator whose ``targeting`` or ``reduced_crossfit``
-        # changes after construction meets it before any learner.  Nested inner designs
-        # exist only at a non-empty ``guard``.
-        if self.guard and self.targeting == "one_step" and self.reduced_crossfit == "nested":
-            raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
+        # changes after construction meets it before any learner.
+        if self._foldwise() and self.targeting == "one_step":
+            raise CapabilityError.from_refusal(ONE_STEP_FOLDWISE_REFUSAL)
 
     def _reduction_configuration_refusal(
         self, fitted: ReducedFit | None, nuisance: NuisanceEstimates
@@ -668,7 +676,7 @@ class DRTMLE(TMLE):
         """
         try:
             self._validate_drtmle_settings()
-            self._refuse_one_step_nested()
+            self._refuse_one_step_foldwise()
         except CleverlyError as error:
             return error.refusal
         except ValueError as error:
@@ -690,8 +698,11 @@ class DRTMLE(TMLE):
             and self.reduction != nuisance.reduced.reduction
         ):
             changed.append(f"reduction={self.reduction!r} (fitted {nuisance.reduced.reduction!r})")
-        fitted_crossfit = "pooled" if nuisance.inner is None else "nested"
-        if self.reduced_crossfit != fitted_crossfit:
+        # In sample both settings run one construction, so only a cross-fitted fit is
+        # keyed by it. The slabs on the cached nuisances record which one was fitted.
+        fitted_foldwise = nuisance.inner is not None
+        if self.cross_fit and self.guard and self._foldwise() != fitted_foldwise:
+            fitted_crossfit = "foldwise" if fitted_foldwise else "pooled"
             changed.append(
                 f"reduced_crossfit={self.reduced_crossfit!r} (fitted {fitted_crossfit!r})"
             )
@@ -733,26 +744,23 @@ class DRTMLE(TMLE):
         if self.reduced_crossfit not in REDUCED_CROSSFITS:
             raise ValueError(
                 f"reduced_crossfit must be one of {list(REDUCED_CROSSFITS)}; got "
-                f"{self.reduced_crossfit!r}. 'pooled' reuses the primary split for the "
-                "reduced regressions and is what ships; 'nested' refits the primary "
-                "nuisances leaving each outer fold out as well, so that whether the cheap "
-                "construction's induced dependence matters is measured rather than argued "
-                "(see the reduced-cross-fitting diagnostic)."
+                f"{self.reduced_crossfit!r}. 'foldwise' (the default) keeps each fold's "
+                "reduced regressions apart from that fold's data; 'pooled' is R drtmle's "
+                "cvFolds construction, in which each fold's data reach its own reduced "
+                "regressions through the other folds."
             )
-        if self.reduced_crossfit == "nested":
-            if not self.cross_fit:
-                raise ValueError(
-                    "reduced_crossfit='nested' needs cross-fitting: it trains each fold's "
-                    "reduced regression on primary models that left that fold out, and "
-                    "cross_fit=False has one fold and no complement to leave it out of. "
-                    "Pass cross_fit=True, or reduced_crossfit='pooled'."
-                )
-            if self.n_folds < 3:
-                raise ValueError(
-                    "reduced_crossfit='nested' leaves two folds out at a time -- the fold "
-                    "being predicted and the fold being trained on -- so it needs at least "
-                    f"three; got n_folds={self.n_folds}."
-                )
+        if self._foldwise() and self.n_folds < 3:
+            raise CapabilityError(
+                "reduced_crossfit='foldwise' leaves two folds out at a time -- the fold "
+                "being predicted and the fold being trained on -- so it needs at least "
+                f"three; got n_folds={self.n_folds}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Pass n_folds=3 or more, or reduced_crossfit='pooled' (R drtmle's "
+                    "cvFolds construction, which lets each fold's data reach its own "
+                    "reduced regressions)."
+                ),
+            )
         if self.evaluation is not None:
             # Each refused because the companion would come back describing a fit nobody
             # ran, and none of the three would raise on its own.
@@ -769,7 +777,7 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     "evaluation= and targeting='one_step' are not combined, on cost rather "
                     "than on derivation. This is the same refusal that "
-                    "reduced_crossfit='nested' takes. "
+                    "reduced_crossfit='foldwise' takes. "
                     f"The companion is moved {ONE_STEP_CARRY_COST}.",
                     reason=RefusalReason.API_REDIRECTION,
                     alternative="Use targeting='iterative', which is the default.",
@@ -837,10 +845,10 @@ class DRTMLE(TMLE):
             seed=seed,
             companion=self._companion(data),
         )
-        if self.guard and self.reduced_crossfit == "nested":
+        if self._foldwise() and route == "complete":
             # Before the reductions, because they read it. Once per fit rather than once
-            # per round: every refit inside the alternation moves these arrays by the
-            # fluctuation the production ones take rather than re-learning them.
+            # per round: every refit inside the alternation moves these slabs, each along
+            # its own covariate, rather than re-learning them.
             base = replace(
                 base,
                 inner=fit_inner_designs(
@@ -886,7 +894,7 @@ class DRTMLE(TMLE):
                 g_bounds=config.g_bounds,
                 nuisance_bound=config.missingness_bound,
             )
-            reduced, diagnostics, _ = self._fit_reduced(state.data, state.nuisance, state.bounds)
+            reduced, diagnostics, _, _ = self._fit_reduced(state.data, state.nuisance, state.bounds)
             return (
                 replace(base, reduced=reduced),
                 {
@@ -901,7 +909,11 @@ class DRTMLE(TMLE):
                 },
             )
 
-        reduced, diagnostics, at_companion = self._fit_reduced(data, base, config.g_bounds)
+        reduced, diagnostics, at_companion, at_slabs = self._fit_reduced(
+            data, base, config.g_bounds
+        )
+        if base.inner is not None:
+            base = replace(base, inner=replace(base.inner, reduced=at_slabs))
         if base.companion is not None:
             base = replace(
                 base,
@@ -945,11 +957,12 @@ class DRTMLE(TMLE):
         ) -> tuple[
             ReducedSet | MissingOutcomeReducedSet,
             tuple[ReducedSet | MissingOutcomeReducedSet, ...],
+            tuple[ReducedSet, ...],
         ]:
-            production, _, at_companion = self._fit_reduced(
+            production, _, at_companion, at_slabs = self._fit_reduced(
                 data, current, bounds, families=families
             )
-            return production, at_companion
+            return production, at_companion, at_slabs
 
         def missing_refit(
             current: NuisanceEstimates,
@@ -958,14 +971,15 @@ class DRTMLE(TMLE):
         ) -> tuple[
             ReducedSet | MissingOutcomeReducedSet,
             tuple[ReducedSet | MissingOutcomeReducedSet, ...],
+            tuple[ReducedSet, ...],
         ]:
-            production, _, at_companion = self._fit_reduced(
+            production, _, at_companion, at_slabs = self._fit_reduced(
                 data,
                 current,
                 current_bounds,
                 missingness_bound=current_missingness_bound,
             )
-            return production, at_companion
+            return production, at_companion, at_slabs
 
         return ReductionSpec(
             refit=refit,
@@ -1092,6 +1106,7 @@ class DRTMLE(TMLE):
         ReducedSet | MissingOutcomeReducedSet,
         dict[str, list[SuperLearnerDiagnostics]],
         tuple[ReducedSet | MissingOutcomeReducedSet, ...],
+        tuple[ReducedSet, ...],
     ]:
         """One place resolves the reduced learners, so a refit matches the initial fit.
 
@@ -1128,7 +1143,7 @@ class DRTMLE(TMLE):
                 ),
                 n_jobs=self.n_jobs,
             )
-            return reduced, diagnostics, ()
+            return reduced, diagnostics, (), ()
         return fit_reduced(
             data,
             nuisance,
@@ -1136,7 +1151,7 @@ class DRTMLE(TMLE):
             classification_learner=classification,
             g_bounds=g_bounds,
             reduction=self.reduction,
-            crossfit=self.reduced_crossfit,
+            crossfit="foldwise" if self._foldwise() else "pooled",
             families=families,
             # Off the object handed in rather than off ``self``, so that a refit inside the
             # alternation predicts at the companion designs that round's state implies --
@@ -1190,7 +1205,7 @@ class DRTMLE(TMLE):
                 alternative="Fit DRTMLE or CTMLE alone.",
                 roadmap="F5",
             )
-        self._refuse_one_step_nested()
+        self._refuse_one_step_foldwise()
         if not data.has_arms:
             refuse_unsupported("continuous")
         if data.has_intermediate:
@@ -1253,22 +1268,18 @@ class DRTMLE(TMLE):
                         roadmap="X62",
                     )
                 )
-            if self.evaluation is not None or self.reduced_crossfit != "pooled":
-                # X62 holds evaluation=, and F21 the nested construction.
-                nested_item = "X62" if self.reduced_crossfit == "pooled" else "F21"
+            # In sample only (refused above under cross-fitting), so reduced_crossfit=
+            # has no effect here and is not asked.
+            if self.evaluation is not None:
                 raise CapabilityError(
-                    "missing-outcome DRTMLE supports the published pooled construction only; "
-                    "evaluation= and nested reduced cross-fitting are not certified.",
+                    "missing-outcome DRTMLE supports the published construction only; "
+                    "evaluation= is not certified.",
                     reason=RefusalReason.IMPLEMENTATION_GAP,
-                    alternative="Drop evaluation= and reduced_crossfit='nested'.",
-                    roadmap=nested_item,
+                    alternative="Drop evaluation=.",
+                    roadmap="X62",
                 )
-        if (
-            route == "composite"
-            and self.guard
-            and (self.evaluation is not None or self.reduced_crossfit != "pooled")
-        ):
-            refusal = composite_nested_refusal(self)
+        if route == "composite" and self.guard and self.evaluation is not None:
+            refusal = COMPOSITE_EVALUATION_REFUSAL
             raise CapabilityError(
                 "the composite-indicator DR-TMLE for an observational missing outcome or "
                 f"treatment does not take these settings. {refusal.condition}",
