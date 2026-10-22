@@ -525,19 +525,15 @@ class TestTheRestOfTheFacade:
         assert calibrated.estimand == "ate[mid vs low]"
         assert 0.0 <= calibrated.cf_y <= 1.0 and 0.0 <= calibrated.cf_d <= 1.0
 
-    def test_the_benchmark_refuses_a_response_mechanism_before_it_refits(
-        self, missing_fit: Any
-    ) -> None:
-        """The refit is the expensive half, and it never runs.
+    def test_the_benchmark_calibrates_a_response_mechanism(self, missing_fit: Any) -> None:
+        """The bound admits a response mechanism, so the benchmark refits and calibrates.
 
-        ``benchmark`` reaches :func:`sensitivity_elements` for the long model first, so a
-        fit the bound refuses hears the refusal instead of paying for a second fit. The
-        reason is the one the capability row declares, not a sentence about benchmarking.
+        The record names the response mechanism, because its ``cf_d`` measures a joint
+        strength over the treatment mechanism and the response mechanism.
         """
-        with pytest.raises(CapabilityError) as refusal:
-            missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")
-        assert "response mechanism" in str(refusal.value)
-        assert missing_fit.sensitivity.capability("benchmark").reason in str(refusal.value)
+        calibrated = missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")
+        assert calibrated.features == ("response",)
+        assert 0.0 <= calibrated.cf_y <= 1.0 and 0.0 <= calibrated.cf_d <= 1.0
 
 
 class TestTheBoundOnAFitWithNoArmsToContrast:
