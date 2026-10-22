@@ -267,9 +267,10 @@ class SimulatedConfoundingResult:
     conditioning_arm : Any or None
         Original treatment label defining the ATT or ATC population.
     treatment_components : tuple of str
-        The component columns of a vector treatment, in the grid's order, or ``()``.  Each
-        cell's ``treatment_strength`` and ``induced_treatment_association`` then hold one
-        value per component in this order.
+        The component columns of a vector treatment, in the grid's order, or the moved
+        treatment nodes of a longitudinal fit, or ``()``.  Each cell's
+        ``treatment_strength`` and ``induced_treatment_association`` then hold one value
+        per component or node in this order.
     arm_pair : tuple or None
         The two arm labels ``(a, b)`` that the pairwise swap of a multi-arm treatment
         exchanges, or ``None`` on every other treatment.  Each cell's
@@ -313,6 +314,15 @@ class SimulatedConfoundingResult:
         flipped treatment's mechanism is known too:
         :math:`g_s(a \mid W) = (1 - s)\, g_0(a \mid W) + s\, g_0(1 - a \mid W)`.  Every
         cell that moves the treatment declares :math:`g_s`, and its refit divides by it.
+        On a longitudinal fit the declaration covers the first node only.
+    held_decision : bool
+        Whether a longitudinal fit holds its baseline decision at every node.  Each cell
+        then moves the first node, and the identity nodes repeat it.
+    refit_folds : {"original", "redrawn", "none"} or None
+        On a longitudinal fit, whether every refit reuses the original draws' split and
+        learner seeds, redraws them under an explicit seed other than the fit's own, or
+        the fit has no split.  Redrawn folds put fold noise into the movement of every
+        cell near the anchor.  ``None`` on a point-treatment fit.
 
     Attributes
     ----------
@@ -361,6 +371,8 @@ class SimulatedConfoundingResult:
     bounded_outcome_law: Literal["logit", "normal_score"] | None = None
     outcome_bounds: tuple[float, float] | None = None
     bounded_share: float | None = None
+    held_decision: bool = False
+    refit_folds: Literal["original", "redrawn", "none"] | None = None
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -480,6 +492,30 @@ class SimulatedConfoundingResult:
                     + ", ".join(self.observation_reads),
                 )
                 if self.observation_reads is not None
+                else ()
+            )
+            + (
+                (
+                    "latent: one value per unit, shared by every treatment node and the "
+                    "outcome; the binary nodes flip the nested row sets U >= Phi^-1(1 - s_t), "
+                    "and each node's association includes the path through the earlier "
+                    "perturbed nodes",
+                )
+                + (
+                    ("held decision: each cell moves node 1, and the identity nodes repeat it",)
+                    if self.held_decision
+                    else ()
+                )
+                + (
+                    (
+                        "refit folds: redrawn under a seed other than the fit's own, so the "
+                        "movement of each cell includes fold noise; the anchor is the original "
+                        "fit",
+                    )
+                    if self.refit_folds == "redrawn"
+                    else ()
+                )
+                if self.treatment_family == "longitudinal"
                 else ()
             )
         )
@@ -705,6 +741,15 @@ class SimulatedConfoundingResult:
 
     def _reading_guard(self) -> tuple[str, ...]:
         """Return the lines that say which cells carry a confounding path."""
+        if self.treatment_family == "longitudinal":
+            return (
+                "Each node's association reports what its perturbation achieved on these "
+                "data: a flip for a binary node, the linear shift for a dose. A later node's "
+                "association includes the path through the earlier perturbed nodes.",
+                "A cell whose outcome strength is zero has no confounding path, whatever its "
+                "associations. A cell whose treatment strengths are all zero has none either, "
+                "and its movement reports the outcome perturbation alone.",
+            )
         if self.treatment_family == "vector":
             return (
                 "Each component's association reports what its perturbation achieved on "
@@ -762,6 +807,25 @@ class SimulatedConfoundingResult:
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()
+
+
+def _outcome_law_text(bounded_outcome_law: str | None, family: str) -> str:
+    """The human-readable outcome law of a surface."""
+    if bounded_outcome_law == "logit":
+        return (
+            "Bounded outcome: logit((Y - lo) / (hi - lo)) subtracts signed strength times the "
+            "shared latent value; recorded rows at a bound never move."
+        )
+    if bounded_outcome_law == "normal_score":
+        return (
+            "Bounded outcome: the normal score of each recorded outcome subtracts signed "
+            "strength times the shared latent value, and the empirical quantile of the "
+            "recorded outcomes maps it back and is clipped to the bounds, so the law depends "
+            "on the sample."
+        )
+    if family == "gaussian":
+        return "Gaussian outcome subtracts signed strength times the shared latent value."
+    return "Binomial outcome is flipped in the declared upper latent-normal tail."
 
 
 def _component(value: Any, index: int) -> Any:
@@ -1719,6 +1783,24 @@ def simulated_confounding(
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
+    if getattr(result, "assessment_family", None) == "longitudinal":
+        from ._simulated_confounding_longitudinal import (
+            longitudinal_surface,
+            validate_longitudinal_request,
+        )
+
+        longitudinal = validate_longitudinal_request(
+            result,
+            estimand,
+            grid,
+            benchmark_covariates,
+            arm_pair=arm_pair,
+            latent_level=latent_level,
+            latent_rho=latent_rho,
+            observation_reads=observation_reads,
+            bounded_outcome_law=bounded_outcome_law,
+        )
+        return longitudinal_surface(result, estimand, grid, longitudinal, random_state)
     request = _validate_request(
         result,
         estimand,
@@ -1948,18 +2030,7 @@ def simulated_confounding(
             if request.treatment_family == "vector"
             else "Continuous treatment adds signed strength times the shared latent value."
         ),
-        outcome_law=(
-            "Bounded outcome: logit((Y - lo) / (hi - lo)) subtracts signed strength times the "
-            "shared latent value; recorded rows at a bound never move."
-            if request.bounded_outcome_law == "logit"
-            else "Bounded outcome: the normal score of each recorded outcome subtracts signed "
-            "strength times the shared latent value, and the empirical quantile of the "
-            "recorded outcomes maps it back, so the law depends on the sample."
-            if request.bounded_outcome_law == "normal_score"
-            else "Gaussian outcome subtracts signed strength times the shared latent value."
-            if result.data.family == "gaussian"
-            else "Binomial outcome is flipped in the declared upper latent-normal tail."
-        ),
+        outcome_law=_outcome_law_text(request.bounded_outcome_law, result.data.family),
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
         treatment_components=columns,

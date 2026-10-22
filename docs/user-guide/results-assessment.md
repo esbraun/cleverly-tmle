@@ -1017,7 +1017,8 @@ source conventions for numeric covariates. It does not change the declared grid.
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
 check is one ordered list, and it stops at the first boundary your fit meets. Three stops wait on
-a declared law: longitudinal, learned-rule, and risk-ratio tilt fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+a declared law: longitudinal fits outside the time-fixed latent, learned-rule fits, and
+risk-ratio tilt fits. Twelve provenance and shape stops read the result type, the replay estimator, the
 repeat provenance, the outcome family, the observation weights, and the identification metadata.
 The result-type stop runs second, because every later stop reads a field that only a
 point-treatment result declares.
@@ -1069,7 +1070,12 @@ A row at or beyond a bound never moves. `"normal_score"` shifts the normal score
 through the empirical quantile, and clips the result to the bounds. The outcome strength is then not in outcome SD units, so compare the
 `induced_outcome_association` of each cell across fits.
 
-Longitudinal fits need their own ordered latent law.
+A longitudinal fit shares one latent value per unit across every treatment node and the outcome.
+The surface covers uncensored end-of-study panels with no time-varying covariate after the first
+node. `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW`, and `ParametricGFormula` fits
+take it. Name the estimand, such as `"ate_regimen[never vs always]"`. A one-axis grid moves every
+node, and `treatment={"A2": (0.0, 0.1)}` moves one node. Each cell reports one association per
+node. A later node's association includes the path through the earlier perturbed nodes.
 
 A combined call excludes refits and retargets by default. A row skipped for cost alone names the
 flag that would run it. A row that also needs a choice names the choice instead. Longitudinal
