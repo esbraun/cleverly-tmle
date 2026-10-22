@@ -4610,6 +4610,14 @@ CELLS.update(
 #: ``p_ey0`` is an arm of another study with another reading.
 STUDY_ARMS[("adaptive-iptw", "p_ey0")] = "arm-0 mean"
 
+IMPLEMENTATIONS["adaptive_iptw"] = (
+    "`cleverly` `AdaptiveIPTW`, the Horvitz-Thompson mean with a targeted propensity"
+)
+SCENARIOS["known_arms"] = (
+    "effect-modified two-arm law with a continuous and a binary covariate; the cross-fitted "
+    "targeted fit of the arm means and the ATE with the treatment mechanism declared known"
+)
+
 PROPERTIES.update(
     {
         "bias": (

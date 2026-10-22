@@ -19,8 +19,9 @@ treatment probabilities are declared and the data are complete. A fit with an es
 takes the status `estimated_mechanism_plugin`.
 
 [Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract. Its
-evidence label is "Python property evidence only, with the registered study pending". Every estimate
-reads `experimental` until a registered study covers its configuration.
+evidence label is "Python property evidence, with comparator runs pending". An estimate reads
+`supported` when a support row of the [registered study](../technical-reference/method-evidence/adaptive-iptw.md)
+covers its configuration, and `experimental` otherwise.
 
 | longitudinal estimator | reads | interval |
 | --- | --- | --- |

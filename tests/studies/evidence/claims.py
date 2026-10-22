@@ -258,6 +258,38 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
     }
 
 
+def _convergence_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """What the property rows record about the targeting loop, for a study that records it.
+
+    A study that names ``CONVERGENCE_SUMMARY`` in its property module writes ``nonconverged_fits``
+    and ``max_rounds`` into ``properties.csv``.  The sum counts a fit once for each cell that
+    reads it, so a fit shared by several cells is counted by each.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose property rows are read.
+
+    Returns
+    -------
+    dict
+        Empty for a study whose property module declares no convergence summary.
+    """
+    if not hasattr(record.properties(), "CONVERGENCE_SUMMARY"):
+        return {}
+    return {
+        "property_rows_nonconverged": lambda data: float(
+            (data["properties"]["nonconverged_fits"] > 0).sum()
+        ),
+        "property_nonconverged_fits": lambda data: float(
+            data["properties"]["nonconverged_fits"].sum()
+        ),
+        "property_max_rounds": lambda data: float(data["properties"]["max_rounds"].max()),
+    }
+
+
 def _score_audit_aggregates(
     record: StudyRecord,
 ) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
@@ -656,6 +688,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
     return {
         **_aggregates(record),
         **_scenario_aggregates(record),
+        **_convergence_aggregates(record),
         **_score_audit_aggregates(record),
         **_mechanism_aggregates(record),
         **_harness_aggregates(record),

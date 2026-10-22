@@ -1094,7 +1094,7 @@ CONFIGURATION = {
         "ma_crossfit": N_MA_CF,
         "vl": N_VL,
     },
-    "replicates": {"cal": R_CAL, "bias": R_BIAS, "ladder": R_LADDER, "vl": R_VL},
+    "replicates_by_stream": {"cal": R_CAL, "bias": R_BIAS, "ladder": R_LADDER, "vl": R_VL},
     "pre_routed": dict(PRE_ROUTED),
     "raised_replicates": dict(R_RAISED),
     "red_reading": dict(RED_READING),

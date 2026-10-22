@@ -2351,6 +2351,52 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _adaptive_iptw_cases() -> tuple[RowCase, ...]:
+    """The cases of ``adaptive-iptw`` (X21).
+
+    Each runs the study's own fit of one scene on a small draw of its law up to the classifier.
+    """
+    module, slug = "canonical_adaptive_iptw", "adaptive-iptw"
+
+    def case(row: str, scene: str, fit: str, line: int) -> RowCase:
+        def draw(study: Any) -> Any:
+            declared = study.SCENES[scene]
+            # The key reads structure only, so a clustered law keeps its declared cluster count.
+            size = declared.n if declared.law == "cl" else min(declared.n, 600)
+            return study.draw_frame(declared.law, size, 0)
+
+        def run(study: Any, frame: Any) -> Any:
+            return study.FITS[fit](frame, study.SCENES[scene].n, 0)
+
+        return _observed(row, slug, fit, f"{module}.py:{line}", module, draw, run)
+
+    return (
+        case("AI.known_arms.targeted", "pd_known", "pd_arms", 389),
+        case("AI.known_arms.one_step", "pd_known", "pd_arms_one_step", 389),
+        case("AI.known_regimes.targeted", "pd_known", "pd_regimes", 412),
+        case("AI.known_regimes.one_step", "pd_known", "pd_regimes_one_step", 412),
+        case("AI.known_weighted", "wt_known", "wt_known", 475),
+        case("AI.known_clustered", "cl_known", "cl_known", 494),
+        case("AI.known_stratified", "st_known", "st_known", 513),
+        case("AI.points.cross_fit", "p_rate", "p_rate", 372),
+        case("AI.points.in_sample", "p_insample", "p_insample", 372),
+        case("AI.points_three_arm", "m_rate", "m_rate", 433),
+        case("AI.points_missing_outcome.cross_fit", "c_l1", "c_l1", 453),
+        case("AI.points_missing_outcome.cross_fit", "cn", "cn", 538),
+        case("AI.points_missing_outcome.in_sample", "c_l1_insample", "c_l1_insample", 453),
+        case("AI.points_composite_three_arm.cross_fit", "c_l3", "c_l3", 453),
+        case("AI.points_composite_three_arm.in_sample", "c_l3_insample", "c_l3_insample", 453),
+        case("AI.points_weighted", "wt_known", "wt_estimated", 475),
+        case("AI.points_clustered", "cl_known", "cl_estimated", 494),
+        case("AI.points_stratified", "st_known", "st_estimated", 513),
+        case("AI.points_regime", "pd_rate", "pd_regimes_estimated", 412),
+        case("AI.points_regime_missing", "rm", "rm", 558),
+        case("AI.points_missing_treatment.cross_fit", "ma_crossfit", "ma_crossfit", 574),
+        case("AI.points_missing_treatment.in_sample", "ma_insample", "ma_arms", 574),
+        case("AI.points_missing_treatment.in_sample", "ma_insample", "ma_regime", 574),
+    )
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -2362,4 +2408,5 @@ CASES: tuple[RowCase, ...] = (
     *_vector_cases(),
     *_categorical_incremental_cases(),
     *_continuous_dose_cases(),
+    *_adaptive_iptw_cases(),
 )

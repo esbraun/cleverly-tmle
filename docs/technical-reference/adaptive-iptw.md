@@ -326,11 +326,15 @@ zero `fit` calls in `tests/unit/test_adaptive_iptw_refusals.py`.
 
 ## Validation
 
-A registered validation study of `AdaptiveIPTW` is pending. No row of the [implementation
-validation grid](method-evidence/validation-grid.md) covers it. Every estimate carries the
+The registered [adaptive IPTW study](method-evidence/adaptive-iptw.md) is the validation row of
+`AdaptiveIPTW` in the [implementation validation grid](method-evidence/validation-grid.md). It is
+Python property evidence, with comparator runs pending. The study `adaptive-iptw-pairing` runs the
+comparator against `drtmle` later. The study publishes 20 red cells under the `reporting` policy.
+Each one has an owner in the [red-cell ledger](method-evidence/red-cells.md).
+
+A fit that a support row covers carries the `supported` label. Any other fit carries the
 `experimental` label, with the reason that no registered study covers its configuration. The
-evidence today is Python property evidence from the exact-law tests, and the comparator runs
-against `drtmle` are pending.
+[support label](method-evidence/adaptive-iptw.md#support-label) lists the rows.
 
 | instrument | what it checks | what it cannot see |
 | --- | --- | --- |

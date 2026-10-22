@@ -134,9 +134,11 @@ states when its interval holds. The table gives its instruments and what each on
 | the registered [one-inconsistent-nuisance study](method-evidence/dr-tmle-one-inconsistent-nuisance.md) | valid intervals on a declared mechanism, conservative intervals with a correctly specified parametric mechanism, and a bias of the predicted sign that grows with n for a slow nuisance error, on law L, and a bias of the predicted sign on law M. Neither term vanishes on either law | a flexible learner, the bivariate reduction, strata, clusters, weights and more arms |
 
 `AdaptiveIPTW` estimates the arm means and the targets built from them with a Horvitz-Thompson mean.
-The [contract page](adaptive-iptw.md#validation) lists its instruments. Its registered study is
-pending, so its evidence is Python property evidence only, and the comparator runs against R
-`drtmle` are pending. The table gives the instruments and what each one cannot see.
+The [contract page](adaptive-iptw.md#validation) lists its instruments. Its registered
+[adaptive IPTW study](method-evidence/adaptive-iptw.md) is Python property evidence, with the
+comparator runs against R `drtmle` pending. The study measures the known-mechanism intervals, the
+bias of the estimated-mechanism point estimates, and the need for targeting. The table gives the
+unit-test instruments and what each one cannot see.
 
 | instrument | what it checks | what it cannot see |
 | --- | --- | --- |

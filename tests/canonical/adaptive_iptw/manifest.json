@@ -17,7 +17,8 @@
     "reference": null
   },
   "configuration": {
-    "replicates": {
+    "replicates": 2000,
+    "replicates_by_stream": {
       "cal": 2000,
       "bias": 400,
       "ladder": 1000,

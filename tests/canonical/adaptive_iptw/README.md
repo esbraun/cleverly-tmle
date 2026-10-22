@@ -15,9 +15,14 @@ pairing study `adaptive-iptw-pairing` runs it later.
 
 ## State of this directory
 
-The directory holds the driver only. The study is not declared, not run and not registered.
-`registered()` does not list it, and the properties module is in `UNCOMMITTED_MODULES` of
-`tests/unit/test_method_evidence.py`. The declaration commit and the full run come later.
+The directory holds the driver and the committed artifacts of the declared run. The run is the
+repeat after the fold-wise reduced regression replaced the pooled one. The study is registered
+in `tests/studies/evidence/registry.py`, with the `reporting` publication policy and the
+`pending_reference` `drtmle`. The evidence page is
+`docs/technical-reference/method-evidence/adaptive-iptw.md`. The red cells have owners in
+`tests/studies/evidence/red_cells.py`, and the support rows `AI.*` in
+`src/cleverly/_support_rows.py` cite the cells that passed. The diagnostic of the one red
+composite cell is `tests/diagnostics/adaptive_iptw_composite_l3/`.
 
 The design test sets every count in `canonical_adaptive_iptw.py`. It fails when a constant
 differs from its computation.

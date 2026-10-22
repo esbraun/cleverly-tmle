@@ -1125,3 +1125,34 @@ class TestConvergenceColumnsReachTheOutput:
             assert column in read.columns
         assert read["max_rounds"].notna().all()
         assert (read["nonconverged_fits"] >= 0).all()
+
+
+class TestFailureDifferential:
+    """The registered study binds its clauses to its committed rows."""
+
+    def test_the_differential_reads_the_committed_rows(self) -> None:
+        from tests.canonical import property_differential
+        from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
+
+        assert study.STUDY.slug in property_differential.SUBJECTS
+        assert properties.__name__ not in property_differential.SYNTHETIC_MODULES
+        assert properties.__name__ not in UNCOMMITTED_MODULES
+
+    def test_each_clause_the_module_uses_has_a_witness_in_the_binding_table(self) -> None:
+        from tests.canonical import property_differential
+
+        subject = study.STUDY.slug
+        judged = property_differential.judge(subject, "none")
+        assert judged.wrong.empty, judged.wrong.to_string()
+        bound = property_differential._pairs(property_differential.read_bindings(), subject)
+        reasoned = property_differential._pairs(property_differential.read_reasons(), subject)
+        assert sorted(judged.used - bound - reasoned) == []
+        witnesses = property_differential.read_bindings()
+        named = witnesses.loc[witnesses["subject"] == subject]
+        assert not named.empty
+        for _, family, clause, kind in named.itertuples(index=False, name=None):
+            assert (family, clause) in property_differential.judge(subject, kind).decisive, (
+                family,
+                clause,
+                kind,
+            )

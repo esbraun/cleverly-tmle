@@ -6,8 +6,8 @@ row covers a set of values on one axis only where :func:`rows_over` expands it i
 per value, and each expanded row has a case in ``tests/studies/support_cases.py``.
 
 The row ids follow ``docs/roadmap.md`` and the support inventory: ``T`` for ordinary TMLE,
-``D`` for DR-TMLE and ``C`` for C-TMLE. A suffix names the expanded value. The longitudinal
-rows (``G``) are a later addition.
+``D`` for DR-TMLE, ``C`` for C-TMLE and ``AI`` for the adaptive-propensity IPTW. A suffix names
+the expanded value. The longitudinal rows (``G``) are a later addition.
 
 A leaf module: it imports :mod:`cleverly._support` only.
 """
@@ -1637,6 +1637,27 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             " 1.0034"
         ),
     ),
+    "AI.points.cross_fit": (
+        "adaptive-iptw-finite-sample: bias 0.000882 to 0.0046, margin 0.0044",
+        "adaptive-iptw-finite-sample: bias -0.0032 to -0.000466, margin 0.0033",
+        "adaptive-iptw-finite-sample: bias -0.000589 to 0.0024, margin 0.0035",
+    ),
+    "AI.points_composite_three_arm.cross_fit": (
+        "adaptive-iptw-composite-l3: bias -0.0075 to -0.000620, margin 0.0066",
+    ),
+    "AI.known_clustered": (
+        "adaptive-iptw-finite-sample: coverage 0.9394 to 0.9643, SE ratio 0.9902 to 1.0722",
+    ),
+    "AI.points_missing_outcome.cross_fit": (
+        "adaptive-iptw-finite-sample: bias -0.0031 to 0.0014, margin 0.0043",
+    ),
+    "AI.points_regime": (
+        "adaptive-iptw-finite-sample: bias -0.000687 to 0.0037, margin 0.0043",
+        "adaptive-iptw-finite-sample: bias -0.000669 to 0.0029, margin 0.0034",
+    ),
+    "AI.points_regime_missing": (
+        "adaptive-iptw-finite-sample: bias -0.0025 to 0.0010, margin 0.0048",
+    ),
 }
 
 
@@ -1699,14 +1720,305 @@ def _categorical_point_rows() -> tuple[SupportRow, ...]:
     )
 
 
-#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``) and the
-#: categorical tilt (``T35``).
+# ----------------------------------------------------------- adaptive-propensity IPTW (X21)
+
+_AI_SLUG: Final[tuple[str, ...]] = ("adaptive-iptw",)
+_AI_STACKED: Final[tuple[str, ...]] = ("stacked",)
+
+_AI_COMPARATOR: Final[str] = (
+    "The study's drtmle comparator runs are pending, so the evidence is Python property "
+    "evidence only."
+)
+_AI_LEARNERS: Final[str] = (
+    "The cells fit a generalized linear, saturated or fixed-basis mechanism and a "
+    "fixed-polynomial reduced regression. A selecting reduced-regression learner under "
+    "cross-fitting is outside conditions (E) and (S), and no cell fits the default super learner."
+)
+_AI_PLUGIN: Final[str] = (
+    "Under an estimated mechanism the row licenses the point estimate only. The plug-in "
+    "standard error and interval of the fit are a diagnostic."
+)
+_AI_FLEXIBLE: Final[str] = (
+    "A gradient-boosting mechanism is not covered. The flexible cells read a bias of 0.0083 to "
+    "0.0254 in absolute value, beyond a margin of 0.0035 to 0.0048 "
+    "(adaptive-iptw-flexible-learner)."
+)
+_AI_TERM_B: Final[str] = (
+    "The pooled reduced cross-fit term [B] of docs/technical-reference/dr-tmle/targeting.md "
+    "stays open, so the row licenses the point only."
+)
+
+
+def _ai_cells(family: str, cell: str, labels: Sequence[str]) -> list[str]:
+    """The cells ``<label>__<cell>`` of one property family of ``adaptive-iptw``."""
+    return [f"{family}/{label}__{cell}" for label in labels]
+
+
+def _ai_calibration(cell: str, labels: Sequence[str]) -> list[str]:
+    return _ai_cells("interval_calibration", f"{cell}__correctly_specified", labels)
+
+
+def _ai_bias(cell: str, labels: Sequence[str]) -> list[str]:
+    return _ai_cells("bias", cell, labels)
+
+
+def _ai_necessity(*labels: str) -> list[str]:
+    return [f"targeting_necessity/{label}__targeted" for label in labels]
+
+
+def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
+    """The rows of the study ``adaptive-iptw`` (X21), one per configuration of its cells.
+
+    A known mechanism, declared for the whole fit, licenses the Wald interval where the
+    calibration cells pass. An estimated mechanism licenses the point only, because the
+    estimator withholds the interval there. The key reads neither the mechanism learner nor the
+    reduced learner, so the limits state what the cells fitted.
+    """
+    engine = ("adaptive_iptw",)
+    arms = ("ey0", "ey1", "ate")
+    regimes = ("ey_d", "ey_s", "ey_never", "ate_d", "ate_s")
+    ratios = ("rr", "or")
+    known: dict[str, Any] = {"engine": engine, "splitting": _AI_STACKED}
+    known_limits = [_AI_COMPARATOR, _AI_LEARNERS]
+    points: dict[str, Any] = {
+        "engine": engine,
+        "kinds": _POINT,
+        "limits": [_AI_COMPARATOR, _AI_LEARNERS, _AI_PLUGIN],
+    }
+    cross: dict[str, Any] = points | {"splitting": _AI_STACKED}
+    # A cross-fitted fit with missing data carries the open term [B] of the pooled reduced fit.
+    missing_cross: dict[str, Any] = cross | {"limits": [*cross["limits"], _AI_TERM_B]}
+
+    rows = [
+        point_row(
+            "AI.known_arms.targeted",
+            _AI_SLUG,
+            **known,
+            families=("P1", "P2"),
+            qualifiers=("known_mechanism",),
+            kinds=frozenset({"point", "wald", "band"}),
+            cells=[
+                *_ai_calibration("known_arms", (*arms, *ratios)),
+                "simultaneous_coverage/known_band__simultaneous_band",
+            ],
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_arms.one_step",
+            _AI_SLUG,
+            **known,
+            families=("P1", "P2"),
+            qualifiers=("known_mechanism",),
+            options={"form": "one_step"},
+            cells=_ai_calibration("one_step_known_arms", (*arms, *ratios)),
+            limits=[*known_limits, "The one-step form has no simultaneous-band cell."],
+        ),
+        point_row(
+            "AI.known_regimes.targeted",
+            _AI_SLUG,
+            **known,
+            families=("P5", "P6"),
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("known_regimes", regimes),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_regimes.one_step",
+            _AI_SLUG,
+            **known,
+            families=("P5", "P6"),
+            qualifiers=("known_mechanism",),
+            options={"form": "one_step"},
+            cells=_ai_calibration("one_step_known_regimes", regimes),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_weighted",
+            _AI_SLUG,
+            **known,
+            families=("P1",),
+            weighting="fixed",
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("known_weighted", arms),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_clustered",
+            _AI_SLUG,
+            **known,
+            families=("P1",),
+            dependence="clustered",
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("known_clustered", arms),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_stratified",
+            _AI_SLUG,
+            **known,
+            families=("P1",),
+            qualifiers=("known_mechanism", "strata"),
+            cells=_ai_calibration("known_stratified", ("ate_v0", "ate_v1", "ate_v2")),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.points.cross_fit",
+            _AI_SLUG,
+            **(cross | {"limits": [*cross["limits"], _AI_FLEXIBLE]}),
+            families=("P1",),
+            cells=[
+                *_ai_bias("correct", arms),
+                *_ai_bias("rate", arms),
+                *_ai_bias("level_set_breaking_h1", ("ey1",)),
+                *_ai_bias("parametric_q_ne_qr", ("ey1",)),
+                *(f"root_n_points/n_{n}" for n in (500, 1500, 4500)),
+                *_ai_necessity("p_ey0", "p_ey1", "p_ate"),
+            ],
+        ),
+        point_row(
+            "AI.points.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1",),
+            cells=_ai_bias("insample_correct", arms),
+        ),
+        point_row(
+            "AI.points_three_arm",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            treatment=("arms3",),
+            cells=[
+                *_ai_bias("three_arm", ("ey_low", "ey_medium", "ey_high", "ate_low", "ate_medium")),
+                *_ai_bias(
+                    "rate_reduced", ("ey_low", "ey_medium", "ey_high", "ate_low", "ate_medium")
+                ),
+            ],
+        ),
+        merge_rows(
+            "AI.points_missing_outcome.cross_fit",
+            point_row(
+                "AI.points_composite",
+                _AI_SLUG,
+                **missing_cross,
+                families=("P1",),
+                missing=("outcome",),
+                cells=_ai_bias("composite_l1", arms),
+            ),
+            point_row(
+                "AI.points_natural_course",
+                _AI_SLUG,
+                **missing_cross,
+                families=("P1", "P4"),
+                missing=("outcome",),
+                cells=[
+                    *_ai_bias("natural_course", ("ey0", "ey_obs", "par", "paf")),
+                    *_ai_necessity("cn_ey_obs"),
+                ],
+            ),
+        ),
+        point_row(
+            "AI.points_missing_outcome.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1",),
+            missing=("outcome",),
+            cells=_ai_bias("insample_composite_l1", arms),
+        ),
+        point_row(
+            "AI.points_composite_three_arm.cross_fit",
+            _AI_SLUG,
+            **missing_cross,
+            families=("P1",),
+            treatment=("arms3",),
+            missing=("outcome",),
+            cells=_ai_bias("composite_l3", ("ey_low", "ey_mid", "ey_high", "ate_low", "ate_mid")),
+        ),
+        point_row(
+            "AI.points_composite_three_arm.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1",),
+            treatment=("arms3",),
+            missing=("outcome",),
+            cells=_ai_bias(
+                "insample_composite_l3", ("ey_low", "ey_mid", "ey_high", "ate_low", "ate_mid")
+            ),
+        ),
+        point_row(
+            "AI.points_weighted",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            weighting="fixed",
+            cells=_ai_bias("weighted", arms),
+        ),
+        point_row(
+            "AI.points_clustered",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            dependence="clustered",
+            cells=_ai_bias("clustered", arms),
+        ),
+        point_row(
+            "AI.points_stratified",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            qualifiers=("strata",),
+            cells=_ai_bias("stratified", ("ate_v0", "ate_v1", "ate_v2")),
+        ),
+        point_row(
+            "AI.points_regime",
+            _AI_SLUG,
+            **cross,
+            families=("P5", "P6"),
+            cells=[*_ai_bias("regime", regimes), *_ai_necessity("pd_d", "pd_s")],
+        ),
+        point_row(
+            "AI.points_regime_missing",
+            _AI_SLUG,
+            **points,
+            families=("P5", "P6"),
+            missing=("outcome",),
+            cells=[
+                *_ai_bias("insample_regime_missing", ("ey_d", "ey_s", "ate_s_vs_d")),
+                *_ai_necessity("rm_d"),
+            ],
+        ),
+        point_row(
+            "AI.points_missing_treatment.cross_fit",
+            _AI_SLUG,
+            **missing_cross,
+            families=("P1",),
+            missing=("outcome", "treatment"),
+            cells=_ai_bias("missing_treatment_crossfit", arms),
+        ),
+        point_row(
+            "AI.points_missing_treatment.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1", "P5"),
+            missing=("outcome", "treatment"),
+            cells=[
+                *_ai_bias("insample_missing_treatment", arms),
+                *_ai_bias("insample_regime_missing_treatment", ("ey_d",)),
+            ],
+        ),
+    ]
+    return tuple(rows)
+
+
+#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``), the
+#: categorical tilt (``T35``) and the adaptive-propensity IPTW (``AI``).
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
         *_d_rows(),
         *_c_rows(),
         *_categorical_point_rows(),
+        *_adaptive_iptw_rows(),
     )
 )
 

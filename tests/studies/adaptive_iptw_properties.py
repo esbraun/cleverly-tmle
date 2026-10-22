@@ -97,12 +97,13 @@ PROPERTY_CELLS = study.PROPERTY_CELLS
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 #: The necessity family: the targeted estimate beside the untargeted mean of the same fit.
+TARGETING_DISPLACEMENT = study.NECESSITY_THRESHOLD
 NECESSITY = property_verdicts.Necessity(
     family="targeting_necessity",
     labels=tuple(study.NECESSITY_LABELS),
     arms=("targeted", "untargeted"),
     column="untargeted_displacement",
-    threshold=study.NECESSITY_THRESHOLD,
+    threshold=TARGETING_DISPLACEMENT,
 )
 
 #: The label of the one joint cell, and the keys its band covers.

@@ -84,7 +84,6 @@ SYNTHETIC_MODULES = (
     "tests.studies.long_horizon_ltmle_properties",
     "tests.studies.long_horizon_categorical_ltmle_properties",
     "tests.studies.long_horizon_sdr_properties",
-    "tests.studies.adaptive_iptw_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.

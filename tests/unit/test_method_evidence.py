@@ -2693,6 +2693,10 @@ _FAMILY = {
     "max_calibration_excess": "equivalence",
     "max_margin_utilization": "equivalence",
     "property_cells": "properties",
+    # ``properties.csv`` columns of a study that records its targeting loop.
+    "property_rows_nonconverged": "properties",
+    "property_nonconverged_fits": "properties",
+    "property_max_rounds": "properties",
     "max_targeting_displacement": "replicates",
     "median_targeting_displacement": "replicates",
     "score_audited_fits": "fit_diagnostics",
@@ -3534,7 +3538,6 @@ UNCOMMITTED_MODULES = (
     "tests.studies.long_horizon_ltmle_properties",
     "tests.studies.long_horizon_categorical_ltmle_properties",
     "tests.studies.long_horizon_sdr_properties",
-    "tests.studies.adaptive_iptw_properties",
 )
 
 
