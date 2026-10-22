@@ -652,7 +652,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     for name in ("simulated_outcome", "plasmode"):
         with pytest.raises(CapabilityError, match="'binomial'"):
             refute(result, estimand=estimand, tests=(name,), n_replicates=10)
-    with pytest.raises(Exception, match="F16"):
+    with pytest.raises(CapabilityError, match="F16"):
         sensitivity.evalue(result, estimand)
     grid = sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1))
     with pytest.raises(CapabilityError, match="F13"):
