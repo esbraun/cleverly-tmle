@@ -54,14 +54,21 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     method = getattr(estimator, "_assessment_method", "")
     # X50 holds the DR-TMLE regimes and MSMs, and X51 the C-TMLE ones.  Any other class
     # passes when it declares the replay, as the binary arm axis requires.
-    roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(method)
-    if roadmap is not None or not declares_replay(estimator):
+    condition = (
+        f"simulated_confounding has no fixed-regime or MSM replay for {type(estimator).__name__}."
+    )
+    alternative = "Fit the regimes or the MSM with the ordinary TMLE and replay that fit."
+    if method == "drtmle":
         return Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding has no fixed-regime or MSM replay for "
-            f"{type(estimator).__name__}.",
-            alternative="Fit the regimes or the MSM with the ordinary TMLE and replay that fit.",
-            roadmap=roadmap or "X82",
+            RefusalReason.IMPLEMENTATION_GAP, condition, alternative=alternative, roadmap="X50"
+        )
+    if method == "collaborative_tmle":
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP, condition, alternative=alternative, roadmap="X51"
+        )
+    if not declares_replay(estimator):
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP, condition, alternative=alternative, roadmap="X82"
         )
     if target == "msm":
         model = estimator.msm
@@ -73,25 +80,26 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
                 alternative="Declare the model with MSM(...) and a link from cleverly.msm.LINKS.",
                 roadmap="X82",
             )
-    elif not all(_known_regime(item) for item in estimator.interventions):
+    elif not all(_regime_item(item) for item in estimator.interventions):
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding replays a regime whose density is declared known: Static, "
-            "Rule(..., rule_kind='known'), Stochastic(..., density_kind='known'), or an "
-            "Intervention class with density_kind = 'known'.",
-            alternative="Declare density_kind='known' on each regime of the fit.",
+            "simulated_confounding replays a regime that implements the Intervention "
+            "protocol: Static, Rule, Stochastic, or a class with a density method.",
+            alternative="Declare each regime of the fit as an Intervention.",
             roadmap="X82",
         )
     return None
 
 
-def _known_regime(item: Any) -> bool:
-    """Whether a regime is an :class:`Intervention` whose density is declared known.
+def _regime_item(item: Any) -> bool:
+    """Whether a regime implements :class:`Intervention`, so the replay can freeze it.
 
-    A fit refuses any other declaration before a learner runs, so this check defends stored
-    provenance.  The frozen replay copies the density values per row and the declaration.
+    The density declaration is not read here. ``RegimeSet.evaluate`` checks it before any
+    density runs, at the fit and again at the replay, so an undeclared or estimated regime
+    hears the declaration refusal that the fit gives.  The frozen replay copies the density
+    values per row and carries the declaration of its source.
     """
-    return isinstance(item, Intervention) and getattr(item, "density_kind", None) == "known"
+    return isinstance(item, Intervention)
 
 
 @dataclass(frozen=True)
@@ -233,7 +241,7 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
             not (a is b or (type(a) is Static and type(b) is Static and a == b))
             for a, b in zip(estimator.interventions, declarations, strict=True)
         )
-        or not all(_known_regime(item) for item in declarations)
+        or not all(_regime_item(item) for item in declarations)
         or typed.reference != functional.reference
         or typed.horizons is not None
     ):

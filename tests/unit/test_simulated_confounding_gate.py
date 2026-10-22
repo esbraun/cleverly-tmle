@@ -255,15 +255,15 @@ def test_a_known_intervention_class_replays_as_the_rule_it_equals(contrast: bool
     assert [cell.estimate for cell in surface.cells] == [cell.estimate for cell in expected.cells]
 
 
-def test_an_intervention_without_a_known_declaration_is_refused() -> None:
-    """The fit refuses an undeclared regime, so the replay gate defends stored provenance."""
+def test_a_regime_outside_the_intervention_protocol_is_refused() -> None:
+    """The gate reads the protocol; ``RegimeSet.evaluate`` reads the density declaration.
+
+    ``test_rule_and_intervention_declarations.py::TestTheReplay`` pins the declaration
+    refusal of an undeclared regime at replay.
+    """
     result = _estimate(_study(), RegimeMean((_KnownThreshold(),)))
     estimator = copy(result.estimator)
-
-    class _Undeclared(_KnownThreshold):
-        density_kind = None  # type: ignore[assignment]
-
-    estimator.interventions = (_Undeclared(),)
+    estimator.interventions = (object(),)
     refusal = fixed_replay_refusal(estimator, "ey_regime")
     assert refusal is not None
-    assert "density is declared known" in refusal.condition
+    assert "implements the Intervention protocol" in refusal.condition
