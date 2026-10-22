@@ -551,9 +551,8 @@ class DRTMLE(TMLE):
     and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.
     Roadmap item X50 holds the fixed-weight DR-TMLE curve that would reopen it.
     ``guard=()`` fits the ordinary TMLE, whose interval conditions on the weights, and keeps
-    its interval.  Roadmap item X82 part F separately holds the replay that keeps the supplied
-    weights fixed.  ``simulated_confounding`` refuses the composition outright until that
-    replay contract exists.
+    its interval.  ``simulated_confounding`` replays an estimated-weight fit with the supplied
+    weights held fixed, so each cell targets the fit's weighted population.
 
     ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
     complete-outcome ``DRTMLE`` refits across every supported binary surface parameter.  Those
