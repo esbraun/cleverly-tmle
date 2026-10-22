@@ -641,6 +641,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
@@ -651,6 +652,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
+    from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
     from tests.studies.refuter_calibration_longitudinal import (
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
@@ -747,6 +749,8 @@ def registered() -> tuple[StudyRecord, ...]:
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+        OVB_LIMIT_COVERAGE,
+        EVALUE_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
         REFUTER_CALIBRATION_LONGITUDINAL,
         DEFAULT_SIMULTANEOUS_BANDS,

@@ -119,6 +119,8 @@ repeated-outcome-ipsi
 repeated-outcome-sdr
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
+ovb-limit-coverage
+evalue-limit-coverage
 calibration-slope-warning
 refuter-calibration-longitudinal
 default-simultaneous-bands

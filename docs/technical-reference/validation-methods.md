@@ -951,16 +951,29 @@ takes the median of the draws' point bounds.
 ordinary TMLE $\nu^2$ with one learner and seed. It checks the same equality for the C-TMLE refit.
 A mutation control that reads the selected mechanism instead of the refit gives another $\nu^2$.
 
-#### Omitted-variable limits without coverage evidence
+#### Omitted-variable limits and their coverage evidence
 
-The one-sided limits of these configurations print without coverage evidence. Each bound asks the
-evidence registry with the instrument `ovb_limit`. The rule is the features of the fit, joined with
-`+`, for example `response+stratum`. The registry has no `ovb_limit` row, so each limit prints as
-descriptive. `SensitivityBounds.limit_reading` holds the resolution, and
-`SensitivityBounds.limit_descriptive` is true. `to_dict()` adds `features`, `limit_rung`,
-`limit_licensed`, and `limit_sentence`. `robustness_value()` adds `limit_licensed` and
-`limit_sentence`. A registered coverage study adds one row for the configuration that it measured.
-The shipped bound asks the registry nothing, and its output does not change.
+Each bound asks the evidence registry about its one-sided limits, with the instrument `ovb_limit`.
+The rule is the features of the fit, joined with `+`, for example `response+stratum`.
+[Omitted-variable bound limit coverage](method-evidence/ovb-limit-coverage.md) registers one L2 row
+for each single-feature rule in the table below. Each row covers only the configuration that the
+study measured.
+
+| rule | covered configuration |
+| --- | --- |
+| `response` | in-sample `TMLE`, `ate` or `ey1`, binary outcome missing at random, at least 250 events |
+| `intermediate` | in-sample `TMLE`, the CDE at a level of a binary intermediate, at least 250 events |
+| `regime` | in-sample `TMLE`, a regime mean or contrast, at least 350 events |
+| `msm` | in-sample `TMLE`, an MSM coefficient, at least 350 events |
+| `shift` | in-sample `TMLE`, a shift mean or contrast on a continuous dose |
+
+Every row also requires a binary outcome, $n \geq 2{,}000$, influence-curve inference, and the
+saturated logistic nuisances of the study. A fit outside a row prints its limits as descriptive.
+A joined rule, such as `response+stratum`, has no row. `SensitivityBounds.limit_reading` holds the
+resolution, and `SensitivityBounds.limit_descriptive` is true for a descriptive limit. `to_dict()`
+adds `features`, `limit_rung`, `limit_licensed`, and `limit_sentence`. `robustness_value()` adds
+`limit_licensed` and `limit_sentence`. The shipped bound asks the registry nothing, and its output
+does not change.
 
 `nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
 `"doubly_robust"`. A value outside those three raises `ValueError` before the table above refuses a
@@ -2151,24 +2164,25 @@ The estimate targets the population the observation weights describe, and the st
 The weighted form divides by the reliability-weight correction $\sum w - \sum w^2 / \sum w$.
 That correction is $n - 1$ when every weight is one, so an unweighted fit reports the plain sample standard deviation.
 
-#### Confidence limits without coverage evidence
+#### Confidence limits and their coverage evidence
 
-Five configurations print a confidence-limit E-value that no registered study covers yet. Each
-report asks the evidence registry before it prints, with the instrument `evalue_limit` and one rule
-per configuration. Two configurations on one fit join with `+`, for example `cde+stratum`.
+Each report asks the evidence registry before it prints a confidence-limit E-value, with the
+instrument `evalue_limit` and one rule per configuration. Two configurations on one fit join with
+`+`, for example `cde+stratum`.
+[E-value limit coverage](method-evidence/evalue-limit-coverage.md) registers L2 rows for two rules.
 
-| rule | configuration |
-| --- | --- |
-| `cde` | a controlled direct effect |
-| `stratum` | a contrast within a baseline stratum |
-| `response_sd` | the standardized path with a response mechanism |
-| `derived_collaborative_tmle`, `derived_drtmle` | the derived risk ratio of a `CTMLE` or `DRTMLE` fit |
-| `time_to_event` | the risk ratio of a `TimeToEvent` pair |
+| rule | configuration | registry row |
+| --- | --- | --- |
+| `cde` | a controlled direct effect | none |
+| `stratum` | a contrast within a baseline stratum | in-sample `TMLE` risk ratios `rr[V=s]`, at least 200 events |
+| `response_sd` | the standardized path with a response mechanism | none |
+| `derived_collaborative_tmle`, `derived_drtmle` | the derived risk ratio of a `CTMLE` or `DRTMLE` fit | none |
+| `time_to_event` | the risk ratio of a `TimeToEvent` pair | in-sample hazard `LTMLE`, five nodes, at least 100 events |
 
-The registry has no `evalue_limit` row, so each of these limits prints as descriptive.
-`EValue.limit_reading` holds the resolution, and `EValue.limit_descriptive` is true. A `DRTMLE`
-fit with an estimated mechanism also states that its remainder is linear in the mechanism error.
-A registered coverage study adds one row for the configuration it measured.
+Each row also requires a binary or survival outcome, $n \geq 2{,}000$, and the logistic learners of
+the study. A fit outside a row prints its limit as descriptive. `EValue.limit_reading` holds the
+resolution, and `EValue.limit_descriptive` is true for a descriptive limit. A `DRTMLE` fit with an
+estimated mechanism also states that its remainder is linear in the mechanism error.
 
 ### Missingness tilt and tipping gamma
 
