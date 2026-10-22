@@ -637,7 +637,10 @@ class PlasmodeLaw:
             recorded = np.ones(rows.size, dtype=bool)
             if self.recording is not None:
                 recorded = rng.random(rows.size) < self.recording[rows]
-            # Every arm must appear among the recorded rows, or the refit has fewer arms.
+            # Every arm must appear among the recorded rows, or the refit has fewer arms. A
+            # retry conditions the draw on that event, which tilts the law away from the
+            # frozen truth. At the floors of the clip the event has probability near 1 for
+            # n >= 100 (test_the_arm_retry_is_rare), so the tilt is negligible there.
             if np.unique(index[recorded]).size == arms:
                 break
         else:  # pragma: no cover - a 1000-fold failure needs an arm share near 0
