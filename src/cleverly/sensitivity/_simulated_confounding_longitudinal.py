@@ -262,8 +262,8 @@ def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
             raise TypeError(f"benchmark_covariates holds {name!r}, which is not a column name")
         if name not in data.baseline_names:
             raise ValueError(
-                f"benchmark covariate {name!r} is unavailable; the baseline covariates of "
-                f"this panel are {list(data.baseline_names)!r}"
+                f"benchmark covariate {name!r} is unavailable; a benchmark names a baseline "
+                f"covariate of this panel, one of {list(data.baseline_names)!r}"
             )
     return names
 
@@ -412,6 +412,9 @@ def _flipped_declaration(data: Any, strength: float) -> Any:
     if declared is None or declared.treatment[0] is None or strength == 0.0:
         return "keep"
     first = np.asarray(declared.treatment[0], dtype=float)
+    # Reversing the arm columns is the flip of a two-level node; the node-law rule refuses
+    # any other node, and a dose node carries no declared factor.
+    assert first.ndim == 2 and first.shape[1] == 2, first.shape
     flipped = (1.0 - strength) * first + strength * first[:, ::-1]
     return replace(declared, treatment=(flipped, *declared.treatment[1:]))
 
@@ -523,6 +526,16 @@ def _calibrate(data: Any, request: LongitudinalRequest) -> tuple[Any, ...]:
             )
         )
     return tuple(rows)
+
+
+def _refit_folds(result: Any, frozen: list[int] | None) -> Literal["original", "redrawn", "none"]:
+    """Whether the refits reuse the original split, redraw it, or the fit has none."""
+    if frozen is not None:
+        return "original"
+    repeats = getattr(result, "repeats", None) or ()
+    if all(item.seed is None for item in repeats):
+        return "none"
+    return "redrawn"
 
 
 def _frozen_seeds(result: Any, root_seed: int) -> list[int] | None:
@@ -679,6 +692,7 @@ def longitudinal_surface(
         bounded_share=_bounded_share(data, request),
         backend=data.backend,
         held_decision=request.held,
+        refit_folds=_refit_folds(result, frozen),
     )
 
 

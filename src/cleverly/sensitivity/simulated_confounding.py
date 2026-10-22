@@ -318,6 +318,11 @@ class SimulatedConfoundingResult:
     held_decision : bool
         Whether a longitudinal fit holds its baseline decision at every node.  Each cell
         then moves the first node, and the identity nodes repeat it.
+    refit_folds : {"original", "redrawn", "none"} or None
+        On a longitudinal fit, whether every refit reuses the original draws' split and
+        learner seeds, redraws them under an explicit seed other than the fit's own, or
+        the fit has no split.  Redrawn folds put fold noise into the movement of every
+        cell near the anchor.  ``None`` on a point-treatment fit.
 
     Attributes
     ----------
@@ -367,6 +372,7 @@ class SimulatedConfoundingResult:
     outcome_bounds: tuple[float, float] | None = None
     bounded_share: float | None = None
     held_decision: bool = False
+    refit_folds: Literal["original", "redrawn", "none"] | None = None
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -498,6 +504,15 @@ class SimulatedConfoundingResult:
                 + (
                     ("held decision: each cell moves node 1, and the identity nodes repeat it",)
                     if self.held_decision
+                    else ()
+                )
+                + (
+                    (
+                        "refit folds: redrawn under a seed other than the fit's own, so the "
+                        "movement of each cell includes fold noise; the anchor is the original "
+                        "fit",
+                    )
+                    if self.refit_folds == "redrawn"
                     else ()
                 )
                 if self.treatment_family == "longitudinal"
