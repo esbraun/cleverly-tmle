@@ -41,6 +41,8 @@ from cleverly.datasets import (
 )
 from cleverly.interventions import ModifiedPolicy, Piece
 from cleverly.longitudinal import DynamicRegimen
+from cleverly.sensitivity import evalue
+from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.utils.bounds import logit
 from cleverly.validation.refute import refute_refusal
 from tests.unit.tutorial_semantics import (
@@ -75,6 +77,8 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/revenue_learner.log",
     "0.0074": f"Monte Carlo standard error of the price_up linear bias, 60 draws: "
     f"{_PROBE}/revenue_learner.log",
+    "0.88": "bootstrap_stability spread 0.005749 over the Step 6 standard error 0.0065, both printed "
+    "(checked in _check_refits)",
     "0.0104": f"mean estimate of the linear learner minus the quadratic learner, price_up revenue, "
     f"60 paired draws: {_PROBE}/revenue_learner.log",
     "0.0076": f"mean estimate of the linear learner minus the quadratic learner, price_down revenue, "
@@ -721,40 +725,34 @@ class _NeverFit(LogisticRegression):
 
 def _check_refits(namespace: dict[str, Any]) -> None:
     """Step 11: the refits are descriptive, and each check the page skips is refused for its reason."""
-    reports = namespace["reports"]
+    report = namespace["report"]
     estimand = namespace["estimand"]
     assert estimand == _key("price_up")
-    assert tuple(reports) == ("renewal", "revenue")
-    expected = {
-        "renewal": ("subset", "random_common_cause", "bootstrap_stability"),
-        "revenue": ("subset", "random_common_cause"),
-    }
-    for name, report in reports.items():
-        assert report.estimand == estimand
-        assert tuple(test.name for test in report.tests) == expected[name]
-        for test in report.tests:
-            # "Every row is descriptive": no registry row covers the fit.
-            assert test.rung == "L0" and test.passed is None
-        assert report.passed is None
+    assert report.estimand == estimand
+    assert tuple(test.name for test in report.tests) == (
+        "subset",
+        "random_common_cause",
+        "bootstrap_stability",
+    )
+    for test in report.tests:
+        # "Every row is descriptive": no registry row covers the fit.
+        assert test.rung == "L0" and test.passed is None
+    assert report.passed is None
     printed = stored_output(NOTEBOOK, "refute")
     assert "This fit differs on outcome family 'binomial'" in printed
-    assert "This fit differs on outcome family 'gaussian'" in printed
-    # The subset ratios and the noise-column shifts that the reading quotes.
-    subset = {name: reports[name]["subset"] for name in reports}
-    assert subset["renewal"].statistic == pytest.approx(0.86, abs=0.005)
-    assert subset["revenue"].statistic == pytest.approx(0.88, abs=0.005)
-    assert subset["renewal"].statistic_pvalue == pytest.approx(0.66, abs=0.005)
-    assert subset["revenue"].statistic_pvalue == pytest.approx(0.71, abs=0.005)
-    noise = {name: reports[name]["random_common_cause"].statistic for name in reports}
-    assert noise["renewal"] == pytest.approx(-0.019, abs=0.0005)
-    assert noise["revenue"] == pytest.approx(-0.020, abs=0.0005)
-    table = reports["renewal"].to_frame().set_index("test")
+    # The subset ratio, the noise-column shift and the bootstrap spread that the reading quotes.
+    subset = report["subset"]
+    assert subset.statistic == pytest.approx(0.86, abs=0.005)
+    assert subset.statistic_pvalue == pytest.approx(0.66, abs=0.005)
+    assert report["random_common_cause"].statistic == pytest.approx(-0.019, abs=0.0005)
+    table = report.to_frame().set_index("test")
     spread = float(table.loc["bootstrap_stability", "refuted_sd"])
     assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
         0.88, abs=0.01
     )
-    # The five checks the page does not run are refused before any refit, for the reasons it gives.
-    for fit in (namespace["result"], namespace["revenue_result"]):
+    # The checks the page does not run are refused before any refit, for the reasons it gives.
+    result, revenue = namespace["result"], namespace["revenue_result"]
+    for fit in (result, revenue):
         refusal = refute_refusal(fit, estimand=estimand, tests=("placebo",))
         assert refusal is not None and "functions of the history" in refusal.message()
         refusal = refute_refusal(
@@ -764,24 +762,26 @@ def _check_refits(namespace: dict[str, Any]) -> None:
             future_treatment_control=np.zeros(len(namespace["frame"])),
         )
         assert refusal is not None and "binary treatment at the later node" in refusal.message()
-    refusal = refute_refusal(namespace["result"], estimand=estimand, tests=("simulated_outcome",))
-    assert refusal is not None and "family='binomial'" in refusal.message()
-    refusal = refute_refusal(
-        namespace["revenue_result"], estimand=estimand, tests=("simulated_outcome",)
-    )
+    refusal = refute_refusal(result, estimand=estimand, tests=("simulated_outcome",))
+    assert refusal is not None and "'gaussian' process" in refusal.message()
+    assert "family='binomial'" in refusal.message()
+    refusal = refute_refusal(revenue, estimand=estimand, tests=("simulated_outcome",))
     assert refusal is not None and "q_bounds=(0.0, 10.0)" in refusal.message()
     refusal = refute_refusal(
-        namespace["result"],
+        result,
         estimand=estimand,
         tests=("negative_control_outcome",),
         negative_control_outcome=namespace["frame"]["usage"].to_numpy(),
         negative_control_kind="pre_treatment",
     )
     assert refusal is not None and "adjustment" in refusal.message().lower()
-    from cleverly.sensitivity import evalue
-
     with pytest.raises(CapabilityError, match="F16"):
-        evalue(namespace["result"], estimand)
+        evalue(result, estimand)
+    # The later covariates `engaged_2` and `engaged_3` are why the simulated common cause refuses.
+    refusal = simulated_confounding_refusal(result, estimand)
+    assert refusal is not None
+    assert "no time-varying covariate after the first treatment node" in refusal.message()
+    assert "F13" in refusal.message()
 
 
 def _check_refusals(namespace: dict[str, Any]) -> None:

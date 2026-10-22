@@ -19,9 +19,10 @@ import pytest
 
 import cleverly.interventions.policy as policy_module
 from cleverly.estimators import TMLE
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import ModifiedPolicy, Piece, Shift, Support
 from cleverly.longitudinal import LTMLE, DynamicRegimen
+from cleverly.validation.refute import refute, refute_refusal
 
 from .. import dose_declarations as law
 
@@ -274,3 +275,20 @@ def test_a_support_without_a_policy_is_refused() -> None:
             covariates=["W"],
             treatment_support=Support(0.0, 2.0),
         )
+
+
+def test_a_history_dependent_support_refuses_the_point_placebo_before_any_refit() -> None:
+    """The permuted doses ignore W, so a support that reads W would stop the refit midway."""
+    contrast = "ate_policy[inside vs natural course]"
+    frame = law.point_frame()
+    declared = _fit(frame, "density", treatment_support=Support(0.0, law.upper)).single()
+    refusal = refute_refusal(declared, estimand=contrast, tests=("placebo",))
+    assert refusal is not None
+    assert "functions of the history" in refusal.message()
+    assert refusal.roadmap == "X82"
+    with pytest.raises(CapabilityError, match="functions of the history"):
+        refute(declared, estimand=contrast, tests=("placebo",), n_replicates=3)
+    fixed = _fit(frame, "density", treatment_support=Support(-10.0, 10.0)).single()
+    assert refute_refusal(fixed, estimand=contrast, tests=("placebo",)) is None
+    plain = _fit(frame, "density").single()
+    assert refute_refusal(plain, estimand=contrast, tests=("placebo",)) is None
