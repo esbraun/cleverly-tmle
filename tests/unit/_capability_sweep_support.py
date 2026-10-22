@@ -1414,7 +1414,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M10": Mutation(
         "the omitted-variable rows ignore a fit that reports no parameter to bound",
         _without_bound_parameters,
-        frozenset({"natural_course_study"}),
+        # Part G2a moved these kinds past the earlier rules, so this rule alone refuses them.
+        frozenset({"natural_course_study", "natural_course", "rr+missing", "par+missing"}),
         _RAISED.format("omitted_confounding") + "the omitted-variable bound applies",
     ),
 }

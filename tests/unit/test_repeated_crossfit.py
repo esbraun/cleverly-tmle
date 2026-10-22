@@ -1060,13 +1060,20 @@ class TestTheOmittedVariableBoundNeedsItsOwnMedianInfluenceFunction:
         frame, _ = make_binary_outcome(n=N, seed=17)
         return fast_tmle(repeats=2, estimands=["ate"]).fit(frame, **COLUMNS).single()
 
-    def test_the_bound_is_refused_instead_of_combining_influence_terms(
+    def test_the_elements_name_a_draw_instead_of_combining_influence_terms(
         self, binary_fit: Any
     ) -> None:
+        """Each draw has its own elements, and a bare request does not pick one silently.
+
+        The bound itself combines the draws by the median rule
+        (``tests/unit/test_omitted_variable_repeats.py``).
+        """
         from cleverly.sensitivity.omitted_variable import sensitivity_elements
 
-        with pytest.raises(CapabilityError, match="median-combined repeats"):
+        with pytest.raises(CapabilityError, match="describe one draw"):
             sensitivity_elements(binary_fit, "ate")
+        draws = [sensitivity_elements(binary_fit, "ate", repeat=r) for r in range(2)]
+        assert draws[0].max_bias != draws[1].max_bias
 
 
 class TestSerialization:

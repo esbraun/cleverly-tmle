@@ -429,8 +429,12 @@ class TestGeneratedOutcomes:
         assert "reports no interval" not in test.detail
 
     def test_the_plasmode_keeps_the_known_mechanism_on_every_draw(self, study_known: Any) -> None:
+        process = GaussianAdjustmentOutcome()
+        target = refute_module._validate_generated_eligibility(
+            study_known, "ate", process, "plasmode"
+        )
         law = refute_module._PlasmodeLaw.fit(study_known)
-        draw = law.draw(study_known.data, GaussianAdjustmentOutcome(), seed=3)
+        draw = law.draw(study_known.data, process, seed=3, target=target)
         assert draw.known_treatment is not None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
