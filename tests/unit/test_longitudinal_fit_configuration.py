@@ -109,10 +109,15 @@ def test_a_targeted_fit_records_every_regression_and_its_mechanism(pseudo: Any) 
     assert learners == ("GLM(family='gaussian')", expected_pseudo, "GLM()")
 
 
-def test_no_shipped_registry_row_reads_a_learner_fingerprint() -> None:
-    # The fingerprint change cannot move a shipped verdict's resolution while every shipped
-    # row leaves the learner axis unrestricted. A row that restricts it must be calibrated
-    # on the corrected fingerprints.
+def test_only_rows_calibrated_on_the_corrected_fingerprints_read_them() -> None:
+    # The fingerprint change cannot move a verdict of a longitudinal row calibrated before it,
+    # because every such row leaves the learner axis unrestricted. A longitudinal row that
+    # restricts it must come from a study run on the corrected fingerprints (X82 SL).
     from cleverly.validation._interpretation import VERDICT_EVIDENCE
 
-    assert all(row.scope.learners is None for row in VERDICT_EVIDENCE)
+    reading = {
+        row.study[0]
+        for row in VERDICT_EVIDENCE
+        if row.scope.learners is not None and row.scope.nodes not in (None, frozenset({None}))
+    }
+    assert reading <= {"refuter-calibration-longitudinal"}

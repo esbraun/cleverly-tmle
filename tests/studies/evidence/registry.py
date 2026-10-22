@@ -651,6 +651,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
+    from tests.studies.refuter_calibration_longitudinal import (
+        STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
+    )
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -745,6 +748,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OMITTED_VARIABLE_BOUND_SE,
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
         CALIBRATION_SLOPE_WARNING,
+        REFUTER_CALIBRATION_LONGITUDINAL,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

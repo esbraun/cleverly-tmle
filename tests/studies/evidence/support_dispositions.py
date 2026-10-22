@@ -1831,8 +1831,14 @@ def positive_red_rows() -> list[PositiveRow]:
     from tests.studies.evidence.red_cells import OWNERS, frames, red_rows
     from tests.studies.evidence.registry import registered
 
+    from cleverly._support_rows import EXEMPT_STUDIES
+
     found: list[PositiveRow] = []
     for record in registered():
+        if record.slug in EXEMPT_STUDIES and record.slug not in ROW_STUDY:
+            # An exempt study licenses no support row, so its red rows bear on no row's
+            # disposition. ``ROW_STUDY`` names the exempt studies whose rows still do.
+            continue
         tables = frames(record)
         performance = tables["performance"].set_index(["implementation", "scenario", "estimand"])
         for red in red_rows(record, tables):

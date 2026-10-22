@@ -3511,6 +3511,10 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     "calibration-slope-warning": (
         "It measures the rate of a diagnostic warning. The warning is no estimate."
     ),
+    "refuter-calibration-longitudinal": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
         "and licenses no configuration (F27)."

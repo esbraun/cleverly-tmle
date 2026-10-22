@@ -169,7 +169,7 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
     frame = data["performance"].sort_values(["scenario", "estimand", "implementation"])
     rows = [
         (
-            descriptions.scenario(str(row.scenario)),
+            descriptions.scenario(str(row.scenario), slug=record.slug),
             f"`{row.estimand}`",
             descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             descriptions.implementation(str(row.implementation)),
@@ -188,7 +188,7 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
     frame = data["equivalence"].sort_values(["scenario", "estimand"])
     rows = [
         (
-            descriptions.scenario(str(row.scenario)),
+            descriptions.scenario(str(row.scenario), slug=record.slug),
             f"`{row.estimand}`",
             descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             render(float(row.mean_difference)),
@@ -357,6 +357,11 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
+    if family in {"refuter_size", "refuter_power"}:
+        # The cell's verdict reads the count of its trials, so the row prints that count.
+        word = "rejections" if family == "refuter_size" else "detections"
+        count = round(float(row.rejection_rate) * int(row.replicates))
+        return f"{word} {count} of {int(row.replicates)}"
     if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "
