@@ -358,13 +358,19 @@ class GaussianAdjustmentOutcome:
         """Return the recorded Gaussian noise declaration."""
         return self.noise
 
-    def adjustment(self, covariates: Any) -> np.ndarray:
+    def adjustment(self, covariates: Any, *, centre: Any = None, scale: Any = None) -> np.ndarray:
         """Evaluate the declared adjustment function.
 
         Parameters
         ----------
         covariates : array-like
             Covariate matrix with one row per observation.
+        centre : array-like or None
+            Column centres to standardize with. ``None`` uses the rows' own means.
+        scale : array-like or None
+            Column scales to standardize with. ``None`` uses the rows' own standard
+            deviations. The plasmode passes the original data's centre and scale, so the
+            function is the same on every resample.
 
         Returns
         -------
@@ -372,8 +378,8 @@ class GaussianAdjustmentOutcome:
             Adjustment value for each row.
         """
         values = np.asarray(covariates, dtype=float)
-        center = np.mean(values, axis=0)
-        scale = np.std(values, axis=0)
+        center = np.mean(values, axis=0) if centre is None else np.asarray(centre, dtype=float)
+        scale = np.std(values, axis=0) if scale is None else np.asarray(scale, dtype=float)
         active = scale > 0.0
         if not np.any(active):
             return np.zeros(values.shape[0], dtype=float)
@@ -1713,6 +1719,7 @@ def _validate_plasmode_eligibility(result: Any) -> None:
             (data.cluster is not None, "clusters, which need whole-cluster resampling"),
             (bool(getattr(data, "has_missing_treatment", False)), "a missing treatment"),
             (data.strata is not None, "selected strata"),
+            (data.weights_name is not None, "weights, whose rows would mix two laws"),
         )
         if present
     ]
@@ -2438,6 +2445,10 @@ def _resolve(
     return _interpretation.resolve(instrument, rule, fit)
 
 
+#: The clip of a fitted plasmode treatment model on a fit that records no ``g`` bounds.
+_PLASMODE_G_BOUNDS = (0.01, 0.99)
+
+
 @dataclass(frozen=True)
 class _PlasmodeLaw:
     """The point plasmode law of X82 plan 5.6, frozen once on the fitted data.
@@ -2449,9 +2460,13 @@ class _PlasmodeLaw:
     the refit draws its own folds.
 
     The treatment model is the declared known mechanism when the fit has one. Otherwise it
-    is a logistic regression of ``A`` on ``W`` fitted once, clipped to the fit's ``g``
-    bounds. Under the additive process every arm-mean contrast equals the declared effect
-    on this law exactly, whatever the treatment model is.
+    is a logistic regression of ``A`` on ``W`` fitted once and always clipped: to the fit's
+    ``g`` bounds, or to :data:`_PLASMODE_G_BOUNDS` when the fit records none. An unclipped
+    model can reach 0 or 1 under separation, and the law would then cause a positivity
+    failure the report blames on the estimator. Under the additive process every arm-mean
+    contrast equals the declared effect on this law exactly, whatever the treatment model
+    is. A weighted fit is refused, because rows drawn from the unweighted empirical law
+    that keep their weights describe a mixed law.
     """
 
     covariates: np.ndarray
@@ -2460,6 +2475,7 @@ class _PlasmodeLaw:
     centre: np.ndarray
     scale: np.ndarray
     arm_codes: tuple[float, float]
+    bounds: tuple[float, float] | None
 
     @classmethod
     def fit(cls, result: Any) -> _PlasmodeLaw:
@@ -2467,8 +2483,12 @@ class _PlasmodeLaw:
         covariates = np.asarray(data.covariates, dtype=float)
         codes = (float(data.arm_codes[0]), float(data.arm_codes[1]))
         known = None
+        bounds: tuple[float, float] | None = None
         if data.known_treatment is not None:
             known = np.asarray(data.known_treatment.values, dtype=float)
+            # A known mechanism holds one column per arm in the order of ``arm_codes``.
+            if known.shape[1] != len(data.arm_codes):
+                raise RuntimeError("the known mechanism does not hold one column per arm")
             treated = known[:, 1]
         else:
             from sklearn.linear_model import LogisticRegression
@@ -2476,10 +2496,11 @@ class _PlasmodeLaw:
             model = LogisticRegression(C=np.inf, max_iter=5000)
             model.fit(covariates, np.asarray(data.treatment == codes[1], dtype=int))
             treated = model.predict_proba(covariates)[:, 1]
-            bounds = getattr(getattr(result, "config", None), "g_bounds", None)
-            if bounds is not None:
-                lower, upper = bounds
-                treated = np.clip(treated, lower, upper)
+            recorded = getattr(getattr(result, "config", None), "g_bounds", None)
+            bounds = _PLASMODE_G_BOUNDS
+            if isinstance(recorded, tuple) and len(recorded) == 2:
+                bounds = (float(recorded[0]), float(recorded[1]))
+            treated = np.clip(treated, *bounds)
         return cls(
             covariates=covariates,
             treated=np.asarray(treated, dtype=float),
@@ -2487,17 +2508,12 @@ class _PlasmodeLaw:
             centre=np.mean(covariates, axis=0),
             scale=np.std(covariates, axis=0),
             arm_codes=codes,
+            bounds=bounds,
         )
 
     def adjustment(self, process: GaussianAdjustmentOutcome, rows: np.ndarray) -> np.ndarray:
         """The declared adjustment function, standardized on the original data."""
-        active = self.scale > 0.0
-        if not np.any(active):
-            return np.zeros(rows.size, dtype=float)
-        values = self.covariates[rows][:, active]
-        standardized = (values - self.centre[active]) / self.scale[active]
-        divisor = np.sqrt(float(np.count_nonzero(active)))
-        return np.asarray(process.adjustment_scale * np.sum(standardized, axis=1) / divisor)
+        return process.adjustment(self.covariates[rows], centre=self.centre, scale=self.scale)
 
     def draw(self, data: Any, process: GaussianAdjustmentOutcome, *, seed: int) -> Any:
         """Return one plasmode data set."""
@@ -2626,9 +2642,14 @@ def _generated_outcome_test(
         )
         if not covariate_part:
             detail += "; standard-error ratio and coverage withheld (covariate part of the curve)"
-        design = (
-            "resampled covariates and a frozen treatment model" if plasmode else "the held design"
-        )
+        design = "the held design"
+        if plasmode:
+            clip = (
+                "a known mechanism"
+                if law.bounds is None
+                else f"a frozen treatment model clipped to [{law.bounds[0]:g}, {law.bounds[1]:g}]"
+            )
+            design = f"resampled covariates and {clip}"
         sentences.append(
             f"Generated law: {process.name}, {len(values)} draws on {design}, "
             f"effect {declared_effect:.5g}."

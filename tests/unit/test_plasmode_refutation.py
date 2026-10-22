@@ -102,3 +102,55 @@ class TestPlasmodeRefutation:
         )
         with pytest.raises(CapabilityError, match="clusters"):
             refute(clustered, tests=("plasmode",), n_replicates=20, random_state=2)
+
+
+class TestPlasmodeScope:
+    @pytest.mark.parametrize("levels", [(0, 1, 2), (0.0, 0.5, 1.0, 2.0)])
+    def test_more_than_two_arms_is_refused_before_any_refit(self, levels: tuple) -> None:
+        """The law draws two arms only. The generated-outcome check refuses any other."""
+        from types import SimpleNamespace
+
+        from tests.unit.test_generated_outcome_refutation import _eligible_result
+
+        result = _eligible_result()
+        result.data = SimpleNamespace(**vars(result.data))
+        result.data.n = len(result.data.outcome)
+        result.data.treatment_levels = levels
+        result.data.is_binary_treatment = False
+        result.data.has_missing_outcome = False
+        result.data.has_intermediate = False
+        with pytest.raises(CapabilityError, match="non-binary"):
+            refute(result, tests=("plasmode",), n_replicates=10)
+        assert result.estimator.calls == []
+
+    def test_a_separable_treatment_model_stays_inside_its_clip(self, result: Any) -> None:
+        from types import SimpleNamespace
+
+        separable = np.asarray(result.data.covariates[:, 0] > 0.0, dtype=float)
+        stand_in = SimpleNamespace(
+            data=replace(result.data, treatment=separable),
+            config=SimpleNamespace(g_bounds=None),
+        )
+        law = _PlasmodeLaw.fit(stand_in)
+        assert law.bounds == (0.01, 0.99)
+        assert law.treated.min() == pytest.approx(0.01)
+        assert law.treated.max() == pytest.approx(0.99)
+
+    def test_the_scope_sentence_names_the_clip(self, result: Any) -> None:
+        test = refute(result, tests=("plasmode",), n_replicates=20, random_state=2)["plasmode"]
+        lower, upper = result.config.g_bounds
+        assert f"clipped to [{lower:g}, {upper:g}]" in test.scope_sentence
+
+    def test_a_weighted_fit_is_refused(self, result: Any) -> None:
+        weighted = replace(result, data=replace(result.data, weights_name="w"))
+        with pytest.raises(CapabilityError, match="weights"):
+            refute(weighted, tests=("plasmode",), n_replicates=20, random_state=2)
+
+    def test_the_adjustment_is_the_process_function_with_a_frozen_standardization(
+        self, result: Any
+    ) -> None:
+        law = _PlasmodeLaw.fit(result)
+        rows = np.arange(result.data.n)
+        np.testing.assert_allclose(
+            law.adjustment(PROCESS, rows), PROCESS.adjustment(result.data.covariates)
+        )
