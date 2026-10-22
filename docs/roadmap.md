@@ -1708,11 +1708,15 @@ covers it ([E-value](technical-reference/validation-methods.md#e-value)).
 The missingness tilt of a ratio, of the natural-course mean, PAR and PAF, of a regime mean and of
 an MSM coefficient has shipped, with a plug-in spread and no interval away from $\gamma = 0$
 ([missingness tilt](technical-reference/validation-methods.md#missingness-tilt-and-tipping-gamma)).
+The omitted-variable bound of a fit with a response mechanism, a missing treatment, an intermediate
+variable, or a baseline stratum has shipped. Its confidence limits print as descriptive until a
+registered study covers them
+([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
 ##### Other linear functionals
 
 The package refuses the omitted-variable bound on
-five kinds of fit whose parameter is a linear functional of an outcome regression. Each refusal is
+three kinds of fit whose parameter is a linear functional of an outcome regression. Each refusal is
 correct, and each message says that the bound is well posed and not implemented. Theorem 2 of
 Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) gives the bias of such a functional, and
 Equation (14) in their Section 4 gives the bounds.
@@ -1725,17 +1729,11 @@ read of this item still needs it.
 | `regime` axis | a regime mean, linear in the regression of $Y$ on $(A, W)$ | the representer of each regime, from the fit's clever covariate |
 | `shift` axis | a shifted-dose mean, linear in the same regression | the representer of each shift, which reads the treatment density |
 | `msm` axis | an MSM coefficient, linear in the same regression | the representer of each coefficient through the projection |
-| a response mechanism | the mean of the regression of $\Delta Y$ on $(A, \Delta, W)$ | a representer that carries $\Delta$, and $\sigma^2 = E[\Delta (Y - \bar Q)^2]$ |
-| an intermediate variable | a mean at the level $z$ of the regression of $Y$ on $(A, Z, W)$ | a representer with the weight $1\{Z = z\} / P(Z = z \mid A, W)$ |
-
-The response and intermediate representers carry a second mechanism. On those fits the strength
-$c_D$ measures a joint strength over the treatment mechanism and that second mechanism. Each
-contract must state that reading, and its benchmark must measure the same joint strength.
 
 Each contract names the representer, the $\nu^2$ estimator, and its influence curve. The evidence
 needs an exact finite-support law for each representer. It also needs a nonzero witness for each
-weight that is zero off its support, as `tests/unit/test_omitted_variable_refusals.py` has for the
-intermediate representer. DR-TMLE and
+weight that is zero off its support, as `tests/unit/test_omitted_variable_part_g.py` has for the
+response and intermediate representers. DR-TMLE and
 C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
@@ -1754,14 +1752,12 @@ or the controls, and the E-value of a regime or policy contrast.
 
 | part | request | step |
 | --- | --- | --- |
-| (b) | the omitted-variable bound of a stratum-conditional estimand | the marginal result applied inside each stratum. The step is a finite partition |
 | (d) | the derived risk ratio after fold evaluation | the fold-evaluated ratio of X61 part (c). No new theory is needed beyond that part |
 | (f) | the omitted-variable bound after `repeats` above 1 | the bound computed on each draw, then the median, under the argument of X53 part (b). Each draw shares the first-order curve, so the median bound uses that curve, not a coordinatewise median of influence terms. X53 part (b) carries the TMLE point only. The contract therefore states that $\hat\sigma^2$ and $\hat\nu^2$ are each asymptotically linear, with common limits over the draws |
 | (g) | a benchmark that drops every covariate | an intercept-only short model. It depends on X63 part (c) |
 
 Acceptance needs each check below.
 
-- one stratum in part (b) reproduces the marginal result exactly;
 - one repeat in part (f) reproduces the shipped bound exactly;
 - a nonzero witness for each changed term;
 - a mutation control for each part that adds a term;
