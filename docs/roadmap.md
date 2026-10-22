@@ -1699,17 +1699,20 @@ Acceptance: the replay at zero strength reproduces the estimate; a nonzero witne
 
 #### Part G: E-value, omitted-variable bound and missingness tilt
 
-Part G has three tables: other linear functionals, the DR-TMLE and C-TMLE bound, and further
-sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
+Part G has two tables: other linear functionals and further sensitivity requests. The E-value of a controlled direct effect, of a stratum contrast, of a
 standardized contrast with a response mechanism, of a derived `CTMLE` or `DRTMLE` ratio, and of a
 `TimeToEvent` pair has shipped. Its confidence limit prints as descriptive until a registered study
 covers it ([E-value](technical-reference/validation-methods.md#e-value)).
 The missingness tilt of a ratio, of the natural-course mean, PAR and PAF, of a regime mean and of
 an MSM coefficient has shipped, with a plug-in spread and no interval away from $\gamma = 0$
 ([missingness tilt](technical-reference/validation-methods.md#missingness-tilt-and-tipping-gamma)).
+
 The omitted-variable bound of a fit with a response mechanism, a missing treatment, an intermediate
 variable, a baseline stratum, or `repeats` above 1 has shipped. Its confidence limits print as descriptive until a
 registered study covers them
+([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
+The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
+`assume_consistent_mechanism=True`, with no limits
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
 ##### Other linear functionals
@@ -1736,13 +1739,6 @@ response and intermediate representers. DR-TMLE and
 C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
-
-##### DR-TMLE and C-TMLE bound
-
-| part | request | step |
-| --- | --- | --- |
-| DR-TMLE | the omitted-variable bound | the shipped plug-in bound recentred on the DR-TMLE point, under a consistent mechanism. No new theory. The owner chooses the scope |
-| C-TMLE | the omitted-variable bound | as the DR-TMLE row. No new theory |
 
 ##### Further sensitivity requests
 

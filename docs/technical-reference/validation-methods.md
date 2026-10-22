@@ -803,8 +803,8 @@ matching capability row therefore carry one reason.
 
 | refused fit | the result the package does not have |
 | --- | --- |
-| a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
-| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does |
+| a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong. `assume_consistent_mechanism=True` gives a point bound under that assumption |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does. `assume_consistent_mechanism=True` gives a point bound on a selecting fit |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
@@ -867,6 +867,9 @@ the draws as the table states. One draw reproduces the shipped bound exactly.
 | `benchmark()` | the medians of $\sigma^2$ and $\nu^2$ over draws, before and after the refit |
 | `sensitivity_elements()` | one draw, named by `repeat=`. A bare request refuses, and its capability row requires `repeat` |
 
+On several draws, `max_bias` is the median of $B_r$, and a bound is not $\psi \mp S$ times that
+median. Read each bound from the result, and do not recompute it from `max_bias`.
+
 The standard error rule is the one that
 [`repeats`](cv-tmle.md#variations) applies to the estimate. Chernozhukov et al.
 (2018, equation 3.14) give it. The rule assumes that $\hat\sigma^2$ and $\hat\nu^2$ are
@@ -879,6 +882,31 @@ retargets each draw from its own nuisances. The retarget must reproduce the stor
 draw, or the call raises `RuntimeError`. The feature `repeats` marks these limits descriptive.
 `tests/unit/test_omitted_variable_repeats.py` checks each row against the fit with one draw at the
 seed of that draw.
+
+#### The point bound under an assumed consistent mechanism
+
+`assume_consistent_mechanism=True` lifts the refusal of a `drtmle` fit and of a selecting
+`collaborative_tmle` fit. `omitted_variable_bounds()`, `robustness_value()`, and `contour_data()`
+accept it. The keyword states an assumption that the estimator itself does not make. The bound then
+reads the treatment mechanism as consistent, which is the assumption of the published $\nu^2$.
+
+| quantity | `drtmle` fit | selecting `collaborative_tmle` fit |
+| --- | --- | --- |
+| centre | the fit's estimate | the fit's estimate |
+| $\sigma^2$ | the fit's targeted outcome regression | the fit's targeted outcome regression |
+| the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
+| limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
+| a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
+
+The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
+keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
+assumption, the summary prints it, and `to_dict()` adds it. On another fit the keyword raises
+`ValueError`. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
+takes the median of the draws' point bounds.
+
+`tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the
+ordinary TMLE $\nu^2$ with one learner and seed. It checks the same equality for the C-TMLE refit.
+A mutation control that reads the selected mechanism instead of the refit gives another $\nu^2$.
 
 #### Omitted-variable limits without coverage evidence
 
