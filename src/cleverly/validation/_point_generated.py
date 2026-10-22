@@ -57,6 +57,10 @@ class InterventionLaw:
     density. An incremental intervention tilts the treatment mechanism: it multiplies the
     odds of each arm by a factor, so ``q(a | W) = f_a g(a | W) / sum_b f_b g(b | W)``
     (Kennedy 2019). Its law therefore needs the true ``g``, which only the plasmode knows.
+    A modified treatment policy moves each unit's natural arm ``s`` to ``d(s, W)``, so
+    ``q(a | W) = sum_s P(A = s | W) T(s -> a | W)`` with ``T`` the policy's transition
+    (Díaz et al. 2023, Section 4). The held design reads the held arm of each row as the
+    natural arm, and the plasmode reads its frozen treatment model.
 
     Parameters
     ----------
@@ -64,19 +68,28 @@ class InterventionLaw:
         The name of the intervention in the reported parameter.
     values : ndarray or None
         ``(n, K)`` fixed probability of each arm at each row, in the order of the arm
-        codes, or ``None`` for a tilt.
+        codes, or ``None`` for a tilt or a policy.
     factors : ndarray or None
-        ``(K,)`` odds factor of each arm, or ``None`` for a fixed law.
+        ``(K,)`` odds factor of each arm of a tilt.
+    transition : ndarray or None
+        ``(n, K, K)`` probability that a policy moves natural arm ``s`` to arm ``a`` at
+        each row, indexed ``[i, s, a]``.
     """
 
     label: str
     values: np.ndarray | None = None
     factors: np.ndarray | None = None
+    transition: np.ndarray | None = None
 
     @property
     def reads_mechanism(self) -> bool:
-        """Return whether the law is a tilt of the treatment mechanism."""
-        return self.factors is not None
+        """Return whether the law reads the law of the natural treatment."""
+        return self.factors is not None or self.transition is not None
+
+    @property
+    def reads_held_treatment(self) -> bool:
+        """Return whether the held arm of each row may stand for the natural treatment."""
+        return self.transition is not None
 
     def density(self, mechanism: np.ndarray | None) -> np.ndarray:
         """Return the ``(n, K)`` probability of each arm at each row.
@@ -84,7 +97,7 @@ class InterventionLaw:
         Parameters
         ----------
         mechanism : ndarray or None
-            ``(n, K)`` true treatment mechanism, which a tilt reads.
+            ``(n, K)`` law of the natural treatment, which a tilt and a policy read.
 
         Returns
         -------
@@ -96,12 +109,16 @@ class InterventionLaw:
         ValueError
             If a tilt has no mechanism to read.
         """
-        if self.factors is None:
+        if not self.reads_mechanism:
             assert self.values is not None
             return self.values
         if mechanism is None:
             raise ValueError("a tilt of the treatment mechanism needs the true mechanism")
-        tilted = np.asarray(mechanism, dtype=float) * self.factors[None, :]
+        natural = np.asarray(mechanism, dtype=float)
+        if self.transition is not None:
+            return np.asarray(np.einsum("is,isa->ia", natural, self.transition), dtype=float)
+        assert self.factors is not None
+        tilted = natural * self.factors[None, :]
         return np.asarray(tilted / tilted.sum(axis=1, keepdims=True), dtype=float)
 
 
@@ -284,6 +301,10 @@ class PointTarget:
         The reference intervention of ``intervention_difference``.
     projection : Projection or None
         The working model of ``msm``.
+    doses : dict of float to ndarray or None
+        On a continuous treatment, the dose each code of :attr:`arms` stands for at each
+        row. A policy's codes are its branches, so its law puts each branch's probability
+        on that branch's code.
     """
 
     kind: TargetKind
@@ -297,6 +318,7 @@ class PointTarget:
     value_law: InterventionLaw | None = field(default=None, compare=False)
     reference_law: InterventionLaw | None = field(default=None, compare=False)
     projection: Projection | None = field(default=None, compare=False)
+    doses: dict[float, np.ndarray] | None = field(default=None, compare=False)
 
     @property
     def ratio(self) -> bool:
@@ -522,6 +544,7 @@ def arm_means(
     scale: Any = None,
     bounds: tuple[float, float] | None = None,
     intermediate: float | None = None,
+    doses: dict[float, np.ndarray] | None = None,
 ) -> dict[float, np.ndarray]:
     """Evaluate ``m(a, W_i)`` for each arm code in ``codes`` at every row of ``covariates``.
 
@@ -543,6 +566,9 @@ def arm_means(
         The fit's ``q_bounds``, for a bounded process.
     intermediate : float or None
         The intermediate value every row is set to, for a controlled direct effect.
+    doses : dict of float to ndarray or None
+        On a continuous treatment, the dose of each code at each row. ``None`` sets every
+        row to the code itself.
 
     Returns
     -------
@@ -552,9 +578,10 @@ def arm_means(
     n = covariates.shape[0]
     out: dict[float, np.ndarray] = {}
     for code in codes:
+        treatment = np.full(n, float(code)) if doses is None else doses[float(code)]
         terms = treatment_term(
             process,
-            np.full(n, float(code)),
+            treatment,
             arm_codes=data.arm_codes,
             levels=data.treatment_levels,
             intermediate=intermediate,
@@ -591,21 +618,22 @@ def held_weights(target: PointTarget, data: Any) -> np.ndarray:
 
 
 def held_mixture(target: PointTarget, data: Any) -> dict[float, np.ndarray] | None:
-    """Return the indicator of each held row's arm, which a natural-course truth reads.
+    """Return the indicator of each held row's arm, which a natural-course or policy truth reads.
 
     Parameters
     ----------
     target : PointTarget
-        The target. Only the natural-course kinds read a mixture.
+        The target. Only the natural-course kinds and the policies read a mixture.
     data : CausalData
         The held rows.
 
     Returns
     -------
     dict of float to ndarray or None
-        ``1{A_i = a}`` for each arm code, or ``None`` for an arm-indexed target.
+        ``1{A_i = a}`` for each arm code, or ``None`` for another target.
     """
-    if not target.natural:
+    laws = (target.value_law, target.reference_law)
+    if not (target.natural or any(law is not None and law.reads_held_treatment for law in laws)):
         return None
     treatment = np.asarray(data.treatment, dtype=float)
     return {code: np.asarray(treatment == code, dtype=float) for code in target.arms}
@@ -852,6 +880,7 @@ class PlasmodeLaw:
             scale=self.scale,
             bounds=target.outcome_bounds,
             intermediate=target.intermediate,
+            doses=target.doses,
         )
         code = target.population_code()
         if code is None:
