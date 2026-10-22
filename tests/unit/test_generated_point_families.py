@@ -15,8 +15,16 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import ATC, ATE, ATT, CausalStudy, CounterfactualMean, OddsRatio, PointTreatment
-from cleverly import RiskRatio
+from cleverly import (
+    ATC,
+    ATE,
+    ATT,
+    CausalStudy,
+    CounterfactualMean,
+    OddsRatio,
+    PointTreatment,
+    RiskRatio,
+)
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.validation import (
     BernoulliAdjustmentOutcome,
@@ -25,7 +33,7 @@ from cleverly.validation import (
     refute,
 )
 from cleverly.validation._point_generated import PlasmodeLaw, PointTarget, arm_means
-from cleverly.validation.outcome_processes import arm_term, standardized_sum
+from cleverly.validation.outcome_processes import arm_term
 
 REFUTE = sys.modules["cleverly.validation.refute"]
 
@@ -434,8 +442,8 @@ class TestRefusals:
         assert test.declared_effect == 0.0 and test.rung == "L1"
 
     def test_arm_effects_on_a_longitudinal_panel_are_refused(self) -> None:
-        from tests.unit.test_longitudinal_generated_outcomes import _fit as _panel_fit
         from tests.unit.test_longitudinal_generated_outcomes import CONTRAST, _panel
+        from tests.unit.test_longitudinal_generated_outcomes import _fit as _panel_fit
 
         with pytest.raises(CapabilityError, match="arm_effects"):
             refute(
@@ -447,8 +455,8 @@ class TestRefusals:
             )
 
     def test_a_bernoulli_process_on_a_longitudinal_panel_is_refused(self) -> None:
-        from tests.unit.test_longitudinal_generated_outcomes import _fit as _panel_fit
         from tests.unit.test_longitudinal_generated_outcomes import CONTRAST, _panel
+        from tests.unit.test_longitudinal_generated_outcomes import _fit as _panel_fit
 
         with pytest.raises(CapabilityError, match="Gaussian processes only"):
             refute(

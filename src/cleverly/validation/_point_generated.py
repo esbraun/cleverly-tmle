@@ -128,9 +128,10 @@ class PointTarget:
     def covariate_part_vanishes(self, means: dict[float, np.ndarray], weights: np.ndarray) -> bool:
         """Return whether the covariate part of the influence curve is identically zero.
 
-        Only a difference contrast whose arm contrast ``m(v, W) - m(r, W)`` is constant over
-        the population rows has a zero covariate part (X82 plan 5.5.1). The check reads the
-        generated law, not the target name.
+        The covariate part of a difference contrast is ``m(v, W) - m(r, W) - psi``, of a
+        level ``m(a, W) - psi``, and of a log ratio a combination of the two levels' parts.
+        Each vanishes when the functions it reads are constant over the population rows (X82
+        plan 5.5.1). The check reads the generated law, not the target name.
 
         Parameters
         ----------
@@ -145,14 +146,19 @@ class PointTarget:
             ``True`` when the held-design standard-error ratio and coverage have an exact
             reference.
         """
-        if self.kind != "difference" or self.reference_code is None:
-            return False
         rows = weights > 0.0
-        contrast = means[self.value_code][rows] - means[self.reference_code][rows]
-        if contrast.size == 0:
+        if not np.any(rows):
             return False
-        spread = float(np.max(contrast) - np.min(contrast))
-        return spread <= CONSTANT_TOLERANCE * max(1.0, float(np.max(np.abs(contrast))))
+        if self.kind == "difference" and self.reference_code is not None:
+            vectors = [means[self.value_code][rows] - means[self.reference_code][rows]]
+        else:
+            vectors = [means[code][rows] for code in self.codes]
+        return all(_constant(vector) for vector in vectors)
+
+
+def _constant(vector: np.ndarray) -> bool:
+    spread = float(np.max(vector) - np.min(vector))
+    return spread <= CONSTANT_TOLERANCE * max(1.0, float(np.max(np.abs(vector))))
 
 
 def arm_means(

@@ -642,10 +642,12 @@ class TestGeneratedOutcomeBands:
         contrast = PointTarget("difference", "all", 1.0, 0.0)
         assert contrast.covariate_part_vanishes(constant, weights)
         assert not contrast.covariate_part_vanishes(varying, weights)
-        assert not PointTarget("level", "all", 1.0, None).covariate_part_vanishes(
-            constant, weights
-        )
+        # A level or a ratio reads the arm functions themselves, which vary here.
+        assert not PointTarget("level", "all", 1.0, None).covariate_part_vanishes(constant, weights)
         assert not PointTarget("rr", "all", 1.0, 0.0).covariate_part_vanishes(constant, weights)
+        flat = {1.0: np.full(3, 2.0), 0.0: np.full(3, 1.0)}
+        assert PointTarget("level", "all", 1.0, None).covariate_part_vanishes(flat, weights)
+        assert PointTarget("rr", "all", 1.0, 0.0).covariate_part_vanishes(flat, weights)
 
     def test_a_non_registered_band_declaration_is_refused(self) -> None:
         from cleverly.exceptions import CapabilityError

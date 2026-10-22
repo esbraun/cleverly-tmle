@@ -11,8 +11,8 @@ import pytest
 from cleverly import ATE
 from cleverly.exceptions import CapabilityError
 from cleverly.validation import DEFAULT_TESTS, GaussianAdjustmentOutcome, GaussianNoise, refute
-from cleverly.validation._readings import EquivalenceBands, band_readings
 from cleverly.validation._point_generated import PointTarget
+from cleverly.validation._readings import EquivalenceBands, band_readings
 from cleverly.validation.refute import _PlasmodeLaw
 from tests.unit.test_generated_outcome_refutation import _linear_ate_fit
 

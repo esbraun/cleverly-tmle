@@ -2191,8 +2191,8 @@ the ATT or ATC population by the frozen probability of that population's arm.
 | --- | --- | --- |
 | `ate`, for each arm pair | the mean of `m(v, W) - m(r, W)` over every row | three readings when `m(v, W) - m(r, W)` is constant over the rows; else bias only |
 | `att`, `atc` | the same mean over the rows of arm `v` (`att`) or arm `r` (`atc`) | the same rule |
-| `ey`, `ey1`, `ey0` | the mean of `m(a, W)` | bias only |
-| `rr`, `or` | the ratio of the two levels, or of their odds | bias only, on the log scale |
+| `ey`, `ey1`, `ey0` | the mean of `m(a, W)` | three readings when `m(a, W)` is constant over the rows; else bias only |
+| `rr`, `or` | the ratio of the two levels, or of their odds | three readings when both levels are constant over the rows; else bias only. The readings use the log scale |
 
 The code reads the constancy from the generated law. A Gaussian process and an identity link have
 a constant arm contrast. A logit link with a nonzero effect does not. The plasmode reads all three
