@@ -2070,9 +2070,9 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 | `random_common_cause` | adds an irrelevant covariate and refits | the paired shift against the original fit, in standard errors | how far the learners move when a noise column joins the adjustment set |
 | `subset` | refits on random subsamples | the scatter ratio rho against `SE * sqrt((n/m - 1) * n/(n - 1))`; `(R - 1) * rho^2` follows a chi-square law on R - 1 degrees of freedom | the reported standard error is the right size |
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
-| `dummy_outcome` | draws independent Gaussian noise and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
-| `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the same three readings, against the declared effect | adjustment and treatment terms in the full pipeline |
-| `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `f(W) + effect * A + epsilon`, and refits | bias, standard-error ratio, and coverage against the same bands, for every eligible contrast | operating characteristics on a law fitted to resemble the data |
+| `dummy_outcome` | draws an outcome independent of `W` and `A` and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
+| `simulated_outcome` | draws `Y` from a declared mean `m(a, W)` and refits | the same three readings, against the exact truth of the target | adjustment and treatment terms in the full pipeline |
+| `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `Y` from `m(a, W)`, and refits | bias, standard-error ratio, and coverage against the same bands | operating characteristics on a law fitted to resemble the data |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 | `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
 
@@ -2090,15 +2090,63 @@ A product weight and a tensor design whose arm factor holds an intercept give th
 case.
 
 The plasmode follows Franklin et al. (2014). Each draw takes `n` units from the empirical law of
-`W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once and
-clipped to the `g` bounds of the fit. A fit with no recorded bounds uses `[0.01, 0.99]`.
+`W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once.
 
-The plasmode draws `Y` from the `simulated_outcome` declaration, with
-the adjustment function standardized on the original data. The truth is a finite sum over the `n`
-support points, so all three readings have an exact reference.
+A model with more than two arms is multinomial. A two-arm model is clipped to the `g` bounds of
+the fit, or to `[0.01, 0.99]` when the fit records none. A multi-arm model floors each
+probability at the lower bound and renormalizes each row. The report prints the smallest arm
+probability.
 
-The plasmode refuses clusters, strata, weights, a missing treatment, and more than two arms. `tests/unit/test_plasmode_refutation.py` holds the witness and a
-mutation that keeps `W` fixed.
+The plasmode draws `Y` from the `simulated_outcome` declaration, with the covariate term
+standardized on the original data. The truth is a finite sum over the `n` support points, so all
+three readings have an exact reference.
+
+The plasmode refuses clusters, strata, weights and a missing treatment.
+`tests/unit/test_plasmode_refutation.py` holds the witness and a mutation that keeps `W` fixed.
+
+#### Generated point outcomes
+
+A point process declares a mean `m(a, W)` and an arm term `c(a)`. The scalar `effect` gives
+`c(a) = effect * code(a)`. The mapping `arm_effects` gives each arm label its own term. `f(W)` is
+the standardized covariate sum over the square root of the column count, times
+`adjustment_scale`.
+
+| process | fit family | mean `m(a, W)` | draw |
+| --- | --- | --- | --- |
+| `GaussianIndependentOutcome` | Gaussian, `q_bounds=None` | the noise mean | Gaussian |
+| `GaussianAdjustmentOutcome` | Gaussian, `q_bounds=None` | `f(W) + c(a)` plus the noise mean | Gaussian |
+| `BernoulliAdjustmentOutcome`, `link="logit"` | binomial | `expit(intercept + f(W) + c(a))` | Bernoulli |
+| `BernoulliAdjustmentOutcome`, `link="identity"` | binomial | `intercept + adjustment_scale * (expit(s(W)) - 1/2) + c(a)` | Bernoulli |
+| `BoundedAdjustmentOutcome` | Gaussian with `q_bounds=(lo, hi)` | `lo + (hi - lo) * u(a, W)`, with `u` the Bernoulli mean | `lo + (hi - lo) * Beta(u * phi, (1 - u) * phi)` |
+
+`s(W)` is the standardized sum with scale 1, and `phi` is `precision`. The Beta law has mean `u`
+exactly. `dummy_outcome` takes the Gaussian independent process, or a Bernoulli or bounded process
+with `effect=0` and `adjustment_scale=0`. A declaration whose mean leaves `[0, 1]` on a row is
+refused before any refit. A bounded mean must lie strictly inside `q_bounds`.
+
+The truth of each target is a finite sum of `m` over rows. The held design sums over the fit's
+rows with the fit's weights. The plasmode sums over the support points, and it weights a row of
+the ATT or ATC population by the frozen probability of that population's arm.
+
+| target | truth | held-design readings |
+| --- | --- | --- |
+| `ate`, for each arm pair | the mean of `m(v, W) - m(r, W)` over every row | three readings when `m(v, W) - m(r, W)` is constant over the rows; else bias only |
+| `att`, `atc` | the same mean over the rows of arm `v` (`att`) or arm `r` (`atc`) | the same rule |
+| `ey`, `ey1`, `ey0` | the mean of `m(a, W)` | bias only |
+| `rr`, `or` | the ratio of the two levels, or of their odds | bias only, on the log scale |
+
+The code reads the constancy from the generated law. A Gaussian process and an identity link have
+a constant arm contrast. A logit link with a nonzero effect does not. The plasmode reads all three
+readings for every target.
+
+A ratio reads `log psi` with the fit's log-scale standard error against
+`log T`. A refit with a ratio that is not positive is a retained failure. The six exact registry
+rows cover every point target, so no study is needed.
+
+A held-design `att` or `atc` on a fit with a missing treatment is refused. An unrecorded row's arm
+is unknown, so the population is unknown. A continuous treatment has no arm target and is refused.
+`tests/unit/test_generated_point_families.py` checks each truth against a closed form. It also
+holds a mutation for the contrast direction, the population, the weights and the ratio scale.
 
 The default tests are `placebo`, `random_common_cause`, and `subset`. Each runs 20 replications by
 default, so `refute()` costs about 60 fits. A check that needs more than 20 refits is opt-in.

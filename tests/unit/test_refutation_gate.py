@@ -633,18 +633,19 @@ class TestGeneratedOutcomeBands:
         assert test.passed is False
         assert not test.readings[1].inside
 
-    def test_the_covariate_part_check_reads_the_effect_and_the_contrast(self) -> None:
-        from cleverly.validation.refute import _covariate_part_vanishes
+    def test_the_covariate_part_check_reads_the_law_and_the_contrast(self) -> None:
+        from cleverly.validation._point_generated import PointTarget
 
-        assert _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=False
+        weights = np.ones(3)
+        constant = {1.0: np.array([2.0, 3.0, 4.0]), 0.0: np.array([1.0, 2.0, 3.0])}
+        varying = {1.0: np.array([2.0, 3.5, 4.0]), 0.0: np.array([1.0, 2.0, 3.0])}
+        contrast = PointTarget("difference", "all", 1.0, 0.0)
+        assert contrast.covariate_part_vanishes(constant, weights)
+        assert not contrast.covariate_part_vanishes(varying, weights)
+        assert not PointTarget("level", "all", 1.0, None).covariate_part_vanishes(
+            constant, weights
         )
-        assert not _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=True
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=False, effect_varies_with_covariates=False
-        )
+        assert not PointTarget("rr", "all", 1.0, 0.0).covariate_part_vanishes(constant, weights)
 
     def test_a_non_registered_band_declaration_is_refused(self) -> None:
         from cleverly.exceptions import CapabilityError
@@ -1172,21 +1173,18 @@ class TestFrozenSplitsAndCovariatePart:
             )
 
     def test_a_varying_effect_would_withhold_the_ratio_and_coverage(self) -> None:
-        from cleverly.validation.refute import _covariate_part_vanishes
+        from cleverly.validation._point_generated import PointTarget
 
-        assert _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=False
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=True
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=False, effect_varies_with_covariates=False
-        )
+        # Only the rows of the population count: a contrast that varies on a row outside
+        # the ATT population still has a zero covariate part there.
+        target = PointTarget("difference", "value", 1.0, 0.0)
+        means = {1.0: np.array([2.0, 2.0, 9.0]), 0.0: np.array([1.0, 1.0, 1.0])}
+        assert target.covariate_part_vanishes(means, np.array([1.0, 1.0, 0.0]))
+        assert not target.covariate_part_vanishes(means, np.ones(3))
 
     def test_the_registered_processes_carry_a_scalar_effect(self) -> None:
-        # The call site passes effect_varies_with_covariates=False. That is sound only while
-        # every accepted process has a constant effect, so a tau(W) process fails here first.
+        # The covariate-part check reads the law, so a tau(W) process would be read
+        # correctly; the catalog still declares a scalar effect only.
         from cleverly.validation import GaussianAdjustmentOutcome
 
         with pytest.raises((ValueError, TypeError)):
