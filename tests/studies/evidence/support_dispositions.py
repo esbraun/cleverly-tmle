@@ -1513,10 +1513,11 @@ _X26: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] =
     ),
 )
 
-#: The red cells of ``adaptive-iptw`` (X21). The three flexible-learner cells are experimental: the
-#: key of a fit cannot read the mechanism learner, so no shortfall labels the row (``NO_SHORTFALL``),
-#: and the row note states the limit. The other cells read finite-sample or draw-specific effects
-#: with no defect found, so each leaves its row supported with a stated limit.
+#: The red cells of ``adaptive-iptw`` (X21). The three flexible-learner cells are experimental. A
+#: gradient-boosting mechanism is outside the configuration of the row: the key reads the learner
+#: family, so a boosted fit matches no row and no shortfall labels the row (``NO_SHORTFALL``). The
+#: other cells read finite-sample or draw-specific effects with no defect found, so each leaves its
+#: row supported with a stated limit.
 _ADAPTIVE_IPTW: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
     (
         "adaptive-iptw",
@@ -1705,8 +1706,8 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         if key.slug == "mtp-boundaries" and key.kind == "property"
     },
     **{
-        key: "the cell fits a gradient-boosting mechanism, a learner that the key of the fit "
-        "cannot read; the limits of the row state it"
+        key: "the cell fits a gradient-boosting mechanism, outside the configuration of the row: "
+        "the key reads the mechanism learner family, and a boosted fit matches no row"
         for key, entry in DISPOSITIONS.items()
         if key.slug == "adaptive-iptw" and entry.disposition == EXPERIMENTAL
     },

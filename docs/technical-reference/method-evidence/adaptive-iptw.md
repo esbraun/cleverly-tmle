@@ -221,7 +221,7 @@ owner in the [roadmap](../../roadmap.md#red-cell-owners) and a place in the
 
 | owner | cells | reading |
 | --- | --- | --- |
-| `adaptive-iptw-flexible-learner` | `bias/ate__flexible`, `bias/ey0__flexible`, `bias/ey1__flexible` | declared `reporting` before the run. Law P is H1, so the validity term vanishes for the gradient-boosting mechanism. The standardized biases are 1.182, -0.718 and 0.832. The learner's own error terms cause them. The key of a fit does not read the mechanism learner, so a boosted fit lands on the row `AI.points.cross_fit`. The row states the limit, and the three cells are not support cells |
+| `adaptive-iptw-flexible-learner` | `bias/ate__flexible`, `bias/ey0__flexible`, `bias/ey1__flexible` | declared `reporting` before the run. Law P is H1, so the validity term vanishes for the gradient-boosting mechanism. The standardized biases are 1.182, -0.718 and 0.832. The learner's own error terms cause them. The key of a fit reads the mechanism learner family. A boosted fit matches no row and carries the `experimental` label. The three cells are outside the configuration of every row |
 | `adaptive-iptw-finite-sample` | `bias/ate__rate` and the 14 `targeting_necessity` rows | the `rate` ATE reads a standardized bias of 0.155, and its 99% interval in SD units is 0.050 to 0.261. The design predicts 0.086, and the interval contains it. The `root_n_points` rungs pass. The necessity family reads the same estimates, and the family clause turns its other 13 rows red. The diagnosis finds no defect |
 | `adaptive-iptw-finite-sample` | `interval_calibration/ey0__known_clustered__correctly_specified` | 200 clusters. The SE ratio is 1.030, and its 99% interval ends at 1.072 against an upper bound of 1.07. Coverage is 0.953, and its interval contains 0.95. The in-sample fit on the same draws reads 1.027. The diagnosis finds no defect |
 | `adaptive-iptw-composite-l3` | `bias/ey_low__composite_l3` | 400 draws read a standardized bias of -0.153, and the interval does not contain the predicted bias of 0. The in-sample fit on the same draws reads -0.151. A diagnostic runs the same scene on 4,000 draws with seeds that the study never uses. It reads -0.011, with a 99% interval of -0.052 to 0.030. The diagnosis finds no defect, and the 400-draw reading does not reproduce |
@@ -304,8 +304,25 @@ from the committed results and checked at the precision printed.
 ## Support label
 
 A fit carries the label `supported` when a row of `cleverly._support_rows` covers its
-configuration with the kind of inference that the fit reports. The rows `AI.*` cite the passing
-cells of this study. Any other fit carries the label `experimental`.
+configuration with the kind of inference that the fit reports. The rows `AI.*` cite the cells of
+this study. Each red cell that a row cites carries its disposition in
+`tests/studies/evidence/support_dispositions.py`. Any other fit carries the label `experimental`.
+
+The key of a fit reads two learner families (`cleverly._support.learner_family`). A learner is
+parametric when its exact class is `LogisticRegression`, `LinearRegression` or `GLM`. A learner is
+also parametric when its class sets `cleverly_learner_family = "parametric"`. Every other learner
+is adaptive, and this includes the default Super Learner.
+
+| option | value | meaning |
+| --- | --- | --- |
+| `mechanism_learner` | `known` | the data declare the whole mechanism |
+| `mechanism_learner` | `parametric` | every mechanism learner that the fit uses is parametric |
+| `mechanism_learner` | `adaptive` | any other mechanism learner |
+| `reduced_learner` | `fixed_basis` | the reduced regression is parametric |
+| `reduced_learner` | `selecting` | any other reduced regression, and the default |
+
+Every `AI.known_*` row needs `known` and `fixed_basis`. Every `AI.points*` row needs `parametric`
+and `fixed_basis`. These are the families that the cells fitted.
 
 | rows | configuration | kinds | cells |
 | --- | --- | --- | --- |
@@ -320,9 +337,9 @@ cells of this study. Any other fit carries the label `experimental`.
 
 An estimated mechanism reports no interval, so an estimated-mechanism row licenses the point
 estimate only. The plug-in standard error and interval of such a fit are a diagnostic. Each row
-names the pending `drtmle` comparator and the learners that its cells fitted. A cross-fitted row
-with missing data also names the open pooled reduced term [B]. These configurations stay
-`experimental`:
+names the pending `drtmle` comparator and the learner families that its cells fitted. Each
+cross-fitted row also names the open $\epsilon$-path condition of S5 in
+[AdaptiveIPTW](../adaptive-iptw.md#contract). These configurations stay `experimental`:
 
 | configuration | reason |
 | --- | --- |
@@ -333,10 +350,12 @@ with missing data also names the open pooled reduced term [B]. These configurati
 | an in-sample natural-course fit | no in-sample natural-course cell |
 | a treatment adjustment, or declared-estimated weights with a declared mechanism | a group-A condition or a shown status |
 | fewer than 40 clusters | the study has no cell below 200 clusters |
+| an estimated mechanism with an adaptive learner, such as gradient boosting or the default | outside the configuration of every row. The `bias/*__flexible` cells read a standardized bias of -0.718 (`ey0`), 0.832 (`ey1`) and 1.182 (`ate`) |
+| a selecting reduced regression, such as the default | outside the configuration of every row. No cell fits one |
 
 Two decisions come from the red cells. The row `AI.known_clustered` is supported with a stated
 limit, because the cell `ey0__known_clustered` reads an SE ratio whose interval ends at 1.072.
-The three flexible-learner cells are not support cells.
+The three flexible-learner cells are outside the configuration of every row.
 
 ## Limits
 
@@ -345,8 +364,8 @@ The three flexible-learner cells are not support cells.
 | the comparator runs are pending | the claim rests on exact truths, the calibration cells and the controls. The pairing study adds a paired check against R `drtmle` |
 | an estimated mechanism has no interval | the bias cells measure the point estimate only. The plug-in standard error and interval in the rows are a diagnostic, and the package does not publish them as inference |
 | the validity term vanishes by design in the calibration cells only | the intervals are valid where the whole mechanism is declared known (H2). Laws PD, WT, CL and ST are the cells. Law P with a fitted mechanism is H1, so the bias cells there do not measure the validity term. VL1 and the level-set-breaking control measure it |
-| a flexible mechanism learner is red | the `bias/flexible` cells show a bias of 0.7 to 1.2 SD with a gradient-boosting mechanism. The key of a fit does not read the learner, so the row `AI.points.cross_fit` states this limit in its note |
-| the reduced regression is a fixed polynomial of $\operatorname{logit} g$ | the study fits no selecting reduced learner and no default super learner. A selecting learner is outside conditions (E) and (S) |
+| a flexible mechanism learner is red | the `bias/flexible` cells show a bias of 0.7 to 1.2 SD with a gradient-boosting mechanism. The key reads the mechanism learner family, so a boosted or default fit is `experimental` |
+| the reduced regression is a fixed polynomial of $\operatorname{logit} g$ | the study fits no selecting reduced learner and no default super learner. A selecting learner is outside conditions (E) and (S), and the key labels its fit `experimental` |
 | the composite laws use the oracle factor learners declared as estimated | the cells measure the composite targeting and the fold-wise reduced regression. They do not measure a fitted response model |
 | the natural-course and regime cells | an in-sample natural-course fit and a cross-fitted regime with missing data have no cell. The estimator refuses the second one |
 | one fold draw per replicate | `repeats > 1` is refused, so the study has no repeat aggregate |

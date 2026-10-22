@@ -39,6 +39,7 @@ from ._refusal import Refusal
 
 __all__ = [
     "KEY_AXES",
+    "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
     "UNCLASSIFIED",
@@ -55,6 +56,7 @@ __all__ = [
     "classify_point_fit",
     "classify_structural_fit",
     "combine_support",
+    "learner_family",
     "longitudinal_key",
     "point_key",
     "record_fit",
@@ -421,6 +423,75 @@ def _option(value: Any) -> Any:
     return repr(value)
 
 
+#: The class attribute by which a learner declares its family to :func:`learner_family`. The
+#: value ``"parametric"`` declares a fixed-dimension model that selects nothing from the data.
+LEARNER_FAMILY_MARKER: Final[str] = "cleverly_learner_family"
+
+
+def _parametric_classes() -> tuple[type, ...]:
+    """The learner classes that :func:`learner_family` reads as parametric without a marker."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    from .learners.glm import GLM
+
+    return (LogisticRegression, LinearRegression, GLM)
+
+
+def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
+    """The family of a learner: ``"parametric"`` or ``"adaptive"``.
+
+    A learner is parametric when its exact class is scikit-learn's ``LogisticRegression`` or
+    ``LinearRegression`` or :class:`cleverly.learners.GLM`, or when its class declares
+    :data:`LEARNER_FAMILY_MARKER` as ``"parametric"``. Every other learner is adaptive: the
+    default (``None``), a Super Learner, a tree, a boosted ensemble, a subclass of a listed
+    class, and any unknown class. A subclass such as ``LogisticRegressionCV`` can select its
+    penalty, so the test reads the exact class.
+
+    Parameters
+    ----------
+    learner : object or None
+        The learner as passed to the estimator. ``None`` selects the default library.
+
+    Returns
+    -------
+    str
+        ``"parametric"`` or ``"adaptive"``.
+    """
+    if learner is None:
+        return "adaptive"
+    if getattr(type(learner), LEARNER_FAMILY_MARKER, None) == "parametric":
+        return "parametric"
+    return "parametric" if type(learner) in _parametric_classes() else "adaptive"
+
+
+def _adaptive_iptw_learners(estimator: Any, data: Any) -> dict[str, str]:
+    """The learner families of an AdaptiveIPTW fit, as two options of its key.
+
+    ``mechanism_learner`` is ``"known"`` when every key's whole mechanism is declared. It is
+    ``"parametric"`` when every mechanism learner that the fit uses is parametric, and
+    ``"adaptive"`` otherwise. The fit uses the treatment learner when the data declare no
+    treatment probabilities, and the missingness learner (or the treatment learner in its
+    place) when an outcome or a treatment is missing. ``reduced_learner`` is ``"fixed_basis"``
+    when the reduced regression is parametric and ``"selecting"`` otherwise.
+    """
+    if estimator._has_known_keys(data):
+        mechanism = "known"
+    else:
+        used = []
+        if data.known_treatment is None:
+            used.append(estimator.treatment_learner)
+        if data.has_missing_outcome or data.has_missing_treatment:
+            missingness = estimator.missingness_learner
+            used.append(estimator.treatment_learner if missingness is None else missingness)
+        parametric = all(learner_family(learner) == "parametric" for learner in used)
+        mechanism = "parametric" if parametric else "adaptive"
+    reduced = estimator.reduced_outcome_learner
+    if reduced is None:
+        reduced = estimator.outcome_learner
+    basis = "fixed_basis" if learner_family(reduced) == "parametric" else "selecting"
+    return {"mechanism_learner": mechanism, "reduced_learner": basis}
+
+
 def _learner_type(learner: Any) -> type | None:
     """The class of a learner, or ``None`` when the estimator uses its default."""
     return None if learner is None else type(learner)
@@ -550,8 +621,10 @@ def point_key(
         options["evaluation"] = estimator.evaluation is not None
     if method == "adaptive_iptw":
         # The two forms are two estimators of one target, so a row of one never covers a
-        # fit of the other.
+        # fit of the other. The learner families decide which theorem conditions the fit can
+        # meet, so a row of parametric learners never covers a boosted or default fit.
         options["form"] = estimator.form
+        options |= _adaptive_iptw_learners(estimator, data)
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.

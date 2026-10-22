@@ -183,6 +183,11 @@ the default `cross_fit=True`. Use a fixed-basis learner of the one-dimensional c
 cross-fitted fit refits $Q_r$ once per fold, round and key. With an estimated mechanism, it also
 fits the $K(K - 1)$ leave-two-out mechanism models of S5 once per fit.
 
+The support key reads the family of each learner. A selecting reduced regression, or an adaptive
+mechanism learner under an estimated mechanism, matches no support row. Such a fit carries the
+`experimental` label. The [support label](method-evidence/adaptive-iptw.md#support-label) defines
+the families.
+
 ## When an interval is reported
 
 A fit reports `std_error`, `ci` and `pvalue` when the whole treatment mechanism of every reported

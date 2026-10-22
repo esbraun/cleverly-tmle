@@ -75,7 +75,11 @@ def default_options(engine: str) -> dict[str, Any]:
             "evaluation": False,
         }
     if engine == "adaptive_iptw":
-        options["form"] = "targeted"
+        options |= {
+            "form": "targeted",
+            "mechanism_learner": "adaptive",
+            "reduced_learner": "selecting",
+        }
     return options
 
 
@@ -1730,22 +1734,17 @@ _AI_COMPARATOR: Final[str] = (
     "evidence only."
 )
 _AI_LEARNERS: Final[str] = (
-    "The cells fit a generalized linear, saturated or fixed-basis mechanism and a "
-    "fixed-polynomial reduced regression. A selecting reduced-regression learner under "
-    "cross-fitting is outside conditions (E) and (S), and no cell fits the default super learner."
+    "The key reads the learner families. The row covers a fixed-basis reduced regression and, "
+    "under an estimated mechanism, a parametric mechanism learner. A default super learner, a "
+    "tree or a boosted learner in either role matches no row."
 )
 _AI_PLUGIN: Final[str] = (
     "Under an estimated mechanism the row licenses the point estimate only. The plug-in "
     "standard error and interval of the fit are a diagnostic."
 )
-_AI_FLEXIBLE: Final[str] = (
-    "A gradient-boosting mechanism is not covered. The flexible cells read a bias of 0.0083 to "
-    "0.0254 in absolute value, beyond a margin of 0.0035 to 0.0048 "
-    "(adaptive-iptw-flexible-learner)."
-)
-_AI_TERM_B: Final[str] = (
-    "The pooled reduced cross-fit term [B] of docs/technical-reference/dr-tmle/targeting.md "
-    "stays open, so the row licenses the point only."
+_AI_EPSILON_PATH: Final[str] = (
+    "Under cross-fitting, the interval argument needs the epsilon-path condition of S5 in "
+    "docs/technical-reference/adaptive-iptw.md. That condition stays open."
 )
 
 
@@ -1771,23 +1770,29 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
 
     A known mechanism, declared for the whole fit, licenses the Wald interval where the
     calibration cells pass. An estimated mechanism licenses the point only, because the
-    estimator withholds the interval there. The key reads neither the mechanism learner nor the
-    reduced learner, so the limits state what the cells fitted.
+    estimator withholds the interval there. The key reads the learner families
+    (:func:`cleverly._support.learner_family`). A known row needs a fixed-basis reduced
+    regression, and an estimated row also needs a parametric mechanism learner, as every cell
+    fitted. A default, tree or boosted learner matches no row.
     """
     engine = ("adaptive_iptw",)
     arms = ("ey0", "ey1", "ate")
     regimes = ("ey_d", "ey_s", "ey_never", "ate_d", "ate_s")
     ratios = ("rr", "or")
-    known: dict[str, Any] = {"engine": engine, "splitting": _AI_STACKED}
-    known_limits = [_AI_COMPARATOR, _AI_LEARNERS]
+    known_options = {"mechanism_learner": "known", "reduced_learner": "fixed_basis"}
+    known: dict[str, Any] = {"engine": engine, "splitting": _AI_STACKED, "options": known_options}
+    one_step: dict[str, Any] = known | {"options": known_options | {"form": "one_step"}}
+    known_limits = [_AI_COMPARATOR, _AI_LEARNERS, _AI_EPSILON_PATH]
     points: dict[str, Any] = {
         "engine": engine,
         "kinds": _POINT,
+        "options": {"mechanism_learner": "parametric", "reduced_learner": "fixed_basis"},
         "limits": [_AI_COMPARATOR, _AI_LEARNERS, _AI_PLUGIN],
     }
-    cross: dict[str, Any] = points | {"splitting": _AI_STACKED}
-    # A cross-fitted fit with missing data carries the open term [B] of the pooled reduced fit.
-    missing_cross: dict[str, Any] = cross | {"limits": [*cross["limits"], _AI_TERM_B]}
+    cross: dict[str, Any] = points | {
+        "splitting": _AI_STACKED,
+        "limits": [*points["limits"], _AI_EPSILON_PATH],
+    }
 
     rows = [
         point_row(
@@ -1806,10 +1811,9 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
         point_row(
             "AI.known_arms.one_step",
             _AI_SLUG,
-            **known,
+            **one_step,
             families=("P1", "P2"),
             qualifiers=("known_mechanism",),
-            options={"form": "one_step"},
             cells=_ai_calibration("one_step_known_arms", (*arms, *ratios)),
             limits=[*known_limits, "The one-step form has no simultaneous-band cell."],
         ),
@@ -1825,10 +1829,9 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
         point_row(
             "AI.known_regimes.one_step",
             _AI_SLUG,
-            **known,
+            **one_step,
             families=("P5", "P6"),
             qualifiers=("known_mechanism",),
-            options={"form": "one_step"},
             cells=_ai_calibration("one_step_known_regimes", regimes),
             limits=known_limits,
         ),
@@ -1864,7 +1867,7 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
         point_row(
             "AI.points.cross_fit",
             _AI_SLUG,
-            **(cross | {"limits": [*cross["limits"], _AI_FLEXIBLE]}),
+            **cross,
             families=("P1",),
             cells=[
                 *_ai_bias("correct", arms),
@@ -1900,7 +1903,7 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
             point_row(
                 "AI.points_composite",
                 _AI_SLUG,
-                **missing_cross,
+                **cross,
                 families=("P1",),
                 missing=("outcome",),
                 cells=_ai_bias("composite_l1", arms),
@@ -1908,7 +1911,7 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
             point_row(
                 "AI.points_natural_course",
                 _AI_SLUG,
-                **missing_cross,
+                **cross,
                 families=("P1", "P4"),
                 missing=("outcome",),
                 cells=[
@@ -1928,7 +1931,7 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
         point_row(
             "AI.points_composite_three_arm.cross_fit",
             _AI_SLUG,
-            **missing_cross,
+            **cross,
             families=("P1",),
             treatment=("arms3",),
             missing=("outcome",),
@@ -1990,7 +1993,7 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
         point_row(
             "AI.points_missing_treatment.cross_fit",
             _AI_SLUG,
-            **missing_cross,
+            **cross,
             families=("P1",),
             missing=("outcome", "treatment"),
             cells=_ai_bias("missing_treatment_crossfit", arms),

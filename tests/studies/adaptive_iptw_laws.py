@@ -267,6 +267,9 @@ class DesignBasisGLM(BaseEstimator):
         The polynomial degree of the basis.
     """
 
+    #: A fixed-dimension model: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
+
     def __init__(self, degree: int = 1) -> None:
         self.degree = degree
 
@@ -337,6 +340,9 @@ class RateLogistic(BaseEstimator, ClassifierMixin):
     scale : float
         The multiple of ``n^(-1/3)`` added to one in front of the fitted logit.
     """
+
+    #: A fixed-dimension model: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
 
     def __init__(
         self,
@@ -418,6 +424,9 @@ class ValidityLogistic(BaseEstimator, ClassifierMixin):
         The declared sample size.
     """
 
+    #: A fixed-dimension model: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
+
     def __init__(self, kind: str = "glm", n: int = 1) -> None:
         self.kind = kind
         self.n = n
@@ -462,6 +471,9 @@ class CellFrequency(BaseEstimator, ClassifierMixin):
     digits : int
         The rounding of a design value to a cell key.
     """
+
+    #: A fixed-dimension model: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
 
     def __init__(
         self,
@@ -526,6 +538,9 @@ class ShrunkMultinomial(BaseEstimator, ClassifierMixin):
     n : int
         The declared sample size.
     """
+
+    #: A fixed-dimension model: the AdaptiveIPTW support key reads it as parametric.
+    cleverly_learner_family = "parametric"
 
     def __init__(self, size: float = 0.0, n: int = 1) -> None:
         self.size = size
