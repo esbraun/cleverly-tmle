@@ -48,6 +48,7 @@ from cleverly.sensitivity._simulated_confounding_request import simulated_confou
 from cleverly.sensitivity.missingness import (
     _FIT_WIDE_TILT_RULES,
     _fit_wide_tilt_rule,
+    _tilt_target_names,
     fit_wide_tilt_refusal,
     missingness_tilt,
     tipping_gamma,
@@ -55,7 +56,6 @@ from cleverly.sensitivity.missingness import (
 from cleverly.sensitivity.omitted_variable import (
     _EVALUE_POINTER,
     _FIT_WIDE_BOUND_RULES,
-    _RESPONSE_ARM_TILT_POINTER,
     _RESPONSE_BOUND_REFUSAL,
     _RESPONSE_TILT_POINTER,
     OMITTED_VARIABLE_OPERATIONS,
@@ -74,7 +74,6 @@ from cleverly.sensitivity.positivity import (
     truncation_curve,
     truncation_refusal,
 )
-from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
 from cleverly.validation.refute import (
     _REQUEST_RULES,
     DEFAULT_TESTS,
@@ -117,17 +116,18 @@ from tests.unit._simulated_confounding_support import (
 # ----------------------------------------------------------------------------- the tilt
 
 #: The tilt rule each kind of fit meets first, or ``None`` for a fit the tilt admits.
-#: The five kinds between ``missing`` and ``natural_course`` are the ones RM23 found
-#: declining: their rows read ``available`` and both calls refused.
+#: ``shift+missing`` and ``incremental+missing`` are the kinds RM23 found declining: their
+#: rows read ``available`` and both calls refused.  The regime, MSM, ratio, attributable
+#: and natural-course kinds are admitted since X82 part G gave them a tilt.
 TILT_RULE_OF: dict[str, str | None] = {
     "missing": None,
     "shift+missing": "continuous",
     "incremental+missing": "incremental",
-    "regime+missing": "tiltable_parameters",
-    "msm+missing": "tiltable_parameters",
-    "rr+missing": "tiltable_parameters",
-    "par+missing": "tiltable_parameters",
-    "natural_course": "natural_course",
+    "regime+missing": None,
+    "msm+missing": None,
+    "rr+missing": None,
+    "par+missing": None,
+    "natural_course": None,
     "ordinary": "missing_outcome",
     # First among the fit-wide rules after the family: a learned-rule fit has no missing
     # outcome, and its row names the learned-rule reason rather than the absent mechanism.
@@ -146,6 +146,26 @@ def tilt_fits() -> dict[str, Any]:
 def _text(refusal: Refusal | None) -> str | None:
     """The sentence a refusal record prints, or ``None`` when the request runs."""
     return None if refusal is None else refusal.message()
+
+
+def _tilt_call(result: Any, operation: str) -> Callable[[], Any]:
+    """The free tilt call for ``result``, naming the estimand a bare facade call supplies.
+
+    ``tipping_gamma`` defaults to ``"ate"``.  A fit the tilt admits that reports no
+    ``"ate"`` is asked about its first tiltable name, which is the name the facade
+    substitutes when it is the only one.
+    """
+    call = TILT_CALLS[operation]
+    if operation == "tipping_gamma" and "ate" not in result.estimates:
+        names = _tilt_target_names(result)
+        if names:
+            return functools.partial(call, result, names[0])
+    return functools.partial(call, result)
+
+
+def _deferred_on_estimand(row: Any) -> bool:
+    """Whether ``row`` defers a bare request only because the fit names several estimands."""
+    return row.status is AssessmentStatus.DEFERRED and "estimand" in row.requires_arguments
 
 
 def _raised(call: Callable[[], Any]) -> str | None:
@@ -179,14 +199,15 @@ def tilt_disagreements(result: Any) -> list[str]:
     """
     facade = SensitivityFacade(result)
     problems = []
-    for operation, call in TILT_CALLS.items():
-        raised = _raised(functools.partial(call, result))
-        problems += _disagreement(operation, facade.capability(operation), raised)
+    for operation in TILT_CALLS:
+        raised = _raised(_tilt_call(result, operation))
+        row = facade.capability(operation)
+        if _deferred_on_estimand(row) and raised is None:
+            # The row asks which estimand, and the call that names one runs.
+            continue
+        problems += _disagreement(operation, row, raised)
     bound = fit_wide_bound_refusal(result)
-    points = bound is not None and bound.alternative in {
-        _RESPONSE_TILT_POINTER.strip(),
-        _RESPONSE_ARM_TILT_POINTER.strip(),
-    }
+    points = bound is not None and bound.alternative == _RESPONSE_TILT_POINTER.strip()
     if points and not facade.capability("missingness").available:
         problems.append("the bound points at a tilt row that is not available")
     return problems
@@ -200,7 +221,6 @@ class TestTheTiltRowsReadTheCallsPredicate:
         assert [name for name, _ in _FIT_WIDE_TILT_RULES] == [
             "longitudinal",
             "learned_rule",
-            "natural_course",
             "missing_outcome",
             "continuous",
             "incremental",
@@ -230,10 +250,15 @@ class TestTheTiltRowsReadTheCallsPredicate:
     ) -> None:
         result = tilt_fits[kind]
         row = result.sensitivity.capability(operation)
-        raised = _raised(functools.partial(TILT_CALLS[operation], result))
+        raised = _raised(_tilt_call(result, operation))
         rule = TILT_RULE_OF[kind]
         if rule is None:
             # The nonzero witness: a fit the table admits runs both calls.
+            assert raised is None
+            if _deferred_on_estimand(row):
+                # Several tiltable names: the bare row asks which one.
+                assert len(_tilt_target_names(result)) > 1
+                return
             assert row.available and row.status is AssessmentStatus.PASSED
             assert row.reason is None
             assert raised is None
@@ -282,11 +307,6 @@ class TestTheTiltRowsReadTheCallsPredicate:
                 assert item.status is AssessmentStatus.UNAVAILABLE, (kind, operation)
                 assert "declined this request" not in item.detail, (kind, operation)
 
-    def test_the_natural_course_rule_keeps_its_sentence(self, tilt_fits: dict[str, Any]) -> None:
-        reason = _text(fit_wide_tilt_refusal(tilt_fits["natural_course"]))
-        assert reason is not None
-        assert reason.startswith(NATURAL_COURSE_TILT_REFUSAL)
-
 
 class TestTheBoundPointsAtTheTiltOnlyWhereItRuns:
     """The response refusal of the bound names the tilt only where the tilt runs."""
@@ -297,7 +317,7 @@ class TestTheBoundPointsAtTheTiltOnlyWhereItRuns:
         assert refusal.condition == _RESPONSE_BOUND_REFUSAL
         assert refusal.alternative == _RESPONSE_TILT_POINTER.strip()
 
-    @pytest.mark.parametrize("kind", [*DECLINED_TILT_KINDS, "natural_course"])
+    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
     def test_a_fit_the_tilt_refuses_hears_no_pointer(
         self, tilt_fits: dict[str, Any], kind: str
     ) -> None:
@@ -347,11 +367,11 @@ class TestEachTiltMutationRestoresADisagreement:
         """The calls must raise from the table too, or a row quotes a sentence nobody raises.
 
         The rows read the table through ``_fit_wide_tilt_rule``, so silencing the public
-        predicate inside the module reaches the two calls alone. The regime call then falls
+        predicate inside the module reaches the two calls alone. The shift call then falls
         through to the per-request check and raises a sentence the row does not quote.
         """
         monkeypatch.setattr(missingness_module, "fit_wide_tilt_refusal", lambda result: None)
-        problems = tilt_disagreements(tilt_fits["regime+missing"])
+        problems = tilt_disagreements(tilt_fits["shift+missing"])
         assert len(problems) == 2
         assert all("the row quotes" in problem for problem in problems)
 

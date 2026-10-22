@@ -41,9 +41,20 @@ grid sweeps its magnitude.  It is required to name every arm, because an arm sil
 defaulted to 1 would be the modelling choice made quietly that this keyword exists to
 make loudly.
 
-Caveat, stated plainly: the confidence intervals on the curve treat :math:`\gamma`
-as known and reuse the MAR standard error.  They describe sampling uncertainty at a
-fixed :math:`\gamma`, not uncertainty about :math:`\gamma` itself.
+**Which parameters.**  Every functional of the tilted regressions that the fit reported
+is re-mixed: the arm means and their linear contrasts, the ratios ``rr`` and ``or`` of two
+tilted arm means, the natural-course mean ``ey_obs`` at the received arm, ``par`` and
+``paf``, a regime mean (the regime density times the tilted arm regressions), and an MSM
+coefficient (the working-model projection of the tilted regressions).  Each repeats the
+arithmetic of the target that reported it, so every curve passes through the reported
+estimate at :math:`\gamma = 0`.
+
+Caveat, stated plainly: the confidence intervals on the curve of an arm mean or a linear
+contrast treat :math:`\gamma` as known and reuse the MAR standard error.  They describe
+sampling uncertainty at a fixed :math:`\gamma`, not uncertainty about :math:`\gamma`
+itself.  Every other parameter claims no interval at :math:`\gamma \neq 0`: its spread
+there is the MAR standard error on its inference scale, centred on the tilted point, under
+the ``plugin_`` names (roadmap X57 part d).
 
 **What the tilt reports for a fit that has no interval.**  The curve is a plug-in
 sweep of the point estimate, so the whole of it is defined for a fit at a
@@ -61,8 +72,8 @@ say which of the two an interval crossing came from.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -71,16 +82,12 @@ from .._typing import FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
 from ..exceptions import CapabilityError, refuse_inference
-from ..inference.delta import wald_ci
-from ..inference.influence import spread_name
+from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, wald_ci
+from ..inference.influence import _DIAGNOSTIC_NAMES, ParameterEstimate, spread_name
 from ..interventions.learned import LEARNED_RULE_TILT_REFUSAL
-from ..targets.population_intervention import (
-    NATURAL_COURSE_TILT_REFUSAL,
-    is_natural_course_fit,
-    natural_course_names,
-    natural_course_tilt_refusal,
-    reads_natural_course_mean,
-)
+from ..msm import solve_projection
+from ..targets.base import arm_alias, parameter_name
+from ..targets.population_intervention import NATURAL_COURSE_TARGET
 from ..utils.bounds import expit, logit
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
 
@@ -109,31 +116,6 @@ DEFAULT_GAMMA_GRID: tuple[float, ...] = (
 )
 
 
-def _natural_course_tilt_refusal(names: Any) -> Refusal:
-    """The refusal of a tilt request for a natural-course target on a joint fit.
-
-    Parameters
-    ----------
-    names : iterable of str
-        The requested names that read the natural-course mean.
-
-    Returns
-    -------
-    Refusal
-        An implementation-gap record that names the targets and the arm-mean remedy.
-    """
-    text = natural_course_tilt_refusal(names)
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        text.split(" Request the arm means", 1)[0].rstrip(".") + ".",
-        alternative=(
-            "Request the arm means by name with estimands=('ey0', 'ey1', 'ate'), or call "
-            "truncation_curve(result, mechanism=True) on this fit."
-        ),
-        roadmap="X82",
-    )
-
-
 def _refuse_longitudinal(result: Any) -> Refusal | None:
     """Refuse any assessment family but ``point``.
 
@@ -153,22 +135,6 @@ def _refuse_longitudinal(result: Any) -> Refusal | None:
             roadmap="F16",
         )
     return None
-
-
-def _refuse_natural_course(result: Any) -> Refusal | None:
-    """Refuse the missing-outcome natural-course mean, which is not indexed by arm."""
-    if not is_natural_course_fit(result):
-        return None
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        NATURAL_COURSE_TILT_REFUSAL + ".",
-        alternative=(
-            "Call missingness_tilt on a fit of the same data that requests the arm means, "
-            "estimands=('ey0', 'ey1', 'ate'), or call truncation_curve(result, "
-            "mechanism=True) on this fit."
-        ),
-        roadmap="X82",
-    )
 
 
 def _refuse_learned_rule(result: Any) -> Refusal | None:
@@ -255,34 +221,152 @@ def _refuse_incremental(result: Any) -> Refusal | None:
     )
 
 
+#: The kinds of reported parameter the tilt re-mixes.  ``arm`` is a mean or a linear
+#: contrast of the arm means, which :func:`reported_arm_parameters` names.  The rest are
+#: functionals of the same tilted regressions: ``ratio`` is ``rr`` or ``or`` of two tilted
+#: arm means, ``natural_course`` is ``ey_obs``, ``par`` and ``paf`` read ``ey_obs`` and the
+#: reference arm mean, ``regime`` is a regime mean or contrast, and ``msm`` is one working
+#: model coefficient.
+_TiltKind = Literal["arm", "ratio", "natural_course", "par", "paf", "regime", "msm"]
+
+
+@dataclass(frozen=True)
+class _TiltTarget:
+    """One reported parameter the tilt can re-mix, and how to recompute it.
+
+    Parameters
+    ----------
+    name : str
+        The reported name, which indexes ``result.estimates``.
+    kind : str
+        One of :data:`_TiltKind`.
+    group : str
+        The fluctuation that carries the targeted regression the parameter reads.
+    code : float or None
+        The arm, regime or coefficient code the parameter is about.
+    versus : float or None
+        The code a contrast is taken against, or ``None`` for a level.
+    parameter : ArmParameter or None
+        The arm parameter, for the ``arm`` kind only.
+    stem : str
+        The registered target, ``"rr"`` or ``"or"``, for the ``ratio`` kind.
+    """
+
+    name: str
+    kind: _TiltKind
+    group: str
+    code: float | None = None
+    versus: float | None = None
+    parameter: ArmParameter | None = None
+    stem: str = ""
+
+    @property
+    def keeps_interval(self) -> bool:
+        """Whether a row at ``gamma != 0`` keeps the inferential spread names.
+
+        Only the arm kind does, which is the shipped contract.  Every other kind reports
+        its spread at ``gamma != 0`` under the ``plugin_`` names (roadmap X57 part d).
+        """
+        return self.kind == "arm"
+
+
+def _tilt_targets(result: Any) -> dict[str, _TiltTarget]:
+    """Every reported parameter the tilt can re-mix, by name.
+
+    Composed forward through :func:`~cleverly.targets.parameter_name` and
+    :func:`~cleverly.targets.base.arm_alias` from the codes the fit carries, the rule
+    :mod:`cleverly.sensitivity._parameters` follows.  A stratum alias is a different name,
+    so it is never produced here.  The caller has already checked that the result is a
+    point-treatment fit with arms and missing outcomes.
+    """
+    estimates = result.estimates
+    out: dict[str, _TiltTarget] = {
+        name: _TiltTarget(name, "arm", parameter.group, parameter=parameter)
+        for name, parameter in reported_arm_parameters(result).items()
+    }
+    data = result.data
+    nuisance = result.repeats[0].nuisance
+    groups = result.repeats[0].fluctuations
+
+    if nuisance.regimes is not None and "regime" in groups:
+        regimes = nuisance.regimes
+        label = dict(regimes.labels)
+        for code in regimes.codes:
+            name = parameter_name("ey_regime", arm=label[code])
+            if name in estimates:
+                out[name] = _TiltTarget(name, "regime", "regime", code)
+            if code == regimes.reference:
+                continue
+            name = parameter_name("ate_regime", arm=label[code], versus=label[regimes.reference])
+            if name in estimates:
+                out[name] = _TiltTarget(name, "regime", "regime", code, regimes.reference)
+        return out
+
+    if nuisance.msm is not None and "msm" in groups:
+        label = dict(nuisance.msm.labels)
+        for code in nuisance.msm.codes:
+            name = parameter_name("msm", arm=label[code])
+            if name in estimates:
+                out[name] = _TiltTarget(name, "msm", "msm", code)
+        return out
+
+    if "natural_course" in groups and NATURAL_COURSE_TARGET in estimates:
+        out[NATURAL_COURSE_TARGET] = _TiltTarget(
+            NATURAL_COURSE_TARGET, "natural_course", "natural_course"
+        )
+    if "mean" not in groups:
+        return out
+    reference = result.config.reference_arm
+    collapse = data.is_binary_treatment
+    for stem in ("par", "paf"):
+        name = arm_alias(stem, arm=data.arm_label(reference), collapse=collapse)
+        if name in estimates and "natural_course" in groups:
+            out[name] = _TiltTarget(name, stem, "mean", reference)
+    for arm in data.arm_codes:
+        if arm == reference:
+            continue
+        for stem in ("rr", "or"):
+            name = arm_alias(
+                stem,
+                arm=data.arm_label(arm),
+                versus=data.arm_label(reference),
+                collapse=collapse,
+            )
+            if name in estimates:
+                out[name] = _TiltTarget(name, "ratio", "mean", arm, reference, stem=stem)
+    return out
+
+
+def _tilt_target_names(result: Any) -> tuple[str, ...]:
+    """The reported names :func:`missingness_tilt` re-mixes, or ``()`` on a refused fit.
+
+    The eligible set of ``tipping_gamma``, which the sensitivity facade reads to decide
+    whether a bare call names one parameter.
+    """
+    if fit_wide_tilt_refusal(result) is not None:
+        return ()
+    return tuple(name for name in result.estimates if name in _tilt_targets(result))
+
+
 def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
     """Refuse a fit that reports no parameter the tilt can re-mix.
 
-    The tilt re-mixes the arm-indexed means and their linear contrasts, which
-    :func:`~cleverly.sensitivity._parameters.reported_arm_parameters` names.  A regime,
-    an MSM, or a ratio-only fit reports none of them, so every call would refuse with "no
-    tiltable estimands requested", and the rule refuses the fit first.  A fit that
-    reports at least one keeps the rule silent, and the default sweep skips the rest.
+    :func:`_tilt_targets` names what the tilt re-mixes.  A shift fit on a discrete
+    treatment reports none of them, so every call would refuse with "no tiltable
+    estimands requested", and the rule refuses the fit first.  A fit that reports at
+    least one keeps the rule silent, and the default sweep skips the rest.
     """
-    if reported_arm_parameters(result):
+    if _tilt_targets(result):
         return None
-    natural = natural_course_names(result.estimates) if reads_natural_course_mean(result) else []
-    reports_none = (
-        "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
-        f"and this fit reports none of them: {sorted(result.estimates)}. "
-    )
-    if natural:
-        refusal = _natural_course_tilt_refusal(natural)
-        return replace(refusal, condition=reports_none + refusal.condition)
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
-        reports_none + "A ratio, a regime mean, and an MSM coefficient have no derived tilt.",
+        "missingness_tilt re-mixes the arm means and their contrasts and ratios, the "
+        "natural-course mean and the attributable targets, the regime means, and the MSM "
+        f"coefficients, and this fit reports none of them: {sorted(result.estimates)}.",
         alternative=(
-            "For a ratio-only fit, request the arm means beside the ratio, "
-            "estimands=('ey0', 'ey1', 'ate', 'rr'), and tilt them. For a regime mean or an "
-            "MSM coefficient, call truncation_curve(result, mechanism=True)."
+            "Use truncation_curve(mechanism=True) for sensitivity to the missingness bound."
         ),
-        roadmap="X82",
+        roadmap="X57",
     )
 
 
@@ -297,7 +381,6 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
 _FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("learned_rule", _refuse_learned_rule),
-    ("natural_course", _refuse_natural_course),
     ("missing_outcome", _refuse_complete_outcome),
     ("continuous", _refuse_continuous),
     ("incremental", _refuse_incremental),
@@ -352,17 +435,35 @@ def missingness_tilt(
     that supplied ``delta``; without missing outcomes there is nothing to tilt.
 
     Refuses first by ``fit_wide_tilt_refusal``, which the capability rows read too.  It
-    refuses a longitudinal result, a missing-outcome ``NaturalCourseMean`` fit, a fit with
-    no missing outcome, a continuous dose, an incremental fit, and a fit that reports no
-    arm-indexed mean or linear contrast, such as a regime, an MSM, or a ratio-only fit.
-    The natural-course target is not indexed by arm, so it needs a natural-course
-    sensitivity parameter that is not implemented.
+    refuses a longitudinal result, a learned-rule fit, a fit with no missing outcome, a
+    continuous dose, an incremental fit, and a fit that reports no parameter the tilt
+    re-mixes, such as a shift fit on a discrete treatment.
+
+    The tilt re-mixes these reported parameters:
+
+    ==================== =====================================================
+    parameter            point curve at ``gamma``
+    ==================== =====================================================
+    arm mean, contrast   the mean or contrast of the tilted arm regressions
+    ``rr``, ``or``       the ratio of two tilted arm means
+    ``ey_obs``           the mean of the tilted regression at the received arm
+    ``par``, ``paf``     ``ey_obs`` and the reference arm mean, both tilted
+    regime mean          the regime density times the tilted arm regressions
+    MSM coefficient      the working-model projection of the tilted regressions
+    ==================== =====================================================
+
+    At ``gamma = 0`` every curve passes through the reported estimate.  An arm mean or
+    a linear contrast keeps the reported standard error and its interval names at every
+    ``gamma``.  Every other parameter reports its spread at ``gamma != 0`` under
+    ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper``: the
+    reported standard error on the estimate's inference scale, centred on the tilted
+    point.  No interval is claimed there.  A frame that mixes the two kinds carries
+    both sets of columns, with NaN where a row has no value.
 
     A fit whose inference status supplies no inference, such as a selector-path
     ``CTMLE`` fit, receives ``plugin_std_err``,
     ``plugin_interval_lower`` and ``plugin_interval_upper`` in place of ``std_err``,
-    ``ci_lower`` and ``ci_upper``.  The point-estimate curve is unchanged, and no column
-    of it claims coverage this package does not supply.
+    ``ci_lower`` and ``ci_upper`` at every ``gamma``.
 
     Parameters
     ----------
@@ -371,9 +472,8 @@ def missingness_tilt(
     gamma : sequence of float or None
         Tilt values on the logit scale.  ``None`` uses :data:`DEFAULT_GAMMA_GRID`.
     estimands : sequence of str or None
-        Restrict to a subset.  Ratios are excluded automatically: tilting changes the
-        counterfactual means, and re-deriving a ratio's log-scale influence curve under
-        the tilt would misrepresent the uncertainty.
+        Restrict to a subset.  ``None`` sweeps every reported parameter the tilt
+        re-mixes and skips the rest.
     arm_gamma : mapping of level to float, or None
         One finite multiplier per arm, keyed by the treatment level as the caller wrote it, so
         that the tilt at arm ``a`` is ``arm_gamma[a] * gamma``.  ``None`` -- the default,
@@ -399,27 +499,21 @@ def missingness_tilt(
             reason=RefusalReason.INVALID_DECLARATION,
         )
 
-    # Which parameters the tilt can re-mix: the arm-indexed linear ones, named for their
-    # arms on a fit with more than two. Ratios are excluded by being absent from that
-    # map rather than by a second filter here.
-    tiltable = reported_arm_parameters(result)
+    tiltable = _tilt_targets(result)
     requested = tuple(estimands if estimands is not None else result.estimates)
     if estimands is not None:
         # Only an explicit request is refused. The default sweep skips whatever it cannot
-        # tilt -- a ratio, a stratum, a natural-course target -- exactly as it always has,
-        # so asking for the whole report still returns the tiltable part of it.
-        natural = natural_course_names(requested)
-        if natural and reads_natural_course_mean(result):
-            raise CapabilityError.from_refusal(_natural_course_tilt_refusal(natural))
+        # tilt, such as a stratum alias, so asking for the whole report still returns the
+        # tiltable part of it.
         for name in requested:
             conditional = stratum_refusal(result, name, "the MNAR tilt")
             if conditional is not None:
                 raise CapabilityError.from_refusal(conditional)
-    parameters = tuple(tiltable[name] for name in requested if name in tiltable)
-    if not parameters:
+    targets = tuple(tiltable[name] for name in requested if name in tiltable)
+    if not targets:
         raise CapabilityError(
-            "no tiltable estimands requested; the tilt applies to the arm-indexed means "
-            f"and their contrasts, which for this fit are {sorted(tiltable)}",
+            "no tiltable estimands requested; the tilt applies to the parameters "
+            f"{sorted(tiltable)} of this fit",
             reason=RefusalReason.INVALID_DECLARATION,
         )
 
@@ -428,42 +522,48 @@ def missingness_tilt(
 
     rows: list[dict[str, Any]] = []
     for value in grid:
-        for parameter in parameters:
-            name = parameter.name
+        for target in targets:
+            name = target.name
+            estimate = result[name]
             # Combined over the cross-fitting draws, as the fit's own report was. Each
             # draw has its own targeted Qbar and its own missingness mechanism, and the
             # tilt is a function of both, so a tilt read off one draw would sit at a
             # different level from the psi at gamma = 0 that the fit reported -- the curve
-            # would step at its own origin. Every estimand here is a level or a
-            # difference, so the median is taken on the reported scale.
-            psi = float(
+            # would step at its own origin. The median is taken on the estimate's
+            # inference scale, the log scale for a ratio, as ``median_estimates`` takes it.
+            center = float(
                 np.median(
                     [
-                        _tilted_psi(result, repeat, parameter, value, direction)
+                        _tilted_value(result, repeat, target, value, direction)
                         for repeat in result.repeats
                     ]
                 )
             )
-            # The names ``truncation_curve`` publishes, for the reason it publishes them: a
-            # selector-path collaborative fit supplies no interval, so the sweep reports
-            # the retained diagnostic under names that make no coverage claim rather than
-            # raising after every tilt has been computed. ``plugin_std_error`` reads the
-            # private body ``std_error`` reads, so an ordinary fit's numbers do not move.
-            # The interval is centred on the tilted estimate, so only the names come
-            # from ``spread_name``.
-            status = result[name].inference
-            std_error = result[name].plugin_std_error
-            low, high = wald_ci(
-                psi, std_error, result.config.alpha_sig, df=result[name].reference_df
-            )
+            psi = float(np.exp(center)) if target.kind == "ratio" else center
+            status = estimate.inference
+            if target.keeps_interval:
+                # The names ``truncation_curve`` publishes, for the reason it publishes
+                # them: a selector-path collaborative fit supplies no interval, so the
+                # sweep reports the retained diagnostic under names that make no coverage
+                # claim. The interval is centred on the tilted estimate, so only the names
+                # come from ``spread_name``.
+                std_error = estimate.plugin_std_error
+                low, high = wald_ci(
+                    psi, std_error, result.config.alpha_sig, df=estimate.reference_df
+                )
+                spread = {
+                    spread_name("std_err", status): std_error,
+                    spread_name("ci_lower", status): low,
+                    spread_name("ci_upper", status): high,
+                }
+            else:
+                spread = _plugin_spread(estimate, psi, center, mar=value == 0.0)
             rows.append(
                 {
                     "gamma": value,
                     "estimand": name,
                     "psi": psi,
-                    spread_name("std_err", status): std_error,
-                    spread_name("ci_lower", status): low,
-                    spread_name("ci_upper", status): high,
+                    **spread,
                     "is_mar": bool(value == 0.0),
                     # The tilt each arm actually received, appended so the familiar
                     # columns stay where they were. Without these the direction lives
@@ -478,8 +578,46 @@ def missingness_tilt(
                 }
             )
 
-    payload = {key: [row[key] for row in rows] for key in rows[0]}
+    # A frame that mixes the two spread contracts has both sets of columns. The arm rows
+    # come first in the column order, so a frame of arm parameters alone is unchanged.
+    columns: dict[str, None] = {}
+    for row in rows:
+        columns.update(dict.fromkeys(row))
+    nan = float("nan")
+    payload = {key: [row.get(key, nan) for row in rows] for key in columns}
     return data.frame_like(payload)
+
+
+def _plugin_spread(
+    estimate: ParameterEstimate, psi: float, center: float, *, mar: bool
+) -> dict[str, float]:
+    """The spread columns of a parameter that claims no interval off ``gamma = 0``.
+
+    At ``gamma = 0`` the row is the fit's own report, so it carries the fit's spread under
+    the names the fit's inference status gives.  At ``gamma != 0`` it carries the reported
+    standard error on the estimate's inference scale, centred on the tilted point, under
+    the ``plugin_`` names.  The reported influence curve is the MAR curve, so the spread is
+    a diagnostic and not a confidence interval for the tilted parameter.
+    """
+    status = estimate.inference
+    if mar:
+        names = {key: spread_name(key, status) for key in _SPREAD_KEYS}
+        low, high = estimate.plugin_interval
+    else:
+        names = {key: _DIAGNOSTIC_NAMES[key] for key in _SPREAD_KEYS}
+        moved = replace(
+            estimate, psi=psi, log_psi=center if estimate.scale == "ratio" else estimate.log_psi
+        )
+        low, high = moved.plugin_interval
+    return {
+        names["std_err"]: estimate.plugin_std_error,
+        names["ci_lower"]: low,
+        names["ci_upper"]: high,
+    }
+
+
+#: The inferential spread columns, in the order every tilt row publishes them.
+_SPREAD_KEYS = ("std_err", "ci_lower", "ci_upper")
 
 
 def _tilt_direction(data: CausalData, arm_gamma: Mapping[Any, float] | None) -> dict[float, float]:
@@ -517,41 +655,126 @@ def _tilt_direction(data: CausalData, arm_gamma: Mapping[Any, float] | None) -> 
     return direction
 
 
-def _tilted_psi(
+def _tilted_value(
     result: TMLEResult,
     repeat: RepeatFit,
-    parameter: ArmParameter,
+    target: _TiltTarget,
     gamma: float,
     direction: Mapping[float, float],
 ) -> float:
-    """One estimand under one cross-fitting draw, at tilt ``gamma``.
+    """One parameter under one cross-fitting draw at tilt ``gamma``, on its inference scale.
 
     Reads the targeted ``Qbar`` and the missingness mechanism from the *same* draw, which
     is the whole reason :class:`~cleverly.estimators._nuisance.RepeatFit` holds them
     together: mixing one draw's regression with another's mechanism would produce a
     perfectly plausible number for a fit that never happened.
 
-    Every arm is reached by its code -- the column of ``missingness`` included, which is
-    keyed by arm exactly as ``targeted.arms`` is -- rather than by position, so the two
-    cannot come apart on a fit with more arms than the loop that reads them.
+    Each branch repeats the arithmetic of the target that reported the parameter, on the
+    tilted regressions in place of the targeted ones, so ``gamma = 0`` returns the
+    reported value.  A ratio returns its logarithm, which is the scale the repeats are
+    combined on.
     """
     data = result.data
+    weights = data.weights
     scaler = repeat.nuisance.scaler
+    if target.kind == "arm":
+        assert target.parameter is not None
+        return _tilted_arm_parameter(result, repeat, target.parameter, gamma, direction)
+    if target.kind == "msm":
+        return _tilted_msm(result, repeat, target, gamma, direction)
+    if target.kind == "regime":
+        arms = _tilted_arms(result, repeat, "regime", gamma, direction)
+        assert repeat.nuisance.regimes is not None
+        density = np.asarray(repeat.nuisance.regimes.values, dtype=float)
+        levels = repeat.fluctuations["regime"].targeted.levels
+        predictions = np.column_stack([arms[level] for level in levels])
+
+        def regime_mean(code: float) -> float:
+            mixture = np.einsum("ij,ij->i", density[:, :, int(code)], predictions)
+            return float(np.average(mixture, weights=weights))
+
+        assert target.code is not None
+        if target.versus is None:
+            return _unscale(scaler, regime_mean(target.code), "level")
+        return _unscale(scaler, regime_mean(target.code) - regime_mean(target.versus), "difference")
+
+    observed = (
+        _tilted_natural_course(result, repeat, gamma, direction)
+        if target.kind
+        in {
+            "natural_course",
+            "par",
+            "paf",
+        }
+        else None
+    )
+    if target.kind == "natural_course":
+        assert observed is not None
+        return _unscale(scaler, observed, "level")
+    arms = _tilted_arms(result, repeat, target.group, gamma, direction)
+    assert target.code is not None
+    reference = float(np.average(arms[target.code], weights=weights))
+    if target.kind == "par":
+        assert observed is not None
+        return _unscale(scaler, observed - reference, "difference")
+    if target.kind == "paf":
+        # On the scaled means, as the ``paf`` target computes it, and not unscaled.
+        assert observed is not None
+        return 1.0 - reference / observed
+    # A ratio, on the scaled means as ``_ratio_contrasts`` reads them. The two helpers
+    # refuse a mean the log cannot take, as the fit's own target does.
+    assert target.versus is not None
+    versus = float(np.average(arms[target.versus], weights=weights))
+    log_ratio = log_ratio_influence if target.stem == "rr" else log_odds_ratio_influence
+    zero = np.zeros(1)
+    log_psi, _ = log_ratio(reference, zero, versus, zero)
+    return log_psi
+
+
+def _unscale(scaler: Any, value: float, scale: Literal["level", "difference"]) -> float:
+    """Map a scaled mean or difference to the outcome's units, as ``finish`` does."""
+    if scaler.is_identity:
+        return value
+    return scaler.unscale_level(value) if scale == "level" else scaler.unscale_difference(value)
+
+
+def _tilted_arms(
+    result: TMLEResult,
+    repeat: RepeatFit,
+    group: str,
+    gamma: float,
+    direction: Mapping[float, float],
+) -> dict[float, FloatArray]:
+    """The tilted full-population regression at every arm, on the scaled outcome.
+
+    Every arm is reached by its code -- the column of the mechanism included, which is
+    keyed by arm exactly as ``targeted.arms`` is -- rather than by position.
+    """
     missingness = tilt_missingness(repeat.nuisance, result.config.missingness_bound)
     assert missingness is not None
-    weights = data.weights
     arms = repeat.nuisance.arms
+    targeted = repeat.fluctuations[group].targeted
+    return {
+        arm: _tilted(targeted.arms[arm], missingness[:, arms.index(arm)], gamma * direction[arm])
+        for arm in targeted.arms
+    }
 
-    targeted = repeat.fluctuations[parameter.group].targeted
 
-    def full(arm: float) -> FloatArray:
-        return _tilted(targeted.arms[arm], missingness[:, arms.index(arm)], gamma * direction[arm])
-
+def _tilted_arm_parameter(
+    result: TMLEResult,
+    repeat: RepeatFit,
+    parameter: ArmParameter,
+    gamma: float,
+    direction: Mapping[float, float],
+) -> float:
+    """An arm mean or a linear contrast of the arm means, on the reported scale."""
+    data = result.data
+    weights = data.weights
+    scaler = repeat.nuisance.scaler
+    arms = _tilted_arms(result, repeat, parameter.group, gamma, direction)
     if parameter.versus is None:
-        psi_scaled = float(np.average(full(parameter.arm), weights=weights))
-        return scaler.unscale_level(psi_scaled) if not scaler.is_identity else psi_scaled
-
-    contrast = full(parameter.arm) - full(parameter.versus)
+        return _unscale(scaler, float(np.average(arms[parameter.arm], weights=weights)), "level")
+    contrast = arms[parameter.arm] - arms[parameter.versus]
     conditioning = parameter.conditions_on
     if conditioning is None:
         psi_scaled = float(np.average(contrast, weights=weights))
@@ -561,7 +784,73 @@ def _tilted_psi(
         # contrast for the ATT, which is why it is read off the parameter.
         indicator = np.asarray(data.treatment == conditioning, dtype=float)
         psi_scaled = float(np.average(contrast, weights=weights * indicator))
-    return scaler.unscale_difference(psi_scaled) if not scaler.is_identity else psi_scaled
+    return _unscale(scaler, psi_scaled, "difference")
+
+
+def _tilted_natural_course(
+    result: TMLEResult,
+    repeat: RepeatFit,
+    gamma: float,
+    direction: Mapping[float, float],
+) -> float:
+    r"""The tilted natural-course mean on the scaled outcome.
+
+    .. math::
+
+        \hat\psi_\gamma = P_n\bigl[\pi(A, W)\,\bar Q^*(A, W)
+          + \{1 - \pi(A, W)\}\,\operatorname{expit}\{\operatorname{logit}\bar Q^*(A, W)
+          + \gamma_A\}\bigr]
+
+    It reads the natural-course fluctuation's regression at the received arm and the
+    mechanism at the received arm, which is the column the natural-course clever
+    covariate divides by.  The plug-in replaces the empirical ``Delta Y`` of the observed
+    rows by its regression, :math:`\pi \bar Q^*`, so the curve passes through the
+    reported estimate at :math:`\gamma = 0`.  The two forms estimate one functional, and
+    they differ by :math:`P_n[\Delta\{Y - \bar Q^*(A, W)\}]`, which does not depend on
+    :math:`\gamma`.  The regression form is the other curve shifted by that constant.
+    """
+    data = result.data
+    missingness = tilt_missingness(repeat.nuisance, result.config.missingness_bound)
+    assert missingness is not None
+    arms = repeat.nuisance.arms
+    treatment = np.asarray(data.treatment, dtype=float)
+    realised = np.zeros(treatment.shape[0], dtype=float)
+    shift = np.zeros(treatment.shape[0], dtype=float)
+    for column, arm in enumerate(arms):
+        mask = treatment == arm
+        realised[mask] = missingness[mask, column]
+        shift[mask] = gamma * direction[arm]
+    prediction = np.asarray(repeat.fluctuations["natural_course"].targeted.observed, dtype=float)
+    tilted = np.where(
+        shift == 0.0,
+        prediction,
+        realised * prediction + (1.0 - realised) * expit(logit(prediction) + shift),
+    )
+    return float(np.average(tilted, weights=data.weights))
+
+
+def _tilted_msm(
+    result: TMLEResult,
+    repeat: RepeatFit,
+    target: _TiltTarget,
+    gamma: float,
+    direction: Mapping[float, float],
+) -> float:
+    """One working-model coefficient, projected from the tilted arm regressions.
+
+    The projection is :func:`~cleverly.msm.solve_projection` on the outcome's own scale,
+    with the fitted design, weights and link, as
+    :func:`~cleverly.inference.influence.msm_coefficients` solves it.  The tilt moves the
+    counterfactual regression row by row, and the projection is then fixed.
+    """
+    msm = repeat.nuisance.msm
+    assert msm is not None and target.code is not None
+    scaler = repeat.nuisance.scaler
+    arms = _tilted_arms(result, repeat, "msm", gamma, direction)
+    levels = repeat.fluctuations["msm"].targeted.levels
+    predictions = scaler.unscale_levels(np.column_stack([arms[level] for level in levels]))
+    fit = solve_projection(msm.design, msm.weights, predictions, result.data.weights, str(msm.link))
+    return float(fit.beta[int(target.code)])
 
 
 def _tilted(targeted: FloatArray, observed_probability: FloatArray, gamma: float) -> FloatArray:
@@ -578,6 +867,42 @@ def _tilted(targeted: FloatArray, observed_probability: FloatArray, gamma: float
 #: The request ``tipping_gamma`` refuses on a fit that supplies no inference, named as the
 #: caller writes it.  The raise and the argument-aware capability row both use it.
 _TIPPING_INTERVAL_OPERATION = "tipping_gamma(use_ci=True)"
+
+
+def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | None:
+    """Why ``tipping_gamma(use_ci=True)`` cannot follow an interval for ``estimand``.
+
+    The tilt of a ratio, a natural-course or attributable target, a regime mean or an
+    MSM coefficient claims no interval at ``gamma != 0``, so the interval search has no
+    confidence limit to follow.  The point search answers.  ``None`` for an arm mean or a
+    linear contrast, and for a name the tilt does not re-mix, which the call refuses
+    later with the list of the names it does.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted result that the fit-wide tilt rules admit.
+    estimand : str or None
+        The requested name.
+
+    Returns
+    -------
+    Refusal or None
+        The refusal, or ``None`` when the interval search can run.
+    """
+    if estimand is None or fit_wide_tilt_refusal(result) is not None:
+        return None
+    target = _tilt_targets(result).get(estimand)
+    if target is None or target.keeps_interval:
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"{_TIPPING_INTERVAL_OPERATION} follows a confidence limit, and the tilt of "
+        f"{estimand!r} claims no interval at gamma != 0. Its spread there is the MAR "
+        "standard error centred on the tilted point, published under the plugin_ names.",
+        alternative=f"Call tipping_gamma(result, {estimand!r}) for the point search.",
+        roadmap="X57",
+    )
 
 
 def tipping_gamma(
@@ -607,8 +932,10 @@ def tipping_gamma(
 
     Refuses ``use_ci=True`` on a fit whose inference status supplies no inference, such
     as a selector-path ``CTMLE`` fit. Such a fit supplies no confidence limit for the
-    search to follow.  ``use_ci=False``, the default, searches the point
-    estimate and answers for that fit.
+    search to follow.  It refuses ``use_ci=True`` for a ratio, a natural-course or
+    attributable target, a regime mean and an MSM coefficient too, whose tilt claims no
+    interval at ``gamma != 0``.  ``use_ci=False``, the default, searches the point
+    estimate and answers for every one of them.
 
     Parameters
     ----------
@@ -652,6 +979,10 @@ def tipping_gamma(
             "search must be a finite, increasing (lower, upper) pair that contains gamma=0; "
             f"got {search!r}"
         )
+    if use_ci:
+        interval = tipping_interval_refusal(result, estimand)
+        if interval is not None:
+            raise CapabilityError.from_refusal(interval)
     if use_ci and estimand in result.estimates:
         # Before the first tilt.  The curve renames its spread columns on a selector-path
         # collaborative fit, so an interval crossing is still computable there, but this

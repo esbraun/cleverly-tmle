@@ -98,13 +98,17 @@ def _unavailable_items(report: Any) -> dict[str, AssessmentItem]:
     return {item.name: item for item in report.items if item.status is AssessmentStatus.UNAVAILABLE}
 
 
+#: The interval search of ``tipping_gamma``, which the natural-course tilt refuses.
+_INTERVAL = {"tipping_gamma": {"use_ci": True}}
+
+
 def test_an_unavailable_item_keeps_its_refusal_record(
     natural_course_result: Any, tmp_path: Path
 ) -> None:
-    original = _unavailable_items(natural_course_result.sensitivity.run_all())
+    original = _unavailable_items(natural_course_result.sensitivity.run_all(arguments=_INTERVAL))
     # The witness: the items carry records with a non-default code, an alternative and, for
     # the omitted-variable bound, a roadmap id, so equality can fail on a dropped field.
-    assert {"omitted_confounding", "tipping_gamma", "missingness"} <= set(original)
+    assert {"omitted_confounding", "tipping_gamma"} <= set(original)
     bound = original["omitted_confounding"].refusal
     assert bound is not None
     assert bound.reason is RefusalReason.IMPLEMENTATION_GAP
@@ -113,7 +117,7 @@ def test_an_unavailable_item_keeps_its_refusal_record(
     tipping = original["tipping_gamma"].refusal
     assert tipping is not None
     assert tipping.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert tipping.alternative and "missingness_tilt" in tipping.alternative
+    assert tipping.alternative and "point search" in tipping.alternative
     assert bound != tipping
 
     restored = _round_trip(natural_course_result, tmp_path)
@@ -129,7 +133,7 @@ def test_an_unavailable_item_keeps_its_refusal_record(
         assert after[name].refusal is not None
         assert after[name].refusal.reason is item.refusal.reason  # type: ignore[union-attr]
     # A new call on the loaded result answers from the same record.
-    again = _unavailable_items(restored.sensitivity.run_all())
+    again = _unavailable_items(restored.sensitivity.run_all(arguments=_INTERVAL))
     assert {name: item.refusal for name, item in again.items()} == {
         name: item.refusal for name, item in original.items()
     }
@@ -138,15 +142,15 @@ def test_an_unavailable_item_keeps_its_refusal_record(
 def test_the_capability_row_of_a_loaded_result_keeps_its_refusal(
     natural_course_result: Any, tmp_path: Path
 ) -> None:
-    declared = natural_course_result.sensitivity.capability("tipping_gamma")
+    declared = natural_course_result.sensitivity.capability("omitted_confounding")
     assert not declared.available
     assert declared.refusal is not None
     restored = _round_trip(natural_course_result, tmp_path)
-    loaded = restored.sensitivity.capability("tipping_gamma")
+    loaded = restored.sensitivity.capability("omitted_confounding")
     assert loaded.refusal == declared.refusal
     assert loaded.reason == declared.reason
     with pytest.raises(CapabilityError) as raised:
-        restored.sensitivity.tipping_gamma()
+        restored.sensitivity.omitted_confounding()
     assert raised.value.refusal.reason is declared.refusal.reason
     assert declared.refusal.condition in raised.value.refusal.condition
 
