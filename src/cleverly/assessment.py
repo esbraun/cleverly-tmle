@@ -2929,8 +2929,8 @@ class DiagnosticsFacade(_CapabilityFacade):
             negative-control test has no outcome. These checks precede every refusal.
         CapabilityError
             If the fitted estimator cannot be reconstructed, or the row this request
-            resolves to is refused. A fit given ``split_plan=`` refuses ``subset``, and
-            the natural-course mean refuses ``placebo``, so each row defers on ``tests``.
+            resolves to is refused. The natural-course mean refuses ``placebo``, so its row
+            defers on ``tests``.
             A call that omits ``tests`` raises the deferral with the refused test's
             sentence, and a call that names ``tests`` without that test runs.
         """

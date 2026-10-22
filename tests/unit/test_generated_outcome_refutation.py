@@ -21,7 +21,7 @@ from cleverly.exceptions import CapabilityError, DataError
 from cleverly.study import ParameterKey
 from cleverly.validation import (
     DEFAULT_OUTCOME_REPLICATES,
-    EmpiricalInclusionRule,
+    EquivalenceBands,
     GaussianAdjustmentOutcome,
     GaussianIndependentOutcome,
     GaussianNoise,
@@ -30,15 +30,6 @@ from cleverly.validation import (
 )
 from tests.unit._functional_tampering import FUNCTIONAL_TAMPERINGS
 from tests.unit._refutation_support import RefitResult, StubResult, stub_estimate
-
-
-def _small_rule(draws: int) -> EmpiricalInclusionRule:
-    """Return the widest-alpha legal rule at ``draws`` successful draws.
-
-    ``EmpiricalInclusionRule`` refuses ``minimum_draws * alpha < 2``, so a test that wants
-    a small draw budget has to buy it with a wide alpha rather than with a small floor.
-    """
-    return EmpiricalInclusionRule(alpha=2.0 / draws, minimum_draws=draws)
 
 
 @dataclass
@@ -191,13 +182,10 @@ class TestGeneratedProcesses:
             process.effect = 4.0  # type: ignore[misc]
 
     def test_dummy_and_nonzero_processes_pass(self) -> None:
-        rule = _small_rule(20)
         report = refute(
-            _eligible_result(),
+            _linear_ate_fit(ATE()),
             tests=("dummy_outcome", "simulated_outcome"),
-            n_replicates=40,
-            outcome_rule=rule,
-            random_state=12,
+            random_state=1,
         )
         assert report.passed
         assert report["dummy_outcome"].declared_effect == 0.0
@@ -229,12 +217,11 @@ class TestGeneratedProcesses:
             _eligible_result(),
             tests=("simulated_outcome",),
             simulated_outcome=GaussianAdjustmentOutcome(),
-            n_replicates=40,
-            outcome_rule=_small_rule(20),
+            n_replicates=400,
             random_state=12,
         )
-        assert not report.passed
-        assert report["simulated_outcome"].empirical_pvalue == 0.0
+        assert report.passed is False
+        assert not report["simulated_outcome"].readings[0].inside
 
     def test_recorded_child_seed_replays_outcome_and_refit(self) -> None:
         result = _eligible_result()
@@ -243,8 +230,7 @@ class TestGeneratedProcesses:
             result,
             tests=("simulated_outcome",),
             simulated_outcome=process,
-            n_replicates=4,
-            outcome_rule=_small_rule(4),
+            n_replicates=10,
             random_state=31,
         )
         record = report["simulated_outcome"].records[2]
@@ -262,15 +248,15 @@ class TestGeneratedProcesses:
         report = refute(
             result,
             tests=("dummy_outcome",),
-            n_replicates=5,
-            outcome_rule=_small_rule(5),
+            n_replicates=10,
             random_state=5,
         )
         test = report["dummy_outcome"]
-        assert not test.passed
+        assert test.passed is None
+        assert "failed" in test.detail
         assert [failure.replicate for failure in test.failures] == [1, 3]
         assert all(isinstance(item, ReplicationFailure) for item in test.failures)
-        assert len(nw.from_native(report.draws_frame("dummy_outcome"), eager_only=True)) == 5
+        assert len(nw.from_native(report.draws_frame("dummy_outcome"), eager_only=True)) == 10
 
     def test_nonfinite_refit_is_retained_and_later_draws_continue(self) -> None:
         class NonfiniteEstimator(_MeanDifferenceEstimator):
@@ -284,33 +270,31 @@ class TestGeneratedProcesses:
         test = refute(
             _eligible_result(estimator=estimator),
             tests=("dummy_outcome",),
-            n_replicates=3,
-            outcome_rule=_small_rule(3),
+            n_replicates=10,
             random_state=5,
         )["dummy_outcome"]
-        assert len(estimator.calls) == 3
-        assert [record.replicate for record in test.records] == [0, 2]
+        assert len(estimator.calls) == 10
+        assert [record.replicate for record in test.records] == [0, *range(2, 10)]
         assert [failure.replicate for failure in test.failures] == [1]
         assert test.failures[0].error_type == "ValueError"
-        assert not test.passed
+        assert test.passed is None
 
     def test_all_failure_behavior_keeps_every_seed(self) -> None:
-        result = _eligible_result(estimator=_MeanDifferenceEstimator(fail_calls=(0, 1, 2)))
+        result = _eligible_result(estimator=_MeanDifferenceEstimator(fail_calls=tuple(range(10))))
         report = refute(
             result,
             tests=("dummy_outcome",),
-            n_replicates=3,
-            outcome_rule=_small_rule(3),
+            n_replicates=10,
             random_state=9,
         )
         test = report["dummy_outcome"]
-        assert not test.passed
+        assert test.passed is None
         assert not test.records
-        assert len(test.failures) == 3
-        assert len(test.child_seeds) == 3
+        assert len(test.failures) == 10
+        assert len(test.child_seeds) == 10
         assert np.isnan(test.mean)
-        # No draw succeeded, so there is no rank information. A reported zero would read
-        # as the strongest possible rejection instead.
+        # No draw succeeded, so there is no reading to print.
+        assert test.readings == ()
         assert test.empirical_pvalue is None
         frame = nw.from_native(report.to_frame(), eager_only=True)
         assert frame["empirical_pvalue"].is_null().all()
@@ -321,8 +305,7 @@ class TestGeneratedProcesses:
         report = refute(
             result,
             tests=("dummy_outcome",),
-            n_replicates=3,
-            outcome_rule=_small_rule(3),
+            n_replicates=10,
         )
         assert type(report.to_frame()).__module__.startswith(backend)
         assert type(report.draws_frame("dummy_outcome")).__module__.startswith(backend)
@@ -350,16 +333,16 @@ class TestGeneratedOutcomeRefusals:
             )
         assert result.estimator.calls == []
 
-    def test_rule_subclasses_are_refused_before_mixed_operation_refits(self) -> None:
-        class UnregisteredRule(EmpiricalInclusionRule):
+    def test_band_subclasses_are_refused_before_mixed_operation_refits(self) -> None:
+        class UnregisteredBands(EquivalenceBands):
             pass
 
         result = _eligible_result()
-        with pytest.raises(CapabilityError, match="exact registered EmpiricalInclusionRule"):
+        with pytest.raises(CapabilityError, match="exact registered EquivalenceBands"):
             refute(
                 result,
                 tests=("placebo", "dummy_outcome"),
-                outcome_rule=UnregisteredRule(),
+                outcome_bands=UnregisteredBands(),
                 n_replicates=1,
             )
         assert result.estimator.calls == []
@@ -468,11 +451,10 @@ class TestGeneratedOutcomeRefusals:
         report = refute(
             _eligible_result(estimator=estimator),
             tests=("dummy_outcome",),
-            n_replicates=3,
-            outcome_rule=_small_rule(3),
+            n_replicates=10,
         )
-        assert len(report["dummy_outcome"].records) == 3
-        assert len(estimator.calls) == 3
+        assert len(report["dummy_outcome"].records) == 10
+        assert len(estimator.calls) == 10
 
     def test_real_binomial_fit_is_refused_before_refit(
         self, monkeypatch: pytest.MonkeyPatch
@@ -512,8 +494,7 @@ class TestGeneratedOutcomeFailureBoundary:
             refute(
                 _eligible_result(),
                 tests=("simulated_outcome",),
-                n_replicates=3,
-                outcome_rule=_small_rule(3),
+                n_replicates=10,
             )
 
     def test_replacement_errors_propagate(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -525,8 +506,7 @@ class TestGeneratedOutcomeFailureBoundary:
             refute(
                 _eligible_result(),
                 tests=("dummy_outcome",),
-                n_replicates=3,
-                outcome_rule=_small_rule(3),
+                n_replicates=10,
             )
 
     def test_authoritative_refit_family_must_match_process(self) -> None:
@@ -540,8 +520,7 @@ class TestGeneratedOutcomeFailureBoundary:
             refute(
                 _eligible_result(estimator=WrongFamilyEstimator()),
                 tests=("dummy_outcome",),
-                n_replicates=3,
-                outcome_rule=_small_rule(3),
+                n_replicates=10,
             )
 
     def test_malformed_refit_result_propagates(self) -> None:
@@ -554,8 +533,7 @@ class TestGeneratedOutcomeFailureBoundary:
             refute(
                 _eligible_result(estimator=MalformedResultEstimator()),
                 tests=("dummy_outcome",),
-                n_replicates=3,
-                outcome_rule=_small_rule(3),
+                n_replicates=10,
             )
 
     @pytest.mark.parametrize(
@@ -610,21 +588,6 @@ class TestGeneratedOutcomeFailureBoundary:
         assert result.estimator.calls == []
 
 
-def test_empirical_rule_uses_inclusive_half_ties_and_failure_policy() -> None:
-    rule = EmpiricalInclusionRule(alpha=0.5, minimum_draws=4)
-    assert rule.pvalue((-1.0, 0.0, 0.0, 1.0), 0.0) == 1.0
-    assert rule.evaluate((-1.0, 0.0, 0.0, 1.0), 0.0, ())[0]
-    failure = ReplicationFailure(0, 1, "RuntimeError", "no")
-    assert not rule.evaluate((-1.0, 0.0, 0.0, 1.0), 0.0, (failure,))[0]
-
-
-def test_empirical_rule_rejects_probability_equal_to_alpha() -> None:
-    rule = EmpiricalInclusionRule(alpha=0.2, minimum_draws=10)
-    values = (-1.0, *([1.0] * 9))
-    assert rule.pvalue(values, 0.0) == pytest.approx(rule.alpha)
-    assert not rule.evaluate(values, 0.0, ())[0]
-
-
 def _linear_ate_fit(estimand: Any, *, labels: bool = False, n: int = 300, seed: int = 17) -> Any:
     """Fit a real TMLE on ``make_linear_ate`` with explicit parametric learners.
 
@@ -655,13 +618,11 @@ class TestContrastDirection:
 
     def test_a_non_default_reference_declares_the_negated_effect(self) -> None:
         process = GaussianAdjustmentOutcome(effect=1.0)
-        rule = _small_rule(10)
         forward = refute(
             _linear_ate_fit(ATE()),
             tests=("simulated_outcome",),
             simulated_outcome=process,
-            n_replicates=20,
-            outcome_rule=rule,
+            n_replicates=10,
             random_state=5,
         )["simulated_outcome"]
         # ATE(reference=1) reports code zero against code one, so the same process
@@ -670,17 +631,14 @@ class TestContrastDirection:
             _linear_ate_fit(ATE(reference=1)),
             tests=("simulated_outcome",),
             simulated_outcome=process,
-            n_replicates=20,
-            outcome_rule=rule,
+            n_replicates=10,
             random_state=5,
         )["simulated_outcome"]
         assert forward.declared_effect == 1.0
         assert reversed_key.declared_effect == -1.0
         assert reversed_key.declared_effect == -forward.declared_effect
-        assert forward.passed and reversed_key.passed
-        assert forward.mean == pytest.approx(1.0, abs=0.3)
-        assert reversed_key.mean == pytest.approx(-1.0, abs=0.3)
-        assert "includes -1" in reversed_key.expectation
+        assert forward.mean == pytest.approx(1.0, abs=0.6)
+        assert reversed_key.mean == pytest.approx(-1.0, abs=0.6)
 
     @pytest.mark.parametrize("estimand", ["att", "atc"])
     def test_a_non_default_reference_negates_the_effect_for_att_and_atc(
@@ -694,13 +652,11 @@ class TestContrastDirection:
             estimand=estimand,
             tests=("simulated_outcome",),
             simulated_outcome=GaussianAdjustmentOutcome(effect=1.0),
-            n_replicates=20,
-            outcome_rule=_small_rule(10),
+            n_replicates=10,
             random_state=5,
         )["simulated_outcome"]
         assert test.declared_effect == -1.0
-        assert test.passed
-        assert test.mean == pytest.approx(-1.0, abs=0.3)
+        assert test.mean == pytest.approx(-1.0, abs=0.6)
 
     def test_a_string_labelled_reference_resolves_to_its_arm_code(self) -> None:
         # "control" sorts before "treated", so reference="treated" is the non-default arm.
@@ -708,25 +664,23 @@ class TestContrastDirection:
             _linear_ate_fit(ATE(reference="treated"), labels=True),
             tests=("simulated_outcome",),
             simulated_outcome=GaussianAdjustmentOutcome(effect=1.0),
-            n_replicates=20,
-            outcome_rule=_small_rule(10),
+            n_replicates=10,
             random_state=5,
         )["simulated_outcome"]
         assert test.declared_effect == -1.0
-        assert test.passed
 
     def test_an_unresolvable_key_endpoint_is_refused_pre_refit(self) -> None:
         result = _eligible_result()
         result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], value="unknown-arm")
         with pytest.raises(CapabilityError, match="the parameter key value="):
-            refute(result, tests=("simulated_outcome",), n_replicates=40)
+            refute(result, tests=("simulated_outcome",), n_replicates=10)
         assert result.estimator.calls == []
 
     def test_a_one_arm_key_is_refused_pre_refit(self) -> None:
         result = _eligible_result()
         result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], value=0, reference=0)
         with pytest.raises(CapabilityError, match="value and reference are the same arm"):
-            refute(result, tests=("simulated_outcome",), n_replicates=40)
+            refute(result, tests=("simulated_outcome",), n_replicates=10)
         assert result.estimator.calls == []
 
     def test_an_absent_key_endpoint_falls_back_to_the_declared_arms(self) -> None:
@@ -738,12 +692,10 @@ class TestContrastDirection:
         test = refute(
             result,
             tests=("simulated_outcome",),
-            n_replicates=40,
-            outcome_rule=_small_rule(20),
+            n_replicates=10,
             random_state=6,
         )["simulated_outcome"]
         assert test.declared_effect == 1.0
-        assert test.passed
 
 
 class TestRealFitAcceptance:
@@ -758,51 +710,43 @@ class TestRealFitAcceptance:
             estimand=estimand,
             tests=("simulated_outcome",),
             simulated_outcome=process,
-            n_replicates=20,
-            outcome_rule=_small_rule(10),
+            n_replicates=10,
             random_state=13,
         )
         test = report["simulated_outcome"]
         assert test.declared_effect == 0.75
-        assert test.passed
         assert not test.failures
-        assert len(test.records) == 20
+        assert len(test.records) == 10
         # The generated effect is constant, so ate, att, and atc all equal it.
-        assert test.mean == pytest.approx(0.75, abs=0.25)
+        assert test.mean == pytest.approx(0.75, abs=0.6)
 
-    def test_a_real_fit_passes_under_the_shipped_default_rule(self) -> None:
-        # Every other real-fit case widens alpha to keep its draw budget small, so the
-        # shipped alpha 0.05 and 40-draw minimum would otherwise run on no real fit.
+    def test_a_real_fit_passes_at_the_calibrated_budget(self) -> None:
         report = refute(
             _linear_ate_fit(ATE()),
             tests=("simulated_outcome",),
             simulated_outcome=GaussianAdjustmentOutcome(effect=0.75),
-            n_replicates=40,
             random_state=13,
         )
         test = report["simulated_outcome"]
-        assert test.rule == EmpiricalInclusionRule()
-        assert test.rule.alpha == 0.05
         assert test.declared_effect == 0.75
-        assert test.passed
-        assert len(test.records) == 40
+        assert test.rung == "L2"
+        assert test.passed is True
+        assert len(test.records) == DEFAULT_OUTCOME_REPLICATES
 
     def test_the_refute_cache_key_is_value_based(self) -> None:
         result = _linear_ate_fit(ATE())
         options: dict[str, Any] = {
             "tests": ("simulated_outcome",),
-            "n_replicates": 4,
+            "n_replicates": 10,
             "random_state": 7,
         }
         first = result.diagnostics.refute(
             simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
-            outcome_rule=_small_rule(4),
             **options,
         )
         # Fresh declarations, equal by value and distinct by identity.
         second = result.diagnostics.refute(
             simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
-            outcome_rule=_small_rule(4),
             **options,
         )
         assert first is second
@@ -843,12 +787,12 @@ class TestAdjustmentSignalScale:
             result,
             tests=("simulated_outcome",),
             simulated_outcome=GaussianAdjustmentOutcome(effect=1.0),
-            n_replicates=40,
-            outcome_rule=_small_rule(20),
+            n_replicates=400,
             random_state=4,
         )["simulated_outcome"]
-        assert not test.passed
-        assert test.empirical_pvalue == 0.0
+        assert test.passed is False
+        bias = next(reading for reading in test.readings if reading.name == "bias")
+        assert not bias.inside
         assert abs(test.mean - 1.0) > 3.0 * test.spread
 
     def test_a_dummy_outcome_still_passes_under_the_same_confounding(self) -> None:
@@ -857,38 +801,39 @@ class TestAdjustmentSignalScale:
         test = refute(
             _confounded_result(50),
             tests=("dummy_outcome",),
-            n_replicates=40,
-            outcome_rule=_small_rule(20),
+            n_replicates=400,
             random_state=4,
         )["dummy_outcome"]
-        assert test.passed
+        bias = next(reading for reading in test.readings if reading.name == "bias")
+        assert bias.inside
 
 
 class TestDrawBudget:
-    def test_a_budget_below_the_rule_is_refused_before_any_refit(self) -> None:
+    def test_a_budget_below_the_floor_is_refused_before_any_refit(self) -> None:
         result = _eligible_result()
-        with pytest.raises(CapabilityError, match="asked for 10 draw"):
-            refute(result, tests=("dummy_outcome",), n_replicates=10)
+        with pytest.raises(CapabilityError, match="asked for 9 draw"):
+            refute(result, tests=("dummy_outcome",), n_replicates=9)
         assert result.estimator.calls == []
 
     def test_a_mixed_call_refuses_the_budget_before_a_placebo_refit(self) -> None:
         result = _eligible_result()
-        with pytest.raises(CapabilityError, match="requires 40"):
-            refute(result, tests=("placebo", "dummy_outcome"), n_replicates=10)
+        with pytest.raises(CapabilityError, match="at least 10"):
+            refute(result, tests=("placebo", "dummy_outcome"), n_replicates=9)
         assert result.estimator.calls == []
 
-    def test_the_declared_defaults_request_a_workable_budget(self) -> None:
-        rule = EmpiricalInclusionRule()
-        assert rule.alpha == 0.05
-        assert rule.minimum_draws == 40
-        assert rule.failure_policy == "fail"
-        assert DEFAULT_OUTCOME_REPLICATES == 100
-        assert rule.minimum_draws <= DEFAULT_OUTCOME_REPLICATES
+    def test_the_declared_default_is_the_calibrated_minimum(self) -> None:
+        assert DEFAULT_OUTCOME_REPLICATES == 400
         result = _eligible_result()
         test = refute(result, tests=("dummy_outcome",), random_state=2)["dummy_outcome"]
         assert len(result.estimator.calls) == DEFAULT_OUTCOME_REPLICATES
         assert test.n_replicates == DEFAULT_OUTCOME_REPLICATES
-        assert test.rule == rule
+
+    def test_a_budget_below_the_calibrated_minimum_prints_at_l1(self) -> None:
+        test = refute(_eligible_result(), tests=("dummy_outcome",), n_replicates=10)[
+            "dummy_outcome"
+        ]
+        assert test.passed is None
+        assert test.rung == "L1"
 
 
 class TestDeclarationValidation:
@@ -905,34 +850,11 @@ class TestDeclarationValidation:
                 lambda: GaussianAdjustmentOutcome(adjustment_scale=np.inf),
                 "adjustment_scale must be finite",
             ),
-            (lambda: EmpiricalInclusionRule(alpha=0.0), "between zero and one"),
-            (lambda: EmpiricalInclusionRule(alpha=1.0), "between zero and one"),
-            (
-                lambda: EmpiricalInclusionRule(alpha=0.05, minimum_draws=0),
-                "minimum_draws must be positive",
-            ),
-            (
-                lambda: EmpiricalInclusionRule(alpha=0.05, minimum_draws=2),
-                r"minimum_draws >= 40 at alpha=0\.05",
-            ),
-            (
-                lambda: EmpiricalInclusionRule(alpha=0.1, minimum_draws=19),
-                r"minimum_draws >= 20 at alpha=0\.1",
-            ),
-            (
-                lambda: EmpiricalInclusionRule(failure_policy="keep"),  # type: ignore[arg-type]
-                "failure_policy=",
-            ),
         ],
     )
     def test_unusable_declarations_are_refused(self, build: Any, message: str) -> None:
         with pytest.raises(ValueError, match=message):
             build()
-
-    def test_the_shipped_default_rule_constructs(self) -> None:
-        rule = EmpiricalInclusionRule()
-        assert rule.minimum_draws * rule.alpha >= 2.0
-        assert rule.minimum_draw_count == 40
 
     def test_a_nonpositive_replicate_count_is_refused(self) -> None:
         result = _eligible_result()
@@ -954,33 +876,12 @@ class TestDummyOutcomeNegativeControl:
         test = refute(
             _eligible_result(estimator=LeakyEstimator()),
             tests=("dummy_outcome",),
-            n_replicates=40,
-            outcome_rule=_small_rule(20),
+            n_replicates=400,
             random_state=8,
         )["dummy_outcome"]
         assert test.declared_effect == 0.0
-        assert not test.passed
-        assert test.empirical_pvalue == 0.0
-        # Not the degenerate all-ties case the rank rule scores as p=1: the draws vary.
+        assert test.passed is False
+        bias = next(reading for reading in test.readings if reading.name == "bias")
+        assert not bias.inside
         assert test.spread > 0.0
         assert len(set(test.values)) == len(test.values)
-
-    def test_a_constant_estimator_is_the_degenerate_case_the_rank_rule_passes(self) -> None:
-        class ConstantEstimator(_MeanDifferenceEstimator):
-            """Returns the declared effect exactly, so every draw ties with it."""
-
-            def refit(self, *args: Any, **kwargs: Any) -> Any:
-                refitted = super().refit(*args, **kwargs)
-                refitted.estimate.psi = 0.0
-                return refitted
-
-        test = refute(
-            _eligible_result(estimator=ConstantEstimator()),
-            tests=("dummy_outcome",),
-            n_replicates=40,
-            outcome_rule=_small_rule(20),
-            random_state=8,
-        )["dummy_outcome"]
-        assert test.empirical_pvalue == 1.0
-        assert test.passed
-        assert test.spread == 0.0

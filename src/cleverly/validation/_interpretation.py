@@ -444,8 +444,8 @@ class VerdictEvidence:
             )
         if self.scope == CalibrationScope.unrestricted() and not self.exact:
             raise ValueError(
-                f"{self.instrument}/{self.rule} has an unrestricted scope; only a row with "
-                "an exact reference may cover every configuration"
+                f"{self.instrument}/{self.rule} declares an unrestricted scope without an "
+                "exact reference"
             )
 
 

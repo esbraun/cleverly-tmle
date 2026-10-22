@@ -382,7 +382,7 @@ sentence that the call raises.
 
 | operation | argument | the row defers when |
 | --- | --- | --- |
-| `refute()` | `tests` | the fit refuses one default test and admits another, such as `subset` on a fit given `split_plan=` |
+| `refute()` | `tests` | the fit refuses one default test and admits another, such as `placebo` on a fit of `NaturalCourseMean` |
 | `truncation_curve()` | `mechanism` | the fit refuses the default axis and admits the other, such as the treatment axis of an incremental fit with missing outcomes |
 | `benchmark()` | `covariates` | always, because the call needs the argument. A fit with one covariate reads `unavailable`, because the call cannot drop every covariate |
 | `simulated_confounding()` | `estimand` | the call refuses the default estimand, and another estimand that the fit reports runs |
@@ -513,14 +513,15 @@ ate_result = gaussian_study.estimate(
 generated = ate_result.diagnostics.refute(
     tests=("simulated_outcome",),
     simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
-    n_replicates=40,
     random_state=21,
 )
 draws = generated.draws_frame("simulated_outcome")
 ```
 
-That call reports `includes 0.5 yes` on 40 successful refits. Each row in `draws` records the
-child seed, estimate, standard error, family, or refit failure.
+That call refits 400 times and reports the bias, the standard-error ratio, and the coverage, each
+with its 95% interval and its equivalence band. It prints `yes` when all three intervals lie inside
+their bands. Each row in `draws` records the child seed, estimate, standard error, family, or refit
+failure.
 
 Use bootstrap measurement error to assess estimate stability under declared covariate error.
 The operation samples rows first. It then perturbs original adjustment variables and refits the
@@ -545,27 +546,26 @@ The numeric multiplier uses each variable's standard deviation in its bootstrap 
 Categorical changes act on the original variable and rebuild its complete indicator block.
 Set `categorical_change_probability` on the declaration to control those changes.
 
-The operation compares the original estimate with the empirical refit distribution.
-It can pass or fail because it measures stability under the declared error.
+The operation reports how far the estimate moves under the declared error and states no verdict.
 It stays outside `DEFAULT_TESTS` because every draw resamples, perturbs, and refits.
 Plain bootstrap inference does not add measurement error.
 
-The placebo refutation permutes treatment and interprets movement toward zero as evidence for an
-effect claim. `NaturalCourseMean` is an outcome level, not an effect, so that interpretation does
-not apply and the operation refuses it before refitting. The `random_common_cause` and `subset`
-refutations retain their usual stability interpretations for this target.
+The placebo refutation permutes treatment and reads the refit estimates against the exact null.
+`NaturalCourseMean` is an outcome level, not an effect, so that reading does not apply and the
+operation refuses it before refitting. The `random_common_cause` and `subset` refutations keep
+their descriptive readings for this target.
 
-Two defaults govern generated-outcome calls, and they are separate objects. `n_replicates` defaults to
-`DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
-`EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
-refit fails. The simulated-outcome example asks for 40 draws, which is the smallest budget the
-default rule accepts.
+A refutation prints `passed` only where the evidence registry covers the fit. Otherwise the report
+prints the numbers, `passed` is `None`, and the report says what it would take to read them as a
+verdict. `bool(report)` raises `TypeError` for a descriptive report, so test `report.passed` against
+`True` and `False`. 
 
-Read alpha as a width and not as a false-alarm rate. The rule passes when the declared effect
-lies inside the central 95% of the refit estimates, which
-[the technical reference](../technical-reference/validation-methods.md#refutation-operations)
-derives. Generated outcomes apply only to identified additive contrasts for binary point
-treatments.
+Checks that need more than five refits are opt-in. The default tests run five
+replications each. A generated-outcome call defaults to `DEFAULT_OUTCOME_REPLICATES`, which is 400
+draws, and a budget below 400 prints its readings without a verdict. A budget below 10 is refused.
+[The technical reference](../technical-reference/validation-methods.md#verdicts-and-evidence)
+states the bands and the evidence ladder. Generated outcomes apply only to identified additive
+contrasts for binary point treatments.
 
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against

@@ -841,9 +841,8 @@ class RefutationResult:
         verdict = self.passed
         if verdict is None:
             raise TypeError(
-                "this refutation report is descriptive: at least one test states no verdict "
-                "because no registered calibration covers the fit. Read report.tests and "
-                "each test's rung and scope_sentence instead of the truth value"
+                "this refutation report has a descriptive test, so its truth value is "
+                "undefined. Read report.tests and each test's rung and scope_sentence"
             )
         return verdict
 
@@ -1243,18 +1242,6 @@ def _no_effect_difference(value: float, null: float) -> float:
     if null == 1.0:
         return float(np.log(value))
     return value - null
-
-
-def _stability_value(value: float, is_ratio: bool) -> float:
-    """Return a refit value on the scale of its plug-in standard error."""
-    return float(np.log(value)) if is_ratio else value
-
-
-def _standardized_distance(distance: float, std_error: float) -> float:
-    """Express a null distance in standard-error units, including zero spread."""
-    if std_error == 0.0:
-        return 0.0 if distance == 0.0 else float("inf")
-    return distance / std_error
 
 
 def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
