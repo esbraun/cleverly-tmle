@@ -2000,8 +2000,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   $Y_{am} \perp A \mid C$ and $Y_{am} \perp M \mid A, C, U$, so $U$ confounds only the
   intermediate-outcome relation. Appendix 1 gives the risk-ratio bias for a binary $U$ with a
   constant $\gamma$. Roadmap item
-  [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) lets $U$ confound the treatment
-  too, so this paper is context for X49 and not its base.
+  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G lets $U$ confound the treatment
+  too, so this paper is context for that part and not its base.
 - Smith & VanderWeele (2019), [*Mediational E-values: approximate sensitivity analysis for
   unmeasured mediator-outcome confounding*](https://www.louisahsmith.com/publications/smith2019mediational.pdf),
   *Epidemiology* 30(6):835-837. The [supplement](https://download.lww.com/wolterskluwer_vitalstream_com/PermaLink/EDE/B/EDE_2019_07_22_SMITH_EDE18-0696R2_SDC1.pdf)
@@ -2017,7 +2017,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   and averaging over measured covariates. The hard-stop review read arXiv:1507.03984v1, Section 2,
   Result 1 and Equation (1), eAppendix 1, Lemmas A.1 and A.2, and eAppendix 2.2, Propositions A.1
   and A.2. The proof of Proposition A.2 bounds a ratio of two integrals with Lemma A.2. Roadmap item
-  [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) applies that bound to each arm.
+  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G applies that bound to each arm.
 - Gilbert, Fong, Kenny & Carone (2023), [*A controlled effects approach to assessing immune
   correlates of protection*](https://academic.oup.com/biostatistics/article/24/4/850/7320953),
   *Biostatistics* 24(4):850-865. Its E-value compares marker interventions within one vaccination
@@ -2058,7 +2058,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   at the individual or the group level (`trt.level`, lines 4 to 7). `contYZU` in `R/genU_contY.R`
   draws one latent value per group for a group-level treatment (lines 37 to 84).
   `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. Roadmap item
-  [X47](roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (b) cites it as a
+  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, point laws (b), cites it as a
   design precedent for the latent level, not as a base.
 - Qin and Yang, R package [`mediationsens`](https://cran.r-project.org/package=mediationsens)
   0.0.3, read in the CRAN reference manual. `sens()` simulates a pretreatment latent that enters
@@ -2162,7 +2162,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   procedure. The abstract on page 1014 states that scope. The method encodes the impact of
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
-  latent treatment perturbation and no refit law for this surface. Roadmap item X47, part (a),
+  latent treatment perturbation and no refit law for this surface. Roadmap item X82, part F, point laws (a),
   cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
   2.3.1, Theorem 2.1 and Remark 2.
 - Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
@@ -2170,7 +2170,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
   a bias correction from those models. That construction does not perturb the treatment and the
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
-  and a mixed latent cause for this surface. Roadmap item X47, part (b), cites it as a negative
+  and a mixed latent cause for this surface. Roadmap item X82, part F, point laws (b), cites it as a negative
   finding.
 
 ## Negative controls
@@ -2553,7 +2553,7 @@ not a shipped claim.
   bounds*](https://arxiv.org/abs/2005.02908v1), *Epidemiology*, DOI 10.1097/EDE.0000000000001380.
   Read first-hand in arXiv:2005.02908v1, the only version. Result 1 bounds the observed risk ratio
   by a product of bias factors. Its selection factor $BF_s$ is a product of one factor for each
-  arm. Cited by roadmap item [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) as the
+  arm. Cited by roadmap item [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G as the
   structural precedent for a split into one factor for each arm.
 - Tang & Westling (2024), [*Consistency of the bootstrap for asymptotically linear estimators based
   on machine learning*](https://arxiv.org/abs/2404.03064v2), arXiv:2404.03064v2. Theorem 3.4 gives
@@ -2639,5 +2639,5 @@ not a shipped claim.
   inference*](https://arxiv.org/abs/2102.09412), arXiv:2102.09412, read in the HTML version of 25
   February 2022. Section 4, Equations (12) to (15), gives a Gaussian-copula outcome law that keeps
   the support of the outcome. The [hard-stop review](technical-reference/hard-stop-review.md)
-  cites it for roadmap item [X47](roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits)
-  part (g).
+  cites it for roadmap item [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)
+  part F, point laws (g).

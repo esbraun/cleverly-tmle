@@ -122,61 +122,61 @@ _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTA
 #: roadmap rows that track it.  Named constants rather than inline literals, because the
 #: capability row, the execution refusal, and the roadmap must quote one text.  The
 #: hard-stop review (docs/technical-reference/hard-stop-review.md) moved each declarable
-#: law to roadmap X47 or X48.  A stop that keeps a part in the research queue names both
+#: law to roadmap X82 part F.  A stop that keeps a part in the research queue names both
 #: rows and states the condition that keeps that part there.
 _LONGITUDINAL_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no time-indexed latent law for longitudinal "
-    "treatments, censoring, histories, outcomes, and contrasts. docs/roadmap.md X48 "
+    "treatments, censoring, histories, outcomes, and contrasts. docs/roadmap.md X82 part F "
     "tracks one time-fixed latent on uncensored terminal-outcome fits, and "
     "docs/roadmap.md F13 tracks censoring, survival outcomes, time-varying covariates "
     "after the first treatment node, and time-varying latents.",
     alternative=NO_ALTERNATIVE,
-    roadmap="X48",
+    roadmap="X82",
 )
 _MULTI_ARM_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no category-valued perturbation law for a multi-arm "
-    "treatment. docs/roadmap.md X47 tracks a swap of the two arms of a declared pairwise "
+    "treatment. docs/roadmap.md X82 part F tracks a swap of the two arms of a declared pairwise "
     "contrast.",
     alternative=(
         "Call evalue(result, '<one two-arm contrast>') or omitted_variable_bounds(result) "
         "on the same multi-arm fit."
     ),
-    roadmap="X47",
+    roadmap="X82",
 )
 _MISSING_OUTCOME_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no joint observation, treatment, and outcome "
     "perturbation law with identified missing-outcome refit semantics. docs/roadmap.md "
-    "X47 tracks a declared response mechanism that reads the covariates only, and "
+    "X82 part F tracks a declared response mechanism that reads the covariates only, and "
     "docs/roadmap.md F12 tracks a response mechanism that reads the treatment, where a "
     "treatment perturbation breaks missing at random.",
     alternative=(
         "Call evalue(result) for unmeasured confounding on the same fit, or "
         "missingness_tilt(result) for outcome missingness not at random."
     ),
-    roadmap="X47",
+    roadmap="X82",
 )
 _MISSING_TREATMENT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no joint treatment-observation, treatment, and outcome "
     "perturbation law with identified missing-treatment refit semantics. It refuses a "
     "declared missing treatment for the reason it refuses a missing outcome. "
-    "docs/roadmap.md X47 tracks declared observation mechanisms that read the covariates "
+    "docs/roadmap.md X82 part F tracks declared observation mechanisms that read the covariates "
     "only, and docs/roadmap.md F12 tracks a mechanism that reads the treatment.",
     alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
-    roadmap="X47",
+    roadmap="X82",
 )
 _INTERMEDIATE_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no ordered treatment, intermediate, observation, "
     "and outcome law with a controlled-direct-effect contrast contract. docs/roadmap.md "
-    "X47 tracks outcome-axis cells and an intermediate-axis law that holds the treatment, "
+    "X82 part F tracks outcome-axis cells and an intermediate-axis law that holds the treatment, "
     "and docs/roadmap.md F15 tracks the treatment axis, because a treatment perturbation "
     "makes the latent confound the intermediate and the outcome.",
     alternative=NO_ALTERNATIVE,
-    roadmap="X47",
+    roadmap="X82",
 )
 #: The one stop whose message names the fitted result rather than the surface, because the
 #: result is what stores no weight model.  Accuracy over template uniformity: writing this
@@ -185,24 +185,24 @@ _ESTIMATED_WEIGHT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding cannot replay estimated observation weights; the fitted result "
     "stores no weight model, target-population semantics, or regeneration rule. "
-    "docs/roadmap.md X47 tracks a replay that holds the supplied weights fixed and targets "
+    "docs/roadmap.md X82 part F tracks a replay that holds the supplied weights fixed and targets "
     "the fit's weighted population.",
     alternative=(
         "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
         "neither has a weight rule."
     ),
-    roadmap="X47",
+    roadmap="X82",
 )
 _CLUSTERED_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no source-backed choice among row-level, "
-    "cluster-level, and mixed latent causes for clustered fits. docs/roadmap.md X47 "
+    "cluster-level, and mixed latent causes for clustered fits. docs/roadmap.md X82 part F "
     "tracks a latent level that the caller declares.",
     alternative=(
         "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
         "neither has a cluster rule."
     ),
-    roadmap="X47",
+    roadmap="X82",
 )
 
 
@@ -308,7 +308,7 @@ def _refuse_learned_rule(result: Any) -> Refusal | None:
         + LEARNED_RULE_REPLAY_REFUSAL
         + ".",
         alternative=NO_ALTERNATIVE,
-        roadmap="X11",
+        roadmap="X82",
     )
 
 
@@ -324,7 +324,7 @@ def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
         alternative=(
             "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
         ),
-        roadmap="X66",
+        roadmap="X82",
     )
 
 
@@ -376,7 +376,7 @@ def _refuse_binary_estimator(result: Any) -> Refusal | None:
             "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
             f"complete-outcome DR-TMLE; got {type(estimator).__name__}.",
             alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
-            roadmap="X66",
+            roadmap="X82",
         )
     return None
 
@@ -1062,9 +1062,9 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
                 RefusalReason.IMPLEMENTATION_GAP,
                 f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
                 "zeroing one encoded column does not define a logical-covariate benchmark "
-                "(docs/roadmap.md X47 tracks a block calibration of the whole covariate).",
+                "(docs/roadmap.md X82 part F tracks a block calibration of the whole covariate).",
                 alternative="Name numeric benchmark covariates only.",
-                roadmap="X47",
+                roadmap="X82",
             )
         column = data.covariates[:, data.covariate_names.index(name)]
         if _is_constant_under_weights(column, data.weights):
@@ -1281,7 +1281,7 @@ def _validated_parameter(
                     "axis, such as TMLE(estimands=('ate',)) with no other counterfactual "
                     "keyword."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             ),
         )
         if key.estimand not in _BINARY_PARAMETER_TARGETS or key.axis != "arm":
@@ -1294,7 +1294,7 @@ def _validated_parameter(
                     "Call simulated_confounding(result, estimand=...) for an ATE, ATT, ATC, "
                     "arm mean, rr, or, par or paf of a fit of the same data."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
@@ -1310,7 +1310,7 @@ def _validated_parameter(
                     "Call simulated_confounding on a continuous fit that declares policies= "
                     "alone, such as TMLE(policies=[Shift(delta, cap=...)])."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             ),
         )
         if key.estimand not in {"ey_policy", "ate_policy"} or key.axis != "policy":
@@ -1322,7 +1322,7 @@ def _validated_parameter(
                     "Call simulated_confounding(result, estimand='ate_policy[...]'), or an "
                     "ey_policy mean other than the natural course."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             )
         _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 

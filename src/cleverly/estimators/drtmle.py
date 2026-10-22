@@ -551,7 +551,7 @@ class DRTMLE(TMLE):
     and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.
     Roadmap item X50 holds the fixed-weight DR-TMLE curve that would reopen it.
     ``guard=()`` fits the ordinary TMLE, whose interval conditions on the weights, and keeps
-    its interval.  Roadmap item X47 separately holds the replay that keeps the supplied
+    its interval.  Roadmap item X82 part F separately holds the replay that keeps the supplied
     weights fixed.  ``simulated_confounding`` refuses the composition outright until that
     replay contract exists.
 

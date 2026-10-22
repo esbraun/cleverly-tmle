@@ -595,7 +595,7 @@ class TestTheAssessmentRows:
     def test_refute_reads_unavailable_and_refuses(self, result: Any) -> None:
         row = result.diagnostics.capability("refute")
         assert not row.available and row.refusal == LEARNED_RULE_REFIT_REFUSAL
-        assert "X11 (o) in docs/roadmap.md tracks a refutation that freezes" in row.reason
+        assert "X82 part F in docs/roadmap.md tracks a refutation that freezes" in row.reason
         with pytest.raises(CapabilityError, match="relearns the rule"):
             refute(result, estimand=support.NAME, tests=("random_common_cause",))
 
@@ -608,7 +608,7 @@ class TestTheAssessmentRows:
             ("contour", "X11 (n)"),
             ("benchmark", "X11 (n)"),
             ("evalue", "F27"),
-            ("simulated_confounding", "X11 (o)"),
+            ("simulated_confounding", "X82 part F"),
             ("missingness", "F27"),
             ("tipping_gamma", "F27"),
         ],

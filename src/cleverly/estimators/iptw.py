@@ -288,14 +288,14 @@ OPERATION_REFUSALS: dict[str, Refusal] = {
         "refute() refits a TMLE under placebo and resampled data, and no refutation of "
         "AdaptiveIPTW is registered.",
         alternative=_TMLE_ALTERNATIVE,
-        roadmap="X67",
+        roadmap="X82",
     ),
     "simulated_confounding": Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding() refits or tilts the outcome regression, and AdaptiveIPTW "
         "fits no outcome regression.",
         alternative=_TMLE_ALTERNATIVE,
-        roadmap="X66",
+        roadmap="X82",
     ),
     "missingness_tilt": Refusal(
         RefusalReason.API_REDIRECTION,

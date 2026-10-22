@@ -289,9 +289,9 @@ result on nine fits.
 | `sensitivity.evalue` | supported on a fit that reports inference. Refused on a fit with an estimated mechanism |
 | `validate` | refused: `api_redirection` to `diagnostics.nuisance_models` |
 | `diagnostics.truncation_curve` | refused: `implementation_gap`, [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) |
-| `diagnostics.refute` | refused: `implementation_gap`, [X67](../roadmap.md#x67-refutation-and-assessment-adapters) |
+| `diagnostics.refute` | refused: `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
 | `sensitivity.omitted_confounding`, `robustness_value`, `elements`, `benchmark`, `contour` | refused: `api_redirection` to TMLE. The bound needs an outcome regression |
-| `sensitivity.simulated_confounding` | refused: `implementation_gap`, [X66](../roadmap.md#x66-simulated-confounding-beyond-x47-and-x48) |
+| `sensitivity.simulated_confounding` | refused: `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
 | `sensitivity.missingness`, `tipping_gamma` | refused: `api_redirection` to TMLE |
 
 ## Differences from `drtmle`
