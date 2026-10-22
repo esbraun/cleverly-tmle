@@ -20,8 +20,9 @@ CL and the stratified law ST are the shared law modules.  The tables :data:`READ
 (``tests/unit/test_adaptive_iptw_study_design.py``) computes every size, every role and every
 necessity row, and it checks them against this module.
 
-**Failure bound.**  ``failure_bound`` is ``{"adaptive_iptw": 0.01}`` (:data:`FAILURE_BOUND`).  A
-cell may lose ``floor(0.01 R)`` replicates, and the accounting fills each lost value at its
+**Failure bound.**  ``failure_bound`` is ``{"adaptive_iptw": 0.01, "drtmle": 0.01}``
+(:data:`FAILURE_BOUND`).  The pending ``drtmle`` side declares its bound before its first run, as
+every other side does.  A cell may lose ``floor(0.01 R)`` replicates, and the accounting fills each lost value at its
 adverse support bound (``docs/development/method-benchmarking.md``).
 
 **Publication policy** is ``reporting``.  Only ``bias/flexible`` and ``spread/parametric_q_ne_qr``
@@ -1036,7 +1037,7 @@ STUDY = StudyRecord(
     pending_reason=PENDING_REASON,
     comparison="matching implementation",
     calibration_efficiency_ratio=False,
-    failure_bound={IMPLEMENTATION: FAILURE_BOUND},
+    failure_bound={IMPLEMENTATION: FAILURE_BOUND, PENDING_REFERENCE: FAILURE_BOUND},
     modules=(
         "tests/studies/canonical_adaptive_iptw.py",
         "tests/studies/adaptive_iptw_properties.py",

@@ -20,8 +20,9 @@ repeat after the fold-wise reduced regression replaced the pooled one. The study
 in `tests/studies/evidence/registry.py`, with the `reporting` publication policy and the
 `pending_reference` `drtmle`. The evidence page is
 `docs/technical-reference/method-evidence/adaptive-iptw.md`. The red cells have owners in
-`tests/studies/evidence/red_cells.py`, and the support rows `AI.*` in
-`src/cleverly/_support_rows.py` cite the cells that passed. The diagnostic of the one red
+`tests/studies/evidence/red_cells.py`. The support rows `AI.*` in
+`src/cleverly/_support_rows.py` cite the cells of the study. Each red cell that a row cites carries
+its disposition in `tests/studies/evidence/support_dispositions.py`. The diagnostic of the one red
 composite cell is `tests/diagnostics/adaptive_iptw_composite_l3/`.
 
 The design test sets every count in `canonical_adaptive_iptw.py`. It fails when a constant
@@ -65,6 +66,18 @@ Two limits of the instruments. The necessity variance bound assumes independent 
 exact paired variance is smaller (`rm_d`: probability 0.999 instead of 0.961). The pairing
 study declares the R comparator. Until then `pending_reason` records that the declared
 reference sources are a placeholder.
+
+## Edits after the run
+
+Two keys of `configuration` in `manifest.json` changed after the run. No artifact, hash or verdict
+moved.
+
+| key | edit |
+| --- | --- |
+| `failure_bound` | Adds `"drtmle": 0.01`, the bound of the pending side. The `drtmle` side ran no replicate. |
+| `replicates` | The per-stream counts moved to `replicates_by_stream`. `replicates` is now 2,000, the count of the record. |
+
+The manifest digest in `run.log` (`df8f95c8…`) is the digest of the manifest as the run wrote it.
 
 ## Run
 

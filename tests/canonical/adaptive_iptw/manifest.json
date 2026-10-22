@@ -29,7 +29,8 @@
     "resampling_seed": 2026210101,
     "publication_policy": "reporting",
     "failure_bound": {
-      "adaptive_iptw": 0.01
+      "adaptive_iptw": 0.01,
+      "drtmle": 0.01
     },
     "scenarios": {
       "known_arms": [
