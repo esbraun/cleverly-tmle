@@ -602,7 +602,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "X82 plan 4.2.1. The draws are i.i.d. given the held design, so the bias and its "
             "Monte Carlo standard error are exact for every target."
         ),
-        scope=CalibrationScope.unrestricted(),
+        scope=CalibrationScope(nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the bias lies inside its equivalence band. "
             "Your own outcome law is not this one."
@@ -618,7 +618,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "identically zero on the generated law, the held-design standard error "
             "reference is the unconditional one."
         ),
-        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        scope=CalibrationScope(inference=frozenset({"influence_curve"}), nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the standard-error ratio lies inside its "
             "equivalence band. Your own outcome law is not this one."
@@ -633,7 +633,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
             "X82 plan 4.2.1 and 5.5.1. The Clopper-Pearson interval of the coverage is "
             "exact given i.i.d. draws, on a law with a zero covariate part."
         ),
-        scope=CalibrationScope(inference=frozenset({"influence_curve"})),
+        scope=CalibrationScope(inference=frozenset({"influence_curve"}), nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the 95% interval coverage lies inside its "
             "equivalence band. Your own outcome law is not this one."

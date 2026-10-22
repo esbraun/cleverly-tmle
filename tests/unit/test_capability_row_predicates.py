@@ -603,6 +603,8 @@ class TestTheRefuteRowResolvesEachRequest:
             "placebo_mode",
             "placebo_kernel",
             "noise_nodes",
+            "negative_control_design",
+            "future_treatment",
             "no_effect_null",
             "row_set_under_plan",
             "generated_rule",
