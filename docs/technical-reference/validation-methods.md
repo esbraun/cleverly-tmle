@@ -2930,7 +2930,9 @@ A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in
 [`validation/_interpretation.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_interpretation.py)
 holds that evidence as frozen `VerdictEvidence` rows. Each row names an instrument, a rule, a
 rung, the theory behind it, and a `CalibrationScope`. A fit outside the scope of every row gets the
-numbers and `passed=None`. The report prints the configuration that the nearest row covers.
+numbers and `passed=None`. The report prints the configuration that the nearest row covers,
+and every axis on which the fit differs from it. The nearest row differs on the fewest axes. On a
+tie, the first row in `VERDICT_EVIDENCE` order wins.
 
 | rung | what backs the reading |
 | --- | --- |
