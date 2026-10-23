@@ -76,8 +76,6 @@ UNPRINTED_DECIMALS = {
     "-0.0022": f"mean error of TMLE with linear Q and the booster's g: {_PROBE}/summary.log",
     "-0.0006": f"mean error of TMLE with the booster's Q and logistic g: {_PROBE}/summary.log",
     "-0.0218": f"mean error of TMLE with both nuisances linear: {_PROBE}/summary.log",
-    "0.05": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
-    "0.95": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
     **dict.fromkeys(
         PROBE_LITERALS,
