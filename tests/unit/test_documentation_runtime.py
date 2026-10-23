@@ -791,7 +791,7 @@ EXPECTED_REFIT_CELLS = {
     ],
     "interventions": ["bound", "refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
-    "msm-projections": ["refute", "generated", "surface"],
+    "msm-projections": ["sensitivity", "refute", "generated", "surface"],
     "point-treatment-tmle": [
         "refutation",
         "sensitivity",
