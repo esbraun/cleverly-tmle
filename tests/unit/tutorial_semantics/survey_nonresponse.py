@@ -249,11 +249,15 @@ def check(namespace: dict[str, Any]) -> None:
     assert round(support.mechanisms["P(Delta=1|A,W)"]["min"], 3) == 0.038
     assert support.mechanisms["P(A=a,Delta=1|W)"]["clipped_fraction"] == 0.0
     assert support.truncated["fraction"] == 0.0
-    largest_weight = max(support.clever_covariate_max.values())
-    assert f"{largest_weight:.1f}" == "81.8"
-    # "that value also counts each patient's other option": 1 / 0.0081 exceeds the largest
-    # weight on a respondent, so the minimum is not reached on a respondent's own option.
-    assert 1.0 / support.mechanisms["P(A=a,Delta=1|W)"]["min"] > largest_weight
+    # "The largest weight on a respondent is 41.2": one over the chance of the offer they got
+    # times the chance of answering under it, over respondents only.  Nonzero witness: the
+    # report's clever-covariate maximum also counts non-responders and is about twice as large.
+    weight = namespace["respondent_weight"]
+    assert len(weight) == int(frame["responded"].sum())
+    assert f"{weight.max():.1f}" == "41.2"
+    assert max(support.clever_covariate_max.values()) > 1.5 * weight.max()
+    # The fit caps the chances at the printed bounds, and nothing reached them.
+    assert round(support.bounds[0], 4) == 0.0095 and support.nuisance_bound == 0.01
     assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
     assert "out-of-fold predictions" in namespace["nuisance"].summary()
     # The omitted-variable bound admits a response mechanism, so its rows run.  The benchmark
