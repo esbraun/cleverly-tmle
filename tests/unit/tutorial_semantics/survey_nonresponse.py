@@ -327,6 +327,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
 
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """The refit cells: the refutation, the generated outcomes, and the E-value and bounds."""
     _check_refutation(namespace)
     _check_generated_outcomes(namespace)
     _check_evalue_and_bounds(namespace)
