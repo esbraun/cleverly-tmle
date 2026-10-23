@@ -1075,7 +1075,7 @@ _SG_OVB_CELLS: Final[
         ("msm[W2]", "msm[a:W2]"),
         "discrete",
         2,
-        350,
+        300,
         "a binary law with the linear MSM of modifier W2",
         ("w2", "a_w2"),
     ),
