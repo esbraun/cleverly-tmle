@@ -820,6 +820,12 @@ def test_the_refit_rule_follows_reads_and_ignores_rebinding(tmp_path: Path) -> N
         "check_it(fit)",
         "warm = [fit for fit in range(3)]",
         "print(fit)",
+        "try:\n    caught = refute(fit)\nexcept ValueError as error:\n    pass",
+        "print(error, caught)",
+        "class K:\n    caught = 1",
+        "print(caught)",
+        "[last := item for item in checks]",
+        "print(last)",
     )
     cells = [nbformat.v4.new_code_cell(source, id=f"c{i}") for i, source in enumerate(sources)]
     path = tmp_path / "probe.ipynb"
@@ -830,9 +836,14 @@ def test_the_refit_rule_follows_reads_and_ignores_rebinding(tmp_path: Path) -> N
         "c5": "reads 'checks' from 'c1'",
         "c8": "calls simulated_confounding",
         "c10": "calls check_it",
+        "c13": "calls refute",
+        "c14": "reads 'caught' from 'c13', 'error' from 'c13'",
+        "c16": "reads 'caught' from 'c13'",
+        "c17": "reads 'checks' from 'c1'",
+        "c18": "reads 'last' from 'c17'",
     }
     # ``row`` and the second ``fit`` are comprehension variables, local to their comprehension.
-    assert set(refit_bound(path)) == {"checks", "rows"}
+    assert set(refit_bound(path)) == {"checks", "rows", "caught", "error", "last"}
     guarded = RefitNamespace({"checks": None, "fit": 2}, refit_bound(path))
     with pytest.raises(KeyError, match="check_refits"):
         guarded["checks"]

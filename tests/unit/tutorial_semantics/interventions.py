@@ -349,6 +349,8 @@ def check(namespace: dict[str, Any]) -> None:
 
 def check_refits(namespace: dict[str, Any]) -> None:
     """Steps 14 to 16: the refutation, the generated outcomes, and the stress surfaces."""
+    # The law that ``check`` rebuilds for its refusal is the notebook's own.
+    assert namespace["bounded"] == BoundedAdjustmentOutcome(effect=0.5)
     # The treatment-only stress surface: both cells return, and the flip moves the screen
     # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]

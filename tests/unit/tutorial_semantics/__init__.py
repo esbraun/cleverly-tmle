@@ -245,8 +245,14 @@ def _bound(tree: ast.AST) -> set[str]:
     count.  A change through a method call, such as ``rows.append(...)``, is not seen.
     """
     names = set()
+    for node in ast.walk(tree):
+        # An assignment expression in a comprehension binds in the cell, not in the comprehension.
+        if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
     for node in _cell_nodes(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+        if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
             names.add(node.id)
         elif isinstance(node, ast.Attribute | ast.Subscript) and isinstance(
             node.ctx, ast.Store | ast.Del
@@ -370,6 +376,15 @@ class _FreeReads(ast.NodeVisitor):
     visit_AsyncFunctionDef = _function
     visit_Lambda = _function
 
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for expression in (*node.decorator_list, *node.bases, *node.keywords):
+            self.visit(expression)
+        inner = _FreeReads(self.bound)
+        for statement in node.body:
+            inner.visit(statement)
+        self.reads |= inner.reads
+        self.bound.add(node.name)
+
     def visit_Import(self, node: ast.Import | ast.ImportFrom) -> None:
         self.bound.update(alias.asname or alias.name.partition(".")[0] for alias in node.names)
 
@@ -422,9 +437,18 @@ def refit_cells(path: Path) -> dict[str, str]:
     refit cell bound and no later ordinary cell rebound.  The rule runs in cell order, so a cell
     that only prints a refutation is a refit cell too.
 
-    The rule reads names, not objects.  A refit cell that changes an earlier object through a
-    method call, such as ``rows.append(...)``, leaves that change out of the fast gate, and a
-    ``check`` that reads it fails there.  Move the assertion to ``check_refits``.
+    The rule reads names, not objects, and it reads each cell as straight-line code.  These
+    cases escape it:
+
+    - a refit cell that changes an earlier object through a method call, such as
+      ``rows.append(...)``;
+    - a name that a cell binds only inside an ``if`` branch and reads later in the same cell;
+    - a function, defined in an ordinary cell, that reads a refit-bound global when a later
+      ordinary cell calls it.
+
+    In each case the fast gate either raises or hands ``check`` an earlier value of the name.
+    The slow gate runs the notebook as written, so it still checks the published behavior.
+    Move an assertion that fails this way to ``check_refits``.
     """
     return _classify(path)[0]
 
@@ -443,7 +467,9 @@ class RefitNamespace(dict[str, Any]):
 
     ``check(namespace)`` receives this in the fast gate.  Reading a refit-bound name fails with
     the cell that binds it and the remedy, whether the fast run left the name unset or left an
-    earlier ordinary value under it.
+    earlier ordinary value under it.  The guard covers ``namespace[name]`` and
+    ``namespace.get(name)``, which are the reads a callback makes.  Iteration, ``in`` and
+    ``dict(namespace)`` are not guarded.
     """
 
     def __init__(self, namespace: Mapping[str, Any], refit_names: Mapping[str, str]) -> None:

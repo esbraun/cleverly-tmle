@@ -627,7 +627,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     stability = tests["bootstrap_stability"]
     assert round(float(np.mean(stability.values)) - original, 8) == -5.321e-05
     assert round(float(np.std(stability.values, ddof=1)), 5) == 0.01597
-    # The stored output holds the sentence that names the outcome family as the difference.
 
 
 def _check_refutation_limits(namespace: dict[str, Any]) -> None:

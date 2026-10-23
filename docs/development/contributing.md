@@ -83,7 +83,7 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
 | library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
 | a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
-| a notebook artifact, or a tutorial callback | `python scripts/execute_notebook.py <path>`, then the documentation row above, then `pytest -q tests/unit/test_documentation_runtime.py -k <module> -m slow` |
+| a notebook artifact, or a tutorial callback | `python scripts/execute_notebook.py <path>`, then the documentation row above, then `pytest -q tests/unit/test_documentation_runtime.py -k <stem> -m slow` |
 
 The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
 committed artifacts, so the statistical evidence is checked in minutes rather than hours.
