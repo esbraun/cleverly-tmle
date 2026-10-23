@@ -213,9 +213,9 @@ def _check_odds_bounds(namespace: dict[str, Any]) -> None:
     untreated = namespace["without_offer"].rows
     assert [row.gamma for row in bounds.rows] == [1.0, 2.0, 3.0, 4.0]
     # "At gamma = 1 each range is a single value ... 0.167, matches the estimate".
-    first = bounds.rows[0]
-    assert first.lower == pytest.approx(first.upper, abs=1e-12)
-    assert round(first.lower, 3) == round(namespace["estimate"].psi, 3)
+    for first in (bounds.rows[0], treated[0], untreated[0]):
+        assert first.lower == pytest.approx(first.upper, abs=1e-12)
+    assert bounds.rows[0].lower == pytest.approx(namespace["estimate"].psi, abs=5e-4)
     # "The ranges then widen": each row nests the one before it.
     for before, after in zip(bounds.rows, bounds.rows[1:], strict=False):
         assert after.lower < before.lower and after.upper > before.upper
@@ -225,7 +225,12 @@ def _check_odds_bounds(namespace: dict[str, Any]) -> None:
         assert row.lower == pytest.approx(one.lower - zero.upper, abs=1e-12)
         assert row.upper == pytest.approx(one.upper - zero.lower, abs=1e-12)
         assert row.upper - row.lower > (one.upper - one.lower) + 1e-12 or row.gamma == 1.0
-    # "stay above zero through gamma = 3. At gamma = 4 the lower limit is -0.0032".
+    # "if everyone were offered ... as low as 0.476": a bound on the mean under offering to
+    # all, which sits well below the offered group's observed mean, so it is not that mean.
+    frame = namespace["frame"]
+    offered = frame["transition_navigation"] == 1
+    assert treated[3].lower < float(frame["transition_score"][offered].mean()) - 0.05
+    # "stay above zero through gamma = 3 and fall to -0.0032 at gamma = 4".
     assert bounds.rows[2].lower_limit > 0.0 > bounds.rows[3].lower_limit
     assert bounds.limit_breakdown == 4.0
     assert bounds.breakdown is None
