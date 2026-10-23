@@ -1,0 +1,422 @@
+{
+  "schema_version": 2,
+  "study": "long-horizon sequentially doubly robust estimation",
+  "slug": "long-horizon-sdr",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-long-horizon-sdr",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "7c656fc15d76a85cc3bfb129e45f86f1472a296c",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 4000,
+    "scenario_n": {
+      "sdr_binary_k3": 4000,
+      "sdr_binary_k4": 16000,
+      "sdr_binary_k5": 76000,
+      "sdr_categorical_k5": 116000,
+      "sdr_categorical_k5_crossfit": 116000,
+      "sdr_categorical_k5_static": 124000,
+      "sdr_categorical_k5_switch": 72000,
+      "sdr_categorical_k5_high": 64000,
+      "sdr_categorical_k5_mix": 96000,
+      "sdr_policy_k5": 44000,
+      "sdr_policy_k5_mix": 96000,
+      "sdr_policy_k5_taper": 76000
+    },
+    "seed": 20263921,
+    "resampling_seed": 2026392101,
+    "scenario_seed_owners": {
+      "sdr_categorical_k5_crossfit": "sdr_categorical_k5"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-long-horizon-sdr": 0.01,
+      "lmtp": 0.01
+    },
+    "scenarios": {
+      "sdr_binary_k3": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]",
+        "ey_regimen[never]__bca",
+        "ey_regimen[always]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[switch]__bca",
+        "ey_regimen[coin]__bca",
+        "ate_regimen[always vs never]__bca",
+        "ate_regimen[respond vs never]__bca",
+        "ate_regimen[switch vs never]__bca",
+        "ate_regimen[coin vs never]__bca"
+      ],
+      "sdr_binary_k4": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]",
+        "ey_regimen[never]__bca",
+        "ey_regimen[always]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[switch]__bca",
+        "ey_regimen[coin]__bca",
+        "ate_regimen[always vs never]__bca",
+        "ate_regimen[respond vs never]__bca",
+        "ate_regimen[switch vs never]__bca",
+        "ate_regimen[coin vs never]__bca"
+      ],
+      "sdr_binary_k5": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]",
+        "ey_regimen[never]__bca",
+        "ey_regimen[always]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[switch]__bca",
+        "ey_regimen[coin]__bca",
+        "ate_regimen[always vs never]__bca",
+        "ate_regimen[respond vs never]__bca",
+        "ate_regimen[switch vs never]__bca",
+        "ate_regimen[coin vs never]__bca"
+      ],
+      "sdr_categorical_k5": [
+        "ey_regimen[low]",
+        "ey_regimen[respond]",
+        "ey_regimen[mix]",
+        "ey_regimen[mixlast]",
+        "ate_regimen[respond vs low]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[mixlast vs low]",
+        "ate_regimen[mix vs mixlast]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[mix]__bca",
+        "ey_regimen[mixlast]__bca",
+        "ate_regimen[respond vs low]__bca",
+        "ate_regimen[mix vs low]__bca",
+        "ate_regimen[mixlast vs low]__bca",
+        "ate_regimen[mix vs mixlast]__bca"
+      ],
+      "sdr_categorical_k5_crossfit": [
+        "ey_regimen[low]",
+        "ey_regimen[respond]",
+        "ey_regimen[mix]",
+        "ey_regimen[mixlast]",
+        "ate_regimen[respond vs low]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[mixlast vs low]",
+        "ate_regimen[mix vs mixlast]"
+      ],
+      "sdr_categorical_k5_static": [
+        "ey_regimen[low]",
+        "ey_regimen[high]",
+        "ey_regimen[switch]",
+        "ate_regimen[high vs low]",
+        "ate_regimen[switch vs low]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[high]__bca",
+        "ey_regimen[switch]__bca",
+        "ate_regimen[high vs low]__bca",
+        "ate_regimen[switch vs low]__bca"
+      ],
+      "sdr_categorical_k5_switch": [
+        "ey_regimen[low]",
+        "ey_regimen[switch]",
+        "ate_regimen[switch vs low]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[switch]__bca",
+        "ate_regimen[switch vs low]__bca"
+      ],
+      "sdr_categorical_k5_high": [
+        "ey_regimen[low]",
+        "ey_regimen[high]",
+        "ate_regimen[high vs low]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[high]__bca",
+        "ate_regimen[high vs low]__bca"
+      ],
+      "sdr_categorical_k5_mix": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ate_regimen[mix vs low]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[mix]__bca",
+        "ate_regimen[mix vs low]__bca"
+      ],
+      "sdr_policy_k5": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ey_regimen[taper]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[taper vs low]",
+        "ate_regimen[taper vs mix]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[mix]__bca",
+        "ey_regimen[taper]__bca",
+        "ate_regimen[mix vs low]__bca",
+        "ate_regimen[taper vs low]__bca",
+        "ate_regimen[taper vs mix]__bca"
+      ],
+      "sdr_policy_k5_mix": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ey_regimen[taper]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[taper vs low]",
+        "ate_regimen[taper vs mix]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[mix]__bca",
+        "ey_regimen[taper]__bca",
+        "ate_regimen[mix vs low]__bca",
+        "ate_regimen[taper vs low]__bca",
+        "ate_regimen[taper vs mix]__bca"
+      ],
+      "sdr_policy_k5_taper": [
+        "ey_regimen[low]",
+        "ey_regimen[taper]",
+        "ate_regimen[taper vs low]",
+        "ey_regimen[low]__bca",
+        "ey_regimen[taper]__bca",
+        "ate_regimen[taper vs low]__bca"
+      ]
+    },
+    "estimator": "SDR",
+    "n_folds": {
+      "sdr_binary_k3": 1,
+      "sdr_binary_k4": 1,
+      "sdr_binary_k5": 1,
+      "sdr_categorical_k5": 1,
+      "sdr_categorical_k5_crossfit": 5,
+      "sdr_categorical_k5_static": 1,
+      "sdr_categorical_k5_switch": 1,
+      "sdr_categorical_k5_high": 1,
+      "sdr_categorical_k5_mix": 1,
+      "sdr_policy_k5": 1,
+      "sdr_policy_k5_mix": 1,
+      "sdr_policy_k5_taper": 1
+    },
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "outcome_learner": "QuasiBinomialGLM",
+    "pseudo_learner": "LinearRegression (unclipped)",
+    "mechanism": "the law's, passed as probability columns",
+    "laws": {
+      "sdr_binary_k3": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "sdr_binary_k4": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "sdr_binary_k5": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "sdr_categorical_k5": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "sdr_categorical_k5_crossfit": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "sdr_categorical_k5_static": [
+        0.5,
+        0.05,
+        3.5
+      ],
+      "sdr_categorical_k5_switch": [
+        0.5,
+        0.1,
+        3.5
+      ],
+      "sdr_categorical_k5_high": [
+        0.25,
+        0.0,
+        3.5
+      ],
+      "sdr_categorical_k5_mix": [
+        1.0,
+        0.05,
+        3.5
+      ],
+      "sdr_policy_k5": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "sdr_policy_k5_mix": [
+        1.0,
+        0.05,
+        3.5
+      ],
+      "sdr_policy_k5_taper": [
+        1.0,
+        0.0,
+        3.5
+      ]
+    },
+    "plans": {
+      "sdr_binary_k3": [
+        "never",
+        "always",
+        "respond",
+        "switch",
+        "coin"
+      ],
+      "sdr_binary_k4": [
+        "never",
+        "always",
+        "respond",
+        "switch",
+        "coin"
+      ],
+      "sdr_binary_k5": [
+        "never",
+        "always",
+        "respond",
+        "switch",
+        "coin"
+      ],
+      "sdr_categorical_k5": [
+        "low",
+        "respond",
+        "mix",
+        "mixlast"
+      ],
+      "sdr_categorical_k5_crossfit": [
+        "low",
+        "respond",
+        "mix",
+        "mixlast"
+      ],
+      "sdr_categorical_k5_static": [
+        "low",
+        "high",
+        "switch"
+      ],
+      "sdr_categorical_k5_switch": [
+        "low",
+        "switch"
+      ],
+      "sdr_categorical_k5_high": [
+        "low",
+        "high"
+      ],
+      "sdr_categorical_k5_mix": [
+        "low",
+        "mix"
+      ],
+      "sdr_policy_k5": [
+        "low",
+        "mix",
+        "taper"
+      ],
+      "sdr_policy_k5_mix": [
+        "low",
+        "mix",
+        "taper"
+      ],
+      "sdr_policy_k5_taper": [
+        "low",
+        "taper"
+      ]
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_long_horizon_sdr.py": "16040ca2c7da0066f093357b91f30913685a3060088c6cd6312a3b8bcf67fa55",
+    "tests/studies/long_horizon_sdr_properties.py": "8f0817279525dfa7d5d0a20af1a2e1fed4fd410847a91f6b6257724b99870ccb",
+    "tests/studies/long_horizon_properties.py": "f31a318747ce2c4f3a31656e752ee6591c7226842fe35a8b22e9ed6dea5af086",
+    "tests/studies/canonical_long_horizon_ltmle.py": "ebe7468fdd5b46169be5b57159502c29d997e84218aa05ee0af6d6ffab07a6b1",
+    "tests/studies/canonical_long_horizon_categorical_ltmle.py": "83111fcbec79ddddfefbdecab710f324e39d6f0701aadbd86ea5c8b53c9b3bf5",
+    "tests/long_horizon_design.py": "c5d09242636b55ce2e3dfeb626d99298c052a2f00074f11a2bea4ac5d85e5045",
+    "tests/long_horizon_sampling_sd.py": "71a9147f120d752fc6513975372555a892743f5621a56b5febc4e7979271c7ee",
+    "tests/studies/long_horizon_primary.py": "e7a1a327cba324d67ed19d455726ad2aa5099403f4599816732ec16cef405e36",
+    "tests/studies/long_horizon_common.py": "32769d292315d96a6d8f5703941d7ad751056738e21da696e2c8596f1173f55c",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/discrete_law_longitudinal_horizon.py": "71e40519f054a82ae0fbbe57f1d28a9a3b1cc1c30fab31c421e26c725450415c",
+    "tests/longitudinal_horizon_plans.py": "2650b254ad14ff780e70d6b89bf5509639925fdb3d235e93fb83df234c089dab",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "e31a10ee5fc04ed5f5fed934761af3ddbd3e513ed4272162e2a2515f57ef2c4d",
+    "summary.csv": "95cc124efae2575bcf0ff5a567578e32e611a1afdb7a1ac6837136fba4ba98e7",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "78d525b3d420d73010f0e700919c31b4e946e9472434513f46cad79ab520a8bc",
+    "property-replicates.csv.gz": "be40cb5c96e9665ee200380d3dec322037c0d9bd63851c053b153c2648830b76",
+    "properties.csv": "9b10dbb07298b8a2bdd324e942dcff7adb03f028f0b5e9fc5eb16c55ebe2701c"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "lmtp",
+    "reason": "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence",
+    "metadata": {},
+    "declared_sources_sha256": {
+      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+      "tests/canonical/long_horizon_sdr/run_study.R": "be8c59ece3e25d5cae82dff784ba6b60bee2295420c4000c535c7cbfb1d3f56a",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}
