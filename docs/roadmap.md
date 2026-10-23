@@ -1585,6 +1585,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
 | H | marginal sensitivity model bounds. Part H1 ships the two-arm ATE and arm means of a `TMLE` or `DRTMLE` fit with a Gaussian or binary outcome, clusters and repeats, descriptive until study SH registers its rows. Part H2 adds multi-arm treatments under the one-against-rest model, ATT and ATC, risk and odds ratios, weights, strata, missing outcomes, and `CTMLE` and `AdaptiveIPTW` fits through a refit of the full mechanism | the linear program of the model solved on a finite law, and a mutation control for each nuisance |
+| J | the band-rank placebo on a dose whose declared support is a function of the covariates or the history, shipped: each dose's position within its band is permuted or kernel-drawn, then mapped into the receiving unit's band. Descriptive until the follow-up study SJ (cells PJ1 and LJ1) registers its rows. A stratified draw for a bound pattern that varies by row, or for an atom outside some band, is exact but not built | an exact enumeration of the point and the longitudinal placebo laws, and a mutation control for each guard |
 | I | every applicable instrument for `AdaptiveIPTW`, shipped: every point `refute` test, simulated confounding on the arm axis, and the derived risk ratio of the E-value. Each study-backed reading stays descriptive until the follow-up study SI registers its rows | an exact enumeration of the placebo law, a zero paired shift on a known mechanism, and a zero-strength reproduction |
 
 Each short-study follow-up adds the registry rows that its passing cells license. A failed cell
@@ -1787,7 +1788,7 @@ Each item is one pull request that edits one notebook and its
 | item | notebook | what it adds | waits on |
 | --- | --- | --- | --- |
 | (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
-| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | (0), SP, SG |
+| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | shipped |
 | (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
 | (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
 | (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |

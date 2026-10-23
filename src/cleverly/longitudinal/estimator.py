@@ -4984,6 +4984,45 @@ class _SequentialEstimator:
             fallback=self.outcome_learner,
         )
 
+    def _preflight_policies(self, prepared: LongitudinalData) -> None:
+        """Run the declared-dose and plan checks of :meth:`fit` on ``prepared``, fitting nothing.
+
+        The band-rank placebo of :func:`cleverly.validation.refute` calls this on each placebo
+        panel before any refit, so a placebo history that a policy cannot meet stops the call
+        before the first learner. The checks are those :meth:`fit` runs in the same order:
+        :func:`preflight_declared_doses`, then the resolution of every plan, which runs each
+        policy's support, partition, monotonicity, collapse, tie and atom-image checks. A
+        tuned cap is fitted on the outer split the refit would draw.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+
+        Raises
+        ------
+        DataError
+            If a declaration contradicts ``prepared``.
+        CapabilityError
+            If a policy has no density ratio on ``prepared``.
+        """
+        regimens = resolve_regimens(
+            self.regimens,
+            prepared.n_decisions,
+            held_nodes=prepared.n_times if prepared.treatment_held else None,
+        )
+        preflight_declared_doses(
+            prepared,
+            regimens,
+            ratio=self.ratio,
+            density_bins=self.density_bins,
+            undeclared_atoms=self._reads_density_ratio,
+        )
+        if declares_tuned(regimens):
+            resolve_tuned_plans(regimens, prepared, self._draws(prepared)[0][0])
+        else:
+            resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
+
     def _preflight_followers(
         self,
         data: LongitudinalData,

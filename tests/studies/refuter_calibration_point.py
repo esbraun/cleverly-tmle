@@ -120,6 +120,10 @@ RESAMPLING_SEED = 20268252
 
 #: Refits per placebo and subset reading: the library default (X82 rev 5).
 REFITS = 20
+
+#: The placebo draw every placebo reading of this study ran: ``refute``'s default, which
+#: permutes the recorded treatment column. The registry rows cover this draw only (X82 part J, section 5).
+PLACEBO_DRAW = "permute"
 SIZE_TRIALS = 200
 POWER_TRIALS = 50
 #: A size reading passes at no more than this many rejections in :data:`SIZE_TRIALS`.

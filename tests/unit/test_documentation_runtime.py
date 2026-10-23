@@ -786,7 +786,12 @@ EXPECTED_REFIT_CELLS = {
     "interventions": ["refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
     "msm-projections": ["refute", "generated", "surface"],
-    "point-treatment-tmle": ["sensitivity"],
+    "point-treatment-tmle": [
+        "refutation",
+        "generated-outcomes",
+        "sensitivity",
+        "simulated-confounding",
+    ],
     "sequential-offers": ["refute"],
     "sequential-pricing": ["refute"],
     "survey-nonresponse": [],
