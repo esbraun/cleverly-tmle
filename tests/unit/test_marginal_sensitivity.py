@@ -720,6 +720,20 @@ def test_an_adaptive_iptw_fit_is_redirected() -> None:
     refused_with(fit, "api_redirection", None)
 
 
+def test_a_natural_course_fit_is_refused() -> None:
+    # The missing-outcome natural-course target never fits the treatment mechanism.
+    from cleverly.datasets import make_missing_outcome_binary
+    from tests.conftest import linear_in_sample
+
+    frame, _ = make_missing_outcome_binary(n=400, seed=4)
+    fit = (
+        TMLE(**linear_in_sample(estimands=("ey_obs",)))
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+    refused_with(fit, "different_estimand", None)
+
+
 def refusal_frame(n: int = 300, seed: int = 4) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     w = rng.normal(size=n)

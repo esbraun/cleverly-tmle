@@ -361,6 +361,14 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
         refusal = _collaborative_refusal(result)
         if refusal is not None:
             return refusal
+    elif _mechanism_unfitted(result):
+        return Refusal(
+            RefusalReason.DIFFERENT_ESTIMAND,
+            "this fit reports the natural-course mean only and fitted no treatment "
+            "mechanism. The model bounds a counterfactual arm mean through the odds of "
+            "treatment, and the observed-treatment mean is not one.",
+            alternative="Fit the arm means ('ey') or a contrast, then call the bounds.",
+        )
     if getattr(data, "intermediate", None) is not None:
         return _gap(
             "a controlled direct effect also needs a bound on confounding of the intermediate "
@@ -392,6 +400,16 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             roadmap=record.reopened_by,
         )
     return None
+
+
+def _mechanism_unfitted(result: Any) -> bool:
+    """Whether a draw of ``result`` kept the never-fitted treatment mechanism."""
+    from ..estimators._nuisance import UnfittedPropensity
+
+    return any(
+        isinstance(repeat.nuisance.propensity, UnfittedPropensity)
+        for repeat in getattr(result, "repeats", ())
+    )
 
 
 #: The refusal of ``att`` or ``atc`` on a fit with more than two arms.
