@@ -287,6 +287,16 @@ A fit with `ratio_trim=` or `markov_order=` carries the `experimental` support l
   It gives the answer first and moves the extended checks to a closing section.
   ([#455](https://github.com/esbraun/cleverly-tmle/pull/455),
   [#458](https://github.com/esbraun/cleverly-tmle/pull/458))
+- The survey-nonresponse, sequential-offers, sequential-pricing and cross-fitting examples
+  are rewritten in plain language in the same way.
+  ([#459](https://github.com/esbraun/cleverly-tmle/pull/459),
+  [#460](https://github.com/esbraun/cleverly-tmle/pull/460),
+  [#461](https://github.com/esbraun/cleverly-tmle/pull/461),
+  [#463](https://github.com/esbraun/cleverly-tmle/pull/463))
+- The TWINS example now estimates the ATT of smoking during pregnancy on the pair-mean birth weight.
+  It replaces the first-year mortality outcome and adds the refutation and sensitivity checks.
+  It treats gestational age as a mediator and states the selection on two live births.
+  ([#457](https://github.com/esbraun/cleverly-tmle/pull/457))
 - `docs/development/writing-for-readers.md` names the reader of each documentation area and the writing rules.
   ([#452](https://github.com/esbraun/cleverly-tmle/pull/452))
 
