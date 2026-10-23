@@ -26,7 +26,7 @@ NOTEBOOK = EXAMPLES / "longitudinal-survival.ipynb"
 _PROBE = ROOT / "reviews/notebook-review/probes/longitudinal-survival-refuters/probe.log"
 _PROBE_NAME = "reviews/notebook-review/probes/longitudinal-survival-refuters/probe.log"
 
-#: Decimals the Step 10 readings quote from the committed review probe, which no cell prints.
+#: Decimals the refutation Details dropdowns quote from the committed review probe, which no cell prints.
 UNPRINTED_DECIMALS = dict.fromkeys(
     (
         "-0.0011",
@@ -114,16 +114,16 @@ def _hazard_truth(process: Any, baseline: Any, doses: tuple[float, float], cause
 
 
 def _check_refutation(namespace: dict[str, Any], readmission_t2: Any) -> None:
-    """Step 10: the typed contrast that the refutation reads agrees with Step 7."""
+    """Try to break the result: the typed contrast that the refutation reads agrees with the plan comparison."""
     contrast_fit, target = namespace["contrast_fit"], namespace["target"]
-    # "The two lines agree": the typed contrast and the Step 7 contrast.
+    # "The two lines match": the typed contrast and the `result.contrast` difference.
     assert contrast_fit[target].psi == pytest.approx(readmission_t2.psi, abs=5e-5)
     assert contrast_fit[target].std_error == pytest.approx(readmission_t2.std_error, abs=5e-5)
     assert contrast_fit.data.n == 4_000 and contrast_fit.data.n_times == 2
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """Step 10: the refutation and generated-outcome refits of the day-60 readmission difference."""
+    """The refutation and generated-outcome refits of the day-60 readmission difference."""
     contrast_fit, target = namespace["contrast_fit"], namespace["target"]
     readmission_t2 = namespace["differences"]["readmission", 2]
     # Each test prints a descriptive reading at level L0: the registry covers a survival outcome
@@ -139,7 +139,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert "This fit differs on outcome family 'competing'" in tests[name].scope_sentence
     assert "Covered:" not in tests["random_common_cause"].scope_sentence
     assert tests["placebo"].n_replicates == tests["subset"].n_replicates == 20
-    # "At 20 draws, none of these numbers shows a defect" on this seeded draw.
+    # "all four behave as expected: the random offers give a mean near zero" on this seeded draw.
     assert tests["placebo"].expectation == "~ 0"
     assert tests["placebo"].statistic_pvalue > 0.05 and tests["subset"].statistic_pvalue > 0.05
     assert abs(tests["random_common_cause"].statistic) < 0.05
@@ -193,7 +193,7 @@ def check(namespace: dict[str, Any]) -> None:
         ),
     }
     assert len(fingerprints) == 2
-    # "The code changes seven fields".
+    # The adapted protocol changes seven fields (no longer quoted; the code cell shows them).
     assert changed_fields(protocol, namespace["program"]) == {
         "eligibility",
         "treatment_strategies",
@@ -207,7 +207,7 @@ def check(namespace: dict[str, Any]) -> None:
     handling = protocol.intercurrent_event_handling
     assert "competing event" in handling[0]
     assert "disenrollment" in handling[1] and "stayed enrolled" in handling[1]
-    # "The death-as-censoring protocol changes three fields".
+    # The death-as-censoring protocol changes three fields (no longer quoted).
     assert changed_fields(eliminated_protocol, protocol) == {
         "outcome",
         "intercurrent_event_handling",
@@ -226,8 +226,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert result.data.censoring_names == ("enrolled_p1", "enrolled_p2")
     assert result.data.cluster is None
 
-    # "navigation lowers the hazard of any event and raises the share of events that are
-    # readmissions": death falls, day-30 readmission falls, day-60 readmission rises.
+    # "about 0.21 of patients die first by day 60 under never against 0.07 under always, while
+    # readmission is nearly equal": death falls, day-30 readmission falls, day-60 rises.
     def cif(plan: str, cause: str, horizon: int) -> float:
         return population[f"cif_regimen[{plan}, {cause} @ t={horizon}]"]
 
@@ -242,14 +242,15 @@ def check(namespace: dict[str, Any]) -> None:
             assert total == pytest.approx(law.survival_truth(arm, arm, horizon), abs=1e-9)
     assert law._relapse_share_one(0.0, 0.0, 1.0) > law._relapse_share_one(0.0, 0.0, 0.0)
 
-    # "offered patients are older ... less ready", and the day-31 offer goes to more needs.
+    # "Offered patients were older and less ready ... the day-31 offer went to patients with more
+    # needs".
     by_offer = frame.groupby("navigation_p1")[["age", "baseline_readiness"]].mean()
     assert by_offer.loc[1.0, "age"] > by_offer.loc[0.0, "age"]
     assert by_offer.loc[1.0, "baseline_readiness"] < by_offer.loc[0.0, "baseline_readiness"]
     at_risk = frame.loc[frame["navigation_p2"].notna()]
     needs = at_risk.groupby("navigation_p2")["identified_needs"].mean()
     assert needs.loc[1.0] > needs.loc[0.0] + 0.5
-    # "the naive day-30 readmission difference has the wrong sign" on this draw.
+    # "at day 30 it has the wrong sign" (the simple difference) on this draw.
     naive = namespace["naive_differences"]
     assert (
         naive["readmission", 1]
@@ -257,7 +258,7 @@ def check(namespace: dict[str, Any]) -> None:
         > population["ate_regimen[always vs never, readmission @ t=1]"]
     )
 
-    # "The first offer has no identified_needs ... The history at the day-31 offer is ...".
+    # "the history lines show what each offer is adjusted for".
     identify_output = stored_output(NOTEBOOK, "identify")
     assert "history at navigation_p1: ['age', 'baseline_readiness']" in identify_output
     assert (
@@ -265,7 +266,7 @@ def check(namespace: dict[str, Any]) -> None:
         "'navigation_p1']"
     ) in identify_output
 
-    # Step 6. Eight incidences, each interval covering its population value on this draw, and
+    # Estimate readmission and death risk. Eight incidences, each interval covering its population value on this draw, and
     # simultaneous bands wider than the pointwise intervals.
     assert len(result.estimates) == 8
     for name, estimate in result.estimates.items():
@@ -279,7 +280,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert estimate_output.count("always: 938 of 4000 units followed it throughout") == 1
     assert estimate_output.count("never: 671 of 4000 units followed it throughout") == 1
 
-    # Step 7. Each contrast equals the signed sum with the standard error of the summed influence
+    # Compare the follow-up plans. Each contrast equals the signed sum with the standard error of the summed influence
     # curves, so the joint correlation enters.  Event-free survival is one minus both causes; one
     # minus one cause is a different number, which is the nonzero witness.
     differences, event_free = namespace["differences"], namespace["event_free"]
@@ -305,7 +306,7 @@ def check(namespace: dict[str, Any]) -> None:
         assert free.psi == pytest.approx(
             event_free["always", horizon].psi - event_free["never", horizon].psi, abs=1e-12
         )
-    # "each of the ten printed intervals contains its population value" on this draw.
+    # "every interval contains its true value" on this draw.
     for (cause, horizon), estimate in differences.items():
         if cause == "event-free":
             target = sum(
@@ -320,13 +321,13 @@ def check(namespace: dict[str, Any]) -> None:
             estimate, 1.0 - cif(plan, "readmission", horizon) - cif(plan, "death", horizon)
         )
     assert len(differences) + len(event_free) == 10
-    # "The readmission intervals contain zero ... The death and event-free intervals exclude it."
+    # "the interval ... includes zero" for readmission; death and event-free "well away from zero".
     for horizon in (1, 2):
         assert covers(differences["readmission", horizon], 0.0)
         assert not covers(differences["death", horizon], 0.0)
         assert not covers(differences["event-free", horizon], 0.0)
 
-    # Step 8. The censoring indicator is K_k = C_k (1 - D_k): both components remove rows, so
+    # Death as dropout. The censoring indicator is K_k = C_k (1 - D_k): both components remove rows, so
     # dropping either one is a mutation that changes the risk set.
     kept_p1 = namespace["kept_p1"]
     enrolled_died = (frame["enrolled_p1"] == 1) & (frame["death_p1"] == 1)
@@ -344,7 +345,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert eliminated.data.censoring_names == ("enrolled_alive_p1", "enrolled_alive_p2")
 
     # Each constant equals the generator's functional under its order, and the order matters.
-    functional = namespace["functional"]
+    functional = namespace["shortcut_truth"]
     for order, death_first in (("death first", True), ("readmission first", False)):
         for plan, arm in (("never", 0.0), ("always", 1.0)):
             assert functional[order][plan] == pytest.approx(
@@ -355,13 +356,13 @@ def check(namespace: dict[str, Any]) -> None:
 
     eliminated_t2 = namespace["eliminated_t2"]
     readmission_t2 = differences["readmission", 2]
-    # "the shortcut reports a reduction, and the competing-event analysis reports an increase".
+    # "The shortcut turns the small positive estimate (0.0223) into a negative one (-0.0180)".
     assert eliminated_t2.psi < 0.0 < readmission_t2.psi
-    # "The shortcut's interval ... contains both population values."
+    # "The shortcut's interval (-0.0592, 0.0231) contains both 0.0024 and -0.0403".
     assert covers(eliminated_t2, death_first)
     assert covers(eliminated_t2, population["ate_regimen[always vs never, readmission @ t=2]"])
-    # "More patients die under the never plan, so the shortcut raises the never-plan risk the
-    # most."
+    # "mostly by raising the never-schedule risk from 0.2285 to 0.2879, since more patients die
+    # under never".
     raised_never = (
         eliminated["risk_regimen[never @ t=2]"].psi
         - result[incidence("never", "readmission", 2)].psi
@@ -373,7 +374,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert raised_never > raised_always + 0.01 and raised_always > 0.0
     assert population["ate_regimen[always vs never, death @ t=2]"] < 0.0
 
-    # Step 9 prints only the operations that ran.
+    # Check the fit prints only the operations that ran.
     assessment_output = stored_output(NOTEBOOK, "assessment")
     assert "unavailable" not in assessment_output and "deferred" not in assessment_output
     ran = namespace["ran"]
@@ -386,7 +387,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert not assessment.attention
     support = namespace["support"]
     assert support["converged"].all() and (support["share_truncated"] == 0.0).all()
-    # "671 patients follow never through the second node, the smallest group", with the largest
+    # "The weakest group is the 671 patients who followed never through day 31", with the largest
     # weight and the minimum effective-sample-size ratio there.
     ratios = support["effective_n"] / support["n_followed"]
     weakest = support.loc[ratios.idxmin()]
@@ -403,10 +404,10 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert largest["epsilon"] == pytest.approx(-0.0679, abs=5e-5)
 
-    # Step 10. The refutation reads a fit of the typed contrast that agrees with Step 7.
+    # Try to break the result. The refutation reads a fit of the typed contrast that agrees with the plan comparison.
     _check_refutation(namespace, readmission_t2)
 
-    # Step 11. Each refit drops one recorded covariate from the full design; every move is
+    # How much each recorded variable moves the answer. Each refit drops one recorded covariate from the full design; every move is
     # positive, and the last refit has no time-varying history left.
     benchmark = namespace["benchmark"]
     assert list(benchmark["dropped"].unique()) == ["age", "baseline_readiness", "identified_needs"]
@@ -415,7 +416,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert moves.tolist() == [1.75, 0.64, 0.60, 0.37, 0.79, 1.12]
     death_moves = benchmark.loc[benchmark["cause"] == "death", "move"]
     assert death_moves.max() == pytest.approx(0.0175, abs=5e-5)
-    # "An unrecorded cause that acts like age could ... change the sign".
+    # "a missing factor that does the same, as strongly as `age`, could put the true difference
+    # below zero".
     age_move = benchmark.set_index(["dropped", "cause"]).loc[("age", "readmission"), "move"]
     assert age_move > readmission_t2.psi > 0.0
     assert namespace["reduced"].time_varying == ((), ())
