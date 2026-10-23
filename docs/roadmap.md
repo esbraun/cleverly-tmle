@@ -1794,7 +1794,6 @@ Each item is one pull request that edits one notebook and its
 | (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
 | (i2) | `sequential-pricing.ipynb` | the band-rank placebo of X82 part J in Step 11. It reads descriptively: the rows of study SJ need five-fold cross-fitting and 20 draws, and this fit runs in sample at 10 draws | shipped |
 | (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
-| (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
 | (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
 
 SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers

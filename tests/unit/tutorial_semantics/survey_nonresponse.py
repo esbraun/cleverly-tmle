@@ -17,10 +17,12 @@ from scipy.special import logit
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
 
-from cleverly import CrossFitting
+from cleverly import CapabilityError, CrossFitting
 from cleverly.datasets import missing_outcome_bounded_dgp, navigation_protocol
-from cleverly.sensitivity import missingness_tilt
+from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
+from cleverly.validation import BoundedAdjustmentOutcome, GaussianAdjustmentOutcome
+from cleverly.validation.refute import refute_refusal
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -43,6 +45,45 @@ UNPRINTED_DECIMALS = {
     "3.17": f"5th percentile of the interval tipping gamma (3.1721): {_PROBE}/summary.log",
     "5.48": f"95th percentile of the interval tipping gamma (5.4783): {_PROBE}/summary.log",
 }
+
+_REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
+
+#: Decimals of the 400-draw readings in Step 9, which no cell prints.  Each appears in the log.
+_REFUTE_LOG_DECIMALS = (
+    "-7.5502e-05",
+    "-0.01617",
+    "-0.1142",
+    "0.08182",
+    "0.9705",
+    "0.9108",
+    "1.034",
+    "0.9375",
+    "0.9091",
+    "0.9591",
+    "0.10308",
+    "0.04522",
+    "-0.05278",
+    "0.1432",
+    "1.001",
+    "0.932",
+    "1.075",
+    "0.9238",
+    "0.9692",
+    "0.10231",
+    "-0.134",
+    "-0.232",
+    "-0.03598",
+    "0.004196",
+)
+UNPRINTED_DECIMALS.update(
+    dict.fromkeys(_REFUTE_LOG_DECIMALS, f"a value of the 400-draw review probe, {_REFUTE_PROBE}")
+)
+UNPRINTED_DECIMALS.update(
+    {
+        "9.4": f"the longest wall time of a probe run, 566 s, in {_REFUTE_PROBE}",
+        "0.00056": f"the truth 0.10287 minus the simulated_outcome mean 0.10231, {_REFUTE_PROBE}",
+    }
+)
 
 
 def _quadrature_targets() -> tuple[float, float]:
@@ -251,7 +292,7 @@ def check(namespace: dict[str, Any]) -> None:
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
         assert re.search(rf"sensitivity\s+{row}\s+completed", assessment_output)
 
-    # Step 9: the estimate never reaches 0 under the navigation-arm tilt, and the interval does
+    # Step 10: the estimate never reaches 0 under the navigation-arm tilt, and the interval does
     # at 4.921.  Nonzero witness: just before it, the lower limit is still positive.
     assert namespace["tipping_gamma"] is None
     ci_tipping = namespace["ci_tipping_gamma"]
@@ -285,3 +326,156 @@ def check(namespace: dict[str, Any]) -> None:
     assert (curve["std_err"] == full.std_error).all()
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """The refit cells: the refutation, the generated outcomes, and the E-value and bounds."""
+    _check_refutation(namespace)
+    _check_generated_outcomes(namespace)
+    _check_evalue_and_bounds(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 9: the three refits are descriptive, and each check the page skips refuses."""
+    fitted = namespace["full"]
+    refutation = namespace["refutation"]
+    original = fitted["ate"].psi
+    tests = {test.name: test for test in refutation.tests}
+    assert set(tests) == {"placebo", "subset", "random_common_cause"}
+    for test in tests.values():
+        # "No check prints a verdict": no registry row covers a boosted fit with missing outcomes.
+        assert test.passed is None and test.rung == "L0"
+        assert len(test.values) == 20 and test.original == pytest.approx(original)
+    assert refutation.passed is None
+    printed = stored_output(NOTEBOOK, "refutation")
+    # The report names the nearest registered row, a TMLE row with GLM nuisances, and the learner
+    # on which this fit differs.  Nonzero witness: the first registered row is a longitudinal one.
+    assert "Covered: methods ['TMLE']" in printed and "LTMLE" not in printed
+    assert "This fit differs on learner HistGradientBoostingRegressor" in printed
+    # The placebo reading: "+0.0009203 ... spread 0.006121 ... t +0.6724 (p = 0.509) ... 0.9123".
+    placebo = tests["placebo"]
+    values = np.asarray(placebo.values)
+    assert round(float(values.mean()), 7) == 0.0009203
+    assert round(float(values.std(ddof=1)), 6) == 0.006121
+    assert round(float(placebo.statistic), 4) == 0.6724
+    assert round(float(placebo.statistic_pvalue), 3) == 0.509
+    assert round(float(np.mean(placebo.standard_errors) / values.std(ddof=1)), 4) == 0.9123
+    # A placebo that kept the offers would return the original estimate, far from the null.
+    assert abs(values.mean()) < 0.1 * original
+    # The subset reading: "0.0034151 against 0.0034171 ... ratio 0.99941 (p = 0.917)".
+    subset = tests["subset"]
+    scatter = float(np.std(subset.values, ddof=1))
+    n = len(namespace["frame"])
+    reference = float(fitted["ate"].std_error * np.sqrt((n / 2800 - 1) * n / (n - 1)))
+    assert round(scatter, 7) == 0.0034151 and round(reference, 7) == 0.0034171
+    assert round(scatter / reference, 5) == 0.99941
+    assert round(float(subset.statistic_pvalue), 3) == 0.917
+    # The random-common-cause reading: "+0.04526 standard errors, spread 0.08908".
+    shift = (np.asarray(tests["random_common_cause"].values) - original) / fitted["ate"].std_error
+    assert round(float(shift.mean()), 5) == 0.04526
+    assert round(float(shift.std(ddof=1)), 5) == 0.08908
+    assert 0.0 < abs(shift.mean()) < 1.0
+
+    # The negative control the page skips: no recorded pre-offer score, and a control equal to an
+    # adjustment column is refused.
+    refusal = refute_refusal(
+        fitted,
+        estimand="ate",
+        tests=("negative_control_outcome",),
+        negative_control_outcome=namespace["frame"]["age"].to_numpy(),
+        negative_control_kind="pre_treatment",
+    )
+    assert refusal is not None and "equals the adjustment column 'age'" in refusal.message()
+    # The replay the page skips: the response reads the offer, so a cell that moves the offer is
+    # refused and names F12.  Nonzero witness: the law's response differs by arm.
+    law = missing_outcome_bounded_dgp()
+    base = np.zeros((1, 3))
+    assert float(law.missingness(base, 1.0)[0]) > float(law.missingness(base, 0.0)[0]) + 0.05
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1))
+    with pytest.raises(CapabilityError, match="observation_reads") as excinfo:
+        simulated_confounding(fitted, grid=grid)
+    assert "F12" in str(excinfo.value)
+
+
+def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
+    """Step 9: the generated outcomes run at level L1 on the bounded process."""
+    fitted = namespace["full"]
+    independent, adjusted = namespace["independent"], namespace["adjusted"]
+    assert isinstance(independent, BoundedAdjustmentOutcome)
+    assert (independent.effect, independent.adjustment_scale) == (0.0, 0.0)
+    assert adjusted.effect != 0.0 and adjusted.adjustment_scale != 0.0
+    probe = (EXAMPLES.parents[1] / _REFUTE_PROBE).read_text(encoding="utf-8")
+    for literal in _REFUTE_LOG_DECIMALS:
+        assert literal in probe, literal
+    assert probe.count("400 draws") >= 3 and probe.count("L2") >= 3
+    # Only simulated_outcome leaves its band; its mean estimate lies 0.00056 below the truth.
+    assert (
+        probe.count("bias") >= 3
+        and probe.count("inside [-0.2, 0.2]") == 2
+        and "outside [-0.2, 0.2]" in probe
+    )
+    assert round(0.10287 - 0.10231, 5) == 0.00056
+    printed = stored_output(NOTEBOOK, "generated-outcomes")
+    # "Each test runs 10 draws ... level L1 with no verdict."
+    assert printed.count("10 draws are below the calibrated minimum of 400") == 3
+    assert printed.count("successful=10; failed=0") == 3
+    assert printed.count(" L1 ") == 3 and "VERDICT" not in printed
+    # Truth: 0 for the dummy and one shared positive value for the other two.  The readings quote
+    # these truths and the withheld ratio and coverage of the held-design simulated outcome.
+    assert "readings inside their bands around 0  " in printed
+    assert printed.count("bands around 0.10287") == 2
+    assert "standard-error ratio and coverage withheld" in printed
+    # A bare Gaussian declaration refuses the fit that declares q_bounds, as the page says.
+    refusal = refute_refusal(
+        fitted,
+        estimand="ate",
+        tests=("simulated_outcome",),
+        simulated_outcome=GaussianAdjustmentOutcome(),
+    )
+    assert refusal is not None and "q_bounds" in refusal.message()
+
+
+def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
+    """Step 10: the E-value and the omitted-variable bound, read on the fit."""
+    fitted = namespace["full"]
+    evalue = namespace["evalue"]
+    assert evalue.approximate and evalue.limit_descriptive
+    assert round(evalue.risk_ratio, 3) == 1.706
+    assert tuple(round(x, 3) for x in evalue.risk_ratio_ci) == (1.644, 1.77)
+    assert (round(evalue.point, 4), round(evalue.limit, 4)) == (2.8039, 2.6735)
+    # The E-value is the closed form of VanderWeele and Ding at the risk ratio.
+    rr = evalue.risk_ratio
+    assert evalue.point == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)))
+    assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in str(evalue.summary())
+    rv = namespace["rv"]
+    assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3612)
+    assert rv["limit_licensed"] is False
+    assert "differs on outcome family 'gaussian'" in rv["limit_sentence"]
+    printed = stored_output(NOTEBOOK, "evalue-bound")
+    assert "This fit differs on outcome family 'gaussian'," in printed
+    # The benchmarks: the table of the reading, recomputed from the fit.
+    expected = {
+        "discharge_risk": (1.0, 0.361, (-0.0759, 0.3716), (-0.0947, 0.3906)),
+        "age": (0.872, 0.032, (0.0974, 0.1982), (0.0881, 0.2077)),
+        "prior_utilization": (0.128, 0.0, (0.1478, 0.1478), (0.1392, 0.1564)),
+    }
+    for covariate, (cf_y, cf_d, bound_limits, ci_limits) in expected.items():
+        record = fitted.sensitivity.benchmark(covariates=(covariate,))
+        bound = fitted.sensitivity.omitted_confounding(benchmark=record)
+        assert (round(record.cf_y, 3), round(record.cf_d, 3)) == (cf_y, cf_d)
+        assert (round(bound.lower, 4), round(bound.upper, 4)) == bound_limits
+        assert (round(bound.ci_lower, 4), round(bound.ci_upper, 4)) == ci_limits
+        assert bound.limit_descriptive
+    # "Dropping discharge_risk more than doubles the residual variance": a gain of 1.272, so cf_y
+    # clips at 1 and the bound includes 0.  Dropping prior_utilization raises nu^2, so cf_d clips.
+    risk = fitted.sensitivity.benchmark(covariates=("discharge_risk",))
+    assert risk.sigma2_short > 2.0 * risk.sigma2_long and round(risk.gain_y, 3) == 1.272
+    assert risk.cf_y == 1.0
+    assert fitted.sensitivity.omitted_confounding(benchmark=risk).lower < 0.0
+    utilization = fitted.sensitivity.benchmark(covariates=("prior_utilization",))
+    assert utilization.nu2_short > utilization.nu2_long
+    assert utilization.gain_d < 0.0 and utilization.cf_d == 0.0
+    # The bound is zero-width at cf_d = 0, and the estimate sits at its centre.  A mutation that
+    # added the response gain would move it.
+    flat = fitted.sensitivity.omitted_confounding(benchmark=utilization)
+    assert flat.lower == pytest.approx(fitted["ate"].psi, abs=1e-9)
