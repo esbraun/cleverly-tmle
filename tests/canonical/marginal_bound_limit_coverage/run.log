@@ -1,0 +1,23 @@
+=== marginal-bound-limit-coverage declared run
+command: /usr/bin/python /home/user/cleverly-tmle/tests/canonical/marginal_bound_limit_coverage/regenerate.py --output /home/claude/sh-run --jobs 4
+commit: a9c6f66fd611fbc517d486335ded0205304e4640; upstream a9c6f66fd611fbc517d486335ded0205304e4640
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 dc3c467fe9e70e624c9c20fecbd465de6a22b552800435bbbcbc3f891fd92b00
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-23T15:21:28+00:00
+note: resumed from /root/.cache/cleverly/runs/marginal-bound-limit-coverage/7e15b296affa, reused the Python phase
+finished: 2026-10-23T17:08:04+00:00
+wall seconds: 6395.7
+exit code: 0
+sha256 cells.csv: caa000e883d8bec197066aecd849439b0e1009d963af470eb84237b6dd6da0eb
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: f3cc06cc81f17c808adb2646ce98e1acaeac3cb3696c44ac600e58ec35d9890d
+sha256 performance-tests.csv: 8dfad372ea8817f58c659146b9d3e1b1ddb79abf35bfd7f9c174069f0fdfff1c
+sha256 properties.csv: ad8e365177dc7a60188f05a0688287e827a757c910ac5f7f24735328be43edaf
+sha256 property-replicates.parquet: 31c441f31e7ee7dc46e16f0c2edccd7ba9e2c0f8faa8315708167bf986e6f064
+sha256 replicates.parquet: d0934707afad3b6afd0c6c485e1de6254026775302a133f7b74a002622a78859
+sha256 summary.csv: b3ae4edd5434709ab88863c7b0fffba6d7f40b854641ed74fae78b4eeafba776
+
