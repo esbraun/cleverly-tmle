@@ -105,8 +105,9 @@ lists the generator and the exact truth.
 ## Real data
 
 The [TWINS analysis](twins-causal-inference.ipynb) sits outside the program and is the only
-real-data example. It estimates the effect of maternal smoking on first-year mortality among twins
-of smoking mothers (ATT). It also shows why the adjustment set stops before birth weight.
+real-data example. It estimates the effect of maternal smoking on the birth weight of twins of
+smoking mothers (ATT), in grams. It also shows why the adjustment set stops before gestational age,
+and it runs the refutation and sensitivity checks of the fit.
 
 ```{toctree}
 :maxdepth: 1
