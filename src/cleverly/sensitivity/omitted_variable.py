@@ -803,10 +803,17 @@ def _lasso_fit(result: TMLEResult) -> bool:
     return isinstance(selection, CTMLESelection) and selection.strategy == "lasso"
 
 
-def _consistent_mechanism_assumption(result: TMLEResult) -> str:
+def _consistent_mechanism_assumption(result: TMLEResult, mechanism_learner: Any = None) -> str:
     """The sentence a consistent-mechanism point bound prints beside its numbers."""
     if result.fitted_method == "drtmle":
         source = "the fit's primary treatment mechanism"
+    elif mechanism_learner is not None:
+        source = (
+            f"one refit of the declared mechanism learner {mechanism_learner!r} on every "
+            "mechanism covariate, not the selected mechanism. The bound holds only if that "
+            "learner is consistent for the mechanism on those covariates; the package does "
+            "not check it"
+        )
     elif _lasso_fit(result):
         source = (
             "one refit of the lasso path's unpenalized member (lambda = 0) on every mechanism "
@@ -824,7 +831,16 @@ def _consistent_mechanism_assumption(result: TMLEResult) -> str:
     )
 
 
-def _full_mechanism(result: TMLEResult, repeat: RepeatFit) -> Any:
+def _mechanism_fingerprint(result: TMLEResult, mechanism_learner: Any) -> str | None:
+    """The provenance name of a declared mechanism learner, or ``None``."""
+    if mechanism_learner is None:
+        return None
+    from ..validation._interpretation import learner_fingerprint
+
+    return learner_fingerprint(mechanism_learner, int(result.data.n))
+
+
+def _full_mechanism(result: TMLEResult, repeat: RepeatFit, mechanism_learner: Any = None) -> Any:
     """The fit's treatment learner refitted on every mechanism covariate, on the draw's folds.
 
     A C-TMLE fit conditions its mechanism on a selected function of the covariates.  The
@@ -832,7 +848,8 @@ def _full_mechanism(result: TMLEResult, repeat: RepeatFit) -> Any:
     the fit never estimated, so it is fitted here once per draw.  A lasso fit never uses
     ``treatment_learner`` for its candidates, so its full mechanism is the path's own
     unpenalized member: :class:`~cleverly.learners._l1_logistic.L1Logistic` at
-    ``lambda = 0``, on the ``glmnet`` objective the path solves.
+    ``lambda = 0``, on the ``glmnet`` objective the path solves.  A declared
+    ``mechanism_learner`` replaces either.
     """
     from ..estimators._nuisance import Propensity, cross_fit_predictions
     from ..learners._l1_logistic import L1Logistic
@@ -841,8 +858,10 @@ def _full_mechanism(result: TMLEResult, repeat: RepeatFit) -> Any:
     estimator = result.estimator
     data = result.data
     nuisance = repeat.nuisance
+    if mechanism_learner is None:
+        mechanism_learner = L1Logistic(0.0) if _lasso_fit(result) else estimator.treatment_learner
     learner = resolve_learner(
-        L1Logistic(0.0) if _lasso_fit(result) else estimator.treatment_learner,
+        mechanism_learner,
         task="classification",
         n_folds=estimator.learner_folds,
         random_state=repeat.seed,
@@ -863,7 +882,9 @@ def _full_mechanism(result: TMLEResult, repeat: RepeatFit) -> Any:
     return Propensity(predictions["g"], nuisance.arms)
 
 
-def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> tuple[_Draw, ...]:
+def _consistent_draws(
+    result: TMLEResult, estimand: str, nu2_estimator: str, mechanism_learner: Any = None
+) -> tuple[_Draw, ...]:
     """The point bound's draws under ``assume_consistent_mechanism=True``.
 
     The keyword lifts the one rule that refuses a DR-TMLE or a selecting C-TMLE fit.  Every
@@ -878,6 +899,12 @@ def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> 
     if lifted is _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL:
         # A fit that selects nothing is the ordinary TMLE fit, so the redirection stands.
         raise CapabilityError.from_refusal(lifted)
+    if mechanism_learner is not None and method != "collaborative_tmle":
+        raise ValueError(
+            "mechanism_learner= declares the learner a selecting CTMLE fit refits for the "
+            f"consistent-mechanism bound, and this is a {method!r} fit. A DRTMLE bound reads "
+            "the fit's own primary mechanism and refits nothing. Omit mechanism_learner."
+        )
     if lifted is None:
         raise ValueError(
             "assume_consistent_mechanism=True lifts the bound's refusal of a DRTMLE fit and of "
@@ -904,23 +931,32 @@ def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> 
             alternative="Fit the ordinary TMLE on the same data for the bound.",
             roadmap="X82",
         )
-    if method == "collaborative_tmle" and is_per_arm_oat(result.estimator):
+    if (
+        method == "collaborative_tmle"
+        and is_per_arm_oat(result.estimator)
+        and mechanism_learner is None
+    ):
         raise CapabilityError(
             "assume_consistent_mechanism=True refits the fit's treatment learner on every "
             "covariate, and a per-arm outcome-adaptive fit declares a learner that reads one "
             "column, the outcome prediction at one arm. The fit declares no learner for the "
             "mechanism on the full adjustment set, so the representer of the point bound has "
             "no source.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Fit the ordinary TMLE on the same data for the bound.",
-            roadmap="X82",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Declare that learner with mechanism_learner=, for example "
+                "mechanism_learner=GLM(), or fit the ordinary TMLE on the same data."
+            ),
         )
     parameter = resolve_parameter(result, estimand)
     limits = _consistent_mechanism_limits(str(method))
     draws = []
     for repeat in result.repeats:
         if method == "collaborative_tmle":
-            refitted = replace(repeat.nuisance, propensity=_full_mechanism(result, repeat))
+            refitted = replace(
+                repeat.nuisance,
+                propensity=_full_mechanism(result, repeat, mechanism_learner),
+            )
             repeat = replace(repeat, nuisance=refitted)
         elements = _elements_for(result, repeat, parameter, nu2_estimator)
         elements = replace(elements, psi_max_bias=None, limit_refusal=limits)
@@ -930,7 +966,12 @@ def _consistent_draws(result: TMLEResult, estimand: str, nu2_estimator: str) -> 
 
 
 def _bound_draws(
-    result: TMLEResult, estimand: str, nu2_estimator: str, *, consistent: bool = False
+    result: TMLEResult,
+    estimand: str,
+    nu2_estimator: str,
+    *,
+    consistent: bool = False,
+    mechanism_learner: Any = None,
 ) -> tuple[_Draw, ...]:
     """Every draw's estimate, curve and elements, after the fit-wide refusals.
 
@@ -938,10 +979,16 @@ def _bound_draws(
     one bit for bit.  A fit with several draws keeps each draw's point estimate but not its
     curve, so each draw is retargeted from its own nuisances.  The retarget must reproduce
     the stored point estimate, which checks that it ran the fit's own targeting.
-    ``consistent`` is ``assume_consistent_mechanism`` (:func:`_consistent_draws`).
+    ``consistent`` is ``assume_consistent_mechanism`` (:func:`_consistent_draws`), and
+    ``mechanism_learner`` is the learner it declares.
     """
     if consistent:
-        return _consistent_draws(result, estimand, nu2_estimator)
+        return _consistent_draws(result, estimand, nu2_estimator, mechanism_learner)
+    if mechanism_learner is not None:
+        raise ValueError(
+            "mechanism_learner= declares the mechanism of the consistent-mechanism bound, "
+            "so it needs assume_consistent_mechanism=True."
+        )
     _resolved_nu2_estimator(nu2_estimator)
     refusal = fit_wide_bound_refusal(result)
     if refusal is not None:
@@ -1878,6 +1925,9 @@ class SensitivityBounds:
     assumption : str or None, default=None
         The assumption a ``DRTMLE`` or ``CTMLE`` point bound adds under
         ``assume_consistent_mechanism=True``, as the summary prints it.  ``None`` otherwise.
+    mechanism_learner : str or None, default=None
+        The fingerprint of the learner declared with ``mechanism_learner=``.  ``None`` when
+        none was declared.
     """
 
     estimand: str
@@ -1906,6 +1956,7 @@ class SensitivityBounds:
     features: tuple[str, ...] = ()
     limit_reading: Resolution | None = None
     assumption: str | None = None
+    mechanism_learner: str | None = None
 
     @_accepts_stored_limit_names
     def __init__(
@@ -1933,6 +1984,7 @@ class SensitivityBounds:
         features: tuple[str, ...] = (),
         limit_reading: Resolution | None = None,
         assumption: str | None = None,
+        mechanism_learner: str | None = None,
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -1959,6 +2011,7 @@ class SensitivityBounds:
             ("features", tuple(features)),
             ("limit_reading", limit_reading),
             ("assumption", assumption),
+            ("mechanism_learner", mechanism_learner),
         ):
             object.__setattr__(self, name, value)
 
@@ -2116,6 +2169,8 @@ class SensitivityBounds:
             row["features"] = "+".join(self.features)
         if self.assumption is not None:
             row["assumption"] = self.assumption
+        if self.mechanism_learner is not None:
+            row["mechanism_learner"] = self.mechanism_learner
         if self.limit_reading is not None and self._limits_derived:
             row |= {
                 "limit_rung": self.limit_reading.rung,
@@ -2292,6 +2347,7 @@ def omitted_variable_bounds(
     nu2_estimator: str = "auto",
     benchmark: BenchmarkResult | None = None,
     assume_consistent_mechanism: bool = False,
+    mechanism_learner: Any = None,
 ) -> SensitivityBounds:
     """Bias-adjusted bounds and robustness values for one estimand.
 
@@ -2334,6 +2390,12 @@ def omitted_variable_bounds(
         reads the DR-TMLE primary mechanism, or one refit of the C-TMLE treatment learner on
         every mechanism covariate.  The bound has no confidence limits.  ``False`` keeps the
         refusal.  Any other fit raises ``ValueError`` when it is ``True``.
+    mechanism_learner : learner or None
+        With ``assume_consistent_mechanism=True`` on a selecting ``CTMLE`` fit, the learner
+        refitted on every mechanism covariate in place of the fit's treatment learner.  A
+        per-arm outcome-adaptive fit needs it, because its treatment learner reads one
+        column.  ``None`` keeps the default refit.  On any other call it raises
+        ``ValueError``.
 
     Returns
     -------
@@ -2377,7 +2439,13 @@ def omitted_variable_bounds(
         cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
     cf_y = 0.03 if cf_y is None else cf_y
     cf_d = 0.03 if cf_d is None else cf_d
-    draws = _bound_draws(result, estimand, nu2_estimator, consistent=assume_consistent_mechanism)
+    draws = _bound_draws(
+        result,
+        estimand,
+        nu2_estimator,
+        consistent=assume_consistent_mechanism,
+        mechanism_learner=mechanism_learner,
+    )
     elements = _combined_elements(draws, result)
     estimate = result[estimand]
     quantile = _one_sided_quantile(level, estimate.reference_df)
@@ -2426,8 +2494,11 @@ def omitted_variable_bounds(
         features=elements.features,
         limit_reading=_limit_reading(result, estimand, elements.features),
         assumption=(
-            _consistent_mechanism_assumption(result) if assume_consistent_mechanism else None
+            _consistent_mechanism_assumption(result, mechanism_learner)
+            if assume_consistent_mechanism
+            else None
         ),
+        mechanism_learner=_mechanism_fingerprint(result, mechanism_learner),
     )
 
 
@@ -3028,6 +3099,7 @@ def robustness_value(
     null_hypothesis: float = 0.0,
     nu2_estimator: str = "auto",
     assume_consistent_mechanism: bool = False,
+    mechanism_learner: Any = None,
 ) -> dict[str, Any]:
     """The confounding strength that would explain the effect away.
 
@@ -3065,6 +3137,9 @@ def robustness_value(
     assume_consistent_mechanism : bool
         ``True`` lifts the refusal of a ``DRTMLE`` fit and of a selecting ``CTMLE`` fit, as
         :func:`omitted_variable_bounds` states.  The point values remain, and no limit does.
+    mechanism_learner : learner or None
+        The learner of the consistent-mechanism refit, as :func:`omitted_variable_bounds`
+        states.
 
     Returns
     -------
@@ -3088,7 +3163,13 @@ def robustness_value(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
-    draws = _bound_draws(result, estimand, nu2_estimator, consistent=assume_consistent_mechanism)
+    draws = _bound_draws(
+        result,
+        estimand,
+        nu2_estimator,
+        consistent=assume_consistent_mechanism,
+        mechanism_learner=mechanism_learner,
+    )
     elements = _combined_elements(draws, result)
     estimate = result[estimand]
     rv, rva = _robustness_values(
@@ -3126,6 +3207,7 @@ def contour_data(
     bound: str = "lower",
     nu2_estimator: str = "auto",
     assume_consistent_mechanism: bool = False,
+    mechanism_learner: Any = None,
 ) -> Any:
     """A ``cf_d`` x ``cf_y`` grid of bias-adjusted bounds, for a contour plot.
 
@@ -3151,6 +3233,9 @@ def contour_data(
     assume_consistent_mechanism : bool
         ``True`` lifts the refusal of a ``DRTMLE`` fit and of a selecting ``CTMLE`` fit, as
         :func:`omitted_variable_bounds` states.  The point values remain, and no limit does.
+    mechanism_learner : learner or None
+        The learner of the consistent-mechanism refit, as :func:`omitted_variable_bounds`
+        states.
 
     Returns
     -------
@@ -3172,7 +3257,13 @@ def contour_data(
     """
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")
-    draws = _bound_draws(result, estimand, nu2_estimator, consistent=assume_consistent_mechanism)
+    draws = _bound_draws(
+        result,
+        estimand,
+        nu2_estimator,
+        consistent=assume_consistent_mechanism,
+        mechanism_learner=mechanism_learner,
+    )
     sign = -1.0 if bound == "lower" else 1.0
 
     cf_d_grid = np.linspace(0.0, grid_bounds[0], grid_size)
