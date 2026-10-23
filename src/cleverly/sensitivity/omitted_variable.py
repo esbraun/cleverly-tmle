@@ -882,6 +882,74 @@ def _full_mechanism(result: TMLEResult, repeat: RepeatFit, mechanism_learner: An
     return Propensity(predictions["g"], nuisance.arms)
 
 
+def consistent_mechanism_refusal(result: Any, mechanism_learner: Any = None) -> Refusal | None:
+    """Return the refusal of the point bound under ``assume_consistent_mechanism=True``.
+
+    The bound and its assessment facade both read this predicate, so the facade lifts its
+    fit-wide row for exactly the requests the bound runs.  A fit that the keyword does not
+    lift returns ``None``, because the bound raises ``ValueError`` for it and the row it
+    already has stays in force.
+
+    Parameters
+    ----------
+    result : Any
+        Fitted result inspected by this module or by its assessment facade.
+    mechanism_learner : Any
+        The declared mechanism learner, or ``None``.
+
+    Returns
+    -------
+    Refusal or None
+        The first refusal that applies, or ``None`` when the point bound runs.
+    """
+    method = getattr(result, "fitted_method", None)
+    if method not in CONSISTENT_MECHANISM_METHODS:
+        return None
+    lifted = dict(_FIT_WIDE_BOUND_RULES)[method](result)
+    if lifted is None or lifted is _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL:
+        # A fit that selects nothing is the ordinary TMLE fit, so the redirection stands.
+        return lifted
+    for name, rule in _FIT_WIDE_BOUND_RULES:
+        refusal = None if name == method else rule(result)
+        if refusal is not None:
+            return refusal
+    if result.estimator is None:
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "assume_consistent_mechanism=True reads the fitted estimator, and this result "
+            "carries none",
+        )
+    if method == "collaborative_tmle" and bool(
+        getattr(result.data, "has_missing_treatment", False)
+    ):
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "assume_consistent_mechanism=True refits the treatment mechanism of a CTMLE fit on "
+            "every covariate, and no refit of the composite mechanism of a missing treatment "
+            "is implemented.",
+            alternative="Fit the ordinary TMLE on the same data for the bound.",
+            roadmap="X82",
+        )
+    if (
+        method == "collaborative_tmle"
+        and is_per_arm_oat(result.estimator)
+        and mechanism_learner is None
+    ):
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "assume_consistent_mechanism=True refits the fit's treatment learner on every "
+            "covariate, and a per-arm outcome-adaptive fit declares a learner that reads one "
+            "column, the outcome prediction at one arm. The fit declares no learner for the "
+            "mechanism on the full adjustment set, so the representer of the point bound has "
+            "no source.",
+            alternative=(
+                "Declare that learner with mechanism_learner=, for example "
+                "mechanism_learner=GLM(), or fit the ordinary TMLE on the same data."
+            ),
+        )
+    return None
+
+
 def _consistent_draws(
     result: TMLEResult, estimand: str, nu2_estimator: str, mechanism_learner: Any = None
 ) -> tuple[_Draw, ...]:
@@ -920,44 +988,9 @@ def _consistent_draws(
             "assume_consistent_mechanism=True lifts the bound's refusal of a DRTMLE fit and of "
             "a selecting CTMLE fit, and this fit meets neither. Omit the argument."
         )
-    for name, rule in _FIT_WIDE_BOUND_RULES:
-        refusal = None if name == method else rule(result)
-        if refusal is not None:
-            raise CapabilityError.from_refusal(refusal)
-    if result.estimator is None:
-        raise CapabilityError(
-            "assume_consistent_mechanism=True reads the fitted estimator, and this result "
-            "carries none",
-            reason=RefusalReason.INVALID_DECLARATION,
-        )
-    if method == "collaborative_tmle" and bool(
-        getattr(result.data, "has_missing_treatment", False)
-    ):
-        raise CapabilityError(
-            "assume_consistent_mechanism=True refits the treatment mechanism of a CTMLE fit on "
-            "every covariate, and no refit of the composite mechanism of a missing treatment "
-            "is implemented.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Fit the ordinary TMLE on the same data for the bound.",
-            roadmap="X82",
-        )
-    if (
-        method == "collaborative_tmle"
-        and is_per_arm_oat(result.estimator)
-        and mechanism_learner is None
-    ):
-        raise CapabilityError(
-            "assume_consistent_mechanism=True refits the fit's treatment learner on every "
-            "covariate, and a per-arm outcome-adaptive fit declares a learner that reads one "
-            "column, the outcome prediction at one arm. The fit declares no learner for the "
-            "mechanism on the full adjustment set, so the representer of the point bound has "
-            "no source.",
-            reason=RefusalReason.INVALID_DECLARATION,
-            alternative=(
-                "Declare that learner with mechanism_learner=, for example "
-                "mechanism_learner=GLM(), or fit the ordinary TMLE on the same data."
-            ),
-        )
+    refusal = consistent_mechanism_refusal(result, mechanism_learner)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
     parameter = resolve_parameter(result, estimand)
     limits = _consistent_mechanism_limits(str(method))
     draws = []

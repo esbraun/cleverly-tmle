@@ -948,6 +948,11 @@ The limits refuse with the key `consistent_mechanism` and the reason `inference_
 keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
 assumption, the summary prints it, and `to_dict()` adds it.
 
+The result facade accepts both keywords on `omitted_confounding()`, `robustness_value()`, and
+`contour()`. The bare capability row stays unavailable. A request that names
+`assume_consistent_mechanism=True` reads the refusal that the free function raises. Test:
+`TestTheFacadeLiftsItsRow`.
+
 With a declared learner, the
 assumption says the bound holds only if that learner is consistent for the mechanism. The package
 does not check that condition. `SensitivityBounds.mechanism_learner` records the learner

@@ -409,24 +409,102 @@ class TestThePerArmParametricPointBound:
         assert bound.limit_refusal is not None
         assert bound.psi == collaborative["ate"].psi
 
-    def test_the_facade_still_refuses_the_keyword(self, collaborative: Any) -> None:
-        """The result facade gates on the bare row, so only the free function runs the bound.
+    def test_the_facade_forwards_the_learner(self, collaborative: Any) -> None:
+        """The result facade lifts its row for the request and runs the same bound."""
+        declared = omitted_variable_bounds(
+            collaborative,
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=LogisticRegression(max_iter=1000),
+        )
+        through = collaborative.sensitivity.omitted_confounding(
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=LogisticRegression(max_iter=1000),
+        )
+        assert (through.lower, through.upper, through.max_bias) == (
+            declared.lower,
+            declared.upper,
+            declared.max_bias,
+        )
+        assert through.mechanism_learner == declared.mechanism_learner
+        # The cache keys on the learner, so a second learner computes its own bound.
+        marginal = collaborative.sensitivity.omitted_confounding(
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=DummyClassifier(strategy="prior"),
+        )
+        assert marginal.max_bias != through.max_bias
 
-        The facade reads the fit-wide row before it reads any argument, and that row refuses
-        a selecting C-TMLE fit.  A declared learner therefore cannot reach a cached bound
-        through the facade.  Wiring the keyword into the facade is a separate change.
-        """
-        for learner in (None, LogisticRegression(max_iter=1000)):
-            with pytest.raises(CapabilityError) as raised:
-                collaborative.sensitivity.omitted_confounding(
-                    "ate",
-                    cf_y=CF,
-                    cf_d=CF,
-                    assume_consistent_mechanism=True,
-                    mechanism_learner=learner,
-                )
-            assert "is unavailable" in str(raised.value)
-        assert not collaborative.assessment_cache
+    def test_the_facade_refuses_without_a_learner(self, collaborative: Any) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            collaborative.sensitivity.omitted_confounding(
+                "ate", cf_y=CF, cf_d=CF, assume_consistent_mechanism=True
+            )
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        # The facade's own row refuses, before the call runs.
+        assert "'omitted_confounding' is unavailable" in str(raised.value)
+        assert "per-arm" in str(raised.value)
+        assert "mechanism_learner=" in str(raised.value)
+        assert not collaborative.sensitivity.capability("omitted_confounding").available
+
+
+class TestTheFacadeLiftsItsRow:
+    """The facade refuses the bare bound and runs the request that names the keyword."""
+
+    @pytest.mark.parametrize("pair", ["drtmle_pair", "ctmle_pair"])
+    @pytest.mark.parametrize("operation", ["omitted_confounding", "robustness_value"])
+    def test_the_facade_equals_the_free_function(
+        self, request: pytest.FixtureRequest, pair: str, operation: str
+    ) -> None:
+        fitted = request.getfixturevalue(pair)[1]
+        free = {
+            "omitted_confounding": omitted_variable_bounds,
+            "robustness_value": robustness_value,
+        }
+        kwargs: dict[str, Any] = {"assume_consistent_mechanism": True}
+        if operation == "omitted_confounding":
+            kwargs.update(cf_y=CF, cf_d=CF)
+        expected = free[operation](fitted, "ate", **kwargs)
+        through = getattr(fitted.sensitivity, operation)("ate", **kwargs)
+        if operation == "omitted_confounding":
+            through, expected = through.to_dict(), expected.to_dict()
+        assert through == expected
+        assert not fitted.sensitivity.capability(operation).available
+        with pytest.raises(CapabilityError, match="assume_consistent_mechanism=True"):
+            getattr(fitted.sensitivity, operation)("ate")
+
+    def test_the_contour_runs_through_the_facade(self, ctmle_pair: tuple[Any, Any]) -> None:
+        collaborative = ctmle_pair[1]
+        expected = contour_data(collaborative, "ate", grid_size=3, assume_consistent_mechanism=True)
+        through = collaborative.sensitivity.contour(
+            "ate", grid_size=3, assume_consistent_mechanism=True
+        )
+        assert through.equals(expected)
+
+    def test_a_fit_that_selects_nothing_keeps_its_redirection(self) -> None:
+        frame, _ = make_instrument(n=600, seed=44)
+        nothing = _fit(
+            CTMLE(
+                **FAST_KWARGS,
+                **IN_SAMPLE,
+                estimands=("ate",),
+                strategy="learners",
+                treatment_candidates=[],
+            ),
+            frame,
+        )
+        redirection = ov._CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
+        with pytest.raises(CapabilityError) as raised:
+            nothing.sensitivity.omitted_confounding("ate", assume_consistent_mechanism=True)
+        assert raised.value.refusal.reason is redirection.reason
+        assert raised.value.refusal.alternative == redirection.alternative
 
 
 class TestTheDeclaredMechanismLearner:

@@ -4535,6 +4535,49 @@ class SensitivityFacade(_CapabilityFacade):
         "tipping_gamma": "_tipping_interval_gated",
     }
 
+    #: The operations whose call takes ``assume_consistent_mechanism=True``.
+    _CONSISTENT_MECHANISM_OPERATIONS: ClassVar[frozenset[str]] = frozenset(
+        {"omitted_confounding", "robustness_value", "contour"}
+    )
+
+    def _request_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Lift the bound's fit-wide refusal for a consistent-mechanism request first.
+
+        A DR-TMLE or a selecting C-TMLE fit refuses the bare bound, and
+        ``assume_consistent_mechanism=True`` lifts that one rule.  The row then reads
+        :func:`~cleverly.sensitivity.omitted_variable.consistent_mechanism_refusal`, which
+        the call raises from too.  A row refused for any other reason stays refused.
+        """
+        if capability.operation in self._CONSISTENT_MECHANISM_OPERATIONS and arguments.get(
+            "assume_consistent_mechanism"
+        ):
+            capability = self._consistent_mechanism_gated(capability, arguments)
+        return super()._request_gated(capability, arguments)
+
+    def _consistent_mechanism_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve an omitted-variable row for ``assume_consistent_mechanism=True``."""
+        from .sensitivity.omitted_variable import (
+            _FIT_WIDE_BOUND_RULES,
+            CONSISTENT_MECHANISM_METHODS,
+            consistent_mechanism_refusal,
+            fit_wide_bound_refusal,
+        )
+
+        method = getattr(self._result, "fitted_method", None)
+        if capability.available or method not in CONSISTENT_MECHANISM_METHODS:
+            return capability
+        lifted = dict(_FIT_WIDE_BOUND_RULES)[method](self._result)
+        if lifted is None or capability.refusal != fit_wide_bound_refusal(self._result):
+            return capability
+        declared = consistent_mechanism_refusal(self._result, arguments.get("mechanism_learner"))
+        if declared is None:
+            return replace(capability, available=True, status=AssessmentStatus.PASSED, refusal=None)
+        return replace(capability, refusal=declared)
+
     def _benchmark_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
@@ -4930,7 +4973,10 @@ class SensitivityFacade(_CapabilityFacade):
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
         # A structural fit declares every row refused, so an explicit estimand lifts none.
         if not explicit_evalue or _family(self._result) == "structural":
-            self._require(operation)
+            # The omitted-variable rows read the request, which can lift their refusal.
+            self._require(
+                operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None
+            )
         return self._invoke(operation, args, kwargs)
 
     def _with_default_parameter(
