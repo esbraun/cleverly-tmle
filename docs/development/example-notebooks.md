@@ -77,7 +77,7 @@ three.
 
 | landmark | contents | cell ids |
 | --- | --- | --- |
-| At a glance | the question in one sentence, the answer with its interval in plain words, the one caveat that matters most, and the list of sections. Use the printed numbers of the estimate cell | `title`, which also holds the level-one title. The title names the data situation first, then the question |
+| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the estimate cell | `title`, which also holds the level-one title. The title names the data situation first, then the question |
 | The question | the decision, who it applies to, and what is compared, in the program's words. The quantity to estimate, in one plain sentence. A causal graph only where it informs, as [drawing a causal graph](#drawing-a-causal-graph) describes | `plan` |
 | The data | the imports and the installed `cleverly` version, then what one row is, the columns, and the known answer of the simulated data | `setup`, `data` |
 | Why a simple comparison misleads | the naive difference beside the known answer, and why it is off | `association` |
@@ -87,8 +87,8 @@ three.
 | Try to break the result | the refutation checks | the refutation cell |
 | What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | `sensitivity` |
 | What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
-| How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes | `method-evidence` |
-| Go deeper | theory and comparisons between estimators | the comparison cells, and `failure-mode` only when it is not the point of the page |
+| How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes. It may open "Go deeper" when the main path needs its words | `method-evidence` |
+| Go deeper | theory, comparisons between estimators, and checks that print nothing to act on for this fit, such as a weight-cap curve when no patient is capped | the comparison cells, and `failure-mode` only when it is not the point of the page |
 | Where to go next | the next tutorial and the related reference entries | `where-next` |
 
 A lesson stays on the main path, before the conclusion, when it is the point of the page. An
@@ -217,6 +217,8 @@ where `base` is the protocol that `replace` received.
 | Use no network, and write files only inside a `TemporaryDirectory` | the offline gate refuses a connection, and the kernel runs from the repository root |
 | Write plain Python. Do not use IPython magics or shell escapes. `display(...)` is allowed | the fast tier runs the cells without a kernel |
 | Print only the part of a library summary that the reading needs, with plain labels. Show a full `summary()` once on the page, and say which lines matter (rule R12) | 40 lines of output bury the two lines that the reading uses |
+| Give every printed library word a plain meaning: relabel the print, or say in the reading what the word means, such as `required nuisances` or a `PASS` line | the reader sees the output before the prose, and an unexplained library word in an output blocks them as much as one in the prose |
+| Mark each line that a reader changes for their own data with a comment in the cell, such as `# For your own data, change the outcome and treatment names` | the comment sits where the reader edits, and it costs no prose words |
 | Run `ruff format` and `ruff check` on the notebook before you execute it | the formatter rewrites code cells, and a rewritten cell breaks the stamp |
 
 ## Rules for markdown cells
@@ -238,6 +240,7 @@ keep each reading accurate.
 | An overlap or calibration reading names the fitted model that it comes from. It also says what that model cannot see | an overlap check of a wrong treatment model describes that model, not the population. An in-sample calibration slope near 1 does not show that a model is correct |
 | Compare two estimates from one fit with `result.contrast(...)`, and read its interval. Do not compare their difference with the larger standard error | the two estimates share rows. `contrast` accounts for their correlation |
 | Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Run the analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | an underived bound can be too narrow |
+| In a plain reading of an omitted-variable bound, name the side each strength measures (the outcome's remaining variation, or the change in the weights), and quote the strength at which the conclusion tips, computed by the cell, rather than "stronger than" a covariate | a covariate that is the strongest confounder on one side can be weak on the other, and "stronger than" can understate the margin many times over |
 | Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
 | Put a status word, a label, or a column name in backticks only when the reader must find it in a stored output (rule R15). The assessment summary prints `Returned results`, not `completed` | the reader searches the output for the quoted token |
 

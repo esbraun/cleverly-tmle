@@ -788,8 +788,8 @@ EXPECTED_REFIT_CELLS = {
     "msm-projections": ["refute", "generated", "surface"],
     "point-treatment-tmle": [
         "refutation",
-        "generated-outcomes",
         "sensitivity",
+        "generated-outcomes",
         "simulated-confounding",
     ],
     "sequential-offers": ["refute"],

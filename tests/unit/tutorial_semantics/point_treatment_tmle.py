@@ -76,9 +76,8 @@ UNPRINTED_DECIMALS = {
     "-0.0022": f"mean error of TMLE with linear Q and the booster's g: {_PROBE}/summary.log",
     "-0.0006": f"mean error of TMLE with the booster's Q and logistic g: {_PROBE}/summary.log",
     "-0.0218": f"mean error of TMLE with both nuisances linear: {_PROBE}/summary.log",
-    "0.05": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
-    "0.95": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
+    "0.0578": "the size of the largest printed move, -0.0578, at outcome strength 2.0",
     **dict.fromkeys(
         PROBE_LITERALS,
         f"a value of the Step 10 review probe logs, {_REFUTE_PROBE}/standard.log and generated.log",
@@ -402,6 +401,18 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # moves the bound further, which is the nonzero witness of that sentence.
     wider = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=2.0 * strong.cf_d, rho=1.0)
     assert wider.bias > strong_bounds.bias
+    # "would need a weight strength of about 0.24 to pull the lower limit to zero, more than three
+    # times that of any recorded characteristic": the bisection lands on the crossing, and the
+    # limit is positive just below it and negative just above it.
+    tipping = namespace["tipping_cf_d"]
+    assert round(tipping, 2) == 0.24
+    recorded = ("age", "medication_burden", "prior_utilization", "discharge_risk")
+    weight_strengths = [result.sensitivity.benchmark(covariates=(name,)).cf_d for name in recorded]
+    assert 3.0 * max(weight_strengths) < tipping < 4.0 * max(weight_strengths)
+    crossing = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping)
+    assert abs(crossing.ci_lower) < 1e-6
+    assert result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).ci_lower > 0.0
+    assert result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping + 0.01).ci_lower < 0.0
     # "Both lie below the robustness value", and the gains go to the bound unchanged, at rho = 1.
     benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
