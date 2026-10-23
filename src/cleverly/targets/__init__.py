@@ -77,7 +77,7 @@ def register(target: Target, *, replace: bool = False) -> Target:
         raise ValueError(
             f"target {target.name!r} declares group {target.group!r}, for which there is "
             f"no submodel builder; registered groups are {sorted(SUBMODEL_BUILDERS)}. "
-            "Register the fluctuation with cleverly.fluctuation.register_submodel first -- "
+            "Register the fluctuation with cleverly.fluctuation.register_submodel first: "
             "a group is a score equation, and a target cannot be solved without one."
         )
     TARGETS[target.name] = target

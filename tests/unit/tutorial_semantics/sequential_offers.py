@@ -317,7 +317,7 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     summary = result.summary()
     assert "known factors (declared, no learner): offer@1, offer@2, offer@3" in summary
     assert "no truncation bound moved a declared value" in summary
-    assert "cross-fitting: none -- nuisances fitted in sample" in summary
+    assert "cross-fitting: none; nuisances fitted in sample" in summary
     assert "g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability" in (
         summary
     )

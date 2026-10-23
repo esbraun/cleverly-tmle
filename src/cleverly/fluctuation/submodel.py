@@ -180,7 +180,7 @@ def check_arms(observed: FloatArray, arms: Mapping[float, FloatArray], what: str
     for level, values in arms.items():
         if not isinstance(level, float):
             raise TypeError(
-                f"{what} arm keys must be floats -- the treatment level the arm sets -- "
+                f"{what} arm keys must be floats (the treatment level the arm sets) "
                 f"but got {level!r} of type {type(level).__name__}"
             )
         if np.asarray(values).shape != np.asarray(observed).shape:
@@ -552,7 +552,7 @@ def _regime_densities(n: int, k: int, regimes: FloatArray | None) -> FloatArray:
     values = np.asarray(regimes, dtype=float)
     if values.ndim != 3 or values.shape[:2] != (n, k):
         raise ValueError(
-            f"regimes must have shape ({n}, {k}, R) -- rows, arms, regimes -- got {values.shape}"
+            f"regimes must have shape ({n}, {k}, R) (rows, arms, regimes), got {values.shape}"
         )
     if values.shape[2] == 0:
         raise ValueError("regimes must contain at least one regime")
@@ -653,7 +653,7 @@ def _tilt_weights(n: int, k: int, incremental: FloatArray | None) -> FloatArray:
     values = np.asarray(incremental, dtype=float)
     if values.ndim != 3 or values.shape[:2] != (n, k):
         raise ValueError(
-            f"incremental must have shape ({n}, {k}, R) -- rows, arms, tilts -- got {values.shape}"
+            f"incremental must have shape ({n}, {k}, R) (rows, arms, tilts), got {values.shape}"
         )
     if values.shape[2] == 0:
         raise ValueError("incremental must contain at least one tilt")
@@ -780,7 +780,7 @@ def _weighted_design(n: int, k: int, msm: FloatArray | None) -> FloatArray:
     values = np.asarray(msm, dtype=float)
     if values.ndim != 3 or values.shape[:2] != (n, k):
         raise ValueError(
-            f"msm must have shape ({n}, {k}, p) -- rows, arms, terms -- got {values.shape}"
+            f"msm must have shape ({n}, {k}, p) (rows, arms, terms), got {values.shape}"
         )
     if values.shape[2] == 0:
         raise ValueError("a working model must have at least one term")

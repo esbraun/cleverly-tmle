@@ -128,7 +128,7 @@ _REGIME_ID = Identification(
         *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
         "positivity *for the regime*: g(a | W) > 0 wherever the regime assigns arm a "
-        "with positive probability -- a weaker requirement than positivity for every "
+        "with positive probability, a weaker requirement than positivity for every "
         "arm when the regime is deterministic, and a different one",
         "the regime is a known function of W: g* does not depend on the observed-data "
         "law, so the influence function carries no term for estimating it. An "
@@ -208,7 +208,7 @@ _IPSI_ID = Identification(
         "estimand itself, so every term of the second-order remainder carries "
         "(ghat - g0) as a factor. The remainder vanishes identically when the mechanism "
         "is consistent whatever Qbar does, and no accuracy in Qbar rescues an "
-        "inconsistent mechanism -- there the remainder is "
+        "inconsistent mechanism; there the remainder is "
         "E[(mhat - m0)(Dhat - D0)/Dhat] with m the tilted mean and D = sum_b delta_b*g_b, "
         "which on two levels with Qbar correct is "
         "(delta - 1) delta E[(g0 - ghat)^2 (Qbar(1,W) - Qbar(0,W)) / (D0 Dhat^2)], "
@@ -274,18 +274,18 @@ _POLICY_ID = Identification(
         "the policy is a known function of (A, W), and of a randomizer of known law when "
         "it is randomized: d does not depend on the observed-data law, so the influence "
         "function carries no term for estimating it. A cap read from the data is a "
-        "declared tuner with a declared target instead (X40 part (e)): the population "
+        "declared tuner with a declared target instead: the population "
         "target adds the tuner's term to the curve, and the fold-average target fits each "
         "fold's map on its training rows. cap= is never defaulted to max(A)",
         "on a continuous treatment, d is piecewise smooth invertible (Diaz, Williams, "
         "Hoffman & Schenck 2023, Assumption 4): a policy that maps an interval to one dose "
         "is not pathwise differentiable and is refused",
         "with delta=: missingness at random given (A, W), and positivity for it *at the "
-        "assigned dose* -- P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
+        "assigned dose*: P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
         "observed. The fluctuation updates Qbar as a function of the dose, so obtaining "
         "Qbar*(d(A, W), W) reads the mechanism where the policy sends the unit",
         "with intermediate=: the same two statements for P(Z = z | A, W), plus that Delta "
-        "is not caused by Z -- the assumption missingness_design() states for an arm",
+        "is not caused by Z, the assumption missingness_design() states for an arm",
     ),
     required_nuisances=(OUTCOME_REGRESSION, "treatment_density"),
     dr_condition=(
@@ -294,7 +294,7 @@ _POLICY_ID = Identification(
         "the policy induces to the observed one, so its error is the error in that ratio "
         "rather than in a probability. With delta= that half becomes the *product* of the "
         "ratio and P(Delta = 1 | A, W), and with intermediate= the ratio times "
-        "P(Z = z | A, W) * P(Delta = 1 | A, W) -- so it is Qbar right OR the whole "
+        "P(Z = z | A, W) * P(Delta = 1 | A, W); so it is Qbar right OR the whole "
         "product right, exactly as on the arm path, and not either mechanism alone"
     ),
     references=(
@@ -339,7 +339,7 @@ _MSM_ID = Identification(
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
-        DR_MECHANISM_HEAD + ", exactly as for the arm-indexed means -- beta is a smooth "
+        DR_MECHANISM_HEAD + ", exactly as for the arm-indexed means; beta is a smooth "
         "function of them and of nothing else. Note this says nothing about the working "
         "model being correct: beta is defined as a projection, so it is the same "
         "functional either way"
@@ -661,7 +661,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         default_arms="binary",
         undefined_when="the sample contains no units in the conditioning arm",
         description=(
-            "average treatment effect on the treated, E[Y^1 - Y^0 | A = 1] -- and with "
+            "average treatment effect on the treated, E[Y^1 - Y^0 | A = 1], and with "
             "more arms, E[Y^a - Y^ref | A = a] once per non-reference arm"
         ),
     ),
@@ -675,7 +675,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         default_arms="binary",
         undefined_when="the sample contains no units in the reference arm",
         description=(
-            "average treatment effect on the controls, E[Y^1 - Y^0 | A = 0] -- and with "
+            "average treatment effect on the controls, E[Y^1 - Y^0 | A = 0], and with "
             "more arms, E[Y^a - Y^ref | A = ref] once per non-reference arm"
         ),
     ),

@@ -764,7 +764,7 @@ class NuisanceDiagnostics:
                 notes.append(
                     f"the missingness model predicts almost perfectly (AUC {auc:.3f}); some "
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
-                    "gives them extreme leverage -- check res.diagnostics.support()"
+                    "gives them extreme leverage; check res.diagnostics.support()"
                 )
             if model in tested:
                 calibration = _calibration_finding(model, len(tested))
@@ -773,7 +773,7 @@ class NuisanceDiagnostics:
             mean_weight = model.learner_weights.get("mean", 0.0)
             if mean_weight > 0.8:
                 notes.append(
-                    f"{model.name} put {mean_weight:.0%} of its weight on the marginal mean -- "
+                    f"{model.name} put {mean_weight:.0%} of its weight on the marginal mean; "
                     "no candidate beat predicting the average, so this model contributes little"
                 )
             r2 = model.metrics.get("r2")

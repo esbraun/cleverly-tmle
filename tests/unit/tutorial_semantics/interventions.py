@@ -191,6 +191,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert "no fixed range" in dose_protocol.outcome
     assert not any("contact" in text for text in dose_protocol.treatment_versions)
     assert any("index" in text for text in dose_protocol.assumption_rationale)
+    # The score has no worst value, so death cannot be scored as the worst score.
+    assert "hypothetical strategy" in dose_protocol.intercurrent_event_handling[2]
     # "Offer to none reuses the program's version for usual support."
     assert namespace["regime_protocol"].treatment_versions[0] == program.treatment_versions[1]
     # Each axis has its own protocol, printed in its step and stamped on its result.

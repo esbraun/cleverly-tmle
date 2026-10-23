@@ -348,8 +348,8 @@ _FREQUENCY_MESSAGE = (
     "divide by that total and every fold, cluster sum and bootstrap draw would have to "
     "count units rather than rows. Passing counts as probability weights gives the same "
     "point estimate with a standard error inflated by roughly sqrt(mean(counts)). "
-    "Expand the rows instead -- pandas: frame.loc[frame.index.repeat(counts)]; polars: "
-    "frame.select(pl.all().repeat_by(counts).explode()) -- or aggregate to a rate "
+    "Expand the rows instead (pandas: frame.loc[frame.index.repeat(counts)]; polars: "
+    "frame.select(pl.all().repeat_by(counts).explode())) or aggregate to a rate "
     "outcome. See cleverly.data.weighting for the full statement."
 )
 

@@ -1238,8 +1238,8 @@ class TMLE:
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "reference= names the arm, regime or shift every contrast is taken "
-                "against, and a working model reports coefficients rather than contrasts "
-                "-- there is nothing for it to be a reference for. Which arm is the "
+                "against, and a working model reports coefficients rather than contrasts; "
+                "there is nothing for it to be a reference for. Which arm is the "
                 "baseline is decided by the design you gave msm=, usually by an intercept "
                 "column. A difference of two coefficients comes from result.contrast()."
             )
@@ -5034,7 +5034,7 @@ class TMLE:
         if reduction is None:
             raise ValueError(
                 "these nuisances carry reduced-dimension regressions, so the targeting step "
-                "has two further score equations to solve -- and solving them refits those "
+                "has two further score equations to solve, and solving them refits those "
                 f"regressions against the targeted pair, which a {type(self).__name__} has "
                 "no learners for. Retarget with the DRTMLE that fitted them, or drop "
                 "`reduced` to report a plain TMLE under a plain TMLE's name."
@@ -5883,8 +5883,8 @@ def _average_over_folds(
     if dropped:
         warnings.warn(
             f"{', '.join(dropped)} could not be evaluated inside every validation fold "
-            "-- a fold with no units in the conditioning arm, or a counterfactual mean "
-            "at the boundary -- so it is omitted from the cross-validated report. Fewer "
+            "(a fold with no units in the conditioning arm, or a counterfactual mean "
+            "at the boundary), so it is omitted from the cross-validated report. Fewer "
             "folds (n_folds=) would give each one more units to work with.",
             UserWarning,
             stacklevel=3,

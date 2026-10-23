@@ -512,7 +512,7 @@ class DynamicRegimen:
             raise DataError(
                 f"the rule at time {time} of regimen {self.label!r} raised "
                 f"{type(error).__name__}: {error}. It is handed [W, L_1, ..., L_t], which "
-                f"at time {time} is {list(names)} -- a rule reading a covariate measured "
+                f"at time {time} is {list(names)}; a rule reading a covariate measured "
                 "later can only be used from that node on, so pass a plan with one entry "
                 "per node rather than a single rule for all of them"
             ) from error
