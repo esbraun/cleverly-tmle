@@ -15,7 +15,12 @@ the declared classifier's fit on the       :class:`TestClassifier` (PJ1, exact) 
 placebo law (review M4)                    :class:`TestDefectSizing` (the probe's null bias, both)
 =========================================  ==========================================================
 
-The count rules are checked against the operating characteristics the plan quotes.
+M4 for LJ1 is the probe's ``t`` distribution at the declared configuration. The kernel draw has
+no closed-form placebo ratio, and the classifier's misfit matters only through the ``t``.
+
+The count rules are checked against their operating characteristics. The size cutoff is 20 of
+200 rejections, after design review S1: :func:`TestDefectSizing.test_the_probe_t_spread` reads
+PJ1's overdispersed ``t``.
 """
 
 from __future__ import annotations
@@ -263,6 +268,20 @@ class TestDefectSizing:
         # The probe's rejection count must be one the size rule would pass at 200 trials.
         assert rows["rejected"].mean() <= study.SIZE_MAX_REJECTIONS / study.SIZE_TRIALS
 
+    def test_the_probe_t_spread(self) -> None:
+        # PJ1's refits share one sample's band-induced remainder, so its t is overdispersed
+        # against t_19 (SD 1.057). The size cutoff of 20 rejections absorbs a size near 0.065.
+        null = math.sqrt(19.0 / 17.0)
+        pj1 = float(_probe("PJ1", "fresh")["statistic"].std(ddof=1))
+        lj1 = float(_probe("LJ1", "fresh")["statistic"].std(ddof=1))
+        assert null == pytest.approx(1.057, abs=5e-4)
+        assert pj1 == pytest.approx(1.128, abs=5e-4)
+        assert lj1 < null
+        scale = pj1 / null
+        critical = stats.t.ppf(1.0 - study.LEVEL / 2.0, 19)
+        size = 2.0 * stats.t.sf(critical / scale, 19)
+        assert 0.06 < size < 0.07
+
     def test_the_null_bias_bound_keeps_the_size_near_its_level(self) -> None:
         r = study.REFITS
         noncentrality = NULL_BIAS_BOUND * math.sqrt(r)
@@ -293,15 +312,18 @@ class TestCountRules:
         assert properties.count_rule_agrees()
 
     @pytest.mark.parametrize(
-        ("size", "expected"), [(0.05, 0.9879), (0.08, 0.6634), (0.10, 0.2849), (0.15, 0.0043)]
+        ("size", "expected"),
+        [(0.05, 0.9988), (0.065, 0.9790), (0.07, 0.9582), (0.10, 0.5592), (0.15, 0.0255)],
     )
     def test_the_size_rule_operating_characteristic(self, size: float, expected: float) -> None:
         passed = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, size)
         assert passed == pytest.approx(expected, abs=5e-4)
 
-    def test_both_size_readings_pass_together_with_probability_0_976(self) -> None:
-        passed = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, study.LEVEL)
-        assert passed ** len(study.CELLS) == pytest.approx(0.976, abs=5e-4)
+    def test_both_size_readings_pass_together_with_probability_0_96(self) -> None:
+        # PJ1 at the probe's size near 0.065 and LJ1 at the level (design review S1).
+        pj1 = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, 0.065)
+        lj1 = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, study.LEVEL)
+        assert pj1 * lj1 >= 0.975
 
     @pytest.mark.parametrize(
         ("power", "expected"), [(0.95, 1.0), (0.80, 0.8139), (0.70, 0.2229), (0.50, 1.53e-4)]

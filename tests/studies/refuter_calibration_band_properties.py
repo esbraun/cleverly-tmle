@@ -1,7 +1,7 @@
 """Size and power of the band-rank placebo rule (X82 follow-up SJ).
 
 Two families. ``refuter_size`` holds one cell per configuration: 200 trials, and the cell passes
-when the rule rejects in at most 17. ``refuter_power`` holds one cell per configuration: trials 0
+when the rule rejects in at most 20. ``refuter_power`` holds one cell per configuration: trials 0
 to 49 of the same configuration under the stale-row defect, and the cell passes when the rule
 detects the defect in at least 38. A power cell reads the same fit as its size trial, so the two differ only in
 the defect.
@@ -14,7 +14,7 @@ to ``cells.csv``.
 
 The verdicts are the plan's count rules. The failure accounting reads them through the exact
 99% Clopper-Pearson interval of the shared S3 clause: :data:`SIZE_CEILING` lies strictly
-between the upper endpoints at 17 and 18 rejections of 200, and :data:`POWER_FLOOR` strictly
+between the upper endpoints at 20 and 21 rejections of 200, and :data:`POWER_FLOOR` strictly
 between the lower endpoints at 37 and 38 detections of 50. With no lost trial the interval rule
 and the count rule agree, and :func:`count_rule_agrees` proves it for every count.
 """
@@ -62,7 +62,7 @@ def _midpoint(low: float, high: float) -> float:
     return 0.5 * (low + high)
 
 
-#: Between the 99% Clopper-Pearson upper endpoints at 17 and 18 rejections of 200.
+#: Between the 99% Clopper-Pearson upper endpoints at 20 and 21 rejections of 200.
 SIZE_CEILING = _midpoint(
     clopper_pearson(SIZE_MAX_REJECTIONS, SIZE_TRIALS, confidence_level=_LEVEL).high,
     clopper_pearson(SIZE_MAX_REJECTIONS + 1, SIZE_TRIALS, confidence_level=_LEVEL).high,
@@ -321,7 +321,7 @@ def _rules() -> tuple[pf.FamilyRule, ...]:
             shared="summarize_properties",
             clauses=(
                 pf.proportion_clause(
-                    "rejections at most 17 of 200",
+                    "rejections at most 20 of 200",
                     statistic="S3",
                     judge=pf.ceiling_judge(lambda ctx: SIZE_CEILING),
                     applies=every,

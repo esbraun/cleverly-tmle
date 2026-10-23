@@ -15,7 +15,7 @@ Each trial draws `n = 2000` rows and fits one cell with five-fold cross-fitting.
 | PJ1 | `TMLE`, the policy `up`, OLS outcome, classifier ratio with a quadratic logistic | P: band `[L(W), U(W)]` whose location and width read `W` | `band_permute` |
 | LJ1 | `LTMLE`, `T = 3`, the regimen `up`, logistic GLM outcome and pseudo-outcome, classifier ratio with a quadratic logistic | L: the pricing shape, each band reads the engagement and the earlier price | `band_markov` |
 
-A size cell has 200 trials and passes at no more than 17 rejections. A power cell reads trials
+A size cell has 200 trials and passes at no more than 20 rejections, a size below 0.10. A power cell reads trials
 0 to 49 of its size cell under the stale-row defect and passes at no fewer than 38 detections.
 
 | defect | construction |

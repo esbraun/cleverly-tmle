@@ -50,7 +50,14 @@ LJ1   ``LTMLE``, ``T = 3``, the regimen ``up``, logistic GLM outcome and pseudo-
 
 ``ratio="density"`` is not covered and stays descriptive.
 
-**Size cells.** 200 trials. A reading passes when it rejects in at most 17 trials.
+**Size cells.** 200 trials. A reading passes when it rejects in at most 20 trials, so the claim
+is a size below 0.10. The SP and SL cells pass at 17. Here the 20 refits of one PJ1 trial share
+that sample's band-induced remainder (OLS omits ``W1 u(W2)`` on the placebo law), so the ``t`` is
+slightly overdispersed. The sizing probe read a ``t`` SD of 1.128 on PJ1 against 1.057 for
+``t_19``, which puts PJ1's size near 0.065. At 20 rejections a cell passes with probability 0.979
+at a size of 0.065, 0.958 at 0.07 and 0.999 at 0.05 (design review S1). Two pilots of 200 trials
+before the declaration, on seeds outside the declared streams, rejected in 12 (PJ1 at the
+declared law) and 14 (LJ1 at the declared law) trials.
 
 **Power cells.** Trials 0 to 49 of each size cell also run the stale-row defect. The power
 reading passes when it detects the defect in at least 38 of 50 trials. A declared share of units
@@ -115,7 +122,7 @@ REFITS = 20
 SIZE_TRIALS = 200
 POWER_TRIALS = 50
 #: A size reading passes at no more than this many rejections in :data:`SIZE_TRIALS`.
-SIZE_MAX_REJECTIONS = 17
+SIZE_MAX_REJECTIONS = 20
 #: A power reading passes at no fewer than this many detections in :data:`POWER_TRIALS`.
 POWER_MIN_DETECTIONS = 38
 #: The level every rule reads.
