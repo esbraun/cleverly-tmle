@@ -27,6 +27,7 @@ from cleverly.validation._interpretation import (
 from tests.studies.refuter_calibration_longitudinal import (
     CELLS,
     COLUMNS,
+    PLACEBO_DRAW,
     REFERENCE,
     REGIMENS,
     STUDY,
@@ -75,6 +76,7 @@ def _cells() -> dict[str, CalibrationCell]:
             arms=int(recorded["arms"]),
             replicates=REFITS[instrument],
             nodes=int(recorded["nodes"]),
+            placebo_draw=PLACEBO_DRAW if instrument == "placebo" else None,
         )
         kind: Literal["size", "power"] = "size" if row.property == "refuter_size" else "power"
         cells[f"{row.property}/{row.cell}"] = CalibrationCell(

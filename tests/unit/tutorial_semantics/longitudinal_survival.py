@@ -114,13 +114,18 @@ def _hazard_truth(process: Any, baseline: Any, doses: tuple[float, float], cause
 
 
 def _check_refutation(namespace: dict[str, Any], readmission_t2: Any) -> None:
-    """Step 10: the refutation tests of the day-60 readmission difference."""
+    """Step 10: the typed contrast that the refutation reads agrees with Step 7."""
     contrast_fit, target = namespace["contrast_fit"], namespace["target"]
     # "The two lines agree": the typed contrast and the Step 7 contrast.
     assert contrast_fit[target].psi == pytest.approx(readmission_t2.psi, abs=5e-5)
     assert contrast_fit[target].std_error == pytest.approx(readmission_t2.std_error, abs=5e-5)
     assert contrast_fit.data.n == 4_000 and contrast_fit.data.n_times == 2
 
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Step 10: the refutation and generated-outcome refits of the day-60 readmission difference."""
+    contrast_fit, target = namespace["contrast_fit"], namespace["target"]
+    readmission_t2 = namespace["differences"]["readmission", 2]
     # Each test prints a descriptive reading at level L0: the registry covers a survival outcome
     # and the fit has competing events.
     refutation, stability = namespace["refutation"], namespace["stability"]

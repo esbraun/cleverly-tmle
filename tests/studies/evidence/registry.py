@@ -653,6 +653,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_longitudinal import (
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
@@ -755,6 +756,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CALIBRATION_SLOPE_WARNING,
         REFUTER_CALIBRATION_LONGITUDINAL,
         REFUTER_CALIBRATION_POINT,
+        REFUTER_CALIBRATION_BAND,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

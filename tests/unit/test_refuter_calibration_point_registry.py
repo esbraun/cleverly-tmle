@@ -107,6 +107,7 @@ def _cells() -> dict[str, CalibrationCell]:
             arms=int(recorded["arms"]),
             replicates=REFITS[instrument],
             nodes=None,
+            placebo_draw=study.PLACEBO_DRAW if instrument == "placebo" else None,
         )
         kind: Literal["size", "power"] = "size" if row.property == "refuter_size" else "power"
         cells[f"{row.property}/{row.cell}"] = CalibrationCell(
@@ -178,6 +179,23 @@ def test_a_wider_row_fails_containment() -> None:
         scope=replace(control.scope, min_event_count_min=control.scope.min_event_count_min - 1),
     )
     assert check_scope_containment(lower, _cells())
+
+
+def test_a_placebo_row_widened_to_the_band_draw_fails_containment() -> None:
+    # Deliberate-mutation control of the placebo-draw axis (X82 part J): no SP cell ran the
+    # band-rank draw, so a placebo row that claimed it would reach fits no cell ran.
+    placebo = next(row for row in _rows() if row.instrument == "placebo")
+    assert placebo.scope.placebo_draws == frozenset({"permute"})
+    assert check_scope_containment(placebo, _cells()) == []
+    widened = replace(
+        placebo,
+        scope=replace(placebo.scope, placebo_draws=frozenset({"permute", "band_permute"})),
+    )
+    assert check_scope_containment(widened, _cells())
+    subset = next(row for row in _rows() if row.instrument == "subset")
+    assert subset.scope.placebo_draws is None
+    marked = replace(subset, scope=replace(subset.scope, placebo_draws=frozenset({"permute"})))
+    assert check_scope_containment(marked, _cells())
 
 
 def _t2_placebo(n: int) -> bool | None:

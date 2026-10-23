@@ -440,23 +440,41 @@ class TestAdapter:
         )
         assert _refuse_placebo_kernel(nothing, request) is None  # type: ignore[arg-type]
 
-    def test_a_history_dependent_support_refuses_the_placebo(self) -> None:
+    def test_a_history_dependent_support_takes_the_band_rank_placebo(self) -> None:
+        # X82 part J replaced the #428 refusal: a support that reads the history is admitted,
+        # and only the cases the band-rank draw does not implement are refused.
         request = _RefuteRequest(estimand=CONTRAST, tests=("placebo",))
+        frame = pd.DataFrame(
+            {
+                "W": np.repeat([0.0, 1.0], 20),
+                "A1": np.tile(np.linspace(0.1, 0.9, 20), 2),
+                "A2": np.tile(np.linspace(0.2, 0.8, 20), 2),
+                "Y": np.arange(40.0),
+            }
+        )
 
         def stand_in(support: Any) -> Any:
-            return SimpleNamespace(
-                assessment_family="longitudinal",
-                data=SimpleNamespace(has_mixed_node=False, dose_supports=(support,)),
+            data = LongitudinalData.from_frame(
+                frame,
+                outcome="Y",
+                treatment=["A1", "A2"],
+                baseline=["W"],
+                time_varying=[[], []],
+                continuous_treatment={"A1": None, "A2": support},
             )
+            return SimpleNamespace(assessment_family="longitudinal", data=data)
 
-        refusal = _refuse_placebo_kernel(
-            stand_in(Support(0.0, lambda h: 6.0 + h["W"])),
-            request,
-        )
-        assert refusal is not None
-        assert refusal.roadmap == "X82"
+        banded = Support(0.0, lambda h: 1.0 + np.asarray(h["W"], dtype=float))
+        assert _refuse_placebo_kernel(stand_in(banded), request) is None
         assert _refuse_placebo_kernel(stand_in(Support(0.0, 6.0)), request) is None
         assert _refuse_placebo_kernel(stand_in(None), request) is None
+        mixed = Support(
+            0.0, lambda h: np.where(np.asarray(h["W"], dtype=float) == 1.0, np.inf, 1.0)
+        )
+        refusal = _refuse_placebo_kernel(stand_in(mixed), request)
+        assert refusal is not None
+        assert refusal.roadmap == "X82"
+        assert "finite on some rows and infinite on others" in refusal.message()
 
     def test_noise_nodes_is_refused_on_the_parametric_g_formula(self, frame: pd.DataFrame) -> None:
         result: Any = ParametricGFormula(

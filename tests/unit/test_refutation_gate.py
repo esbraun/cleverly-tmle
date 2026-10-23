@@ -60,6 +60,7 @@ def _fit_configuration(**overrides: Any) -> FitConfiguration:
         "clusters": None,
         "arms": 2,
         "replicates": 5,
+        "placebo_draw": "permute",
     }
     base.update(overrides)
     return FitConfiguration(**base)
@@ -399,6 +400,7 @@ class TestScopeContainment:
                 arms=frozenset({2}),
                 nodes=frozenset({None}),
                 replicates=frozenset({5}),
+                placebo_draws=frozenset({"permute"}),
                 n_min=fit.n,
                 covariates_per_row_max=fit.covariates_per_row,
             ),
@@ -419,7 +421,10 @@ class TestScopeContainment:
         )
         smaller_n = replace(row, scope=replace(row.scope, n_min=row.scope.n_min - 1))
         more_covariates = replace(row, scope=replace(row.scope, covariates_per_row_max=0.5))
-        for mutated in (extra_learner, smaller_n, more_covariates):
+        band_draw = replace(
+            row, scope=replace(row.scope, placebo_draws=frozenset({"permute", "band_permute"}))
+        )
+        for mutated in (extra_learner, smaller_n, more_covariates, band_draw):
             assert check_scope_containment(mutated, cells)
         without_power = {key: cell for key, cell in cells.items() if key != "p1"}
         assert check_scope_containment(row, without_power)

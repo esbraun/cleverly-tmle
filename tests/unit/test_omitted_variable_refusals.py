@@ -1132,6 +1132,7 @@ PUBLIC_PARAMETERS: tuple[str, ...] = (
     "features",
     "limit_reading",
     "assumption",
+    "mechanism_learner",
 )
 
 
@@ -1204,7 +1205,7 @@ class TestReplaceKeepsTheStoredLimits:
         parameters = inspect.signature(SensitivityBounds).parameters
         assert tuple(parameters) == PUBLIC_PARAMETERS
         required = [name for name, p in parameters.items() if p.default is p.empty]
-        assert required == list(PUBLIC_PARAMETERS[:-8])
+        assert required == list(PUBLIC_PARAMETERS[:-9])
 
     @pytest.mark.parametrize(
         ("kind", "accessor"),
