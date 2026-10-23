@@ -133,7 +133,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_support(namespace)
     _check_assessment(namespace)
     _check_refusals(namespace)
-    _check_refits(namespace)
+    _check_refit_limits(namespace)
     _check_probe_logs()
     _check_prose_phrases(namespace)
 
@@ -732,8 +732,8 @@ class _NeverFit(LogisticRegression):
         raise AssertionError("the fit reached a learner")
 
 
-def _check_refits(namespace: dict[str, Any]) -> None:
-    """Step 11: the refits are descriptive, and each check the page skips is refused for its reason."""
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Step 11: the refits are descriptive, and print the numbers that the reading quotes."""
     report = namespace["report"]
     estimand = namespace["estimand"]
     assert estimand == _key("price_up")
@@ -748,10 +748,6 @@ def _check_refits(namespace: dict[str, Any]) -> None:
         # "Every row is descriptive": no registry row covers the fit.
         assert test.rung == "L0" and test.passed is None
     assert report.passed is None
-    printed = stored_output(NOTEBOOK, "refute")
-    assert "This fit differs on outcome family 'binomial'" in printed
-    # The banded placebo runs: each placebo price keeps the subscriber's band.
-    assert "The placebo dose keeps each unit's declared band" in printed
     placebo = report["placebo"]
     values = np.asarray(placebo.values)
     assert len(values) == 10
@@ -771,18 +767,29 @@ def _check_refits(namespace: dict[str, Any]) -> None:
     assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
         0.88, abs=0.01
     )
-    # The checks the page does not run are refused before any refit, for the reasons it gives.
-    result, revenue = namespace["result"], namespace["revenue_result"]
-    # "Every policy contrast is then exactly 0": the placebo reads against 0.
-    assert _placebo_null(result, estimand) == 0.0
     # "The revenue contrast takes the same tests": the banded placebo runs on the revenue fit too.
-    assert refute_refusal(revenue, estimand=estimand, tests=("placebo",)) is None
+    revenue = namespace["revenue_result"]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SparseInfluenceWarning)
         revenue_placebo = refute(
             revenue, estimand=estimand, tests=("placebo",), n_replicates=2, random_state=1000
         )["placebo"]
     assert len(revenue_placebo.values) == 2 and revenue_placebo.passed is None
+
+
+def _check_refit_limits(namespace: dict[str, Any]) -> None:
+    """Step 11: the stored output, and each check the page skips is refused for its reason."""
+    estimand = _key("price_up")
+    printed = stored_output(NOTEBOOK, "refute")
+    assert "This fit differs on outcome family 'binomial'" in printed
+    # The banded placebo runs: each placebo price keeps the subscriber's band.
+    assert "The placebo dose keeps each unit's declared band" in printed
+    # The checks the page does not run are refused before any refit, for the reasons it gives.
+    result, revenue = namespace["result"], namespace["revenue_result"]
+    # "Every policy contrast is then exactly 0": the placebo reads against 0.
+    assert _placebo_null(result, estimand) == 0.0
+    # The banded placebo is not refused on the revenue fit; check_refits runs it.
+    assert refute_refusal(revenue, estimand=estimand, tests=("placebo",)) is None
     for fit in (result, revenue):
         refusal = refute_refusal(
             fit,
