@@ -313,20 +313,20 @@ def check_refits(namespace: dict[str, Any]) -> None:
 
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
     """The robustness values, the benchmark of every recorded covariate, and the tipping point."""
-    # The bound reads the arm contrasts of the ATE fit, whose influence curves are those of the
-    # saturated coefficients (checked in check()), and the slope of the trend fit.
+    # The bound reads the slope of the trend fit.
     robustness = namespace["robustness"]
     slope = namespace["SLOPE"]
-    assert set(robustness) == {"ate[medium vs low]", "ate[high vs low]", slope}
-    assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
-    # "Among the differences from low, medium is weaker."
-    assert robustness["ate[medium vs low]"]["rv"] < robustness[slope]["rv"]
-    for values in robustness.values():
-        assert 0.0 < values["rva"] < values["rv"] < 1.0
+    # "a factor weaker than 0.394 on both sides cannot pull the slope to zero (0.367 for its
+    # lower 95% limit)". Witness: at equal strengths just above rv the point bound crosses zero.
+    assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
+    assert (f"{robustness['rv']:.3f}", f"{robustness['rva']:.3f}") == ("0.394", "0.367")
+    sensitivity = namespace["trend_result"].sensitivity
+    rv = robustness["rv"]
+    assert sensitivity.omitted_confounding(cf_y=rv - 0.01, cf_d=rv - 0.01, estimand=slope).lower > 0
+    assert sensitivity.omitted_confounding(cf_y=rv + 0.01, cf_d=rv + 0.01, estimand=slope).lower < 0
     # "False means no simulation study checks the slope's limits for this kind of fit."
-    assert robustness[slope]["limit_licensed"] is False
-    assert "limit_licensed" not in robustness["ate[high vs low]"]
-    assert "estimand kind" in robustness[slope]["limit_sentence"]
+    assert robustness["limit_licensed"] is False
+    assert "estimand kind" in robustness["limit_sentence"]
     # Every recorded covariate is benchmarked. "Discharge risk and age each reach 0.57 on the
     # weight side. With a rho of size 1, a missing confounder as strong as either would leave a
     # range of slopes that reaches below zero." "Support need reaches 0 on the weight side."
@@ -351,7 +351,6 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     # The bisection finds the weight-side strength at which the lower limit reaches zero when
     # cf_y = 1, and it lies far below the recorded confounders' strengths.
     tipping = namespace["tipping_cf_d"]
-    sensitivity = namespace["trend_result"].sensitivity
     at = sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping, estimand=slope)
     assert abs(at.ci_lower) < 1e-6
     assert (
