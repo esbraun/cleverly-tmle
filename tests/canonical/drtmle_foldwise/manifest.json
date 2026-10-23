@@ -1,0 +1,130 @@
+{
+  "schema_version": 2,
+  "study": "DR-TMLE with fold-wise reduced regressions",
+  "slug": "drtmle-foldwise",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-drtmle-foldwise",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "aa6db4098da66d8a277cbba6d60e0a12b3b1ee33",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 6000,
+    "n": 3000,
+    "seed": 20260824,
+    "resampling_seed": 2026083183,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-drtmle-foldwise": 0.01
+    },
+    "scenarios": {
+      "outcome_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "treatment_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "both_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "source_law": "Benkeser et al. (2017), Section 5.1",
+    "cross_fit": true,
+    "n_folds": 10,
+    "reduced_crossfit": "foldwise",
+    "reduction": "univariate",
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "update_order": "drtmle",
+    "max_outer": 100,
+    "max_iter": 100,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "stratify_folds": "none",
+    "folds": "canonical-drtmle's unstratified ten-fold vector, drawn by cleverly.random_partition from the sample's seed alone",
+    "draws": "canonical-drtmle's seed and scenario order, so replication r < 800 of each scenario is that study's registered replication r",
+    "nuisance_models": {
+      "correct": "unpenalized logistic GLM with W1:W2",
+      "misspecified": "unpenalized main-effects logistic GLM",
+      "reduced_Q": "Gaussian GLM",
+      "reduced_g": "binomial GLM"
+    },
+    "comparator": "none: Python property evidence, no comparator",
+    "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
+    "spline_reduced_learners": "cubic B-spline basis with 5 knots; least squares for the reduced outcome regression, logistic with C = 10000 for the reduced mechanism",
+    "reduced_learner_limit": "Piecewise-constant reduced learners (HistGradientBoosting with 10 iterations of depth 2, 100-neighbour k-NN) reached max_outer = 100 under both foldwise and pooled reduced regressions on two pilot draws of the paper law at n = 3,000. The study covers smooth reduced learners only: the canonical GLMs and the spline basis.",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/discrete_law.py": "c713584f4beb1016d6f7f50a538992dcd2a50fe271cd8537228a94e4a5feb834",
+    "tests/studies/drtmle_foldwise.py": "4833424c5ef89f975702cda49a25862ff8d0e6b6107f06add95ed8d6b79e74ec",
+    "tests/studies/drtmle_foldwise_properties.py": "f5dbb49c7b921cbaaf2cf2c035c3e32f90705c1f1e99a57915e54594adf35c84",
+    "tests/studies/canonical_drtmle.py": "1c7ac696862319febd0d06c461d30f724c8ede796800b4df987f82bea6f465f1",
+    "tests/studies/canonical_multi_arm_drtmle.py": "7ac5105254159dc52117235cf8bfd061b7b0d5f5ab96dbbe935f7dd624155887",
+    "tests/studies/canonical_stratified_drtmle.py": "66005e7060a34d7bb166b232eab45229d7655efdbefa56cb136ec632aa6f5dfb",
+    "tests/studies/multi_arm_common.py": "60f76754d0079b0a00994812f3d6208c7e6ba0f8ae060811e9db8c0ba1841697",
+    "tests/studies/multi_arm_drtmle_properties.py": "ecbd8ae8a44fc32f446a71931e49b34ae4ccad9c642a38fe08205fa416ec200c",
+    "tests/studies/multi_arm_properties.py": "2f7ded8fb0ea6c66799220f5db6654b21abffb306de53ec72e5ad9145d23b8a9",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "164068e5e54f7f898e6c80d3a4cd16cf3b01ff8213119a1e62de6e02965a2ddd",
+    "summary.csv": "1fac5fa56fdf78688c80094dee8df07cdad387d151bb0afca6dbf81059d9f13f",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "0a01b80508a88bb16f163eae914a396e40d00346f03e5bdac48cb823c7e30b44",
+    "property-replicates.parquet": "218755d5763dd3bcb862ea3363851e3d0fb14b00257c233dd6e8abacc51d7dbe",
+    "properties.csv": "5b8304187ded4b9d57a3da4694bd1c0992e636de16b375b5f44a7e8b0437b4a0"
+  }
+}

@@ -1,0 +1,22 @@
+=== drtmle-foldwise declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/drtmle_foldwise/regenerate.py --output /root/x83_runs/foldwise_9 --jobs 4
+commit: aa6db4098da66d8a277cbba6d60e0a12b3b1ee33; upstream aa6db4098da66d8a277cbba6d60e0a12b3b1ee33
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.0; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 f1b331a7a053ef2e25217e19b5fe21e351fe96cc5fa70fa4421d1f8282ee636e
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-23T22:30:28+00:00
+note: resumed from /root/.cache/cleverly/runs/drtmle-foldwise/46c038774d75, reused the Python phase
+finished: 2026-10-23T22:32:22+00:00
+wall seconds: 114.3
+exit code: 1
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: dd5744ecc194f0e3ae92c7ee00bc2fab07032b28887407e97d7a32629b55276c
+sha256 performance-tests.csv: 0a01b80508a88bb16f163eae914a396e40d00346f03e5bdac48cb823c7e30b44
+sha256 properties.csv: 5b8304187ded4b9d57a3da4694bd1c0992e636de16b375b5f44a7e8b0437b4a0
+sha256 property-replicates.parquet: 218755d5763dd3bcb862ea3363851e3d0fb14b00257c233dd6e8abacc51d7dbe
+sha256 replicates.parquet: 164068e5e54f7f898e6c80d3a4cd16cf3b01ff8213119a1e62de6e02965a2ddd
+sha256 summary.csv: 1fac5fa56fdf78688c80094dee8df07cdad387d151bb0afca6dbf81059d9f13f
+
