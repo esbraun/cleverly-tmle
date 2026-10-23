@@ -38,7 +38,7 @@ wrong.
 
 | # | rule | why |
 | --- | --- | --- |
-| R1 | Lead with the answer. Open each example with an "At a glance" section: the question in one sentence, the answer with its interval in plain words, the one caveat that matters most, and the list of sections | the reader decides in 30 seconds whether this page is theirs |
+| R1 | Lead with the answer. Open each example with an "At a glance" section: the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most. Skip a list of the sections, which the sidebar already shows | the reader decides in 30 seconds whether this page is theirs |
 | R2 | Put the main path first: the data, the naive comparison, setting up the analysis, the estimate, the checks, and the conclusion. Move theory and comparisons between estimators into a "Go deeper" section after the conclusion, unless that lesson is the point of the page | the reader wants to run the analysis before learning why it works |
 | R3 | Define each unavoidable technical term in plain words the first time it appears, in the sentence that uses it. Link to the reference page for the precise version | a separate table of terms is read once and forgotten |
 | R4 | Do not lean on `cleverly`'s own vocabulary. Say what the code does in ordinary words, then give the API name in backticks: "describe the study (`StudyProtocol`)". [Library words](#library-words-and-their-plain-replacements) lists the replacements | library terms are the hardest jargon, because the reader cannot look them up anywhere else |
