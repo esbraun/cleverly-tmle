@@ -900,10 +900,20 @@ def _consistent_draws(
         # A fit that selects nothing is the ordinary TMLE fit, so the redirection stands.
         raise CapabilityError.from_refusal(lifted)
     if mechanism_learner is not None and method != "collaborative_tmle":
+        if method == "drtmle":
+            reason = (
+                "A DRTMLE bound reads the fit's own primary mechanism and refits nothing. "
+                "Omit mechanism_learner."
+            )
+        else:
+            reason = (
+                "This bound already reads the fit's own mechanism and refits nothing, so it "
+                "needs neither keyword. Omit mechanism_learner and "
+                "assume_consistent_mechanism."
+            )
         raise ValueError(
             "mechanism_learner= declares the learner a selecting CTMLE fit refits for the "
-            f"consistent-mechanism bound, and this is a {method!r} fit. A DRTMLE bound reads "
-            "the fit's own primary mechanism and refits nothing. Omit mechanism_learner."
+            f"consistent-mechanism bound, and this is a {method!r} fit. {reason}"
         )
     if lifted is None:
         raise ValueError(

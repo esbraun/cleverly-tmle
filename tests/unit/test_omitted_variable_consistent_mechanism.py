@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 import pytest
+from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.datasets import make_binary_outcome, make_instrument
@@ -353,6 +354,7 @@ class TestThePerArmParametricPointBound:
         assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert "per-arm" in str(raised.value)
         alternative = raised.value.refusal.alternative
+        assert alternative is not None
         assert "mechanism_learner=" in alternative
         assert "ordinary TMLE" in alternative
 
@@ -381,8 +383,6 @@ class TestThePerArmParametricPointBound:
 
     def test_an_intercept_only_learner_moves_nu2(self, collaborative: Any) -> None:
         """Mutation control: the declared learner is the one the representer reads."""
-        from sklearn.dummy import DummyClassifier
-
         (fitted,) = ov._consistent_draws(
             collaborative, "ate", "auto", LogisticRegression(max_iter=1000)
         )
@@ -408,6 +408,25 @@ class TestThePerArmParametricPointBound:
         assert "consistent for the mechanism" in bound.assumption
         assert bound.limit_refusal is not None
         assert bound.psi == collaborative["ate"].psi
+
+    def test_the_facade_still_refuses_the_keyword(self, collaborative: Any) -> None:
+        """The result facade gates on the bare row, so only the free function runs the bound.
+
+        The facade reads the fit-wide row before it reads any argument, and that row refuses
+        a selecting C-TMLE fit.  A declared learner therefore cannot reach a cached bound
+        through the facade.  Wiring the keyword into the facade is a separate change.
+        """
+        for learner in (None, LogisticRegression(max_iter=1000)):
+            with pytest.raises(CapabilityError) as raised:
+                collaborative.sensitivity.omitted_confounding(
+                    "ate",
+                    cf_y=CF,
+                    cf_d=CF,
+                    assume_consistent_mechanism=True,
+                    mechanism_learner=learner,
+                )
+            assert "is unavailable" in str(raised.value)
+        assert not collaborative.assessment_cache
 
 
 class TestTheDeclaredMechanismLearner:
@@ -439,17 +458,18 @@ class TestTheDeclaredMechanismLearner:
 
     def test_a_drtmle_or_tmle_fit_rejects_it(self, drtmle_pair: tuple[Any, Any]) -> None:
         plain, guarded = drtmle_pair
-        with pytest.raises(ValueError, match="refits nothing"):
+        with pytest.raises(ValueError, match="A DRTMLE bound reads"):
             omitted_variable_bounds(
                 guarded,
                 "ate",
                 assume_consistent_mechanism=True,
                 mechanism_learner=LogisticRegression(),
             )
-        with pytest.raises(ValueError, match="refits nothing"):
+        with pytest.raises(ValueError, match="needs neither keyword") as raised:
             omitted_variable_bounds(
                 plain,
                 "ate",
                 assume_consistent_mechanism=True,
                 mechanism_learner=LogisticRegression(),
             )
+        assert "DRTMLE" not in str(raised.value)
