@@ -235,12 +235,17 @@ def check(namespace: dict[str, Any]) -> None:
     assert "max |clever covariate| (mean): 81.76" in assessment_output
     assert "nuisance fits look reasonable" in assessment_output
     assert "out-of-fold predictions" in assessment_output
-    # The status table prints only the rows that ran or run on request.  The omitted-variable
-    # rows and the E-value do not run for a fit with a response mechanism and stay off the page.
+    # The omitted-variable bound admits a response mechanism, so its rows run.  The benchmark
+    # refits, so the default assessment defers it.
     ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])
-    for row in (*OMITTED_VARIABLE_OPERATIONS, "evalue"):
-        assert str(ledger.loc[("sensitivity", row), "status"]) == "unavailable"
-        assert not re.search(rf"sensitivity\s+{row}\b", assessment_output)
+    for row in OMITTED_VARIABLE_OPERATIONS:
+        status = "deferred" if row == "benchmark" else "completed"
+        assert str(ledger.loc[("sensitivity", row), "status"]) == status
+        assert re.search(rf"sensitivity\s+{row}\s+{status}", assessment_output)
+    # The E-value standardizes by a missing-at-random plug-in of sd(Y), which fits one more
+    # outcome regression, so the default assessment defers it.
+    assert str(ledger.loc[("sensitivity", "evalue"), "status"]) == "deferred"
+    assert re.search(r"sensitivity\s+evalue\s+deferred", assessment_output)
     assert "unavailable" not in assessment_output and "not_applicable" not in assessment_output
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"

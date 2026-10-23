@@ -254,8 +254,11 @@ POWER_FLOOR = 0.95
 FAILURE_FLOOR = 0.99
 #: Every calibration arm is piloted on at least this many draws.
 POOLED_DRAWS = 3_000
-#: The declared total CPU-hours of a full run, from the timed pilot fits (``cpu_hours``).
-BUDGET_CPU_HOURS = 10.98
+#: The declared total CPU-hours of the Python phases of a full run, from the timed pilot fits
+#: (``cpu_hours``), at the comparator's 1,600 primary replicates.  The container phase of the
+#: comparator adds about 2.2 CPU-hours (the two DynamicDML variants), which ``cpu_hours`` does not
+#: count.
+BUDGET_CPU_HOURS = 11.45
 #: The chance that all 61 calibration cells pass at the declared replicates, under the rule.
 DECLARED_FAMILY_PASS = 0.952
 
@@ -269,11 +272,11 @@ def test_the_declared_numbers() -> None:
     assert (record.n, record.replicates) == (study.PRIMARY_N, study.PRIMARY_REPLICATES)
     assert record.publication_policy == "reporting"
     assert record.margins == Margins()
-    assert record.reference is None
-    assert record.pending_reference == "econml"
-    assert record.pending_reason
+    assert record.reference == "econml"
+    assert record.pending_reference is None
+    assert record.reference_scenarios == study.REFERENCE_SCENARIOS
     assert record.comparison == "matching implementation"
-    assert record.comparator_state == "pending"
+    assert record.comparator_state == "compared"
     assert record.calibration_efficiency_ratio is False
     assert record.failure_bound == {study.IMPLEMENTATION: 0.01, "econml": 0.01}
     assert properties.FAILURE_BOUND == study.FAILURE_BOUND == 0.01

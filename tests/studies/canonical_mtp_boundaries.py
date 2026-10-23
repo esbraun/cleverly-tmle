@@ -498,12 +498,14 @@ def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.D
 
 
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """A replication that either side lost leaves its witness rows unpaired, so it counts."""
+    """A replication that either side lost leaves its witness rows unpaired, so it counts.
+
+    A failure record names its scenarios in one ``;``-joined field, so the lost fits are expanded
+    before the atom scenarios, which are not witnesses, are dropped.
+    """
+    lost = evidence_failures.expand(failures, STUDY)
+    witnesses = lost.loc[lost["scenario"].isin(EXACT), ["scenario", "replicate"]]
     return evidence_failures.audits(
         scientific_failures(artifacts),
-        missing={
-            tools.EXACTNESS_AUDIT: evidence_failures.missing_fits(
-                failures.loc[failures["scenario"].isin(EXACT)], STUDY
-            )
-        },
+        missing={tools.EXACTNESS_AUDIT: len(witnesses.drop_duplicates())},
     )

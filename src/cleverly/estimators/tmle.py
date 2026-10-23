@@ -852,6 +852,11 @@ class TMLE:
 
     _assessment_method = "tmle"
 
+    #: Whether :func:`~cleverly.sensitivity.simulated_confounding` replays a binary point fit
+    #: of this class: :meth:`refit` refits every nuisance on a perturbed table.  The surface
+    #: reads the declaration of the exact class, so a subclass declares its own.
+    simulated_confounding_replay = True
+
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
@@ -976,6 +981,11 @@ class TMLE:
         if self.msm is not None:
             refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
+
+    #: Realized outer splits that a refit uses in place of drawing one. Only the copy that
+    #: :meth:`refit` builds sets it, so no constructor argument and no fitted result holds it.
+    _frozen_folds: tuple[Folds, ...] | None = None
+    _frozen_seeds: tuple[int, ...] | None = None
 
     def __init__(
         self,
@@ -1511,6 +1521,8 @@ class TMLE:
         *,
         intermediate_value: float | None = None,
         random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int] | None = None,
     ) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
 
@@ -1542,7 +1554,8 @@ class TMLE:
         holding the fingerprint here would refuse the placebo and negative-control
         refutations for a change that moves no row.  What a refit cannot do is change the
         row *set*: the count check inside ``validate`` still refuses that, and
-        :func:`~cleverly.validation.refute` refuses the subsampling test up front.
+        :func:`~cleverly.validation.refute` refits the subsampling test on the original labels
+        of the kept rows (``frozen_folds``) and refuses the bootstrap test up front.
         :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
         refit accepts the plan and draws its labels again to check them.
 
@@ -1561,6 +1574,15 @@ class TMLE:
             The value of the intermediate variable the controlled direct effect fixes.
         random_state : int or None
             Seed of the refit.  ``None`` keeps this estimator's own.
+        frozen_folds : sequence of Folds or None
+            One realized outer split per repeat, for the rows of ``data``.  The refit uses
+            these labels instead of drawing a split.  The data-subset refutation passes the
+            original fit's labels of the drawn units, so the refit's fold noise is the
+            original's and no split is redrawn.  ``None`` draws the split as usual.
+        frozen_seeds : sequence of int or None
+            One seed per repeat, replacing the seeds the plan would spawn from
+            ``random_state``.  The noise-covariate refutation passes the seeds of the
+            original repeats, so each repeat draws the original's folds and learner seeds.
 
         Returns
         -------
@@ -1568,6 +1590,14 @@ class TMLE:
             The result of the whole fit on ``data``.
         """
         estimator = self._configured_for_refit(data)
+        if frozen_folds is not None:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator._frozen_folds = tuple(frozen_folds)
+        if frozen_seeds is not None:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator._frozen_seeds = tuple(frozen_seeds)
         plan = estimator.split_plan
         if plan is not None and plan.source_fingerprint is not None:
             if estimator is self:
@@ -2024,7 +2054,7 @@ class TMLE:
                     extra = draw_extra
 
         # The construction this fit ran, which every reader of the result branches on.
-        extra = {**extra, "missing_data": missing_data_route(self, data)}
+        extra = {**extra, "missing_data": self._missing_data_route(data, estimands)}
         self._warn_on_positivity(data, nuisances[0], config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
@@ -2168,6 +2198,27 @@ class TMLE:
             )
         record_fit(classification, result, source="TMLE._fit_single")
         return result
+
+    def _missing_data_route(self, data: CausalData, estimands: tuple[str, ...]) -> str:
+        """The construction this fit records under ``extra["missing_data"]``.
+
+        A hook so that an estimator with its own route rule records it without a copy of
+        :meth:`_fit_single`. ``estimands`` is the resolved target list of the fit.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : tuple of str
+            The resolved targets. This route rule does not read them.
+
+        Returns
+        -------
+        str
+            One of :data:`~cleverly.estimators.composite.MissingDataRoute`.
+        """
+        del estimands
+        return missing_data_route(self, data)
 
     def _targeted_draw(
         self,
@@ -3221,7 +3272,11 @@ class TMLE:
             data, estimands
         ):
             return
-        names = {"collaborative_tmle": "C-TMLE", "drtmle": "DR-TMLE"}
+        names = {
+            "collaborative_tmle": "C-TMLE",
+            "drtmle": "DR-TMLE",
+            "adaptive_iptw": "AdaptiveIPTW",
+        }
         self._check_training_support(
             data,
             folds,
@@ -3703,8 +3758,22 @@ class TMLE:
         seeds = tuple(
             _fresh_seed() if seed is None else seed for seed in self.crossfit_plan(data).seeds()
         )
+        if self._frozen_seeds is not None:
+            if len(self._frozen_seeds) != len(seeds):
+                raise DataError(
+                    "frozen_seeds must hold one seed per repeat; "
+                    f"got {len(self._frozen_seeds)} for {len(seeds)} repeat(s)"
+                )
+            seeds = self._frozen_seeds
         supplied = self.split_plan
-        if supplied is None:
+        if self._frozen_folds is not None:
+            folds = self._frozen_folds
+            if len(folds) != len(seeds) or any(draw.n != data.n for draw in folds):
+                raise DataError(
+                    "frozen_folds must hold one split of the refit's rows per repeat; "
+                    f"got {len(folds)} split(s) for {len(seeds)} repeat(s)"
+                )
+        elif supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
             # The record check comes first: labels the recorded generator does not draw
@@ -3805,6 +3874,7 @@ class TMLE:
         companion: CausalData | None = None,
         fit_treatment: bool = True,
         fit_treatment_observation: bool = True,
+        fit_outcome: bool = True,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
@@ -3871,6 +3941,7 @@ class TMLE:
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
             outcome_by_arm=self.outcome_by_arm,
+            fit_outcome=fit_outcome,
         )
         if tuned is not None:
             assert estimates.policies is not None

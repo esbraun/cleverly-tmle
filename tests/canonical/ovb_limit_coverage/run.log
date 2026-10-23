@@ -1,0 +1,22 @@
+=== ovb-limit-coverage declared run
+command: /usr/bin/python /home/user/cleverly-tmle/tests/canonical/ovb_limit_coverage/regenerate.py --output /tmp/claude-0/ovb_out_run --jobs 4
+commit: 11d94841977e784836076165ed7287207643167e; upstream 11d94841977e784836076165ed7287207643167e
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 dc3c467fe9e70e624c9c20fecbd465de6a22b552800435bbbcbc3f891fd92b00
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-22T22:16:39+00:00
+finished: 2026-10-22T22:20:35+00:00
+wall seconds: 236.1
+exit code: 0
+sha256 cells.csv: 4b7680d5daeed90a510c600c909b80ba5aafc20160cde4ff6b26347903bbe1d9
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: faf11139239b2d4dbc60d18c3d692ade3aaeb015c883de9b22325121a9b92a9b
+sha256 performance-tests.csv: e20d3720fcb61624601693777f731c8b568800a6ba81bf296d8bae9b2ae1b473
+sha256 properties.csv: 2264882d959e8dab0659219453f6e96916731cf96d264e63754567d8f22c4489
+sha256 property-replicates.parquet: 4ceea78eba25c5aeb59d7a442c9f3ce6ddfafc28dd4a93cd0638f927e9749dd0
+sha256 replicates.parquet: 8c4741a75a12a58465af54fcb318de90ac32ebcad4d00961901f4ca8d11d7c6f
+sha256 summary.csv: 0fec54d3292b35db05046952f25abb2b5777220d463360758b5c2c7d318c75cb
+

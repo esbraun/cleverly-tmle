@@ -335,7 +335,7 @@ Run `python -m tests.canonical.ctmle_oat_per_arm_parametric_crossfit.regenerate`
 artifacts. The directory
 [`tests/canonical/ctmle_oat_per_arm_parametric_crossfit`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/canonical/ctmle_oat_per_arm_parametric_crossfit)
 holds `manifest.json`, `run.log` and the committed results. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric_crossfit/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric_crossfit/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric_crossfit/properties.csv)
 carry every published row. The run used commit `a1a87015` on a clean tree and 4,566 wall seconds on
 four cores.

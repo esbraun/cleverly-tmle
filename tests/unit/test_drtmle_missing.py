@@ -165,13 +165,17 @@ def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_wor
     randomized_fit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _MISSING_OUTCOME_REFUSAL
+    # X82 part F (e): a missing outcome is no longer a fit-wide stop.  A moved treatment
+    # still needs the observation declaration, unless an earlier fit-wide stop applies.
     forbid_draw_and_refit(monkeypatch, randomized_fit.estimator)
+    fit_wide = _fit_wide_refusal(randomized_fit)
+    assert fit_wide != _MISSING_OUTCOME_REFUSAL
     capability = randomized_fit.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    assert _fit_wide_refusal(randomized_fit) == reason
+    if fit_wide is not None:
+        assert not capability.available
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        assert capability.refusal == fit_wide
+    reason = fit_wide or _MISSING_OUTCOME_REFUSAL
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
             randomized_fit,
@@ -821,7 +825,7 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
 
 #: The fit of ``mar-drtmle`` replicate 0, recorded on the unmodified tree before the
 #: K-arm change (6a55f038), as ``float.hex``. The committed artifact
-#: ``tests/canonical/drtmle_mar/replicates.csv.gz`` holds these values exactly on the
+#: ``tests/canonical/drtmle_mar/replicates.parquet`` holds these values exactly on the
 #: Windows machine that recorded them (gap 0). The tolerance allows the last-ulp
 #: differences of another platform's BLAS, libm or solver path.
 _PRE_F4_REPLICATE_0 = {

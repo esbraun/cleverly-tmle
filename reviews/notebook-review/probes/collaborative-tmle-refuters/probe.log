@@ -1,0 +1,2 @@
+tmle placebo t -0.1807 mean se / sd 1.012; random_common_cause paired shift +0.0037; subset rho 0.983; 400 refits each in 12.2 s
+oat placebo t -0.1300 mean se / sd 1.010; random_common_cause paired shift +0.0011; subset rho 1.017; 400 refits each in 21.1 s

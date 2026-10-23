@@ -26,7 +26,8 @@ from tests.studies.evidence.failures import (
     filled,
     vertex,
 )
-from tests.studies.evidence.inference import clopper_pearson, student_interval
+from tests.studies.evidence.inference import Interval, clopper_pearson, student_interval
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     coverage_gain_interval,
@@ -231,7 +232,7 @@ def _committed(slug_module: str) -> tuple[StudyRecord, pd.DataFrame]:
     import importlib
 
     study = importlib.import_module(f"tests.studies.{slug_module}").STUDY
-    return study, pd.read_csv(study.artifact("property-replicates.csv.gz"))
+    return study, read_rows(study.artifact("property-replicates.parquet"))
 
 
 def _lose(rows: pd.DataFrame, losses: dict[str, int]) -> pd.DataFrame:
@@ -960,6 +961,64 @@ def _p9_spread_ratio(lose: bool = True) -> Control:
     return Control(rows, summary, study, "synthetic_spread", "subject", clause.name, rules)
 
 
+def _p9_spread_ratio_lower(lose: bool = True) -> Control:
+    """S9 with the fills of a ``lower`` clause: a control ratio of 1.02 must stay at or above 1.
+
+    The numerator is the denominator scaled by 1.02, so every resampled ratio is 1.02 and the
+    interval is the point.  The numerator's mean fills and the denominator's widest splits
+    lower the ratio under 1, the direction a control read on its upper endpoint is pushed.
+    """
+    study = _study()
+    size = 380 if lose else 400
+    lost = _every(20, 20) if lose else ()
+    reference = _signs(size)
+    reference[0], reference[1] = 2.0, -2.0
+    rows = pd.concat(
+        [
+            _arm(
+                "synthetic_lower",
+                "subject",
+                "positive",
+                requested=400,
+                lost=lost,
+                estimates=1.02 * reference,
+            ),
+            _arm(
+                "synthetic_lower",
+                "reference",
+                "diagnostic",
+                requested=400,
+                lost=lost,
+                estimates=reference,
+            ),
+        ],
+        ignore_index=True,
+    )
+    seed = 11
+    ratio = paired_spread_ratio_interval(
+        rows.loc[rows["cell"] == "subject"],
+        rows.loc[rows["cell"] == "reference"],
+        replicates=study.margins.bootstrap_replicates,
+        confidence_level=study.margins.confidence_level,
+        seed=seed,
+    )
+    clause = property_failures.spread_ratio_clause(
+        "control ratio reaches its boundary",
+        cells=("subject", "reference"),
+        side="lower",
+        judge=property_failures.upper_at_or_above_judge(lambda ctx: 1.0),
+        seed=lambda ctx, row: seed,
+        applies=property_failures.roles("positive"),
+    )
+    summary, rules = _synthetic(
+        "synthetic_lower",
+        rows,
+        {"spread_ratio_ci_lower": ratio.interval.low, "spread_ratio_ci_upper": ratio.interval.high},
+        clause,
+    )
+    return Control(rows, summary, study, "synthetic_lower", "subject", clause.name, rules)
+
+
 def _p10_extra_mean(lose: bool = True) -> Control:
     """S10: a share of 0.49 under a 0.5 cap; 20 lost rows at the support bound 1 exceed it."""
     study = _study()
@@ -1603,6 +1662,7 @@ LEG_CONTROLS = {
     "p7": _p7_coverage_gain,
     "p7 across keys": functools.partial(_p7_coverage_gain, across_keys=True),
     "p9": _p9_spread_ratio,
+    "p9 lower": _p9_spread_ratio_lower,
     "p10": _p10_extra_mean,
     **LEG_CONTROLS_REV3,
 }
@@ -1970,6 +2030,19 @@ class TestDifferential:
         shares = flipped.loc[control].groupby(["property", "cell"])["covered"].mean()
         assert np.allclose(shares, 0.5, atol=1.0 / 380)
 
+    def test_the_rounding_kind_scales_the_standard_errors_of_one_role(self) -> None:
+        _, rows = self._ladder()
+        kind = f"se_role/positive/{property_failures.ROUNDING_SE_FACTOR:g}"
+        assert kind in property_failures.composed_perturbations()
+        scaled = property_failures.perturbed(rows, kind)
+        chosen = (rows["role"] == "positive").to_numpy()
+        assert chosen.any()
+        assert np.allclose(
+            scaled["std_error"][chosen],
+            rows["std_error"][chosen] * property_failures.ROUNDING_SE_FACTOR,
+        )
+        pd.testing.assert_series_equal(scaled["std_error"][~chosen], rows["std_error"][~chosen])
+
     def test_a_composed_kind_applies_its_parts_in_order(self) -> None:
         _, rows = self._ladder()
         composed = property_failures.perturbed(rows, "se/1.03+coverage/0.9")
@@ -1983,18 +2056,40 @@ class TestDifferential:
         with pytest.raises(ValueError, match="unknown perturbation"):
             property_failures.perturbed(rows, "se/x")
 
-    def test_an_extra_column_is_scaled_and_shifted_in_one_cell(self) -> None:
+    def test_an_extra_column_is_scaled_shifted_and_floored_in_one_cell(self) -> None:
         _, rows = self._ladder()
         rows = rows.assign(bootstrap_failed=0)
         kinds = property_failures.extra_perturbations(rows)
         cells = rows.groupby(["property", "cell"]).ngroups
-        assert len(kinds) == 2 * cells
+        assert len(kinds) == 3 * cells
         shifted = property_failures.perturbed(rows, kinds[1])
         _, column, family, cell, how = kinds[1].split("|")
         assert (column, how) == ("bootstrap_failed", "shift")
         inside = (shifted["property"] == family) & (shifted["cell"] == cell)
         assert (shifted.loc[inside, column] == property_failures.EXTRA_SHIFT).all()
         assert (shifted.loc[~inside, column] == 0).all()
+        pd.testing.assert_frame_equal(
+            property_failures.perturbed(rows, kinds[2]), rows, check_dtype=False
+        )
+
+    def test_the_floor_kind_lowers_an_indicator_share_and_spares_a_constant_column(self) -> None:
+        _, rows = self._ladder()
+        flag = (np.arange(len(rows)) % 3 != 0).astype(float)
+        flag[1] = np.nan
+        rows = rows.assign(indicator=flag, constant=1.0)
+        floors = [k for k in property_failures.extra_perturbations(rows) if k.endswith("|floor")]
+        by_column = {kind.split("|")[1] for kind in floors}
+        assert by_column == {"indicator", "constant"}
+        kind = next(k for k in floors if k.startswith("extra|indicator|"))
+        _, column, family, cell, _ = kind.split("|")
+        floored = property_failures.perturbed(rows, kind)
+        inside = ((floored["property"] == family) & (floored["cell"] == cell)).to_numpy()
+        assert floored.loc[inside, column].mean() == pytest.approx(0.0, abs=1e-12)
+        assert floored.loc[inside, column].std() == pytest.approx(rows.loc[inside, column].std())
+        assert floored.loc[inside, column].isna().equals(rows.loc[inside, column].isna())
+        assert floored.loc[~inside, column].equals(rows.loc[~inside, column])
+        for kind in (k for k in floors if k.startswith("extra|constant|")):
+            assert property_failures.perturbed(rows, kind)["constant"].eq(1.0).all()
 
 
 def test_p34_a_module_that_writes_a_verdict_without_rules_is_reported() -> None:
@@ -3140,7 +3235,7 @@ class TestSummaryRows:
         from tests.studies.evidence.registry import registered
 
         (study,) = [record for record in registered() if record.slug == properties.STUDY.slug]
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        rows = read_rows(study.artifact("property-replicates.parquet"))
         configuration = properties.CONFIGURATION_BY_NAME["missing_outcome_crossfit"]
         names = ";".join(f"{configuration.family}/{cell}" for cell in configuration.cells)
         records = _records(_record_row(names, 7, group="properties/missing_outcome_crossfit"))
@@ -3180,3 +3275,35 @@ class TestSummaryRows:
         rows = _cell("power", "large")
         assert property_failures.summary_rows(SimpleNamespace(), rows) is rows
         assert property_failures.summary_rows(None, rows) is rows
+
+
+class TestUpperAtOrAboveJudge:
+    """The judge of a control whose ratio interval must still reach its boundary (X79)."""
+
+    @staticmethod
+    def _judge(low: float, high: float, threshold: float = 1.0) -> property_failures.Judged:
+        judge = property_failures.upper_at_or_above_judge(lambda ctx: threshold)
+        return judge(None, None, Interval(low, high))  # type: ignore[arg-type]
+
+    def test_the_upper_endpoint_at_the_threshold_passes_with_zero_slack(self) -> None:
+        judged = self._judge(0.8, 1.0)
+        assert judged.passed and judged.slack == 0.0
+
+    def test_an_upper_endpoint_below_the_threshold_fails_with_negative_slack(self) -> None:
+        judged = self._judge(0.4, 0.9)
+        assert not judged.passed and judged.slack == pytest.approx(-0.1)
+
+    def test_it_reads_the_upper_endpoint_and_not_the_lower(self) -> None:
+        """A nonzero witness: an interval that straddles the threshold passes, though its lower
+        endpoint is far below it and a floor judge on the same interval fails."""
+        judged = self._judge(0.4, 1.2)
+        floor = property_failures.floor_judge(lambda ctx: 1.0)
+        assert judged.passed and judged.slack == pytest.approx(0.2)
+        assert not floor(None, None, Interval(0.4, 1.2)).passed  # type: ignore[arg-type]
+
+    def test_it_is_the_complement_of_the_strict_below_judge_at_the_threshold(self) -> None:
+        below = property_failures.below_judge(lambda ctx: 1.0)
+        for high in (0.999, 1.0, 1.001):
+            interval = Interval(0.5, high)
+            judged = self._judge(0.5, high)
+            assert judged.passed is (not below(None, None, interval).passed)  # type: ignore[arg-type]

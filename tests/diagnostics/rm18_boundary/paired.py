@@ -144,7 +144,7 @@ def comparisons(paired: pd.DataFrame, record: Any, jobs: int) -> pd.DataFrame:
 def committed_paired() -> pd.DataFrame:
     """The committed 800 draws as paired rows (step 1)."""
     return paired_rows(
-        shared.read_rows(CROSSFIT.artifact("replicates.csv.gz")),
+        shared.read_rows(CROSSFIT.artifact("replicates.parquet")),
         shared.read_rows(CROSSFIT.artifact("reference-inference.csv.gz")),
     )
 
@@ -256,7 +256,7 @@ def registered_draws_reproduce(jobs: int, cap: int | None) -> list[dict[str, Any
     """The BD-P harness validation: the registered draws, through the step 2 path."""
     replicates = shared.budget(CROSSFIT.replicates, cap)
     rows, inference = draw_both(CROSSFIT, replicates, jobs)
-    committed = shared.read_rows(CROSSFIT.artifact("replicates.csv.gz"))
+    committed = shared.read_rows(CROSSFIT.artifact("replicates.parquet"))
     committed = committed.loc[committed["replicate"] < replicates]
     stored = shared.read_rows(CROSSFIT.artifact("reference-inference.csv.gz"))
     stored = stored.loc[stored["replicate"] < replicates]

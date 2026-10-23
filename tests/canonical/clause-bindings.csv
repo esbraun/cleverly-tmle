@@ -1,4 +1,14 @@
 subject,property,clause,perturbation
+adaptive-iptw,bias,bias discriminated,affine
+adaptive-iptw,bias,bias equivalent,none
+adaptive-iptw,interval_calibration,coverage in calibration band,bias
+adaptive-iptw,interval_calibration,se ratio in calibration band,none
+adaptive-iptw,root_n_points,bias equivalent,bias
+adaptive-iptw,root_n_rate,slope in root-n band,contract
+adaptive-iptw,simultaneous_coverage,joint coverage in calibration band,se_low
+adaptive-iptw,targeting_necessity,bias discriminated,pair_collapse
+adaptive-iptw,targeting_necessity,bias equivalent,none
+adaptive-iptw,targeting_necessity,least displacement over labels,control_concentrated
 calibration-slope-warning,power,rejection floor,rejection/0.01
 calibration-slope-warning,warning_rate,false warnings under the ceiling,se_low
 calibration-slope-warning,warning_rate,warnings above the ceiling,se_high
@@ -786,7 +796,9 @@ longitudinal-repeated-crossfit,ipsi_primary,coverage floor,coverage/0.5
 longitudinal-repeated-crossfit,ipsi_primary,se ratio in sanity band,se_high
 longitudinal-repeated-crossfit,repeat_increment,control increment at or above the ceiling,pair_collapse
 longitudinal-repeated-crossfit,repeat_increment,increment under its ceiling,se/2
-longitudinal-repeated-crossfit,repeat_stability,repeat spread ratio under its boundary above the spread floor,pair_collapse
+longitudinal-repeated-crossfit,repeat_stability,control spread ratio reaches its boundary,affine
+longitudinal-repeated-crossfit,repeat_stability,one-draw split variance above the spread floor,se_role/positive/100000
+longitudinal-repeated-crossfit,repeat_stability,repeat spread ratio under its boundary,mixed/4
 longitudinal-repeated-crossfit,root_n_and_efficiency,bias equivalent,bias
 longitudinal-repeated-crossfit,root_n_and_efficiency,coverage floor,affine
 longitudinal-repeated-crossfit,root_n_and_efficiency,se ratio sanity,se_high
@@ -1189,7 +1201,8 @@ repeated-crossfit-tmle,double_robustness,se ratio in union band,se/0.05
 repeated-crossfit-tmle,interval_calibration,coverage in calibration band,shift/0.7
 repeated-crossfit-tmle,interval_calibration,se ratio in calibration band,se/0.05
 repeated-crossfit-tmle,power,rejection floor,rejection/0.01
-repeated-crossfit-tmle,repeat_stability,repeat spread ratio under its boundary,pair_collapse
+repeated-crossfit-tmle,repeat_stability,control spread ratio reaches its boundary,control_concentrated
+repeated-crossfit-tmle,repeat_stability,repeat spread ratio under its boundary,mixed/7
 repeated-crossfit-tmle,root_n_and_efficiency,bias equivalent,bias
 repeated-crossfit-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
 repeated-crossfit-tmle,root_n_and_efficiency,se ratio sanity,se_high
@@ -1301,6 +1314,20 @@ stochastic-regimes,targeting_necessity,bias equivalent,bias
 stochastic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 stochastic-regimes,type_i_error,coverage floor,coverage/0.5
 stochastic-regimes,type_i_error,rejection ceiling,rejection/0.1
+survival-node-bounds,binding_witness,estimate moved share,extra|estimate_moved|binding_witness|mean_model__binding|floor
+survival-node-bounds,binding_witness,exceeds bound share,extra|exceeds_bound|binding_witness|mean_model__binding|floor
+survival-node-bounds,binding_witness,unconverged share,extra|converged|binding_witness|mean_model__binding|floor
+survival-node-bounds,bound_necessity,bias discriminated,pair_collapse
+survival-node-bounds,bound_necessity,bias equivalent,bias
+survival-node-bounds,bound_necessity,least displacement over labels,control_concentrated
+survival-node-bounds,bound_necessity,unconverged share,extra|converged|bound_necessity|f5_arm1__excluding_bound|floor
+survival-node-bounds,interval_calibration,coverage in calibration band,shift/0.7
+survival-node-bounds,interval_calibration,efficiency above band,pair_collapse
+survival-node-bounds,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+survival-node-bounds,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+survival-node-bounds,interval_calibration,se ratio below band,se_high
+survival-node-bounds,interval_calibration,se ratio in calibration band,se/0.95
+survival-node-bounds,interval_calibration,unconverged share,extra|converged|interval_calibration|mean_model_f5_arm1__correctly_specified|floor
 tests.studies.long_horizon_categorical_ltmle_properties,categorical_probability_necessity,bias discriminated,pair_collapse
 tests.studies.long_horizon_categorical_ltmle_properties,categorical_probability_necessity,bias equivalent,bias
 tests.studies.long_horizon_categorical_ltmle_properties,censoring_necessity,bias discriminated,pair_collapse

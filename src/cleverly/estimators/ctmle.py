@@ -1986,6 +1986,8 @@ default="greedy"
     """
 
     _assessment_method = "collaborative_tmle"
+    #: The refit reruns the collaborative search on the perturbed table.
+    simulated_confounding_replay = True
 
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Name the status of each strategy, and admit the one fit that selects nothing.

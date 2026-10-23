@@ -100,7 +100,7 @@ bytes it published before.
 | --- | --- |
 | `property-failures.csv` | one record for each failed fit, with the columns of `failures.csv`. The `scenarios` field lists the `property/cell` names that the fit writes |
 | `property-failure-accounting.csv` | for each summary row that read a lost replicate: the bound, then one row for each declared clause. Each clause row gives the complete-case slack, the worst-case slack, the label, and the gate |
-| `property-failure-witnesses.csv` | the witness of each draw in each cell that lost a replicate |
+| `property-failure-witnesses.parquet` | the witness of each draw in each cell that lost a replicate |
 
 #### Record and stamp rules
 
@@ -171,7 +171,7 @@ the case `k = 0` reproduces the complete case.
 | S5 SE and efficiency ratio intervals | calibration bands and controls | the S4 set, through `ratio_intervals` | enumerated | `range` |
 | S6 rate slope | root-n rate, contraction slopes | for each lost rung, every vertex split and one fill at the survivor mean, with exact pruning. For a bias slope, the fill nearest a zero mean replaces the survivor-mean fill | point exact, interval enumerated | `range` |
 | S7 coverage gain | paired overfitting and clustered gain | a lost positive arm at `covered = 0`, a lost control arm at `covered = 1`, the surviving arms at their real values | exact | `support` |
-| S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a lower bound | point exact, interval enumerated | `range` |
+| S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a ratio that must stay at or above its boundary | point exact, interval enumerated | `range` |
 | S10 extra column mean | a cap or a floor on a published column | the lost rows at the adverse support bound for a share, otherwise at the survivor maximum or minimum | exact | `support` for a share, else `range` |
 | S12 paired displacement | the 16 necessity families | the attainable difference of the arm means, with `sd` of the left arm held | exact under the held scale | `range` |
 | S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` |
@@ -209,7 +209,7 @@ rule never infers a pair from a cell name.
 | `known_mechanism_accuracy`, `ordinary_targeting`, `treatment_complete_case` | S1, S2, S4 as the verdict applies them | `row` |
 | `bootstrap_coverage` | S2 floor | `row` |
 | `randomizer_projection` | S1 on each arm, S9 on the pair of projections | `family` |
-| `repeat_stability` | S9 | `row` |
+| `repeat_stability` | S9 on the three-draw ratio (positive rows) and on the second-draw ratio (control, upper endpoint at or above the boundary); the longitudinal study adds the share clause | `family`, or `label` in `longitudinal-repeated-crossfit` |
 | `single_robustness` | S14 over the two sizes | `family` |
 | `sequential_double_robustness` | S14 over the two sizes, with S1, S2, S4 on the both-correct pattern | `pair`, `row` |
 | `clustered_calibration`, `weighted_calibration` | S5 and S2 in the band | `row` |
@@ -245,7 +245,7 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 
 | check | where | content |
 | --- | --- | --- |
-| differential | the `property-differential` job of `.github/workflows/ci.yml`, from `tests/canonical/property_differential.py` | The job perturbs the property rows of every committed study. It also perturbs synthetic rows of the uncommitted modules and of `longitudinal_sdr_properties`. The committed `longitudinal-sdr` rows give no witness for one clause. It summarizes them with the study's own code. The declared rules must give the same `passed` and `property_passed` on every verdict row. The perturbations scale `std_error`, shift `estimate`, flip indicators, push a slope across zero, collapse one arm of a pair, apply a seeded affine map, and scale or shift each extra column |
+| differential | the `property-differential` job of `.github/workflows/ci.yml`, from `tests/canonical/property_differential.py` | The job perturbs the property rows of every committed study. It also perturbs synthetic rows of the uncommitted modules and of `longitudinal_sdr_properties`. The committed `longitudinal-sdr` rows give no witness for one clause. It summarizes them with the study's own code. The declared rules must give the same `passed` and `property_passed` on every verdict row. The perturbations scale `std_error`, shift `estimate`, flip indicators, push a slope across zero, collapse one arm of a pair, apply a seeded affine map, and scale, shift or floor each extra column |
 | clause binding | the same job | Each clause that a subject uses must decide a verdict alone under a perturbation of that subject. Many clauses read a threshold of their own module, so a witness in another study does not bind them. `tests/canonical/clause-bindings.csv` names one perturbation for each subject and clause. The search adds a two-point grid for a module's own band, and role-restricted and composed kinds, where the shared kinds bind nothing |
 | binding reasons | the same job | A pair that its subject cannot decide alone has a row in `tests/canonical/clause-binding-reasons.csv`. The job verifies each reason. The reasons follow this table |
 | no-loss candidates | the same job | At `k = 0`, each candidate of each clause of each subject must give the complete-case value and verdict (F18). This covers every statistic type |
@@ -376,7 +376,7 @@ comparator has to reach.
 | R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
 | R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
 | archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
-| R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the replay gates and the descriptive paired rows of the binary `canonical-ctmle-sequences` study, and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the declared C-TMLE0 comparator of the `ctmle-derivative` study, whose runs are pending, and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
+| R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the replay gates and the descriptive paired rows of the binary `canonical-ctmle-sequences` study, and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the C-TMLE0 comparator of the `ctmle-derivative` study and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
 | Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator and not planned as a roadmap priority. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so the implementation is not suitable for a numerical comparison without a fold audit. |
 
 ### Multi-arm selector recommendation
@@ -475,13 +475,18 @@ evidence. This policy writes failed statistical verdicts. It does not permit an 
 replication, invalid schemas, non-finite estimates, or incomplete provenance. Existing studies use
 `publication_policy="gated"` unless they declare otherwise.
 
-Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
+Published studies retain `replicates.parquet`, `property-replicates.parquet`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. A run with a recorded comparator failure also retains `failures.csv` and
 `failure-accounting.csv`. A run with a recorded property failure also retains
-`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.csv`.
+`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.parquet`.
 Run a disposable smoke study first, then the declared study without permitting
 failed replications. The [red cells](#red-cells) section states what may change after a result.
+
+The three row files are Parquet files. Write them with `write_rows` and read them with
+`read_rows`, both in `tests/studies/evidence/manifest.py`. The function `csv_text` returns the
+canonical CSV text of a row file.
+The footer of a Parquet file names the `pyarrow` version that wrote it. Write row files with the `pyarrow` version that `uv.lock` pins. To tell whether a row file moved, compare its `csv_text` and not its bytes.
 
 A regeneration owns its declared core budget. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
 beside a study regeneration. Documentation quotes measured values through

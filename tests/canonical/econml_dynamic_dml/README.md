@@ -6,7 +6,7 @@ This directory holds the comparator for `StructuralNestedMean`. The comparator i
 | file | role |
 | --- | --- |
 | `requirements.txt` | Hash-pinned environment. The `econml` entry holds one hash, the cp313 manylinux2014 x86_64 wheel. |
-| `Dockerfile` | Builds that environment on a pinned `python:3.13-slim-bookworm` digest. |
+| `Dockerfile` | Builds that environment on a pinned `python:3.13-slim-bookworm` digest. An optional build secret supplies a CA bundle to pip. |
 | `generate_parity_fixture.py` | Draws the parity cases, fits EconML, and writes the fixture. |
 | `run_generator.sh` | Builds the container and runs the generator in it. |
 | `parity_fixture.json` | The committed inputs, folds, and EconML coefficients, covariances and contrast errors. |
@@ -19,11 +19,12 @@ the route under `environment`. The test `tests/unit/test_structural_econml_parit
 the committed generator differs from the recorded one. Regenerate the fixture after any edit to
 the generator.
 
-The committed fixture did not come from the container. Its `environment` entry names a virtual
-environment whose installed distributions equal the pins of `requirements.txt`, on Python 3.13.16.
-A second run in that environment reproduces the committed numbers byte for byte. The container
-has not been built. Build it once and regenerate the fixture before the comparator phase, so that
-the recorded route is `container`.
+The committed fixture came from the container (`environment.route` is `container`). A
+session whose egress re-terminates TLS builds the image once with
+`docker build --secret id=pip_cert,src=<CA bundle> -t cleverly-econml-parity .`. The secret
+reaches pip only and enters no layer. A later `docker build` without it reuses the cached layer.
+The hashes of `requirements.txt` fix every installed file, so the secret does not change the image
+content. Two container builds on two hosts gave fixtures that agree within 8.9e-16.
 
 The fixture holds no study replicates. The full comparator study runs later and has its own
 manifest.

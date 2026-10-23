@@ -296,14 +296,15 @@ def _study_fit_with_missingness():  # type: ignore[no-untyped-def]
     )
 
 
-class TestSensitivityRefusesAConditionalParameterRatherThanApproximatingIt:
+class TestSensitivityAnswersAConditionalParameterAsItsOwnFunctional:
     """A stratum key copies the marginal one; only ``stratum`` tells them apart.
 
     ``CausalStudy._point_parameter_keys`` mints ``ate[V='low']`` from the marginal ``ate``
     key with ``replace(alias=..., stratum=...)``, so arm, reference, axis and estimand are
     all identical. A resolver that reads everything *except* ``stratum`` therefore answers
     the marginal question under the conditional name -- and silently, since the alias is a
-    real reported parameter rather than a typo.
+    real reported parameter rather than a typo.  Since X82 part G the bound answers the
+    conditional parameter with its own representer, and the tilt still refuses it.
     """
 
     def test_the_conditional_aliases_are_not_arm_parameters(self) -> None:
@@ -313,19 +314,12 @@ class TestSensitivityRefusesAConditionalParameterRatherThanApproximatingIt:
         assert "ate" in known
         assert not [name for name in known if "V=" in name]
 
-    def test_the_bound_refuses_the_conditional_parameter_by_name(self) -> None:
+    def test_the_bound_answers_the_conditional_parameter_by_name(self) -> None:
         result = _study_fit()
-        with pytest.raises(CapabilityError, match="conditional on a baseline stratum"):
-            result.sensitivity.omitted_confounding(estimand="ate[V='low']")
-
-    def test_the_refusal_is_not_the_never_requested_one(self) -> None:
-        result = _study_fit()
-        with pytest.raises(CapabilityError) as caught:
-            result.sensitivity.omitted_confounding(estimand="ate[V='low']")
-        # The fit *did* report it, so the coverage message would be a false statement
-        # about the sample rather than about what is derived.
-        assert "not requested in this fit" not in str(caught.value)
-        assert "'ate'" in str(caught.value)
+        bound = result.sensitivity.omitted_confounding(estimand="ate[V='low']")
+        assert bound.estimand == "ate[V='low']"
+        assert bound.psi == result["ate[V='low']"].psi
+        assert bound.features == ("stratum",)
 
     def test_the_marginal_bound_still_answers(self) -> None:
         result = _study_fit()
@@ -350,8 +344,8 @@ class TestSensitivityRefusesAConditionalParameterRatherThanApproximatingIt:
         result = _study_fit()
         marginal = result.sensitivity.omitted_confounding(estimand="ate")
         assert result["ate[V='low']"].psi != pytest.approx(result["ate"].psi, abs=1e-9)
-        with pytest.raises(CapabilityError):
-            result.sensitivity.omitted_confounding(estimand="ate[V='low']")
+        conditional = result.sensitivity.omitted_confounding(estimand="ate[V='low']")
+        assert abs(conditional.max_bias - marginal.max_bias) > 1e-6
         assert marginal.max_bias == result.sensitivity.omitted_confounding(estimand="ate").max_bias
 
 

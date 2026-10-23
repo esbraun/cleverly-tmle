@@ -339,6 +339,7 @@ that returns a misleading number. The last column classifies each refusal of thi
 | one baseline decision held over every node | `api_redirection` | `LTMLE` or `SDR` | invalid design. The later blips have no treatment variation to read |
 | a declared treatment mechanism | `api_redirection` | `LTMLE` | no code. The estimator fits every treatment nuisance |
 | `msm=` | `api_redirection` | `LTMLE(regimens, msm=...)` | no code. The blips are the structural model |
+| a declared `markov_order` | `api_redirection` | omit `markov_order=`, or `LTMLE` or `SDR` | misleading. The Markov restriction names the regimen outcome regressions and the mechanisms. The g-estimation means $E[Y \mid H_t]$ and $E[Z_j \mid H_t]$ condition on the full history |
 | a vector node with a continuous component | `invalid_declaration` | `LTMLE` or `SDR`, or separate nodes | no code. The blip of a flag with a dose has no coding |
 | a static level, a contrast or `check_model` when a feature reads a covariate | `implementation_gap`, X72 | `LTMLE` or `SDR`, or features that read baseline columns and earlier treatments | no code. The level needs the law of the covariate under the regimen |
 | a static dose outside the observed range of its node | `invalid_declaration` | a dose inside the range | misleading. The level is regular under the model only inside the range |
@@ -354,6 +355,30 @@ regimen all run. A fit that no `G42` row covers reads `experimental`, and the
 [support label](#support-label) says so.
 
 `tests/unit/test_structural_nested_mean.py` (W7) pins the code of each refusal.
+
+## Assessment and refutation
+
+The result declares the `structural` assessment family. `cleverly.assessment.assessment_capabilities`
+returns one row per diagnostic operation, and `result.sensitivity` returns one row per sensitivity
+operation. Each row runs, or refuses with its reason code. Each `implementation_gap` refusal names
+its roadmap item. The attribute `result.diagnostics` stays the fit's own positivity and learner
+record, so the support and nuisance rows redirect there.
+
+`cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,
+`bootstrap_stability`, and `negative_control_outcome` tests. The placebo and the negative control
+read every blip coefficient and every regimen contrast against 0. The [refutation operations](validation-methods.md#refutation-operations) page gives
+each draw, reference, and witness. The cell SN1 of the
+[longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) calibrates
+the placebo, subset and negative-control rules on the regimen contrast. Its scope is
+intercept-only blips with GLM nuisances, five folds, two nodes, and $n \ge 1000$. Outside that
+scope, every test prints its numbers with `passed=None`.
+
+The interval of this estimator has no linear-remainder exposure. Every nuisance regresses an
+observed variable on $H_t$, and the remainder $R_t$ of [the estimating
+equation](#the-estimating-equation) is a sum of products of nuisance errors. So a reading that uses
+the fit's standard error, such as `subset` or the negative control, inherits no first-order bias
+from a nuisance fitted on an estimated index. The theory admits a verdict for those two tests within
+a calibrated scope. Cell SN1 registers one such scope.
 
 ## Comparator
 
@@ -385,12 +410,14 @@ $E[\tilde Z_{t,t} \tilde Z_{j,t}^\top]$, the derivative of equation $t$ in $\psi
 orientations agree for a scalar coding. `test_w2_applying_the_transposition_to_cleverly_reproduces_the_econml_covariance`
 shows that applying the transposition to the `cleverly` source reproduces the EconML covariance.
 
-The comparator study with replicates is a later change. The
-[structural nested mean study](method-evidence/structural-nested-mean.md) declares it as pending.
+The [structural nested mean study](method-evidence/structural-nested-mean.md) runs EconML on
+1,600 samples of each paired law. The 21 paired points agree to 2.4e-14. On law `k` the mean SE
+ratio of EconML over `cleverly` is 0.9747 and 1.0306 for the two contrasts, from the transposed
+blocks.
 
 ## Validation
 
-The evidence label is "Python property evidence, with comparator runs pending". The
+The evidence label is "comparator-backed", against EconML 0.17.0 `DynamicDML`. The
 [structural nested mean study](method-evidence/structural-nested-mean.md) gives the
 repeated-sampling evidence, and the tests below give the exact-law evidence.
 
@@ -421,9 +448,9 @@ learner then returns the population conditional means, so the fit returns the po
 The truths come from an independent g-formula in `tests/discrete_law_structural.py`.
 
 The [structural nested mean study](method-evidence/structural-nested-mean.md) is registered.
-All 61 primary tests and all 237 gated property cells pass. The model check has size cells on
-`S2`, `H` and `SP` and power cells on `LU`. The EconML `DynamicDML` runs are pending, so the
-method has no comparator replicates. The `G42` support rows cover the keys that the study fits.
+All 61 primary tests, all 21 EconML truth tests, all 21 paired tests and all 237 gated property
+cells pass. The model check has size cells on `S2`, `H` and `SP` and power cells on `LU`. The
+`G42` support rows cover the keys that the study fits.
 
 The X44 law `N` fits its nuisances with a gradient booster. The booster stops early on a validation
 split. No general proof gives its rate. The claim that the rate suffices rests on a probe of this law.

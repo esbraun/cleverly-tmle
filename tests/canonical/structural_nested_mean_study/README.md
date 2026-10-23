@@ -19,7 +19,7 @@ The declared run is committed and registered. It ran from a clean worktree at co
 All 61 primary tests and all 237 gated property cells pass. The 14 `diagnostic` cells report
 without a verdict. Six fits of the calibration loop of law `M` raised a singular `GLM` matrix or a
 separated fit. Each of the 12 cells they write lost 6 of 8,000 replicates, inside the bound of 80.
-`property-failures.csv`, `property-failure-accounting.csv` and `property-failure-witnesses.csv`
+`property-failures.csv`, `property-failure-accounting.csv` and `property-failure-witnesses.parquet`
 record them. The support rows `G42` in `src/cleverly/_support_rows.py` come from the support
 records of this run.
 

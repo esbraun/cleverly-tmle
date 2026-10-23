@@ -34,7 +34,7 @@ from tests.diagnostics.rm18_one_sided_bias.read import (
     welch,
 )
 from tests.studies.evidence.inference import Interval
-from tests.studies.evidence.manifest import write_csv
+from tests.studies.evidence.manifest import read_rows, write_rows
 from tests.studies.evidence.registry import ROOT
 
 COMMITTED = HERE / "readings.csv"
@@ -380,7 +380,7 @@ def test_the_reading_ignores_rung_rows_beyond_the_verdict_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rebuilt: pd.DataFrame
 ) -> None:
     """A nonzero witness for the crop that Design SL needs: 600 extra, shifted rung rows."""
-    committed = pd.read_csv(one_sided.MULTI_ARM_PROPERTIES)
+    committed = read_rows(one_sided.MULTI_ARM_PROPERTIES)
     rung = (committed["property"] == "double_robust_contraction") & (
         committed["cell"] == "treatment_correct_n2000"
     )
@@ -391,8 +391,8 @@ def test_the_reading_ignores_rung_rows_beyond_the_verdict_budget(
     extended.loc[extended["cell"] == "treatment_correct_n2000", "requested_replicates"] = int(
         2 * rung.sum()
     )
-    path = tmp_path / "property-replicates.csv.gz"
-    write_csv(extended, path, compression="gzip")
+    path = tmp_path / "property-replicates.parquet"
+    write_rows(extended, path)
     monkeypatch.setattr(one_sided, "MULTI_ARM_PROPERTIES", path)
 
     binary, primary, properties = one_sided.load()

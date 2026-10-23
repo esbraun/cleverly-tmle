@@ -923,6 +923,58 @@ def test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental(
         assert result.simultaneous.support.label == "experimental"
 
 
+def _option_fit(setting: dict[str, Any], **split: Any) -> Any:
+    """A hazard-panel fit with one X33 option, at ``repeats=3`` unless ``split`` says otherwise."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    hazard = setting.get("survival_model") == "hazard"
+    keywords: dict[str, Any] = {"n_folds": 2, "repeats": 3, "random_state": 1, **split}
+    return _quiet(
+        lambda data, **kwargs: LTMLE({"a1": 1, "a0": 0}, **kwargs).fit(data),
+        _held_treatment_data(),
+        horizons=[1, 2, 3],
+        outcome_learner=LogisticRegression(max_iter=500) if hazard else LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=500),
+        censoring_learner=LogisticRegression(max_iter=500),
+        **keywords,
+        **setting,
+    )
+
+
+#: Each X33 option, the default it moves off, and a setting under which it moves the estimate.
+X33_OPTIONS = {
+    "node_bounds": ({"node_bounds": {2: (0.0, 0.2)}}, {}),
+    "hazard_pooling": (
+        {"survival_model": "hazard", "hazard_pooling": "pooled"},
+        {"survival_model": "hazard"},
+    ),
+    "ratio_trim": ({"ratio_trim": 0.9}, {}),
+}
+
+
+@pytest.mark.parametrize("option", sorted(X33_OPTIONS))
+def test_each_draw_carries_the_x33_option(option: str) -> None:
+    """Draw ``r`` with the option is the single-draw fit at ``seed_r`` with the option.
+
+    The default fit at the same seeds is a nonzero witness: a draw that dropped the option
+    would equal it and fail the difference check.
+    """
+    setting, default = X33_OPTIONS[option]
+    result = _option_fit(setting)
+    plain = _option_fit(default)
+    assert result.n_repeats == 3
+    moved = 0.0
+    for draw, other in zip(result.repeats, plain.repeats, strict=True):
+        assert draw.seed == other.seed
+        single = _option_fit(setting, repeats=1, random_state=draw.seed)
+        _assert_draw_equals_fit(draw, single)
+        moved = max(
+            moved,
+            max(abs(draw.estimates[n].psi - other.estimates[n].psi) for n in draw.estimates),
+        )
+    assert moved > 1e-3
+
+
 def test_repeats_enter_the_support_key_so_a_single_draw_row_never_covers_them() -> None:
     """``repeated`` is a splitting flag, as on a point fit, so no single-draw row matches."""
     single = _fit("ltmle", repeats=1)
@@ -1021,6 +1073,31 @@ def test_readers_report_the_combined_estimates() -> None:
     for name in result.estimates:
         assert f"  {name} {spread[name]:.4g}  (" in text
     assert "split noise" not in str(single.summary())
+
+
+def test_refute_reruns_every_draw_with_its_own_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stored template reproduces a repeated fit, and ``refute`` reuses every draw seed."""
+    from cleverly.validation import refute
+
+    result = _fit("ltmle", repeats=3)
+    seeds = [draw.seed for draw in result.repeats]
+    again = result.estimator.refit(result.data, frozen_seeds=seeds)
+    for name in result:
+        assert again[name].psi == result[name].psi
+    contrast = next(name for name in result if "vs" in name)
+    seen: list[dict[str, Any]] = []
+    template = type(result.estimator).refit
+
+    def spy(self: Any, data: Any, **options: Any) -> Any:
+        seen.append(options)
+        return template(self, data, **options)
+
+    monkeypatch.setattr(type(result.estimator), "refit", spy)
+    report = refute(
+        result, estimand=contrast, tests=("random_common_cause",), n_replicates=2, random_state=0
+    )
+    assert len(report["random_common_cause"].values) == 2
+    assert [list(options["frozen_seeds"]) for options in seen] == [seeds, seeds]
 
 
 def test_unavailable_capabilities_keep_their_reason() -> None:
@@ -1308,12 +1385,16 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "isotonic": _witness(
         "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
     ),
+    "node_bounds": _witness("test_each_draw_carries_the_x33_option"),
+    "hazard_pooling": _witness("test_each_draw_carries_the_x33_option"),
+    "ratio_trim": _witness("test_each_draw_carries_the_x33_option"),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")
 _READ_THROUGH = _witness("test_read_through_fields_are_draw_zero")
 _STUDY = _witness("test_causal_study_band_under_repeats_uses_the_median_rule")
 _ASSESS = _witness("test_validate_and_assess_run_on_a_repeated_fit")
+_REFUTE = _witness("test_refute_reruns_every_draw_with_its_own_seed")
 
 #: The dataclass fields and public members of ``LongitudinalResult``.
 RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
@@ -1335,6 +1416,7 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "method": _STUDY,
     "parameter_keys": _STUDY,
     "fitted_method": _witness(EACH_DRAW, "sdr"),
+    "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
     "bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
     "repeats": _witness(EACH_DRAW, "ltmle"),
@@ -1387,7 +1469,7 @@ CAPABILITIES: dict[str, tuple[str, str, str | None]] = {
     "score_equations": _witness("test_score_rows_cover_every_draw"),
     "truncation_curve": _witness("test_truncation_curve_follows_every_draw"),
     "corrections": _UNAVAILABLE,
-    "refute": _UNAVAILABLE,
+    "refute": _REFUTE,
     **dict.fromkeys(SENSITIVITY_ROUTES, _UNAVAILABLE),
 }
 
@@ -1429,6 +1511,7 @@ STUDY_FIELDS: dict[str, tuple[str, str, str | None]] = {
     "identified_effect": _STUDY,
     "method": _STUDY,
     "parameter_keys": _STUDY,
+    "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
 }
 

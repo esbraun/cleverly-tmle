@@ -49,10 +49,9 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import RefusalReason
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
+from cleverly.sensitivity._simulated_confounding_longitudinal import _CENSORING_REFUSAL
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
-    _LONGITUDINAL_REFUSAL,
-    _MULTI_ARM_REFUSAL,
     _fit_wide_refusal,
 )
 from cleverly.sensitivity.positivity import positivity_report
@@ -108,23 +107,22 @@ def raw_natural_course_result():  # type: ignore[no-untyped-def]
     )
 
 
-def test_natural_course_assessment_refuses_arm_specific_surfaces(
+def test_natural_course_assessment_tilts_the_natural_course_mean(
     natural_course_result,
 ) -> None:  # type: ignore[no-untyped-def]
-    reasons = set()
+    """The tilt re-mixes ``ey_obs`` at the received arm, and passes through it at zero."""
     for operation in ("missingness", "tipping_gamma"):
         capability = natural_course_result.sensitivity.capability(operation)
-        assert not capability.available
-        assert capability.status is AssessmentStatus.UNAVAILABLE
-        reasons.add(capability.reason)
-        with pytest.raises(CapabilityError, match="natural-course sensitivity parameter"):
-            getattr(natural_course_result.sensitivity, operation)()
-    assert len(reasons) == 1
+        assert capability.available
+        assert capability.status is AssessmentStatus.PASSED
+    curve = natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0])
+    assert list(curve["estimand"]) == ["ey_obs", "ey_obs"]
+    assert curve["psi"].iloc[0] == pytest.approx(natural_course_result["ey_obs"].psi, rel=1e-12)
+    assert curve["psi"].iloc[1] != pytest.approx(curve["psi"].iloc[0], abs=1e-4)
 
     combined = natural_course_result.sensitivity.run_all(include_retargets=True)
     for operation in ("missingness", "tipping_gamma"):
-        assert combined[operation].status is AssessmentStatus.UNAVAILABLE
-        assert combined[operation].detail in reasons
+        assert combined[operation].status is AssessmentStatus.COMPLETED
 
 
 def test_natural_course_diagnostics_are_truthful_without_a_propensity(
@@ -154,7 +152,7 @@ def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
     assert not support.available
     assert support.refusal == NATURAL_COURSE_SUPPORT_REFUSAL
     for operation in ("missingness", "tipping_gamma"):
-        assert not raw_natural_course_result.sensitivity.capability(operation).available
+        assert raw_natural_course_result.sensitivity.capability(operation).available
 
     bounds = (0.01, 0.05)
     default = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds)
@@ -269,8 +267,9 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "truncation_curve",
         "refute",
     }
-    assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == {"point", "longitudinal"}
-    for family in ("point", "longitudinal"):
+    families = {"point", "longitudinal", "structural"}
+    assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == families
+    for family in sorted(families):
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
         declared = {item.operation for item in family_rows}
         assert declared == expected
@@ -423,16 +422,17 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     longitudinal_result,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _LONGITUDINAL_REFUSAL
+    # The sweep's two-node fit has censoring nodes, which the time-fixed latent refuses.
+    reason = _CENSORING_REFUSAL
     capability = longitudinal_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
     assert capability.refusal == reason
     assert _fit_wide_refusal(longitudinal_result) == reason
-    # A ``LongitudinalResult`` stores no replay estimator, so there is no ``refit`` to
-    # forbid.  Asserted rather than assumed: the day it gains one, this guard must cover it.
-    assert not hasattr(longitudinal_result, "estimator")
-    forbid_draw_and_refit(monkeypatch, None)
+    # A ``LongitudinalResult`` stores its refit template for the refutation adapter, so
+    # the guard forbids its ``refit`` too.
+    assert longitudinal_result.estimator is not None
+    forbid_draw_and_refit(monkeypatch, longitudinal_result.estimator)
     grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
     with pytest.raises(CapabilityError) as facade_refusal:
         longitudinal_result.sensitivity.simulated_confounding(grid=grid)
@@ -444,31 +444,27 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     assert str(direct_refusal.value) == reason.message()
 
 
-def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # type: ignore[no-untyped-def]
+def test_multi_arm_simulated_confounding_capability_names_an_estimand(  # type: ignore[no-untyped-def]
     multi_arm_result,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _MULTI_ARM_REFUSAL
+    """The pairwise swap (X82 part F (a)) admits a multi-arm fit, one contrast at a time.
+
+    The row is available, and it asks for the estimand as well as the grid, because a
+    multi-arm fit reports one contrast per non-reference arm and the surface cannot pick a
+    default alias.  The facade and the free function agree on a named contrast.
+    """
     capability = multi_arm_result.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    # A multi-arm fit reports one estimate per arm, so the surface cannot pick a default
-    # alias. The row must ask for the estimand as well as the grid.
+    assert capability.available
     assert capability.requires_arguments == ("grid", "estimand")
-    assert _fit_wide_refusal(multi_arm_result) == reason
-    forbid_draw_and_refit(monkeypatch, multi_arm_result.estimator)
-    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-    # Both routes, because multi-arm is the case that regressed once. The facade read the
-    # capability row and the direct call read the guard, and only the guard refused.
-    with pytest.raises(CapabilityError) as facade_refusal:
-        multi_arm_result.sensitivity.simulated_confounding(grid=grid)
-    assert str(facade_refusal.value) == (
-        "sensitivity 'simulated_confounding' is unavailable: " + reason.message()
+    assert _fit_wide_refusal(multi_arm_result) is None
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
+    alias = next(name for name in multi_arm_result.estimates if name.startswith("ate["))
+    direct = simulated_confounding(multi_arm_result, alias, grid=grid, random_state=3)
+    facade = multi_arm_result.sensitivity.simulated_confounding(
+        estimand=alias, grid=grid, random_state=3
     )
-    with pytest.raises(CapabilityError) as direct_refusal:
-        simulated_confounding(multi_arm_result, grid=grid)
-    assert str(direct_refusal.value) == reason.message()
+    assert [cell.estimate for cell in facade.cells] == [cell.estimate for cell in direct.cells]
+    assert direct.arm_pair is not None
 
 
 def test_an_ambiguous_evalue_row_says_it_is_deferred_rather_than_passed(  # type: ignore[no-untyped-def]
@@ -849,7 +845,6 @@ def test_a_facade_that_substitutes_nothing_defers_a_sole_eligible_name(att_resul
     [
         ("longitudinal_result", "benchmark"),
         ("longitudinal_result", "simulated_confounding"),
-        ("multi_arm_result", "simulated_confounding"),
     ],
 )
 def test_a_row_this_fit_refuses_outright_records_no_invocation(  # type: ignore[no-untyped-def]
@@ -891,6 +886,8 @@ def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-u
         "grid": ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         # Every fixture in this module adjusts for ``W1``.
         "covariates": ["W1"],
+        # A test every refutable estimand runs.
+        "tests": ("random_common_cause",),
     }
 
 
@@ -903,7 +900,7 @@ def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-u
         ("multi_arm_result", "sensitivity", True),
         ("att_result", "diagnostics", True),
         ("att_result", "sensitivity", False),
-        ("longitudinal_result", "diagnostics", False),
+        ("longitudinal_result", "diagnostics", True),
         ("longitudinal_result", "sensitivity", False),
     ],
 )
@@ -936,7 +933,13 @@ def test_a_deferred_capability_is_never_deferred_once_its_arguments_arrive(  # t
         assert capability.requires_arguments, f"{capability.operation} names no argument"
         supplied = {name: values[name] for name in capability.requires_arguments}
         resolved = surface._capability_for_arguments(capability.operation, supplied)
-        assert resolved.status is not AssessmentStatus.DEFERRED, capability.operation
+        # A supplied argument can resolve the row to a deferral on a different argument:
+        # a longitudinal regimen mean refuses the default placebo, so its row then defers
+        # on ``tests``. The chain must move forward and end.
+        while resolved.status is AssessmentStatus.DEFERRED:
+            assert not set(resolved.requires_arguments) & set(supplied), capability.operation
+            supplied |= {name: values[name] for name in resolved.requires_arguments}
+            resolved = surface._capability_for_arguments(capability.operation, supplied)
 
     assert bool(deferred) is defers, deferred
 
@@ -1662,22 +1665,19 @@ def test_a_refusal_is_unavailable_and_later_diagnostics_still_run(  # type: igno
 def test_a_real_sensitivity_refusal_does_not_prevent_a_later_evalue(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Refusals stay informative while independent analyses continue.
 
-    One refusal of each kind.  The median-repeat refusal is a rule of the bound's table,
-    so the capability row declares it and the report records no arguments for it.  An
-    estimand the fit never reported is refused only inside the call, so that row keeps
-    the arguments the caller supplied, and a restored fit replays them.
+    One refusal of each kind.  The DR-TMLE refusal is a rule of the bound's table, so the
+    capability row declares it and the report records no arguments for it.  An estimand
+    the fit never reported is refused only inside the call, so that row keeps the
+    arguments the caller supplied, and a restored fit replays them.
     """
-    repeated = dataclasses.replace(
-        point_result,
-        repeats=point_result.repeats * 2,
-    )
+    guarded = dataclasses.replace(point_result, fitted_method="drtmle")
 
-    declared = repeated.sensitivity.run_all(
+    declared = guarded.sensitivity.run_all(
         arguments={"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
     )
     assert declared["omitted_confounding"].status is AssessmentStatus.UNAVAILABLE
-    assert "median-combined repeats" in declared["omitted_confounding"].detail
-    assert not repeated.sensitivity.capability("omitted_confounding").available
+    assert "'drtmle' fit" in declared["omitted_confounding"].detail
+    assert not guarded.sensitivity.capability("omitted_confounding").available
     assert declared["omitted_confounding"].arguments == {}
     assert declared["evalue"].status is AssessmentStatus.COMPLETED
 
@@ -2100,18 +2100,18 @@ def test_refute_direct_aggregate_and_seed_replay_share_one_computation(point_res
 
 
 def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_result):
-    repeated = dataclasses.replace(point_result, repeats=point_result.repeats * 2)
-    sensitivity = repeated.sensitivity.run_all()
+    guarded = dataclasses.replace(point_result, fitted_method="drtmle")
+    sensitivity = guarded.sensitivity.run_all()
     warning = AssessmentItem("support", AssessmentStatus.WARNING, "positivity warning")
     battery = AssessmentReport(ValidationReport((warning,)), DiagnosticReport(()), sensitivity)
     assert "support" in [item.name for item in battery.attention]
     assert "omitted_confounding" not in [item.name for item in battery.attention]
     assert "omitted_confounding" in [item.name for item in battery.omissions]
     assert "benchmark" in [item.name for item in battery.omissions]
-    # Unavailable, not deferred: naming covariates cannot lift the median-repeat refusal,
-    # which the benchmark shares with the bound it calibrates.
+    # Unavailable, not deferred: naming covariates cannot lift the DR-TMLE refusal, which
+    # the benchmark shares with the bound it calibrates.
     assert sensitivity["benchmark"].status is AssessmentStatus.UNAVAILABLE
-    assert "median-combined repeats" in sensitivity["benchmark"].detail
+    assert "'drtmle' fit" in sensitivity["benchmark"].detail
 
 
 def test_every_status_is_presented_by_exactly_one_grouping() -> None:

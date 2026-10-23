@@ -169,9 +169,11 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
     frame = data["performance"].sort_values(["scenario", "estimand", "implementation"])
     rows = [
         (
-            descriptions.scenario(str(row.scenario)),
+            descriptions.scenario(str(row.scenario), slug=record.slug),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
+            descriptions.estimand(
+                str(row.estimand), outcome_kind=record.outcome_kind, slug=record.slug
+            ),
             descriptions.implementation(str(row.implementation)),
             _interval(row.bias_ci_lower, row.bias_ci_upper),
             render(float(row.coverage)),
@@ -188,9 +190,11 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
     frame = data["equivalence"].sort_values(["scenario", "estimand"])
     rows = [
         (
-            descriptions.scenario(str(row.scenario)),
+            descriptions.scenario(str(row.scenario), slug=record.slug),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
+            descriptions.estimand(
+                str(row.estimand), outcome_kind=record.outcome_kind, slug=record.slug
+            ),
             render(float(row.mean_difference)),
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),
@@ -357,6 +361,11 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
+    if family in {"refuter_size", "refuter_power"}:
+        # The cell's verdict reads the count of its trials, so the row prints that count.
+        word = "rejections" if family == "refuter_size" else "detections"
+        count = round(float(row.rejection_rate) * int(row.replicates))
+        return f"{word} {count} of {int(row.replicates)}"
     if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "
@@ -514,10 +523,13 @@ def measured(row: Any) -> str:
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
     if family == "repeat_stability":
+        # The positive rows read the upper endpoint below the boundary; the control reads it at
+        # or above, so the control's text says the endpoint reaches the boundary.
+        reach = ", reached by the upper endpoint" if str(row.role) == "control" else ""
         return (
             f"spread ratio {render(float(row.spread_ratio))}, "
             f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
-            f"boundary {render(float(row.spread_ratio_boundary))}"
+            f"boundary {render(float(row.spread_ratio_boundary))}{reach}"
         )
     if family == "in_sample_agreement":
         # A reported distance with no truth and no standard error of its own, so it has no
@@ -592,6 +604,32 @@ def measured(row: Any) -> str:
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
         )
+    if family == "spread":
+        # A diagnostic of a plug-in curve: the ratio of its standard error to the empirical
+        # spread, and the coverage of its interval.  No margin reads either one.
+        return (
+            f"plug-in SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        )
+    if family == "binding_witness":
+        # The two shares the witness reads.
+        return (
+            f"exceeds-bound share {render(float(row.exceeds_share))}, "
+            f"moved share {render(float(row.moved_share))}"
+        )
+    if family == "reported_calibration":
+        # A reported cell has no bootstrap SE-ratio interval, so the point ratio is printed.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "unbounded_fit":
+        # The unbounded fit's accuracy, and the RMSE of both fits on the same draws.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"RMSE {render(float(row.rmse))}, bounded RMSE {render(float(row.bounded_rmse))}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 
@@ -629,6 +667,7 @@ _BIAS_GATED = frozenset(
         "mar_robustness",
         "missingness_necessity",
         "multi_arm",
+        "response_mask_necessity",
         "outcome_history_necessity",
         "repeated_outcome_necessity",
         "robustness_contract",
@@ -647,6 +686,10 @@ _BIAS_GATED = frozenset(
         "treatment_complete_case",
         "weight_necessity",
         "blip_feature_control",
+        "bound_necessity",
+        # X21: the estimated-mechanism bias cells, and the bias of the cube-root-rate ladder.
+        "bias",
+        "root_n_points",
     }
 )
 

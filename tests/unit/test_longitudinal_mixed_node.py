@@ -522,17 +522,42 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "has_set_dose"): "is_continuous_node raises at a mixed node",
     ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
+    ("longitudinal/ratio_trim.py", "node_ratio_entries"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
-    ("longitudinal/sequential.py", "Mechanism.cumulative_with_unbounded"): "fitted factors",
-    ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
+    ("longitudinal/sequential.py", "Mechanism._cumulative_with_unbounded"): "fitted factors",
+    ("longitudinal/sequential.py", "_policy_block"): "mixed branch first",
     ("longitudinal/sequential.py", "node_ratios"): "fitted factors",
     ("study.py", "LongPanel._check_prepared"): (
         "a panel container only: from_long_panel refuses a vector node with a dose"
     ),
     ("study.py", "TimeToEvent._check_prepared"): "one baseline column",
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_calibrate"): (
+        "after the node_law rule of longitudinal_fit_refusal refuses a mixed node"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_node_kinds"): (
+        "after the node_law rule of longitudinal_fit_refusal refuses a mixed node"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_flipped_declaration"): (
+        "reads the declared known-mechanism tuple, not a node column"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_refuse_known_later_node"): (
+        "reads the declared known-mechanism tuple, not a node column"
+    ),
+    ("sensitivity/_simulated_confounding_longitudinal.py", "longitudinal_surface"): (
+        "reads the declared known-mechanism tuple, not a node column"
+    ),
     ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
+    ("validation/refute.py", "_LongitudinalGenerated.draw"): (
+        "after _held_parameter refuses a mixed node"
+    ),
+    ("validation/refute.py", "_SurvivalGenerated.draw"): (
+        "after _held_parameter refuses a mixed node"
+    ),
+    ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_future_treatment_test"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
 }
 
 
@@ -546,6 +571,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.with_treatment"): "a mixed node is refused first",
     (
         "longitudinal/estimator.py",
         "ParametricGFormula._refuse_design",
@@ -567,11 +593,23 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
     ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
     ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
-    ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
+    ("longitudinal/sequential.py", "_policy_block"): "mixed branch first",
+    (
+        "longitudinal/sequential.py",
+        "_window_outcome_design",
+    ): "a mixed node is a policy node, never a rule node",
     ("longitudinal/sequential.py", "preflight_mechanism_support"): "categorical branch",
+    ("sensitivity/_simulated_confounding_longitudinal.py", "_refuse_node_law"): (
+        "a mixed node is refused first"
+    ),
     ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    ("validation/_markov_placebo.py", "MarkovKernel.fit"): "a mixed node is refused first",
+    ("validation/_structural_refute.py", "structural_subset_refusal"): "categorical nodes only",
+    ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
+    ("validation/refute.py", "_held_parameter"): "a mixed node is refused first",
     (
         "validation/longitudinal.py",
         "_ipsi_node_row",
@@ -1094,3 +1132,81 @@ def test_cross_fitted_sdr_at_mixed_nodes_is_exact_when_each_fold_is_the_law(
     """Two folds, each one exact copy: the training-fold recursion reads ``fit_rows``."""
     result = _sdr_fit(ratio, copies=2, monkeypatch=monkeypatch)
     assert sdr_deviation(result, copies=2) < EXACT
+
+
+# ------------------------------------------------------------------ ratio_trim (X33 part d)
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+@pytest.mark.parametrize("design", ["end", "censored"])
+def test_the_per_node_ratio_of_a_trim_reads_the_observed_cell(ratio: str, design: str) -> None:
+    """``node_ratio_entries`` at a mixed node is ``q / (g_C(C_t) c_t)`` at the observed cell.
+
+    On the density route the categorical factor :math:`g_C` sits in the denominator.  The
+    slot of a mixed node holds ``0.0`` on present rows, so a reader that indexed the cell
+    matrix with it divided by the probability of cell zero.  The nonzero witness is the rows
+    whose flag is one, where the two cell probabilities differ.  On the classifier route the
+    whole treatment factor is the numerator, so the denominator is the retention alone.
+    """
+    exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
+    with exact:
+        result = fit(design=design, ratio=ratio, ratio_trim=0.99)
+    mechanism = result.mechanism
+    frame = law.mixed_frame(design)
+    rows = np.arange(len(frame))
+    witnessed = 0
+    for time in (1, 2):
+        cells = mechanism.treatment_observed[time - 1]
+        flag = frame[f"F{time}"].to_numpy(dtype=float)
+        present = ~np.isnan(flag)
+        if ratio == "density":
+            assert cells.shape == (len(frame), 2)
+            g_cell = cells[rows, np.nan_to_num(flag, nan=0.0).astype(np.int64)]
+            moved = present & (flag == 1.0) & ~np.isclose(cells[:, 1], cells[:, 0])
+            witnessed += int(np.count_nonzero(moved))
+        else:
+            assert cells.shape == (len(frame), 0)
+            g_cell = np.ones(len(frame))
+        if design == "censored":
+            stayed = frame[f"C{time}"].to_numpy(dtype=float) == 1.0
+            retention = mechanism.censoring_observed[time - 1]
+        else:
+            stayed = np.ones(len(frame), dtype=bool)
+            retention = np.ones(len(frame))
+        for label in LABELS:
+            numerator = mechanism.policy_numerators[label][time]
+            denominator = g_cell * retention
+            safe = np.where(denominator > 0.0, denominator, 1.0)
+            hand = np.where(present & stayed & (denominator > 0.0), numerator / safe, 0.0)
+            trim = result.fits[label].ratio_trim
+            assert trim is not None
+            np.testing.assert_allclose(trim.entries[:, time - 1], hand, rtol=1e-12, atol=0.0)
+    if ratio == "density":
+        assert witnessed > 0
+
+
+# ------------------------------------------------------------------ markov_order (X33 part e)
+
+
+def test_a_markov_window_reads_a_mixed_node_as_a_policy_block() -> None:
+    """A mixed node is a policy node of every plan, never a rule node of the window design.
+
+    The window design adds a rule node's level indicators from ``treatment_levels``, which a
+    mixed node does not hold.  A mixed node holds a joint policy, which resolves as a policy
+    node and never collapses to a rule, so its block is every component of the node.
+    """
+    from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
+    from cleverly.longitudinal.sequential import _is_rule_node, outcome_design
+
+    data = _exact_fit().data.with_markov_order(0)
+    plans = resolve_plans(resolve_regimens(mtp.mixed_regimens(LABELS), data.n_times), data)
+    for plan in plans:
+        for time in (1, 2):
+            assert data.node_kind(time) == "mixed"
+            assert plan.is_policy_node(time)
+            assert not _is_rule_node(plan, time)
+        # Under order 0 the arms start at node 1, one node before the window's covariates.
+        expected = np.hstack(
+            [data.window_covariates(2), data.component_design(1), data.component_design(2)]
+        )
+        np.testing.assert_array_equal(outcome_design(data, plan, 2), expected)

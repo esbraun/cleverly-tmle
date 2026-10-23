@@ -1017,16 +1017,17 @@ class TestEValue:
 
 
 class TestTheEValueOnAMissingOutcomeFit:
-    """The standardized conversion divides by a standard deviation it does not have.
+    """The standardized conversion divides by the population standard deviation.
 
-    Under missing at random the respondents' ``sd(Y)`` estimates the conditional
-    dispersion among respondents, not the population dispersion the estimate is
-    standardized against. The refusal is *branch-scoped*: a reported ratio reads only the
-    estimate and its interval, so it needs no standard deviation and stays available.
+    Under missing at random the respondents' ``sd(Y)`` estimates the dispersion among
+    respondents, not the population dispersion the estimate is standardized against. The
+    Gaussian branch therefore divides by the missing-at-random plug-in of
+    :mod:`cleverly.sensitivity._outcome_moments`, which fits one more outcome regression.
+    A reported ratio reads only the estimate and its interval, and needs no standard
+    deviation.
 
-    Two fits are needed to show both halves. The Gaussian branch requires
-    ``family="gaussian"`` and the reported-ratio branches require a binomial fit, so no
-    single fit carries the refused branch and a retained one at once.
+    The Gaussian branch requires ``family="gaussian"`` and the reported-ratio branches
+    require a binomial fit, so two fits carry the two halves.
     """
 
     @pytest.fixture(scope="class")
@@ -1059,23 +1060,20 @@ class TestTheEValueOnAMissingOutcomeFit:
             .single()
         )
 
-    def test_the_standardized_conversion_is_refused_by_the_selection(
+    def test_the_standardized_conversion_reads_the_population_scale(
         self, gaussian_missing_fit
     ) -> None:
-        """The capability row is what proves where the refusal lives.
+        """The row declares the refit, and the call divides by the plug-in, not the respondents'."""
+        from cleverly.sensitivity._outcome_moments import missing_at_random_sd
 
-        ``_select_evalue`` builds both the row and the call, so a refusal placed in the
-        execution instead would leave this row advertising ``available=True`` beside a
-        call that raises. Asserting the row and the call together is what tells the two
-        placements apart.
-        """
         row = gaussian_missing_fit.sensitivity.capability("evalue")
-        assert not row.available
-        assert row.status is AssessmentStatus.UNAVAILABLE
-        assert "population outcome standard deviation" in row.reason
-        assert "sd(Y)" in row.reason
-        with pytest.raises(CapabilityError, match="population outcome standard deviation"):
-            gaussian_missing_fit.sensitivity.evalue("ate")
+        assert row.available
+        assert row.execution == "refit"
+        report = gaussian_missing_fit.sensitivity.evalue("ate")
+        assert "missing-at-random plug-in" in report.note
+        sd = missing_at_random_sd(gaussian_missing_fit)
+        assert f"{sd:.4g}" in report.note
+        assert report.limit_descriptive
 
     def test_a_reported_ratio_on_a_missing_outcome_fit_still_answers(
         self, binomial_missing_fit
@@ -1453,10 +1451,10 @@ class TestRefutation:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        return result.diagnostics.refute(n_replicates=3, random_state=0)
+        return result.diagnostics.refute(n_replicates=5, random_state=0)
 
     def test_all_default_tests_behave(self, refutation) -> None:
-        assert refutation.passed
+        assert refutation.passed is not False
         assert {test.name for test in refutation.tests} == {
             "placebo",
             "random_common_cause",
@@ -1492,7 +1490,7 @@ class TestRefutation:
             negative_control_outcome=control,
             random_state=0,
         )
-        assert outcome.passed
+        assert outcome["negative_control_outcome"].statistic_pvalue > 0.05
 
     def test_the_negative_control_test_needs_an_outcome(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=85)

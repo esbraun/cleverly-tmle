@@ -9,11 +9,19 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..inference.influence import ParameterEstimate, median_estimates
-from ..targets.base import arm_alias
+from ..targets.base import arm_alias, stratum_alias
 from ._parameters import arm_parameter_keys
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..estimators.base import TMLEResult
+
+
+#: The fitted methods whose cached-nuisance retarget to ``rr`` equals a same-seed fit that
+#: requested ``rr``, point and interval.  ``tests/unit/test_evalue_part_g.py`` holds the
+#: witness for each one, and for each C-TMLE strategy family.
+DERIVED_METHODS: frozenset[str] = frozenset(
+    {"tmle", "collaborative_tmle", "drtmle", "adaptive_iptw"}
+)
 
 
 def _derived_risk_ratio(
@@ -29,6 +37,12 @@ def _derived_risk_ratio(
     alias = arm_alias(
         "rr", arm=key.value, versus=key.reference, collapse=result.data.is_binary_treatment
     )
+    if key.stratum is not None:
+        # A stratum-conditional contrast retargets to the ratio of the same stratum, which
+        # the joint stratified targeting reports beside the marginal one.
+        data = result.data
+        code = list(data.strata_levels).index(tuple(key.stratum))
+        alias = stratum_alias(alias, data.stratum_label(code))
 
     def compute() -> ParameterEstimate:
         reports = []
@@ -42,6 +56,9 @@ def _derived_risk_ratio(
                 nuisance_bound=result.config.missingness_bound,
                 alpha_sig=result.config.alpha_sig,
                 conditions=result.config.support_conditions,
+                # The controlled direct effect fixes Z at the fitted level, and the
+                # retarget rebuilds its clever covariate from that level.
+                intermediate_value=result.intermediate_value,
             )
             reports.append(estimates)
         combined = median_estimates(reports)
@@ -98,16 +115,8 @@ def _risk_ratio_refusal(
             ),
             roadmap="F34",
         )
-    if key.reference is None or key.stratum is not None:
-        return Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "derived risk ratios require an unconditioned marginal arm contrast.",
-            alternative=(
-                "Call evalue on the marginal alias of the same fit, "
-                "or fit the stratum's rows as their own study."
-            ),
-            roadmap="X65",
-        )
+    if key.reference is None:
+        return _invalid("derived risk ratios require a two-arm contrast with a reference arm.")
     if not result.data.has_arms:
         return _invalid(
             "derived risk ratios are unavailable for a treatment with a continuous dose."
@@ -115,28 +124,27 @@ def _risk_ratio_refusal(
     if result.config.family != "binomial":
         return _invalid("derived risk ratios require a binomial outcome.")
     method = result.fitted_method
-    if method != "tmle":
+    if method not in DERIVED_METHODS:
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             f"derived risk ratios are unavailable for fitted method {method!r}. "
-            "Only ordinary TMLE has a same-seed equality witness.",
+            f"Only {sorted(DERIVED_METHODS)} have a same-seed equality witness.",
             alternative="Fit the risk ratio as an estimand, then call evalue(result, 'rr').",
-            roadmap="X65",
+            roadmap="X82",
         )
     if result.config.cv_evaluation:
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "derived risk ratios are unavailable for CV-evaluated fits.",
             alternative="Fit the risk ratio as an estimand, then call evalue(result, 'rr').",
-            roadmap="X65",
+            roadmap="X82",
         )
-    if declares_intermediate(result):
-        return Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "derived risk ratios are unavailable for controlled direct effects because "
-            "cached-nuisance retargeting does not pass the fitted intermediate intervention level.",
-            alternative=NO_ALTERNATIVE,
-            roadmap="X65",
+    if declares_intermediate(result) and (
+        not result.data.has_intermediate or result.intermediate_value is None
+    ):
+        return _invalid(
+            "derived risk ratios of a controlled direct effect need both the intermediate "
+            "column and the fitted level."
         )
     from ..assessment import replayability
 

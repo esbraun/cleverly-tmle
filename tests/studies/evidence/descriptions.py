@@ -519,6 +519,51 @@ ARMS: dict[str, str] = {
     "msm_log_delta": "slope of the identity-link working model in log odds multiplier",
     "weighted_contrast_x0_5": "odds-x0.5 contrast on the law weighted by 1 + A1 + W/2",
     "survival_grid": "three plans by three horizons, the risks and six contrasts",
+    # ``survival-node-bounds`` (X33): the labels of its calibration, witness and necessity cells.
+    **{
+        f"{model}_{key}": f"{fit}, {words}"
+        for model, fit in (
+            ("mean_model", "iterated-mean fit with valid node bounds"),
+            ("hazard_model", "hazard fit with valid node bounds"),
+        )
+        for key, words in (
+            ("f5_arm1", "risk by visit 5 under arm 1"),
+            ("rd5", "risk difference by visit 5"),
+            ("f3_arm1", "risk by visit 3 under arm 1"),
+            ("f3_arm0", "risk by visit 3 under arm 0"),
+            ("f5_arm0", "risk by visit 5 under arm 0"),
+        )
+    },
+    "mean_model": "iterated-mean fit with valid node bounds, five visits",
+    "hazard_model": "hazard fit with valid node bounds, five visits",
+    "f5_arm1": (
+        "risk by visit 5 under arm 1 of the iterated-mean fit at n = 16,000, with a saturated "
+        "outcome regression and an intercept-only treatment mechanism"
+    ),
+    # ``adaptive-iptw`` (X21): the keys its cells read.  ``ey0``, ``ey1``, ``ate``, ``rr``,
+    # ``or``, ``ey_obs``, ``par`` and ``paf`` keep the readings above.
+    "ey_never": "mean outcome if no one is treated",
+    "ey_d": "mean outcome under the deterministic rule that treats where the rule says so",
+    "ey_s": "mean outcome under the stochastic rule that treats with the declared probability",
+    "ate_d": "mean under the deterministic rule minus the mean if no one is treated",
+    "ate_s": "mean under the stochastic rule minus the mean if no one is treated",
+    "ate_s_vs_d": "mean under the stochastic rule minus the mean under the deterministic rule",
+    "ey_high": "mean outcome under the high arm",
+    "ey_medium": "mean outcome under the medium arm",
+    "ey_low": "mean outcome under the low arm",
+    "ey_mid": "mean outcome under the middle arm",
+    "ate_low": "mean under the low arm minus the mean under the high arm",
+    "ate_medium": "mean under the medium arm minus the mean under the high arm",
+    "ate_mid": "mean under the middle arm minus the mean under the high arm",
+    "ate_v0": "average treatment effect in stratum V = 0",
+    "ate_v1": "average treatment effect in stratum V = 1",
+    "ate_v2": "average treatment effect in stratum V = 2",
+    "p_ey1": "arm-1 mean",
+    "p_ate": "average treatment effect",
+    "pd_d": "mean under the deterministic rule",
+    "pd_s": "mean under the stochastic rule",
+    "cn_ey_obs": "observed outcome mean under the natural course",
+    "rm_d": "mean under the deterministic rule, with a missing outcome",
 }
 
 #: The labels of ``sequential-baselines``: an estimator, a law and a target.  Mirrored from
@@ -814,13 +859,58 @@ ARMS.update(
     }
 )
 
+#: The rows of the X82 SG limit coverage studies, as arm labels; see the section at the end.
+_SG_OVB = "ovb-limit-coverage"
+_SG_EVALUE = "evalue-limit-coverage"
+_SG_STRENGTH = "at cf_y 0.3, cf_d 0.2, rho 1"
+_SG_PARAMETERS = {
+    "O1": {
+        "ate": "the ATE, outcome missing at random",
+        "ey1": "the arm-1 mean, outcome missing at random",
+    },
+    "O2": {
+        "cde_z0": "the controlled direct effect at Z = 0",
+        "cde_z1": "the controlled direct effect at Z = 1",
+    },
+    "O3": {
+        "coin": "the mean under the stochastic regime coin",
+        "coin_vs_always": "the contrast of the regime coin with always treat",
+    },
+    "O4": {
+        "w2": "the W2 coefficient of the linear MSM with modifier W2",
+        "a_w2": "the treatment-by-W2 coefficient of the linear MSM with modifier W2",
+    },
+    "O5": {
+        "plus1": "the mean under the shift +1 on the dose atoms",
+        "plus1_vs_natural": "the contrast of the shift +1 with the natural course",
+    },
+}
+_SG_OVB_ROWS = {
+    f"{label}_{end}": (cell, f"{end} omitted-variable bound on {words}, {_SG_STRENGTH}")
+    for cell, parameters in _SG_PARAMETERS.items()
+    for label, words in parameters.items()
+    for end in ("lower", "upper")
+}
+_SG_EVALUE_ROWS = {
+    **{
+        f"E3_rr[V={stratum}]": f"risk ratio in stratum V={stratum}, on the log scale"
+        for stratum in (0, 1, 2)
+    },
+    "E4_rr_t5": "ratio of the arm-1 and arm-0 risks at t = 5, on the log scale",
+}
+
+ARMS.update({f"{cell}_{row}": words for row, (cell, words) in _SG_OVB_ROWS.items()})
+ARMS.update(_SG_EVALUE_ROWS)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
 #: raise :class:`Undescribed`.  Longest alternative first, so a longer arm is never shadowed
 #: by a shorter one it starts with.
 _ARM = re.compile(
-    r"^(?P<arm>" + "|".join(sorted(ARMS, key=len, reverse=True)) + r")__(?P<cell>.+)$"
+    r"^(?P<arm>"
+    + "|".join(re.escape(arm) for arm in sorted(ARMS, key=len, reverse=True))
+    + r")__(?P<cell>.+)$"
 )
 
 #: A contraction ladder's rung, ``"<configuration>_n<size>"``.  Matched only for the family
@@ -2308,9 +2398,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the median ATE over three fold draws across labelled base seeds",
         "the paired spread-ratio upper endpoint must fall below the declared boundary",
     ),
-    ("repeat_stability", "one_repeat_control"): (
-        "the ATE from each repeated fit's first actual fold draw",
-        "the paired spread-ratio upper endpoint must fall below the declared boundary",
+    ("repeat_stability", "one_repeat"): (
+        "the ATE from each repeated fit's first actual fold draw, alone on the same fixed "
+        "sample; the base of both spread ratios",
+        "the pair's verdict: the spread of the median over this spread stays under the "
+        "declared boundary",
+    ),
+    ("repeat_stability", "second_draw_control"): (
+        "the ATE from each repeated fit's second actual fold draw, alone",
+        "the spread of an independent single draw over the first draw's spread must not fall "
+        "below the declared boundary (no reduction exists to read)",
     ),
     ("projection_necessity", "declared_weights"): (
         "the working model uses its declared nonuniform projection weights",
@@ -3660,9 +3757,16 @@ for _label in (
         "the spread of the median over the spread of its first draw stays under the declared "
         "boundary, above the spread floor",
     )
-    _REPEATED_CELLS[("repeat_stability", f"{_label}__one_repeat_control")] = (
-        f"{_REPEATED_LABELS[_label]}; the first draw alone on the same fixed sample",
-        "the spread ratio of the first draw against itself stays under the declared boundary",
+    _REPEATED_CELLS[("repeat_stability", f"{_label}__one_repeat")] = (
+        f"{_REPEATED_LABELS[_label]}; the first draw alone on the same fixed sample; the base "
+        "of the pair's spread ratio",
+        "the pair's verdict: the spread of the median over this spread stays under the "
+        "declared boundary, above the spread floor",
+    )
+    _REPEATED_CELLS[("repeat_stability", f"{_label}__second_draw_control")] = (
+        f"{_REPEATED_LABELS[_label]}; the second draw of the same three-draw fit, alone",
+        "the spread of an independent single draw over the first draw's spread must not fall "
+        "below the declared boundary (no reduction exists to read), above the spread floor",
     )
 for _horizon in (1, 2, 3):
     _reading = f"survival risk difference at horizon {_horizon}, the SE ratio of "
@@ -3718,20 +3822,36 @@ def implementation(key: str) -> str:
         raise Undescribed(f"no description for implementation {key!r}") from None
 
 
-def scenario(key: str) -> str:
-    """The law a scenario samples."""
+#: Scenario descriptions that one study scopes, by ``(slug, scenario)``. A study whose
+#: recorded scenario key another study already describes names its own law here.
+STUDY_SCENARIOS: dict[tuple[str, str], str] = {}
+
+
+def scenario(key: str, *, slug: str | None = None) -> str:
+    """The law a scenario samples, read from the study's own entry first."""
+    if slug is not None and (slug, key) in STUDY_SCENARIOS:
+        return STUDY_SCENARIOS[slug, key]
     try:
         return SCENARIOS[key]
     except KeyError:
         raise Undescribed(f"no description for scenario {key!r}") from None
 
 
-def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
+#: Estimand descriptions that one study scopes, by ``(slug, estimand)``.  A study whose row key
+#: another study already describes, such as ``ate_lower`` at another strength, names its own
+#: reading here.
+STUDY_ESTIMANDS: dict[tuple[str, str], str] = {}
+
+
+def estimand(key: str, *, outcome_kind: str = "absorbing", slug: str | None = None) -> str:
     """What an estimand key names, including a bracketed longitudinal regimen.
 
     ``outcome_kind`` is the study record's declaration.  It decides the wording of a
     horizon-indexed contrast, which reads the same on a survival and a repeated outcome.
+    ``slug`` selects the study's own entry in :data:`STUDY_ESTIMANDS` first.
     """
+    if slug is not None and (slug, key) in STUDY_ESTIMANDS:
+        return STUDY_ESTIMANDS[slug, key]
     stratum = _STRATUM.match(key)
     if stratum is not None:
         base = estimand(stratum.group("base"), outcome_kind=outcome_kind)
@@ -3891,9 +4011,10 @@ def cell(
     size = _SIZE.match(base) if family == "double_robust_contraction" else None
     if size is not None:
         base = size.group("cell")
+    scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
     try:
         tested, required = (
-            (STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None)
+            scoped
             or (ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None)
             or CELLS[family, base]
         )
@@ -3901,7 +4022,7 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
-    if family == "interval_calibration" and base == "correctly_specified":
+    if family == "interval_calibration" and base == "correctly_specified" and scoped is None:
         if nuisance_count == 2:
             tested = "both nuisances are correctly specified"
         else:
@@ -4302,6 +4423,9 @@ IMPLEMENTATIONS["cleverly-structural-nested-mean"] = (
     "`cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow "
     "booster on law N)"
 )
+IMPLEMENTATIONS["econml"] = (
+    "EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design"
+)
 ESTIMANDS["ey_reference"] = "mean outcome with every treatment at its reference level"
 SCENARIOS.update(
     {
@@ -4475,3 +4599,464 @@ CELLS.update(
         ),
     }
 )
+
+
+# ``survival-node-bounds`` (X33): a point-treatment survival law with five visits and node bounds.
+SCENARIOS.update(
+    {
+        "mean_model": (
+            "point-treatment survival law with five visits, binary arm and two binary baseline "
+            "covariates; the iterated-mean fit, every node bounded"
+        ),
+        "hazard_model": (
+            "the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard "
+            "bounded"
+        ),
+    }
+)
+PROPERTIES.update(
+    {
+        "reported_calibration": (
+            "the bounded fits' intervals for the parameters the bounds do not gate, reported "
+            "without a verdict"
+        ),
+        "binding_witness": (
+            "the declared bounds bind: the unbounded fit leaves them on at least half of the "
+            "draws, and the bounded estimates differ from the unbounded ones on at least half"
+        ),
+        "unbounded_fit": (
+            "the same fits without node bounds on the same draws, with the RMSE of the bounded "
+            "and unbounded fits side by side, reported without a verdict"
+        ),
+        "bound_necessity": (
+            "bounds that exclude the truth bias the bounded estimate beyond the margin, and valid "
+            "bounds do not"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("reported_calibration", "reported"): (
+            "the bounded fit on the draws of the calibration cells, for a parameter the bounds "
+            "do not gate",
+            "reported with no verdict",
+        ),
+        ("binding_witness", "binding"): (
+            "the share of draws on which the unbounded fit leaves the valid bounds on a node "
+            "follower, and the share on which the bounded and unbounded estimates of the risk "
+            "by visit 5 under arm 1 or of the risk difference differ by more than 1e-4",
+            "both shares at least one half for the iterated-mean fit; the hazard fit reports "
+            "its shares without a verdict",
+        ),
+        ("unbounded_fit", "unbounded"): (
+            "the identical fit with no node bounds, on the draws of the calibration cells",
+            "reported with no verdict",
+        ),
+        ("bound_necessity", "valid_bounds"): (
+            "the valid bounds, a saturated outcome regression and an intercept-only treatment "
+            "mechanism",
+            "bias interval must fall inside the margin",
+        ),
+        ("bound_necessity", "excluding_bound"): (
+            "the upper bound at every node lowered to half the way from the arm-1 follower mean "
+            "of the true iterated mean to its largest value, so it excludes the truth in the "
+            "high-risk covariate cells",
+            "the displacement from the valid-bounds fit must reach one quarter of the "
+            "valid-bounds standard deviation, and the bias interval must fall beyond the margin",
+        ),
+    }
+)
+
+
+# ------------------------------------------------------------------------- adaptive-iptw (X21)
+#: ``p_ey0`` is an arm of another study with another reading.
+STUDY_ARMS[("adaptive-iptw", "p_ey0")] = "arm-0 mean"
+
+IMPLEMENTATIONS["adaptive_iptw"] = (
+    "`cleverly` `AdaptiveIPTW`, the Horvitz-Thompson mean with a targeted propensity"
+)
+SCENARIOS["known_arms"] = (
+    "effect-modified two-arm law with a continuous and a binary covariate; the cross-fitted "
+    "targeted fit of the arm means and the ATE with the treatment mechanism declared known"
+)
+
+PROPERTIES.update(
+    {
+        "bias": (
+            "the point estimate of the fit is unbiased in the unit of its own spread: the "
+            "standardized bias lies inside the margin where the learner is consistent for the "
+            "mechanism, and outside it where the learner is not"
+        ),
+        "root_n_points": (
+            "the estimate under a mechanism that converges at the cube-root rate keeps a "
+            "standardized bias inside the margin at each of three sizes"
+        ),
+        "spread": (
+            "the plug-in standard error divided by the empirical spread of the estimates, "
+            "reported without a verdict"
+        ),
+    }
+)
+
+
+def _adaptive_cells() -> None:
+    """The cells of ``adaptive-iptw`` that no other study shares.
+
+    A cell name is ``<key label>__<configuration>``.  The key label is an arm of :data:`ARMS`,
+    so :func:`cell` reads the configuration here, and prints the key beside it.  A
+    configuration that another study already describes would be overwritten silently, so this
+    raises instead.
+    """
+    positive = "bias interval inside the equivalence margin"
+    control = "bias interval must fall entirely outside the margin"
+    band = "SE-ratio and coverage intervals both inside their calibration bands"
+    flexible = (
+        "bias interval inside the equivalence margin; pre-routed to reporting if it is red, "
+        "because the learner's rate is not shown"
+    )
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for fit, words in (
+        ("known_arms", "arm fit"),
+        ("known_regimes", "regime fit"),
+    ):
+        for form, form_words in (("", "targeted"), ("one_step_", "one-step")):
+            table[("interval_calibration", f"{form}{fit}__correctly_specified")] = (
+                f"the {form_words} {words} with the declared mechanism of the effect-modified "
+                f"two-arm law, so the validity term is zero and the interval is published",
+                band,
+            )
+    for cell_name, law in (
+        ("known_weighted", "the weighted law"),
+        ("known_clustered", "the clustered law with unequal cluster sizes"),
+        ("known_stratified", "the stratified law, one target per stratum"),
+    ):
+        table[("interval_calibration", f"{cell_name}__correctly_specified")] = (
+            f"the targeted fit on {law} with its declared mechanism",
+            band,
+        )
+    table[("simultaneous_coverage", "known_band__simultaneous_band")] = (
+        "the simultaneous band over the arm means, the effect, the risk ratio and the odds "
+        "ratio, with the declared mechanism",
+        "the band covers the whole truth vector at the nominal joint rate",
+    )
+    for bias_cell, words, required in (
+        (
+            "correct",
+            "the correct logistic mechanism, cross-fitted, on the law with a correct reduced regression",
+            positive,
+        ),
+        (
+            "rate",
+            "a mechanism whose logit is off by 2 n^(-1/3) (1 + W2), cross-fitted, on the law with a correct reduced regression",
+            positive,
+        ),
+        ("insample_correct", "the correct logistic mechanism, fitted in sample", positive),
+        (
+            "wrong_mechanism",
+            "a main-terms logistic mechanism that omits the W1 W2 interaction of the true mechanism",
+            control,
+        ),
+        ("flexible", "a gradient-boosting mechanism, cross-fitted", flexible),
+        ("three_arm", "the correct multinomial mechanism on a three-arm law, five folds", positive),
+        (
+            "rate_reduced",
+            "a multinomial mechanism shrunk toward uniform by 2 n^(-1/3), five folds, on a law where the reduced regression is not exact; each arm probability stays a function of the true one, so the level sets survive",
+            positive,
+        ),
+        (
+            "composite_l1",
+            "the composite mechanism of treatment and response on a finite two-arm law, cross-fitted",
+            positive,
+        ),
+        (
+            "composite_l3",
+            "the composite mechanism on a finite three-arm law, cross-fitted",
+            positive,
+        ),
+        (
+            "insample_composite_l1",
+            "the composite mechanism on a finite two-arm law, fitted in sample",
+            positive,
+        ),
+        (
+            "insample_composite_l3",
+            "the composite mechanism on a finite three-arm law, fitted in sample",
+            positive,
+        ),
+        (
+            "weighted",
+            "an estimated mechanism on the weighted law, on the draws of the known-mechanism cell",
+            positive,
+        ),
+        (
+            "clustered",
+            "an estimated mechanism on the clustered law, on the draws of the known-mechanism cell",
+            positive,
+        ),
+        (
+            "stratified",
+            "an estimated mechanism on the stratified law, on the draws of the known-mechanism cell",
+            positive,
+        ),
+        (
+            "regime",
+            "the regime fit with the mechanism logit scaled by 1 + 2 n^(-1/3), on the effect-modified law, where the scaling keeps the level sets",
+            positive,
+        ),
+        (
+            "natural_course",
+            "the natural-course fit with a response mechanism off by a multiple of n^(-1/3)",
+            positive,
+        ),
+        (
+            "insample_regime_missing",
+            "the regime fit with a missing outcome, fitted in sample",
+            positive,
+        ),
+        (
+            "insample_missing_treatment",
+            "the arm fit with a missing treatment and a missing outcome, fitted in sample",
+            positive,
+        ),
+        (
+            "insample_regime_missing_treatment",
+            "the regime fit with a missing treatment and a missing outcome, fitted in sample",
+            positive,
+        ),
+        (
+            "missing_treatment_crossfit",
+            "the arm fit with a missing treatment and a missing outcome, cross-fitted",
+            positive,
+        ),
+        (
+            "level_set_breaking",
+            "a mechanism whose error moves across the level sets of the true mechanism (it adds n^(-1/3) W2 to the logit), on a law where the reduced regression is not exact",
+            control,
+        ),
+        (
+            "level_set_breaking_h1",
+            "the same mechanism error on a law where the reduced regression is exact",
+            positive,
+        ),
+        (
+            "parametric_q_ne_qr",
+            "the correct logistic mechanism on a law where the reduced regression is not exact",
+            positive,
+        ),
+    ):
+        table[("bias", bias_cell)] = (words, required)
+    for rung in (500, 1_500, 4_500):
+        table[("root_n_points", f"n_{rung}")] = (
+            f"the average treatment effect at n = {rung:,} under a mechanism off by a multiple "
+            f"of n^(-1/3)",
+            positive,
+        )
+    table[("spread", "parametric_q_ne_qr")] = (
+        "the plug-in standard error over the empirical spread of the estimates, for the correct "
+        "logistic mechanism on a law where the reduced regression is not exact",
+        "reported only: the ratio and its interval, with no verdict",
+    )
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+    for label in ("p_ey0", "p_ey1", "p_ate", "pd_d", "pd_s", "cn_ey_obs", "rm_d"):
+        STUDY_ARM_CELLS[("adaptive-iptw", "targeting_necessity", label, "targeted")] = (
+            "the targeted estimate of the fit",
+            positive,
+        )
+        STUDY_ARM_CELLS[("adaptive-iptw", "targeting_necessity", label, "untargeted")] = (
+            "the Horvitz-Thompson mean of the same fit at the estimated mechanism, before the "
+            "targeting step, on the same draws",
+            "the displacement from the targeted estimate must reach one standard deviation of "
+            "the targeted estimate, and the bias interval must fall entirely outside the margin",
+        )
+
+
+_adaptive_cells()
+
+
+def _refuter_calibration_cells() -> None:
+    """The longitudinal refutation study (X82 SL): its laws, families and 40 cells."""
+    slug = "refuter-calibration-longitudinal"
+    STUDY_SCENARIOS[(slug, "end_of_study")] = (
+        "law E, two nodes, a Gaussian outcome and a time-varying confounder; `SDR` at five folds"
+    )
+    STUDY_SCENARIOS[(slug, "survival")] = (
+        "law S, the registered censored survival law, risk at t = 2; `LTMLE` at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-longitudinal"] = (
+        "`cleverly` fit that the longitudinal refutation rules read"
+    )
+    PROPERTIES["refuter_size"] = (
+        "under its null a refutation rule rejects in no more than 17 of 200 trials"
+    )
+    PROPERTIES["refuter_power"] = (
+        "a refutation rule detects a declared defect in at least 38 of 50 trials"
+    )
+    fits = {
+        "L1": "LTMLE, law S",
+        "S1": "SDR, law E",
+        "I1": "IPSI at odds x2, law E",
+        "B1": "SequentialGComputation, law E",
+        "B2": "SequentialIPW, law E",
+        "B3": "ParametricGFormula, law E",
+        "SN1": "StructuralNestedMean, law E",
+    }
+    size = "no more than 17 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    readings = {
+        "placebo": "the placebo t rule against the exact Markov null",
+        "subset": "the subset rho rule, both tails",
+        "negative_control": "the negative-control z rule on a valid control",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo t rule, with a declared share of stale rows",
+        "subset_half_se": "the subset rho rule, at the reported SE halved",
+        "subset_double_se": "the subset rho rule, at the reported SE doubled",
+        "negative_control_confounded": (
+            "the negative-control z rule, on a control that reads an unmeasured cause of A1"
+        ),
+    }
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, fit in fits.items():
+        for reading, words in readings.items():
+            if cell == "L1" and reading == "negative_control":
+                continue
+            table[("refuter_size", f"{cell}__{reading}")] = (f"{fit}: {words}", size)
+        for defect, words in defects.items():
+            if cell == "L1" and defect.startswith("negative_control"):
+                continue
+            table[("refuter_power", f"{cell}__{defect}")] = (f"{fit}: {words}", power)
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_calibration_cells()
+
+
+# ------------------------------------------------------------------ X82 SG limit coverage
+
+#: The rows of ``ovb-limit-coverage`` and ``evalue-limit-coverage``.  Mirrored from
+#: ``tests.studies.ovb_limit_coverage.CELLS`` and ``tests.studies.evalue_limit_coverage``, which
+#: this module cannot import; ``tests/unit/test_sensitivity_limit_coverage_registry.py`` pins
+#: that every published key resolves.
+IMPLEMENTATIONS["cleverly-ovb-limit"] = "`cleverly` omitted-variable bound limits (X82 part G)"
+IMPLEMENTATIONS["cleverly-evalue-limit"] = "`cleverly` risk-ratio interval behind the E-value limit"
+STUDY_SCENARIOS.update(
+    {
+        (_SG_OVB, "O1"): "part G law, outcome missing at random given A and W; saturated GLMs",
+        (_SG_OVB, "O2"): "part G law with a binary intermediate Z; saturated GLMs",
+        (_SG_OVB, "O3"): "part G law, complete data, three regimes; saturated GLMs",
+        (_SG_OVB, "O4"): "part G law, complete data, linear MSM with modifier W2; saturated GLMs",
+        (_SG_OVB, "O5"): "`tests.discrete_law_shift` on its four dose atoms; saturated GLMs",
+        (_SG_EVALUE, "E3"): "`stratified_law`, three strata, as `canonical-stratified-tmle` fits",
+        (_SG_EVALUE, "E4"): "the `survival` law of `point-treatment-survival`, hazard LTMLE",
+    }
+)
+STUDY_ESTIMANDS.update({(_SG_OVB, row): words for row, (_, words) in _SG_OVB_ROWS.items()})
+STUDY_ESTIMANDS[_SG_EVALUE, "rr_t5"] = _SG_EVALUE_ROWS["E4_rr_t5"]
+STUDY_ARM_CELLS.update(
+    {
+        (slug, "interval_calibration", label, kind): words
+        for slug, labels in (
+            (_SG_OVB, [f"{cell}_{row}" for row, (cell, _) in _SG_OVB_ROWS.items()]),
+            (_SG_EVALUE, list(_SG_EVALUE_ROWS)),
+        )
+        for label in labels
+        for kind, words in (
+            (
+                "correctly_specified",
+                (
+                    "every nuisance is correctly specified, and the row reads its reported limit",
+                    "SE ratio and coverage intervals both inside their calibration bands",
+                ),
+            ),
+            (
+                "inflated_se_control",
+                (
+                    "the reported standard error is multiplied by 1.5",
+                    "the SE-ratio interval must fall above the calibration band",
+                ),
+            ),
+        )
+    }
+)
+PROPERTIES["response_mask_necessity"] = (
+    "the response mask in sigma^2 is what puts the response-mechanism bound at its truth"
+)
+CELLS[("response_mask_necessity", "masked")] = (
+    "the package bound, whose sigma^2 is the masked mean over all rows",
+    "bias interval inside the equivalence margin",
+)
+CELLS[("response_mask_necessity", "unmasked_sigma2")] = (
+    "sigma^2 read as the mean over the observed rows only",
+    "bias interval must fall entirely outside the margin",
+)
+
+
+def _refuter_point_cells() -> None:
+    """The point-treatment refutation study (X82 SP): its laws and 27 cells."""
+    slug = "refuter-calibration-point"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point law with 20 covariates and a Gaussian outcome; TMLE at five folds"
+    )
+    STUDY_SCENARIOS[(slug, "binomial")] = (
+        "the point law with 20 covariates and a binary outcome of prevalence 0.100; "
+        "TMLE at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-point"] = (
+        "`cleverly` fit that the point-treatment refutation rules read"
+    )
+    fits = {
+        "T1": "TMLE with GLM nuisances, Gaussian outcome",
+        "T2": "TMLE with GLM nuisances, binary outcome",
+        "T3": "TMLE with a depth-2 booster, binary outcome",
+        "C1": "greedy C-TMLE, binary outcome",
+        "D1": "DR-TMLE with a declared mechanism, binary outcome",
+        "D2": "DR-TMLE with an estimated mechanism, binary outcome",
+    }
+    readings = {
+        "T1": ("placebo", "subset", "negative_control"),
+        "T2": ("placebo", "subset", "negative_control"),
+        "T3": ("placebo",),
+        "C1": ("placebo",),
+        "D1": ("placebo", "subset", "negative_control"),
+        "D2": ("placebo",),
+    }
+    size = "no more than 17 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    words = {
+        "placebo": "the placebo t rule against the exact permutation null",
+        "subset": "the subset rho rule, both tails",
+        "negative_control": "the negative-control z rule on a valid control",
+    }
+    defects = {
+        "placebo": {
+            "placebo_stale_rows": "the placebo t rule, with a declared share of stale rows"
+        },
+        "subset": {
+            "subset_half_se": "the subset rho rule, at the reported SE halved",
+            "subset_double_se": "the subset rho rule, at the reported SE doubled",
+        },
+        "negative_control": {
+            "negative_control_confounded": (
+                "the negative-control z rule, on a control that reads an unmeasured cause of A"
+            )
+        },
+    }
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, fit in fits.items():
+        for reading in readings[cell]:
+            table[("refuter_size", f"{cell}__{reading}")] = (f"{fit}: {words[reading]}", size)
+            for defect, text in defects[reading].items():
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{fit}: {text}", power)
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_point_cells()

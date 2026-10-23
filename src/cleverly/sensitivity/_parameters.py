@@ -32,6 +32,7 @@ __all__ = [
     "arm_parameters",
     "conditional_stratum",
     "reported_arm_parameters",
+    "stratum_parameter",
     "stratum_refusal",
 ]
 
@@ -55,6 +56,10 @@ class ArmParameter:
     versus:
         The arm a contrast is taken against, or ``None`` for a level.  For ``att`` and
         ``atc`` this is also the reference the propensity odds are formed against.
+    stratum:
+        The code of the baseline stratum the parameter conditions on, an index into
+        ``data.strata_levels``, or ``None`` for a marginal parameter.  Only
+        :func:`stratum_parameter` sets it, so :func:`arm_parameters` stays marginal.
     """
 
     name: str
@@ -62,6 +67,7 @@ class ArmParameter:
     group: TargetGroup
     arm: float
     versus: float | None = None
+    stratum: int | None = None
 
     def key(self, label: Callable[[float], Any]) -> Any:
         """This parameter as a :class:`~cleverly.ParameterKey`, in the reported labels.
@@ -138,7 +144,7 @@ def stratum_refusal(result: TMLEResult, estimand: str, analysis: str) -> Refusal
             f"Ask for {marginal!r} to assess the marginal parameter, or fit the stratum as "
             f"its own study."
         ),
-        roadmap="X65",
+        roadmap="X82",
     )
 
 
@@ -164,42 +170,21 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     if result.assessment_family != "point" or not data.has_arms:
         return {}
     if result.parameter_keys:
-        from ..targets import TARGETS
-
-        levels = tuple(data.treatment_levels)
-
-        def code(value: object) -> float:
-            try:
-                return float(levels.index(value))
-            except ValueError as error:
-                raise ValueError(
-                    f"structured parameter metadata names treatment level {value!r}, "
-                    f"which is absent from the fitted levels {list(levels)}"
-                ) from error
-
         structured: dict[str, ArmParameter] = {}
         for alias, key in result.parameter_keys.items():
-            if key.axis != "arm" or key.estimand not in {"ey", "ey1", "ey0", "ate", "att", "atc"}:
-                continue
             # A stratum-conditional alias is minted by copying the marginal key and
             # changing only ``alias`` and ``stratum`` (``CausalStudy._point_parameter_keys``),
             # so every field this map reads is the *marginal* one.  Admitting it here would
             # hand back an ``ArmParameter`` indistinguishable from the marginal parameter,
             # and the bound and the tilt would report the marginal quantity under the
             # stratum's name.  The conditional parameter is a different functional with its
-            # own representer; it is refused by name where it is asked for.
+            # own representer: :func:`stratum_parameter` builds it for the bound, and the
+            # tilt refuses it by name.
             if key.stratum is not None:
                 continue
-            target = TARGETS[key.estimand]
-            if key.value is None:
-                continue
-            structured[alias] = ArmParameter(
-                alias,
-                key.estimand,
-                target.group,
-                code(key.value),
-                None if key.reference is None else code(key.reference),
-            )
+            parameter = _structured_parameter(result, alias, key)
+            if parameter is not None:
+                structured[alias] = parameter
         return structured
 
     reference = result.config.reference_arm
@@ -226,6 +211,68 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
             name = arm_alias(stem, arm=label(arm), versus=label(reference), collapse=binary)
             out[name] = ArmParameter(name, stem, group, arm, reference)
     return out
+
+
+def _level_code(result: TMLEResult, value: object) -> float:
+    """The arm code of a treatment level that structured metadata names."""
+    levels = tuple(result.data.treatment_levels)
+    try:
+        return float(levels.index(value))
+    except ValueError as error:
+        raise ValueError(
+            f"structured parameter metadata names treatment level {value!r}, "
+            f"which is absent from the fitted levels {list(levels)}"
+        ) from error
+
+
+def _structured_parameter(
+    result: TMLEResult, alias: str, key: Any, stratum: int | None = None
+) -> ArmParameter | None:
+    """The arm parameter a structured key names, or ``None`` when the key is not linear."""
+    from ..targets import TARGETS
+
+    if key.axis != "arm" or key.estimand not in {"ey", "ey1", "ey0", "ate", "att", "atc"}:
+        return None
+    if key.value is None:
+        return None
+    return ArmParameter(
+        alias,
+        key.estimand,
+        TARGETS[key.estimand].group,
+        _level_code(result, key.value),
+        None if key.reference is None else _level_code(result, key.reference),
+        stratum,
+    )
+
+
+def stratum_parameter(result: TMLEResult, estimand: str) -> ArmParameter | None:
+    """The stratum-conditional arm parameter a reported alias names, or ``None``.
+
+    The omitted-variable bound reads this function, and the missingness tilt does not.
+    The parameter keeps the marginal key's arms and group and adds the stratum code, so
+    the bound can restrict the marginal representer to the stratum's rows.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    estimand : str
+        A reported alias.
+
+    Returns
+    -------
+    ArmParameter or None
+        The parameter with its ``stratum`` code, or ``None`` when the alias is marginal,
+        not reported, or not a linear arm parameter.
+    """
+    if estimand not in result.estimates:
+        return None
+    keys = getattr(result, "parameter_keys", None)
+    key = keys.get(estimand) if keys else None
+    if key is None or key.stratum is None:
+        return None
+    code = list(result.data.strata_levels).index(tuple(key.stratum))
+    return _structured_parameter(result, estimand, key, code)
 
 
 def reported_arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:

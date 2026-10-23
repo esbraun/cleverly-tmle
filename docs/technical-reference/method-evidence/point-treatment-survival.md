@@ -249,13 +249,13 @@ the committed results and checked at the precision printed.
 | per-horizon targeting | each horizon has its own backward pass, so the curve is not constrained to be monotone. [Hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting) covers hazard-based and whole-curve targeting |
 | discrete time | a continuous event time is binned onto a declared grid. The `continuous_t4` cell measures the binned parameter, not a continuous-time one |
 | one calibration cell is red under `reporting` | the `weighted_t5` SE-ratio interval reaches past its band. The reported standard error equals the efficiency bound. The `X13-finite-sample` owner holds it |
-| `survtmle`'s `bounds=` is not paired | [X33](../../roadmap.md#x33-longitudinal-fitting-options) part (h) owns it |
+| `survtmle`'s `bounds=` is not paired | the [node-bounds study](survival-node-bounds.md) declares that comparison, and its runs are pending |
 
 ## Reproduction
 
 The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/manifest.json)
 records the seeds, the margins, the estimator configuration, the source hashes and the result
 hashes. Run `python -m tests.canonical.point_survival.regenerate` to regenerate the artifacts. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/properties.csv)
 carry every published row.

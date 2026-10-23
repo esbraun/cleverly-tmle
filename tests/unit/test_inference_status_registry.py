@@ -40,7 +40,9 @@ ROADMAP = ROOT / "docs" / "roadmap.md"
 PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
+    "estimated_mechanism_plugin",
     "estimated_weight_plugin",
+    "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",

@@ -40,7 +40,7 @@ replications of the published one. The published artifact uses the replication c
 size declared on the study record and recorded in `manifest.json`; do not replace it with a smoke
 run.
 
-Raw simulated datasets are temporary. The committed `replicates.csv.gz` retains the estimates,
+Raw simulated datasets are temporary. The committed `replicates.parquet` retains the estimates,
 standard errors, intervals, truth, coverage indicator, and pairing key needed to reproduce every
 summary.
 

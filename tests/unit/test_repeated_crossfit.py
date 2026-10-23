@@ -12,7 +12,8 @@ be checked *exactly*, which is nearly all of it:
 * the refused combinations, and why.
 
 The registered ``repeat_stability`` property tests the repeated-sampling claim on one fixed
-binary sample. It compares 400 paired fold seeds for one and three draws. These unit tests
+binary sample. It compares 400 paired fold seeds for one and three draws, and reads a second
+single draw as its control. These unit tests
 instead keep the exact structural guarantees close to the implementation.
 """
 
@@ -332,17 +333,35 @@ class TestTheDrawsAreDistinctAndReproducible:
         for repeat in repeated.repeats:
             assert repeat.folds is repeat.nuisance.folds
 
-    def test_the_first_draw_is_exactly_its_one_repeat_control(
-        self, frame: Any, repeated: Any
-    ) -> None:
+    def test_the_first_draw_is_exactly_its_one_repeat_fit(self, frame: Any, repeated: Any) -> None:
         first_seed = fast_tmle(repeats=REPEATS).crossfit_plan(repeated.data).seeds()[0]
         assert first_seed is not None
-        control = fast_tmle(repeats=1, random_state=first_seed).fit(frame, **COLUMNS).single()
+        one = fast_tmle(repeats=1, random_state=first_seed).fit(frame, **COLUMNS).single()
         np.testing.assert_array_equal(
             repeated.repeats[0].nuisance.folds.assignment,
-            control.nuisance.folds.assignment,
+            one.nuisance.folds.assignment,
         )
-        assert repeated.repeats[0].psi["ate"] == control.psi("ate")
+        assert repeated.repeats[0].psi["ate"] == one.psi("ate")
+
+    def test_the_second_draw_is_exactly_its_one_repeat_fit(self, frame: Any, repeated: Any) -> None:
+        """The registered ``second_draw_control`` refits draw 1 alone at the plan's second seed.
+
+        The refit must equal draw 1 and differ from draw 0, or the control would read the first
+        draw again.
+        """
+        seeds = fast_tmle(repeats=REPEATS).crossfit_plan(repeated.data).seeds()
+        assert seeds[1] is not None and seeds[1] != seeds[0]
+        one = fast_tmle(repeats=1, random_state=seeds[1]).fit(frame, **COLUMNS).single()
+        np.testing.assert_array_equal(
+            repeated.repeats[1].nuisance.folds.assignment,
+            one.nuisance.folds.assignment,
+        )
+        assert repeated.repeats[1].psi["ate"] == one.psi("ate")
+        assert repeated.repeats[1].psi["ate"] != repeated.repeats[0].psi["ate"]
+        assert not np.array_equal(
+            repeated.repeats[1].nuisance.folds.assignment,
+            repeated.repeats[0].nuisance.folds.assignment,
+        )
 
     def test_the_same_seed_gives_the_same_draws(self, frame: Any, repeated: Any) -> None:
         again = fast_tmle(repeats=REPEATS).fit(frame, **COLUMNS).single()
@@ -1041,13 +1060,20 @@ class TestTheOmittedVariableBoundNeedsItsOwnMedianInfluenceFunction:
         frame, _ = make_binary_outcome(n=N, seed=17)
         return fast_tmle(repeats=2, estimands=["ate"]).fit(frame, **COLUMNS).single()
 
-    def test_the_bound_is_refused_instead_of_combining_influence_terms(
+    def test_the_elements_name_a_draw_instead_of_combining_influence_terms(
         self, binary_fit: Any
     ) -> None:
+        """Each draw has its own elements, and a bare request does not pick one silently.
+
+        The bound itself combines the draws by the median rule
+        (``tests/unit/test_omitted_variable_repeats.py``).
+        """
         from cleverly.sensitivity.omitted_variable import sensitivity_elements
 
-        with pytest.raises(CapabilityError, match="median-combined repeats"):
+        with pytest.raises(CapabilityError, match="describe one draw"):
             sensitivity_elements(binary_fit, "ate")
+        draws = [sensitivity_elements(binary_fit, "ate", repeat=r) for r in range(2)]
+        assert draws[0].max_bias != draws[1].max_bias
 
 
 class TestSerialization:

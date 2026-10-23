@@ -12,7 +12,7 @@ from the records, and :func:`reconcile` refuses rows whose gaps the records do n
 With no record, :func:`stamp` returns the rows unchanged, so no artifact moves.
 
 A run with a record also publishes ``property-failure-accounting.csv`` (:func:`property_accounting`)
-and ``property-failure-witnesses.csv``, the draw-level witness of every key of each cell that
+and ``property-failure-witnesses.parquet``, the draw-level witness of every key of each cell that
 lost a replicate (rev 3 D3'f).
 """
 
@@ -53,6 +53,7 @@ from tests.studies.evidence.inference import (
     percentile_interval,
     student_interval,
 )
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import (
     absolute_bias_bound,
     log_slope,
@@ -340,7 +341,10 @@ PROPERTY_ACCOUNTING_COLUMNS = (
 
 #: The witness values a run with a property failure publishes beside its records: the
 #: statistic of every key of each cell that lost a replicate (D3'f).
-PROPERTY_WITNESSES = "property-failure-witnesses.csv"
+PROPERTY_WITNESSES = "property-failure-witnesses.parquet"
+
+#: The text columns of :data:`PROPERTY_WITNESSES`, which a file with no failure leaves empty.
+WITNESS_DTYPE = {"property": str, "cell": str, "statistic": str}
 
 #: The largest ``FAILURE_BOUND`` a property module may declare (RM39-plan a2 Q3).
 MAXIMUM_BOUND = 0.05
@@ -668,6 +672,15 @@ def below_judge(threshold: Callable[[Context], float]) -> Judge:
 def above_judge(threshold: Callable[[Context], float]) -> Judge:
     """The lower endpoint strictly above a threshold."""
     return lambda ctx, row, iv: Judged(iv.low - threshold(ctx), bool(iv.low > threshold(ctx)))
+
+
+def upper_at_or_above_judge(threshold: Callable[[Context], float]) -> Judge:
+    """The upper endpoint at or above a threshold: an interval that still reaches it.
+
+    A control that must read no reduction passes on this judge, because a ratio interval
+    whose upper endpoint falls below the threshold has found a reduction.
+    """
+    return lambda ctx, row, iv: Judged(iv.high - threshold(ctx), bool(iv.high >= threshold(ctx)))
 
 
 def band_judge(band: Callable[[Context], tuple[float, float]]) -> Judge:
@@ -1463,7 +1476,10 @@ def spread_ratio_clause(
     """S9: a paired spread ratio, pushed toward the clause's boundary.
 
     For an ``upper`` clause the numerator's lost values sit at each vertex split and the
-    denominator's at the survivor mean; a ``lower`` clause reverses the roles.  The arms are
+    denominator's at the survivor mean; a ``lower`` clause reverses the roles.  ``side`` names
+    the direction of the fills, which push the ratio up or down, and it does not name the
+    endpoint the judge reads: a ``lower`` clause may be judged on the upper endpoint, as a
+    control whose ratio must not fall below its boundary is.  The arms are
     completed by replicate (b1 M2).  ``statistic`` is the verdict's own statistic function
     (G6); :func:`~tests.studies.evidence.properties.paired_spread_ratio_interval` by default.
     The point ratio is exact; the bootstrap interval is enumerated.
@@ -1475,7 +1491,8 @@ def spread_ratio_clause(
     cells : tuple of str
         The numerator and denominator cells of the row's family.
     side : str
-        ``upper`` or ``lower``: which endpoint the clause bounds.
+        ``upper`` or ``lower``: the direction the fills push the ratio, ``upper`` for fills
+        that raise it and ``lower`` for fills that lower it.
     judge : Callable
         The rule on the ratio interval.
     seed : Callable
@@ -2900,7 +2917,7 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     Parameters
     ----------
     path : pathlib.Path
-        A ``property-failure-witnesses.csv``.
+        A ``property-failure-witnesses.parquet``.
 
     Returns
     -------
@@ -2909,7 +2926,7 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     """
     if not path.exists():
         return None
-    published = pd.read_csv(path, dtype={"property": str, "cell": str, "statistic": str})
+    published = read_rows(path).astype(WITNESS_DTYPE)
     return published.loc[:, list(WITNESS_COLUMNS)]
 
 
@@ -2941,6 +2958,9 @@ TARGETED_RATIOS = (1.0, *TARGETED_SPREADS)
 CENTRE_FACTORS = (0.9, 0.75, 0.5, 0.25, 0.0, -0.5, -1.0, 1.5, 3.0)
 ROLE_SE_FACTORS = (0.5, 0.25, 0.8, 1.25, 2.0, 4.0)
 ROLE_SPREADS = (2.0, 4.0, 10.0, 0.5)
+#: The SE factor that takes a reported variance below a rounding-level floor.  A split variance
+#: share near 1e-2 falls under a floor of 1e-8 once each standard error grows by 1e5.
+ROUNDING_SE_FACTOR = 1.0e5
 #: The amplitude of each ``mixed/<k>`` draw, and the seed root of the draws.
 MIXED_AMPLITUDES = tuple(float(value) for value in np.geomspace(0.1, 1.0, 16))
 MIXED_SEED = 20_261_015
@@ -2956,6 +2976,10 @@ AFFINE_SEED = 20_261_014
 #: in units of the cell's largest absolute value of the column, and at least one.
 EXTRA_SCALE = 4.0
 EXTRA_SHIFT = 4.0
+
+#: The kinds of one extra column and one cell: two that raise the values and one that sets them
+#: down until their mean is their smallest finite value, the floor of a count or a share.
+EXTRA_KINDS = ("scale", "shift", "floor")
 
 
 def cell_key(*labels: str) -> int:
@@ -3173,7 +3197,7 @@ def composed_perturbations() -> tuple[str, ...]:
     | kind | change | ``covered``, ``rejected`` |
     | --- | --- | --- |
     | ``centre/<role>/<c>`` | each cell of the role keeps its spread, and its mean error times ``c`` | recomputed for the role |
-    | ``se_role/<role>/<f>`` | each standard error of the role times ``f`` | kept |
+    | ``se_role/<role>/<f>`` | each standard error of the role times ``f``. At 1e5 it puts a rounding-level variance floor out of reach | kept |
     | ``coverage_role/<role>/<p>`` | ``coverage/<p>`` on the role's cells alone | ``rejected`` kept |
     | ``spread_role/<role>/<g>`` | each cell of the role dilated ``g`` times about its mean, and its standard errors times ``g`` | recomputed for the role |
     | ``<a>+<b>`` | kind ``a``, then kind ``b`` | as each kind says |
@@ -3182,7 +3206,7 @@ def composed_perturbations() -> tuple[str, ...]:
     -------
     tuple of str
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
-        followed by a coverage share.
+        followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role.
     """
     return _composed()
 
@@ -3205,6 +3229,7 @@ def _composed() -> tuple[str, ...]:
             for role in roles
             for p in COVERAGE_TARGETS
         ),
+        *(f"se_role/{role}/{ROUNDING_SE_FACTOR:g}" for role in roles),
     )
 
 
@@ -3373,7 +3398,7 @@ def _extra_columns(rows: pd.DataFrame) -> list[str]:
 
 
 def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
-    """Per numeric extra column and per cell, a scaling and an additive shift (rev 3 L10).
+    """Per numeric extra column and per cell, a scaling, a shift and a floor (rev 3 L10).
 
     An extra column is any numeric column beyond
     :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS`, such as the bootstrap counts
@@ -3381,6 +3406,18 @@ def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
     alone cannot move a column that is zero on every row, so the shift adds
     :data:`EXTRA_SHIFT` times the cell's largest absolute value, at least one.  A column with
     no finite value in a cell gives that cell none.
+
+    The scaling and the shift only raise a non-negative share or count, so neither can flip a
+    floor clause such as a share of indicator rows at least one half.  The floor kind moves the
+    cell's values down by the gap between their mean and their smallest finite value.  The cell
+    mean then equals the observed minimum, which is zero for an indicator, so a share falls to
+    its floor and no clause needs a threshold of the subject to flip.  The floor kind has the
+    least side effect on other subjects.  It keeps the spread of the column, so a variance, a
+    covariance or a ratio that another statistic reads stays finite.  It leaves a constant
+    column unchanged, such as the bootstrap-failure counts that a cap reads when they are zero,
+    and such as a convergence flag that is one on every row.  A zeroing or a collapse to the
+    minimum would remove the spread, and a fractional lowering would need a factor per clause.
+    A lost (non-finite) row stays lost.
 
     Parameters
     ----------
@@ -3390,22 +3427,22 @@ def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        One :func:`perturbed` kind per perturbation, ``extra|column|property|cell|scale`` or
-        ``...|shift``.
+        One :func:`perturbed` kind per perturbation, ``extra|column|property|cell|scale``,
+        ``...|shift`` or ``...|floor``.
     """
     out: list[str] = []
     for column in _extra_columns(rows):
         finite = rows[column].astype(float).map(math.isfinite)
         kept = rows.loc[finite, ["property", "cell"]].drop_duplicates()
         for family, cell in sorted(kept.itertuples(index=False, name=None)):
-            out.extend(f"extra|{column}|{family}|{cell}|{how}" for how in ("scale", "shift"))
+            out.extend(f"extra|{column}|{family}|{cell}|{how}" for how in EXTRA_KINDS)
     return tuple(out)
 
 
 def _extra(rows: pd.DataFrame, kind: str) -> pd.DataFrame:
     """One :func:`extra_perturbations` kind applied to a copy of ``rows``."""
     _, column, family, cell, how = kind.split("|")
-    if column not in _extra_columns(rows) or how not in {"scale", "shift"}:
+    if column not in _extra_columns(rows) or how not in EXTRA_KINDS:
         raise ValueError(f"unknown perturbation {kind!r}")
     out = rows.copy()
     out[column] = out[column].astype(float)
@@ -3413,6 +3450,9 @@ def _extra(rows: pd.DataFrame, kind: str) -> pd.DataFrame:
     values = out.loc[index, column]
     if how == "scale":
         out.loc[index, column] = values * EXTRA_SCALE
+    elif how == "floor":
+        finite = values[np.isfinite(values)]
+        out.loc[index, column] = values - (float(finite.mean()) - float(finite.min()))
     else:
         out.loc[index, column] = values + EXTRA_SHIFT * max(1.0, float(np.nanmax(np.abs(values))))
     return out

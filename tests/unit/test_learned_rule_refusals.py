@@ -44,9 +44,7 @@ from cleverly.interventions.learned import (
     LEARNED_RULE_BOUND_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
     LEARNED_RULE_EVALUE_REFUSAL,
-    LEARNED_RULE_REFIT_REFUSAL,
     LEARNED_RULE_REMEDY,
-    LEARNED_RULE_REPLAY_REFUSAL,
     LEARNED_RULE_TILT_REFUSAL,
 )
 from cleverly.learners.crossfit import _LEARNED_RULE_METHOD_CLAUSE, _POST_DRAW_REMEDY
@@ -56,7 +54,7 @@ from cleverly.sensitivity import evalue
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.missingness import fit_wide_tilt_refusal
 from cleverly.sensitivity.omitted_variable import fit_wide_bound_refusal
-from cleverly.validation.refute import refute
+from cleverly.validation.refute import refute_refusal
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
@@ -581,10 +579,11 @@ class TestTheStudyRefusesTheSameRows:
 
 
 class TestTheAssessmentRows:
-    """A refit relearns the rules, so no refutation or sensitivity analysis runs.
+    """No bound and no covariate-perturbing refutation runs on a learned-rule fit.
 
-    Each row reads unavailable, and each call refuses with the same sentence.  The
-    summarize rows and ``truncation_curve`` run; the capability sweep
+    Each such row reads unavailable, and each call refuses with the same sentence.
+    Simulated confounding and the other refutations run, because their replay holds the
+    realized fold rules (X82 part F4).  The summarize rows and ``truncation_curve`` run; the capability sweep
     (``tests/unit/test_capability_row_sweep.py``, kind ``learned_rule``) pins that.
     """
 
@@ -592,12 +591,10 @@ class TestTheAssessmentRows:
     def result(self) -> Any:
         return support.fit()
 
-    def test_refute_reads_unavailable_and_refuses(self, result: Any) -> None:
-        row = result.diagnostics.capability("refute")
-        assert not row.available and row.refusal == LEARNED_RULE_REFIT_REFUSAL
-        assert "X11 (o) in docs/roadmap.md tracks a refutation that freezes" in row.reason
-        with pytest.raises(CapabilityError, match="relearns the rule"):
-            refute(result, estimand=support.NAME, tests=("random_common_cause",))
+    def test_no_refit_test_meets_a_learned_rule_stop(self, result: Any) -> None:
+        """X82 part F4 holds the realized rules on every refit of the fit."""
+        tests = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
+        assert refute_refusal(result, estimand=support.NAME, tests=tests) is None
 
     @pytest.mark.parametrize(
         ("operation", "item"),
@@ -608,7 +605,6 @@ class TestTheAssessmentRows:
             ("contour", "X11 (n)"),
             ("benchmark", "X11 (n)"),
             ("evalue", "F27"),
-            ("simulated_confounding", "X11 (o)"),
             ("missingness", "F27"),
             ("tipping_gamma", "F27"),
         ],
@@ -620,11 +616,21 @@ class TestTheAssessmentRows:
         assert not row.available
         assert f"{item} in docs/roadmap.md" in (row.reason or "")
 
+    def test_simulated_confounding_has_no_learned_rule_stop(self, result: Any) -> None:
+        """X82 part F4 replays the fit with its fold rules frozen.
+
+        This direct fit records no identification, so the replay stops there instead.
+        ``test_simulated_confounding_learned_rule.py`` runs the replay on a study fit.
+        """
+        refusal = simulated_confounding_refusal(result, support.NAME)
+        assert refusal is not None
+        assert "identification metadata" in refusal.message()
+        assert "relearn" not in refusal.message()
+
     def test_each_call_refuses_with_its_row_sentence(self, result: Any) -> None:
         for reason, sentence in (
             (fit_wide_bound_refusal(result), LEARNED_RULE_BOUND_REFUSAL),
             (fit_wide_tilt_refusal(result), LEARNED_RULE_TILT_REFUSAL),
-            (simulated_confounding_refusal(result, support.NAME), LEARNED_RULE_REPLAY_REFUSAL),
         ):
             assert reason is not None and sentence in reason.message()
         with pytest.raises(CapabilityError) as caught:

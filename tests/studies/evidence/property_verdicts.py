@@ -1085,6 +1085,11 @@ def calibration_verdicts(
             passed = se_ratio_leaves_band(
                 ratio, margins.calibration_se_ratio, SE_CONTROL_SIDES[kind]
             )
+        elif kind == "wrong_gamma_control":
+            # The estimate of a bound at a smaller sensitivity parameter, read against the
+            # declared bound's truth: the study must see that it misses.
+            coverage = summary_interval(summary, index, "coverage")
+            passed = coverage.high < margins.calibration_coverage[0]
         elif kind == "noise_control":
             passed = (
                 summary_interval(summary, index, "efficiency_empirical").low > efficiency_band[1]
@@ -2228,6 +2233,12 @@ def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.Famil
                 applies=kind(control),
             )
             for control, side in SE_CONTROL_SIDES.items()
+        ),
+        pf.proportion_clause(
+            "wrong-gamma coverage below band",
+            statistic="S2",
+            judge=pf.below_judge(lambda ctx: ctx.margins.calibration_coverage[0]),
+            applies=kind("wrong_gamma_control"),
         ),
         pf.se_interval_clause(
             "efficiency above band",

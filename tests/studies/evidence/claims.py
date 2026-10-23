@@ -17,15 +17,16 @@ from collections.abc import Callable, Mapping
 import pandas as pd
 
 from tests.studies.evidence import failures, property_verdicts
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import StudyRecord
 
 #: Artefact file names, and the columns each is keyed by.
 ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "replicates": ("replicates.csv.gz", ()),
+    "replicates": ("replicates.parquet", ()),
     "summary": ("summary.csv", ("implementation", "scenario", "estimand")),
     "performance": ("performance-tests.csv", ("implementation", "scenario", "estimand")),
     "equivalence": ("equivalence.csv", ("scenario", "estimand")),
-    "property_replicates": ("property-replicates.csv.gz", ()),
+    "property_replicates": ("property-replicates.parquet", ()),
     "properties": ("properties.csv", ("property", "cell")),
 }
 
@@ -98,7 +99,12 @@ _REFERENCE = re.compile(
 def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     """Every committed artefact of a study, keyed by its short name."""
     frames = {
-        name: pd.read_csv(record.artifact(filename)) for name, (filename, _) in ARTIFACTS.items()
+        name: (
+            read_rows(record.artifact(filename))
+            if filename.endswith(".parquet")
+            else pd.read_csv(record.artifact(filename))
+        )
+        for name, (filename, _) in ARTIFACTS.items()
     }
     if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
@@ -197,7 +203,7 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         ),
         "failure_rate": lambda data: (
             float(failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference)))
-            / float(record.replicates * len(record.scenarios))
+            / float(record.replicates * len(record.reported(str(record.reference))))
         ),
         "subject_failures": lambda data: float(
             failures.missing_fits(data.get(FAILURES), record, subject)
@@ -249,6 +255,38 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
             (data["summary"]["coverage"] < 1.0 - record.margins.alpha).sum()
         ),
         "summary_cells": lambda data: count(data["summary"]),
+    }
+
+
+def _convergence_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """What the property rows record about the targeting loop, for a study that records it.
+
+    A study that names ``CONVERGENCE_SUMMARY`` in its property module writes ``nonconverged_fits``
+    and ``max_rounds`` into ``properties.csv``.  The sum counts a fit once for each cell that
+    reads it, so a fit shared by several cells is counted by each.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose property rows are read.
+
+    Returns
+    -------
+    dict
+        Empty for a study whose property module declares no convergence summary.
+    """
+    if not hasattr(record.properties(), "CONVERGENCE_SUMMARY"):
+        return {}
+    return {
+        "property_rows_nonconverged": lambda data: float(
+            (data["properties"]["nonconverged_fits"] > 0).sum()
+        ),
+        "property_nonconverged_fits": lambda data: float(
+            data["properties"]["nonconverged_fits"].sum()
+        ),
+        "property_max_rounds": lambda data: float(data["properties"]["max_rounds"].max()),
     }
 
 
@@ -548,6 +586,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
+    if "response_mask_necessity" in record.property_cells:
+        declared["margin:response_mask_displacement"] = (
+            record.properties().RESPONSE_MASK_DISPLACEMENT
+        )
     # Two studies use the family name.  The DR-TMLE studies compare a closed score with the
     # initial score, and their cells end in ``closed_score``.  A study with a corrected and an
     # uncorrected arm publishes the displacement of the pair instead.
@@ -575,8 +617,15 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "repeated_outcome_necessity",
         "outcome_history_necessity",
         "full_history_necessity",
+        "bound_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
+    # X33's binding witness: the floor each of its two shares must reach.
+    if "binding_witness" in record.property_cells:
+        declared["margin:witness_share"] = record.properties().WITNESS_SHARE
+    # X33's failure rule: the largest share of unconverged fits a gated cell may carry.
+    if hasattr(record.properties(), "UNCONVERGED_SHARE"):
+        declared["margin:unconverged_share"] = record.properties().UNCONVERGED_SHARE
     if "policy_necessity" in record.property_cells:
         declared["margin:policy_displacement"] = record.properties().POLICY_DISPLACEMENT
     if "inverse_necessity" in record.property_cells:
@@ -643,6 +692,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
     return {
         **_aggregates(record),
         **_scenario_aggregates(record),
+        **_convergence_aggregates(record),
         **_score_audit_aggregates(record),
         **_mechanism_aggregates(record),
         **_harness_aggregates(record),

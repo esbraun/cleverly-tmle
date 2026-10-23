@@ -1,0 +1,139 @@
+{
+  "schema_version": 2,
+  "study": "omitted-variable bound limit coverage",
+  "slug": "ovb-limit-coverage",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ovb-limit",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "11d94841977e784836076165ed7287207643167e",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20262321,
+    "resampling_seed": 20262322,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-ovb-limit": 0.01
+    },
+    "scenarios": {
+      "O1": [
+        "ate_lower",
+        "ate_upper",
+        "ey1_lower",
+        "ey1_upper"
+      ],
+      "O2": [
+        "cde_z0_lower",
+        "cde_z0_upper",
+        "cde_z1_lower",
+        "cde_z1_upper"
+      ],
+      "O3": [
+        "coin_lower",
+        "coin_upper",
+        "coin_vs_always_lower",
+        "coin_vs_always_upper"
+      ],
+      "O4": [
+        "w2_lower",
+        "w2_upper",
+        "a_w2_lower",
+        "a_w2_upper"
+      ],
+      "O5": [
+        "plus1_lower",
+        "plus1_upper",
+        "plus1_vs_natural_lower",
+        "plus1_vs_natural_upper"
+      ]
+    },
+    "laws": "tests.studies.sensitivity_limit_laws: the part G law in its response, mediated and complete versions, and tests.discrete_law_shift on its four dose atoms",
+    "fit": "in-sample TMLE, simultaneous=False, g_bounds=(0.01, 0.99); every nuisance a logistic regression on all pairwise products of its inputs (C=1e8), saturated in the cells it reads; W enters as the indicators W1 and W2",
+    "nu2_estimator": "auto, which resolves to doubly_robust",
+    "strength": {
+      "O1": {
+        "cf_y": 0.3,
+        "cf_d": 0.2,
+        "rho": 1.0
+      },
+      "O2": {
+        "cf_y": 0.3,
+        "cf_d": 0.2,
+        "rho": 1.0
+      },
+      "O3": {
+        "cf_y": 0.3,
+        "cf_d": 0.2,
+        "rho": 1.0
+      },
+      "O4": {
+        "cf_y": 0.3,
+        "cf_d": 0.2,
+        "rho": 1.0
+      },
+      "O5": {
+        "cf_y": 0.3,
+        "cf_d": 0.2,
+        "rho": 1.0
+      }
+    },
+    "primary_row": "estimate = one end of the bound; std_error = (lower - ci_lower) / z_0.95 for a lower end and (ci_upper - upper) / z_0.95 for an upper end; interval = estimate +/- 1.959964 std_error",
+    "truth": "closed forms of the law tables (sensitivity_limit_laws)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/ovb_limit_coverage.py": "8f0609fdf6638ff44f46035654d58c43adcc93c8680f0930b8fd9fcdabcb15d3",
+    "tests/studies/ovb_limit_coverage_properties.py": "8689fce13a6c357f29015624cdc8b67e21fac55d770666c65265c373e8fbb79f",
+    "tests/studies/sensitivity_limit_laws.py": "bfec639e0eddde2a2c4fb536ac4fec2a21e26b89b66b2b0685c08e17f4566c04",
+    "tests/discrete_law_shift.py": "9eb066ad0eb9e38133976b8c64ae6ea7dd3bb5f1079196828563fdc9cfb50c87",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "8c4741a75a12a58465af54fcb318de90ac32ebcad4d00961901f4ca8d11d7c6f",
+    "summary.csv": "0fec54d3292b35db05046952f25abb2b5777220d463360758b5c2c7d318c75cb",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "e20d3720fcb61624601693777f731c8b568800a6ba81bf296d8bae9b2ae1b473",
+    "property-replicates.parquet": "4ceea78eba25c5aeb59d7a442c9f3ce6ddfafc28dd4a93cd0638f927e9749dd0",
+    "properties.csv": "2264882d959e8dab0659219453f6e96916731cf96d264e63754567d8f22c4489",
+    "cells.csv": "4b7680d5daeed90a510c600c909b80ba5aafc20160cde4ff6b26347903bbe1d9"
+  }
+}

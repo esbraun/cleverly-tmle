@@ -19,7 +19,9 @@ family                      cells, replications and size
                             C (three) and M (the two centred coefficients)
 ``repeat_stability``        one fixed law-D sample (n = 8,000) and one fixed law-I sample
                             (n = 80,000), 400 paired fold-seed trials: the three-draw median
-                            and the first draw it derives, alone
+                            (``three_repeats``), the first draw alone (``one_repeat``, the
+                            base of both ratios) and the second draw alone
+                            (``second_draw_control``)
 ``repeat_increment``        its own law-S fits (``increment_s``, 2,800 replications) at
                             horizons 1 to 3: median SE ratio minus draw-0 SE ratio on the
                             same fits; horizon 3 is gated, horizons 1 and 2 are reported;
@@ -47,8 +49,15 @@ that run size the new replication counts (:data:`BAND_REPLICATES`,
 
 **Rules.**  ``interval_calibration``, ``simultaneous_coverage``, ``root_n_and_efficiency`` and
 ``root_n_rate`` read the shared verdicts.  ``repeat_stability`` passes when the 99% upper
-endpoint of the paired spread ratio is below 1 (:mod:`tests.studies.repeated_crossfit_properties`
-reads the same rule) and the one-draw split variance is above :data:`STABILITY_SPREAD_FLOOR`.
+endpoint of the paired spread ratio ``SD(three_repeats) / SD(one_repeat)`` is below 1
+(:mod:`tests.studies.repeated_crossfit_properties` reads the same rule) and the one-draw split
+variance is above :data:`STABILITY_SPREAD_FLOOR`.  Its control reads
+``SD(second_draw_control) / SD(one_repeat)``: draws 0 and 1 are independent fold draws on one
+fixed sample with deterministic learners, so the ratio is exactly 1 under the truth, and the
+control passes when its 99% upper endpoint is at or above 1 (and above the same floor).  A
+trial refuses when draw 1's fold assignment equals draw 0's.  The three cells of a label share
+one ``property_passed`` (:data:`PROPERTY_GROUPS`).  The control resamples with its own
+bootstrap stream.
 ``repeat_increment`` passes when the 99% upper endpoint of the paired increment is below
 :data:`INCREMENT_CEILING`; its control passes when its own endpoint is at or above it.
 ``ipsi_primary`` reads the three primary rules: the bias interval inside the margin, the coverage
@@ -60,7 +69,8 @@ calibration labels (``tests/diagnostics/x46_sizing/reading.csv``, column ``share
 ``interval_calibration``, ``ipsi_primary`` and ``simultaneous_coverage`` would pass with draw
 0's variance alone, or with (3.14) less its displacement term.  They are evidence for the
 median's inference, not for the displacement term.  Only ``repeat_stability`` (spread ratios
-0.62 to 0.73 against exactly 1 when every draw reuses one split) and ``repeat_increment`` at
+0.62 to 0.73 against exactly 1 when every draw reuses one split, and its second-draw control
+that must read 1) and ``repeat_increment`` at
 horizon 3 (share 0.0077, increment +0.0165) read the repeat layer.  The unit witnesses of
 ``X46-plan.md`` 4.2 and 4.3 carry the exact check of the displacement term.
 
@@ -105,7 +115,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import longitudinal_repeated_crossfit as study
 from tests.studies.evidence import property_failures, property_verdicts, replication
 from tests.studies.evidence.failures import filled, vertex
-from tests.studies.evidence.inference import Interval, percentile_interval
+from tests.studies.evidence.inference import percentile_interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -175,7 +185,11 @@ RED_CELL_POLICY = (
     "suspect.",
     "7. A red repeat_stability or repeat_increment row is a repeat-layer defect suspect and is "
     "never reported on an owner row. A stability row whose one-draw split variance is at or "
-    "below STABILITY_SPREAD_FLOOR reads rounding noise; that is a design defect.",
+    "below STABILITY_SPREAD_FLOOR reads rounding noise; that is a design defect. A red "
+    "second_draw_control row (its upper endpoint below 1) is a defect suspect in the ratio, the "
+    "bootstrap or the draw seeds, never an owner row. Its chance probability is about 0.005 per "
+    "label. A second_draw_control row whose lower endpoint is above 1 is a seed or "
+    "exchangeability defect suspect: it is reported and not gated.",
     "8. A red root_n_rate row is diagnosed against the per-rung rows and the pilot segment slope "
     "of -0.587 between 2,000 and 8,000. A slope that the positive rungs and the pilot both "
     f"explain is a finite-sample curvature, reported with owner {RED_CELL_OWNER}. The 2,000 "
@@ -196,7 +210,11 @@ RED_CELL_POLICY = (
     "predictively, with the pilot's correlated errors. A red calibration row therefore has "
     "probability about 0.11 and is read by rules 3 to 5. The five band arms and their controls "
     "pass jointly with probability 0.98 predictively at 2,400 replications, and the "
-    "repeat_increment gate with 0.96 at 2,800, by the arm-pooled predictive rule.",
+    "repeat_increment gate with 0.96 at 2,800, by the arm-pooled predictive rule. Each "
+    "second_draw_control passes with probability 0.99 (the exact null gives 0.995 for the 99% "
+    "interval; the declared value allows for the percentile interval's first-order error). The "
+    "five controls pass jointly with probability at least 0.95 by the union bound, and the "
+    "stability family (five positives at 1.00 and five controls) jointly with at least 0.95.",
 )
 
 #: The declared predictive pass probability of each gated cell, rounded to two decimals:
@@ -226,6 +244,11 @@ PASS_PROBABILITIES: dict[str, float] = {
     "repeat_stability/d_sdr_static": 1.00,
     "repeat_stability/d_sdr_dynamic": 1.00,
     "repeat_stability/i_contrast_x2": 1.00,
+    "repeat_stability/d_ltmle_static__second_draw_control": 0.99,
+    "repeat_stability/d_ltmle_dynamic__second_draw_control": 0.99,
+    "repeat_stability/d_sdr_static__second_draw_control": 0.99,
+    "repeat_stability/d_sdr_dynamic__second_draw_control": 0.99,
+    "repeat_stability/i_contrast_x2__second_draw_control": 0.99,
     "root_n_rate/ltmle_static__empirical_sd": 0.87,
     "root_n_rate/sdr_static__empirical_sd": 0.86,
     "root_n_rate/ltmle_static__reported_se": 1.00,
@@ -325,6 +348,14 @@ INCREMENT_COLUMNS = (
     "increment_se_part",
     "increment_spread_part",
 )
+#: The arms of each stability label with their roles.  ``one_repeat`` is the base of both spread
+#: ratios and shares the positive's verdict; ``second_draw_control`` is the control.
+STABILITY_ARMS = (
+    ("three_repeats", "positive"),
+    ("one_repeat", "positive"),
+    ("second_draw_control", "control"),
+)
+CONTROL_ARM = "second_draw_control"
 STABILITY_COLUMNS = (
     "spread_ratio",
     "spread_ratio_ci_lower",
@@ -528,7 +559,13 @@ def stability_sample(law: str) -> pd.DataFrame:
 
 
 def stability_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
-    """One paired trial on law ``key[0]``'s fixed sample: three draws, and the first alone."""
+    """One trial on law ``key[0]``'s fixed sample: three draws, the first alone, the second alone.
+
+    The first draw is checked against a ``repeats=1`` refit at its derived seed.  The second
+    draw is read off the three-draw fit, because draw ``r`` equals a ``repeats=1`` fit at its
+    seed and the first draw's check exercises that equality.  A trial refuses when the two
+    draws share one fold assignment, because the control would then be the first draw.
+    """
     law, trial, requested = key
     base = stream_seed(STUDY, "repeat_stability", "fold_seed", law, trial)
     first = first_draw_seed(base)
@@ -536,18 +573,26 @@ def stability_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[
     for scenario in dict.fromkeys(s for (lw, s, _) in STABILITY.values() if lw == law):
         repeated = study.fit_scenario(scenario, frame.copy(), random_state=base)
         single = study.fit_scenario(scenario, frame.copy(), repeats=1, random_state=first)
-        if not np.array_equal(repeated.repeats[0].folds.assignment, single.folds.assignment):
-            raise RuntimeError(f"{scenario}: the one-draw control is not the first fold draw")
+        draws = repeated.repeats
+        if np.array_equal(draws[0].folds.assignment, draws[1].folds.assignment):
+            raise RuntimeError(
+                f"{scenario}: draws 0 and 1 share one fold assignment, so the second-draw "
+                "control would be the first draw"
+            )
+        if not np.array_equal(draws[0].folds.assignment, single.folds.assignment):
+            raise RuntimeError(f"{scenario}: the one-draw fit is not the first fold draw")
         for label, (owner, owner_scenario, name) in STABILITY.items():
             if (owner, owner_scenario) != (law, scenario):
                 continue
-            if float(repeated.repeats[0].estimates[name].psi) != float(single[name].psi):
-                raise RuntimeError(f"{label}: the one-draw control does not reproduce draw 0")
+            if float(draws[0].estimates[name].psi) != float(single[name].psi):
+                raise RuntimeError(f"{label}: the one-draw fit does not reproduce draw 0")
             truth = study.I_TRUTH[name] if law == "i" else study.D_TRUTH[name]
-            for cell, role, estimate in (
-                ("three_repeats", "positive", repeated[name]),
-                ("one_repeat_control", "control", single[name]),
-            ):
+            estimates = {
+                "three_repeats": repeated[name],
+                "one_repeat": single[name],
+                CONTROL_ARM: draws[1].estimates[name],
+            }
+            for cell, role in STABILITY_ARMS:
                 rows.append(
                     replicate_row(
                         property_name="repeat_stability",
@@ -557,7 +602,7 @@ def stability_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[
                         n=STABILITY_N[law],
                         requested=requested,
                         truth=truth,
-                        estimate=estimate,
+                        estimate=estimates[cell],
                         alpha=STUDY.margins.alpha,
                     )
                 )
@@ -610,7 +655,7 @@ def cells_of(key: tuple[str, int, int]) -> list[str]:
             f"repeat_stability/{label}__{cell}"
             for label, (law, _, _) in STABILITY.items()
             if law == name
-            for cell in ("three_repeats", "one_repeat_control")
+            for cell, _ in STABILITY_ARMS
         ]
     _, scenarios, n, _ = FIT_SETS[name]
     names: list[str] = []
@@ -780,7 +825,7 @@ def _role(family: str, cell: str, n: int) -> str:
         return "positive" if cell.startswith(f"h{INCREMENT_HORIZON}__") else DIAGNOSTIC_ROLE
     if family == "root_n_and_efficiency":
         return "control" if n == min(RATE_SIZES) else "positive"
-    if cell.endswith(("__one_repeat_control", "__pointwise_joint_control")):
+    if cell.endswith((f"__{CONTROL_ARM}", "__pointwise_joint_control")):
         return "control"
     return "positive"
 
@@ -944,12 +989,22 @@ def one_draw_spread_share(one: pd.DataFrame) -> float:
     return float(one["estimate"].var(ddof=1) / np.mean(one["std_error"] ** 2))
 
 
-def _stability_seed(record: Any, label: str) -> int:
+def _stability_seed(record: Any, label: str, *, control: bool = False) -> int:
+    """The bootstrap stream of a label's positive ratio, or of its control's own ratio."""
+    if control:
+        return stream_seed(record, "repeat_stability", "bootstrap", "second_draw", label)
     return stream_seed(record, "repeat_stability", "bootstrap", label)
 
 
 def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """The paired spread-ratio rule of each stability label, above the spread floor."""
+    """The paired spread-ratio rules of each stability label, above the spread floor.
+
+    The positive rows (``three_repeats``, ``one_repeat``) publish ``SD(three_repeats) /
+    SD(one_repeat)`` and pass when its upper endpoint is below 1.  The control row publishes
+    ``SD(second_draw_control) / SD(one_repeat)`` and passes when its upper endpoint is at or
+    above 1.  All three need the one-draw split variance above the floor, and they share the
+    label's joint verdict.
+    """
     margins = STUDY.margins
     family = summary["property"] == "repeat_stability"
     selected = rows.loc[rows["property"] == "repeat_stability"]
@@ -974,30 +1029,42 @@ def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
                 summary[column] = summary[column].astype(object)
             summary.loc[family, column] = np.nan
     for label in STABILITY:
-        three = selected.loc[selected["cell"] == f"{label}__three_repeats"]
-        one = selected.loc[selected["cell"] == f"{label}__one_repeat_control"]
-        result = paired_spread_ratio_interval(
-            three,
+        arms = {
+            cell: selected.loc[selected["cell"] == f"{label}__{cell}"] for cell, _ in STABILITY_ARMS
+        }
+        one = arms["one_repeat"]
+        positive = paired_spread_ratio_interval(
+            arms["three_repeats"],
             one,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
             seed=_stability_seed(STUDY, label),
         )
-        mask = family & summary["cell"].str.startswith(f"{label}__")
+        control = paired_spread_ratio_interval(
+            arms[CONTROL_ARM],
+            one,
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=_stability_seed(STUDY, label, control=True),
+        )
         # A one-draw spread at rounding level makes the ratio a ratio of noise (rule 7).
         spread = one_draw_spread_share(one)
-        passed = bool(
-            result.interval.high < MAX_REPEAT_SPREAD_RATIO and spread > STABILITY_SPREAD_FLOOR
-        )
-        if spread <= STABILITY_SPREAD_FLOOR:
+        above_floor = spread > STABILITY_SPREAD_FLOOR
+        positive_passed = bool(positive.interval.high < MAX_REPEAT_SPREAD_RATIO and above_floor)
+        control_passed = bool(control.interval.high >= MAX_REPEAT_SPREAD_RATIO and above_floor)
+        if not above_floor:
             print(f"{label}: one-draw split variance share {spread:.3g} is rounding", flush=True)
-        summary.loc[mask, "spread_ratio"] = result.ratio
-        summary.loc[mask, "spread_ratio_ci_lower"] = result.interval.low
-        summary.loc[mask, "spread_ratio_ci_upper"] = result.interval.high
-        summary.loc[mask, "spread_ratio_boundary"] = MAX_REPEAT_SPREAD_RATIO
-        summary.loc[mask, "one_draw_spread_share"] = spread
-        summary.loc[mask, "passed"] = passed
-        summary.loc[mask, "property_passed"] = passed
+        for cell, _ in STABILITY_ARMS:
+            is_control = cell == CONTROL_ARM
+            result = control if is_control else positive
+            mask = family & (summary["cell"] == f"{label}__{cell}")
+            summary.loc[mask, "spread_ratio"] = result.ratio
+            summary.loc[mask, "spread_ratio_ci_lower"] = result.interval.low
+            summary.loc[mask, "spread_ratio_ci_upper"] = result.interval.high
+            summary.loc[mask, "spread_ratio_boundary"] = MAX_REPEAT_SPREAD_RATIO
+            summary.loc[mask, "one_draw_spread_share"] = spread
+            summary.loc[mask, "passed"] = control_passed if is_control else positive_passed
+            summary.loc[mask, "property_passed"] = positive_passed and control_passed
 
 
 def diagnostic_readings(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
@@ -1135,77 +1202,140 @@ def _fills(group: pd.DataFrame, *, spread: bool, se_at: str) -> list[tuple[str, 
     ]
 
 
-def _stability_cells(row: pd.Series) -> tuple[str, str]:
+def _stability_cells(row: pd.Series) -> tuple[str, str, str]:
+    """The ``three_repeats``, ``one_repeat`` and ``second_draw_control`` cells of a row's label."""
     label = str(row["cell"]).split("__", 1)[0]
-    return f"{label}__three_repeats", f"{label}__one_repeat_control"
+    return tuple(f"{label}__{cell}" for cell, _ in STABILITY_ARMS)  # type: ignore[return-value]
 
 
-def _stability_judged(interval: Interval, share: float) -> property_failures.Judged:
-    """The spread-ratio upper endpoint below 1 and the one-draw share above the floor."""
-    ratio_slack = MAX_REPEAT_SPREAD_RATIO - interval.high
-    share_slack = math.log10(share / STABILITY_SPREAD_FLOOR) if share > 0 else -math.inf
-    return property_failures.Judged(
-        min(ratio_slack, share_slack),
-        bool(interval.high < MAX_REPEAT_SPREAD_RATIO and share > STABILITY_SPREAD_FLOOR),
+def _arm_of(*arms: str) -> property_failures.Applies:
+    """A clause that applies to the rows of the named stability arms, of any label."""
+    return lambda ctx, row: str(row["cell"]).rsplit("__", 1)[-1] in arms
+
+
+def _stability_ratio_clause(*, control: bool) -> property_failures.Clause:
+    """The positive ratio clause (``control=False``) or the control's ratio clause.
+
+    The positive clause reads ``three_repeats`` over ``one_repeat`` against ``U < 1``.  Its
+    adverse completion puts the numerator's lost estimates at each vertex split and the
+    denominator's at the survivor mean, which raises the ratio.  The control clause reads
+    ``second_draw_control`` over ``one_repeat`` against ``U >= 1`` and reverses the fills, so
+    the ratio falls.  A ratio clause reads no standard error: the share clause holds the floor.
+    """
+    name = (
+        "control spread ratio reaches its boundary"
+        if control
+        else "repeat spread ratio under its boundary"
     )
 
+    def judge(high: float) -> property_failures.Judged:
+        if control:
+            return property_failures.Judged(
+                high - MAX_REPEAT_SPREAD_RATIO, bool(high >= MAX_REPEAT_SPREAD_RATIO)
+            )
+        return property_failures.Judged(
+            MAX_REPEAT_SPREAD_RATIO - high, bool(high < MAX_REPEAT_SPREAD_RATIO)
+        )
 
-def _stability_rule() -> property_failures.FamilyRule:
-    """``repeat_stability``: S9 on each label's paired spread ratio, with the spread floor.
-
-    A replicate is a fold-seed trial on one fixed sample, so the survivor range is the range
-    over fold seeds.  The adverse completion puts the three-draw arm's lost estimates at each
-    vertex split, and the one-draw arm's at the survivor mean with its SEs at the survivor
-    maximum: that both raises the ratio and lowers the one-draw share toward the floor.  Both
-    rows of a label publish the one verdict.
-    """
+    def cells(row: pd.Series) -> tuple[str, str]:
+        three, one, second = _stability_cells(row)
+        return (second if control else three), one
 
     def read(ctx: property_failures.Context, row: pd.Series) -> property_failures.Judged:
-        interval = Interval(
-            float(row["spread_ratio_ci_lower"]), float(row["spread_ratio_ci_upper"])
-        )
-        return _stability_judged(interval, float(row["one_draw_spread_share"]))
+        return judge(float(row["spread_ratio_ci_upper"]))
 
     def reads(ctx: property_failures.Context, row: pd.Series) -> list[tuple[str, str]]:
-        return [(str(row["property"]), cell) for cell in _stability_cells(row)]
+        return [(str(row["property"]), cell) for cell in cells(row)]
 
     def candidates(
         ctx: property_failures.Context, row: pd.Series
     ) -> list[tuple[str, property_failures.Judged]]:
         family = str(row["property"])
-        three_cell, one_cell = _stability_cells(row)
-        label = three_cell.split("__", 1)[0]
-        ((one_label, one),) = _fills(ctx.cell(family, one_cell), spread=False, se_at="max")
+        numerator_cell, one_cell = cells(row)
+        label = one_cell.split("__", 1)[0]
         out = []
-        for three_label, three in _fills(ctx.cell(family, three_cell), spread=True, se_at="max"):
-            result = paired_spread_ratio_interval(
-                three,
-                one,
-                replicates=ctx.margins.bootstrap_replicates,
-                confidence_level=ctx.margins.confidence_level,
-                seed=_stability_seed(ctx.record, label),
-            )
-            out.append(
-                (
-                    f"three repeats {three_label}; one repeat {one_label}",
-                    _stability_judged(result.interval, one_draw_spread_share(one)),
+        for top_label, top in _fills(
+            ctx.cell(family, numerator_cell), spread=not control, se_at="max"
+        ):
+            for bottom_label, bottom in _fills(
+                ctx.cell(family, one_cell), spread=control, se_at="max"
+            ):
+                result = paired_spread_ratio_interval(
+                    top,
+                    bottom,
+                    replicates=ctx.margins.bootstrap_replicates,
+                    confidence_level=ctx.margins.confidence_level,
+                    seed=_stability_seed(ctx.record, label, control=control),
                 )
-            )
+                out.append(
+                    (
+                        f"numerator {top_label}; one repeat {bottom_label}",
+                        judge(result.interval.high),
+                    )
+                )
         return out
 
+    applies = _arm_of(CONTROL_ARM) if control else _arm_of("three_repeats", "one_repeat")
+    return property_failures.Clause(name, "S9", applies, read, candidates, reads=reads)
+
+
+def _stability_share_clause() -> property_failures.Clause:
+    """The one-draw split variance above the floor, on all three rows of a label.
+
+    All three rows publish the one-repeat arm's share.  Its adverse completion puts the lost
+    estimates of that arm at the survivor mean and its lost SEs at the survivor maximum, which
+    lowers the share toward the floor.
+    """
+
+    def judge(share: float) -> property_failures.Judged:
+        slack = math.log10(share / STABILITY_SPREAD_FLOOR) if share > 0 else -math.inf
+        return property_failures.Judged(slack, bool(share > STABILITY_SPREAD_FLOOR))
+
+    def read(ctx: property_failures.Context, row: pd.Series) -> property_failures.Judged:
+        return judge(float(row["one_draw_spread_share"]))
+
+    def reads(ctx: property_failures.Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(str(row["property"]), _stability_cells(row)[1])]
+
+    def candidates(
+        ctx: property_failures.Context, row: pd.Series
+    ) -> list[tuple[str, property_failures.Judged]]:
+        one_cell = _stability_cells(row)[1]
+        return [
+            (label, judge(one_draw_spread_share(frame)))
+            for label, frame in _fills(
+                ctx.cell(str(row["property"]), one_cell), spread=False, se_at="max"
+            )
+        ]
+
+    return property_failures.Clause(
+        "one-draw split variance above the spread floor",
+        "S9",
+        property_failures.every,
+        read,
+        candidates,
+        reads=reads,
+    )
+
+
+def _stability_rule() -> property_failures.FamilyRule:
+    """``repeat_stability``: S9 on each label's two paired spread ratios, and the spread floor.
+
+    A replicate is a fold-seed trial on one fixed sample, so the survivor range is the range
+    over fold seeds.  Three clauses read a label: the positive ratio clause (cells
+    ``three_repeats`` and ``one_repeat``), the control ratio clause (cell
+    ``second_draw_control``) and the share clause on all three rows.  The three cells of a
+    label share one ``property_passed`` (``group="label"``, :data:`PROPERTY_GROUPS`).
+    """
     return property_failures.FamilyRule(
         families=frozenset({"repeat_stability"}),
         shared="stability_verdicts",
         clauses=(
-            property_failures.Clause(
-                "repeat spread ratio under its boundary above the spread floor",
-                "S9",
-                property_failures.every,
-                read,
-                candidates,
-                reads=reads,
-            ),
+            _stability_ratio_clause(control=False),
+            _stability_ratio_clause(control=True),
+            _stability_share_clause(),
         ),
+        group="label",
     )
 
 
@@ -1320,6 +1450,14 @@ def _ipsi_primary_rule() -> property_failures.FamilyRule:
 #: rules; ``single_draw_reading`` and ``split_displacement`` are reported rows with no verdict.
 PROPERTY_RULES = (_stability_rule(), _increment_rule(), _ipsi_primary_rule())
 
+#: The cells that share a ``repeat_stability`` joint verdict: each label's three arms
+#: (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "repeat_stability": tuple(
+        tuple(f"{label}__{cell}" for cell, _ in STABILITY_ARMS) for label in STABILITY
+    )
+}
+
 
 __all__ = [
     "BANDS",
@@ -1327,6 +1465,7 @@ __all__ = [
     "DERIVED_CELLS",
     "FIT_SETS",
     "PASS_PROBABILITIES",
+    "PROPERTY_GROUPS",
     "PROPERTY_RULES",
     "RED_CELL_POLICY",
     "cells_of",

@@ -51,7 +51,7 @@ PROPERTY_CELLS = {
     "interval_calibration": ("correctly_specified",),
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
-    "repeat_stability": ("three_repeats", "one_repeat_control"),
+    "repeat_stability": ("three_repeats", "one_repeat", "second_draw_control"),
 }
 
 STUDY = StudyRecord(
@@ -115,8 +115,12 @@ CONFIGURATION = {
         "n": REPEAT_STABILITY_N,
         "paired_fold_seed_trials": FOLD_SEED_TRIALS,
         "spread_ratio_upper_boundary": MAX_REPEAT_SPREAD_RATIO,
-        "seed_streams": ["sample", "fold_seed", "bootstrap"],
-        "control": "first fold seed derived by each three-repeat plan",
+        "seed_streams": ["sample", "fold_seed", "bootstrap", "bootstrap/second_draw"],
+        "one_repeat": "first fold seed derived by each three-repeat plan; the base of both ratios",
+        "control": (
+            "second fold seed derived by each three-repeat plan; the upper endpoint of its "
+            "spread ratio against the first draw must be at or above the boundary"
+        ),
     },
 }
 

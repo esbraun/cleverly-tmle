@@ -52,6 +52,7 @@ categorized API tables.
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod
+   cleverly.AdaptiveIPTWMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
    cleverly.SDRMethod
@@ -143,6 +144,8 @@ categorized API tables.
    cleverly.assessment.SensitivityFacade
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
+   cleverly.sensitivity.MarginalSensitivityBounds
+   cleverly.sensitivity.MarginalSensitivityRow
    cleverly.sensitivity.SensitivityElements
    cleverly.sensitivity.BenchmarkResult
    cleverly.sensitivity.ConfounderStrengthGrid
@@ -158,6 +161,7 @@ categorized API tables.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
+   cleverly.sensitivity.marginal_sensitivity_bounds
    cleverly.sensitivity.simulated_confounding
    cleverly.assessment.DiagnosticsFacade
    cleverly.validation.ScoreCheck
@@ -168,9 +172,15 @@ categorized API tables.
    cleverly.validation.GaussianNoise
    cleverly.validation.GaussianIndependentOutcome
    cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.BernoulliAdjustmentOutcome
+   cleverly.validation.BoundedAdjustmentOutcome
+   cleverly.validation.LogisticHazardOutcome
+   cleverly.validation.MultinomialHazardOutcome
    cleverly.validation.RelativeGaussianNoise
    cleverly.validation.BootstrapMeasurementError
+   cleverly.validation.BandReading
    cleverly.validation.EmpiricalInclusionRule
+   cleverly.validation.EquivalenceBands
    cleverly.validation.EmpiricalRefitRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult

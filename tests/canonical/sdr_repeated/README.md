@@ -7,12 +7,12 @@ Hoffman and Schenck 2023, Equation (4), Lemmas 3 and 4 and Theorem 4).
 
 The truths come from the exact law in `tests/studies/ltmle_repeated_law.py`.
 
-## State: registered, comparator pending
+## State: registered with the lmtp comparator
 
-The study declares `pending_reference="lmtp"`. No reference process runs in this change. The
-change that registers the R `lmtp` 1.5.4 rows adds them as the TRACKER Study queue item of
-plan X32b, PR C. This change writes the pairing columns beside each replicate, so that change
-can pair on the same draws:
+The study declares `reference="lmtp"`. The committed artifacts hold the Python and the R `lmtp`
+1.5.4 rows of one run. The run is the TRACKER Study queue item of plan X32b, PR C, on the
+owner's machine. The Python phase writes the pairing columns beside each replicate, and
+the R runner reads them:
 
 | column | content |
 | --- | --- |
@@ -20,16 +20,26 @@ can pair on the same draws:
 | `shift__<plan>__<node>__1` | the arm each unit takes at the node under the plan |
 | `fold` | the fold assignment of the fit |
 
-This change builds the pairing columns and checks them in every replicate. It commits none of
-them, because 2,400 replicates of 12,000 rows hold about 29 GB, and the container has 15 GB.
-The R side of PR C must read samples sharded by scenario and replicate, one file per fit, and
-not one CSV of about 12 GB. `pairing_sample` in `canonical_sdr_repeated.py` builds one
-replicate's frame. The `shift__` columns are `int8` arm codes.
+Each worker spills its replicate's sample to disk, and the driver assembles one
+`samples.csv.gz` (about 57.6 million rows). The runner
+`tests/canonical/sdr_repeated/run_study.R` streams it in chunks of 24 replicates and
+calls `lmtp_sdr_with_folds` once per plan and horizon. The learner is `SL.cellmeans.outcomes`
+in `tests/canonical/lmtp_sdr_repeated_adapter.R`.
+
+Queue commands, in order:
+
+1. `python -m tests.canonical.sdr_repeated.gates --replicates 5 --timing-only` (P0).
+2. `python -m tests.canonical.sdr_repeated.gates` (G1r, 20 replicates of each scenario).
+3. `python -m tests.canonical.sdr_repeated.regenerate --skip-properties --jobs 12`.
+
+Step 3 reran the Python phase on the same seeds. `pr-b-replicates.parquet` holds the rows of the
+earlier Python-only run, and `tests/unit/test_sdr_repeated_pairing_gates.py` requires the new
+rows to equal them to 1e-10. The same test file runs the parity-ratio gate and mutation N8 on
+the committed lmtp rows.
 
 Pilots P1, P2 and P3 are recorded in `tests/studies/sdr_repeated_properties.py`. The marker
 `PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"recorded"`. The declared
-Python run has finished. Its artifacts are committed beside this file, and the study is
-registered with the comparator pending.
+Python run has finished, and PR B committed its artifacts beside this file.
 
 ## Finding of pilot P2: the in-sample n doubles
 

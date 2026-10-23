@@ -17,7 +17,6 @@ from cleverly.data import CausalData
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.inference import run_bootstrap
 from cleverly.validation import (
-    DEFAULT_OUTCOME_REPLICATES,
     DEFAULT_TESTS,
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
@@ -27,7 +26,7 @@ from cleverly.validation import (
     ReplicationFailure,
     refute,
 )
-from cleverly.validation.refute import _run_empirical_refits
+from cleverly.validation.refute import _DEFAULT_MEASUREMENT_REPLICATES, _run_empirical_refits
 from tests.unit._refutation_support import RefitResult, StubResult, stub_estimate
 
 
@@ -573,14 +572,15 @@ class TestRuleVerdict:
         report, estimator = _run(data, declaration, draws=20)
         test = report["bootstrap_measurement_error"]
 
-        assert test.passed
-        assert report.passed
-        assert bool(report)
+        assert test.passed is None
+        assert report.passed is None
+        with pytest.raises(TypeError):
+            bool(report)
         assert test.rule == _rule(20)
         assert test.declaration == declaration
         assert test.original == _column_mean(data.covariates)
         assert test.declared_effect == _column_mean(data.covariates)
-        assert test.expectation == "includes 29.5"
+        assert test.expectation == "moves from 29.5 under the declared error"
         assert test.resampling == "iid"
         assert test.requested_draws == 20
         assert test.n_replicates == 20
@@ -678,12 +678,11 @@ class TestRuleVerdict:
             random_state=17,
         )
         test = report["bootstrap_measurement_error"]
-        assert DEFAULT_OUTCOME_REPLICATES == 100
-        assert test.requested_draws == DEFAULT_OUTCOME_REPLICATES
-        assert test.n_replicates == DEFAULT_OUTCOME_REPLICATES
-        assert len(result.estimator.calls) == DEFAULT_OUTCOME_REPLICATES
+        assert test.requested_draws == _DEFAULT_MEASUREMENT_REPLICATES
+        assert test.n_replicates == _DEFAULT_MEASUREMENT_REPLICATES
+        assert len(result.estimator.calls) == _DEFAULT_MEASUREMENT_REPLICATES
         assert test.rule == EmpiricalInclusionRule()
-        assert test.passed
+        assert test.passed is None
 
     def test_the_measurement_test_is_not_a_default_test(self) -> None:
         # It needs a declaration only the analyst can supply, so a default run must not
@@ -705,8 +704,7 @@ class TestReporting:
             "bootstrap_measurement_error: variables=numeric, group; resampling=iid; "
             "original=29.5; successful=4; failed=0" in summary
         )
-        assert "rule: two-sided empirical p=" in summary
-        assert "includes 29.5" in summary
+        assert "moves from 29.5 under the declared error" in summary
 
     def test_a_failed_measurement_test_is_rendered_as_a_failure(self) -> None:
         report, _ = _run(
@@ -720,8 +718,7 @@ class TestReporting:
             "bootstrap_measurement_error: variables=numeric; resampling=iid; "
             "original=17.318; successful=20; failed=0" in summary
         )
-        assert "rule: two-sided empirical p=0 with inclusive half-ties (alpha=0.1)" in summary
-        assert "VERDICT" not in summary
+        assert "VERDICT: none" in summary
 
     def test_the_report_table_carries_the_resolved_resampling_mode(self) -> None:
         data = _data(clusters=True)
@@ -739,7 +736,7 @@ class TestReporting:
         # ``placebo`` resamples nothing, so it names no bootstrap mode at all.
         assert _cells(frame, "resampling") == [None, "cluster"]
         assert _cells(frame, "requested_draws") == [None, 4]
-        assert _cells(frame, "passed") == [False, True]
+        assert _cells(frame, "passed") == [None, None]
 
     def test_draw_rows_carry_every_record_and_retained_failure(self) -> None:
         report, _ = _run(
@@ -930,7 +927,7 @@ class TestPreflightRefusals:
         _refuse_before_any_refit(
             _data(strata=True),
             BootstrapMeasurementError(("group",)),
-            r"cannot perturb selected strata variables .*\['group'\]",
+            r"names only strata variables \['group'\]\. No column is left to perturb",
         )
 
     def test_incomplete_categorical_block_refuses_before_refit(self) -> None:

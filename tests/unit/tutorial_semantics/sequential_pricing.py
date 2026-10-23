@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -29,6 +30,7 @@ from cleverly import (
     LongitudinalTreatment,
     ModelSpec,
     RegimeContrast,
+    SparseInfluenceWarning,
     TMLEMethod,
 )
 from cleverly.datasets import (
@@ -41,7 +43,11 @@ from cleverly.datasets import (
 )
 from cleverly.interventions import ModifiedPolicy, Piece
 from cleverly.longitudinal import DynamicRegimen
+from cleverly.sensitivity import evalue
+from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.utils.bounds import logit
+from cleverly.validation import refute
+from cleverly.validation.refute import _placebo_null, refute_refusal
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -55,6 +61,12 @@ _PROBE = "reviews/notebook-review/probes/sequential-pricing"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.0056": f"SD of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "-0.00013": f"mean of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "-0.45": f"t statistic of the price_up placebo, 400 draws: {_PROBE}/placebo.log",
+    "0.65": f"two-sided p-value of that t statistic, 400 draws: {_PROBE}/placebo.log",
+    "1.01": f"mean reported SE over the SD of the placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "94.5": f"share of the placebo 95% intervals that contain 0, 400 draws: {_PROBE}/placebo.log",
     "-0.0002": f"bias of the LTMLE renewal contrast of price_up, 200 draws: {_PROBE}/summary.log",
     "0.0004": f"bias of the LTMLE renewal contrast of price_down, 200 draws: {_PROBE}/summary.log",
     "0.0005": f"Monte Carlo standard error of both renewal biases, 200 draws: {_PROBE}/summary.log, "
@@ -74,6 +86,8 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/revenue_learner.log",
     "0.0074": f"Monte Carlo standard error of the price_up linear bias, 60 draws: "
     f"{_PROBE}/revenue_learner.log",
+    "0.88": "bootstrap_stability spread 0.005749 over the Step 6 standard error 0.0065, both printed "
+    "(checked in _check_refits)",
     "0.0104": f"mean estimate of the linear learner minus the quadratic learner, price_up revenue, "
     f"60 paired draws: {_PROBE}/revenue_learner.log",
     "0.0076": f"mean estimate of the linear learner minus the quadratic learner, price_down revenue, "
@@ -119,6 +133,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_support(namespace)
     _check_assessment(namespace)
     _check_refusals(namespace)
+    _check_refits(namespace)
     _check_probe_logs()
     _check_prose_phrases(namespace)
 
@@ -717,6 +732,87 @@ class _NeverFit(LogisticRegression):
         raise AssertionError("the fit reached a learner")
 
 
+def _check_refits(namespace: dict[str, Any]) -> None:
+    """Step 11: the refits are descriptive, and each check the page skips is refused for its reason."""
+    report = namespace["report"]
+    estimand = namespace["estimand"]
+    assert estimand == _key("price_up")
+    assert report.estimand == estimand
+    assert tuple(test.name for test in report.tests) == (
+        "placebo",
+        "subset",
+        "random_common_cause",
+        "bootstrap_stability",
+    )
+    for test in report.tests:
+        # "Every row is descriptive": no registry row covers the fit.
+        assert test.rung == "L0" and test.passed is None
+    assert report.passed is None
+    printed = stored_output(NOTEBOOK, "refute")
+    assert "This fit differs on outcome family 'binomial'" in printed
+    # The banded placebo runs: each placebo price keeps the subscriber's band.
+    assert "The placebo dose keeps each unit's declared band" in printed
+    placebo = report["placebo"]
+    values = np.asarray(placebo.values)
+    assert len(values) == 10
+    assert float(values.mean()) == pytest.approx(0.00064, abs=0.000005)
+    assert placebo.statistic == pytest.approx(0.72, abs=0.005)
+    assert placebo.statistic_pvalue == pytest.approx(0.49, abs=0.005)
+    assert float(values.std(ddof=1)) == pytest.approx(0.0028, abs=0.00005)
+    se_over_sd = float(np.mean(placebo.standard_errors)) / float(values.std(ddof=1))
+    assert se_over_sd == pytest.approx(1.98, abs=0.005)
+    # The subset ratio, the noise-column shift and the bootstrap spread that the reading quotes.
+    subset = report["subset"]
+    assert subset.statistic == pytest.approx(0.98, abs=0.005)
+    assert subset.statistic_pvalue == pytest.approx(0.93, abs=0.005)
+    assert report["random_common_cause"].statistic == pytest.approx(-0.034, abs=0.0005)
+    table = report.to_frame().set_index("test")
+    spread = float(table.loc["bootstrap_stability", "refuted_sd"])
+    assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
+        0.88, abs=0.01
+    )
+    # The checks the page does not run are refused before any refit, for the reasons it gives.
+    result, revenue = namespace["result"], namespace["revenue_result"]
+    # "Every policy contrast is then exactly 0": the placebo reads against 0.
+    assert _placebo_null(result, estimand) == 0.0
+    # "The revenue contrast takes the same tests": the banded placebo runs on the revenue fit too.
+    assert refute_refusal(revenue, estimand=estimand, tests=("placebo",)) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SparseInfluenceWarning)
+        revenue_placebo = refute(
+            revenue, estimand=estimand, tests=("placebo",), n_replicates=2, random_state=1000
+        )["placebo"]
+    assert len(revenue_placebo.values) == 2 and revenue_placebo.passed is None
+    for fit in (result, revenue):
+        refusal = refute_refusal(
+            fit,
+            estimand=estimand,
+            tests=("future_treatment",),
+            future_treatment_control=np.zeros(len(namespace["frame"])),
+        )
+        assert refusal is not None and "binary treatment at the later node" in refusal.message()
+    refusal = refute_refusal(result, estimand=estimand, tests=("simulated_outcome",))
+    assert refusal is not None and "'gaussian' process" in refusal.message()
+    assert "family='binomial'" in refusal.message()
+    refusal = refute_refusal(revenue, estimand=estimand, tests=("simulated_outcome",))
+    assert refusal is not None and "q_bounds=(0.0, 10.0)" in refusal.message()
+    refusal = refute_refusal(
+        result,
+        estimand=estimand,
+        tests=("negative_control_outcome",),
+        negative_control_outcome=namespace["frame"]["usage"].to_numpy(),
+        negative_control_kind="pre_treatment",
+    )
+    assert refusal is not None and "adjustment" in refusal.message().lower()
+    with pytest.raises(CapabilityError, match="F16"):
+        evalue(result, estimand)
+    # The later covariates `engaged_2` and `engaged_3` are why the simulated common cause refuses.
+    refusal = simulated_confounding_refusal(result, estimand)
+    assert refusal is not None
+    assert "no time-varying covariate after the first treatment node" in refusal.message()
+    assert "F13" in refusal.message()
+
+
 def _check_refusals(namespace: dict[str, Any]) -> None:
     frame, study = namespace["frame"], namespace["study"]
     # "A pure 12% scale ... the fit refuses that plan before any learner."
@@ -869,6 +965,12 @@ def _check_probe_logs() -> None:
     )
     # The renewal fit and the revenue fit of the page's draw raised no warning.
     assert pd.isna(row["renewal_warnings"]) and pd.isna(row["revenue_warnings"])
+    # Step 11: the placebo of the page's fit at 400 draws.
+    placebo = (folder / "placebo.log").read_text()
+    assert "draws 400; mean -0.000128; sd 0.005649" in placebo
+    assert "t = -0.45274 (two-sided p = 0.651" in placebo
+    assert "mean SE over sd 1.006" in placebo
+    assert "interval holds 0: 0.9450" in placebo
 
 
 def _prose(cell_id: str) -> str:

@@ -70,7 +70,7 @@ def _fit(name: str, monkeypatch: pytest.MonkeyPatch) -> Any:
     case = _fixture()["cases"][name]
     spec = case["spec"]
     folds = Folds(np.asarray(case["folds"], dtype=int), 2)
-    monkeypatch.setattr(StructuralNestedMean, "_folds", lambda self, data: folds)
+    monkeypatch.setattr(StructuralNestedMean, "_folds", lambda self, data, seed=None: folds)
     logistic = spec["nuisance"] == "logistic"
     regimens = None
     if spec["contrast"] is not None:

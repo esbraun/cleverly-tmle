@@ -1,0 +1,84 @@
+cleverly 0.1.5
+rows and columns: (3000, 6)
+['transition_score', 'transition_navigation', 'discharge_risk', 'prior_utilization', 'medication_burden', 'age']
+   transition_score  transition_navigation  discharge_risk  prior_utilization  medication_burden    age
+0             0.454                    0.0          -0.040             -1.258              2.574  0.482
+1             0.791                    1.0           0.644             -0.208              0.058  0.337
+2             0.735                    1.0           0.195             -0.609              0.615  0.490
+3             0.295                    0.0          -0.118             -0.719             -0.879 -1.008
+4             0.642                    1.0           0.277             -0.351              0.871 -0.888
+
+population ATE: 0.163
+causal study protocol: schema 1; 623fc2c240615d26
+target population: Adults with a discharge-home order at a participating hospital during the enrollment period
+eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
+time zero: Discharge-home order, after baseline measurement and before the navigation offer
+treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
+treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
+outcome: Patient-reported transition score, as a share of the maximum score
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
+interference unit: Individual patient
+assumption rationale: ['The recorded baseline variables cover the measured common causes', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
+average treatment effect, E[Y^a] - E[Y^reference]
+identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, W)] - E_W[E(transition_score | transition_navigation=0, W)] for a in [1]
+adjustment/history: ['discharge_risk', 'prior_utilization', 'medication_burden', 'age']
+required nuisances: ['outcome_regression', 'treatment_mechanism']
+assumptions:
+  - consistency: Y = Y^a when A = a
+  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
+  - no unmeasured confounding: Y^a is independent of A given W
+  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+causal study protocol: schema 1; 623fc2c240615d26
+Targeted maximum likelihood estimation
+======================================
+n = 3000; covariates = 4; P(A=1) = 0.4597
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, W)] - E_W[E(transition_score | transition_navigation=0, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+causal study protocol: schema 1; 623fc2c240615d26
+outcome family: gaussian; fluctuation: logistic (iterative)
+stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
+propensity truncated to [0.0114, 0.9886]; ATT/ATC to [0.025, 0.975]
+data e25f7a021cacfaa6 | folds c7f4eafaaf319249 | cleverly 0.1.5 | 2026-10-22T22:48:10+00:00
+
+estimand  psi      std_err   95% CI              p_value
+--------  -------  --------  ------------------  -------
+ate       0.15731  0.005444  [0.14664, 0.16798]  <1e-4  
+
+population ATE: 0.163
+TMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)
+                     psi  std_err  ci_lower  ci_upper  covers truth
+no cross-fitting  0.1553   0.0040    0.1476    0.1631          True
+cross-fitted      0.1573   0.0054    0.1466    0.1680          True
+in-sample SE / cross-fitted SE: 0.73
+in-sample distance from the truth, in its standard errors: 1.9
+cross-fitted distance from the truth, in its standard errors: 1.0
+population ATE: 0.163
+                      psi  std_err  ci_lower  ci_upper  covers truth  folds one team spans
+patients as units  0.1237   0.0195    0.0856    0.1619          True                     5
+teams as units     0.1256   0.0301    0.0667    0.1845          True                     1
+teams SE / patients SE: 1.54
+navigator teams: 200
+population ATE: 0.104
+team protocol fingerprint: 7df34d840b4e8d1a
+team protocol outcome: Top-box patient-reported transition score
+(median over 3 independent draws of the split; variance includes within-draw uncertainty and split dispersion)
+                      psi  std_err  ci_lower  ci_upper
+median of 3 draws  0.1567   0.0055    0.1459    0.1674
+estimand  n_repeats  standard_deviation  reported_standard_error  ratio_to_standard_error
+     ate          3              0.0004                   0.0055                   0.0679
+===== main bounded simulated_outcome R=400: 2071.1 s
+Refutation tests for 'ate'
+----------------------------------
+test               original  refuted (mean)  sd        expected                                   rung  ok 
+-----------------  --------  --------------  --------  -----------------------------------------  ----  ---
+simulated_outcome  0.15731   0.13804         0.004374  readings inside their bands around 0.1382  L2    yes
+
+simulated_outcome: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0.1382; successful=400; failed=0
+reading: bias -0.03615 [-0.1341, 0.06185] inside [-0.2, 0.2]; standard-error ratio and coverage withheld (covariate part of the curve)
+  bias = -0.03615, 95% interval [-0.1341, 0.06185], band [-0.2, 0.2]: inside
+  On the generated law named here, the bias lies inside its equivalence band. Your own outcome law is not this one. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on the held design, truth 0.1382.
+
+VERDICT: every refutation test with a verdict passed it.

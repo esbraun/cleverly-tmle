@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from types import ModuleType
 
-import pandas as pd
 import pytest
 
 from tests.studies import canonical_ctmle_oat, canonical_multi_arm_ctmle_oat
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.schema import reported_inference
 
 pytestmark = pytest.mark.xdist_group("shared_oat_replay")
@@ -28,7 +28,7 @@ STUDIES = (canonical_ctmle_oat, canonical_multi_arm_ctmle_oat)
 @pytest.mark.parametrize("module", STUDIES, ids=lambda module: module.STUDY.slug)
 def test_replication_zero_refits_to_the_committed_rows(module: ModuleType) -> None:
     study = module.STUDY
-    committed = pd.read_csv(study.artifact("replicates.csv.gz"), float_precision="round_trip")
+    committed = read_rows(study.artifact("replicates.parquet"))
     for scenario in study.scenarios:
         rows = committed.loc[
             (committed["implementation"] == study.implementation)

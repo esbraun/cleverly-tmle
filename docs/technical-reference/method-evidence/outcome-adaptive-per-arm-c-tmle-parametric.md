@@ -325,6 +325,6 @@ Run `python -m tests.canonical.ctmle_oat_per_arm_parametric.regenerate` to regen
 artifacts. The directory
 [`tests/canonical/ctmle_oat_per_arm_parametric`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/canonical/ctmle_oat_per_arm_parametric)
 holds `manifest.json`, `run.log` and the committed results. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric/properties.csv)
 carry every published row. The run used 4,788 wall seconds on four cores.

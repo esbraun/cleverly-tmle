@@ -1,0 +1,7 @@
+Step 6 fit: estimate 0.1666, truth 0.1629
+simulated_outcome: 400 draws, level L2, verdict passed, true value 0.0923, mean estimate 0.0927, 1073 s
+  bias 0.0879 in (-0.0101, 0.1859), band (-0.2, 0.2), inside True
+plasmode: 400 draws, level L2, verdict passed, true value 0.0923, mean estimate 0.0925, 1179 s
+  bias 0.0349 in (-0.0631, 0.1329), band (-0.2, 0.2), inside True
+  se_ratio 1.0349 in (0.9660, 1.1088), band (0.85, 1.15), inside True
+  coverage 0.9450 in (0.9179, 0.9652), band (0.88, 0.99), inside True

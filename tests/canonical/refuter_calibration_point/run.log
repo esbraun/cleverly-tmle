@@ -1,0 +1,23 @@
+=== refuter-calibration-point declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/refuter_calibration_point/regenerate.py --output /home/claude/sp-run-9 --jobs 4
+commit: d0583c6bf6ca7bfbc90796f2f2eebe91fcc7e357; upstream d0583c6bf6ca7bfbc90796f2f2eebe91fcc7e357
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 119, sha256 329c1db452ce194eb4c404932e9fd19a4d425c516289c9fa2fe1c481e9e2d3e4
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-22T19:53:49+00:00
+note: resumed from /root/.cache/cleverly/runs/refuter-calibration-point/5ffafb3a42c0, reused the Python phase
+finished: 2026-10-22T21:35:52+00:00
+wall seconds: 6123.3
+exit code: 0
+sha256 cells.csv: d4fadc466f4e19fbc02c1279dfd13e553a0a866335f7c6e383767cf41e951ea2
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 2d8fcf9ea3fd5a857b53660bcd322623a1d11227dbbbee1f67350a9d57fece1a
+sha256 performance-tests.csv: 235c96ab8e8f3a1dcaebdae9dca73c836a639fcbde13b3b99b608d60975ef775
+sha256 properties.csv: 173b1b9190a4647189fdbd98ae38abc1962c9e23c54198fa184fc91ab3445714
+sha256 property-replicates.parquet: 6b74bd062b9b0ed039e322f26a9f3e566b786fc2a351b760ad2cb06b0e0eecfe
+sha256 replicates.parquet: 0feeeb6b0659522d30ce0e9c90887f427d317c69aa87822ee31380fe7c0c59cb
+sha256 summary.csv: 3ca73bf22c9822fb5e39c4609cf4fdfd52475510c39f97cf87f33bee3f470b07
+

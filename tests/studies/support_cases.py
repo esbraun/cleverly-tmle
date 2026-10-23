@@ -2034,6 +2034,21 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, law=law, n=n: study.sample(law, n, 0),
             lambda study, frame, scenario=scenario: study.fit_scenario(scenario, frame),
         )
+
+    # Node bounds on a held survival fit: the study's declared fit of each model at 400 rows.
+    bounded = "canonical_survival_node_bounds.py:208"
+    for row, model in (
+        ("G45.mean_model", "mean_model"),
+        ("G45.hazard_model", "hazard_model"),
+    ):
+        observed(
+            row,
+            "survival-node-bounds",
+            model,
+            bounded,
+            lambda study, model=model: study.draw_from_seed(model, 400, 0)[0],
+            lambda study, frame, model=model: study.fit(model, frame),
+        )
     return tuple(cases)
 
 
@@ -2336,6 +2351,52 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _adaptive_iptw_cases() -> tuple[RowCase, ...]:
+    """The cases of ``adaptive-iptw`` (X21).
+
+    Each runs the study's own fit of one scene on a small draw of its law up to the classifier.
+    """
+    module, slug = "canonical_adaptive_iptw", "adaptive-iptw"
+
+    def case(row: str, scene: str, fit: str, line: int) -> RowCase:
+        def draw(study: Any) -> Any:
+            declared = study.SCENES[scene]
+            # The key reads structure only, so a clustered law keeps its declared cluster count.
+            size = declared.n if declared.law == "cl" else min(declared.n, 600)
+            return study.draw_frame(declared.law, size, 0)
+
+        def run(study: Any, frame: Any) -> Any:
+            return study.FITS[fit](frame, study.SCENES[scene].n, 0)
+
+        return _observed(row, slug, fit, f"{module}.py:{line}", module, draw, run)
+
+    return (
+        case("AI.known_arms.targeted", "pd_known", "pd_arms", 390),
+        case("AI.known_arms.one_step", "pd_known", "pd_arms_one_step", 390),
+        case("AI.known_regimes.targeted", "pd_known", "pd_regimes", 413),
+        case("AI.known_regimes.one_step", "pd_known", "pd_regimes_one_step", 413),
+        case("AI.known_weighted", "wt_known", "wt_known", 476),
+        case("AI.known_clustered", "cl_known", "cl_known", 495),
+        case("AI.known_stratified", "st_known", "st_known", 514),
+        case("AI.points.cross_fit", "p_rate", "p_rate", 373),
+        case("AI.points.in_sample", "p_insample", "p_insample", 373),
+        case("AI.points_three_arm", "m_rate", "m_rate", 434),
+        case("AI.points_missing_outcome.cross_fit", "c_l1", "c_l1", 454),
+        case("AI.points_missing_outcome.cross_fit", "cn", "cn", 539),
+        case("AI.points_missing_outcome.in_sample", "c_l1_insample", "c_l1_insample", 454),
+        case("AI.points_composite_three_arm.cross_fit", "c_l3", "c_l3", 454),
+        case("AI.points_composite_three_arm.in_sample", "c_l3_insample", "c_l3_insample", 454),
+        case("AI.points_weighted", "wt_known", "wt_estimated", 476),
+        case("AI.points_clustered", "cl_known", "cl_estimated", 495),
+        case("AI.points_stratified", "st_known", "st_estimated", 514),
+        case("AI.points_regime", "pd_rate", "pd_regimes_estimated", 413),
+        case("AI.points_regime_missing", "rm", "rm", 559),
+        case("AI.points_missing_treatment.cross_fit", "ma_crossfit", "ma_crossfit", 575),
+        case("AI.points_missing_treatment.in_sample", "ma_insample", "ma_arms", 575),
+        case("AI.points_missing_treatment.in_sample", "ma_insample", "ma_regime", 575),
+    )
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -2347,4 +2408,5 @@ CASES: tuple[RowCase, ...] = (
     *_vector_cases(),
     *_categorical_incremental_cases(),
     *_continuous_dose_cases(),
+    *_adaptive_iptw_cases(),
 )

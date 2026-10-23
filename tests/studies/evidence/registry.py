@@ -193,6 +193,15 @@ class StudyRecord:
     #: Why the comparator runs are pending, and the roadmap item or queue row that owns them.
     #: Required with ``pending_reference``, in the spirit of ``accepted_reference_failure``.
     pending_reason: str = ""
+    #: Scenario -> the estimands the reference reports, for a comparator that reaches part of
+    #: the study.  Empty means that the reference reports every declared cell.
+    #:
+    #: A comparator can lack an estimand or a composition that the subject ships: EconML's
+    #: ``DynamicDML`` reports blips and contrasts, and no regimen level, weight or cluster.
+    #: The subject still reports every cell, and the paired comparison, the reference's truth
+    #: tests and its failure accounting read only these cells.  A declared subset is checked
+    #: against the rows, so a reference that silently loses a cell is refused, not unpaired.
+    reference_scenarios: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
@@ -345,6 +354,21 @@ class StudyRecord:
                 )
         elif self.pending_reason:
             raise ValueError("pending_reason is set without a pending_reference")
+        if self.reference_scenarios:
+            if named is None:
+                raise ValueError("reference_scenarios needs a reference or a pending reference")
+            unknown_cells = {
+                scenario: sorted(set(estimands) - set(self.scenarios.get(scenario, ())))
+                for scenario, estimands in self.reference_scenarios.items()
+                if scenario not in self.scenarios or set(estimands) - set(self.scenarios[scenario])
+            }
+            if unknown_cells:
+                raise ValueError(
+                    f"reference_scenarios names cells the study does not declare: {unknown_cells}"
+                )
+            empty = sorted(name for name, names in self.reference_scenarios.items() if not names)
+            if empty:
+                raise ValueError(f"reference_scenarios gives no estimand for {empty}")
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
         # A bound may be declared for a pending comparator before its first run.
@@ -418,6 +442,25 @@ class StudyRecord:
             self.comparison_overrides.get(f"{scenario}:*", self.comparison),
         )
 
+    def reported(self, implementation: str) -> Mapping[str, tuple[str, ...]]:
+        """Scenario -> the estimands ``implementation`` reports.
+
+        The subject reports every declared cell.  The reference reports
+        :attr:`reference_scenarios` when the record declares a subset, else every cell.
+        """
+        if self.reference_scenarios and implementation in (
+            self.reference,
+            self.pending_reference,
+        ):
+            return self.reference_scenarios
+        return self.scenarios
+
+    def paired_cells(self) -> frozenset[tuple[str, str]]:
+        """The ``(scenario, estimand)`` cells the paired comparison reads."""
+        named = self.reference or self.pending_reference
+        cells = self.scenarios if named is None else self.reported(named)
+        return frozenset((scenario, name) for scenario, names in cells.items() for name in names)
+
     @property
     def implementations(self) -> tuple[str, ...]:
         return (
@@ -465,6 +508,7 @@ def registered() -> tuple[StudyRecord, ...]:
     estimator configuration, and so a study module can import the framework.
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
+    from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
@@ -584,6 +628,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
     from tests.studies.canonical_structural_nested_mean import STUDY as STRUCTURAL_NESTED_MEAN
+    from tests.studies.canonical_survival_node_bounds import STUDY as SURVIVAL_NODE_BOUNDS
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -596,6 +641,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
@@ -606,6 +652,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
+    from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.refuter_calibration_longitudinal import (
+        STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
+    )
+    from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -683,6 +734,8 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_CURVE,
         POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
+        SURVIVAL_NODE_BOUNDS,
+        ADAPTIVE_IPTW,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
@@ -697,7 +750,11 @@ def registered() -> tuple[StudyRecord, ...]:
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+        OVB_LIMIT_COVERAGE,
+        EVALUE_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
+        REFUTER_CALIBRATION_LONGITUDINAL,
+        REFUTER_CALIBRATION_POINT,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

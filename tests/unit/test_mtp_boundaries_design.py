@@ -460,6 +460,41 @@ def test_a_gap_below_the_gate_passes_and_an_unpaired_witness_does_not() -> None:
     assert table.loc[table["scenario"] == study.BOUNDARIES_LTMLE, "passed"].all()
 
 
+def _failure(scenarios: str, replicates: str, implementation: str = "lmtp") -> dict[str, object]:
+    """One failure record, in the columns the regeneration writes."""
+    return {
+        "implementation": implementation,
+        "group_id": f"{implementation}:{scenarios}",
+        "scenarios": scenarios,
+        "replicates": replicates,
+        "attempt": 1,
+        "class": "error",
+        "stage": "fit",
+        "call": "lmtp_tmle",
+        "message": "synthetic",
+        "seed": 0,
+    }
+
+
+def test_a_lost_witness_fit_turns_the_exactness_audit_red() -> None:
+    # A real failure frame names its scenarios in the ``scenarios`` column, joined by ``;``.
+    table = study.extra_artifacts(_paired_rows())["exactness.csv"]
+    artifacts = {"exactness.csv": table}
+    failures = pd.DataFrame.from_records(
+        [
+            _failure(f"{study.BOUNDARIES_LTMLE};{study.ATOM_LTMLE}", "3;4"),
+            _failure(study.BOUNDARIES_LTMLE, "3", study.STUDY.implementation),
+            _failure(study.ATOM_SDR, "7"),
+        ]
+    )
+    audit = study.account_failures(failures, artifacts).set_index("leg")
+    # Replicates 3 and 4 of one witness scenario; the atom fits and the repeated pair do not count.
+    assert audit.loc["exactness witness", "failed"] == 2
+    assert not audit.loc["exactness witness", "passed"]
+    clean = study.account_failures(failures.iloc[:0], artifacts).set_index("leg")
+    assert clean.loc["exactness witness", "passed"]
+
+
 def test_the_atom_scenarios_are_not_witnesses() -> None:
     assert {study.BOUNDARIES_LTMLE, study.BOUNDARIES_SDR} == study.EXACT
     pairing = study.REFERENCE_METADATA["pairing"]
