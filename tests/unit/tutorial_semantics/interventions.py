@@ -63,8 +63,6 @@ UNPRINTED_DECIMALS = {
         "the fitted model's smallest offer probability, which the regime support "
         "report holds (min_support_propensity of offer to all); check() asserts it"
     ),
-    "0.495": "the screen's standardized bias at 400 refits: plans repo reviews/x86d/README.md",
-    "0.2136": "the nudge's standardized bias at 400 refits: plans repo reviews/x86d/README.md",
 }
 
 #: Where each probe or study decimal of ``UNPRINTED_DECIMALS`` lives: the committed file, a
