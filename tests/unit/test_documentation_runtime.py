@@ -783,7 +783,7 @@ def test_the_slow_tier_is_deselected_by_default_and_run_by_its_own_job() -> None
 EXPECTED_REFIT_CELLS = {
     "collaborative-tmle": ["refutation", "generated", "stress"],
     "cross-fitting": ["fold-check", "bounded-truth", "team-plasmode", "team-surface"],
-    "interventions": ["refute-regimes", "generated", "sensitivity", "sensitivity-other"],
+    "interventions": ["bound", "refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
     "msm-projections": ["refute", "generated", "surface"],
     "point-treatment-tmle": [
