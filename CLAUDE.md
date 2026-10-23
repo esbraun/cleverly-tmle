@@ -74,35 +74,46 @@ objects, or `CausalStudy` objects, and not for the public API.
 
 ## Documentation writing
 
-The root `README.md` and reader-facing documents under `docs/` align with Issue 9 of
-ASD-STE100 Simplified Technical English. This project does not claim certified compliance.
+`docs/development/writing-for-readers.md` holds the rules and names the reader of each area.
 
-- Write one idea per sentence. Keep sentences to 20 words in procedures and 25 in descriptions.
-- Keep paragraphs to six sentences. Prefer three.
-- Use the active voice, the present tense, and a named actor.
-- Give the instruction first and the reason second.
-- Use one word for one meaning, and do not use the same word as two parts of speech.
-- Keep articles. Do not build a noun cluster longer than three words.
-- Do not join clauses with an em dash or `--`. Use a full stop, or a table.
-- When the content is parallel, write a table. In the technical reference the table is the primary
-  communication device and the prose exists to define its terms.
-- Statistical terms of art are exempt from the vocabulary restriction: influence curve, nuisance,
-  targeting, remainder, estimand names, and any API identifier.
-- Give evidence for each material claim. Cite the source, name the test or artifact, or state the
-  applicable condition. Remove adjectives and transitions that add no verifiable information.
+| area | reader |
+| --- | --- |
+| `README.md`, `docs/examples/`, `docs/getting-started/`, `docs/user-guide/`, `docs/index.md`, `docs/workflow.md` | a data scientist who knows Python and regression but not causal inference or `cleverly`, and who wants to run the analysis and explain the result |
+| `docs/technical-reference/` | a statistician who wants the exact estimand, conditions, and evidence. Terms of art and formulas stay; the table stays the main device where rows are compared |
+| `docs/development/` and other pages under `docs/` (`docs/README.md`, `architecture-invariants.md`, `roadmap.md`, `references.md`) | contributors |
 
-When you change a reader-facing document, follow the
-[documentation procedure](docs/development/contributing.md#write-documentation).
-Run `python -m tests.prose` and review every finding. `--path <file>` is for reports only.
-After edits, refresh the whole ledger with `python -m tests.prose --update`.
-Record `accepted: <reason>` for each retained finding in `tests/prose-report.md`, keeping existing
-reasons if they still apply. The fast tier rejects unjudged findings and stale ledger rows.
-Check scientific claims against code, tests, artifacts, and sources. No tool here
-certifies STE compliance or verifies a scientific claim.
+The points agents miss most:
+
+- On the data-scientist pages, lead with the answer. Put the main path first and theory after it,
+  or in a Details dropdown.
+- For the data-scientist pages, define each technical term in plain words where it first
+  appears, and do not lean on `cleverly`'s own vocabulary (protocol, identify, nuisance,
+  targeting, rung, registry, review probe). Say what the code does, then give the API name.
+- Keep every statistical claim accurate. Simplify by choosing what to say, not by saying
+  something false. A condition a claim needs stays, in plain words.
+- Write paragraphs of at most six sentences. Use a table only when the reader compares items
+  across the same columns.
+- Remove machine-writing tells: boilerplate openers, narration of the page ("the table below
+  shows"), restated output, repeated caveats, stacked qualifiers, runs of one-idea sentences,
+  em dashes, empty transitions. The guide lists them with examples.
+- Headings are landmarks a newcomer recognizes, not numbered method steps. Link to another
+  page's file, or to a heading that is meant to stay; the link test resolves anchors only
+  against headings.
+- Give evidence for each material claim: a source, a test or artifact, or the condition it
+  needs. Check scientific claims against code, tests, artifacts, and sources.
+
+When you rewrite a whole data-scientist page, or write a new one, run the reader review in the
+guide before you hand off. For any doc change, follow the
+[documentation procedure](docs/development/contributing.md#write-documentation): run
+`python -m tests.prose`, judge every finding, refresh the ledger with
+`python -m tests.prose --update`, and record `accepted: <reason>` for each retained finding in
+`tests/prose-report.md`, keeping existing reasons if they still apply. The fast tier rejects
+unjudged findings and stale ledger rows. No tool here certifies plain language or verifies a
+scientific claim.
 
 Scope is `README.md` and every reader-facing Markdown, RST, or notebook source under `docs/`.
 Generated API pages and `docs/_build/` are not source. Rewrite the text a change touches. Do not
-sweep unrelated pages unless the user requests a broad documentation review.
+sweep unrelated pages unless the user asks.
 
 ## Docstrings
 
