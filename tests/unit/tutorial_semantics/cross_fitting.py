@@ -290,8 +290,8 @@ def check(namespace: dict[str, Any]) -> None:
     _check_refutation(namespace)
 
 
-def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Step 10 and the Step 11 additions: the refits, the E-value, and the team surface."""
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Step 10: the fold check, the bounded generated outcome, and the team plasmode refits."""
     cross_fitted = namespace["cross_fitted"]
     original = cross_fitted["ate"].psi
     se = cross_fitted["ate"].std_error
@@ -301,15 +301,15 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         # "Neither test prints a verdict": no registry row covers a TMLE with boosters.
         assert test.passed is None and test.rung == "L0" and len(test.values) == 5
         assert test.original == pytest.approx(original)
-    fold_output = stored_output(NOTEBOOK, "fold-check")
-    assert "This fit differs on method 'TMLE'" in fold_output
     # Random common cause: a nonzero paired shift of -0.165 SE, inside the 0.2008 SE that new
     # fold seeds give with no noise column.
     shift = (np.asarray(tests["random_common_cause"].values) - original) / se
     assert round(float(shift.mean()), 3) == -0.165
     assert round(float(np.std(shift, ddof=1)), 5) == 0.09499
-    assert "spread across seeds with no noise column (SE units) = 0.2008" in fold_output
     assert abs(shift.mean()) < 0.2008
+    # The shift is systematic: the mean of the five paired shifts is about four standard errors
+    # from zero, and below the 0.2008 SE that one new fold draw gives.
+    assert 3.5 < abs(shift.mean()) / (np.std(shift, ddof=1) / np.sqrt(len(shift))) < 4.5
     # Subset: "0.0035138 against 0.0035642 ... ratio 0.98586".  The reference is the sampling SD
     # of a 2100-of-3000 subsample, so it scales the reported SE by sqrt((n/m - 1) n/(n - 1)).
     scatter = float(np.std(tests["subset"].values, ddof=1))
@@ -321,24 +321,27 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     bounded = namespace["bounded_truth"].tests[0]
     assert bounded.passed is None and bounded.rung == "L1" and len(bounded.values) == 10
     assert round(float(np.mean(bounded.values)), 5) == 0.13788
-    assert "truth 0.1382" in stored_output(NOTEBOOK, "bounded-truth")
-    assert "standard-error ratio and coverage withheld" in stored_output(NOTEBOOK, "bounded-truth")
 
     # The team plasmode runs at the 400 draws of the equivalence bands, so it prints a verdict.
     # The page's 0.11614 truth is the declared law's, and the estimate is the Step 7 one.
     plasmode = namespace["team_plasmode"].tests[0]
     assert plasmode.passed is True and plasmode.rung == "L2" and len(plasmode.values) == 400
     assert plasmode.original == pytest.approx(namespace["clustered"]["ate"].psi)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 10 and the Step 11 additions, read from the stored outputs and committed logs."""
+    fold_output = stored_output(NOTEBOOK, "fold-check")
+    assert "This fit differs on method 'TMLE'" in fold_output
+    assert "spread across seeds with no noise column (SE units) = 0.2008" in fold_output
+    assert "truth 0.1382" in stored_output(NOTEBOOK, "bounded-truth")
+    assert "standard-error ratio and coverage withheld" in stored_output(NOTEBOOK, "bounded-truth")
     plasmode_output = stored_output(NOTEBOOK, "team-plasmode")
     assert "resampled whole clusters" in plasmode_output and "truth 0.11614" in plasmode_output
     assert "bias 0.02134 [-0.07666, 0.1193] inside [-0.2, 0.2]" in plasmode_output
     assert "se_ratio 0.9906 [0.9242, 1.062] inside [0.85, 1.15]" in plasmode_output
     assert "coverage 0.945 [0.9179, 0.9652] inside [0.88, 0.99]" in plasmode_output
     _assert_refutation_probe()
-
-    # The shift is systematic: the mean of the five paired shifts is about four standard errors
-    # from zero, and below the 0.2008 SE that one new fold draw gives.
-    assert 3.5 < abs(shift.mean()) / (np.std(shift, ddof=1) / np.sqrt(len(shift))) < 4.5
 
     # The median-rule fit prints the limit line, and the single-fit bound does not.
     assert "confidence limits:" in stored_output(NOTEBOOK, "repeated-bounds")

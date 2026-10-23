@@ -63,12 +63,13 @@ The remote holds `main` alone. Delete your branch after it merges.
 | `ruff format --check .` | formatting, including every Python fence in a Markdown file |
 | `mypy` | types in `src/cleverly` and in `scripts` |
 | `pytest -q -n auto --dist loadgroup` | the fast suite, which is the default handoff gate |
+| `pytest -q -n auto --dist loadgroup -m slow` | the slow tier: each tutorial notebook with its refit cells |
 | `python -m tests.prose` | a report on the reader-facing prose. It changes nothing and fails nothing |
 | `nox -s docs` | the documentation build, with every Sphinx warning as an error |
 | `python -m build`, then package checks | distribution metadata, contents, and clean installs |
 
-`nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions. Those sessions
-mirror the CI jobs, so a green `nox` run predicts a green pull request.
+`nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions. Those
+sessions mirror the CI jobs, so a green `nox` run predicts a green pull request.
 
 Do not run a study regeneration beside the fast suite. Each process expects the machine's cores.
 [Fast tests and validation studies](testing-strategy.md) explains the design behind the commands.
@@ -82,7 +83,7 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
 | library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
 | a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
-| a notebook artifact | `python scripts/execute_notebook.py <path>`, then the documentation row above |
+| a notebook artifact, or a tutorial callback | `python scripts/execute_notebook.py <path>`, then the documentation row above, then `pytest -q tests/unit/test_documentation_runtime.py -k <stem> -m slow` |
 
 The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
 committed artifacts, so the statistical evidence is checked in minutes rather than hours.
