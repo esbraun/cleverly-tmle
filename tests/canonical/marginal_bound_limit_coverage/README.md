@@ -2,7 +2,7 @@
 
 This directory holds a repeated-sampling study of the confidence limits of
 `cleverly.sensitivity.marginal_sensitivity_bounds`. Each row reads one end of the ATE bound at
-`Gamma = 1.5` as an estimate of the sharp end. `X82-H-plan.md` rev 2.4, section 8, in the plans
+`Gamma = 1.5` as an estimate of the sharp end. `X82-H-plan.md` rev 2.5, section 8, in the plans
 repository declares the design. A passing cell licenses its `msm_bound_limit` rule. A red cell
 leaves the rule descriptive.
 
@@ -13,7 +13,7 @@ leaves the rule descriptive.
 
 Each fit is a 5-fold cross-fitted `TMLE` with correctly specified GLM nuisances. SH1 calls the
 bounds with the default quantile and tail learners. Each truth is the sharp set of the law, by
-quadrature. Each replication draws `n = 8000` rows. Each cell has 1,600 primary replications.
+quadrature. Each replication draws `n = 8000` rows. Each cell has 2,000 primary replications.
 
 | property family | cells | rule |
 | --- | --- | --- |
