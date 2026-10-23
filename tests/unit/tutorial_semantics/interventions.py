@@ -516,7 +516,8 @@ def _check_benchmarks(namespace: dict[str, Any]) -> None:
     # prior_utilization is the strongest on both sides.
     for record, _ in benchmarks.values():
         assert record.cf_y <= strongest.cf_y and record.cf_d <= strongest.cf_d
-    # "a weight-side strength of only about 0.17, less than prior_utilization's".
+    # "an offer-side strength of only about 0.17 to pull the lower limit to zero, below
+    # prior_utilization's 0.206".
     tipping = namespace["tipping_cf_d"]
     assert round(tipping, 2) == 0.17 and tipping < strongest.cf_d
     assert (
