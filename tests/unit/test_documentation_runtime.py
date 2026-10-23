@@ -785,7 +785,7 @@ EXPECTED_REFIT_CELLS = {
     "cross-fitting": ["fold-check", "bounded-truth", "team-plasmode", "team-surface"],
     "interventions": ["refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
-    "msm-projections": ["refute", "generated", "surface"],
+    "msm-projections": ["refute", "sensitivity", "generated", "surface"],
     "point-treatment-tmle": [
         "refutation",
         "sensitivity",

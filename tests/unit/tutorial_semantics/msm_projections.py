@@ -39,8 +39,6 @@ UNPRINTED_DECIMALS = {
     f"for the 1:10:1 slope: {_PROBE}/sweep.log",
     "0.01": f"the true-g threshold, share below it 0.0112 for medium or high: "
     f"{_PROBE}/shortfall.log",
-    "0.927": "the simulated_outcome SE ratio at n_replicates=400, a review probe recorded in the body of pull request 435",
-    "0.734": "half the stored ate[high vs low], 1.4681 / 2, checked in check()",
 }
 
 
@@ -99,8 +97,8 @@ def check(namespace: dict[str, Any]) -> None:
         "intercurrent_event_handling",
         "assumption_rationale",
     }
-    # "A score with no documented range has no range to declare as q_bounds": the page's own
-    # reason for fitting in sample, and the fit reports it. Death uses the hypothetical strategy.
+    # "cleverly needs a known score range" for out-of-fold predictions: the page's own reason
+    # for fitting in sample, and the fit reports it. Death uses the hypothetical strategy.
     protocol = namespace["protocol"]
     assert "no documented range" in protocol.outcome
     assert "standardized" not in protocol.outcome
@@ -250,7 +248,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(step_slope, step_target[1])
     assert covers(trend["msm[assigned contacts]"], projection[1])
     assert not covers(step_slope, projection[1])
-    # "half of that is 0.734": the per-step slope is half the high-vs-low difference.
+    # The per-step slope is half the high-vs-low difference under the uniform weight.
     high_vs_low = namespace["saturated_result"]["msm[high vs low]"].psi
     assert f"{high_vs_low / 2:.3f}" == "0.734"
     assert abs(step_slope.psi - high_vs_low / 2) < 5e-4
@@ -264,17 +262,14 @@ def check(namespace: dict[str, Any]) -> None:
     attention = {item.name for item in assessment.attention}
     assert attention == {"support"}
     assert namespace["scores"].passed
-    # The status table prints only the rows that ran or run on request. The fit reports two
-    # coefficients, so each omitted-variable row waits on an estimand (X82 part G2c).
+    # The fit reports two coefficients, so each omitted-variable row waits on an estimand
+    # (X82 part G2c), which is why the sensitivity cell names the slope.
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
-    stored = stored_output(NOTEBOOK, "assessment")
     for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "deferred"
-        assert re.search(rf"sensitivity\s+{operation}\s+deferred", stored)
-    assert "unavailable" not in stored and "not_applicable" not in stored
     assert str(ledger.loc[("validation", "support")]) == "warning"
-    assert re.search(r"support\s+warning", stored)
-    assert re.search(r"refute\s+deferred", stored)
+    assert str(ledger.loc[("diagnostics", "refute")]) == "deferred"
+    assert "checks that need attention: ('support',)" in stored_output(NOTEBOOK, "assessment")
     support = namespace["support"]
     # "The fit truncated 1.20% of the units, and the support report warns above 1%."
     assert support.truncated["fraction"] > 0.01
@@ -301,30 +296,61 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0033"
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
-    # Step 13 reads the omitted-variable bound on the arm contrasts of the ATE fit, whose
-    # influence curves are those of the saturated coefficients (checked above), and on the
-    # slope of the trend fit.
-    robustness = namespace["robustness"]
-    assert set(robustness) == {"ate[medium vs low]", "ate[high vs low]", "msm[assigned contacts]"}
-    assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
-    for values in robustness.values():
-        assert 0.0 < values["rva"] < values["rv"] < 1.0
-    # "The slope's confidence-limit value is descriptive."
-    assert robustness["msm[assigned contacts]"]["limit_licensed"] is False
-    assert "limit_licensed" not in robustness["ate[high vs low]"]
     # The slope has no E-value: the E-value reads an arm contrast.
     trend = namespace["trend_result"]
     with pytest.raises(Exception, match="arm contrast"):
         trend.sensitivity.evalue(estimand="msm[assigned contacts]")
-    assert "estimand kind" in namespace["robustness"]["msm[assigned contacts]"]["limit_sentence"]
     assert round(trend["msm[assigned contacts]"].std_error, 4) == 0.0086
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """Steps 13 and 14: the refutation, the generated outcomes, and the stress surface."""
+    """The refutation, the omitted-variable bounds, the generated outcomes, and the surface."""
     assert namespace["SLOPE"] == "msm[assigned contacts]"
     _check_refutation(namespace)
+    _check_sensitivity(namespace)
     _check_stress_surface(namespace)
+
+
+def _check_sensitivity(namespace: dict[str, Any]) -> None:
+    """The robustness values, the benchmark of every recorded covariate, and the tipping point."""
+    # The bound reads the arm contrasts of the ATE fit, whose influence curves are those of the
+    # saturated coefficients (checked in check()), and the slope of the trend fit.
+    robustness = namespace["robustness"]
+    slope = namespace["SLOPE"]
+    assert set(robustness) == {"ate[medium vs low]", "ate[high vs low]", slope}
+    assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
+    # "Among the differences from low, medium is weaker."
+    assert robustness["ate[medium vs low]"]["rv"] < robustness[slope]["rv"]
+    for values in robustness.values():
+        assert 0.0 < values["rva"] < values["rv"] < 1.0
+    # "False means no simulation study checks the slope's limits for this kind of fit."
+    assert robustness[slope]["limit_licensed"] is False
+    assert "limit_licensed" not in robustness["ate[high vs low]"]
+    assert "estimand kind" in robustness[slope]["limit_sentence"]
+    # Every recorded covariate is benchmarked. "Discharge risk and age each reach 0.57 on the
+    # weight side, and a missing confounder as strong as either would leave a range of slopes
+    # that reaches below zero." Support need, which does not enter the schedule, reaches 0.
+    benchmarks = namespace["benchmarks"]
+    adjustment = namespace["study"].design.adjustment
+    assert tuple(benchmarks) == tuple(adjustment)
+    for name in ("discharge_risk", "age"):
+        record, bound = benchmarks[name]
+        assert f"{record.cf_d:.2f}" == "0.57"
+        assert bound.lower < 0.0 < bound.upper
+    record, bound = benchmarks["baseline_support_need"]
+    assert record.cf_d == pytest.approx(0.0, abs=1e-3) and bound.ci_lower > 0.0
+    # "The benchmark caps its cf_y at 1.000" for discharge_risk, whose gain exceeds 1.
+    record = benchmarks["discharge_risk"][0]
+    assert record.cf_y == 1.0 and record.gain_y > 1.0
+    # The bisection finds the weight-side strength at which the lower limit reaches zero when
+    # cf_y = 1, and it lies far below the recorded confounders' strengths.
+    tipping = namespace["tipping_cf_d"]
+    sensitivity = namespace["trend_result"].sensitivity
+    at = sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping, estimand=slope)
+    assert abs(at.ci_lower) < 1e-6
+    assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01, estimand=slope).ci_lower > 0
+    assert f"{tipping:.2f}" == "0.18"
+    assert tipping < 0.5 * min(benchmarks[name][0].cf_d for name in ("discharge_risk", "age"))
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
