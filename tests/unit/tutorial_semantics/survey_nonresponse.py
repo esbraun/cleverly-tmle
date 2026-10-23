@@ -256,6 +256,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert len(weight) == int(frame["responded"].sum())
     assert f"{weight.max():.1f}" == "41.2"
     assert max(support.clever_covariate_max.values()) > 1.5 * weight.max()
+    # "only 3 of 3,051 respondents carry a weight above 20".
+    assert namespace["heavy"] == int((weight > 20).sum()) == 3
     # The fit caps the chances at the printed bounds, and nothing reached them.
     assert round(support.bounds[0], 4) == 0.0095 and support.nuisance_bound == 0.01
     assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
