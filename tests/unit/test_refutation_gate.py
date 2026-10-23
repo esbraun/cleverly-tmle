@@ -286,6 +286,21 @@ class TestRegistry:
         assert "method" in other.sentence
         assert "TMLE" in other.sentence
 
+    def test_an_outside_fit_names_the_nearest_row_not_the_first(self) -> None:
+        """The sentence reads the row that differs on the fewest axes."""
+        far = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"LTMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        near = _covering_row("placebo", "t")
+        fit = _fit_configuration(method="CTMLE")
+        for rows in ((far, near), (near, far)):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert "LTMLE" not in sentence and "survival" not in sentence
+            assert "method 'CTMLE'" in sentence
+
     @pytest.mark.parametrize(
         "change",
         [

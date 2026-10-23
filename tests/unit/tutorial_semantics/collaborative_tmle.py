@@ -225,7 +225,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         shift = (np.asarray(tests["random_common_cause"].values) - original) / se
         assert 0.0 < abs(shift.mean()) < 0.05
     stored = stored_output(NOTEBOOK, "refutation")
-    assert "This fit differs on method 'TMLE'" in stored
+    assert "This fit differs on cross-fitting 'off'" in stored
     assert "This fit differs on method 'CTMLE[oat:per_arm]'" in stored
     # The page says the registry holds one C-TMLE point row, the greedy placebo cell C1.
     from cleverly.validation import _interpretation as registry

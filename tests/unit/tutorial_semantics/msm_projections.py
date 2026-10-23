@@ -328,7 +328,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
-    assert "This fit differs on method 'TMLE'" in tests["placebo"].scope_sentence
+    assert (
+        "This fit differs on estimand kind 'msm[assigned contacts]'"
+        in tests["placebo"].scope_sentence
+    )
     # The placebo reading: exact null 0, mean -0.00029724, spread 0.008957, t -0.1484 (p = 0.884).
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)

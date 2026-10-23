@@ -383,7 +383,9 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert round(float(np.std(subset, ddof=1)), 7) == 0.0026376
     assert round(reference, 7) == 0.0031383
     stored = stored_output(NOTEBOOK, "refute-regimes")
-    assert "This fit differs on method 'TMLE'" in stored
+    assert (
+        "This fit differs on estimand kind 'ate_regime[screen on risk vs offer to none]'" in stored
+    )
     # The limit: `prior_utilization` is an adjustment column, so a control that equals it is
     # refused, and the frame holds no other pre-offer measure.
     frame = namespace["frame"]
