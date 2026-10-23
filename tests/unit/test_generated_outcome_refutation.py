@@ -728,6 +728,7 @@ class TestRealFitAcceptance:
         assert test.rung == "L2"
         assert test.passed is True
         assert len(test.records) == DEFAULT_OUTCOME_REPLICATES
+        assert "the bias lies inside its equivalence band" in test.scope_sentence
 
     def test_the_refute_cache_key_is_value_based(self) -> None:
         result = _linear_ate_fit(ATE())
@@ -790,6 +791,10 @@ class TestAdjustmentSignalScale:
         bias = next(reading for reading in test.readings if reading.name == "bias")
         assert not bias.inside
         assert abs(test.mean - 1.0) > 3.0 * test.spread
+        # The licence sentence follows the result: a reading outside its band never prints
+        # that it lies inside.
+        assert "the bias lies outside its equivalence band" in test.scope_sentence
+        assert "the bias lies inside its equivalence band" not in test.scope_sentence
 
     def test_a_dummy_outcome_still_passes_under_the_same_confounding(self) -> None:
         # The control for the test above: independent noise carries no covariate signal,

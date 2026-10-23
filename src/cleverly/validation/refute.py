@@ -4062,7 +4062,11 @@ def _generated_outcome_test(
             )
             if resolution.licensed and calibrated:
                 licensed_inside.append(reading.inside)
-                sentences.append(resolution.sentence)
+                sentences.append(
+                    resolution.sentence
+                    if reading.inside
+                    else resolution.sentence.replace("lies inside", "lies outside")
+                )
         if licensed_inside:
             passed = all(licensed_inside)
             rung = "L2"
