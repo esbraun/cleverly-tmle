@@ -941,6 +941,7 @@ reads the treatment mechanism as consistent, which is the assumption of the publ
 | the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
 | limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
 | a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
+| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | refused with the reason `implementation_gap`. The fit declares only a learner that reads one outcome prediction, so no learner exists for the mechanism on every covariate ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)). Test: `test_a_per_arm_fit_refuses_the_refit` |
 
 The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
 keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
@@ -964,12 +965,15 @@ study measured.
 | --- | --- |
 | `response` | in-sample `TMLE`, `ate` or `ey1`, binary outcome missing at random, at least 250 events |
 | `intermediate` | in-sample `TMLE`, the CDE at a level of a binary intermediate, at least 250 events |
-| `regime` | in-sample `TMLE`, a regime mean or contrast, at least 350 events |
-| `msm` | in-sample `TMLE`, an MSM coefficient, at least 350 events |
+| `regime` | in-sample `TMLE`, a regime mean or contrast, at least 325 events |
+| `msm` | in-sample `TMLE`, an MSM coefficient, at least 325 events |
 | `shift` | in-sample `TMLE`, a shift mean or contrast on a continuous dose |
 
 Every row also requires a binary outcome, $n \geq 2{,}000$, influence-curve inference, and the
-saturated logistic nuisances of the study. A fit outside a row prints its limits as descriptive.
+saturated logistic nuisances of the study. Each event floor lies between the minimum and the 5th
+percentile of the smallest arm event count over the cell's 1,600 primary draws.
+`tests/unit/test_sensitivity_limit_coverage_registry.py` recomputes that range from the declared
+seeds. A fit outside a row prints its limits as descriptive.
 A joined rule, such as `response+stratum`, has no row. `SensitivityBounds.limit_reading` holds the
 resolution, and `SensitivityBounds.limit_descriptive` is true for a descriptive limit. `to_dict()`
 adds `features`, `limit_rung`, `limit_licensed`, and `limit_sentence`. `robustness_value()` adds

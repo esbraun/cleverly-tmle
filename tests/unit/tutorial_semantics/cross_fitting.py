@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
@@ -29,6 +30,7 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "cross-fitting.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/cross-fitting-final"
+_REFUTATION = "reviews/notebook-review/probes/cross-fitting-refutation"
 _STUDY = "tests/canonical/tmle3_cvtmle/properties.csv"
 _CLUSTERED = "tests/canonical/lmtp_clustered_tmle/properties.csv"
 
@@ -49,6 +51,10 @@ UNPRINTED_DECIMALS = {
     "0.5225": f"coverage of crossfit_overfitting/in_sample_control: {_STUDY}",
     "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
     "0.84125": f"coverage of clustered_inference/iid_control: {_CLUSTERED}",
+    "0.06185": f"upper end of that bias interval: {_REFUTATION}/main_generated.log",
+    "0.13804": f"mean of the 400 refits: {_REFUTATION}/main_generated.log",
+    "-0.03615": f"main bounded generated-outcome bias reading: {_REFUTATION}/main_generated.log",
+    "-0.1341": f"lower end of that bias interval: {_REFUTATION}/main_generated.log",
 }
 
 
@@ -281,3 +287,86 @@ def check(namespace: dict[str, Any]) -> None:
         cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0
     )
     assert abs(at_rv.lower) < 1e-3
+    _check_refutation(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 10 and the Step 11 additions: the refits, the E-value, and the team surface."""
+    cross_fitted = namespace["cross_fitted"]
+    original = cross_fitted["ate"].psi
+    se = cross_fitted["ate"].std_error
+    tests = {test.name: test for test in namespace["fold_check"].tests}
+    assert list(tests) == ["random_common_cause", "subset"]
+    for test in tests.values():
+        # "Neither test prints a verdict": no registry row covers a TMLE with boosters.
+        assert test.passed is None and test.rung == "L0" and len(test.values) == 5
+        assert test.original == pytest.approx(original)
+    fold_output = stored_output(NOTEBOOK, "fold-check")
+    assert "This fit differs on method 'TMLE'" in fold_output
+    # Random common cause: a nonzero paired shift of -0.165 SE, inside the 0.2008 SE that new
+    # fold seeds give with no noise column.
+    shift = (np.asarray(tests["random_common_cause"].values) - original) / se
+    assert round(float(shift.mean()), 3) == -0.165
+    assert round(float(np.std(shift, ddof=1)), 5) == 0.09499
+    assert "spread across seeds with no noise column (SE units) = 0.2008" in fold_output
+    assert abs(shift.mean()) < 0.2008
+    # Subset: "0.0035138 against 0.0035642 ... ratio 0.98586".  The reference is the sampling SD
+    # of a 2100-of-3000 subsample, so it scales the reported SE by sqrt((n/m - 1) n/(n - 1)).
+    scatter = float(np.std(tests["subset"].values, ddof=1))
+    reference = float(se * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
+    assert round(scatter, 7) == 0.0035138 and round(reference, 7) == 0.0035642
+    assert round(scatter / reference, 5) == 0.98586
+
+    # The bounded generated outcome: truth 0.1382, 10 draws, no verdict.
+    bounded = namespace["bounded_truth"].tests[0]
+    assert bounded.passed is None and bounded.rung == "L1" and len(bounded.values) == 10
+    assert round(float(np.mean(bounded.values)), 5) == 0.13788
+    assert "truth 0.1382" in stored_output(NOTEBOOK, "bounded-truth")
+    assert "standard-error ratio and coverage withheld" in stored_output(NOTEBOOK, "bounded-truth")
+
+    # The team plasmode runs at the 400 draws of the equivalence bands, so it prints a verdict.
+    # The page's 0.11614 truth is the declared law's, and the estimate is the Step 7 one.
+    plasmode = namespace["team_plasmode"].tests[0]
+    assert plasmode.passed is True and plasmode.rung == "L2" and len(plasmode.values) == 400
+    assert plasmode.original == pytest.approx(namespace["clustered"]["ate"].psi)
+    plasmode_output = stored_output(NOTEBOOK, "team-plasmode")
+    assert "resampled whole clusters" in plasmode_output and "truth 0.11614" in plasmode_output
+    assert "bias 0.02134 [-0.07666, 0.1193] inside [-0.2, 0.2]" in plasmode_output
+    assert "se_ratio 0.9906 [0.9242, 1.062] inside [0.85, 1.15]" in plasmode_output
+    assert "coverage 0.945 [0.9179, 0.9652] inside [0.88, 0.99]" in plasmode_output
+    _assert_refutation_probe()
+
+    # The shift is systematic: the mean of the five paired shifts is about four standard errors
+    # from zero, and below the 0.2008 SE that one new fold draw gives.
+    assert 3.5 < abs(shift.mean()) / (np.std(shift, ddof=1) / np.sqrt(len(shift))) < 4.5
+
+    # The median-rule fit prints the limit line, and the single-fit bound does not.
+    assert "confidence limits:" in stored_output(NOTEBOOK, "repeated-bounds")
+    assert "confidence limits:" not in stored_output(NOTEBOOK, "sensitivity")
+
+    # Step 11: the E-value, the median-rule bound of the repeated fit, and the team surface.
+    evalue_output = stored_output(NOTEBOOK, "evalue")
+    assert "E-value, point estimate     : 3.0920" in evalue_output
+    assert "E-value, confidence limit   : 2.9358" in evalue_output
+    assert "risk ratio 1.844" in evalue_output
+    repeated = namespace["repeated"]["ate"]
+    bounds = namespace["repeated_bounds"]
+    assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (0.03, 0.03, 1.0)
+    assert 0.0 < bounds.ci_lower < bounds.lower < repeated.psi < bounds.upper < bounds.ci_upper
+    assert round(bounds.lower, 5) == 0.14773 and round(bounds.upper, 5) == 0.16557
+    surface = stored_output(NOTEBOOK, "team-surface")
+    assert "latent level: cluster over 200 clusters" in surface
+    assert "+0.02645" in surface and "-0.021569" in surface
+    assert 0.8 < 0.02645 / namespace["clustered"]["ate"].std_error < 0.9
+
+
+def _assert_refutation_probe() -> None:
+    """The 400-draw team plasmode that the reading quotes equals its committed log."""
+    log = (ROOT / _REFUTATION / "team.log").read_text()
+    assert "bias 0.02134 [-0.07666, 0.1193] inside [-0.2, 0.2]" in log
+    assert "se_ratio 0.9906 [0.9242, 1.062] inside [0.85, 1.15]" in log
+    assert "coverage 0.945 [0.9179, 0.9652] inside [0.88, 0.99]" in log
+    assert "team plasmode R=400: 27.8 s" in log
+    main = (ROOT / _REFUTATION / "main_generated.log").read_text()
+    assert "bias -0.03615 [-0.1341, 0.06185] inside [-0.2, 0.2]" in main
+    assert "0.13804" in main and "R=400: 2071.1 s" in main

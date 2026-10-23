@@ -1607,7 +1607,7 @@ needs an exact calculation and no new theory.
 | E (b) | a generated-outcome process for a continuous treatment | a registered process whose mean is linear in the dose, with the policy truths of E (c) |
 | E (c) | a generated-outcome truth for a risk-ratio tilt, a modified treatment policy in the plasmode of a continuous dose, or a functional other than `BackdoorMeanContrast` | a risk-ratio tilt reads the propensity, so it runs in the plasmode only. A continuous-dose plasmode needs a frozen law of the dose, such as a Gaussian linear model of `A` on `W`. Part E3 shipped the regimes, the incremental tilts, the modified treatment policies and the MSM coefficients |
 | E (d) | a plasmode on a fit with weights, or with two of a missing outcome, a missing treatment and an intermediate | a joint frozen model of the observation processes, and a law for the weights |
-| E (e) | a plasmode witness that sees the DR-TMLE linear remainder on a law with an estimated index | a probe that finds a law and a sample size where the remainder is at least 0.5 SD at a test cost the fast tier allows. A first probe at n = 500 took about 2 s for each refit and showed no bias at R = 40 with the offset constant at 8 |
+| E (e) | a plasmode witness that sees the DR-TMLE linear remainder on a law with an estimated index | a law and a sample size where the remainder is at least 0.5 SD at a test cost that the fast tier allows. The probes of part E2b found none. They used a randomized missing-outcome `DRTMLE` fit, a wrong outcome GLM, and a slow missingness learner with an offset `c n^(-1/3)`. Each refit took about 2 s at n = 500 to 4,000 and about 4 s at n = 16,000. The `ey1` bias reading was +0.02 to +0.12 SD at n = 500 (R = 60), -0.05 to -0.14 SD at n = 2,000 to 4,000 (R = 100 to 200), and -0.02 to -0.23 SD at n = 16,000 (R = 40). The known-mechanism control read about 0. The bias reading fails only when its whole interval leaves the 0.2 SD band. The interval half-width is about 0.3 SD at R = 40 and about 0.1 SD at R = 400, so a reliable failure needs a bias of about 0.3 SD or more. No tested size reached that bias. Section 3 of `LINEAR-REMAINDER-AUDIT.md` in the plans repository measures -1 SD at n = 16,000 on its law M. The plasmode draws `Y` from the declared `BernoulliAdjustmentOutcome`, not from law M, so the wrong outcome GLM has a different error. The probes did not test whether that difference explains the gap. The scripts and logs are in `reviews/x82e2b/` in the plans repository |
 
 Acceptance: each process's effect checked against an exact calculation; a pre-fit refusal test
 for each request that stays refused.
@@ -1721,7 +1721,9 @@ registered study covers them
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 The bound of a regime mean, a shift mean on declared dose atoms, and an identity-link MSM coefficient has shipped,
 with descriptive limits. The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
-`assume_consistent_mechanism=True`, with no limits
+`assume_consistent_mechanism=True`, with no limits. A per-arm outcome-adaptive fit refuses it, because it
+declares no learner for the mechanism on every covariate. A declared `mechanism_learner=` on the bound is the
+target that would support it
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
 ##### Remaining linear functionals
@@ -1787,10 +1789,7 @@ Each item is one pull request that edits one notebook and its
 | (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
 | (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | shipped |
 | (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
-| (b) | `cross-fitting.ipynb` | fold noise beside the shift, the clustered plasmode, `bootstrap_stability`, and the bound under the median rule | (0), SP, SG |
-| (c) | `collaborative-tmle.ipynb` | `refute`, the risk-ratio E-value, and the bound under `assume_consistent_mechanism=True` | (0), SP, SG |
 | (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
-| (e) | `msm-projections.ipynb` | the MSM tensor placebo, generated truths of the coefficients, and the slope replay | (0), SP, SG |
 | (f) | `survey-nonresponse.ipynb` | the tilt and `tipping_gamma` on one table, the E-value, and the generated outcome with missing outcomes | (0), SP, SG |
 | (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
 
