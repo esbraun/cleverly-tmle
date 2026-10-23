@@ -2433,7 +2433,7 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 
 | refuter | what it does | statistic and reference | what it tests |
 | --- | --- | --- | --- |
-| `placebo` | permutes the treatment column and refits | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
+| `placebo` | permutes the treatment column and refits. A dose whose declared support is a function moves each dose's position within its band instead (below) | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the paired shift against the original fit, in standard errors | how far the learners move when a noise column joins the adjustment set |
 | `subset` | refits on random subsamples | the scatter ratio rho against `SE * sqrt((n/m - 1) * n/(n - 1))`; `(R - 1) * rho^2` follows a chi-square law on R - 1 degrees of freedom | the reported standard error is the right size |
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
@@ -2455,6 +2455,54 @@ arrays.
 A product weight and a tensor design whose arm factor holds an intercept give the first case. The
 `TestMSMPlacebo` witnesses in `tests/unit/test_refutation_gate.py` enumerate a finite law for each
 case.
+
+**The band-rank placebo.** A declared support `Support(lower, upper)` with a callable bound gives
+each unit its own band `[L(h), U(h)]`. A plain permutation ignores the receiving unit's band, so
+`refute()` draws each dose's position within its own band and maps it into the receiving unit's
+band. The refit then meets the same declared support as the fit. Source:
+[`validation/_band_placebo.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_band_placebo.py).
+
+| band on the rows that record a dose | position `u` | placebo dose |
+| --- | --- | --- |
+| both bounds finite | `(A - L) / (U - L)` | `L' + u (U' - L')` |
+| only the lower bound finite | `A - L` | `L' + u` |
+| only the upper bound finite | `U - A` | `U' - u` |
+| zero width | none: the row keeps its bound and gives no position | `L'` |
+| a declared atom | the atom | the atom |
+
+The primed bounds are the receiving unit's, read on the frame that the refit reads. A point dose
+reads its covariates. A vector component reads the covariates, the donor's categorical components,
+and the placebo doses of the components before it.
+
+The positions are a permutation (or an i.i.d.
+draw with `placebo_mode="draw"`) of the position column. They are independent of every
+non-treatment variable, and the placebo dose is a function of the unit's own frame and its
+position. So `E[Y | A', W] = E[Y | W]` on the pooled placebo law, and every policy contrast is
+exactly 0. A support with constant bounds keeps the plain permutation, bit for bit.
+
+The placebo dose depends on the covariates through the band, so the reading adds one sentence. A
+rejection can also show a treatment model that cannot follow the band. `refute()` draws every
+placebo data set first and runs the refit's own declaration checks on each. A draw that a check
+refuses stops the call before any refit, with the check's reason code.
+
+The support check also runs with every row at the smallest and the largest pooled position. On a panel with up to four banded
+nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the
+per-draw check only. The banded placebo reads
+descriptively until study SJ of [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)
+registers its rows.
+
+| case | `refute()` | reason code |
+| --- | --- | --- |
+| a bound finite on some rows and infinite on others, or both bounds infinite on every row | refuses | `implementation_gap` |
+| a declared atom outside the band of a row that records a dose | refuses | `implementation_gap` |
+| an atom or a zero-width band on a banded vector component | refuses | `implementation_gap` |
+| a callable bound that is not a row-wise function of its frame, such as a closure over the observed dose | refuses | `invalid_declaration` |
+| a policy that leaves the band on a placebo draw, or at a pooled extreme position | refuses, naming the draw | the refusal of the check |
+
+`tests/unit/test_band_placebo.py` enumerates all 720 permutations of a six-row law whose band
+reads `W` in its location and its width. The pooled law gives `E[Y | A', W] = E[Y | W]` within
+`1e-12`. Its mutation controls are a draw that reads `Y`, and the permutation restricted to
+in-band raw doses, which keeps a row's own dose with probability above `1 / n`.
 
 The plasmode follows Franklin et al. (2014). Each draw takes `n` units from the empirical law of
 `W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once.
@@ -2666,6 +2714,7 @@ policy then has the value `E[Q_1(W)]`, and every policy contrast is exactly 0.
 | 1 | a node-1 treatment of a unit at risk |
 | `t >= 2`, categorical previous node | the node-`t` treatment of a donor with the same previous treatment; the node-`t` marginal when no donor has it |
 | `t >= 2`, continuous previous node | the node-`t` treatment of the donor with the nearest previous dose |
+| a node whose declared support is a function | the within-band position of one of the 5 donors with the nearest previous value, mapped into the unit's band on the placebo history |
 | held decision | the node-1 draw |
 
 The exact null needs a positive kernel probability for each regimen. When `K` gives a static
@@ -2683,6 +2732,28 @@ prints its numbers against no reference.
 `tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
 panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
 within each follow-up pattern, and the contrast moves by more than `1e-3`.
+
+A node whose declared support is a function takes the band-rank placebo of the point section. The
+kernel runs on the within-band positions at that node. Each node's band is read on the placebo
+policy frame `H'_t`, which holds the placebo doses of the earlier nodes. So a band that reads
+`A_{t-1}` stays consistent.
+
+Given the data, the drawn positions are independent of `O-`, and the
+placebo dose at node `t` is a function of the history and the drawn positions, so the null holds
+by induction. A cluster draws one position. The cluster's band is the intersection of its rows'
+bands, read on the placebo frames. `refute()` refuses these cases before any refit.
+
+| case | reason code |
+| --- | --- |
+| a held node with a callable band | `implementation_gap` |
+| a declared atom at a banded node | `implementation_gap` |
+| a cluster whose rows' bands share no dose on a placebo history | `implementation_gap` |
+| a band that a placebo history makes inverted, `NaN`, or of another form | `invalid_declaration` |
+
+`tests/unit/test_band_placebo.py` enumerates the placebo law of a two-node panel with censoring
+and a node-2 band that reads `L_2` and `A_1`. The node-2 regression is free of the placebo
+treatment within `1e-12`. Its mutation control maps node 2 on the observed `A_1`. The doses then
+leave the band that the refit reads, and the regression moves by more than 0.1.
 
 #### The longitudinal plasmode
 
