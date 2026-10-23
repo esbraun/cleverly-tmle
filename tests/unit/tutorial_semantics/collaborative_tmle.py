@@ -364,6 +364,9 @@ def _check_bound(namespace: dict[str, Any]) -> None:
     # nu2 sits above the 4 of a propensity near one half, because staffing drives the offer.
     elements, robustness = namespace["elements"], namespace["robustness"]
     assert elements.nu2 > 6.0
+    # "The fit slightly underestimates nu^2": a probe of the simulated population puts it at 9.14
+    # with the propensities capped as in the fit.
+    assert elements.nu2 < 9.14
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
     sensitivity, records = namespace["sensitivity"], namespace["records"]
     assert list(records) == list(namespace["covariates"])
