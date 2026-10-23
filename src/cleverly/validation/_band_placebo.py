@@ -52,6 +52,7 @@ an empty cluster band on a placebo history              gap
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -76,6 +77,10 @@ __all__ = [
 
 #: The donors a position node draws among (``X82-J-plan.md`` section 3.2, review M1).
 NEAREST_DONORS = 5
+
+#: The largest count of banded nodes whose extreme corners are all checked before a refit
+#: (:meth:`PanelBands.extremes`): 2 to this power corners.
+CORNER_NODES = 4
 
 #: The sentence a banded placebo adds to its reading (``X82-J-plan.md`` section 4).
 BAND_SENTENCE = (
@@ -441,6 +446,9 @@ class PointBands:
             for component in components
         ):
             return None
+        # Every row is a donor. A vector with a continuous component cannot carry a missing
+        # treatment (``CausalData`` refuses one), so no row holds ``nan``.
+        assert not data.has_missing_treatment
         natural = np.asarray(data.treatment_components, dtype=float)
         n = natural.shape[0]
         everyone = np.ones(n, dtype=bool)
@@ -689,12 +697,15 @@ class PanelBands:
         masked = np.where(np.isnan(observed), np.nan, rows)
         return self._mapped(data, masked, drawn, strict=True), masked
 
-    def extremes(self, data: Any) -> tuple[FloatArray, FloatArray]:
-        """The placebo matrices with every banded node at its pooled extreme position.
+    def extremes(self, data: Any) -> tuple[FloatArray, ...]:
+        """The placebo matrices with every banded node at a pooled extreme position.
 
-        Each banded node takes the smallest (then the largest) observed position on every unit,
-        mapped on the placebo history those extremes give. The other nodes keep the observed
-        treatment. A row whose band is invalid on that history holds ``nan``.
+        A band can read an earlier dose, so the extremes are the corners: each banded node takes
+        the smallest or the largest observed position on every unit, in every combination, mapped
+        on the placebo history the corner gives. With more than :data:`CORNER_NODES` banded nodes
+        only the two uniform corners (all smallest, all largest) are built, and the per-draw
+        preflight covers the rest. The other nodes keep the observed treatment. A row whose band
+        is invalid on that history holds ``nan``.
 
         Parameters
         ----------
@@ -704,27 +715,33 @@ class PanelBands:
         Returns
         -------
         tuple of ndarray
-            The two ``(n, T)`` matrices.
+            The ``(n, T)`` matrices, one per corner.
         """
         kernel = self.kernel
         observed = np.asarray(data.treatment, dtype=float)
+        banded = [time for time, form in enumerate(self.forms, start=1) if form is not None]
+        if len(banded) <= CORNER_NODES:
+            corners = list(itertools.product((False, True), repeat=len(banded)))
+        else:
+            corners = [(False,) * len(banded), (True,) * len(banded)]
         out: list[FloatArray] = []
-        for pick in (np.nanmin, np.nanmax):
+        for corner in corners:
             units = kernel.trajectories.copy()
-            for time, form in enumerate(self.forms, start=1):
-                if form is None:
-                    continue
+            for time, high in zip(banded, corner, strict=True):
                 column = kernel.trajectories[:, time - 1]
                 # Every unit takes the extreme, so a row at risk on the placebo history
                 # whose observed band had zero width is checked as well.
-                units[:, time - 1] = float(pick(column)) if np.isfinite(column).any() else 0.0
+                if not np.isfinite(column).any():
+                    units[:, time - 1] = 0.0
+                else:
+                    units[:, time - 1] = float(np.nanmax(column) if high else np.nanmin(column))
             rows = units if kernel.cluster_codes is None else units[kernel.cluster_codes]
             masked = np.where(np.isnan(observed), np.nan, np.where(np.isnan(rows), 0.0, rows))
             for time, form in enumerate(self.forms, start=1):
                 if form is None:
                     masked[:, time - 1] = observed[:, time - 1]
             out.append(self._mapped(data, masked, units, strict=False))
-        return out[0], out[1]
+        return tuple(out)
 
     def _mapped(
         self, data: Any, masked: FloatArray, drawn: FloatArray, *, strict: bool

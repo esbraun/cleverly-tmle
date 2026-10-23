@@ -1057,6 +1057,9 @@ class _RefuteRequest:
     negative_control_floor : float
         The least cross-fitted residual variance share of a pre-treatment or future-treatment
         control.
+    placebo_bands : dict
+        Holds the band-rank draw of the fit once the placebo rule has built it, under the key
+        ``"bands"``, so :func:`refute` does not build it twice. Not part of the request's value.
     """
 
     estimand: str
@@ -1074,6 +1077,7 @@ class _RefuteRequest:
     future_treatment_control: Any = None
     future_treatment_node: int = 1
     negative_control_floor: float = 0.01
+    placebo_bands: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def generated(self) -> tuple[str, ...]:
@@ -1257,7 +1261,7 @@ def _refuse_placebo_kernel(result: TMLEResult, request: _RefuteRequest) -> Refus
             roadmap="X82",
         )
     try:
-        placebo_bands(result)
+        request.placebo_bands["bands"] = placebo_bands(result)
     except CapabilityError as error:
         return error.refusal
     return None
@@ -4531,19 +4535,29 @@ def _band_placebo_sets(
 
 
 def _placebo_preflight(result: Any, replacement: Any) -> None:
-    """Run the refit's own declaration checks on ``replacement``, fitting nothing."""
+    """Run the refit's own declaration checks on ``replacement``, fitting nothing.
+
+    Every longitudinal estimator defines ``_preflight_policies``, so a panel fit never skips the
+    check. A point estimator without ``_preflight_fit_configuration`` declares no policy.
+    """
     estimator = result.estimator
-    check = getattr(
-        estimator,
-        "_preflight_policies" if _is_panel(result) else "_preflight_fit_configuration",
-        None,
-    )
+    if _is_panel(result):
+        estimator._preflight_policies(replacement)
+        return
+    check = getattr(estimator, "_preflight_fit_configuration", None)
     if check is not None:
         check(replacement)
 
 
 def _band_extremes_check(result: Any, bands: PointBands | PanelBands) -> None:
-    """Refuse a policy that leaves the band at a pooled extreme position (R-a1)."""
+    """Refuse a policy that leaves the band at a pooled extreme position (R-a1).
+
+    The check is deterministic. On a point fit it maps the smallest and the largest pooled
+    position on every row. On a panel it maps each corner of :meth:`PanelBands.extremes`, so a
+    band that reads an earlier dose is checked with that dose low and high. A tuned point policy
+    is checked at its in-sample cap. A tuned regimen is not checked here: its cap is fitted on the
+    refit's split, so it relies on the per-draw preflight of :func:`_band_placebo_sets`.
+    """
     from ..interventions.policy import (
         ModifiedPolicy,
         Piecewise,
@@ -4845,7 +4859,9 @@ def refute(
         Seed for the randomised tests.  ``None`` uses the seed the fit was run with, so a
         seeded fit gives the same refutation every time.  An unseeded fit draws a seed, and
         the refits run under it too.  Either way the report records it under
-        ``random_state``, and passing that value back repeats the report.
+        ``random_state``, and passing that value back repeats the report.  On a fit with a
+        band-rank placebo the placebo sets are drawn first, so the draws of the other tests
+        depend on whether ``tests`` holds ``"placebo"``.
 
     Returns
     -------
@@ -4941,7 +4957,15 @@ def refute(
     # A dose whose declared support is a function takes the band-rank draw. Its placebo data
     # sets are drawn here, first, and each meets the refit's whole preflight, so a draw the
     # refit would refuse stops the call before any refit (X82 part J, section 3.3).
-    bands = placebo_bands(result) if "placebo" in requested else None
+    bands = (
+        (
+            request.placebo_bands["bands"]
+            if "bands" in request.placebo_bands
+            else placebo_bands(result)
+        )
+        if "placebo" in requested
+        else None
+    )
     placebo_draw: str = "markov" if panel else (placebo_mode or "permute")
     banded_sets: list[Any] | None = None
     if bands is not None:

@@ -18,13 +18,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LinearRegression
 
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import Shift, Support
 from cleverly.interventions import policy as policy_module
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData
+from cleverly.learners import GLM
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData, StructuralNestedMean
 from cleverly.validation import refute
 from cleverly.validation._band_placebo import (
     BAND_SENTENCE,
@@ -42,6 +44,7 @@ from .. import dose_declarations as law
 from .test_mtp_declared_support import INSIDE, NATURAL, _fit
 
 refute_module = importlib.import_module("cleverly.validation.refute")
+band_module = importlib.import_module("cleverly.validation._band_placebo")
 
 CONTRAST = "ate_policy[inside vs natural course]"
 
@@ -206,8 +209,16 @@ def _window(previous: np.ndarray, value: float, k: int) -> list[int]:
     return order[:k]
 
 
-def _panel_pooled(data: LongitudinalData, bands: PanelBands, *, observed_a1: bool) -> Any:
-    """The whole placebo law: every node-1 position, then every donor of its window."""
+def _panel_pooled(
+    data: LongitudinalData, bands: PanelBands, *, observed_a1: bool, stale_a1: bool = False
+) -> Any:
+    """The whole placebo law: every node-1 position, then every donor of its window.
+
+    Returns the largest gap of ``Q_2``, the count of node-2 doses outside their band, and the
+    largest gap of ``Q_1 = E[Q_2 | W, A'_1, C_1 = 1]`` from ``E[Q_2 | W, C_1 = 1]``. A unit
+    censored after node 1 makes the ``C_1 = 1`` condition bind. ``stale_a1`` keeps the observed
+    ``A_1`` on every unit, the mutation of the node-1 step.
+    """
     kernel = bands.kernel
     first = kernel.trajectories[:, 0]
     both = ~np.isnan(kernel.trajectories[:, 0]) & ~np.isnan(kernel.trajectories[:, 1])
@@ -218,6 +229,8 @@ def _panel_pooled(data: LongitudinalData, bands: PanelBands, *, observed_a1: boo
     l2 = np.asarray(data.time_varying[1][:, 0], dtype=float)
     keys: list[tuple[Any, ...]] = []
     values: list[float] = []
+    first_keys: list[tuple[Any, ...]] = []
+    first_units: list[int] = []
     outside = 0
     for u1 in first[~np.isnan(first)]:
         window = _window(previous, float(u1), min(NEAREST_DONORS, previous.size))
@@ -225,6 +238,8 @@ def _panel_pooled(data: LongitudinalData, bands: PanelBands, *, observed_a1: boo
             drawn = np.column_stack([np.full(data.n, u1), np.full(data.n, current[donor])])
             masked = np.where(np.isnan(observed), np.nan, drawn)
             doses = bands._mapped(data, masked, drawn, strict=True)
+            if stale_a1:
+                doses[:, 0] = observed[:, 0]
             if observed_a1:
                 # Mutation: node 2 mapped on the observed A_1 instead of the placebo A'_1.
                 low = observed[:, 0] + 0.5 * l2
@@ -240,6 +255,8 @@ def _panel_pooled(data: LongitudinalData, bands: PanelBands, *, observed_a1: boo
                     continue
                 keys.append((w[i], l2[i], round(doses[i, 0], 10), round(doses[i, 1], 10)))
                 values.append(outcomes[i])
+                first_keys.append((w[i], round(doses[i, 0], 10)))
+                first_units.append(i)
     pooled = _conditional_means(keys, values)
     at_risk = ~np.isnan(observed[:, 1])
     cells = _conditional_means(
@@ -247,7 +264,16 @@ def _panel_pooled(data: LongitudinalData, bands: PanelBands, *, observed_a1: boo
         [outcomes[i] for i in np.flatnonzero(at_risk)],
     )
     gap = max(abs(mean - cells[key[:2]]) for key, mean in pooled.items())
-    return gap, outside
+    # Q_2 is E[Y | W, L_2] exactly, so Q_1 regresses that cell mean on (W, A'_1) among the
+    # units uncensored after node 1.
+    q2 = [cells[(w[i], l2[i])] for i in first_units]
+    first = _conditional_means(first_keys, q2)
+    given_w = _conditional_means(
+        [(w[i],) for i in np.flatnonzero(at_risk)],
+        [cells[(w[i], l2[i])] for i in np.flatnonzero(at_risk)],
+    )
+    first_gap = max(abs(mean - given_w[(key[0],)]) for key, mean in first.items())
+    return gap, outside, first_gap
 
 
 def test_the_pooled_longitudinal_placebo_law_is_exactly_null() -> None:
@@ -255,17 +281,28 @@ def test_the_pooled_longitudinal_placebo_law_is_exactly_null() -> None:
     bands = PanelBands.prepare(data)
     assert bands is not None
     assert bands.banded == (True, True)
-    gap, _ = _panel_pooled(data, bands, observed_a1=False)
-    # Q_2 = E[Y | W, A'_1, L_2, A'_2] equals E[Y | W, L_2]: the regression is free of the
-    # placebo treatment, so every regimen has one value and every contrast is 0.
+    gap, _, first_gap = _panel_pooled(data, bands, observed_a1=False)
+    # Q_2 = E[Y | W, A'_1, L_2, A'_2] equals E[Y | W, L_2], and Q_1 = E[Q_2 | W, A'_1, C_1 = 1]
+    # equals E[Q_2 | W, C_1 = 1]: both regressions are free of the placebo treatment, so every
+    # regimen has one value and every contrast is 0.
     assert gap < 1e-12
+    assert first_gap < 1e-12
+    assert np.isnan(np.asarray(data.treatment, dtype=float)[2, 1])
+
+
+def test_keeping_the_observed_a1_breaks_the_node_1_null() -> None:
+    data = _panel_data()
+    bands = PanelBands.prepare(data)
+    assert bands is not None
+    _, _, first_gap = _panel_pooled(data, bands, observed_a1=False, stale_a1=True)
+    assert first_gap > 0.05
 
 
 def test_mapping_node_2_on_the_observed_a1_leaves_the_band_and_is_not_null() -> None:
     data = _panel_data()
     bands = PanelBands.prepare(data)
     assert bands is not None
-    gap, outside = _panel_pooled(data, bands, observed_a1=True)
+    gap, outside, _ = _panel_pooled(data, bands, observed_a1=True)
     assert outside > 0
     assert gap > 0.1
 
@@ -705,3 +742,115 @@ def test_the_longitudinal_placebo_runs_on_a_band_that_reads_the_history() -> Non
     assert len(test.values) == 3
     assert test.passed is None
     assert BAND_SENTENCE in test.detail
+
+
+# ------------------------------------------------------------------ structural fits
+
+
+def _snmm_fit() -> Any:
+    """A structural nested mean fit whose static regimen sits at the observed top of ``A_1``."""
+    rng = np.random.default_rng(0)
+    n = 400
+    w = rng.uniform(-0.5, 0.5, n)
+    a1 = w - 1.0 + 2.0 * rng.uniform(size=n)
+    l2 = 0.5 * w + 0.3 * a1 + rng.standard_normal(n)
+    a2 = w - 1.0 + 2.0 * rng.uniform(size=n)
+    y = w + 0.5 * a1 + 0.3 * l2 + 0.4 * a2 + rng.standard_normal(n)
+    frame = pd.DataFrame({"W": w, "A1": a1, "L2": l2, "A2": a2, "Y": y})
+    band = Support(lambda h: np.asarray(h["W"]) - 1.0, lambda h: np.asarray(h["W"]) + 1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return StructuralNestedMean(
+            {"edge": (float(a1.max()), 0.0), "zero": (0.0, 0.0)},
+            reference="zero",
+            outcome_learner=GLM(family="gaussian"),
+            treatment_learner=LinearRegression(),
+            n_folds=1,
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W"],
+            time_varying=[[], ["L2"]],
+            continuous_treatment={"A1": band, "A2": band},
+        )
+
+
+def test_a_structural_fit_preflights_each_placebo_panel_before_any_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _snmm_fit()
+    calls: list[int] = []
+    original = type(result.estimator).refit
+
+    def counted(self: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(result.estimator), "refit", counted)
+    estimand = "ate_regimen[edge vs zero]"
+    # The band-rank placebo pools the positions, so the largest placebo A_1 falls below the
+    # observed top, where the static regimen sits.
+    with pytest.raises(CapabilityError, match="on placebo draw 1 of the band-rank placebo"):
+        refute(result, estimand=estimand, tests=("placebo",), n_replicates=3, random_state=0)
+    assert calls == []
+    # Mutation: without the structural preflight the same refusal comes from inside a refit.
+    monkeypatch.setattr(type(result.estimator), "_preflight_policies", lambda self, prepared: None)
+    with pytest.raises(CapabilityError, match="outside the observed range") as caught:
+        refute(result, estimand=estimand, tests=("placebo",), n_replicates=3, random_state=0)
+    assert "band-rank placebo" not in str(caught.value)
+    assert calls != []
+
+
+# ------------------------------------------------------------------ the extreme corners
+
+
+def _corner_fit() -> Any:
+    """Node 2's band ``[0, 1 + 2 A_1]`` reads ``A_1``, and its shift is held at 1.8.
+
+    A placebo unit with ``A'_1`` near 0 and ``A'_2`` at its top position takes ``A'_2`` near 1
+    and the assigned dose 1.5, above the band. Neither uniform corner does: all-low assigns 0.5,
+    and all-high holds the dose. The observed node-2 positions stay below one half where
+    ``A_1 < 0.5``, so the fit's own check passes.
+    """
+    rng = np.random.default_rng(5)
+    n = 400
+    w = rng.integers(0, 2, n).astype(float)
+    a1 = rng.uniform(size=n)
+    l2 = rng.binomial(1, 0.5, n).astype(float)
+    u2 = np.where(a1 < 0.5, 0.5 * rng.uniform(size=n), rng.uniform(size=n))
+    a2 = u2 * (1.0 + 2.0 * a1)
+    p = 1.0 / (1.0 + np.exp(-(-0.5 + 0.4 * a1 + 0.3 * a2 - 0.2 * w)))
+    frame = pd.DataFrame(
+        {"W": w, "A1": a1, "L2": l2, "A2": a2, "Y": rng.binomial(1, p).astype(float)}
+    )
+    regimens = {
+        "natural": NATURAL,
+        "up at 2": DynamicRegimen("up at 2", (NATURAL, Shift(0.5, cap=1.8, name="up"))),
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return LTMLE(regimens, reference="natural", **law.panel_learners()).fit(
+            frame,
+            continuous_treatment={
+                # A callable band on A_1 too, so both nodes carry positions.
+                "A1": Support(0.0, lambda h: 1.0 + 0.0 * np.asarray(h["W"], dtype=float)),
+                "A2": Support(0.0, lambda h: 1.0 + 2.0 * np.asarray(h["A1"], dtype=float)),
+            },
+            **law.PANEL,
+        )
+
+
+def test_a_mixed_corner_of_the_extremes_is_checked_before_any_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _corner_fit()
+    bands = placebo_bands(result)
+    assert isinstance(bands, PanelBands)
+    assert len(bands.extremes(result.data)) == 4
+    with pytest.raises(DataError, match="'up at 2'"):
+        refute_module._band_extremes_check(result, bands)
+    # Mutation: the two uniform corners alone miss the low-high corner.
+    monkeypatch.setattr(band_module, "CORNER_NODES", 0)
+    assert len(bands.extremes(result.data)) == 2
+    refute_module._band_extremes_check(result, bands)

@@ -2472,8 +2472,11 @@ exactly 0. A support with constant bounds keeps the plain permutation, bit for b
 The placebo dose depends on the covariates through the band, so the reading adds one sentence. A
 rejection can also show a treatment model that cannot follow the band. `refute()` draws every
 placebo data set first and runs the refit's own declaration checks on each. A draw that a check
-refuses stops the call before any refit, with the check's reason code. The support check also runs
-with every row at the smallest and the largest pooled position. The banded placebo reads
+refuses stops the call before any refit, with the check's reason code.
+
+The support check also runs with every row at the smallest and the largest pooled position. On a panel with up to four banded
+nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the
+per-draw check only. The banded placebo reads
 descriptively until study SJ of [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)
 registers its rows.
 
