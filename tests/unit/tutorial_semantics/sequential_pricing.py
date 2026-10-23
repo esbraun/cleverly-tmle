@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -29,6 +30,7 @@ from cleverly import (
     LongitudinalTreatment,
     ModelSpec,
     RegimeContrast,
+    SparseInfluenceWarning,
     TMLEMethod,
 )
 from cleverly.datasets import (
@@ -44,7 +46,8 @@ from cleverly.longitudinal import DynamicRegimen
 from cleverly.sensitivity import evalue
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.utils.bounds import logit
-from cleverly.validation.refute import refute_refusal
+from cleverly.validation import refute
+from cleverly.validation.refute import _placebo_null, refute_refusal
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -58,6 +61,7 @@ _PROBE = "reviews/notebook-review/probes/sequential-pricing"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.0056": f"SD of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
     "-0.00013": f"mean of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
     "-0.45": f"t statistic of the price_up placebo, 400 draws: {_PROBE}/placebo.log",
     "0.65": f"two-sided p-value of that t statistic, 400 draws: {_PROBE}/placebo.log",
@@ -769,9 +773,17 @@ def _check_refits(namespace: dict[str, Any]) -> None:
     )
     # The checks the page does not run are refused before any refit, for the reasons it gives.
     result, revenue = namespace["result"], namespace["revenue_result"]
+    # "Every policy contrast is then exactly 0": the placebo reads against 0.
+    assert _placebo_null(result, estimand) == 0.0
+    # "The revenue contrast takes the same tests": the banded placebo runs on the revenue fit too.
+    assert refute_refusal(revenue, estimand=estimand, tests=("placebo",)) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SparseInfluenceWarning)
+        revenue_placebo = refute(
+            revenue, estimand=estimand, tests=("placebo",), n_replicates=2, random_state=1000
+        )["placebo"]
+    assert len(revenue_placebo.values) == 2 and revenue_placebo.passed is None
     for fit in (result, revenue):
-        # "The revenue contrast takes the same tests": the banded placebo runs on both fits.
-        assert refute_refusal(fit, estimand=estimand, tests=("placebo",)) is None
         refusal = refute_refusal(
             fit,
             estimand=estimand,
@@ -953,6 +965,12 @@ def _check_probe_logs() -> None:
     )
     # The renewal fit and the revenue fit of the page's draw raised no warning.
     assert pd.isna(row["renewal_warnings"]) and pd.isna(row["revenue_warnings"])
+    # Step 11: the placebo of the page's fit at 400 draws.
+    placebo = (folder / "placebo.log").read_text()
+    assert "draws 400; mean -0.000128; sd 0.005649" in placebo
+    assert "t = -0.45274 (two-sided p = 0.651" in placebo
+    assert "mean SE over sd 1.006" in placebo
+    assert "interval holds 0: 0.9450" in placebo
 
 
 def _prose(cell_id: str) -> str:
