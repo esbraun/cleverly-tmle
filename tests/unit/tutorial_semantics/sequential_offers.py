@@ -527,9 +527,9 @@ def _check_diagnostics(namespace: dict[str, Any]) -> None:
     assert round(float(truncated["share_truncated"].iloc[0]) * followed["shipping"]) == 1
     assert round(float(truncated["share_truncated"].iloc[0]), 3) == 0.002
     assert support["max_weight"].max() == pytest.approx(100.0)
-    assert round(namespace["kish_ratio"], 3) == 0.864
+    assert round(namespace["smallest_share"], 3) == 0.864
     np.testing.assert_allclose(
-        namespace["kish_ratio"], (support["effective_n"] / support["n_followed"]).min()
+        namespace["smallest_share"], (support["effective_n"] / support["n_followed"]).min()
     )
     assert result.diagnostics.support().to_frame().equals(support)
     _check_cap(namespace)
@@ -815,16 +815,15 @@ def _check_prose_phrases() -> None:
     association = _prose("association-reading")
     assert (
         f"fell below the truth on {count_of(crude['win_back'], 'below the truth on')} of 100 draws, by "
-        f"{crude_win[0].lstrip('-')} on average. The Monte Carlo standard error was {crude_win[1]}."
+        f"{crude_win[0].lstrip('-')} on average. The simulation's own standard error (Monte Carlo "
+        f"standard error) was {crude_win[1]}."
     ) in association
     assert (
         f"mean bias of {crude_ship[0]} (Monte Carlo standard error {crude_ship[1]})" in association
     )
 
     reading = _prose("blind-outcome-reading")
-    assert (
-        f"fell below the truth by {gcomp_win[0].lstrip('-')} on average over 100 draws" in reading
-    )
+    assert f"fell below the truth by {gcomp_win[0].lstrip('-')} on average." in reading
     assert (
         f"The wrong-model LTMLE bias was {blind_win[0]}, and its interval covered the truth on "
         f"{count_of(blind_ltmle, 'coverage')} of 100 draws"
