@@ -35,8 +35,6 @@ _PROBE = "reviews/notebook-review/probes/msm-projections-final"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "0.9405": f"Step 7 slope coverage, fitted g (3762 of 4000), seeds 30000-33999; the same value "
-    f"for the 1:10:1 slope: {_PROBE}/sweep.log",
     "0.01": f"the true-g threshold, share below it 0.0112 for medium or high: "
     f"{_PROBE}/shortfall.log",
 }
@@ -162,7 +160,7 @@ def check(namespace: dict[str, Any]) -> None:
     ).estimate(method=method)
     for name in names:
         assert explicit_uniform[name].psi == pytest.approx(trend[name].psi, rel=1e-12, abs=1e-12)
-    # (b) Step 10's fixed 1:10:1 weight moves the fitted slope to its own projection.
+    # (b) The share-weight section's fixed 1:10:1 weight moves the fitted slope to its own projection.
     # This fit's correctly specified Q witnesses the weighted Gram matrix.
     fixed = namespace["FIXED_WEIGHT"]
     assert fixed == {"low": 1.0, "medium": 10.0, "high": 1.0}
@@ -233,11 +231,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert medium_misfit.psi == pytest.approx((hat @ means - means)[1], rel=1e-10, abs=1e-12)
     assert medium_misfit.ci[1] < 0.0
     assert covers(medium_misfit, residual[1])
-    # "Its estimate differs from the Step 7 miss by 0.0008 on this draw."
+    # The Details: the contrast estimate (-0.2084) differs from the fitted line's miss (-0.2092).
     step7_miss = namespace["estimated_line"][1] - means[1]
     assert f"{abs(medium_misfit.psi - step7_miss):.4f}" == "0.0008"
 
-    # Step 8: two known codings of the same means answer two questions. Each interval
+    # Code the schedules: two known codings of the same means answer two questions. Each interval
     # contains its own population slope on this draw, and not the other coding's.
     step_values = np.array([namespace["CADENCE_STEP"][arm] for arm in namespace["ARMS"]])
     np.testing.assert_array_equal(step_values, [0.0, 1.0, 2.0])
@@ -269,14 +267,16 @@ def check(namespace: dict[str, Any]) -> None:
         assert str(ledger.loc[("sensitivity", operation)]) == "deferred"
     assert str(ledger.loc[("validation", "support")]) == "warning"
     assert str(ledger.loc[("diagnostics", "refute")]) == "deferred"
-    assert "checks that need attention: ('support',)" in stored_output(NOTEBOOK, "assessment")
+    # A stream can split across stored outputs, so compare with whitespace collapsed.
+    printed = " ".join(stored_output(NOTEBOOK, "assessment").split())
+    assert "checks that need attention: ('support',)" in printed
     support = namespace["support"]
-    # "The fit truncated 1.20% of the units, and the support report warns above 1%."
+    # "0.0120 of the patients hit the cap, and cleverly flags any share above 1%."
     assert support.truncated["fraction"] > 0.01
     assert support.severity == "strain"
     ratios = {arm: row["ratio"] for arm, row in support.effective_sample_size.items()}
     assert min(ratios, key=ratios.get) == "high"
-    # "The largest clever covariate is the high contact count divided by a fitted g[high]."
+    # Not narrated: the largest correction-step weight is the high contact count over a fitted g[high].
     lower, upper = support.bounds
     treatment = namespace["frame"]["cadence"].to_numpy()
     propensity = np.clip(np.asarray(trend.nuisance.propensity.values), lower, upper)
@@ -328,8 +328,8 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     assert "limit_licensed" not in robustness["ate[high vs low]"]
     assert "estimand kind" in robustness[slope]["limit_sentence"]
     # Every recorded covariate is benchmarked. "Discharge risk and age each reach 0.57 on the
-    # weight side, and a missing confounder as strong as either would leave a range of slopes
-    # that reaches below zero." Support need, which does not enter the schedule, reaches 0.
+    # weight side. With a rho of size 1, a missing confounder as strong as either would leave a
+    # range of slopes that reaches below zero." "Support need reaches 0 on the weight side."
     benchmarks = namespace["benchmarks"]
     adjustment = namespace["study"].design.adjustment
     assert tuple(benchmarks) == tuple(adjustment)
@@ -337,14 +337,14 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
         record, worst, aligned = benchmarks[name]
         assert f"{record.cf_d:.2f}" == "0.57"
         assert worst.lower < 0.0 < worst.upper
-        # "At the alignment the recorded characteristics actually show (rho), the range stays
-        # above zero." Witness: the same benchmark at rho = 1 crosses zero (checked above).
-        assert record.rho != pytest.approx(1.0)
+        # "Lined up as discharge risk and age are (rho -0.34 and -0.44), the range stays above
+        # zero." Witness: the same benchmark at rho = 1 crosses zero (checked above).
+        assert abs(record.rho) < 0.9
         assert 0.0 < aligned.lower < aligned.upper
     record, worst, aligned = benchmarks["baseline_support_need"]
     assert record.cf_d == pytest.approx(0.0, abs=1e-3) and worst.ci_lower > 0.0
     # "The benchmark caps its cf_y at 1.000" for discharge_risk, whose gain exceeds 1, and
-    # "the slope refitted without discharge risk is 0.148".
+    # "Dropping discharge risk moves the slope from 0.269 to 0.148".
     record = benchmarks["discharge_risk"][0]
     assert record.cf_y == 1.0 and record.gain_y > 1.0
     assert f"{record.psi_short:.3f}" == "0.148"
@@ -354,13 +354,15 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     sensitivity = namespace["trend_result"].sensitivity
     at = sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping, estimand=slope)
     assert abs(at.ci_lower) < 1e-6
-    assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01, estimand=slope).ci_lower > 0
+    assert (
+        sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01, estimand=slope).ci_lower > 0
+    )
     assert f"{tipping:.2f}" == "0.18"
     assert tipping < 0.5 * min(benchmarks[name][0].cf_d for name in ("discharge_risk", "age"))
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Step 13: the placebo, subset, noise and generated-outcome readings of the slope."""
+    """Try to break the result: the placebo, subset, noise and generated-outcome readings of the slope."""
     trend, slope = namespace["trend_result"], namespace["SLOPE"]
     original = trend[slope].psi
     refutation = namespace["refutation"]
@@ -428,7 +430,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert 0.0 < abs(shift.mean()) < 0.01 and round(float(shift.mean()), 6) == -0.001259
     assert round(float(np.std(shift, ddof=1)), 5) == 0.04875
 
-    # The generated laws declare the Step 2 means, so their true slope is the Step 9 projection.
+    # The generated laws declare the true means, so their true slope is the true line's slope.
     generated = {test.name: test for test in namespace["generated"].tests}
     assert list(generated) == ["dummy_outcome", "simulated_outcome", "plasmode"]
     projection = namespace["projection"]
@@ -460,7 +462,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
 
 
 def _check_stress_surface(namespace: dict[str, Any]) -> None:
-    """Step 14: the grid cells, the benchmark scale, and the stated movements."""
+    """Simulate a hidden confounder: the grid cells, the benchmark scale, and the stated movements."""
     surface, trend = namespace["surface"], namespace["trend_result"]
     slope = trend[namespace["SLOPE"]]
     frame = surface.to_frame()
