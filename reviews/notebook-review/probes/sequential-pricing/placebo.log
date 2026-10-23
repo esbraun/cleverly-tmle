@@ -1,0 +1,181 @@
+cleverly 0.1.5
+rows and columns: (10000, 9)
+['usage', 'engaged_1', 'price_1', 'engaged_2', 'price_2', 'engaged_3', 'price_3', 'renewed', 'revenue']
+   usage  engaged_1  price_1  engaged_2  price_2  engaged_3  price_3  renewed  revenue
+0  0.053        0.0    6.586        1.0    9.119        1.0    7.696      1.0    7.696
+1  0.260        0.0    4.130        0.0    6.248        1.0    6.872      1.0    6.872
+2 -0.072        1.0    8.736        0.0    6.877        1.0    7.356      1.0    7.356
+3 -0.817        1.0    7.768        1.0    8.664        1.0    8.672      1.0    8.672
+4  0.071        1.0    7.596        0.0    4.978        0.0    7.147      0.0    0.000
+5 -0.860        0.0    6.818        0.0    4.364        1.0    6.299      0.0    0.000
+
+missing values: 0
+known values of the synthetic law:
+  natural_prices  mean renewal 0.7301  mean revenue 5.3765
+  price_up        mean renewal 0.6298  mean revenue 5.0643
+  price_down      mean renewal 0.8450  mean revenue 5.5019
+  price_up against natural_prices: renewal -0.1003  revenue -0.3122
+  price_down against natural_prices: renewal +0.1149  revenue +0.1254
+arrow A_1 -> L_2, share engaged in month 2, by the month-1 price against its centre:
+above the centre    0.619
+at or below         0.696
+
+arrow L_t -> A_t, mean price by that month's engagement:
+     month 1  month 2  month 3
+0.0    5.946    5.973    5.948
+1.0    8.033    8.006    7.980
+
+arrow L_3 -> Y, share renewed, by the month-3 engagement:
+engaged_3
+0.0    0.598
+1.0    0.809
+causal study protocol: schema 1; 682ab02814f9837b
+target population: Active monthly subscribers at the start of a three-month term
+eligibility: ['Active subscription at the first monthly renewal price', 'A renewal price set by the pricing engine in each of months 1 to 3', 'One account per customer, so shared-household accounts are excluded', 'A three-month term that starts at time zero, with no exit before the month-3 renewal']
+time zero: The first monthly renewal price, after the usage score and the month-1 engagement score and before the engine sets the price
+treatment strategies: ["The pricing engine's own price in months 1 to 3", "Raise each monthly price by a declared factor where the raised price stays inside that month's price band, otherwise keep the engine's price. The question uses a 12% rise, and the support step also reads 6% and 25%", "Cut each monthly price by 15% where the cut price stays inside that month's price band, otherwise keep the engine's price"]
+treatment versions: ['The renewal price the engine quotes, not rounded', "The declared factor on the engine's price, quoted for one month", "The 15% cut on the engine's price, quoted for one month"]
+outcome: Renewal at the month-3 price, and month-3 revenue: the renewal times the month-3 price
+horizon: Month 3, at the renewal after the third monthly price
+intercurrent-event handling: ['None: the three-month term has no exit before the month-3 renewal', 'Every customer in the data has all three prices and the renewal, so the data have no censoring']
+interference unit: Individual customer
+assumption rationale: ['The pricing engine logs every input it reads, so usage and the monthly engagement score cover the common causes of the price, the later engagement, and the renewal. This is sequential randomization given the recorded history', "A price band that moves with engagement is declared for each month, so the policy keeps every price inside the support of the engine's price", 'A declared factor on the quoted price, for one month, supports consistency', 'One account per customer and no reference-price spillover support no interference']
+history_names(1): ('usage', 'engaged_1')
+history_names(2): ('usage', 'engaged_1', 'engaged_2')
+history_names(3): ('usage', 'engaged_1', 'engaged_2', 'engaged_3')
+
+plans: ['natural_prices', 'price_up', 'price_down']
+contrast of each regime against the reference
+identified by explicit-adjustment: sequential g-formula under the declared treatment regimen
+history at price_1: ['usage', 'engaged_1']
+history at price_2: ['usage', 'engaged_1', 'engaged_2', 'price_1']
+history at price_3: ['usage', 'engaged_1', 'engaged_2', 'engaged_3', 'price_1', 'price_2']
+required nuisances: ['sequential_outcome_regressions', 'treatment_and_censoring_mechanisms']
+assumptions:
+  - consistency: each observed history equals the potential history under its realized regimen
+  - no interference: one unit's potential history does not depend on other units' regimens
+  - sequential exchangeability in the form the chosen interpretation names: strong sequential randomization (Díaz et al. 2023, Assumption 3) for the modified treatment policy effect, or standard sequential randomization (Assumption 2) for the LMTP-SI of their Theorem 1 (i)
+  - positivity: the dose a policy assigns, d(a_t, h_t), lies in the support of A_t given h_t wherever a_t does (Díaz et al. 2023, Assumption 1, which Williams & Díaz 2025 leave unchanged), and so does remaining under observation
+  - each policy is known and fixed before the fit, or its cap is a declared tuner with a declared target (X40 part (e)), and on a continuous node it is piecewise smooth invertible (Assumption 4); a policy reads the history and the unit's own treatment at its node, and its earlier treatment columns stand for the intervened values
+interpretations, each with the assumption it adds:
+  - modified treatment policy effect: the mean outcome had each node's natural dose a_t been replaced by d_t(a_t, h_t), with the history the earlier replacements produce
+      needs strong sequential randomization: at every node, every common cause of the dose, the outcome, and the later covariates and doses is in the recorded history (Díaz et al. 2023, Assumption 3; the strong exchangeability of Williams & Díaz 2025, A_t independent of Y(a_t, d_{t+1}(A_{t+1}(a_t), H_{t+1}(a_t))) given H_t)
+      source: Díaz, Williams, Hoffman & Schenck (2023), Theorem 1 (ii) and Assumption 3
+      source: Williams & Díaz (2025)
+  - stochastic intervention (LMTP-SI): the mean outcome had each node's dose been drawn from the law of d_t(A_t, H_t) given the history
+      needs standard sequential randomization: at every node, every common cause of the dose and the next covariates, which at the last node are the outcome, is in the recorded history (Díaz et al. 2023, Assumption 2)
+      source: Díaz, Williams, Hoffman & Schenck (2023), Theorem 1 (i) and Assumption 2
+causal study protocol: schema 1; 682ab02814f9837b
+Longitudinal TMLE (3 time points, n = 10000)
+
+parameter                                  estimate  std. error  95% CI              p-value
+-----------------------------------------  --------  ----------  ------------------  -------
+ate_regimen[price_up vs natural_prices]    -0.1025   0.0065      [-0.1152, -0.0899]  <1e-4  
+ate_regimen[price_down vs natural_prices]  0.1050    0.0078      [0.0896, 0.1203]    <1e-4  
+
+  time points: 3
+  outcome family: binomial
+  regimens: natural_prices=(m:natural course/m:natural course/m:natural course), price_up=(m:price_up at 1/m:price_up at 2/m:price_up at 3), price_down=(m:price_down at 1/m:price_down at 2/m:price_down at 3)
+    a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers are a covariate-dependent set, so the counts below describe this sample
+    assigned arms, natural_prices: c51a991afd938ee0
+    assigned arms, price_up: ed3314cb33273f4d
+    assigned arms, price_down: 517e7cb67a19cdff
+    a 'q' is a known policy q_t(a | H_t) read off [W, L_1, ..., L_t] and the earlier treatments; each unit draws its arm there, and the plan's units are those whose observed arm the policy can draw
+  reference: natural_prices
+  cross-fitting: none -- nuisances fitted in sample
+  g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)
+  confidence level: 95%
+  random_state: 1000
+  causal estimand: contrast of each regime against the reference
+  identification: explicit-adjustment; sequential g-formula under the declared treatment regimen
+  required nuisances: sequential_outcome_regressions, treatment_and_censoring_mechanisms
+  identification assumptions: consistency: each observed history equals the potential history under its realized regimen; no interference: one unit's potential history does not depend on other units' regimens; sequential exchangeability in the form the chosen interpretation names: strong sequential randomization (Díaz et al. 2023, Assumption 3) for the modified treatment policy effect, or standard sequential randomization (Assumption 2) for the LMTP-SI of their Theorem 1 (i); positivity: the dose a policy assigns, d(a_t, h_t), lies in the support of A_t given h_t wherever a_t does (Díaz et al. 2023, Assumption 1, which Williams & Díaz 2025 leave unchanged), and so does remaining under observation; each policy is known and fixed before the fit, or its cap is a declared tuner with a declared target (X40 part (e)), and on a continuous node it is piecewise smooth invertible (Assumption 4); a policy reads the history and the unit's own treatment at its node, and its earlier treatment columns stand for the intervened values
+  interpretation modified treatment policy effect: the mean outcome had each node's natural dose a_t been replaced by d_t(a_t, h_t), with the history the earlier replacements produce; needs strong sequential randomization: at every node, every common cause of the dose, the outcome, and the later covariates and doses is in the recorded history (Díaz et al. 2023, Assumption 3; the strong exchangeability of Williams & Díaz 2025, A_t independent of Y(a_t, d_{t+1}(A_{t+1}(a_t), H_{t+1}(a_t))) given H_t)
+  interpretation stochastic intervention (LMTP-SI): the mean outcome had each node's dose been drawn from the law of d_t(A_t, H_t) given the history; needs standard sequential randomization: at every node, every common cause of the dose and the next covariates, which at the last node are the outcome, is in the recorded history (Díaz et al. 2023, Assumption 2)
+  causal study protocol: schema 1; 682ab02814f9837b
+  data 2355e4f63d35f973 | folds 23ddc51b088c5ff9 | cleverly 0.1.5 | 2026-10-23T01:24:28+00:00
+  natural_prices: 10000 of 10000 units followed it throughout; max weight 1.0, effective n 10000; max truncated share 0.0% at t=1
+  price_up: 10000 of 10000 units followed it throughout; max weight 13.7, effective n 3509; max truncated share 0.0% at t=1
+  price_down: 10000 of 10000 units followed it throughout; max weight 31.2, effective n 1554; max truncated share 0.0% at t=1
+
+  simultaneous 95% bands (multiplier bootstrap, critical value 2.221 vs 1.960 pointwise) [experimental]:
+    ate_regimen[price_up vs natural_prices]  [-0.1169, -0.0882]
+    ate_regimen[price_down vs natural_prices]  [0.0876, 0.1223]
+
+            estimate  std_error  ci_low  ci_high   truth  covers    support
+contrast                                                                   
+price_up     -0.1025     0.0065 -0.1152  -0.0899 -0.1003    True  supported
+price_down    0.1050     0.0078  0.0896   0.1203  0.1149    True  supported
+
+ate_regimen[price_up vs natural_prices]: supported. Row G39.ltmle.tau3 covers this configuration.
+ate_regimen[price_down vs natural_prices]: supported. Row G39.ltmle.tau3 covers this configuration.
+            estimate  std_error  ci_low  ci_high   truth  covers    support
+contrast                                                                   
+price_up     -0.3129     0.0559 -0.4224  -0.2035 -0.3122    True  supported
+price_down    0.0743     0.0536 -0.0307   0.1792  0.1254    True  supported
+
+ate_regimen[price_up vs natural_prices]: supported. Row G39.ltmle.tau3_revenue covers this configuration.
+ate_regimen[price_down vs natural_prices]: supported. Row G39.ltmle.tau3_revenue covers this configuration.
+             truth   ltmle  ltmle_low  ltmle_high  adjust    omit
+plan                                                             
+price_up   -0.1003 -0.1025    -0.1152     -0.0899 -0.0796 -0.0202
+price_down  0.1149  0.1050     0.0896      0.1203  0.0938  0.0268
+
+exact effect when the plan's prices enter the renewal model and a path stays natural:
+                 price_up  price_down
+truth             -0.1003      0.1149
+engagement held   -0.0906      0.1050
+engine held       -0.0900      0.1081
+both held         -0.0804      0.0973
+ regimen  time  n_followed  max_weight  effective_n  share_truncated
+    up_6     3       10000       5.712     6629.661              0.0
+price_up     3       10000      13.704     3508.672              0.0
+   up_25     3       10000      19.976     1977.153              0.0
+
+          zero_weight_share  held_share  estimate   truth  ci_width
+plan                                                               
+up_6                 0.0559      0.0862   -0.0598 -0.0587    0.0129
+price_up             0.1231      0.1916   -0.1025 -0.1003    0.0254
+up_25                0.3044      0.4505   -0.1223 -0.1283    0.0393
+exact effect of up_25 over up_6: 2.19; a linear response gives 4.17
+
+ate_regimen[up_6 vs natural_prices]: supported
+ate_regimen[price_up vs natural_prices]: supported
+ate_regimen[up_25 vs natural_prices]: supported
+   surface           check    status
+validation score_equations    passed
+validation         support completed
+validation nuisance_models completed
+
+       regimen  time  n_followed  max_weight  effective_n  share_truncated
+natural_prices     1       10000       1.000    10000.000              0.0
+natural_prices     2       10000       1.000    10000.000              0.0
+natural_prices     3       10000       1.000    10000.000              0.0
+      price_up     1       10000       3.352     6939.366              0.0
+      price_up     2       10000       7.352     5020.246              0.0
+      price_up     3       10000      13.704     3508.672              0.0
+    price_down     1       10000       4.646     5207.473              0.0
+    price_down     2       10000      13.093     2845.636              0.0
+    price_down     3       10000      31.240     1554.276              0.0
+minimum effective-sample-size ratio: 15.5%
+price_down, share of month-3 prices left at the engine's value: 19.7%
+
+   role  time     n evaluation   auc  calibration_slope
+outcome     3 10000  in_sample 0.697              1.004
+not scored: ['continuous node ratio estimated by classification, no density']
+Refutation tests for 'ate_regimen[price_up vs natural_prices]'
+----------------------------------
+test     original  refuted (mean)  sd        expected  rung  ok
+-------  --------  --------------  --------  --------  ----  --
+placebo  -0.10255  -0.00012788     0.005649  ~ 0       L0    - 
+
+placebo: arithmetic mean placebo estimate -0.00012788 against the exact null 0; the t statistic of the 400 draws is -0.4527 on 399 degrees of freedom. Each trajectory is drawn from a first-order Markov kernel of the observed treatments and masked by the observed at-risk pattern. The placebo dose keeps each unit's declared band. It moves each dose's position within its band, so the placebo dose depends on the covariates through the band. A rejection can also show a treatment model that cannot follow the band. At each banded node the kernel draws the position from one of the 5 donors whose previous value is nearest
+  t = -0.45274 (two-sided p = 0.651 under its reference)
+  mean reported SE over SD of the draws = 1.006
+  This reads whether the estimator returns the null when treatment is independent of covariates and outcome. It does not test the effect, and it says nothing about confounding in your data. No calibration covers this configuration, so the numbers are descriptive and the report states no verdict. Covered: methods ['LTMLE']; estimands ['ate_regimen']; outcome families ['survival']; treatment kinds ['discrete']; learners ['GLM()']; cross-fitting ['folds=5']; inference ['influence_curve']; n >= 1000. This fit differs on outcome family 'binomial'.
+
+VERDICT: none. At least one test is descriptive, and no test with a verdict failed.
+draws 400; mean -0.000128; sd 0.005649
+mean reported SE 0.005681; mean SE over sd 1.006
+share of draws whose 95% Wald interval holds 0: 0.9450
+seconds 1221
