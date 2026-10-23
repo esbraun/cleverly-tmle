@@ -40,7 +40,10 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
-PRIMARY_REPLICATES = 1_600
+#: 2,000 is the smallest multiple of 400 whose joint primary and property pass probability
+#: reaches 0.95 (0.960, ``X82-H-plan.md`` rev 2.5, section 8).
+PRIMARY_REPLICATES = 2_000
+
 #: An estimated quantile biases each end outward at second order, by about ``0.29`` SD at
 #: ``n = 2000`` in SH1 (the pilot of ``X82-H-plan.md`` section 8). The bias falls like
 #: ``1 / sqrt(n)``, so ``n = 8000`` holds it near ``0.15`` SD.
