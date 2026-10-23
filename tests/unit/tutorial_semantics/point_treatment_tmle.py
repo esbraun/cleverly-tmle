@@ -138,7 +138,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert len(test.values) == 20
         assert test.original == estimate.psi
     assert refutation.passed is None
-    assert "This fit differs on method 'TMLE'" in tests["placebo"].scope_sentence
+    assert (
+        "This fit differs on learner HistGradientBoostingRegressor("
+        in tests["placebo"].scope_sentence
+    )
 
     # Placebo: the exact null is 0, and the mean placebo estimate sits far below the effect.
     placebo = tests["placebo"]

@@ -332,7 +332,10 @@ def check_refits(namespace: dict[str, Any]) -> None:
 def _check_refutation(namespace: dict[str, Any]) -> None:
     """Step 10 and the Step 11 additions, read from the stored outputs and committed logs."""
     fold_output = stored_output(NOTEBOOK, "fold-check")
-    assert "This fit differs on method 'TMLE'" in fold_output
+    assert (
+        "This fit differs on replicate count 5 and learner HistGradientBoostingRegressor"
+        in fold_output
+    )
     assert "spread across seeds with no noise column (SE units) = 0.2008" in fold_output
     assert "truth 0.1382" in stored_output(NOTEBOOK, "bounded-truth")
     assert "standard-error ratio and coverage withheld" in stored_output(NOTEBOOK, "bounded-truth")

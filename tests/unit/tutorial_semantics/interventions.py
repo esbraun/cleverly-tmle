@@ -402,7 +402,9 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
     """Step 14: the stored output, and the negative control that the page says it cannot run."""
     regimes = namespace["regime_result"]
     stored = stored_output(NOTEBOOK, "refute-regimes")
-    assert "This fit differs on method 'TMLE'" in stored
+    assert (
+        "This fit differs on estimand kind 'ate_regime[screen on risk vs offer to none]'" in stored
+    )
     # The limit: `prior_utilization` is an adjustment column, so a control that equals it is
     # refused, and the frame holds no other pre-offer measure.
     frame = namespace["frame"]
