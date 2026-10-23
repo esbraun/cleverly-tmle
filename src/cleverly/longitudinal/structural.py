@@ -1656,6 +1656,32 @@ class StructuralNestedMean:
             seed = self._fit_seed()
         return random_partition(data.n, self.n_folds, cluster=data.cluster, seed=seed)
 
+    def _preflight_policies(self, prepared: LongitudinalData) -> None:
+        """Run the declaration checks of :meth:`fit` on ``prepared``, fitting nothing.
+
+        The band-rank placebo of :func:`cleverly.validation.refute` calls this on each placebo
+        panel before any refit. A placebo dose moves the observed range of a node, so a static
+        dose or the reference dose 0 that lay inside the range of the fit can lie outside the
+        range of a placebo panel. The checks are those :meth:`fit` runs on the prepared panel.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+
+        Raises
+        ------
+        CapabilityError
+            If a static dose or the reference dose lies outside a node's observed range, or
+            if the design is one this estimator refuses.
+        DataError
+            If a static regimen assigns a value that is not a dose or a level.
+        """
+        self._refuse_design(prepared)
+        _parse_blip_features(prepared, self.blip_features)
+        _static_regimens(self.regimens, prepared)
+        self._refuse_reference_dose(prepared)
+
     def refit(
         self,
         data: LongitudinalData,

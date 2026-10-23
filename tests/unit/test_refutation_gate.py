@@ -60,6 +60,7 @@ def _fit_configuration(**overrides: Any) -> FitConfiguration:
         "clusters": None,
         "arms": 2,
         "replicates": 5,
+        "placebo_draw": "permute",
     }
     base.update(overrides)
     return FitConfiguration(**base)
@@ -286,6 +287,44 @@ class TestRegistry:
         assert "method" in other.sentence
         assert "TMLE" in other.sentence
 
+    def test_an_outside_fit_names_the_nearest_row_not_the_first(self) -> None:
+        """The sentence reads the row that differs on the fewest axes."""
+        far = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"LTMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        near = _covering_row("placebo", "t")
+        fit = _fit_configuration(method="CTMLE")
+        for rows in ((far, near), (near, far)):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert "LTMLE" not in sentence and "survival" not in sentence
+            assert "method 'CTMLE'" in sentence
+
+    def test_a_tie_names_the_earlier_row_and_every_difference(self) -> None:
+        """Two rows that differ on one axis each: the earlier row is named, with all its axes."""
+        first = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"DRTMLE"}))
+        )
+        second = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"IPSI"}))
+        )
+        fit = _fit_configuration(method="CTMLE")
+        for rows, named in (((first, second), "DRTMLE"), ((second, first), "IPSI")):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert f"['{named}']" in sentence
+        wide = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        sentence = resolve(
+            "placebo", "t", _fit_configuration(method="CTMLE"), evidence=(wide,)
+        ).sentence
+        assert "method 'CTMLE' and outcome family" in sentence
+
     @pytest.mark.parametrize(
         "change",
         [
@@ -372,6 +411,7 @@ class TestScopeContainment:
                 arms=frozenset({2}),
                 nodes=frozenset({None}),
                 replicates=frozenset({5}),
+                placebo_draws=frozenset({"permute"}),
                 n_min=fit.n,
                 covariates_per_row_max=fit.covariates_per_row,
             ),
@@ -392,7 +432,10 @@ class TestScopeContainment:
         )
         smaller_n = replace(row, scope=replace(row.scope, n_min=row.scope.n_min - 1))
         more_covariates = replace(row, scope=replace(row.scope, covariates_per_row_max=0.5))
-        for mutated in (extra_learner, smaller_n, more_covariates):
+        band_draw = replace(
+            row, scope=replace(row.scope, placebo_draws=frozenset({"permute", "band_permute"}))
+        )
+        for mutated in (extra_learner, smaller_n, more_covariates, band_draw):
             assert check_scope_containment(mutated, cells)
         without_power = {key: cell for key, cell in cells.items() if key != "p1"}
         assert check_scope_containment(row, without_power)

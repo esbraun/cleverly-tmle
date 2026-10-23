@@ -481,7 +481,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # owner reads as a signal, not as resolution alone.
     # The point study's sanity phase is the same design at n = 2,000 (X82 SP). At 200
     # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
-    # binary row cannot resolve its SE-ratio screen.
+    # binary row cannot resolve its SE-ratio screen. The band-rank study's PJ1 sanity row
+    # (X82 SJ) covers 190 of 200, a 99% lower limit of 0.896 below the floor.
     "X82-short-study-sanity": (
         *_keys(
             "refuter-calibration-longitudinal",
@@ -494,6 +495,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-refute-point/binomial/ate",
             "cleverly-refute-point/gaussian/ate",
+        ),
+        *_keys(
+            "refuter-calibration-band",
+            "truth",
+            "cleverly-refute-band/point/ate",
         ),
     ),
     # The smallest-composite arm of the composite study, red in both implementations alike.

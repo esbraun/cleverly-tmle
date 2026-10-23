@@ -766,7 +766,7 @@ movement, which is additive for a difference and logarithmic for a ratio.
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
 | simulated common cause | no unmeasured confounding | estimate displacement across a declared strength grid, on the additive scale or the log scale | a supported latent perturbation family and plausible declared strengths |
 | E-value | no unmeasured confounding | the equal-strength threshold for treatment and outcome confounder associations that explains away the effect | a risk-ratio scale |
-| marginal sensitivity model bounds | no unmeasured confounding | bounds on the arm means and the ATE when `U` moves the odds of treatment by at most $\Gamma$ | Tan's model on the treatment odds |
+| marginal sensitivity model bounds | no unmeasured confounding | bounds on the arm means, their differences and ratios, ATT and ATC when `U` moves the odds of treatment by at most $\Gamma$ | Tan's model on the treatment odds |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
 
@@ -941,12 +941,23 @@ reads the treatment mechanism as consistent, which is the assumption of the publ
 | the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
 | limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
 | a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
-| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | refused with the reason `implementation_gap`. The fit declares only a learner that reads one outcome prediction, so no learner exists for the mechanism on every covariate ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)). Test: `test_a_per_arm_fit_refuses_the_refit` |
+| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | runs with a declared `mechanism_learner=`, which is refitted on the full adjustment set. Without it, the bound refuses with the reason `invalid_declaration`, because the fit's treatment learner reads one outcome prediction. Tests: `TestThePerArmParametricPointBound` |
+| `mechanism_learner=` | raises `ValueError` | replaces the default refit learner. The fit's own treatment learner reproduces the default bound. Test: `test_the_fit_s_own_learner_reproduces_the_default` |
 
 The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
 keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
-assumption, the summary prints it, and `to_dict()` adds it. On another fit the keyword raises
-`ValueError`. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
+assumption, the summary prints it, and `to_dict()` adds it.
+
+The result facade accepts both keywords on `omitted_confounding()`, `robustness_value()`, and
+`contour()`. The bare capability row stays unavailable. A request that names
+`assume_consistent_mechanism=True` reads the refusal that the free function raises. Test:
+`TestTheFacadeLiftsItsRow`.
+
+With a declared learner, the
+assumption says the bound holds only if that learner is consistent for the mechanism. The package
+does not check that condition. `SensitivityBounds.mechanism_learner` records the learner
+fingerprint. On another fit the keyword raises `ValueError`, and `mechanism_learner=` without
+`assume_consistent_mechanism=True` raises `ValueError` too. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
 takes the median of the draws' point bounds.
 
 `tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the
@@ -2264,19 +2275,43 @@ influence curve, summed within clusters on a clustered fit. A fit with `repeats 
 median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
 narrower and is not shipped.
 
-**Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain zero.
-`limit_breakdown` reads the set interval. An arm mean has no null, so both are `None`.
+**Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain the null.
+The null is zero for a difference and one for a ratio. `limit_breakdown` reads the set
+interval. An arm mean has no null, so both are `None`.
+
+**Compositions.** Each arm bound is the mean of a per-row summand $s_a$. The table states how
+each composition uses $s_a$. $o_a$ is the observed-arm part of $s_a$, the indicator of arm $a$
+times the arm's augmented outcome.
+
+| composition | the bound |
+| --- | --- |
+| more than two arms | the model restricts the odds of $A = a$ against $A \ne a$. $e$ is $P(A = a \mid W)$ |
+| `att` (two arms) | $E[o_1 - (s_0 - o_0)] / P(A = 1)$, with a delta-method curve |
+| `atc` (two arms) | $E[(s_1 - o_1) - o_0] / P(A = 0)$ |
+| `rr`, `or` | the ratio of the arm bounds: $\mathrm{RR}^+ = \psi^+_1 / \psi^-_0$, and the odds for `or`. The limits come from the log-scale curve. The set is componentwise |
+| sampling weights | weighted means, and weighted quantile and tail regressions |
+| a stratum-conditional alias | the mean over the stratum's rows, divided by the stratum's share |
+| missing outcomes | the residual terms of $s_a$ take the factor $\Delta / P(\Delta = 1 \mid A, W)$. The quantile and tail regressions train on observed rows |
+| a selecting `CTMLE` | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. At $\Gamma = 1$ the bounds give the AIPW estimate with that mechanism, not the C-TMLE estimate |
+
+The missing-outcome row assumes $\Delta \perp Y \mid A, W$, and it assumes that $U$ acts on $A$
+only. A ratio reports its ends and limits on the ratio scale, and its standard errors on the log
+scale (`scale="log"`). An arm bound at or below zero has no logarithm, so a ratio at that
+$\Gamma$ raises `CapabilityError` with the code `invalid_declaration`. The message names the
+largest grid $\Gamma$ at which the ratio is defined.
 
 **Scope.**
 
 | fit | result |
 | --- | --- |
-| `TMLE` (CV-TMLE included) or `DRTMLE`, two arms, Gaussian or binary outcome | ships; clusters and repeats are supported |
-| more than two arms, weights, strata, missing outcomes, `CTMLE`, `AdaptiveIPTW` | `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part H2 |
-| a controlled direct effect, a missing treatment | `implementation_gap`, [X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| `TMLE` (CV-TMLE included), `DRTMLE` or `CTMLE`, Gaussian or binary outcome | ships, with clusters, repeats and every composition in the table above |
+| a per-arm outcome-adaptive `CTMLE` | `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator): no learner for the mechanism on every covariate exists |
+| `AdaptiveIPTW` | `api_redirection` to `TMLE`: the fit has no outcome regression |
+| `att` or `atc` on more than two arms, a controlled direct effect, a missing treatment | `implementation_gap`, [X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| `or` on a Gaussian outcome, `rr` on an outcome with negative values | `invalid_declaration` |
 | a longitudinal fit | `implementation_gap`, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a continuous treatment, a policy, a regime, an incremental intervention, an MSM, a structural nested mean model | `different_estimand` |
-| a fit whose estimate has no influence-curve inference | `inference_gap` |
+| a fit whose estimate has no influence-curve inference | `inference_gap`. A selecting `CTMLE` is exempt, because the refit replaces its selected mechanism |
 
 **Evidence.** `tests/unit/test_marginal_sensitivity.py` solves the linear program on a finite law
 with `scipy.optimize.linprog`. On the same law, rows in exact proportion to the probabilities make
@@ -2289,11 +2324,16 @@ independent AIPW computation.
 On a Gaussian law, a quantile error $\delta$ moves the continuous side by $O(\delta^2)$. The
 control at the quantile of the other side moves it by $O(\delta)$.
 A parametrized test refuses each composition in the scope table before a learner fits.
+`tests/unit/test_marginal_sensitivity_compositions.py` checks each composition against a
+hand-written estimating function on the fit's own nuisances. Each check also has a nonzero
+witness: the weight, the stratum share, the response probability, the conditioning share, the
+arm's own mechanism column, or the refitted mechanism moves the value.
 
 **Confidence limits.** The limits resolve through the evidence registry with the instrument
-`msm_bound_limit`. The rule is `continuous` or `binary`. A continuous outcome with a
-caller-supplied quantile or tail learner adds `+custom_learners`, and a clustered fit adds
-`+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
+`msm_bound_limit`. The rule is `continuous` or `binary`, followed by one feature per
+composition, in this order: `+custom_learners` (a continuous outcome with a caller-supplied
+learner), `+multi_arm`, `+conditional` (`att`, `atc`), `+ratio`, `+stratum`, `+weighted`,
+`+missing_outcome`, `+refit_mechanism` and `+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
 until study SH registers its coverage cells.
 
 ### Missingness tilt and tipping gamma
@@ -2422,7 +2462,7 @@ reference. It prints `passed` only where the evidence registry covers the fit.
 
 | refuter | what it does | statistic and reference | what it tests |
 | --- | --- | --- | --- |
-| `placebo` | permutes the treatment column and refits | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
+| `placebo` | permutes the treatment column and refits. A dose whose declared support is a function moves each dose's position within its band instead (below) | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the paired shift against the original fit, in standard errors | how far the learners move when a noise column joins the adjustment set |
 | `subset` | refits on random subsamples | the scatter ratio rho against `SE * sqrt((n/m - 1) * n/(n - 1))`; `(R - 1) * rho^2` follows a chi-square law on R - 1 degrees of freedom | the reported standard error is the right size |
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
@@ -2444,6 +2484,55 @@ arrays.
 A product weight and a tensor design whose arm factor holds an intercept give the first case. The
 `TestMSMPlacebo` witnesses in `tests/unit/test_refutation_gate.py` enumerate a finite law for each
 case.
+
+**The band-rank placebo.** A declared support `Support(lower, upper)` with a callable bound gives
+each unit its own band `[L(h), U(h)]`. A plain permutation ignores the receiving unit's band, so
+`refute()` draws each dose's position within its own band and maps it into the receiving unit's
+band. The refit then meets the same declared support as the fit. Source:
+[`validation/_band_placebo.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_band_placebo.py).
+
+| band on the rows that record a dose | position `u` | placebo dose |
+| --- | --- | --- |
+| both bounds finite | `(A - L) / (U - L)` | `L' + u (U' - L')` |
+| only the lower bound finite | `A - L` | `L' + u` |
+| only the upper bound finite | `U - A` | `U' - u` |
+| zero width | none: the row keeps its bound and gives no position | `L'` |
+| a declared atom | the atom | the atom |
+
+The primed bounds are the receiving unit's, read on the frame that the refit reads. A point dose
+reads its covariates. A vector component reads the covariates, the donor's categorical components,
+and the placebo doses of the components before it.
+
+The positions are a permutation (or an i.i.d.
+draw with `placebo_mode="draw"`) of the position column. They are independent of every
+non-treatment variable, and the placebo dose is a function of the unit's own frame and its
+position. So `E[Y | A', W] = E[Y | W]` on the pooled placebo law, and every policy contrast is
+exactly 0. A support with constant bounds keeps the plain permutation, bit for bit.
+
+The placebo dose depends on the covariates through the band, so the reading adds one sentence. A
+rejection can also show a treatment model that cannot follow the band. `refute()` draws every
+placebo data set first and runs the refit's own declaration checks on each. A draw that a check
+refuses stops the call before any refit, with the check's reason code.
+
+The support check also runs with every row at the smallest and the largest pooled position. On a panel with up to four banded
+nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the
+per-draw check only. The banded placebo prints a verdict on the two configurations of the
+[band-rank placebo study](method-evidence/refuter-calibration-band.md). On any other fit it reads
+descriptively. Both rows name the study's own classifier learner, so a banded user fit with another
+learner stays descriptive.
+
+| case | `refute()` | reason code |
+| --- | --- | --- |
+| a bound finite on some rows and infinite on others, or both bounds infinite on every row | refuses | `implementation_gap` |
+| a declared atom outside the band of a row that records a dose | refuses | `implementation_gap` |
+| an atom or a zero-width band on a banded vector component | refuses | `implementation_gap` |
+| a callable bound that is not a row-wise function of its frame, such as a closure over the observed dose | refuses | `invalid_declaration` |
+| a policy that leaves the band on a placebo draw, or at a pooled extreme position | refuses, naming the draw | the refusal of the check |
+
+`tests/unit/test_band_placebo.py` enumerates all 720 permutations of a six-row law whose band
+reads `W` in its location and its width. The pooled law gives `E[Y | A', W] = E[Y | W]` within
+`1e-12`. Its mutation controls are a draw that reads `Y`, and the permutation restricted to
+in-band raw doses, which keeps a row's own dose with probability above `1 / n`.
 
 The plasmode follows Franklin et al. (2014). Each draw takes `n` units from the empirical law of
 `W`. It draws `A` from the known mechanism of the fit, or from a logistic model fitted once.
@@ -2655,6 +2744,7 @@ policy then has the value `E[Q_1(W)]`, and every policy contrast is exactly 0.
 | 1 | a node-1 treatment of a unit at risk |
 | `t >= 2`, categorical previous node | the node-`t` treatment of a donor with the same previous treatment; the node-`t` marginal when no donor has it |
 | `t >= 2`, continuous previous node | the node-`t` treatment of the donor with the nearest previous dose |
+| a node whose declared support is a function | the within-band position of one of the 5 donors with the nearest previous value, mapped into the unit's band on the placebo history |
 | held decision | the node-1 draw |
 
 The exact null needs a positive kernel probability for each regimen. When `K` gives a static
@@ -2672,6 +2762,28 @@ prints its numbers against no reference.
 `tests/unit/test_longitudinal_refutation.py` enumerates the placebo law of a two-node survival
 panel and finds each contrast equal to 0 within `1e-12`. Its mutation control fits the kernel
 within each follow-up pattern, and the contrast moves by more than `1e-3`.
+
+A node whose declared support is a function takes the band-rank placebo of the point section. The
+kernel runs on the within-band positions at that node. Each node's band is read on the placebo
+policy frame `H'_t`, which holds the placebo doses of the earlier nodes. So a band that reads
+`A_{t-1}` stays consistent.
+
+Given the data, the drawn positions are independent of `O-`, and the
+placebo dose at node `t` is a function of the history and the drawn positions, so the null holds
+by induction. A cluster draws one position. The cluster's band is the intersection of its rows'
+bands, read on the placebo frames. `refute()` refuses these cases before any refit.
+
+| case | reason code |
+| --- | --- |
+| a held node with a callable band | `implementation_gap` |
+| a declared atom at a banded node | `implementation_gap` |
+| a cluster whose rows' bands share no dose on a placebo history | `implementation_gap` |
+| a band that a placebo history makes inverted, `NaN`, or of another form | `invalid_declaration` |
+
+`tests/unit/test_band_placebo.py` enumerates the placebo law of a two-node panel with censoring
+and a node-2 band that reads `L_2` and `A_1`. The node-2 regression is free of the placebo
+treatment within `1e-12`. Its mutation control maps node 2 on the observed `A_1`. The doses then
+leave the band that the refit reads, and the regression moves by more than 0.1.
 
 #### The longitudinal plasmode
 
@@ -2934,7 +3046,9 @@ A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in
 [`validation/_interpretation.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_interpretation.py)
 holds that evidence as frozen `VerdictEvidence` rows. Each row names an instrument, a rule, a
 rung, the theory behind it, and a `CalibrationScope`. A fit outside the scope of every row gets the
-numbers and `passed=None`. The report prints the configuration that the nearest row covers.
+numbers and `passed=None`. The report prints the configuration that the nearest row covers,
+and every axis on which the fit differs from it. The nearest row differs on the fewest axes. On a
+tie, the first row in `VERDICT_EVIDENCE` order wins.
 
 | rung | what backs the reading |
 | --- | --- |
@@ -2961,6 +3075,7 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `negative_control_outcome` on a longitudinal fit | z | `L2` on the six end-of-study configurations of the same study, for a Gaussian control |
 | `placebo` on a point fit | t | `L2` on the six configurations of the [point refutation study](method-evidence/refuter-calibration-point.md): `TMLE` with GLM nuisances on a Gaussian and a binary outcome, `TMLE` with a depth-2 booster, greedy `CTMLE`, and `DRTMLE` with a declared and an estimated mechanism. Each covers the ATE of two arms, five folds and $n \ge 2000$ |
 | `subset`, `negative_control_outcome` on a point fit | rho, z | `L2` on the T1, T2 and D1 configurations of the same study: `TMLE` with GLM nuisances on either outcome, and `DRTMLE` with a declared mechanism |
+| `placebo` with the band-rank draw | t | `L2` on the PJ1 and LJ1 configurations of the [band-rank placebo study](method-evidence/refuter-calibration-band.md): `TMLE` of the policy `up` on a covariate band, and `LTMLE` with three banded nodes. Each covers a classifier density ratio, five folds and $n \ge 2000$ |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio

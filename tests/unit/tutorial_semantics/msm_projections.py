@@ -312,6 +312,17 @@ def check(namespace: dict[str, Any]) -> None:
     # "The slope's confidence-limit value is descriptive."
     assert robustness["msm[assigned contacts]"]["limit_licensed"] is False
     assert "limit_licensed" not in robustness["ate[high vs low]"]
+    # The slope has no E-value: the E-value reads an arm contrast.
+    trend = namespace["trend_result"]
+    with pytest.raises(Exception, match="arm contrast"):
+        trend.sensitivity.evalue(estimand="msm[assigned contacts]")
+    assert "estimand kind" in namespace["robustness"]["msm[assigned contacts]"]["limit_sentence"]
+    assert round(trend["msm[assigned contacts]"].std_error, 4) == 0.0086
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Steps 13 and 14: the refutation, the generated outcomes, and the stress surface."""
+    assert namespace["SLOPE"] == "msm[assigned contacts]"
     _check_refutation(namespace)
     _check_stress_surface(namespace)
 
@@ -328,7 +339,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
-    assert "This fit differs on method 'TMLE'" in tests["placebo"].scope_sentence
+    assert (
+        "This fit differs on estimand kind 'msm[assigned contacts]'"
+        in tests["placebo"].scope_sentence
+    )
     # The placebo reading: exact null 0, mean -0.00029724, spread 0.008957, t -0.1484 (p = 0.884).
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)
@@ -441,8 +455,3 @@ def _check_stress_surface(namespace: dict[str, Any]) -> None:
     assert round(strength[("discharge_risk", "outcome")], 3) == 0.916
     assert round(strength[("age", "treatment")], 3) == 0.276
     assert round(strength[("age", "outcome")], 3) == -0.361
-    assert round(slope.std_error, 4) == 0.0086
-    # The slope has no E-value: the E-value reads an arm contrast.
-    with pytest.raises(Exception, match="arm contrast"):
-        trend.sensitivity.evalue(estimand=namespace["SLOPE"])
-    assert "estimand kind" in namespace["robustness"]["msm[assigned contacts]"]["limit_sentence"]

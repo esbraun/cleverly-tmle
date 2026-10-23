@@ -63,12 +63,13 @@ The remote holds `main` alone. Delete your branch after it merges.
 | `ruff format --check .` | formatting, including every Python fence in a Markdown file |
 | `mypy` | types in `src/cleverly` and in `scripts` |
 | `pytest -q -n auto --dist loadgroup` | the fast suite, which is the default handoff gate |
+| `pytest -q -n auto --dist loadgroup -m slow` | the slow tier: each tutorial notebook with its refit cells |
 | `python -m tests.prose` | a report on the reader-facing prose. It changes nothing and fails nothing |
 | `nox -s docs` | the documentation build, with every Sphinx warning as an error |
 | `python -m build`, then package checks | distribution metadata, contents, and clean installs |
 
-`nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions. Those sessions
-mirror the CI jobs, so a green `nox` run predicts a green pull request.
+`nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions. Those
+sessions mirror the CI jobs, so a green `nox` run predicts a green pull request.
 
 Do not run a study regeneration beside the fast suite. Each process expects the machine's cores.
 [Fast tests and validation studies](testing-strategy.md) explains the design behind the commands.
@@ -82,7 +83,7 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
 | library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
 | a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
-| a notebook artifact | `python scripts/execute_notebook.py <path>`, then the documentation row above |
+| a notebook artifact, or a tutorial callback | `python scripts/execute_notebook.py <path>`, then the documentation row above, then `pytest -q tests/unit/test_documentation_runtime.py -k <stem> -m slow` |
 
 The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
 committed artifacts, so the statistical evidence is checked in minutes rather than hours.
@@ -90,7 +91,7 @@ committed artifacts, so the statistical evidence is checked in minutes rather th
 The notebook command executes every cell and replaces the stored outputs. The TWINS notebook needs
 network access, because it downloads a pinned dataset. The tutorial notebooks run offline. The
 command then writes a stamp with two halves, and only one half can fail the fast suite.
-[Example notebooks](example-notebooks.md) gives the cell outline, the rules, and the procedure for
+[Example notebooks](example-notebooks.md) gives the page outline, the rules, and the procedure for
 a tutorial notebook.
 
 | stamp half | covers | the fast suite |
@@ -113,10 +114,13 @@ Regenerate every registered study that evaluates a result-determining implementa
 
 ## Write documentation
 
-The root `README.md` and reader-facing documents under `docs/` align with Issue 9 of
-ASD-STE100 Simplified Technical English. `CLAUDE.md` states the rules and their limits in full.
-Use one idea per sentence, the active voice, the present tense, and a named actor.
-Use a table wherever the content is parallel.
+[Writing for readers](writing-for-readers.md) holds the writing rules. It names the reader of each
+documentation area: a data scientist new to causal inference for the examples, the getting-started
+pages, and the user guide; a statistician for the technical reference; and contributors for these
+development pages. Write for that reader. On a data-scientist page, lead with the answer, and define
+each technical term in plain words where it first appears. Use a table only when the reader compares
+items across the same columns. When you rewrite a whole data-scientist page, or write a new one, run
+the guide's reader review before you open the pull request.
 
 `docs/README.md` is the source map. It states which document holds which record. It also states the
 examples contract: a new method entry needs a new tutorial, and the two link to each other in both

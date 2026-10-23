@@ -97,6 +97,24 @@ jobs:
           pytest -q -n auto --dist loadgroup
           ${{ matrix.python-version != '3.12' && '--ignore=tests/unit/test_method_evidence.py' || '' }}
 
+  # The slow tier: every tutorial notebook runs whole, refit cells included, and each callback's
+  # `check_refits` reads the results. The `tests` job above skips the refit cells, which were
+  # about 90% of the notebook gate's cost (Eric, 2026-10-23). `pyproject.toml` deselects the
+  # `slow` marker by default, and the `-m slow` here replaces that. The job runs on every change
+  # with no path filter: the callbacks read `src/`, `docs/examples/` and probe logs under
+  # `reviews/`, and a filter would drift from that list. 3.12 matches the `docs` job.
+  slow-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      - name: Size the worker pool from the cores this job may actually use
+        run: echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+      - run: pytest -q -n auto --dist loadgroup -m slow
+
   # The all-study property differential and its clause binding (RM39b2 rev 3 section 8). Every
   # committed study's property rows are perturbed and summarized by the study's own code, and
   # the declared failure-accounting rules must give the same verdicts. Measured at 5,892 cases,
