@@ -2333,8 +2333,12 @@ arm's own mechanism column, or the refitted mechanism moves the value.
 `msm_bound_limit`. The rule is `continuous` or `binary`, followed by one feature per
 composition, in this order: `+custom_learners` (a continuous outcome with a caller-supplied
 learner), `+multi_arm`, `+conditional` (`att`, `atc`), `+ratio`, `+stratum`, `+weighted`,
-`+missing_outcome`, `+refit_mechanism` and `+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
-until study SH registers its coverage cells.
+`+missing_outcome`, `+refit_mechanism`, `+repeats` (more than one cross-fitting draw) and
+`+clustered`. Study [SH](method-evidence/marginal-bound-limit-coverage.md) registers the
+`continuous` and `binary` rows. Each row covers the ATE of a five-fold cross-fitted `TMLE` with
+the study's GLM nuisances, two arms, $n \ge 8000$ and at most 0.0025 adjustment columns per row.
+The `binary` row also needs at least 875 events and non-events in each arm. Every other fit prints
+its limits as descriptive.
 
 ### Missingness tilt and tipping gamma
 
