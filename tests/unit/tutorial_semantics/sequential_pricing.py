@@ -86,8 +86,12 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/revenue_learner.log",
     "0.0074": f"Monte Carlo standard error of the price_up linear bias, 60 draws: "
     f"{_PROBE}/revenue_learner.log",
-    "0.88": "bootstrap_stability spread 0.005749 over the Step 6 standard error 0.0065, both printed "
-    "(checked in _check_refits)",
+    "0.88": "bootstrap_stability spread 0.005749 over the renewal standard error 0.0065, both "
+    "printed (checked in check_refits)",
+    "1.98": "mean reported standard error over the SD of the ten placebo estimates, 1.983 (checked "
+    "in check_refits)",
+    "0.31": "the size of the printed revenue contrast -0.3129 of the 12% rise, written as a fall "
+    "(checked in _check_reading_attribution)",
     "0.0104": f"mean estimate of the linear learner minus the quadratic learner, price_up revenue, "
     f"60 paired draws: {_PROBE}/revenue_learner.log",
     "0.0076": f"mean estimate of the linear learner minus the quadratic learner, price_down revenue, "
@@ -213,81 +217,45 @@ def _check_data(namespace: dict[str, Any]) -> None:
     assert 0.08 < slope < pricing_law._LAW["price_gap"]
 
 
-def _graph_rows(title: str) -> dict[str, str]:
-    """Each arrow row of the title cell, keyed by its first column."""
-    rows = {}
-    for line in title.splitlines():
-        if not line.startswith("| "):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) == 4 and cells[0].startswith(("`W`", "`L_", "`A_", "`Y`", "no ")):
-            rows[cells[0]] = line
-    return rows
+#: The arrow rows of the graph in the ``plan`` cell, by parent and child.
+_GRAPH_ROWS = (
+    ("usage", "every engagement score, every price, and the renewal"),
+    ("engaged_t", "price_t"),
+    ("price_t-1", "price_t"),
+    ("engaged_t-1", "price_t"),
+    ("price_t-1", "engaged_t"),
+    ("engaged_t-1", "engaged_t"),
+    ("engaged_t", "renewed"),
+    ("price_t", "renewed"),
+)
 
 
 def _check_graph(namespace: dict[str, Any]) -> None:
-    """The causal graph of the title cell names the arrows that the law and the data carry."""
+    """The causal graph of the question names the arrows that the law and the data carry."""
     notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
-    title = "".join(next(c for c in notebook["cells"] if c["id"] == "title")["source"])
-    fence = title.split("```text")[1].split("```")[0]
-    for node in ("W", "L_t", "A_t", "Y", "R", "U"):
-        assert node in fence, node
-    assert fence.count("-->") >= 8
-    # Revenue is the renewal times the month-3 price, so the month-3 price is a direct parent of R.
-    assert re.search(r"^\s*Y\s+-->\s+R\s", fence, re.MULTILINE)
-    assert re.search(r"^\s*A_3\s+-->\s+R\s", fence, re.MULTILINE)
-    rows = _graph_rows(title)
-    assert list(rows) == [
-        "`W` to `L_t`, `A_t`, and `Y`",
-        "`L_t` to `A_t`",
-        "`A_{t-1}` and `L_{t-1}` to `A_t`",
-        "`A_{t-1}` and `L_{t-1}` to `L_t`",
-        "`A_3`, and `A_1` and `A_2`, to `Y`",
-        "`L_3`, and `L_1` and `L_2`, to `Y`",
-        "`Y` and `A_3` to `R`",
-        "no `U` with arrows into `A_t` and `Y`",
-        "no arrow between customers",
+    plan = "".join(next(c for c in notebook["cells"] if c["id"] == "plan")["source"])
+    fence = plan.split("```text")[1].split("```")[0]
+    rows = [
+        tuple(part.strip() for part in line.split("──▶", 1))
+        for line in fence.splitlines()
+        if "──▶" in line and not line.strip().startswith("not drawn")
     ]
+    assert [(parent, child.split("   ")[0].strip()) for parent, child in rows] == list(_GRAPH_ROWS)
+    assert "not drawn: an unrecorded cause U with U ──▶ price and U ──▶ renewed" in fence
     law = pricing_law._LAW
     centre = law["centre_engaged"]
-    # Every number the table writes is a coefficient of the law, or a product of two.
-    expected = {
-        "`W` to `L_t`, `A_t`, and `Y`": (
-            (law["engaged_usage"], "+0.6"),
-            (law["price_usage"], "+0.3"),
-            (law["renew_usage"], "+0.3"),
-        ),
-        "`L_t` to `A_t`": ((centre, "`2`"),),
-        "`A_{t-1}` and `L_{t-1}` to `A_t`": (
-            (law["price_gap"], "`0.3`"),
-            (-law["price_gap"] * centre, "`-0.6`"),
-        ),
-        "`A_{t-1}` and `L_{t-1}` to `L_t`": (
-            (law["engaged_gap"], "`-0.35`"),
-            (law["engaged_lag"] - law["engaged_gap"] * centre, "`1.5`"),
-            (law["engaged_lag"], "`0.8`"),
-            (-law["engaged_gap"] * centre, "`0.7`"),
-        ),
-        "`A_3`, and `A_1` and `A_2`, to `Y`": (
-            (law["renew_gap"], "`-0.45`"),
-            (law["renew_lag"], "`0.1`"),
-        ),
-        "`L_3`, and `L_1` and `L_2`, to `Y`": (
-            (law["renew_engaged"] - law["renew_gap"] * centre, "`1.8`"),
-            (law["renew_engaged"], "`0.9`"),
-            (-law["renew_gap"] * centre, "`0.9`"),
-            (-law["renew_lag"] * centre, "`0.2`"),
-        ),
-    }
-    for name, claims in expected.items():
-        for value, written in claims:
-            assert written.strip("`").lstrip("+") in rows[name], (name, written)
-            assert abs(value) == pytest.approx(abs(float(written.strip("`+"))), abs=1e-12), (
-                name,
-                written,
-            )
-    # The arrow A_3 to R: among renewers the revenue is the month-3 price, which varies.
-    assert "`revenue = renewed * price_3`" in rows["`Y` and `A_3` to `R`"]
+    # Each drawn arrow is a nonzero coefficient of the law, with the sign the row states.
+    for name in ("engaged_usage", "price_usage", "renew_usage"):
+        assert law[name] != 0.0, name
+    assert centre > 0.0  # "the band rises with engagement"
+    assert law["price_gap"] > 0.0  # "the engine carries part of last month's price gap"
+    assert -law["price_gap"] * centre != 0.0  # "it measures that gap from last month's band"
+    assert law["engaged_gap"] < 0.0  # "a price above the band's middle lowers engagement"
+    assert law["engaged_lag"] > 0.0  # "engagement persists"
+    assert law["renew_engaged"] > 0.0
+    # "month 3's price matters most": the month-3 gap weighs more than each earlier gap.
+    assert law["renew_gap"] < 0.0 and abs(law["renew_gap"]) > abs(law["renew_lag"]) > 0.0
+    # "Month-3 revenue is the month-3 price for a renewer and 0 otherwise", which varies.
     frame = namespace["frame"]
     renewers = frame["renewed"] == 1
     assert frame.loc[renewers, "revenue"].equals(frame.loc[renewers, "price_3"])
@@ -745,9 +713,17 @@ def check_refits(namespace: dict[str, Any]) -> None:
         "bootstrap_stability",
     )
     for test in report.tests:
-        # "Every row is descriptive": no registry row covers the fit.
-        assert test.rung == "L0" and test.passed is None
+        # "The `verdict` column reads `descriptive`": no registry row covers the fit.
+        assert test.rung == "L0" and test.passed is None and test.verdict == "descriptive"
+        assert len(test.values) == 10 and not test.failures
     assert report.passed is None
+    summary = report.summary()
+    assert "This fit differs on outcome family 'binomial'" in summary
+    # "From month 2 on, the donor is one of the 5 subscribers whose previous-month value is nearest"
+    # and "The placebo prices therefore still depend on engagement through the band".
+    assert "The placebo dose keeps each unit's declared band" in summary
+    assert "one of the 5 donors whose previous value is nearest" in summary
+    assert "so the placebo dose depends on the covariates through the band" in summary
     placebo = report["placebo"]
     values = np.asarray(placebo.values)
     assert len(values) == 10
@@ -781,9 +757,9 @@ def _check_refit_limits(namespace: dict[str, Any]) -> None:
     """Step 11: the stored output, and each check the page skips is refused for its reason."""
     estimand = _key("price_up")
     printed = stored_output(NOTEBOOK, "refute")
-    assert "This fit differs on outcome family 'binomial'" in printed
-    # The banded placebo runs: each placebo price keeps the subscriber's band.
-    assert "The placebo dose keeps each unit's declared band" in printed
+    assert printed.count(" descriptive") == 4
+    for name in ("placebo", "subset", "random_common_cause", "bootstrap_stability"):
+        assert f"{name}: 10 refits, 0 failed" in printed
     # The checks the page does not run are refused before any refit, for the reasons it gives.
     result, revenue = namespace["result"], namespace["revenue_result"]
     # "Every policy contrast is then exactly 0": the placebo reads against 0.
@@ -991,7 +967,7 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
     """The readings attach each repeated-draw count and decimal to the quantity the log gives it.
 
     A decimal that a log prints passes the narration test wherever it stands.  This check builds
-    each phrase of the readings from the parsed logs, so a count or a value moved to another
+    each phrase of the Details blocks from the parsed logs, so a count or a value moved to another
     quantity fails.
     """
     root = Path(__file__).resolve().parents[3]
@@ -1025,33 +1001,56 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
 
     renewal = _prose("ltmle-reading")
     assert (
-        f"covered on {hits['renewal', 'price_up']} and {hits['renewal', 'price_down']} of 200 draws"
+        f"contained the truth on {hits['renewal', 'price_up']} and "
+        f"{hits['renewal', 'price_down']} of 200 draws"
     ) in renewal
     assert error["renewal", "price_up"] == error["renewal", "price_down"]
     assert (
-        f"was {bias['renewal', 'price_up']} and {bias['renewal', 'price_down'].lstrip('+')}, each "
-        f"with a Monte Carlo standard error of {error['renewal', 'price_up']}"
+        f"The biases were {bias['renewal', 'price_up']} and "
+        f"{bias['renewal', 'price_down'].lstrip('+')}, each with a Monte Carlo standard error of "
+        f"{error['renewal', 'price_up']}"
+    ) in renewal
+    # The nominal count is 190 of 200.  A count near it has a Monte Carlo standard error of about 3.
+    count_error = float(np.sqrt(200 * 0.95 * 0.05))
+    assert round(count_error) == 3 and "a Monte Carlo standard error of about 3 draws" in renewal
+    for plan in PLANS:
+        z = (190 - int(hits["renewal", plan])) / count_error
+        assert 0.9 < z < 1.5, plan
+    assert "so both lie about one standard error below it" in renewal
+    renewal_warned = grab(
+        r"SparseInfluenceWarning on (\d+) of 200", _line(sweep, "renewal_warnings:")
+    )
+    assert (
+        f"raised `SparseInfluenceWarning` on {renewal_warned} of 200 renewal fits, and this draw "
+        "raised none"
     ) in renewal
 
     revenue = _prose("revenue-reading")
-    zero = grab(r"revenue price_down interval contains zero: (\d+) of 200", sweep)
-    assert f"contained zero on {zero} of 200 draws" in revenue
     up_bias = bias["revenue", "price_up"].lstrip("+")
     down_bias = bias["revenue", "price_down"].lstrip("+")
     assert (
-        f"biases of {up_bias} and {down_bias}, each about two and a half Monte Carlo standard errors "
-        f"({error['revenue', 'price_up']} and {error['revenue', 'price_down']})"
+        f"the estimates of the rise and the cut had biases of {up_bias} and {down_bias}. Each is "
+        f"about two and a half Monte Carlo standard errors ({error['revenue', 'price_up']} and "
+        f"{error['revenue', 'price_down']}) and about a sixth of the spread of the estimates "
+        f"(standard deviations {spread['price_up']} and {spread['price_down']})"
     ) in revenue
     for plan, value in (("price_up", up_bias), ("price_down", down_bias)):
         assert 2.2 < float(value) / float(error["revenue", plan]) < 2.8
-    assert f"are {spread['price_up']} and {spread['price_down']}, so each bias is" in revenue
-    assert 5 < float(spread["price_up"]) / float(up_bias) < 7
-    assert 5 < float(spread["price_down"]) / float(down_bias) < 7
+        assert 5 < float(spread[plan]) / float(value) < 7
     assert (
-        f"covered on {hits['revenue', 'price_up']} and {hits['revenue', 'price_down']} of 200 draws"
+        f"contained the truth on {hits['revenue', 'price_up']} and "
+        f"{hits['revenue', 'price_down']} of 200 draws"
     ) in revenue
+    z_low = (190 - int(hits["revenue", "price_up"])) / count_error
+    assert 1 < z_low < 2 and int(hits["revenue", "price_down"]) > 190
+    assert (
+        f"The count {hits['revenue', 'price_up']} lies between one and two standard errors "
+        f"below the nominal 190, and {hits['revenue', 'price_down']} lies above it"
+    ) in revenue
+    zero = grab(r"revenue price_down interval contains zero: (\d+) of 200", sweep)
+    assert f"The cut's interval contained zero on {zero} of 200 draws" in revenue
     warned = grab(r"SparseInfluenceWarning on (\d+) of 200", _line(sweep, "revenue_warnings:"))
-    assert f"on {warned} of 200 revenue fits" in revenue
+    assert f"`SparseInfluenceWarning` came on {warned} of 200 revenue fits" in revenue
     quadratic = grab(r"price_up    quadratic outcome learner: bias \+(\d\.\d{4})", learner)
     linear = grab(r"price_up    linear    outcome learner: bias \+(\d\.\d{4})", learner)
     learner_error = grab(
@@ -1061,8 +1060,8 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
         r"price_up    quadratic outcome learner: bias .* \(MC SE (\d\.\d{4})", learner
     )
     assert (
-        f"was {quadratic} with the quadratic learner and {linear} with the linear learner, with "
-        f"Monte Carlo standard errors of {quadratic_error} and {learner_error}"
+        f"For the rise, the bias was {quadratic} with the quadratic model and {linear} with the "
+        f"linear one, with Monte Carlo standard errors of {quadratic_error} and {learner_error}"
     ) in revenue
     # The paired line of the log, attributed by plan: the learner change moves the estimate by
     # about the size of the bias, with a paired standard error far below the shift.
@@ -1072,12 +1071,9 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
         shift[plan] = grab(r"mean \+(\d\.\d{4})", paired)
         shift_error[plan] = grab(r"paired MC SE (\d\.\d{4})", paired)
     assert (
-        f"moved the `price_up` estimate by {shift['price_up']} on average, with a paired Monte "
-        f"Carlo standard error of {shift_error['price_up']}"
-    ) in revenue
-    assert (
-        f"For `price_down` the move was {shift['price_down']}, with a paired Monte Carlo "
-        f"standard error of {shift_error['price_down']}"
+        f"the switch moves the rise's estimate by {shift['price_up']} on average (paired standard "
+        f"error {shift_error['price_up']}) and the cut's by {shift['price_down']} (paired standard "
+        f"error {shift_error['price_down']})"
     ) in revenue
     for plan in PLANS:
         assert float(shift[plan]) > 5 * float(shift_error[plan]), plan
@@ -1085,37 +1081,13 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
         plan: float(grab(rf"{plan}\s+linear\s+outcome learner: bias \+(\d\.\d{{4}})", learner))
         for plan in PLANS
     }
-    # "most of the `price_up` bias and about half of the `price_down` bias"
+    # "most of the rise's bias and about half of the cut's"
     assert float(shift["price_up"]) / bias_linear["price_up"] > 0.7
     assert 0.4 < float(shift["price_down"]) / bias_linear["price_down"] < 0.6
-    assert "carries most of the `price_up` bias and about half of the `price_down` bias" in revenue
-    assert "does not show that the linear learner carries the bias" not in revenue
+    assert "the linear model carries most of the rise's bias and about half of the cut's" in revenue
     # With the quadratic learner the price_up bias is within one Monte Carlo standard error of zero.
     assert float(quadratic) < float(learner_error)
-    assert (
-        "With the quadratic learner, 60 draws cannot tell the `price_up` bias from zero"
-    ) in revenue
-
-    # The nominal count is 190 of 200.  A count near it has a Monte Carlo standard error of about 3.
-    count_error = float(np.sqrt(200 * 0.95 * 0.05))
-    assert round(count_error) == 3 and "is about 3 draws" in renewal
-    for plan in PLANS:
-        z = (190 - int(hits["renewal", plan])) / count_error
-        assert 0.9 < z < 1.5, plan
-    assert "both counts lie about one standard error below it" in renewal
-    z_low = (190 - int(hits["revenue", "price_up"])) / count_error
-    assert 1 < z_low < 2 and int(hits["revenue", "price_down"]) > 190
-    assert (
-        f"The count {hits['revenue', 'price_up']} lies between one and two standard errors "
-        f"below the nominal 190, and {hits['revenue', 'price_down']} lies above it"
-    ) in revenue
-    renewal_warned = grab(
-        r"SparseInfluenceWarning on (\d+) of 200", _line(sweep, "renewal_warnings:")
-    )
-    assert (
-        f"raised `SparseInfluenceWarning` on {renewal_warned} of 200 renewal fits. This draw "
-        "raised none"
-    ) in renewal
+    assert "With the quadratic model, 60 draws cannot tell the rise's bias from zero" in revenue
 
     failure = _prose("failure-mode-reading")
     up_text = sweep.split("  price_up: truth")[1].split("  price_down: truth")[0]
@@ -1128,19 +1100,20 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
     out = "adjust outside the LTMLE interval"
     between = "adjust between LTMLE and omit"
     assert (
-        f"than LTMLE on {count(up_text, far)} of 200 draws for `price_up` and on "
-        f"{count(down_text, far)} for `price_down`"
+        f"further from the truth than LTMLE on {count(up_text, far)} of 200 draws for the rise and "
+        f"on {count(down_text, far)} for the cut"
     ) in failure
     assert (
-        f"interval on {count(up_text, out)} draws for `price_up` and on {count(down_text, out)} "
-        "for `price_down`"
+        f"outside the LTMLE interval on {count(up_text, out)} draws for the rise and on "
+        f"{count(down_text, out)} for the cut, and between the LTMLE and `omit` estimates on "
+        f"{count(up_text, between)} and {count(down_text, between)} of 200 draws"
     ) in failure
     assert count(up_text, "omit outside the LTMLE interval") == "200"
     assert count(down_text, "omit outside the LTMLE interval") == "200"
-    assert (f"on {count(up_text, between)} and {count(down_text, between)} of 200 draws") in failure
+    assert "The `omit` regression lay outside the LTMLE interval on every draw" in failure
     omit_up = grab(r"omit price_up: limit (-\d\.\d{4})", sweep)
     omit_down = grab(r"omit price_down: limit (\d\.\d{4})", sweep)
-    assert f"{omit_up} for `price_up` and {omit_down} for `price_down`" in failure
+    assert f"is {omit_up} for the rise and {omit_down} for the cut" in failure
 
     assessment = _prose("assessment-reading")
     block = sweep.split("Node-3 support of the renewal fit")[1].split("Factor ladder")[0]
@@ -1156,21 +1129,21 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
     ess_up = grab(r"price_up: effective n over n mean (\d\.\d+)", block)
     ess_down = grab(r"price_down: effective n over n mean (\d\.\d+)", block)
     assert (
-        f"averaged {float(mean_up):.2f}, with a standard deviation of {float(sd_up):.2f}. For "
-        f"`price_down` it averaged {float(mean_down):.2f}, with a standard deviation of "
-        f"{float(sd_down):.2f}."
+        f"the largest month-3 weight of the rise averaged {float(mean_up):.2f}, with a standard "
+        f"deviation of {float(sd_up):.2f}. For the cut it averaged {float(mean_down):.2f}, with a "
+        f"standard deviation of {float(sd_down):.2f}."
     ) in assessment
     assert (
-        f"averaged {float(ess_up):.3f} for `price_up` and {float(ess_down):.3f} for `price_down`"
+        f"averaged {float(ess_up):.3f} for the rise and {float(ess_down):.3f} for the cut"
     ) in assessment
 
     _check_reading_attribution(namespace)
     _check_phrase_rules()
 
 
-def _interval(estimate: Any) -> str:
+def _interval(estimate: Any, places: int = 4) -> str:
     low, high = estimate.ci
-    return f"({low:.4f}, {high:.4f})"
+    return f"{low:.{places}f} to {high:.{places}f}"
 
 
 def _check_reading_attribution(namespace: dict[str, Any]) -> None:
@@ -1186,169 +1159,179 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     r_up, r_down = (revenue_result[_key(plan)] for plan in PLANS)
     t_up, t_down = (truth[_key(plan)] for plan in PLANS)
     rt_up, rt_down = (truth[f"ate_revenue[{plan} vs natural_prices]"] for plan in PLANS)
-
-    # Step 2: the true values, attributed by plan.
-    data = _prose("data-reading")
-    assert f"The frame has {len(frame)} rows and {frame.shape[1]} columns" in data
-    level = {
-        plan: (truth[f"ey_regimen[{plan}]"], truth[f"ey_revenue[{plan}]"])
-        for plan in ("natural_prices", "price_up", "price_down")
-    }
-    assert (
-        f"Under the engine's own prices, the renewal share is {level['natural_prices'][0]:.4f} and "
-        f"the mean revenue is {level['natural_prices'][1]:.4f}. "
-        f"Under `price_up` they are {level['price_up'][0]:.4f} and {level['price_up'][1]:.4f}. "
-        f"Under `price_down` they are {level['price_down'][0]:.4f} and {level['price_down'][1]:.4f}."
-    ) in data
-    assert (
-        f"The true renewal contrast is {t_up:.4f} for `price_up` and {t_down:.4f} for `price_down`. "
-        f"The true revenue contrast is {rt_up:.4f} for `price_up` and {rt_down:.4f} for `price_down`."
-    ) in data
-
-    # Step 3: the three associations.
-    association = _prose("association-reading")
-    gap_1 = frame["price_1"] - (6 + 2 * frame["engaged_1"])
-    moved = frame.groupby(np.where(gap_1 > 0, "above the centre", "at or below"))[
-        "engaged_2"
-    ].mean()
-    assert (
-        f"after a month-1 price above its centre, a share of {moved['above the centre']:.3f} of "
-        f"the subscribers are engaged in month 2. After a price at or below the centre the share "
-        f"is {moved['at or below']:.3f}"
-    ) in association
-    month_1 = frame.groupby("engaged_1")["price_1"].mean()
-    assert (
-        f"the mean month-1 price is {month_1[0.0]:.3f} for subscribers who are not engaged and "
-        f"{month_1[1.0]:.3f} for engaged subscribers"
-    ) in association
-    renewed = frame.groupby("engaged_3")["renewed"].mean()
-    assert (
-        f"the renewal share is {renewed[0.0]:.3f} for subscribers who are not engaged in month 3 "
-        f"and {renewed[1.0]:.3f} for engaged subscribers"
-    ) in association
-
-    # Step 6: the renewal contrasts, and the truth that each interval contains on this draw.
-    renewal = _prose("ltmle-reading")
-    assert (
-        f"The `price_up` contrast is {up.psi:.4f}, with a standard error of {up.std_error:.4f} and "
-        f"a 95% interval of {_interval(up)}"
-    ) in renewal
-    assert covers(up, t_up) and f"The interval contains the true contrast of {t_up:.4f}" in renewal
-    assert (
-        f"The `price_down` contrast is {down.psi:.4f}, with an interval of {_interval(down)}"
-    ) in renewal
-    assert covers(down, t_down) and f"It contains the true {t_down:.4f}" in renewal
-    assert "Both intervals contain their true values on this draw" in renewal
-    # `supported` is explained once, in the reading of the first fit that prints it.
-    explanation = "a registered row covers this configuration"
-    assert explanation in renewal
-    assert sum(_prose(cell_id).count(explanation) for cell_id in _MARKDOWN_IDS) == 1
-
-    # Step 7: the revenue contrasts.
-    revenue = _prose("revenue-reading")
-    assert (
-        f"The `price_up` revenue contrast is {r_up.psi:.4f}, with an interval of "
-        f"{_interval(r_up)}. The true contrast is {rt_up:.4f}."
-    ) in revenue
-    assert covers(r_up, rt_up) and r_up.ci[1] < 0
-    assert (
-        f"The `price_down` revenue contrast is {r_down.psi:.4f}, with an interval of "
-        f"{_interval(r_down)}. The true contrast is {rt_down:.4f}."
-    ) in revenue
-    assert covers(r_down, rt_down) and r_down.ci[0] < 0 < r_down.ci[1]
-    assert "The interval contains zero on this draw" in revenue
-
-    # Step 8: the regressions, the limits, and the interval relation of each plan.
-    failure = _prose("failure-mode-reading")
     one_regression = namespace["one_regression"]
     adjust = {plan: one_regression(namespace["adjust_columns"], plan) for plan in PLANS}
     omit = {plan: one_regression(namespace["omit_columns"], plan) for plan in PLANS}
+
+    # At a glance: the answer, rounded, and the truth.
+    title = _prose("title")
+    assert f"(estimate {up.psi:.2f}, 95% interval {_interval(up, 3)})" in title
+    assert f"by about {-r_up.psi:.2f} per subscriber (interval {_interval(r_up, 2)})" in title
+    assert f"the true effects: {t_up:.3f} on renewal and {rt_up:.2f} on revenue" in title
+    assert "about 10 percentage points" in title and -0.105 < up.psi < -0.095
+    # "understates the renewal effect by about a fifth".
+    assert 0.15 < 1 - adjust["price_up"] / t_up < 0.25
+    assert "understates the renewal effect by about a fifth" in title
+
+    # The data: the true values, attributed by plan.
+    data = _prose("data-reading")
+    natural = (truth["ey_regimen[natural_prices]"], truth["ey_revenue[natural_prices]"])
+    assert (
+        f"(`natural_prices`) the renewal share is {natural[0]:.3f} and mean revenue {natural[1]:.2f}"
+    ) in data
+    assert (
+        f"The 12% rise (`price_up`) changes them by {t_up:.3f} and {rt_up:.2f}, and the 15% cut "
+        f"(`price_down`) by {t_down:.3f} and {rt_down:.3f}"
+    ) in data
+
+    # The three associations.
+    association = _prose("association-reading")
+    gap_1 = frame["price_1"] - (6 + 2 * frame["engaged_1"])
+    moved = frame.groupby(np.where(gap_1 > 0, "above the middle", "at or below"))[
+        "engaged_2"
+    ].mean()
+    assert (
+        f"lowers the share engaged in month 2, from {moved['at or below']:.3f} to "
+        f"{moved['above the middle']:.3f}"
+    ) in association
+    assert moved["above the middle"] < moved["at or below"]
+    month_1 = frame.groupby("engaged_1")["price_1"].mean()
+    assert f"({month_1[1.0]:.3f} against {month_1[0.0]:.3f} in month 1)" in association
+    for t in (1, 2, 3):
+        by_month = frame.groupby(f"engaged_{t}")[f"price_{t}"].mean()
+        assert 1.8 < by_month[1.0] - by_month[0.0] < 2.2, t
+    assert "pay about 2 more each month" in association
+    renewed = frame.groupby("engaged_3")["renewed"].mean()
+    assert f"renew more often ({renewed[1.0]:.3f} against {renewed[0.0]:.3f})" in association
+
+    # The renewal contrasts, and the truth that each interval contains on this draw.
+    renewal = _prose("ltmle-reading")
+    assert (
+        f"the 12% rise changes the month-3 renewal share by {up.psi:.4f} (standard error "
+        f"{up.std_error:.4f}, 95% interval {_interval(up)}), which contains the true {t_up:.4f}"
+    ) in renewal
+    assert covers(up, t_up)
+    assert (
+        f"The 15% cut changes it by {down.psi:.4f} ({_interval(down)}), which contains the true "
+        f"{t_down:.4f}"
+    ) in renewal
+    assert covers(down, t_down)
+    # `supported` is explained once, in the reading of the first fit that prints it.
+    explanation = "a simulation study covers this kind of fit"
+    assert explanation in renewal
+    assert sum(_prose(cell_id).count(explanation) for cell_id in _MARKDOWN_IDS) == 1
+
+    # The revenue contrasts.
+    revenue = _prose("revenue-reading")
+    assert (
+        f"changes mean month-3 revenue by {r_up.psi:.4f} per subscriber (interval "
+        f"{_interval(r_up)}), against a true {rt_up:.4f}"
+    ) in revenue
+    assert covers(r_up, rt_up) and r_up.ci[1] < 0
+    assert (
+        f"The cut's estimate, {r_down.psi:.4f}, has an interval of {_interval(r_down)}, which "
+        f"includes zero"
+    ) in revenue
+    assert f"Its true effect is {rt_down:.4f}" in revenue
+    assert covers(r_down, rt_down) and r_down.ci[0] < 0 < r_down.ci[1]
+
+    # The regressions, the limits, and the interval relation of each plan.
+    failure = _prose("failure-mode-reading")
     paths = namespace["paths"]
+    held_up = paths["price_up"]
     assert not covers(up, adjust["price_up"])
     assert (
-        f"For `price_up`, the truth is {t_up:.4f}, and LTMLE gives {up.psi:.4f}. The `adjust` "
-        f"regression gives {adjust['price_up']:.4f}, which lies outside the LTMLE interval "
-        f"{_interval(up)} on this draw. The `omit` regression gives {omit['price_up']:.4f}."
+        f"For the 12% rise, LTMLE gives {up.psi:.4f} against the true {t_up:.4f}. The `adjust` "
+        f"regression gives {adjust['price_up']:.4f}, outside the LTMLE interval"
     ) in failure
+    assert (
+        f"so it estimates the `both held` value, {held_up['both held']:.4f}, and not the truth. "
+        f"Holding only engagement gives {held_up['engagement held']:.4f} and only the engine's "
+        f"next price {held_up['engine held']:.4f}, so each path carries about half of the gap"
+    ) in failure
+    assert f"`omit` gives {omit['price_up']:.4f}" in failure
     assert covers(down, adjust["price_down"])
     assert (
-        f"For `price_down`, the truth is {t_down:.4f}, and LTMLE gives {down.psi:.4f} with an "
-        f"interval of {_interval(down)}. The `adjust` regression gives {adjust['price_down']:.4f}, "
-        "and it lies inside that interval on this draw. Its exact limit is "
-        f"{paths['price_down']['both held']:.4f}, which is further from the truth than the LTMLE "
-        f"estimate is. The `omit` regression gives {omit['price_down']:.4f}."
-    ) in failure
-    held_up = paths["price_up"]
-    assert (
-        f"estimates the `both held` value, {held_up['both held']:.4f} for `price_up`, and not the "
-        f"truth. Each path supplies about half of the gap. Holding engagement at its natural "
-        f"values gives {held_up['engagement held']:.4f}. Holding the engine's next price gives "
-        f"{held_up['engine held']:.4f}."
+        f"For the 15% cut, `adjust` gives {adjust['price_down']:.4f}, inside the LTMLE interval "
+        f"here, but it estimates {paths['price_down']['both held']:.4f}, further from the truth "
+        f"({t_down:.4f}) than LTMLE's {down.psi:.4f} is"
     ) in failure
 
-    # Step 9: the ladder, row by row.
+    # The ladder, row by row.
     support = _prose("support-reading")
     rise_fit = namespace["rise_fit"]
+    factors = {"up_6": 1.06, "price_up": 1.12, "up_25": 1.25}
     held = {
         plan: float((frame["price_3"] >= (8 + 2 * frame["engaged_3"]) / factor).mean())
-        for plan, factor in {"up_6": 1.06, "price_up": 1.12, "up_25": 1.25}.items()
+        for plan, factor in factors.items()
     }
     zero = {
         plan: float((frame["price_3"] < factor * (4 + 2 * frame["engaged_3"])).mean())
-        for plan, factor in {"up_6": 1.06, "price_up": 1.12, "up_25": 1.25}.items()
+        for plan, factor in factors.items()
     }
     ladder_tail = _stored_weight_tail("support")
+    widths = {}
     for plan in held:
         low, high = rise_fit[_key(plan)].ci
+        widths[plan] = high - low
         max_weight, effective_n = ladder_tail[(plan, 3)]
         assert (
             f"| `{plan}` | {zero[plan]:.4f} | {held[plan]:.4f} | {max_weight} "
-            f"| {effective_n} | {high - low:.4f} |"
+            f"| {round(float(effective_n))} | {widths[plan]:.4f} |"
         ) in support
+        assert covers(rise_fit[_key(plan)], truth[_key(plan)]), plan
+    # "the largest weight more than triples, the effective sample size falls to a fifth of the
+    # sample, and the interval triples in width"
+    assert float(ladder_tail[("up_25", 3)][0]) > 3 * float(ladder_tail[("up_6", 3)][0])
+    assert 0.15 < float(ladder_tail[("up_25", 3)][1]) / len(frame) < 0.25
+    assert 2.8 < widths["up_25"] / widths["up_6"] < 3.3
+    assert round(100 * held["up_25"]) == 45 and "leaves 45% of month-3 prices unchanged" in support
     estimates = ", ".join(f"{rise_fit[_key(plan)].psi:.4f}" for plan in held)
     exact = ", ".join(f"{truth[_key(plan)]:.4f}" for plan in held)
-    assert f"The estimates are {_and(estimates)}, against the true {_and(exact)}" in support
+    assert f"The estimates, {_and(estimates)}, stay near the true {_and(exact)}" in support
     saturation = truth[_key("up_25")] / truth[_key("up_6")]
     assert (
-        f"The 25% rise moves the renewal {saturation:.2f} times as far as the 6% rise, and a "
-        f"linear response would move it {25 / 6:.2f} times as far"
+        f"the true 25% effect is {saturation:.2f} times the 6% effect, against {25 / 6:.2f} for a "
+        "straight line"
     ) in support
-    assert "The column `share_truncated` is 0.0 in every row" in support
 
-    # Step 10: the three plans at month 3.
+    # The overlap check of the three plans.
     assessment = _prose("assessment-reading")
     plan_tail = _stored_weight_tail("assessment")
-    for plan in ("natural_prices", "price_up", "price_down"):
-        max_weight, effective_n = plan_tail[(plan, 3)]
-        assert f"| `{plan}` | {max_weight} | {effective_n} |" in assessment
     assert (
-        f"from {plan_tail[('price_down', 1)][0]} at month 1 to {plan_tail[('price_down', 2)][0]} "
-        f"at month 2 and {plan_tail[('price_down', 3)][0]} at month 3"
+        f"goes from {plan_tail[('price_down', 1)][0]} at month 1 to "
+        f"{plan_tail[('price_down', 2)][0]} at month 2 and {plan_tail[('price_down', 3)][0]} at "
+        "month 3"
     ) in assessment
     stored_ratio = re.search(
         r"minimum effective-sample-size ratio: (\d+\.\d%)", stored_output(NOTEBOOK, "assessment")
     )
     assert stored_ratio is not None
-    assert f"is {stored_ratio.group(1)}, and it belongs to `price_down` at month 3" in assessment
+    effective_down = float(plan_tail[("price_down", 3)][1])
+    assert (
+        f"By month 3 its 10,000 subscribers count as about {round(effective_down):,}, the smallest "
+        f"share, {stored_ratio.group(1)}"
+    ) in assessment
+    assert (
+        f"It leaves {float(namespace['held_down']):.1%} of month-3 prices unchanged" in assessment
+    )
     outcome = namespace["outcome"]
     assert (
-        f"Its calibration slope is {float(outcome['calibration_slope'].iloc[0]):.3f}, and its "
-        f"`auc` is {float(outcome['auc'].iloc[0]):.3f}"
+        f"calibration slope of {float(outcome['calibration_slope'].iloc[0]):.3f}, where 1 is ideal, "
+        f"and an AUC of {float(outcome['auc'].iloc[0]):.3f}"
     ) in assessment
-    assert f"It leaves {float(namespace['held_down']):.1%} of the month-3 prices" in assessment
 
     # The answer: each estimate and interval, attributed.
     interpret = _prose("interpret")
     assert (
-        f"the 12% rise moves the month-3 renewal share by {up.psi:.4f} against the engine's own "
-        f"prices, with a 95% interval of {_interval(up)}. It moves the mean month-3 revenue by "
-        f"{r_up.psi:.4f}, with an interval of {_interval(r_up)}."
+        f"would lower the month-3 renewal share by about 10 percentage points (95% interval "
+        f"{_interval(up, 3)})"
     ) in interpret
     assert (
-        f"the 15% cut raises the renewal share by {down.psi:.4f}, with an interval of "
-        f"{_interval(down)}. Its revenue effect of {r_down.psi:.4f} has an interval of "
-        f"{_interval(r_down)}, which contains zero on this draw."
+        f"lower mean month-3 revenue by about {-r_up.psi:.2f} per subscriber (interval "
+        f"{_interval(r_up, 2)})"
     ) in interpret
+    assert f"raises renewals by about {down.psi:.3f} ({_interval(down, 3)})" in interpret
     assert "about a fifth of the prices" in interpret
     assert all(0.15 < value < 0.25 for value in (held["price_up"], float(namespace["held_down"])))
     assert "who start a three-month term" in interpret
@@ -1379,20 +1362,34 @@ def _and(values: str) -> str:
 _MARKDOWN_IDS = (
     "title",
     "plan",
+    "setup-heading",
     "setup-reading",
+    "data-heading",
     "data-reading",
+    "association-heading",
     "association-reading",
+    "protocol-heading",
     "protocol-reading",
+    "identify-heading",
     "identify-reading",
+    "ltmle-heading",
     "ltmle-reading",
+    "revenue-heading",
     "revenue-reading",
+    "failure-mode-heading",
     "failure-mode-reading",
     "support-heading",
     "support-reading",
+    "assessment-heading",
     "assessment-reading",
+    "refute-heading",
+    "refute-reading",
     "sensitivity",
-    "method-evidence",
     "interpret",
+    "method-evidence",
+    "other-estimators",
+    "skipped-checks",
+    "where-next",
 )
 
 
@@ -1404,7 +1401,7 @@ def _check_phrase_rules() -> None:
         for cell in notebook["cells"]
         if cell["cell_type"] == "markdown"
     }
-    assert set(_MARKDOWN_IDS) <= set(markdown)
+    assert set(_MARKDOWN_IDS) == set(markdown)
     # No plan is a cap.  The refused alternative of the `plan` cell is the one place that names a
     # cap, and a floor appears only as the name `l_t` of the band's lower limit.
     for cell_id, text in markdown.items():
@@ -1413,34 +1410,39 @@ def _check_phrase_rules() -> None:
         assert not re.search(r"\bfloors?\b(?! \$l_t\$)", text, flags=re.IGNORECASE), cell_id
     assert "A rule that raised the price and capped it at the ceiling" in markdown["plan"]
     assert "band edge" not in " ".join(markdown.values())
-    # The population rests on time zero: a three-month term, in the situation, the plan, the
-    # protocol reading, and the answer.  No reading defines it by an event after time zero.
-    assert "on a three-month term" in markdown["title"]
-    assert "no one can leave before the term ends" in markdown["title"]
-    assert "who start a three-month term at time zero" in markdown["plan"]
+    # The population rests on time zero: a three-month term, in the question, the protocol
+    # reading, and the answer.  No reading defines it by an event after time zero.
+    assert "Each subscriber starts a three-month term at time zero" in markdown["plan"]
+    assert "no one can leave before the term ends" in markdown["plan"]
+    assert "among subscribers who start a three-month term at time zero" in markdown["plan"]
     assert (
         "Eligibility is a three-month term that starts at time zero" in markdown["protocol-reading"]
     )
     assert "with no exit before the month-3 renewal" in markdown["protocol-reading"]
     for text in markdown.values():
         assert "stays open" not in text and "cancellation" not in text.lower()
-    # The engine reads the last gap from the last month's centre.
-    assert "the gap between its last price and the last month's centre" in markdown["title"]
+    # The engine reads the last gap from the last month's band.
+    assert "it measures that gap from last month's band" in markdown["plan"]
     # The mechanism of the ladder names the zero region and the held region.
     heading = markdown["support-heading"]
     assert (
         "The exact density ratio is zero for a subscriber whose engine price lies below" in heading
     )
-    assert "The exact ratio there is one plus the ratio from the raised prices" in heading
+    assert "the exact ratio there is one plus the ratio from the raised prices" in heading
     assert "carry the largest ratios" in heading
     assert "moved prices carry a larger density ratio" not in heading
     # The refusal reads the declared band.
     assert "that price lies outside the declared band" in markdown["plan"]
     assert "no subscriber is observed at that price" not in markdown["plan"]
-    # The sensitivity step gives the refusal of an empty baseline as its reason.
-    assert "refuses an empty baseline" in markdown["sensitivity"]
-    assert "../roadmap.md#x63-missing-data-intermediates-and-designs" in markdown["sensitivity"]
-    assert "Dropping either one changes the question" not in markdown["sensitivity"]
+    # The covariate-drop benchmark gives the refusal of an empty baseline as its reason.
+    assert "refuses an empty baseline" in markdown["skipped-checks"]
+    assert "(../roadmap.md), item X63, part (c)" in markdown["skipped-checks"]
+    assert "Dropping either one changes the question" not in markdown["skipped-checks"]
     # The association heading and reading claim an association only.
-    assert "Each table agrees with one arrow of the graph" in markdown["association-reading"]
+    assert "These tables show associations only" in markdown["association-reading"]
     assert "Engagement is therefore" not in markdown["association-reading"]
+    # Each check the page tries to break the result with is named in plain words.
+    refute_text = markdown["refute-heading"]
+    for test in ("placebo", "subset", "random_common_cause", "bootstrap_stability"):
+        assert f"`{test}`" in refute_text, test
+    assert "None of these checks can detect a missing confounder" in refute_text
