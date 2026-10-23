@@ -781,7 +781,7 @@ def test_the_slow_tier_is_deselected_by_default_and_run_by_its_own_job() -> None
 #: The refit cells the rule derives today.  A change here is a change in what the fast gate
 #: skips, so it shows in the diff of the pull request that causes it.
 EXPECTED_REFIT_CELLS = {
-    "collaborative-tmle": ["refutation", "generated", "stress"],
+    "collaborative-tmle": ["refutation", "sensitivity", "generated", "stress"],
     "cross-fitting": ["fold-check", "bounded-truth", "team-plasmode", "team-surface"],
     "interventions": ["refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
