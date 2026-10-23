@@ -794,7 +794,7 @@ EXPECTED_REFIT_CELLS = {
     ],
     "sequential-offers": ["refute"],
     "sequential-pricing": ["refute"],
-    "survey-nonresponse": ["refutation", "generated-outcomes", "evalue-bound"],
+    "survey-nonresponse": ["bound", "refutation", "generated-outcomes"],
 }
 
 
