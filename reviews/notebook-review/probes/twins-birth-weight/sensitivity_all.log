@@ -1,0 +1,23 @@
+fit 52.9 s, att -173.2687, se 8.8717
+rv 0.0827 rva 0.0757
+mother_age                   cf_y 0.00082 gain_y 0.00082 cf_d 0.02330 rho +0.4690 move +4.06 (42 s)
+mother_education             cf_y 0.00063 gain_y 0.00063 cf_d 0.06353 rho -0.4855 move -5.97 (45 s)
+father_education             cf_y 0.00009 gain_y 0.00009 cf_d 0.00527 rho -1.0000 move -2.19 (45 s)
+father_age                   cf_y 0.00029 gain_y 0.00029 cf_d 0.00415 rho -0.2673 move -0.59 (43 s)
+mother_race                  cf_y 0.00939 gain_y 0.00939 cf_d 0.04452 rho +0.5454 move +21.90 (46 s)
+mother_hispanic              cf_y 0.00002 gain_y 0.00002 cf_d 0.04162 rho +0.0328 move +0.06 (47 s)
+mother_birth_region          cf_y 0.00084 gain_y 0.00084 cf_d 0.01230 rho +0.1944 move +1.24 (43 s)
+residence_region             cf_y 0.00097 gain_y 0.00097 cf_d 0.00000 rho +1.0000 move +0.32 (44 s)
+birth_year                   cf_y 0.00011 gain_y 0.00011 cf_d 0.00675 rho -0.3463 move -0.60 (48 s)
+birth_order                  cf_y 0.01447 gain_y 0.01447 cf_d 0.01892 rho +0.4220 move +13.88 (42 s)
+married                      cf_y 0.00051 gain_y 0.00051 cf_d 0.00937 rho -0.9035 move -3.93 (52 s)
+alcohol                      cf_y 0.00000 gain_y -0.00001 cf_d 0.18219 rho -1.0000 move -4.93 (49 s)
+risk_factors_recorded        cf_y 0.00117 gain_y 0.00117 cf_d 0.01760 rho -0.0647 move -0.58 (48 s)
+diabetes                     cf_y 0.00012 gain_y 0.00012 cf_d 0.00456 rho -0.3321 move -0.50 (48 s)
+chronic_hypertension         cf_y 0.00007 gain_y 0.00007 cf_d 0.00000 rho -1.0000 move -0.44 (46 s)
+lung_heart_kidney_disease    cf_y 0.00064 gain_y 0.00064 cf_d 0.00427 rho -0.0576 move -0.19 (51 s)
+previous_preterm_or_small    cf_y 0.00749 gain_y 0.00749 cf_d 0.02979 rho -0.1974 move -5.83 (47 s)
+previous_infant_over_4000g   cf_y 0.00430 gain_y 0.00430 cf_d 0.00000 rho -1.0000 move -1.39 (47 s)
+largest cf_d 0.18219; largest cf_y 0.01447
+cf_d tipping the 95% upper limit at cf_y = 1: 0.0062 (0.0x largest)
+cf_y tipping at the largest cf_d: 0.0278 (1.9x largest cf_y)
