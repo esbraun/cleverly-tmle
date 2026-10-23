@@ -506,65 +506,6 @@ class CalibrationScope:
         """
         return cls()
 
-    def mismatches(self, fit: FitConfiguration | None) -> tuple[str, ...]:
-        """Name every axis on which ``fit`` lies outside this scope.
-
-        Parameters
-        ----------
-        fit : FitConfiguration or None
-            The configuration to test. ``None`` is a fit whose configuration could not be
-            read, which only an unrestricted scope covers.
-
-        Returns
-        -------
-        tuple of str
-            The axis name and the fit's value for each failing axis, in the order the scope
-            tests them. The tuple is empty when the fit is covered.
-        """
-        if fit is None:
-            return () if self == CalibrationScope.unrestricted() else ("an unreadable fit",)
-        pairs: tuple[tuple[str, frozenset[Any] | None, Any], ...] = (
-            ("method", self.methods, fit.method),
-            ("estimand kind", self.estimand_kinds, fit.estimand_kind),
-            ("outcome family", self.outcome_families, fit.outcome_family),
-            ("treatment kind", self.treatment_kinds, fit.treatment_kind),
-            ("cross-fitting", self.cross_fitting, fit.cross_fitting),
-            ("inference status", self.inference, fit.inference),
-            ("known mechanism", self.known_mechanism, fit.known_mechanism),
-            ("arm count", self.arms, fit.arms),
-            ("replicate count", self.replicates, fit.replicates),
-            ("node count", self.nodes, fit.nodes),
-        )
-        found = [
-            f"{axis} {value!r}"
-            for axis, covered, value in pairs
-            if covered is not None and value not in covered
-        ]
-        if self.learners is not None:
-            found.extend(
-                f"learner {fingerprint}"
-                for fingerprint in fit.learners
-                if fingerprint not in self.learners
-            )
-        if fit.n < self.n_min:
-            found.append(f"n = {fit.n} (below {self.n_min})")
-        if self.n_max is not None and fit.n > self.n_max:
-            found.append(f"n = {fit.n} (above {self.n_max})")
-        if (
-            self.covariates_per_row_max is not None
-            and fit.covariates_per_row > self.covariates_per_row_max
-        ):
-            found.append(f"covariates per row {fit.covariates_per_row:.4g}")
-        if self.min_event_count_min is not None and (
-            fit.min_event_count is None or fit.min_event_count < self.min_event_count_min
-        ):
-            found.append(f"minimum event count {fit.min_event_count}")
-        if fit.clusters is not None and (
-            self.clusters_min is None or fit.clusters < self.clusters_min
-        ):
-            found.append(f"cluster count {fit.clusters}")
-        return tuple(found)
-
     def mismatch(self, fit: FitConfiguration | None) -> str | None:
         """Name the first axis on which ``fit`` lies outside this scope.
 
@@ -579,8 +520,45 @@ class CalibrationScope:
         str or None
             The axis name and the fit's value, or ``None`` when the fit is covered.
         """
-        found = self.mismatches(fit)
-        return found[0] if found else None
+        if fit is None:
+            return None if self == CalibrationScope.unrestricted() else "an unreadable fit"
+        pairs: tuple[tuple[str, frozenset[Any] | None, Any], ...] = (
+            ("method", self.methods, fit.method),
+            ("estimand kind", self.estimand_kinds, fit.estimand_kind),
+            ("outcome family", self.outcome_families, fit.outcome_family),
+            ("treatment kind", self.treatment_kinds, fit.treatment_kind),
+            ("cross-fitting", self.cross_fitting, fit.cross_fitting),
+            ("inference status", self.inference, fit.inference),
+            ("known mechanism", self.known_mechanism, fit.known_mechanism),
+            ("arm count", self.arms, fit.arms),
+            ("replicate count", self.replicates, fit.replicates),
+            ("node count", self.nodes, fit.nodes),
+        )
+        for axis, covered, value in pairs:
+            if covered is not None and value not in covered:
+                return f"{axis} {value!r}"
+        if self.learners is not None:
+            for fingerprint in fit.learners:
+                if fingerprint not in self.learners:
+                    return f"learner {fingerprint}"
+        if fit.n < self.n_min:
+            return f"n = {fit.n} (below {self.n_min})"
+        if self.n_max is not None and fit.n > self.n_max:
+            return f"n = {fit.n} (above {self.n_max})"
+        if (
+            self.covariates_per_row_max is not None
+            and fit.covariates_per_row > self.covariates_per_row_max
+        ):
+            return f"covariates per row {fit.covariates_per_row:.4g}"
+        if self.min_event_count_min is not None and (
+            fit.min_event_count is None or fit.min_event_count < self.min_event_count_min
+        ):
+            return f"minimum event count {fit.min_event_count}"
+        if fit.clusters is not None and (
+            self.clusters_min is None or fit.clusters < self.clusters_min
+        ):
+            return f"cluster count {fit.clusters}"
+        return None
 
     def covers(self, fit: FitConfiguration | None) -> bool:
         """Return whether ``fit`` lies inside this scope.
@@ -1353,9 +1331,7 @@ def resolve(
             evidence=nearest,
         )
     if candidates:
-        # The nearest row differs on the fewest axes, so a point fit reads the point row
-        # that it nearly matches and not the first longitudinal row in the table.
-        row = min(candidates, key=lambda candidate: len(candidate.scope.mismatches(fit)))
+        row = candidates[0]
         mismatch = row.scope.mismatch(fit)
         return Resolution(
             rung="L0",
