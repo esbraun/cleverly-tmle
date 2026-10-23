@@ -2478,7 +2478,8 @@ The support check also runs with every row at the smallest and the largest poole
 nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the
 per-draw check only. The banded placebo prints a verdict on the two configurations of the
 [band-rank placebo study](method-evidence/refuter-calibration-band.md). On any other fit it reads
-descriptively.
+descriptively. Both rows name the study's own classifier learner, so a banded user fit with another
+learner stays descriptive.
 
 | case | `refute()` | reason code |
 | --- | --- | --- |

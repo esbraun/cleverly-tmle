@@ -101,6 +101,40 @@ def test_a_failed_size_cell_would_withdraw_the_row() -> None:
     ]
 
 
+def test_a_failed_power_cell_would_withdraw_the_row() -> None:
+    # The power-side twin of the size control.
+    for row in _rows():
+        cells = _cells()
+        power = row.study[2]
+        cells[power] = replace(cells[power], passed=False)
+        assert check_scope_containment(row, cells) == [
+            f"{row.instrument}/{row.rule}: no passing power cell"
+        ]
+
+
+def _row(cell: str) -> VerdictEvidence:
+    return next(row for row in _rows() if row.study[1] == f"refuter_size/{cell}__placebo")
+
+
+@pytest.mark.parametrize("cell", ["PJ1", "LJ1"])
+def test_a_row_widened_on_its_estimand_or_covariates_fails_containment(cell: str) -> None:
+    # Every stated scope value has a control that can fail.
+    row = _row(cell)
+    assert row.scope.estimand_kinds is not None
+    assert row.scope.covariates_per_row_max is not None
+    kinds = replace(row.scope, estimand_kinds=row.scope.estimand_kinds | {"ate_policy"})
+    assert check_scope_containment(replace(row, scope=kinds), _cells())
+    wider = replace(row.scope, covariates_per_row_max=row.scope.covariates_per_row_max * 2)
+    assert check_scope_containment(replace(row, scope=wider), _cells())
+
+
+def test_a_lowered_event_floor_fails_containment() -> None:
+    row = _row("LJ1")
+    assert row.scope.min_event_count_min == 688
+    lower = replace(row.scope, min_event_count_min=687)
+    assert check_scope_containment(replace(row, scope=lower), _cells())
+
+
 @pytest.mark.parametrize(
     "axis, widened",
     [
