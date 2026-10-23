@@ -54,6 +54,8 @@ objects, or `CausalStudy` objects, and not for the public API.
   validated by its rows in the implementation validation grid. The fast suite recomputes their
   verdicts from committed artifacts. Regenerate only the studies whose results a
   result-determining change can move.
+- The `slow` marker holds only the tutorial notebooks' refit cells. After a notebook or callback
+  change, also run `pytest -q tests/unit/test_documentation_runtime.py -k <module> -m slow`.
 - A refactor is not a reason to regenerate a study. The Python module hashes in a study's
   `manifest.json` record the run; no test gates them, so cleaning shared code under
   `tests/studies/evidence/` is free. `tests/unit/test_study_provenance.py` does check that the

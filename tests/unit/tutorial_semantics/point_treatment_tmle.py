@@ -205,8 +205,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert tight[0.2]["psi"] - namespace["estimate"].psi > 5e-4
 
     # Step 10: the default nu^2 estimator runs, so the robustness value carries its limit.
+    # The robustness value is derived from the fit, so the fast gate recomputes it here.
     result = namespace["result"]
-    robustness = namespace["robustness"]
+    robustness = result.sensitivity.robustness_value()
     assert "nu2_estimator" not in robustness
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
     elements = result.sensitivity.elements(estimand="ate")
@@ -221,6 +222,16 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Step 10: the benchmark refits, and the bounds they calibrate."""
+    moments = _law_moments()
+    result = namespace["result"]
+    robustness = namespace["robustness"]
+    assert robustness == result.sensitivity.robustness_value()
+    elements = result.sensitivity.elements(estimand="ate")
+    at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.
     # The bound is finite at cf_y = 1 (RM47), so the clipped benchmark still calibrates one.
     strong = namespace["strong"]

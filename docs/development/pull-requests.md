@@ -68,7 +68,7 @@ cannot affect a fitted result.
 
 ## What CI runs on your pull request
 
-`.github/workflows/ci.yml` runs on every pull request. It has six jobs.
+`.github/workflows/ci.yml` runs on every pull request. It has eight jobs.
 
 | job | Python | command |
 | --- | --- | --- |
@@ -76,14 +76,16 @@ cannot affect a fitted result.
 | `typecheck` | 3.12 | `mypy` |
 | `docs` | 3.12 | `sphinx-build -W --keep-going -b html docs docs/_build/html` |
 | `tests` | 3.11, 3.12, 3.13 | `pytest -q -n auto --dist loadgroup`. On 3.11 and 3.13 it adds `--ignore=tests/unit/test_method_evidence.py` |
+| `slow-tests` | 3.12 | `pytest -q -n auto --dist loadgroup -m slow`: each tutorial notebook with its refit cells |
+| `property-differential` | 3.12 | `pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py`, when the change touches a study, `src/cleverly`, or the dependency pins |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
 | `package` | 3.12 | build, strict metadata and archive checks, and two clean artifact installs |
 
 The study evidence checks run on 3.12 only. They recompute the published verdicts from committed
 files with test code, and they take about half of the `tests` job.
 
-`nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions, which mirror the
-first four jobs. `minimal-install` has no session, because it installs one dataframe backend and
+`nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions, which
+mirror the first five jobs. `minimal-install` has no session, because it installs one dataframe backend and
 nothing else. The package job builds both distribution formats before it creates clean smoke-test
 environments.
 

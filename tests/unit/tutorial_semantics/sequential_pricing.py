@@ -124,7 +124,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_support(namespace)
     _check_assessment(namespace)
     _check_refusals(namespace)
-    _check_refits(namespace)
+    _check_refit_limits(namespace)
     _check_probe_logs()
     _check_prose_phrases(namespace)
 
@@ -723,8 +723,8 @@ class _NeverFit(LogisticRegression):
         raise AssertionError("the fit reached a learner")
 
 
-def _check_refits(namespace: dict[str, Any]) -> None:
-    """Step 11: the refits are descriptive, and each check the page skips is refused for its reason."""
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Step 11: the refits are descriptive, and print the numbers that the reading quotes."""
     report = namespace["report"]
     estimand = namespace["estimand"]
     assert estimand == _key("price_up")
@@ -738,8 +738,6 @@ def _check_refits(namespace: dict[str, Any]) -> None:
         # "Every row is descriptive": no registry row covers the fit.
         assert test.rung == "L0" and test.passed is None
     assert report.passed is None
-    printed = stored_output(NOTEBOOK, "refute")
-    assert "This fit differs on outcome family 'binomial'" in printed
     # The subset ratio, the noise-column shift and the bootstrap spread that the reading quotes.
     subset = report["subset"]
     assert subset.statistic == pytest.approx(0.86, abs=0.005)
@@ -750,6 +748,13 @@ def _check_refits(namespace: dict[str, Any]) -> None:
     assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
         0.88, abs=0.01
     )
+
+
+def _check_refit_limits(namespace: dict[str, Any]) -> None:
+    """Step 11: the stored output, and each check the page skips is refused for its reason."""
+    estimand = _key("price_up")
+    printed = stored_output(NOTEBOOK, "refute")
+    assert "This fit differs on outcome family 'binomial'" in printed
     # The checks the page does not run are refused before any refit, for the reasons it gives.
     result, revenue = namespace["result"], namespace["revenue_result"]
     for fit in (result, revenue):

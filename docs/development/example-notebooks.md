@@ -17,14 +17,33 @@ A tutorial has one stem, such as `cross-fitting`. The stem names both files you 
 | `docs/examples/<stem>.ipynb` | the notebook, with its stored outputs and the execution stamp |
 | `tests/unit/tutorial_semantics/<module>.py` | the reviewed callback. `<module>` is the stem with each hyphen replaced by an underscore |
 
-The callback module defines `check(namespace)`. The fast tier runs every code cell of the notebook,
-in order, in one namespace, and passes that namespace to `check`. The module can also define
+The callback module defines `check(namespace)`. The fast tier runs the code cells of the notebook,
+in order, in one namespace, and passes that namespace to `check`. The fast tier does not run a
+refit cell. The next section defines a refit cell. The module can also define
 `UNPRINTED_DECIMALS`, a mapping from a decimal the prose writes to the reason no output prints it.
 The package docstring in `tests/unit/tutorial_semantics/__init__.py` states the convention.
 
 The TWINS notebook downloads its data, so the offline fast tier does not execute it. Its module
 `tests/unit/tutorial_semantics/twins_causal_inference.py` defines no `check`. It defines
 `UNPRINTED_DECIMALS` and `check_stored()`, which read committed outputs only.
+
+### Refit cells and the slow tier
+
+A refit cell calls `refute`, `simulated_confounding`, or `benchmark`. A cell that reads a name
+that a refit cell binds is also a refit cell. The function `refit_cells()` in
+`tests/unit/tutorial_semantics/__init__.py` derives the set from the code. You do not tag a cell.
+
+| tier | what it does with a refit cell | which callback it calls |
+| --- | --- | --- |
+| fast, `pytest -q -n auto --dist loadgroup` | compiles the cell and does not execute it | `check(namespace)` |
+| slow, `pytest -q -n auto --dist loadgroup -m slow` | executes every cell in order | `check(namespace)`, then `check_refits(namespace)` |
+
+Put each assertion on a refit result in `check_refits(namespace)`. Keep assertions on stored
+outputs and probe logs in `check`, because the fast tier can read them. When `check` reads a
+refit-bound name, the fast tier fails with a `KeyError` that names the refit cell.
+
+`test_the_derived_refit_cells_are_the_reviewed_ones` lists the refit cells of each notebook. When
+your notebook gains or loses a refit cell, update `EXPECTED_REFIT_CELLS` in the same change.
 
 These fast tests read your notebook. Each one takes the notebook path as its test id, so the
 selection `-k <stem>` runs all of them.
@@ -34,7 +53,9 @@ selection `-k <stem>` runs all of them.
 | `test_every_notebook_has_an_internally_consistent_execution_artifact` | a code cell or an output that changed after the stamp, an error output, or non-contiguous execution counts |
 | `test_every_notebook_records_its_repository_context` | a missing or malformed recorded half of the stamp |
 | `test_every_published_figure_has_a_non_image_companion` | a figure with no printed values beside it |
-| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds |
+| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds. The test skips refit cells |
+| `test_the_derived_refit_cells_are_the_reviewed_ones` | a refit cell that `EXPECTED_REFIT_CELLS` does not list, or a listed cell that is no longer a refit cell |
+| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, or a claim in `check` or `check_refits` that no longer holds |
 | `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision. This test also reads the TWINS notebook |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
 
@@ -171,7 +192,7 @@ where `base` is the protocol that `replace` received.
 | Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
 | Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
-| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The stored cell timestamps of the reference notebook span about 11 seconds |
+| Keep the cells other than refit cells under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs those cells for every tutorial. The stored cell timestamps of the reference notebook span about 11 seconds |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
 | Pair every figure with printed values | an image cannot enter the `--check` comparison |
 | Use no network, and write files only inside a `TemporaryDirectory` | the offline gate refuses a connection, and the kernel runs from the repository root |
@@ -245,8 +266,8 @@ supports and states each refused one as a limit.
 | generated outcomes | `dummy_outcome`, `simulated_outcome`, and `plasmode` at a small `R` | a level-1 reading. The level-2 bands need `R` = 400, so run that version once as a review probe outside the notebook |
 | tilt | `missingness()` and `tipping_gamma()` | the tilt at which the estimate reaches its null |
 
-A tutorial cell runs offline in the fast suite at its documented size, and the suite shrinks only
-`n=` and `density_bins=`. Keep `R` at its default or at a small count in every executed cell.
+A tutorial cell runs offline at its documented size, in the fast tier or in the slow tier, and
+no tier shrinks a refit cell. Keep `R` at its default or at a small count in every executed cell.
 
 ### The method-evidence step
 
@@ -324,6 +345,7 @@ Do these steps in order. Run each command from the repository root.
     ruff format --check docs/examples/<stem>.ipynb
     python -m tests.prose --path docs/examples/<stem>.ipynb
     pytest -q -p no:cacheprovider tests/unit/test_documentation_runtime.py -k <module>
+    pytest -q -p no:cacheprovider tests/unit/test_documentation_runtime.py -k <module> -m slow
     pytest -q -p no:cacheprovider tests/unit/test_documentation_links.py -k <module>
     ```
 

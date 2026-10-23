@@ -15,7 +15,7 @@ import pytest
 
 from cleverly import CapabilityError
 from cleverly.datasets import navigation_protocol
-from cleverly.validation import GaussianAdjustmentOutcome, refute
+from cleverly.validation import BoundedAdjustmentOutcome, GaussianAdjustmentOutcome, refute
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     ROOT,
@@ -338,6 +338,17 @@ def check(namespace: dict[str, Any]) -> None:
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
 
+    # The grid has no outcome axis because the fit declares q_bounds: the outcome strength of
+    # such a fit is a coefficient on the logit scale of the score.
+    assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
+    assert "bounded outcome law: logit on [0, 1]" in stored_output(NOTEBOOK, "sensitivity")
+    _check_refutation_limits(namespace)
+    _check_generated_limits(namespace)
+    _check_bound_and_surfaces(namespace)
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Steps 14 to 16: the refutation, the generated outcomes, and the stress surfaces."""
     # The treatment-only stress surface: both cells return, and the flip moves the screen
     # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]
@@ -349,13 +360,14 @@ def check(namespace: dict[str, Any]) -> None:
     for cell in cells:
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
-    # The grid has no outcome axis because the fit declares q_bounds: the outcome strength of
-    # such a fit is a coefficient on the logit scale of the score.
-    assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
-    assert "bounded outcome law: logit on [0, 1]" in stored_output(NOTEBOOK, "sensitivity")
     _check_refutation(namespace)
     _check_generated(namespace)
-    _check_bound_and_surfaces(namespace)
+    # The nudge and raise surfaces: the flip moves each estimate down.
+    for key in ("nudge_surface", "raise_surface"):
+        flipped = max(namespace[key].cells, key=lambda cell: cell.treatment_strength)
+        zero = min(namespace[key].cells, key=lambda cell: cell.treatment_strength)
+        assert flipped.estimate < zero.estimate
+        assert flipped.outcome_strength == 0.0 and flipped.failure is None
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
@@ -382,6 +394,11 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     reference = float(regimes[SCREEN].std_error * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
     assert round(float(np.std(subset, ddof=1)), 7) == 0.0026376
     assert round(reference, 7) == 0.0031383
+
+
+def _check_refutation_limits(namespace: dict[str, Any]) -> None:
+    """Step 14: the stored output, and the negative control that the page says it cannot run."""
+    regimes = namespace["regime_result"]
     stored = stored_output(NOTEBOOK, "refute-regimes")
     assert "This fit differs on method 'TMLE'" in stored
     # The limit: `prior_utilization` is an adjustment column, so a control that equals it is
@@ -429,6 +446,16 @@ def _check_generated(namespace: dict[str, Any]) -> None:
             )
             > 0.005
         )
+    # The bias reading is in standard deviations of the draws: (mean - truth) / sd.
+    screen = namespace["screen_generated"]["simulated_outcome"]
+    assert (
+        round((np.mean(screen.values) - screen.declared_effect) / np.std(screen.values, ddof=1), 3)
+        == 0.472
+    )
+
+
+def _check_generated_limits(namespace: dict[str, Any]) -> None:
+    """Step 15: the stored output, and the refusals that the step table states."""
     assert "10 draws are below the calibrated minimum of 400" in stored_output(
         NOTEBOOK, "generated"
     )
@@ -443,18 +470,12 @@ def _check_generated(namespace: dict[str, Any]) -> None:
             simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
             n_replicates=10,
         )
-    # The bias reading is in standard deviations of the draws: (mean - truth) / sd.
-    screen = namespace["screen_generated"]["simulated_outcome"]
-    assert (
-        round((np.mean(screen.values) - screen.declared_effect) / np.std(screen.values, ddof=1), 3)
-        == 0.472
-    )
     with pytest.raises(CapabilityError, match="no truth for an incremental tilt"):
         refute(
             incremental,
             estimand="ate_ipsi[double odds vs current odds]",
             tests=("simulated_outcome",),
-            simulated_outcome=namespace["bounded"],
+            simulated_outcome=BoundedAdjustmentOutcome(effect=0.5),
             n_replicates=10,
         )
     with pytest.raises(CapabilityError, match="no law of a continuous treatment"):
@@ -509,8 +530,3 @@ def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
     stored = stored_output(NOTEBOOK, "sensitivity-other")
     assert "nudge: movement -6.4 standard errors" in stored
     assert "raise: movement -0.9 standard errors" in stored
-    for key in ("nudge_surface", "raise_surface"):
-        flipped = max(namespace[key].cells, key=lambda cell: cell.treatment_strength)
-        zero = min(namespace[key].cells, key=lambda cell: cell.treatment_strength)
-        assert flipped.estimate < zero.estimate
-        assert flipped.outcome_strength == 0.0 and flipped.failure is None
