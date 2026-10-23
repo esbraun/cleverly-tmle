@@ -766,7 +766,7 @@ movement, which is additive for a difference and logarithmic for a ratio.
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
 | simulated common cause | no unmeasured confounding | estimate displacement across a declared strength grid, on the additive scale or the log scale | a supported latent perturbation family and plausible declared strengths |
 | E-value | no unmeasured confounding | the equal-strength threshold for treatment and outcome confounder associations that explains away the effect | a risk-ratio scale |
-| marginal sensitivity model bounds | no unmeasured confounding | bounds on the arm means and the ATE when `U` moves the odds of treatment by at most $\Gamma$ | Tan's model on the treatment odds |
+| marginal sensitivity model bounds | no unmeasured confounding | bounds on the arm means, their differences and ratios, ATT and ATC when `U` moves the odds of treatment by at most $\Gamma$ | Tan's model on the treatment odds |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
 
@@ -2275,19 +2275,43 @@ influence curve, summed within clusters on a clustered fit. A fit with `repeats 
 median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
 narrower and is not shipped.
 
-**Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain zero.
-`limit_breakdown` reads the set interval. An arm mean has no null, so both are `None`.
+**Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain the null.
+The null is zero for a difference and one for a ratio. `limit_breakdown` reads the set
+interval. An arm mean has no null, so both are `None`.
+
+**Compositions.** Each arm bound is the mean of a per-row summand $s_a$. The table states how
+each composition uses $s_a$. $o_a$ is the observed-arm part of $s_a$, the indicator of arm $a$
+times the arm's augmented outcome.
+
+| composition | the bound |
+| --- | --- |
+| more than two arms | the model restricts the odds of $A = a$ against $A \ne a$. $e$ is $P(A = a \mid W)$ |
+| `att` (two arms) | $E[o_1 - (s_0 - o_0)] / P(A = 1)$, with a delta-method curve |
+| `atc` (two arms) | $E[(s_1 - o_1) - o_0] / P(A = 0)$ |
+| `rr`, `or` | the ratio of the arm bounds: $\mathrm{RR}^+ = \psi^+_1 / \psi^-_0$, and the odds for `or`. The limits come from the log-scale curve. The set is componentwise |
+| sampling weights | weighted means, and weighted quantile and tail regressions |
+| a stratum-conditional alias | the mean over the stratum's rows, divided by the stratum's share |
+| missing outcomes | the residual terms of $s_a$ take the factor $\Delta / P(\Delta = 1 \mid A, W)$. The quantile and tail regressions train on observed rows |
+| a selecting `CTMLE` | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. At $\Gamma = 1$ the bounds give the AIPW estimate with that mechanism, not the C-TMLE estimate |
+
+The missing-outcome row assumes $\Delta \perp Y \mid A, W$, and it assumes that $U$ acts on $A$
+only. A ratio reports its ends and limits on the ratio scale, and its standard errors on the log
+scale (`scale="log"`). An arm bound at or below zero has no logarithm, so a ratio at that
+$\Gamma$ raises `CapabilityError` with the code `invalid_declaration`. The message names the
+largest grid $\Gamma$ at which the ratio is defined.
 
 **Scope.**
 
 | fit | result |
 | --- | --- |
-| `TMLE` (CV-TMLE included) or `DRTMLE`, two arms, Gaussian or binary outcome | ships; clusters and repeats are supported |
-| more than two arms, weights, strata, missing outcomes, `CTMLE`, `AdaptiveIPTW` | `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part H2 |
-| a controlled direct effect, a missing treatment | `implementation_gap`, [X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| `TMLE` (CV-TMLE included), `DRTMLE` or `CTMLE`, Gaussian or binary outcome | ships, with clusters, repeats and every composition in the table above |
+| a per-arm outcome-adaptive `CTMLE` | `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator): no learner for the mechanism on every covariate exists |
+| `AdaptiveIPTW` | `api_redirection` to `TMLE`: the fit has no outcome regression |
+| `att` or `atc` on more than two arms, a controlled direct effect, a missing treatment | `implementation_gap`, [X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| `or` on a Gaussian outcome, `rr` on an outcome with negative values | `invalid_declaration` |
 | a longitudinal fit | `implementation_gap`, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a continuous treatment, a policy, a regime, an incremental intervention, an MSM, a structural nested mean model | `different_estimand` |
-| a fit whose estimate has no influence-curve inference | `inference_gap` |
+| a fit whose estimate has no influence-curve inference | `inference_gap`. A selecting `CTMLE` is exempt, because the refit replaces its selected mechanism |
 
 **Evidence.** `tests/unit/test_marginal_sensitivity.py` solves the linear program on a finite law
 with `scipy.optimize.linprog`. On the same law, rows in exact proportion to the probabilities make
@@ -2300,11 +2324,16 @@ independent AIPW computation.
 On a Gaussian law, a quantile error $\delta$ moves the continuous side by $O(\delta^2)$. The
 control at the quantile of the other side moves it by $O(\delta)$.
 A parametrized test refuses each composition in the scope table before a learner fits.
+`tests/unit/test_marginal_sensitivity_compositions.py` checks each composition against a
+hand-written estimating function on the fit's own nuisances. Each check also has a nonzero
+witness: the weight, the stratum share, the response probability, the conditioning share, the
+arm's own mechanism column, or the refitted mechanism moves the value.
 
 **Confidence limits.** The limits resolve through the evidence registry with the instrument
-`msm_bound_limit`. The rule is `continuous` or `binary`. A continuous outcome with a
-caller-supplied quantile or tail learner adds `+custom_learners`, and a clustered fit adds
-`+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
+`msm_bound_limit`. The rule is `continuous` or `binary`, followed by one feature per
+composition, in this order: `+custom_learners` (a continuous outcome with a caller-supplied
+learner), `+multi_arm`, `+conditional` (`att`, `atc`), `+ratio`, `+stratum`, `+weighted`,
+`+missing_outcome`, `+refit_mechanism` and `+clustered`. The registry has no `msm_bound_limit` row, so the limits print as descriptive
 until study SH registers its coverage cells.
 
 ### Missingness tilt and tipping gamma

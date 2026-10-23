@@ -283,6 +283,12 @@ OPERATION_REFUSALS: dict[str, Refusal] = {
         alternative="Refit AdaptiveIPTW with another g_bounds=, or fit method='tmle'.",
         roadmap="X81",
     ),
+    "marginal_bounds": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "the marginal sensitivity model bounds read the outcome regression of each arm, and "
+        "AdaptiveIPTW fits no outcome regression.",
+        alternative=_TMLE_ALTERNATIVE,
+    ),
     "missingness_tilt": Refusal(
         RefusalReason.API_REDIRECTION,
         "missingness() and tipping_gamma() refit or tilt the outcome regression, and "

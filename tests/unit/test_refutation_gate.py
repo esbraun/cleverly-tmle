@@ -287,32 +287,43 @@ class TestRegistry:
         assert "method" in other.sentence
         assert "TMLE" in other.sentence
 
-    def test_an_uncovered_fit_names_the_row_that_differs_on_fewest_axes(self) -> None:
-        near = _covering_row("placebo", "t")
+    def test_an_outside_fit_names_the_nearest_row_not_the_first(self) -> None:
+        """The sentence reads the row that differs on the fewest axes."""
         far = replace(
-            near,
-            scope=replace(
-                near.scope,
-                methods=frozenset({"LTMLE"}),
-                outcome_families=frozenset({"survival"}),
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"LTMLE"}), outcome_families=frozenset({"survival"})
             ),
-            sentence="far row",
         )
-        fit = _fit_configuration(estimand_kind="att")
-        # The far row comes first, so a reading that took the first candidate would name it.
-        resolution = resolve("placebo", "t", fit, evidence=(far, near))
-        assert not resolution.licensed
-        assert "methods ['TMLE']" in resolution.sentence
-        assert "LTMLE" not in resolution.sentence
-        assert resolution.sentence.endswith("This fit differs on estimand kind 'att'.")
-        assert far.scope.mismatches(fit) == (
-            "method 'TMLE'",
-            "estimand kind 'att'",
-            "outcome family 'gaussian'",
+        near = _covering_row("placebo", "t")
+        fit = _fit_configuration(method="CTMLE")
+        for rows in ((far, near), (near, far)):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert "LTMLE" not in sentence and "survival" not in sentence
+            assert "method 'CTMLE'" in sentence
+
+    def test_a_tie_names_the_earlier_row_and_every_difference(self) -> None:
+        """Two rows that differ on one axis each: the earlier row is named, with all its axes."""
+        first = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"DRTMLE"}))
         )
-        # On a tie the first row wins, so a fit both rows miss by one axis names the far row.
-        tie = _fit_configuration(method="LTMLE", estimand_kind="ate", outcome_family="gaussian")
-        assert "LTMLE" in resolve("placebo", "t", tie, evidence=(far, near)).sentence
+        second = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"IPSI"}))
+        )
+        fit = _fit_configuration(method="CTMLE")
+        for rows, named in (((first, second), "DRTMLE"), ((second, first), "IPSI")):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert f"['{named}']" in sentence
+        wide = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        sentence = resolve(
+            "placebo", "t", _fit_configuration(method="CTMLE"), evidence=(wide,)
+        ).sentence
+        assert "method 'CTMLE' and outcome family" in sentence
 
     @pytest.mark.parametrize(
         "change",

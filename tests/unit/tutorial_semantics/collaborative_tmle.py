@@ -239,7 +239,10 @@ def _check_refutation_stored(namespace: dict[str, Any]) -> None:
     from cleverly.validation import refute
 
     stored = stored_output(NOTEBOOK, "refutation")
-    assert "This fit differs on method 'TMLE'" in stored
+    assert (
+        "This fit differs on cross-fitting 'off', learner ParametricOutcome() and n = 1500"
+        in stored
+    )
     assert "This fit differs on method 'CTMLE[oat:per_arm]'" in stored
     # The page says the registry holds one C-TMLE point row, the greedy placebo cell C1.
     from cleverly.validation import _interpretation as registry

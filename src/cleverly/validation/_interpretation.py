@@ -517,8 +517,8 @@ class CalibrationScope:
         """
         return cls()
 
-    def mismatch(self, fit: FitConfiguration | None) -> str | None:
-        """Name the first axis on which ``fit`` lies outside this scope.
+    def mismatches(self, fit: FitConfiguration | None) -> list[str]:
+        """Name every axis on which ``fit`` lies outside this scope, in axis order.
 
         Parameters
         ----------
@@ -528,28 +528,11 @@ class CalibrationScope:
 
         Returns
         -------
-        str or None
-            The axis name and the fit's value, or ``None`` when the fit is covered.
-        """
-        found = self.mismatches(fit)
-        return found[0] if found else None
-
-    def mismatches(self, fit: FitConfiguration | None) -> tuple[str, ...]:
-        """Name every axis on which ``fit`` lies outside this scope, in axis order.
-
-        Parameters
-        ----------
-        fit : FitConfiguration or None
-            The configuration to test.
-
-        Returns
-        -------
-        tuple of str
-            One entry per mismatched axis, each the axis name and the fit's value. The learner
-            axis names the first uncovered learner. An empty tuple means the fit is covered.
+        list of str
+            The axis name and the fit's value for each axis, empty when the fit is covered.
         """
         if fit is None:
-            return () if self == CalibrationScope.unrestricted() else ("an unreadable fit",)
+            return [] if self == CalibrationScope.unrestricted() else ["an unreadable fit"]
         found: list[str] = []
         pairs: tuple[tuple[str, frozenset[Any] | None, Any], ...] = (
             ("method", self.methods, fit.method),
@@ -568,9 +551,10 @@ class CalibrationScope:
             if covered is not None and value not in covered:
                 found.append(f"{axis} {value!r}")
         if self.learners is not None:
-            missing = [item for item in fit.learners if item not in self.learners]
-            if missing:
-                found.append(f"learner {missing[0]}")
+            for fingerprint in fit.learners:
+                if fingerprint not in self.learners:
+                    found.append(f"learner {fingerprint}")
+                    break
         if fit.n < self.n_min:
             found.append(f"n = {fit.n} (below {self.n_min})")
         if self.n_max is not None and fit.n > self.n_max:
@@ -588,7 +572,24 @@ class CalibrationScope:
             self.clusters_min is None or fit.clusters < self.clusters_min
         ):
             found.append(f"cluster count {fit.clusters}")
-        return tuple(found)
+        return found
+
+    def mismatch(self, fit: FitConfiguration | None) -> str | None:
+        """Name the first axis on which ``fit`` lies outside this scope.
+
+        Parameters
+        ----------
+        fit : FitConfiguration or None
+            The configuration to test. ``None`` is a fit whose configuration could not be
+            read, which only an unrestricted scope covers.
+
+        Returns
+        -------
+        str or None
+            The axis name and the fit's value, or ``None`` when the fit is covered.
+        """
+        found = self.mismatches(fit)
+        return found[0] if found else None
 
     def covers(self, fit: FitConfiguration | None) -> bool:
         """Return whether ``fit`` lies inside this scope.
@@ -1459,9 +1460,10 @@ def resolve(
             evidence=nearest,
         )
     if candidates:
-        # The nearest row differs on the fewest axes. ``min`` keeps the first row on a tie.
+        # The nearest row differs on the fewest axes; a tie keeps registry order.
         row = min(candidates, key=lambda candidate: len(candidate.scope.mismatches(fit)))
-        mismatch = "; ".join(row.scope.mismatches(fit))
+        found = row.scope.mismatches(fit)
+        mismatch = found[0] if len(found) == 1 else ", ".join(found[:-1]) + " and " + found[-1]
         return Resolution(
             rung="L0",
             licensed=False,
