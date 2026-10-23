@@ -52,6 +52,7 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
     covers,
+    notebook_code,
     stored_output,
 )
 
@@ -90,6 +91,8 @@ UNPRINTED_DECIMALS = {
     "printed (checked in check_refits)",
     "1.98": "mean reported standard error over the SD of the ten placebo estimates, 1.983 (checked "
     "in check_refits)",
+    "10.5": "the printed renewal contrast 0.1050 of the 15% cut, in percentage points (checked in "
+    "_check_reading_attribution)",
     "0.31": "the size of the printed revenue contrast -0.3129 of the 12% rise, written as a fall "
     "(checked in _check_reading_attribution)",
     "0.0104": f"mean estimate of the linear learner minus the quadratic learner, price_up revenue, "
@@ -666,8 +669,8 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert down.is_monotonic_increasing
     assert (report["share_truncated"] == 0.0).all()
     ratio = report["effective_n"] / report["n_followed"]
-    assert namespace["kish_ratio"] == pytest.approx(0.1554, rel=WEIGHT_TAIL_REL)
-    assert ratio.min() == pytest.approx(namespace["kish_ratio"])
+    assert namespace["ess_ratio"] == pytest.approx(0.1554, rel=WEIGHT_TAIL_REL)
+    assert ratio.min() == pytest.approx(namespace["ess_ratio"])
     assert report.loc[ratio.idxmin(), "regimen"] == "price_down"
     assert report.loc[ratio.idxmin(), "time"] == 3
     # "about a third of the sample carries them": 3508.672 of 10000.
@@ -700,8 +703,50 @@ class _NeverFit(LogisticRegression):
         raise AssertionError("the fit reached a learner")
 
 
+def _check_own_plan_comment(namespace: dict[str, Any]) -> None:
+    """The commented band and rule of the ``identify`` cell reproduce the page's 12% rise.
+
+    The comment is the page's only example of a hand-written plan, so a slip in it would mislead
+    a reader with their own data.  Each month's copy of the snippet builds the band and the rule,
+    and the fit with them returns the ``price_up`` estimate of the page.
+    """
+    source = dict(notebook_code(NOTEBOOK))["identify"]
+    start = source.index("#   from cleverly.interventions")
+    end = source.index("#   ))", start) + len("#   ))")
+    snippet = "\n".join(line.removeprefix("#   ") for line in source[start:end].splitlines())
+    bands, rules = {}, []
+    for month in (1, 2, 3):
+        scope: dict[str, Any] = {"np": np}
+        exec(
+            snippet.replace("engaged_1", f"engaged_{month}").replace("up at 1", f"up at {month}"),
+            scope,
+        )
+        bands[f"price_{month}"] = scope["band_1"]
+        rules.append(scope["rise_1"])
+    design = LongitudinalTreatment(
+        outcome="renewed",
+        treatment=["price_1", "price_2", "price_3"],
+        baseline=["usage"],
+        time_varying=[["engaged_1"], ["engaged_2"], ["engaged_3"]],
+        continuous_treatment=bands,
+    )
+    plans = {
+        "natural_prices": PRICE_PLANS["natural_prices"],
+        "price_up": DynamicRegimen("price_up", tuple(rules)),
+    }
+    own = (
+        CausalStudy(namespace["frame"], design=design)
+        .identify(RegimeContrast(plans, reference="natural_prices"))
+        .estimate(method=namespace["ltmle"])
+    )
+    page = namespace["result"][_key("price_up")]
+    assert own[_key("price_up")].psi == pytest.approx(page.psi, abs=1e-9)
+    assert own[_key("price_up")].ci == pytest.approx(page.ci, abs=1e-9)
+
+
 def check_refits(namespace: dict[str, Any]) -> None:
     """Step 11: the refits are descriptive, and print the numbers that the reading quotes."""
+    _check_own_plan_comment(namespace)
     report = namespace["report"]
     estimand = namespace["estimand"]
     assert estimand == _key("price_up")
@@ -1207,8 +1252,8 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     # The renewal contrasts, and the truth that each interval contains on this draw.
     renewal = _prose("ltmle-reading")
     assert (
-        f"the 12% rise changes the month-3 renewal share by {up.psi:.4f} (standard error "
-        f"{up.std_error:.4f}, 95% interval {_interval(up)}), which contains the true {t_up:.4f}"
+        f"the 12% rise changes the month-3 renewal share by {up.psi:.4f} (95% interval "
+        f"{_interval(up)}), which contains the true {t_up:.4f}"
     ) in renewal
     assert covers(up, t_up)
     assert (
@@ -1245,7 +1290,7 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
         f"regression gives {adjust['price_up']:.4f}, outside the LTMLE interval"
     ) in failure
     assert (
-        f"so it estimates the `both held` value, {held_up['both held']:.4f}, and not the truth. "
+        f"It estimates the `both held` value, {held_up['both held']:.4f}. "
         f"Holding only engagement gives {held_up['engagement held']:.4f} and only the engine's "
         f"next price {held_up['engine held']:.4f}, so each path carries about half of the gap"
     ) in failure
@@ -1274,18 +1319,22 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     for plan in held:
         low, high = rise_fit[_key(plan)].ci
         widths[plan] = high - low
-        max_weight, effective_n = ladder_tail[(plan, 3)]
-        assert (
-            f"| `{plan}` | {zero[plan]:.4f} | {held[plan]:.4f} | {max_weight} "
-            f"| {round(float(effective_n))} | {widths[plan]:.4f} |"
-        ) in support
         assert covers(rise_fit[_key(plan)], truth[_key(plan)]), plan
-    # "the largest weight more than triples, the effective sample size falls to a fifth of the
-    # sample, and the interval triples in width"
-    assert float(ladder_tail[("up_25", 3)][0]) > 3 * float(ladder_tail[("up_6", 3)][0])
-    assert 0.15 < float(ladder_tail[("up_25", 3)][1]) / len(frame) < 0.25
+    # "the largest month-3 weight goes from 5.7 to 20.0, the effective sample size falls from about
+    # 6,630 to about 1,977, a fifth of the sample, and the interval width triples, from 0.0129 to
+    # 0.0393"
+    weight = {plan: float(ladder_tail[(plan, 3)][0]) for plan in held}
+    size = {plan: float(ladder_tail[(plan, 3)][1]) for plan in held}
+    assert (
+        f"the largest month-3 weight goes from {weight['up_6']:.1f} to {weight['up_25']:.1f}, the "
+        f"effective sample size falls from about {round(size['up_6']):,} to about "
+        f"{round(size['up_25']):,}, a fifth of the sample, and the interval width triples, from "
+        f"{widths['up_6']:.4f} to {widths['up_25']:.4f}"
+    ) in support
+    assert 0.15 < size["up_25"] / len(frame) < 0.25
     assert 2.8 < widths["up_25"] / widths["up_6"] < 3.3
     assert round(100 * held["up_25"]) == 45 and "leaves 45% of month-3 prices unchanged" in support
+    assert all(0.0 < zero[plan] < held[plan] for plan in held)
     estimates = ", ".join(f"{rise_fit[_key(plan)].psi:.4f}" for plan in held)
     exact = ", ".join(f"{truth[_key(plan)]:.4f}" for plan in held)
     assert f"The estimates, {_and(estimates)}, stay near the true {_and(exact)}" in support
@@ -1331,7 +1380,8 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
         f"lower mean month-3 revenue by about {-r_up.psi:.2f} per subscriber (interval "
         f"{_interval(r_up, 2)})"
     ) in interpret
-    assert f"raises renewals by about {down.psi:.3f} ({_interval(down, 3)})" in interpret
+    assert round(100 * down.psi, 1) == 10.5
+    assert f"raises renewals by about 10.5 points ({_interval(down, 3)})" in interpret
     assert "about a fifth of the prices" in interpret
     assert all(0.15 < value < 0.25 for value in (held["price_up"], float(namespace["held_down"])))
     assert "who start a three-month term" in interpret
@@ -1445,4 +1495,4 @@ def _check_phrase_rules() -> None:
     refute_text = markdown["refute-heading"]
     for test in ("placebo", "subset", "random_common_cause", "bootstrap_stability"):
         assert f"`{test}`" in refute_text, test
-    assert "None of these checks can detect a missing confounder" in refute_text
+    assert "None can detect a missing confounder" in refute_text
