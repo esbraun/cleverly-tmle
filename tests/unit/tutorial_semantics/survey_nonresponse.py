@@ -80,7 +80,7 @@ UNPRINTED_DECIMALS.update(
 )
 UNPRINTED_DECIMALS.update(
     {
-        "9.5": f"the longest wall time of a probe run, 568 s, in {_REFUTE_PROBE}",
+        "9.4": f"the longest wall time of a probe run, 566 s, in {_REFUTE_PROBE}",
         "0.00056": f"the truth 0.10287 minus the simulated_outcome mean 0.10231, {_REFUTE_PROBE}",
     }
 )
@@ -464,12 +464,13 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
         assert (round(bound.ci_lower, 4), round(bound.ci_upper, 4)) == ci_limits
         assert bound.limit_descriptive
     # "Dropping discharge_risk more than doubles the residual variance": a gain of 1.272, so cf_y
-    # clips at 1 and the bound includes 0.  Dropping prior_utilization lowers nu^2, so cf_d clips.
+    # clips at 1 and the bound includes 0.  Dropping prior_utilization raises nu^2, so cf_d clips.
     risk = fitted.sensitivity.benchmark(covariates=("discharge_risk",))
     assert risk.sigma2_short > 2.0 * risk.sigma2_long and round(risk.gain_y, 3) == 1.272
     assert risk.cf_y == 1.0
     assert fitted.sensitivity.omitted_confounding(benchmark=risk).lower < 0.0
     utilization = fitted.sensitivity.benchmark(covariates=("prior_utilization",))
+    assert utilization.nu2_short > utilization.nu2_long
     assert utilization.gain_d < 0.0 and utilization.cf_d == 0.0
     # The bound is zero-width at cf_d = 0, and the estimate sits at its centre.  A mutation that
     # added the response gain would move it.
