@@ -1195,6 +1195,8 @@ policy-point-mtp,targeting_necessity,bias equivalent,bias
 policy-point-mtp,targeting_necessity,least displacement over labels,positive_diffuse
 policy-point-mtp,type_i_error,coverage floor,coverage/0.5
 policy-point-mtp,type_i_error,rejection ceiling,rejection/0.1
+refuter-calibration-band,refuter_power,detections at least 38 of 50,rejection/0.1
+refuter-calibration-band,refuter_size,rejections at most 20 of 200,se_low
 repeated-crossfit-tmle,double_robustness,bias discriminated,pair_collapse
 repeated-crossfit-tmle,double_robustness,bias equivalent,bias
 repeated-crossfit-tmle,double_robustness,se ratio in union band,se/0.05
