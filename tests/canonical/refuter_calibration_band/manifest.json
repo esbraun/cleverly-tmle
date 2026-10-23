@@ -1,0 +1,113 @@
+{
+  "schema_version": 2,
+  "study": "band-rank placebo verdict rule",
+  "slug": "refuter-calibration-band",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-refute-band",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "ca9ae6139de1e2f78e712e0d5cd1ce4038859cf3",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 200,
+    "n": 2000,
+    "seed": 20268831,
+    "resampling_seed": 20268832,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-refute-band": 0.01
+    },
+    "scenarios": {
+      "point": [
+        "ate"
+      ]
+    },
+    "nodes": {
+      "PJ1": null,
+      "LJ1": 3
+    },
+    "folds": 5,
+    "refits": 20,
+    "size_trials": 200,
+    "power_trials": 50,
+    "size_pass": "rejections <= 20 of 200",
+    "power_pass": "detections >= 38 of 50",
+    "law_p_band": "[W1 + 0.5 W2, W1 + 0.5 W2 + 2 + 0.75 W1], W ~ U(-1, 1)^2",
+    "law_p_position": "N(0.5 + 0.2 W2, 0.25^2) truncated to [0, 1]",
+    "law_p_outcome": "Y = A + 0.8 W1 + 0.6 W2 + N(0, 1)",
+    "law_p_policy": "a + 0.5 where a + 0.5 < U(W), else a",
+    "law_l_band": "lower 2 + L_t + 0.5 A_{t-1} (A_0 = 6), width 2 + L_t, W ~ U(-1, 1)",
+    "law_l_engaged": "logit = 0.3 + 0.6 W - (u_{t-1} - 0.5) + 0.8 L_{t-1}",
+    "law_l_position": "N(0.5 + 0.15 W + 0.3 (u_{t-1} - 0.5), 0.4^2) truncated to [0, 1]",
+    "law_l_outcome": "logit = 0.3 - 0.5 (A_3 - 7.2) + 0.9 L_3 + 0.3 W - 0.1 (A_1 + A_2 - 13.5)",
+    "law_l_policy": "a + 0.25 at each node where a + 0.25 < the node's band top, else a",
+    "stale_share": {
+      "PJ1": 0.1,
+      "LJ1": 0.15
+    },
+    "cells": {
+      "PJ1": {
+        "law": "point",
+        "estimand": "ate_policy[up vs natural course]",
+        "placebo_draw": "band_permute"
+      },
+      "LJ1": {
+        "law": "panel",
+        "estimand": "ate_regimen[up vs natural]",
+        "placebo_draw": "band_markov"
+      }
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/refuter_calibration_band.py": "c6e9ad7d56fe34ff5fda22a47498cb2d0b5d8924a1846bf6781b8e3aa4a74806",
+    "tests/studies/refuter_calibration_band_properties.py": "4842c07ad72545b603ae0dbff9b7122159858e52068fdf4e6d7621c09e428a87",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "74b9219b9144541fdfb09c407a1a583784159debf0e83fe95072f9d88bd59a4c",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "c7515c722d62ed1717487619543edf98773ffca4feef78b1b3f5aebe9738eb3f",
+    "summary.csv": "e2ab4edcf7c936a9fcef5f9271dbd50b314f4c7e819428860b225f686b17d1f3",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "9d55f0dff27aef5188ce247fdb3238e07f5b86534c3585f03e7ddb9e50b7bd6b",
+    "property-replicates.parquet": "275a28dee3e51255cb0e38a75d1a6a66ce2a52dff34957cbf80bacef79767c93",
+    "properties.csv": "8eac356fe57d33ff6c1c50b9207186fe4832f0676fb61020fdcb47a970052f81",
+    "cells.csv": "113e0777b07179a6d53a4079562380818523a27057cad74b2c31872ed642606f"
+  }
+}

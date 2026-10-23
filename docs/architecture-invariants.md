@@ -819,13 +819,14 @@ verdict, whatever a runtime gate reads off that example. Evidence manifests such
 `docs/technical-reference/evidence.md` remain test-enforced source registries.
 
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
-executes the registered documents' fences and the tutorial notebooks' code cells. It runs three
+executes the registered documents' fences and the tutorial notebooks' code cells. It runs four
 gates, and the table states what each one covers.
 
 | gate | documents | sample size | what it asserts |
 | --- | --- | --- | --- |
 | `test_every_nonsemantic_example_runs` | entries in `PRELUDES`, none of them tutorials | shrunk to `SMALL_N` | nothing raises |
-| `test_tutorial_semantics_at_documented_size` | every tutorial under `docs/examples/`, as Markdown or as a notebook, offline | the size the page prints | nothing raises, then one reviewed callback checks that page |
+| `test_tutorial_semantics_at_documented_size` | every tutorial under `docs/examples/`, as Markdown or as a notebook, offline, without the refit cells | the size the page prints | nothing raises, then the `check` callback checks that page |
+| `test_tutorial_refits_at_documented_size` (slow tier) | every tutorial notebook with a refit cell, offline, all cells | the size the page prints | nothing raises, then `check` and `check_refits` check that page |
 | `test_every_narrated_decimal_matches_a_stored_output` | every tutorial notebook | none, it reads stored outputs | each decimal in the prose rounds from a stored output |
 
 The smoke gate asserts no number. It exists because compiling a fence cannot see a name the
@@ -847,10 +848,13 @@ The gate is bounded by review rather than by a heuristic. Each callback lives in
 under `tests/unit/tutorial_semantics/` and not in the document, so a rewritten page cannot grant
 itself a numeric gate. One module per tutorial lets several tutorials change at once without an
 edit to a shared registry. `test_every_tutorial_has_one_semantic_assertion` discovers the
-tutorials and pins the modules to them. The documented-size gate is their only runtime pass, which avoids repeating each
-fit at the smoke size. *Reconsider when* a callback needs a looser tolerance to keep passing. A
-relation that moves under a supported change is a sampling claim, and it belongs in a registered
-study.
+tutorials and pins the modules to them. *Reconsider when* a callback needs a looser tolerance to
+keep passing. A relation that moves under a supported change is a sampling claim, and it belongs in
+a registered study.
+
+The documented-size gates are the only runtime pass of a tutorial, which avoids repeating each fit
+at the smoke size. The fast gate skips the refit cells that `refit_cells()` derives from the code,
+and the slow gate runs them.
 
 A reader-facing notebook stores outputs, so its fast check is necessarily narrower. The stamp
 detects a code, output, or stamp-field edit after stamping. It does not prove that the code produced

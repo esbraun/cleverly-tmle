@@ -192,11 +192,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert generated["simulated_outcome"].declared_effect == pytest.approx(truth, abs=1e-10)
     # The plasmode truth is a sum over the same support points, with its own draws of A.
     assert generated["plasmode"].declared_effect == pytest.approx(truth, abs=1e-3)
-    _check_probe_logs()
 
 
-def _check_evalue_and_surface(namespace: dict[str, Any]) -> None:
-    """Step 11: the E-value and the stress surface read as the prose says."""
+def _check_evalue(namespace: dict[str, Any]) -> None:
+    """Step 11: the E-value reads as the prose says."""
     evalue = namespace["evalue"]
     estimate = namespace["estimate"]
     assert evalue.approximate
@@ -206,6 +205,11 @@ def _check_evalue_and_surface(namespace: dict[str, Any]) -> None:
     outcome = np.asarray(namespace["frame"]["transition_score"], dtype=float)
     assert 0.23 < outcome.std() < 0.24
     assert estimate.psi > 0.0
+
+
+def _check_surface(namespace: dict[str, Any]) -> None:
+    """Step 11: the stress surface reads as the prose says."""
+    estimate = namespace["estimate"]
 
     cells = namespace["cells"].set_index(["treatment_strength", "outcome_strength"])
     anchor = cells.loc[(0.0, 0.0)]
@@ -347,12 +351,14 @@ def check(namespace: dict[str, Any]) -> None:
     # Nonzero witness: "the estimate moves to 0.1674" at the tightest bound.
     assert tight[0.2]["psi"] - namespace["estimate"].psi > 5e-4
 
-    # Step 10: the refutation step refits the Step 6 estimator on altered data.
-    _check_refutation(namespace)
+    # Step 10: the refutation readings quote committed probe logs.  The refits themselves are
+    # checked in check_refits.
+    _check_probe_logs()
 
     # Step 11: the default nu^2 estimator runs, so the robustness value carries its limit.
+    # The robustness value is derived from the fit, so the fast gate recomputes it here.
     result = namespace["result"]
-    robustness = namespace["robustness"]
+    robustness = result.sensitivity.robustness_value()
     assert "nu2_estimator" not in robustness
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
     elements = result.sensitivity.elements(estimand="ate")
@@ -367,6 +373,18 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
+    _check_evalue(namespace)
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Steps 10 and 11: the refutation refits, the benchmark refits, and the stress surface."""
+    _check_refutation(namespace)
+    moments = _law_moments()
+    result = namespace["result"]
+    robustness = namespace["robustness"]
+    assert robustness == result.sensitivity.robustness_value()
+    elements = result.sensitivity.elements(estimand="ate")
+    at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.
     # The bound is finite at cf_y = 1 (RM47), so the clipped benchmark still calibrates one.
     strong = namespace["strong"]
@@ -397,4 +415,4 @@ def check(namespace: dict[str, Any]) -> None:
     # "the bias bound would be about 5% larger" with the law's nu^2: the bias scale is
     # proportional to sqrt(nu^2).
     assert 1.03 < np.sqrt(moments["nu2"] / elements.nu2) < 1.07
-    _check_evalue_and_surface(namespace)
+    _check_surface(namespace)

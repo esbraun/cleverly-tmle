@@ -189,11 +189,18 @@ def check(namespace: dict[str, Any]) -> None:
     elements, robustness = namespace["elements"], namespace["robustness"]
     assert elements.nu2 > 6.0
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
+    _check_refutation_stored(namespace)
+    stored = stored_output(NOTEBOOK, "generated")
+    assert stored.count("VERDICT: every refutation test with a verdict passed it.") == 2
+    _check_evalue(namespace)
+    _check_bound_limit(namespace)
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """The refit cells: the refutation, the generated outcome, and the stress surface."""
     _check_refutation(namespace)
     _check_generated_outcome(namespace)
-    _check_evalue(namespace)
     _check_stress_surface(namespace)
-    _check_bound_limit(namespace)
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
@@ -225,6 +232,12 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert 0.8 < scatter / reference < 1.0
         shift = (np.asarray(tests["random_common_cause"].values) - original) / se
         assert 0.0 < abs(shift.mean()) < 0.05
+
+
+def _check_refutation_stored(namespace: dict[str, Any]) -> None:
+    """Step 10: what the refutation output and the registry say, read without a refit."""
+    from cleverly.validation import refute
+
     stored = stored_output(NOTEBOOK, "refutation")
     assert (
         "This fit differs on cross-fitting 'off', learner ParametricOutcome() and n = 1500"
@@ -253,7 +266,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         "navigator_staffing",
     ]
     with pytest.raises(ValueError, match="negative_control_outcome"):
-        namespace["refute"](namespace["collaborative"], tests=("negative_control_outcome",))
+        refute(namespace["collaborative"], tests=("negative_control_outcome",))
 
 
 def _check_generated_outcome(namespace: dict[str, Any]) -> None:
@@ -271,8 +284,6 @@ def _check_generated_outcome(namespace: dict[str, Any]) -> None:
         assert abs(np.mean(test.values) - 0.12) < 3 * spread
         # The generated truth is not the page's ATE.
         assert abs(namespace["fits"][name]["ate"].psi - 0.12) > 0.02
-    stored = stored_output(NOTEBOOK, "generated")
-    assert stored.count("VERDICT: every refutation test with a verdict passed it.") == 2
 
 
 def _check_evalue(namespace: dict[str, Any]) -> None:

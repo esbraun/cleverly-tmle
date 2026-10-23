@@ -65,7 +65,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_blind(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
-    _check_refutation(namespace)
+    _check_refutation_limits(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
     _check_prose_phrases()
@@ -588,8 +588,8 @@ def _check_cap(namespace: dict[str, Any]) -> None:
     assert all(wide.iloc[fitted[0]][("engaged", week)] == 0 for week in (1, 2, 3))
 
 
-def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Step 10: the four refits of the win-back contrast, and the checks that the page states it skips."""
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Step 10: the four refits of the win-back contrast."""
     result, refutation = namespace["result"], namespace["refutation"]
     estimand = _key("win_back")
     assert refutation.estimand == estimand
@@ -627,9 +627,14 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     stability = tests["bootstrap_stability"]
     assert round(float(np.mean(stability.values)) - original, 8) == -5.321e-05
     assert round(float(np.std(stability.values, ddof=1)), 5) == 0.01597
+
+
+def _check_refutation_limits(namespace: dict[str, Any]) -> None:
+    """Step 10: the stored output, and the checks that the page states it skips."""
+    result = namespace["result"]
+    estimand = _key("win_back")
     # The stored output holds the sentence that names the outcome family as the difference.
     assert "This fit differs on outcome family 'binomial'" in stored_output(NOTEBOOK, "refute")
-
     # The skipped checks of the reading, each refused as the reading states.
     wide = namespace["panel"].pivot(index="customer", columns="week")
     tenure = wide[("tenure", 1)].to_numpy()

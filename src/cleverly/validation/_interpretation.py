@@ -1041,6 +1041,96 @@ def _point_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The registered study that calibrated the band-rank placebo (X82 SJ).
+_BAND_STUDY = "refuter-calibration-band"
+
+#: Its declared thresholds, as the registry ``theory`` line states them (X82-J-plan.md rev 2,
+#: section 5, and the design review that set the size cutoff to 20).
+_BAND_MISCALIBRATION = (
+    "Checked against gross miscalibration only: 200 trials, pass at no more than 20 "
+    "rejections. True size 0.05 passes with probability 0.999, 0.07 with 0.958, 0.10 with "
+    "0.559, and 0.15 with 0.025. Power: 50 trials of the same configuration under a "
+    "stale-row placebo that keeps a declared share of recorded doses, pass at no fewer than "
+    "38 detections."
+)
+
+#: The calibrated cells of the SJ study: method, estimand kind, outcome family, learner
+#: fingerprints, node count, placebo draw, covariates per row, the smallest event count of the
+#: size cell, and the fit the sentence names. The estimand kind is the recorded parameter name,
+#: as for the SG policy rows, so the PJ1 row covers a policy named ``up``.
+_BAND_CELLS: Final[
+    dict[str, tuple[str, str, str, tuple[str, ...], int | None, str, float, int | None, str]]
+] = {
+    "PJ1": (
+        "TMLE",
+        "ate_policy[up vs natural course]",
+        "gaussian",
+        ("LinearRegression()", "QuadraticLogistic()"),
+        None,
+        "band_permute",
+        0.001,
+        None,
+        "TMLE of a capped +0.5 dose shift against the natural course on the study's law P, "
+        "an OLS outcome and a classifier density ratio",
+    ),
+    "LJ1": (
+        "LTMLE",
+        "ate_regimen",
+        "binomial",
+        ("GLM()", "GLM()", "QuadraticLogistic(law='panel')"),
+        3,
+        "band_markov",
+        0.002,
+        688,
+        "LTMLE of a +0.25 dose shift at each of three nodes on the study's pricing-shaped law "
+        "L, logistic GLM nuisances and a classifier density ratio",
+    ),
+}
+
+
+def _band_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the X82 SJ study's passing size and power cells license."""
+    rows: list[VerdictEvidence] = []
+    for cell, values in _BAND_CELLS.items():
+        method, kind, family, learners, nodes, draw, covariates, events, fit = values
+        rows.append(
+            VerdictEvidence(
+                instrument="placebo",
+                rule="t",
+                rung="L2",
+                theory="X82-J-plan.md rev 2, section 5. " + _BAND_MISCALIBRATION,
+                scope=CalibrationScope(
+                    methods=frozenset({method}),
+                    estimand_kinds=frozenset({kind}),
+                    outcome_families=frozenset({family}),
+                    treatment_kinds=frozenset({"continuous"}),
+                    learners=frozenset(learners),
+                    cross_fitting=frozenset({"folds=5"}),
+                    inference=frozenset({"influence_curve"}),
+                    known_mechanism=frozenset({False}),
+                    arms=frozenset({1}),
+                    replicates=frozenset({20}),
+                    nodes=frozenset({nodes}),
+                    placebo_draws=frozenset({draw}),
+                    n_min=2000,
+                    covariates_per_row_max=covariates,
+                    min_event_count_min=events,
+                ),
+                sentence=(
+                    f"Calibrated against gross miscalibration at n = 2,000 with a band-rank "
+                    f"placebo: {fit}, five-fold cross-fitting. A rule with true size 0.15 "
+                    "fails this check with probability above 0.97."
+                ),
+                study=(
+                    _BAND_STUDY,
+                    f"refuter_size/{cell}__placebo",
+                    f"refuter_power/{cell}__placebo_stale_rows",
+                ),
+            )
+        )
+    return tuple(rows)
+
+
 #: The saturated logistic learner of the X82 SG omitted-variable cells: a logistic regression on
 #: every pairwise product of its inputs, practically unpenalized.
 _SG_SATURATED = (
@@ -1321,6 +1411,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
     ),
     *_longitudinal_rows(),
     *_point_rows(),
+    *_band_rows(),
     *_sg_rows(),
 )
 
