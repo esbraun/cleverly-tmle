@@ -4548,7 +4548,8 @@ class SensitivityFacade(_CapabilityFacade):
         A DR-TMLE or a selecting C-TMLE fit refuses the bare bound, and
         ``assume_consistent_mechanism=True`` lifts that one rule.  The row then reads
         :func:`~cleverly.sensitivity.omitted_variable.consistent_mechanism_refusal`, which
-        the call raises from too.  A row refused for any other reason stays refused.
+        the call raises from too.  A row refused for any other reason stays refused.  This
+        gate runs before the base request gate, so the base gate sees the lifted row.
         """
         if capability.operation in self._CONSISTENT_MECHANISM_OPERATIONS and arguments.get(
             "assume_consistent_mechanism"
@@ -4574,9 +4575,11 @@ class SensitivityFacade(_CapabilityFacade):
         if lifted is None or capability.refusal != fit_wide_bound_refusal(self._result):
             return capability
         declared = consistent_mechanism_refusal(self._result, arguments.get("mechanism_learner"))
-        if declared is None:
-            return replace(capability, available=True, status=AssessmentStatus.PASSED, refusal=None)
-        return replace(capability, refusal=declared)
+        if declared is not None:
+            return replace(capability, refusal=declared)
+        runnable = replace(capability, available=True, status=AssessmentStatus.PASSED, refusal=None)
+        # The replay gate skipped the refused row in ``_gated_map``, so it applies here.
+        return _replay_gated(runnable, replayability(self._result))
 
     def _benchmark_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]

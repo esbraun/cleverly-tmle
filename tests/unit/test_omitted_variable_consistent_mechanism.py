@@ -17,6 +17,7 @@ standard error.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -479,6 +480,35 @@ class TestTheFacadeLiftsItsRow:
         assert not fitted.sensitivity.capability(operation).available
         with pytest.raises(CapabilityError, match="assume_consistent_mechanism=True"):
             getattr(fitted.sensitivity, operation)("ate")
+
+    def test_the_lifted_row_meets_the_replay_gate(
+        self, drtmle_pair: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A lifted row still refuses when the stored result cannot supply its replay slot.
+
+        No omitted-variable row declares a replay slot today, so the test declares one.
+        """
+        import cleverly.assessment as assessment
+
+        guarded = drtmle_pair[1]
+        facade = type(guarded.sensitivity)
+        original = facade._consistent_mechanism_gated
+
+        def with_slot(self: Any, capability: Any, arguments: Any) -> Any:
+            return original(self, replace(capability, requires_replay="refit_nuisances"), arguments)
+
+        monkeypatch.setattr(facade, "_consistent_mechanism_gated", with_slot)
+        monkeypatch.setattr(
+            assessment,
+            "replayability",
+            lambda result: assessment.Replayability(
+                True, True, True, False, False, ("estimator configuration",)
+            ),
+        )
+        with pytest.raises(CapabilityError, match="reported codes"):
+            guarded.sensitivity.omitted_confounding(
+                "ate", cf_y=CF, cf_d=CF, assume_consistent_mechanism=True
+            )
 
     def test_the_contour_runs_through_the_facade(self, ctmle_pair: tuple[Any, Any]) -> None:
         collaborative = ctmle_pair[1]
