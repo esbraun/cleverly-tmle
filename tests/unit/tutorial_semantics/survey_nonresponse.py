@@ -8,7 +8,6 @@ decimals are also compared against its stored outputs, and every decimal it writ
 from __future__ import annotations
 
 import csv
-import re
 from typing import Any
 
 import numpy as np
@@ -28,7 +27,6 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
-    stored_output,
 )
 
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
@@ -48,33 +46,8 @@ UNPRINTED_DECIMALS = {
 
 _REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
 
-#: Decimals of the 400-draw readings in Step 9, which no cell prints.  Each appears in the log.
-_REFUTE_LOG_DECIMALS = (
-    "-7.5502e-05",
-    "-0.01617",
-    "-0.1142",
-    "0.08182",
-    "0.9705",
-    "0.9108",
-    "1.034",
-    "0.9375",
-    "0.9091",
-    "0.9591",
-    "0.10308",
-    "0.04522",
-    "-0.05278",
-    "0.1432",
-    "1.001",
-    "0.932",
-    "1.075",
-    "0.9238",
-    "0.9692",
-    "0.10231",
-    "-0.134",
-    "-0.232",
-    "-0.03598",
-    "0.004196",
-)
+#: Decimals of the 400-draw readings the Details quote, which no cell prints.  Each appears in the log.
+_REFUTE_LOG_DECIMALS = ("-0.134", "-0.232", "-0.03598", "0.004196")
 UNPRINTED_DECIMALS.update(
     dict.fromkeys(_REFUTE_LOG_DECIMALS, f"a value of the 400-draw review probe, {_REFUTE_PROBE}")
 )
@@ -269,28 +242,37 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{namespace['distance']:.1f}" == "0.2"
     assert f"{cc_target:.3f}" == "0.173"
 
-    # The support and nuisance reports print what the reading quotes.
+    # The support and nuisance reports give what the reading quotes.
     assert tuple(namespace["assessment"].attention) == ()
-    assessment_output = stored_output(NOTEBOOK, "assessment")
-    assert "P(A=a,Delta=1|W)  0.0081" in assessment_output
-    assert "max |clever covariate| (mean): 81.76" in assessment_output
-    assert "nuisance fits look reasonable" in assessment_output
-    assert "out-of-fold predictions" in assessment_output
+    support = namespace["support"]
+    assert round(support.mechanisms["P(A=a,Delta=1|W)"]["min"], 4) == 0.0081
+    assert round(support.mechanisms["P(Delta=1|A,W)"]["min"], 3) == 0.038
+    assert support.mechanisms["P(A=a,Delta=1|W)"]["clipped_fraction"] == 0.0
+    assert support.truncated["fraction"] == 0.0
+    # "The largest weight on a respondent is 41.2": one over the chance of the offer they got
+    # times the chance of answering under it, over respondents only.  Nonzero witness: the
+    # report's clever-covariate maximum also counts non-responders and is about twice as large.
+    weight = namespace["respondent_weight"]
+    assert len(weight) == int(frame["responded"].sum())
+    assert f"{weight.max():.1f}" == "41.2"
+    assert max(support.clever_covariate_max.values()) > 1.5 * weight.max()
+    # "only 3 of 3,051 respondents carry a weight above 20".
+    assert namespace["heavy"] == int((weight > 20).sum()) == 3
+    # The fit caps the chances at the printed bounds, and nothing reached them.
+    assert round(support.bounds[0], 4) == 0.0095 and support.nuisance_bound == 0.01
+    assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
+    assert "out-of-fold predictions" in namespace["nuisance"].summary()
     # The omitted-variable bound admits a response mechanism, so its rows run.  The benchmark
     # refits, so the default assessment defers it.
     ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])
     for row in OMITTED_VARIABLE_OPERATIONS:
         status = "deferred" if row == "benchmark" else "completed"
         assert str(ledger.loc[("sensitivity", row), "status"]) == status
-        assert re.search(rf"sensitivity\s+{row}\s+{status}", assessment_output)
     # The E-value standardizes by a missing-at-random plug-in of sd(Y), which fits one more
     # outcome regression, so the default assessment defers it.
     assert str(ledger.loc[("sensitivity", "evalue"), "status"]) == "deferred"
-    assert re.search(r"sensitivity\s+evalue\s+deferred", assessment_output)
-    assert "unavailable" not in assessment_output and "not_applicable" not in assessment_output
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
-        assert re.search(rf"sensitivity\s+{row}\s+completed", assessment_output)
 
     # Step 10: the estimate never reaches 0 under the navigation-arm tilt, and the interval does
     # at 4.921.  Nonzero witness: just before it, the lower limit is still positive.
@@ -326,6 +308,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert (curve["std_err"] == full.std_error).all()
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
+    # The printed mean drop is the move of the estimate over the mean non-response probability,
+    # and it approaches the missing-at-random mean as gamma grows toward the floor.
+    printed = namespace["curve"]
+    expected_drop = (full.psi - curve["psi"].to_numpy()) / nonresponse
+    assert np.allclose(printed["mean drop"].to_numpy(), expected_drop)
+    assert float(printed["mean drop"].iloc[-1]) < namespace["mar_mean"]
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -347,11 +335,13 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
-    printed = stored_output(NOTEBOOK, "refutation")
+    report = str(refutation.summary())
     # The report names the nearest registered row, a TMLE row with GLM nuisances, and the learner
     # on which this fit differs.  Nonzero witness: the first registered row is a longitudinal one.
-    assert "Covered: methods ['TMLE']" in printed and "LTMLE" not in printed
-    assert "This fit differs on learner HistGradientBoostingRegressor" in printed
+    assert "Covered: methods ['TMLE']" in report and "LTMLE" not in report
+    assert "This fit differs on learner HistGradientBoostingRegressor" in report
+    # "The verdict column reads descriptive".
+    assert set(refutation.to_frame()["verdict"]) == {"descriptive"}
     # The placebo reading: "+0.0009203 ... spread 0.006121 ... t +0.6724 (p = 0.509) ... 0.9123".
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)
@@ -415,16 +405,21 @@ def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
         and "outside [-0.2, 0.2]" in probe
     )
     assert round(0.10287 - 0.10231, 5) == 0.00056
-    printed = stored_output(NOTEBOOK, "generated-outcomes")
-    # "Each test runs 10 draws ... level L1 with no verdict."
-    assert printed.count("10 draws are below the calibrated minimum of 400") == 3
-    assert printed.count("successful=10; failed=0") == 3
-    assert printed.count(" L1 ") == 3 and "VERDICT" not in printed
-    # Truth: 0 for the dummy and one shared positive value for the other two.  The readings quote
-    # these truths and the withheld ratio and coverage of the held-design simulated outcome.
-    assert "readings inside their bands around 0  " in printed
-    assert printed.count("bands around 0.10287") == 2
-    assert "standard-error ratio and coverage withheld" in printed
+    tests = namespace["generated_tests"]
+    # "with 10 every line prints level L1, the numbers without a pass or fail".
+    assert set(tests) == {"dummy_outcome", "simulated_outcome", "plasmode"}
+    for check in tests.values():
+        assert check.n_replicates == 10 and len(check.values) == 10
+        assert check.rung == "L1" and check.passed is None
+        bias = check.readings[0]
+        assert bias.name == "bias" and bias.upper - bias.lower > 0.2 - (-0.2)
+    # Truth: 0 for the dummy and one shared positive value for the other two, which differs from
+    # the recorded estimate.  The held-design simulated outcome withholds the ratio and coverage.
+    assert tests["dummy_outcome"].declared_effect == 0.0
+    shared = tests["simulated_outcome"].declared_effect
+    assert shared == tests["plasmode"].declared_effect and 0.0 < shared < fitted["ate"].psi - 0.03
+    assert [reading.name for reading in tests["simulated_outcome"].readings] == ["bias"]
+    assert len(tests["plasmode"].readings) == 3
     # A bare Gaussian declaration refuses the fit that declares q_bounds, as the page says.
     refusal = refute_refusal(
         fitted,
@@ -451,8 +446,6 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3612)
     assert rv["limit_licensed"] is False
     assert "differs on outcome family 'gaussian'" in rv["limit_sentence"]
-    printed = stored_output(NOTEBOOK, "evalue-bound")
-    assert "This fit differs on outcome family 'gaussian'," in printed
     # The benchmarks: the table of the reading, recomputed from the fit.
     expected = {
         "discharge_risk": (1.0, 0.361, (-0.0759, 0.3716), (-0.0947, 0.3906)),
@@ -479,3 +472,13 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     # added the response gain would move it.
     flat = fitted.sensitivity.omitted_confounding(benchmark=utilization)
     assert flat.lower == pytest.approx(fitted["ate"].psi, abs=1e-9)
+    # The bisection: at cf_y = 1 the lower limit reaches zero at the printed weight-side
+    # strength, about half that of discharge_risk and more than five times that of age.
+    tipping = namespace["tipping_cf_d"]
+    assert f"{tipping:.2f}" == "0.17"
+    assert abs(fitted.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping).ci_lower) < 1e-6
+    assert fitted.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).ci_lower > 0.0
+    strengths = {name: record.cf_d for name, (record, _) in namespace["benchmarks"].items()}
+    assert strengths["prior_utilization"] < strengths["age"] < tipping < strengths["discharge_risk"]
+    assert 0.4 < tipping / strengths["discharge_risk"] < 0.6
+    assert 5.0 < tipping / strengths["age"] < 6.0
