@@ -17,10 +17,13 @@ standard error.
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import replace
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
+from sklearn.dummy import DummyClassifier
+from sklearn.linear_model import LogisticRegression
 
 from cleverly.datasets import make_binary_outcome, make_instrument
 from cleverly.estimators import CTMLE, DRTMLE
@@ -182,7 +185,9 @@ class TestTheCTMLEPointBound:
         """Mutation control: without the refit, the bound reads the selected mechanism."""
         plain, collaborative = ctmle_pair
         monkeypatch.setattr(
-            ov, "_full_mechanism", lambda result, repeat: repeat.nuisance.propensity
+            ov,
+            "_full_mechanism",
+            lambda result, repeat, learner=None: repeat.nuisance.propensity,
         )
         mutated = _elements(collaborative).nu2
         assert mutated != pytest.approx(sensitivity_elements(plain, "ate").nu2, rel=1e-3)
@@ -308,14 +313,271 @@ def test_repeats_combine_the_point_bounds_by_the_median(binary_frame: Any) -> No
     assert bound.limit_refusal is not None
 
 
+class _RecordingLogit(LogisticRegression):
+    """A logistic mechanism that records the width of every design it is fitted on."""
+
+    widths: ClassVar[list[int]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
+        type(self).widths.append(int(np.shape(X)[1]))
+        return super().fit(X, y, sample_weight=sample_weight)
+
+
 class TestThePerArmParametricPointBound:
-    def test_a_per_arm_fit_refuses_the_refit(self) -> None:
-        """A per-arm mechanism reads one outcome prediction, so it has no refit on every covariate."""
-        collaborative = per_arm_fit(extended_frame(BINARY_ACTIVE, 500, 93))
+    """A per-arm fit's treatment learner reads one column, so the bound needs a declared one."""
+
+    @pytest.fixture(scope="class")
+    def frame(self) -> Any:
+        return extended_frame(BINARY_ACTIVE, 500, 93)
+
+    @pytest.fixture(scope="class")
+    def collaborative(self, frame: Any) -> Any:
+        return per_arm_fit(frame)
+
+    @pytest.fixture(scope="class")
+    def plain(self, frame: Any) -> Any:
+        """The ordinary TMLE with the declared learner as its mechanism, in sample."""
+        return _fit(
+            fast_tmle(
+                **IN_SAMPLE,
+                estimands=("ate",),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                g_bounds=(0.01, 0.99),
+            ),
+            frame,
+        )
+
+    def test_without_a_learner_the_bound_refuses(self, collaborative: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
             omitted_variable_bounds(
                 collaborative, "ate", cf_y=CF, cf_d=CF, assume_consistent_mechanism=True
             )
-        assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert "per-arm" in str(raised.value)
-        assert "ordinary TMLE" in str(raised.value)
+        alternative = raised.value.refusal.alternative
+        assert alternative is not None
+        assert "mechanism_learner=" in alternative
+        assert "ordinary TMLE" in alternative
+
+    def test_the_declared_learner_gives_the_ordinary_nu2(
+        self, collaborative: Any, plain: Any
+    ) -> None:
+        """Nonzero witness: the representer is the declared mechanism's, through the g bounds.
+
+        The ordinary fit clips its mechanism to the same declared ``g_bounds``, so equal
+        ``nu^2`` under both estimators also witnesses the clipping.
+        """
+        for estimator in ("doubly_robust", "plugin"):
+            (draw,) = ov._consistent_draws(
+                collaborative, "ate", estimator, LogisticRegression(max_iter=1000)
+            )
+            expected = sensitivity_elements(plain, "ate", nu2_estimator=estimator).nu2
+            assert draw.elements.nu2 == pytest.approx(expected, rel=1e-6), estimator
+            assert draw.elements.nu2 > 0.0
+
+    def test_the_learner_reads_every_adjustment_column(self, collaborative: Any) -> None:
+        _RecordingLogit.widths.clear()
+        ov._consistent_draws(collaborative, "ate", "auto", _RecordingLogit(max_iter=1000))
+        assert _RecordingLogit.widths
+        assert set(_RecordingLogit.widths) == {collaborative.data.covariates.shape[1]}
+        assert collaborative.data.covariates.shape[1] > 1
+
+    def test_an_intercept_only_learner_moves_nu2(self, collaborative: Any) -> None:
+        """Mutation control: the declared learner is the one the representer reads."""
+        (fitted,) = ov._consistent_draws(
+            collaborative, "ate", "auto", LogisticRegression(max_iter=1000)
+        )
+        (marginal,) = ov._consistent_draws(
+            collaborative, "ate", "auto", DummyClassifier(strategy="prior")
+        )
+        assert abs(marginal.elements.nu2 / fitted.elements.nu2 - 1.0) > 0.10
+
+    def test_the_bound_records_and_states_the_learner(self, collaborative: Any) -> None:
+        bound = omitted_variable_bounds(
+            collaborative,
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=LogisticRegression(max_iter=1000),
+        )
+        assert bound.mechanism_learner is not None
+        assert "LogisticRegression" in bound.mechanism_learner
+        assert bound.to_dict()["mechanism_learner"] == bound.mechanism_learner
+        assert bound.assumption is not None
+        assert "declared mechanism learner" in bound.assumption
+        assert "consistent for the mechanism" in bound.assumption
+        assert bound.limit_refusal is not None
+        assert bound.psi == collaborative["ate"].psi
+
+    def test_the_facade_forwards_the_learner(self, collaborative: Any) -> None:
+        """The result facade lifts its row for the request and runs the same bound."""
+        declared = omitted_variable_bounds(
+            collaborative,
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=LogisticRegression(max_iter=1000),
+        )
+        through = collaborative.sensitivity.omitted_confounding(
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=LogisticRegression(max_iter=1000),
+        )
+        assert (through.lower, through.upper, through.max_bias) == (
+            declared.lower,
+            declared.upper,
+            declared.max_bias,
+        )
+        assert through.mechanism_learner == declared.mechanism_learner
+        # The cache keys on the learner, so a second learner computes its own bound.
+        marginal = collaborative.sensitivity.omitted_confounding(
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=DummyClassifier(strategy="prior"),
+        )
+        assert marginal.max_bias != through.max_bias
+
+    def test_the_facade_refuses_without_a_learner(self, collaborative: Any) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            collaborative.sensitivity.omitted_confounding(
+                "ate", cf_y=CF, cf_d=CF, assume_consistent_mechanism=True
+            )
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        # The facade's own row refuses, before the call runs.
+        assert "'omitted_confounding' is unavailable" in str(raised.value)
+        assert "per-arm" in str(raised.value)
+        assert "mechanism_learner=" in str(raised.value)
+        assert not collaborative.sensitivity.capability("omitted_confounding").available
+
+
+class TestTheFacadeLiftsItsRow:
+    """The facade refuses the bare bound and runs the request that names the keyword."""
+
+    @pytest.mark.parametrize("pair", ["drtmle_pair", "ctmle_pair"])
+    @pytest.mark.parametrize("operation", ["omitted_confounding", "robustness_value"])
+    def test_the_facade_equals_the_free_function(
+        self, request: pytest.FixtureRequest, pair: str, operation: str
+    ) -> None:
+        fitted = request.getfixturevalue(pair)[1]
+        free = {
+            "omitted_confounding": omitted_variable_bounds,
+            "robustness_value": robustness_value,
+        }
+        kwargs: dict[str, Any] = {"assume_consistent_mechanism": True}
+        if operation == "omitted_confounding":
+            kwargs.update(cf_y=CF, cf_d=CF)
+        expected = free[operation](fitted, "ate", **kwargs)
+        through = getattr(fitted.sensitivity, operation)("ate", **kwargs)
+        if operation == "omitted_confounding":
+            through, expected = through.to_dict(), expected.to_dict()
+        assert through == expected
+        assert not fitted.sensitivity.capability(operation).available
+        with pytest.raises(CapabilityError, match="assume_consistent_mechanism=True"):
+            getattr(fitted.sensitivity, operation)("ate")
+
+    def test_the_lifted_row_meets_the_replay_gate(
+        self, drtmle_pair: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A lifted row still refuses when the stored result cannot supply its replay slot.
+
+        No omitted-variable row declares a replay slot today, so the test declares one.
+        """
+        import cleverly.assessment as assessment
+
+        guarded = drtmle_pair[1]
+        facade = type(guarded.sensitivity)
+        original = facade._consistent_mechanism_gated
+
+        def with_slot(self: Any, capability: Any, arguments: Any) -> Any:
+            return original(self, replace(capability, requires_replay="refit_nuisances"), arguments)
+
+        monkeypatch.setattr(facade, "_consistent_mechanism_gated", with_slot)
+        monkeypatch.setattr(
+            assessment,
+            "replayability",
+            lambda result: assessment.Replayability(
+                True, True, True, False, False, ("estimator configuration",)
+            ),
+        )
+        with pytest.raises(CapabilityError, match="reported codes"):
+            guarded.sensitivity.omitted_confounding(
+                "ate", cf_y=CF, cf_d=CF, assume_consistent_mechanism=True
+            )
+
+    def test_the_contour_runs_through_the_facade(self, ctmle_pair: tuple[Any, Any]) -> None:
+        collaborative = ctmle_pair[1]
+        expected = contour_data(collaborative, "ate", grid_size=3, assume_consistent_mechanism=True)
+        through = collaborative.sensitivity.contour(
+            "ate", grid_size=3, assume_consistent_mechanism=True
+        )
+        assert through.equals(expected)
+
+    def test_a_fit_that_selects_nothing_keeps_its_redirection(self) -> None:
+        frame, _ = make_instrument(n=600, seed=44)
+        nothing = _fit(
+            CTMLE(
+                **FAST_KWARGS,
+                **IN_SAMPLE,
+                estimands=("ate",),
+                strategy="learners",
+                treatment_candidates=[],
+            ),
+            frame,
+        )
+        redirection = ov._CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
+        with pytest.raises(CapabilityError) as raised:
+            nothing.sensitivity.omitted_confounding("ate", assume_consistent_mechanism=True)
+        assert raised.value.refusal.reason is redirection.reason
+        assert raised.value.refusal.alternative == redirection.alternative
+
+
+class TestTheDeclaredMechanismLearner:
+    def test_the_fit_s_own_learner_reproduces_the_default(
+        self, ctmle_pair: tuple[Any, Any]
+    ) -> None:
+        """Equality witness: the keyword reaches the refit and nothing else."""
+        collaborative = ctmle_pair[1]
+        default = _bound(collaborative)
+        declared = omitted_variable_bounds(
+            collaborative,
+            "ate",
+            cf_y=CF,
+            cf_d=CF,
+            assume_consistent_mechanism=True,
+            mechanism_learner=collaborative.estimator.treatment_learner,
+        )
+        assert (declared.lower, declared.upper, declared.max_bias) == (
+            default.lower,
+            default.upper,
+            default.max_bias,
+        )
+        assert default.mechanism_learner is None
+
+    def test_it_needs_the_consistent_mechanism_flag(self, ctmle_pair: tuple[Any, Any]) -> None:
+        for call in (omitted_variable_bounds, robustness_value, contour_data):
+            with pytest.raises(ValueError, match="assume_consistent_mechanism=True"):
+                call(ctmle_pair[1], "ate", mechanism_learner=LogisticRegression())
+
+    def test_a_drtmle_or_tmle_fit_rejects_it(self, drtmle_pair: tuple[Any, Any]) -> None:
+        plain, guarded = drtmle_pair
+        with pytest.raises(ValueError, match="A DRTMLE bound reads"):
+            omitted_variable_bounds(
+                guarded,
+                "ate",
+                assume_consistent_mechanism=True,
+                mechanism_learner=LogisticRegression(),
+            )
+        with pytest.raises(ValueError, match="needs neither keyword") as raised:
+            omitted_variable_bounds(
+                plain,
+                "ate",
+                assume_consistent_mechanism=True,
+                mechanism_learner=LogisticRegression(),
+            )
+        assert "DRTMLE" not in str(raised.value)
