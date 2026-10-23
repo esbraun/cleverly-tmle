@@ -135,8 +135,8 @@ The test fails on four states.
 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) | 3 | adaptive-propensity IPTW |
 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
-| [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) | 4 | longitudinal refutation verdict rules, point-treatment refutation verdict rules |
-| total | 212 | 39 studies |
+| [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) | 5 | longitudinal refutation verdict rules, point-treatment refutation verdict rules, band-rank placebo verdict rule |
+| total | 213 | 40 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -353,6 +353,7 @@ same text as the "measured" column of its study page.
 | [longitudinal refutation verdict rules](refuter-calibration-longitudinal.md) | truth | `cleverly-refute-longitudinal/survival/ate` | cleverly-refute-longitudinal | its truth gate | bias -0.0068 to 0.0085, coverage 0.9450, SE ratio 0.9993 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [point-treatment refutation verdict rules](refuter-calibration-point.md) | truth | `cleverly-refute-point/binomial/ate` | cleverly-refute-point | its truth gate | bias -0.0018 to 0.0031, coverage 0.9650, SE ratio 1.0462 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [point-treatment refutation verdict rules](refuter-calibration-point.md) | truth | `cleverly-refute-point/gaussian/ate` | cleverly-refute-point | its truth gate | bias -0.0035 to 0.0140, coverage 0.9400, SE ratio 1.0087 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
+| [band-rank placebo verdict rule](refuter-calibration-band.md) | truth | `cleverly-refute-band/point/ate` | cleverly-refute-band | its truth gate | bias -0.0024 to 0.0078, coverage 0.9500, SE ratio 1.0145 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
