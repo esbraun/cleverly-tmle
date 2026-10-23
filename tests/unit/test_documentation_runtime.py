@@ -789,7 +789,7 @@ EXPECTED_REFIT_CELLS = {
         "team-plasmode",
         "team-surface",
     ],
-    "interventions": ["refute-regimes", "generated", "sensitivity", "sensitivity-other"],
+    "interventions": ["bound", "refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
     "msm-projections": ["refute", "generated", "surface"],
     "point-treatment-tmle": [
