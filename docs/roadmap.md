@@ -166,6 +166,7 @@ not change the package version.
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| BD | Plain-language rewrite of the example notebooks | no new theory; documentation only | X86 for each notebook; before X68 and X69 | [X88](#x88-plain-language-rewrite-of-the-example-notebooks) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -829,7 +830,9 @@ the broad review that step 1 of the documentation procedure otherwise excludes.
 | succinctness | each sentence adds verifiable information. Remove repetition, generic introductions, restated headings, closing summaries, and adjectives with no evidence |
 
 The succinctness check targets the patterns of unreviewed generated text. Remove them, and do not
-replace them with other words of the same kind. Keep a table where the content is parallel.
+replace them with other words of the same kind. Apply
+[Writing for readers](development/writing-for-readers.md), which names the reader of each area
+and lists these patterns.
 
 Acceptance: a reviewer other than the author reads each changed page against the four checks and
 records the findings in the pull request. `python -m tests.prose` has no unjudged finding, and the
@@ -1816,6 +1819,31 @@ second mechanism, and no read source defines it. A longitudinal fit is refused u
 
 Acceptance: a read source for each bound; the linear program of the joint model solved on a finite
 law; a registered coverage study for each interval.
+
+### X88. Plain-language rewrite of the example notebooks
+
+Each notebook under `docs/examples/` is rewritten for a data scientist who is new to causal
+inference and to `cleverly`, and who wants to run the analysis and explain the result.
+[Writing for readers](development/writing-for-readers.md) holds the rules, the library words to
+replace, the machine-writing tells to remove, and the reader review. Statistical content does not
+change: the fits, learners, seeds, and estimates stay the same.
+
+| item | what | waits on |
+| --- | --- | --- |
+| (0a) | the writing guide, `scripts/render_for_reader_review.py`, the documentation rules in `CLAUDE.md` and `contributing.md`, and the page outline in `example-notebooks.md` | nothing |
+| (0b) | a baseline reader review of each notebook whose X86 item has merged | (0a) |
+| (P) | the pilot rewrite of `point-treatment-tmle.ipynb`, which may amend the guide | (0a); X86 (a) |
+| (B) | the other nine notebooks, one pull request each | (P); the notebook's own X86 item |
+| (z) | `docs/examples/index.md` as a landing page, toctree captions, and a check across all pages for template sameness | every (B) item |
+
+Each rewrite keeps every scientific claim, in plain words, in a Details dropdown, or on a linked
+page, and it records the fate of each claim. The notebook headings become landmarks such as "Why a
+simple comparison misleads" and "What we can and can't conclude", and the main path comes before
+theory and comparisons.
+
+Acceptance: for each notebook, the reader review of the guide passes; the fits and estimates do
+not move; the fast suite, the link test, and the documentation build pass; an implementation
+review approves.
 
 ### P1. EP learner
 
