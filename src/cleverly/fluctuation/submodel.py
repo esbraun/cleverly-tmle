@@ -180,7 +180,7 @@ def check_arms(observed: FloatArray, arms: Mapping[float, FloatArray], what: str
     for level, values in arms.items():
         if not isinstance(level, float):
             raise TypeError(
-                f"{what} arm keys must be floats (the treatment level the arm sets) "
+                f"{what} arm keys must be floats (the treatment level the arm sets), "
                 f"but got {level!r} of type {type(level).__name__}"
             )
         if np.asarray(values).shape != np.asarray(observed).shape:

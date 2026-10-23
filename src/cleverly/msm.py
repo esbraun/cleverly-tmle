@@ -1370,7 +1370,7 @@ def _arm_design(msm: MSM, label: Any, frame: Any, n: int) -> FloatArray:
     if values.shape != (n, len(msm.terms)):
         raise DataError(
             f"the working model's design returned shape {values.shape} for arm {label!r}; "
-            f"expected ({n}, {len(msm.terms)}) one row per unit and one column per term "
+            f"expected ({n}, {len(msm.terms)}): one row per unit and one column per term "
             f"{list(msm.terms)}"
         )
     return values
@@ -1383,7 +1383,7 @@ def _arm_weights(msm: MSM, label: Any, frame: Any, n: int) -> FloatArray:
     if values.shape != (n,):
         raise DataError(
             f"the working model's weights returned shape {values.shape} for arm {label!r}; "
-            f"expected ({n},) one weight per unit"
+            f"expected ({n},): one weight per unit"
         )
     return values
 
