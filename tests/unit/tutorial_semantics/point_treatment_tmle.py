@@ -234,8 +234,13 @@ def _check_odds_bounds(namespace: dict[str, Any]) -> None:
     assert bounds.rows[2].lower_limit > 0.0 > bounds.rows[3].lower_limit
     assert bounds.limit_breakdown == 4.0
     assert bounds.breakdown is None
-    # "no simulation study backs these limits for this kind of fit".
+    # "no simulation study backs these limits for this fit. The study behind them used linear
+    # models and at least 8,000 patients, while this fit uses boosted models and 3,000".
     assert bounds.limit_descriptive
+    sentence = bounds.limit_reading.sentence
+    assert "This fit differs on learner HistGradientBoostingRegressor(" in sentence
+    assert "n = 3000 (below 8000)" in sentence
+    assert "'LinearRegression()'" in sentence
 
 
 def _check_surface(namespace: dict[str, Any]) -> None:
