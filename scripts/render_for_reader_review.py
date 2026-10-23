@@ -91,9 +91,40 @@ TERMS: dict[str, str] = {
     "IPSI": r"\bIPSI\b",
 }
 
+#: Acronyms and API tokens keep their case. Every other term matches in any case, so a word that
+#: opens a sentence or a heading still counts as a use.
+CASE_SENSITIVE = frozenset(
+    {
+        "StudyProtocol",
+        "q_bounds",
+        "random_common_cause",
+        "L0, L1, L2",
+        "VERDICT_EVIDENCE",
+        "Covered:",
+        "cf_y, cf_d",
+        "nu squared",
+        "CV-TMLE",
+        "ATE",
+        "ATT",
+        "ATC",
+        "MSM",
+        "LTMLE",
+        "C-TMLE",
+        "OAT",
+        "MTP",
+        "IPSI",
+    }
+)
+
+TERM_PATTERNS = {
+    term: re.compile(pattern, 0 if term in CASE_SENSITIVE else re.IGNORECASE)
+    for term, pattern in TERMS.items()
+}
+
 BOLD_OPENER = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?\*\*(?P<label>[^*\n]+?)\*\*")
 BOILERPLATE = "what this output tells you"
-STEP_NUMBER = re.compile(r"\bsteps?\s+\d+\b", re.IGNORECASE)
+STEP_NUMBER = re.compile(r"\bsteps?\s+\d+\b(?![.,]\d)", re.IGNORECASE)
+CITED_STEP = re.compile(r"\b(?:Algorithm|Section)\s+[\d.]+,\s*$")
 NUMBERED_HEADING = re.compile(r"^#{1,6}\s+\d+[.)]\s")
 HEADING = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
 GO_DEEPER = re.compile(r"\bgo deeper\b", re.IGNORECASE)
@@ -162,10 +193,10 @@ def segments(markdown: str) -> list[Segment]:
                 continue
             if line.strip().startswith("$$"):
                 out.append(Segment("math", [line]))
-                if line.strip() == "$$" or not line.strip().endswith("$$") or len(line.strip()) < 4:
-                    state = "math"
+                if "$$" in line.strip()[2:]:
+                    out.append(Segment("prose"))  # the whole display sits on this line
                 else:
-                    out.append(Segment("prose"))
+                    state = "math"
                 continue
             if DIRECTIVE_FENCE.match(line):
                 continue
@@ -185,7 +216,7 @@ def segments(markdown: str) -> list[Segment]:
                 state = "prose"
             continue
         out[-1].lines.append(line)
-        if line.strip().endswith("$$"):
+        if "$$" in line:
             out.append(Segment("prose"))
             state = "prose"
     return [segment for segment in out if segment.lines or segment.kind == "dropdown"]
@@ -226,7 +257,7 @@ def _output_text(output: dict[str, Any]) -> str:
 
 
 def read_cells(path: Path) -> list[Cell]:
-    """The cells of a notebook, or the heading sections of a Markdown or RST page."""
+    """The cells of a notebook, or the heading sections of a Markdown page."""
     text = path.read_text(encoding="utf-8")
     if path.suffix == ".ipynb":
         cells: list[Cell] = []
@@ -343,17 +374,25 @@ def _tables(text: str) -> list[tuple[int, int]]:
     index = 0
     while index < len(lines) - 1:
         header, rule = lines[index], lines[index + 1]
-        if header.strip().startswith("|") and TABLE_SEPARATOR.match(rule):
+        if "|" in header and "|" in rule and TABLE_SEPARATOR.match(rule):
             columns = len(header.strip().strip("|").split("|"))
             rows = 0
             index += 2
-            while index < len(lines) and lines[index].strip().startswith("|"):
+            while index < len(lines) and "|" in lines[index] and lines[index].strip():
                 rows += 1
                 index += 1
             found.append((rows, columns))
             continue
         index += 1
     return found
+
+
+def _step_numbers(report: Report, cell_id: str, text: str) -> None:
+    """Record each step number in ``text``, except a step that an algorithm citation names."""
+    for match in STEP_NUMBER.finditer(text):
+        if CITED_STEP.search(text[: match.start()]):
+            continue
+        report.step_numbers.append((cell_id, _snippet(text, *match.span())))
 
 
 def measure(cells: list[Cell], budget: int) -> Report:
@@ -367,6 +406,7 @@ def measure(cells: list[Cell], budget: int) -> Report:
             if segment.kind == "dropdown":
                 words = word_count(prose_text(segment.lines))
                 report.dropdowns.append((cell.cell_id, segment.title, words))
+                _step_numbers(report, cell.cell_id, "\n".join(segment.lines))
                 continue
             if segment.kind != "prose":
                 continue
@@ -379,18 +419,19 @@ def measure(cells: list[Cell], budget: int) -> Report:
                 if main_path:
                     report.main_words += word_count(line)
             text = "\n".join(segment.lines)
-            for paragraph in re.split(r"\n\s*\n|\n(?=\s*(?:[-*+]|\d+[.)])\s)", text):
+            # A heading line ends a paragraph even with no blank line after it.
+            spaced = re.sub(r"^(#{1,6}\s.*)$", r"\1\n", text, flags=re.MULTILINE)
+            for paragraph in re.split(r"\n\s*\n|\n(?=\s*(?:[-*+]|\d+[.)])\s)", spaced):
                 opener = BOLD_OPENER.match(paragraph)
                 if opener:
                     label = opener["label"].strip()
                     report.bold_openers[label] += 1
                     report.bold_cells.setdefault(label, []).append(cell.cell_id)
-            for match in STEP_NUMBER.finditer(text):
-                report.step_numbers.append((cell.cell_id, _snippet(text, *match.span())))
-            for term, pattern in TERMS.items():
+            _step_numbers(report, cell.cell_id, text)
+            for term, pattern in TERM_PATTERNS.items():
                 if term in report.first_terms:
                     continue
-                found = re.search(pattern, text)
+                found = pattern.search(text)
                 if found:
                     report.first_terms[term] = (cell.cell_id, _snippet(text, *found.span()))
             for rows, columns in _tables(text):
@@ -465,7 +506,7 @@ def report_text(path: Path, report: Report) -> str:
 def main(argv: list[str] | None = None) -> int:
     """Write the reader's view and the report, and return 1 when a gated measure fails."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("page", type=Path, help="a notebook, Markdown, or RST page")
+    parser.add_argument("page", type=Path, help="a notebook or a Markdown page")
     parser.add_argument("--output", type=Path, required=True, help="the directory to write into")
     parser.add_argument("--budget", type=int, help="the main-path word budget")
     args = parser.parse_args(argv)

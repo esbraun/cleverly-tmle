@@ -1,10 +1,8 @@
 # Writing for readers
 
-This guide holds the writing rules for every reader-facing page of `cleverly`: the root
-`README.md` and every Markdown, RST, or notebook source under `docs/`. It names the reader of each
-documentation area, the rules that serve that reader, the library words that need a plain
-replacement, and the habits of machine-written prose to remove. Its last part is the reader
-review: the procedure that checks a rewritten page against a model reader before it merges.
+These rules apply to every reader-facing page of `cleverly`: the root `README.md` and every
+Markdown, RST, or notebook source under `docs/`. Each documentation area has one reader, and a
+rewritten data-scientist page passes a reader review before it merges.
 
 `CLAUDE.md` gives the short form of these rules. [Contributing](contributing.md#write-documentation)
 gives the steps that every documentation change follows, including the prose report.
@@ -20,12 +18,16 @@ Each documentation area has one reader. Write for that reader, and apply the rul
 | `docs/technical-reference/` | a statistician who knows causal inference and wants the exact estimand, the conditions, and the evidence | the machine-writing tells, and rules R5, R10, R13, and R14. Terms of art and formulas stay. The table stays the main device where the reader compares rows |
 | `docs/development/` and the other pages under `docs/` (`docs/README.md`, `architecture-invariants.md`, `roadmap.md`, `references.md`) | contributors | the machine-writing tells. These pages get no reader review |
 
-The data scientist knows Python, pandas, and scikit-learn, and fits and validates predictive
-models with train/test splits and cross-validation. They know regression, confidence intervals,
-p-values, and standard errors, and they know that correlation is not causation and roughly what a
-confounder is. They do not know causal inference theory (potential outcomes, identification,
-efficiency theory), and they have not met TMLE, influence curves, double robustness, or positivity
-and estimands as terms. They do not know `cleverly`'s objects or its vocabulary.
+The data scientist:
+
+- knows Python, pandas, and scikit-learn, and fits and validates predictive models with train/test
+  splits and cross-validation;
+- knows regression, confidence intervals, p-values, and standard errors;
+- knows that correlation is not causation, and roughly what a confounder is;
+- does not know causal inference theory: potential outcomes, identification, and efficiency
+  theory;
+- has not met TMLE, influence curves, double robustness, or positivity and estimands as terms;
+- does not know `cleverly`'s objects or its vocabulary.
 
 Their goal is to run this kind of analysis on their own data this afternoon, and then explain the
 result to a manager who asks "so did it work, and how sure are we?". They skim. They read the code
@@ -43,7 +45,7 @@ wrong.
 | R5 | After each output, say what to look at and what it means, in two to four sentences. Point at the line or the column. Do not restate every number | the reader needs the reading, not a transcript |
 | R6 | Quote a number at the precision that a decision needs: an effect to two or three significant figures. The narration test accepts a prose decimal within half a unit of its last written place, so rounding in prose needs no new print. Do not round so far that the check stops meaning anything, such as "0.3" for 0.2649 | 0.0021809 tells the reader nothing that -0.002 does not |
 | R7 | Keep every statistical claim accurate. Simplify by choosing what to say, never by saying something false. A condition that a claim needs stays in the sentence, in plain words. Formulas, derivations, exact conditions, and probe numbers go in a collapsed `:::{dropdown} Details` block or on the linked reference page | accuracy is not negotiable; density is |
-| R8 | Write paragraphs, not tables, unless the reader compares several items across the same columns. A table with one or two rows, or a table of reasons, is a paragraph. Keep a paragraph to six sentences, which `python -m tests.prose` reports | a table for each idea is the strongest machine tell in the current notebooks |
+| R8 | Write paragraphs, not tables, unless the reader compares several items across the same columns. A table with one or two rows, or a table of reasons, is a paragraph. Keep a paragraph to six sentences, which `python -m tests.prose` reports | a table for each idea is a strong machine tell |
 | R9 | Vary sentence length and join related ideas, but do not let any connective become a habit. Keep a sentence under about 30 words, and most well under | a run of one-idea sentences reads as a list with full stops, and a repeated "because ... so ..." is a new template |
 | R10 | State a caveat once, where it matters, in its strongest true form. Say once, in the conclusion, that the page shows one simulated draw | repeated caveats teach the reader to skip them |
 | R11 | Use the program's own words: "patients", "the navigation offer", "the experience score", "customers", "price". Use symbols such as $A$, $W$, and $Y$ only beside a formula or inside a Details block | the reader thinks in terms of the business problem |
@@ -112,7 +114,7 @@ before their rewrite.
 | abstract vocabulary | "the mechanism", "the reading", "the configuration", "the law" | name the thing: "the simulated data", "this fit", "the treatment model" |
 | backticks on every output token | 528 backticks on one page | R15 |
 | the same template on every page | identical heading sets, and an "At a glance" section in one fixed mold on every page | fit the wording to the page |
-| em dashes, spaced double hyphens, and empty transitions | an em dash between clauses; a sentence that opens with `Notably,` or `it is worth noting` | `python -m tests.prose` reports these |
+| em dashes, spaced double hyphens, and empty transitions | an em dash between clauses; a sentence that opens with `Notably,` or `it is worth noting` | remove them; `python -m tests.prose` reports them |
 
 ## The reader review
 
@@ -135,7 +137,7 @@ measures below. The exit status is 1 when a gated measure fails.
 
 | measure | pass |
 | --- | --- |
-| a repeated bold opener, such as `**What this output tells you.**` | none (gated) |
+| `**What this output tells you.**` even once, and any other bold opener used twice or more | none (gated) |
 | step numbers in headings or prose, such as "Step 7" or a heading such as `## 1. Setup` | none (gated) |
 | words of prose on the main path: everything before a "Go deeper" heading, excluding dropdowns and code | at most 2,000 (gated). The budget is 2,600 for `interventions`, `sequential-offers`, and `sequential-pricing`, which carry two or three analyses. `--budget` sets another limit |
 | words inside each dropdown | reported. The accuracy reviewer confirms that each dropdown holds only formulas, exact conditions, derivations, and probe numbers, and no main-path explanation |
@@ -180,7 +182,8 @@ You may know some of these terms from elsewhere; flag a term anyway if the page 
 saying what it means here.
 ```
 
-The statistician card, for a technical-reference page:
+The statistician card, for a later review of the technical reference (that review needs the
+maintainer's go):
 
 ```text
 You are a biostatistician who knows potential outcomes, TMLE and semiparametric efficiency. You
@@ -241,6 +244,7 @@ cell id, the quoted text, what is wrong, and the evidence.
 | accuracy review | no finding open |
 | claim ledger | every claim has a fate, and every dropped claim has a reason |
 | headings | the persona's description of the structure matches the headings |
+| tests | the fast suite, the link test, and `nox -s docs` pass |
 
 After three persona rounds without a pass, stop and report the open flags to the maintainer with a
 recommendation.

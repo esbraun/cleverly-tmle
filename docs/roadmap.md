@@ -166,7 +166,7 @@ not change the package version.
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
-| BD | Plain-language rewrite of the example notebooks | no new theory; documentation only | X86 for each notebook; before X68 and X69 | [X88](#x88-plain-language-rewrite-of-the-example-notebooks) |
+| beta | Plain-language rewrite of the example notebooks | no new theory; documentation only | X86 for each notebook. It runs before X68 and X69 | [X88](#x88-plain-language-rewrite-of-the-example-notebooks) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1833,13 +1833,19 @@ change: the fits, learners, seeds, and estimates stay the same.
 | (0a) | the writing guide, `scripts/render_for_reader_review.py`, the documentation rules in `CLAUDE.md` and `contributing.md`, and the page outline in `example-notebooks.md` | nothing |
 | (0b) | a baseline reader review of each notebook whose X86 item has merged | (0a) |
 | (P) | the pilot rewrite of `point-treatment-tmle.ipynb`, which may amend the guide | (0a); X86 (a) |
-| (B) | the other nine notebooks, one pull request each | (P); the notebook's own X86 item |
+| (B) | the other nine notebooks, one pull request each | (P); (0b) for the notebook; the notebook's own X86 item |
 | (z) | `docs/examples/index.md` as a landing page, toctree captions, and a check across all pages for template sameness | every (B) item |
+| (L) | only if (0b) recommends it: plain wording of the summary strings that the notebooks print, such as the `refute(...).summary()` lines `rung`, `ok`, and `Covered:` | X82 parts H and J; (z); X86 (a2) and (i2) |
 
 Each rewrite keeps every scientific claim, in plain words, in a Details dropdown, or on a linked
-page, and it records the fate of each claim. The notebook headings become landmarks such as "Why a
+page. It drops a claim only when the claim is redundant or no longer true, and it records the fate
+of each claim. The notebook headings become landmarks such as "Why a
 simple comparison misleads" and "What we can and can't conclude", and the main path comes before
 theory and comparisons.
+
+The guide and the reader review apply to any page. Later phases, each started by the maintainer,
+apply them to `README.md` and the getting-started pages, then the user guide, then the technical
+reference with the statistician as its reader.
 
 Acceptance: for each notebook, the reader review of the guide passes; the fits and estimates do
 not move; the fast suite, the link test, and the documentation build pass; an implementation

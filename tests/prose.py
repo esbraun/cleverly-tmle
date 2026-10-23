@@ -61,7 +61,7 @@ for.
 
 *A vocabulary restriction.*  The data-scientist pages replace ``cleverly``'s own words with plain
 ones, and ``docs/development/writing-for-readers.md`` lists them.  The technical reference keeps
-its terms of art, and there are hundreds of uses of them.  Whether a term is defined where it
+its terms of art, and there are thousands of uses of them.  Whether a term is defined where it
 first appears is a reading judgment, so ``scripts/render_for_reader_review.py`` lists the first
 uses for a reviewer and this module does not flag them.
 

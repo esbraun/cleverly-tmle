@@ -67,7 +67,7 @@ three.
 | What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | `sensitivity` |
 | What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
 | How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes | `method-evidence` |
-| Go deeper | theory and comparisons between estimators | `failure-mode` and the comparison cells |
+| Go deeper | theory and comparisons between estimators | the comparison cells, and `failure-mode` only when it is not the point of the page |
 | Where to go next | the next tutorial and the related reference entries | `where-next` |
 
 A lesson stays on the main path, before the conclusion, when it is the point of the page. An
@@ -78,7 +78,8 @@ extreme weights. Give each one a heading, a code cell, and its reading.
 
 Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
 cell, update the callback in the same change. Keep every scientific claim of the page, in plain
-words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks.
+words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
+when it is redundant or no longer true, and record the reason in the claim ledger.
 
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
@@ -188,7 +189,7 @@ where `base` is the protocol that `replace` received.
 | Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
 | Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
-| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The stored cell timestamps of the reference notebook span about 11 seconds |
+| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The stored cell timestamps of `point-treatment-tmle.ipynb` span about 11 seconds |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
 | Pair every figure with printed values | an image cannot enter the `--check` comparison |
 | Use no network, and write files only inside a `TemporaryDirectory` | the offline gate refuses a connection, and the kernel runs from the repository root |
@@ -295,7 +296,7 @@ a sampling claim, and it belongs in a registered study.
 
 Do these steps in order. Run each command from the repository root.
 
-1. Read the Markdown tutorial, its callback module, and the reference notebook.
+1. Read the Markdown tutorial, its callback module, and a merged notebook for code-cell practice.
 2. Write `docs/examples/<stem>.ipynb` with the page outline above. Leave the readings short for now.
 3. Format and lint the code cells.
 

@@ -100,8 +100,8 @@ The points agents miss most:
 - Give evidence for each material claim: a source, a test or artifact, or the condition it
   needs. Check scientific claims against code, tests, artifacts, and sources.
 
-When you rewrite a whole data-scientist page, run the reader review in the guide before you hand
-off. For any doc change, follow the
+When you rewrite a whole data-scientist page, or write a new one, run the reader review in the
+guide before you hand off. For any doc change, follow the
 [documentation procedure](docs/development/contributing.md#write-documentation): run
 `python -m tests.prose`, judge every finding, refresh the ledger with
 `python -m tests.prose --update`, and record `accepted: <reason>` for each retained finding in

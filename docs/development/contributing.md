@@ -116,10 +116,10 @@ Regenerate every registered study that evaluates a result-determining implementa
 [Writing for readers](writing-for-readers.md) holds the writing rules. It names the reader of each
 documentation area: a data scientist new to causal inference for the examples, the getting-started
 pages, and the user guide; a statistician for the technical reference; and contributors for these
-development pages. Write for that reader, lead with the answer, and define each technical term in
-plain words where it first appears. Use a table only when the reader compares items across the
-same columns. When you rewrite a whole data-scientist page, run the guide's reader review before
-you open the pull request.
+development pages. Write for that reader. On a data-scientist page, lead with the answer, and define
+each technical term in plain words where it first appears. Use a table only when the reader compares
+items across the same columns. When you rewrite a whole data-scientist page, or write a new one, run
+the guide's reader review before you open the pull request.
 
 `docs/README.md` is the source map. It states which document holds which record. It also states the
 examples contract: a new method entry needs a new tutorial, and the two link to each other in both

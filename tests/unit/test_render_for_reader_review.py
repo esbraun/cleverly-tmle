@@ -118,3 +118,86 @@ def test_a_markdown_page_splits_at_headings(tmp_path: Path) -> None:
     page = tmp_path / "page.md"
     page.write_text("# Title\n\nIntro.\n\n```bash\n# not a heading\n```\n\n## Next\n\nText.\n")
     assert [cell.cell_id for cell in read_cells(page)] == ["L1", "L9"]
+
+
+def test_a_term_that_opens_a_sentence_counts_as_a_use(tmp_path: Path) -> None:
+    cells = [("a", "markdown", "## Identification\n\nSensitivity analysis asks a question.")]
+    report = measure(read_cells(_notebook(tmp_path / "p.ipynb", cells)), budget=2000)
+    assert report.first_terms["identify"][0] == "a"
+    assert report.first_terms["sensitivity analysis"][0] == "a"
+    # An acronym keeps its case: "ate" in a word is not the ATE.
+    lower = [("b", "markdown", "We ate lunch.")]
+    assert (
+        "ATE" not in measure(read_cells(_notebook(tmp_path / "q.ipynb", lower)), 2000).first_terms
+    )
+
+
+def test_a_bold_opener_under_a_heading_counts(tmp_path: Path) -> None:
+    cells = [*CLEAN, ("x", "markdown", "## A\n**What this output tells you.** The score rose.")]
+    report = measure(read_cells(_notebook(tmp_path / "p.ipynb", cells)), budget=2000)
+    assert report.failures == ["repeated bold opener"]
+
+
+def test_step_numbers_skip_step_sizes_and_cited_algorithm_steps(tmp_path: Path) -> None:
+    text = "The grid step 0.05 is fine. Algorithm 1, step 2 and Section 3.2, Step 2(c) agree."
+    cells = [*CLEAN, ("x", "markdown", text)]
+    assert measure(read_cells(_notebook(tmp_path / "p.ipynb", cells)), 2000).failures == []
+
+
+def test_step_numbers_inside_a_dropdown_still_fail(tmp_path: Path) -> None:
+    cells = [*CLEAN, ("x", "markdown", ":::{dropdown} Details\nAs Step 7 shows.\n:::\n")]
+    report = measure(read_cells(_notebook(tmp_path / "p.ipynb", cells)), budget=2000)
+    assert report.failures == ["step numbers"]
+
+
+def test_the_tell_counts_count(tmp_path: Path) -> None:
+    text = "On this draw the estimate rose. It is a sample, not a property."
+    plain = measure(read_cells(_notebook(tmp_path / "a.ipynb", CLEAN)), budget=2000)
+    assert (plain.on_this_draw, plain.not_contrasts) == (0, 0)
+    cells = [*CLEAN, ("x", "markdown", text)]
+    report = measure(read_cells(_notebook(tmp_path / "b.ipynb", cells)), budget=2000)
+    assert (report.on_this_draw, report.not_contrasts) == (1, 1)
+
+
+def test_the_larger_budget_applies_to_the_named_pages(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    page = _notebook(tmp_path / "sequential-pricing.ipynb", CLEAN)
+    main([str(page), "--output", str(out)])
+    assert "of 2600" in (out / "sequential-pricing.report.md").read_text()
+    other = _notebook(tmp_path / "cross-fitting.ipynb", CLEAN)
+    main([str(other), "--output", str(out)])
+    assert "of 2000" in (out / "cross-fitting.report.md").read_text()
+
+
+def test_display_math_holds_no_prose() -> None:
+    one_line = segments("Text.\n$$ a = b $$ (1)\nMore text.")
+    assert [s.kind for s in one_line] == ["prose", "math", "prose"]
+    block = segments("Text.\n$$\na = b\n$$\nMore text.")
+    assert [s.kind for s in block] == ["prose", "math", "prose"]
+
+
+def test_a_table_without_outer_pipes_counts(tmp_path: Path) -> None:
+    cells = [*CLEAN, ("t", "markdown", "a | b\n--- | ---\n1 | 2\n3 | 4\n")]
+    report = measure(read_cells(_notebook(tmp_path / "p.ipynb", cells)), budget=2000)
+    assert report.tables == [("t", 2, 2)]
+
+
+def test_the_reader_view_marks_figures_and_errors(tmp_path: Path) -> None:
+    page = tmp_path / "f.ipynb"
+    outputs = [
+        {"output_type": "display_data", "data": {"image/png": "x", "text/plain": "<Figure>"}},
+        {"output_type": "error", "ename": "ValueError", "evalue": "bad", "traceback": []},
+    ]
+    cell = {"id": "plot", "cell_type": "code", "metadata": {}, "source": "x", "outputs": outputs}
+    page.write_text(json.dumps({"cells": [cell], "metadata": {}, "nbformat": 4}))
+    view = reader_view(page, read_cells(page))
+    assert "[figure]" in view
+    assert "ValueError: bad" in view
+
+
+def test_the_reader_view_of_a_markdown_page_names_line_ids(tmp_path: Path) -> None:
+    page = tmp_path / "page.md"
+    page.write_text("# Title\n\nIntro.\n\n## Next\n\nText.\n")
+    view = reader_view(page, read_cells(page))
+    assert "[cell L1: text]" in view
+    assert "[cell L5: text]" in view
