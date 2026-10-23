@@ -663,7 +663,7 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
         {"natural_prices": 10000.0, "price_up": 3508.672, "price_down": 1554.276},
         rel=WEIGHT_TAIL_REL,
     )
-    # "The maximum weight compounds from 4.646 at month 1 to 13.093 at month 2 and 31.240 at month 3."
+    # "its largest weight grows from about 5 at month 1 to about 31 at month 3"
     down = report[report["regimen"] == "price_down"].set_index("time")["max_weight"]
     assert down.tolist() == pytest.approx([4.646, 13.093, 31.240], rel=WEIGHT_TAIL_REL)
     assert down.is_monotonic_increasing
@@ -874,8 +874,8 @@ def _check_refusals(namespace: dict[str, Any]) -> None:
                 reference="natural_prices",
             )
         ).estimate(method=method)
-    # "The fit refuses a static price on a continuous node, because no regular estimator of its mean
-    # exists."
+    # "the fit refuses one on a continuous price, because its mean cannot be estimated at the usual
+    # rate"
     static = DynamicRegimen("static", (6.0, 6.0, 6.0))
     with pytest.raises(CapabilityError, match="no regular estimator of it exists"):
         study.identify(
@@ -1335,9 +1335,10 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     assert 2.8 < widths["up_25"] / widths["up_6"] < 3.3
     assert round(100 * held["up_25"]) == 45 and "leaves 45% of month-3 prices unchanged" in support
     assert all(0.0 < zero[plan] < held[plan] for plan in held)
-    estimates = ", ".join(f"{rise_fit[_key(plan)].psi:.4f}" for plan in held)
-    exact = ", ".join(f"{truth[_key(plan)]:.4f}" for plan in held)
-    assert f"The estimates, {_and(estimates)}, stay near the true {_and(exact)}" in support
+    assert "Each estimate stays near its truth, and each interval contains it" in support
+    assert all(abs(rise_fit[_key(plan)].psi - truth[_key(plan)]) < 0.01 for plan in held)
+    assert [round(100 * zero[plan]) for plan in ("up_6", "up_25")] == [6, 30]
+    assert "The share with zero exact weight grows from 6% to 30%" in support
     saturation = truth[_key("up_25")] / truth[_key("up_6")]
     assert (
         f"the true 25% effect is {saturation:.2f} times the 6% effect, against {25 / 6:.2f} for a "
@@ -1347,11 +1348,9 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     # The overlap check of the three plans.
     assessment = _prose("assessment-reading")
     plan_tail = _stored_weight_tail("assessment")
-    assert (
-        f"goes from {plan_tail[('price_down', 1)][0]} at month 1 to "
-        f"{plan_tail[('price_down', 2)][0]} at month 2 and {plan_tail[('price_down', 3)][0]} at "
-        "month 3"
-    ) in assessment
+    first, last = (round(float(plan_tail[("price_down", t)][0])) for t in (1, 3))
+    assert f"grows from about {first} at month 1 to about {last} at month 3" in assessment
+    assert "a check on the arithmetic, not on bias" in assessment
     stored_ratio = re.search(
         r"minimum effective-sample-size ratio: (\d+\.\d%)", stored_output(NOTEBOOK, "assessment")
     )
@@ -1403,17 +1402,10 @@ def _stored_weight_tail(cell_id: str) -> dict[tuple[str, int], tuple[str, str]]:
     return {(regimen, int(time)): (weight, size) for regimen, time, weight, size in rows}
 
 
-def _and(values: str) -> str:
-    """``"a, b, c"`` as ``"a, b, and c"``."""
-    head, last = values.rsplit(", ", 1)
-    return f"{head}, and {last}"
-
-
 _MARKDOWN_IDS = (
     "title",
     "plan",
     "setup-heading",
-    "setup-reading",
     "data-heading",
     "data-reading",
     "association-heading",
@@ -1475,11 +1467,11 @@ def _check_phrase_rules() -> None:
     assert "it measures that gap from last month's band" in markdown["plan"]
     # The mechanism of the ladder names the zero region and the held region.
     heading = markdown["support-heading"]
-    assert (
-        "The exact density ratio is zero for a subscriber whose engine price lies below" in heading
+    assert "A subscriber whose engine price lies below that value has an exact weight of zero" in (
+        heading
     )
-    assert "the exact ratio there is one plus the ratio from the raised prices" in heading
-    assert "carry the largest ratios" in heading
+    assert "Near the top, the plan's price can be a held or a raised one" in heading
+    assert "carry the largest weights" in heading
     assert "moved prices carry a larger density ratio" not in heading
     # The refusal reads the declared band.
     assert "that price lies outside the declared band" in markdown["plan"]
