@@ -26,7 +26,7 @@ NOTEBOOK = EXAMPLES / "longitudinal-survival.ipynb"
 _PROBE = ROOT / "reviews/notebook-review/probes/longitudinal-survival-refuters/probe.log"
 _PROBE_NAME = "reviews/notebook-review/probes/longitudinal-survival-refuters/probe.log"
 
-#: Decimals the Step 10 readings quote from the committed review probe, which no cell prints.
+#: Decimals the refutation Details dropdowns quote from the committed review probe, which no cell prints.
 UNPRINTED_DECIMALS = dict.fromkeys(
     (
         "-0.0011",
@@ -114,16 +114,16 @@ def _hazard_truth(process: Any, baseline: Any, doses: tuple[float, float], cause
 
 
 def _check_refutation(namespace: dict[str, Any], readmission_t2: Any) -> None:
-    """Step 10: the typed contrast that the refutation reads agrees with Step 7."""
+    """Try to break the result: the typed contrast that the refutation reads agrees with the plan comparison."""
     contrast_fit, target = namespace["contrast_fit"], namespace["target"]
-    # "The two lines agree": the typed contrast and the Step 7 contrast.
+    # "Both lines give 0.0223": the typed contrast and the `result.contrast` difference.
     assert contrast_fit[target].psi == pytest.approx(readmission_t2.psi, abs=5e-5)
     assert contrast_fit[target].std_error == pytest.approx(readmission_t2.std_error, abs=5e-5)
     assert contrast_fit.data.n == 4_000 and contrast_fit.data.n_times == 2
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """Step 10: the refutation and generated-outcome refits of the day-60 readmission difference."""
+    """The refutation and generated-outcome refits of the day-60 readmission difference."""
     contrast_fit, target = namespace["contrast_fit"], namespace["target"]
     readmission_t2 = namespace["differences"]["readmission", 2]
     # Each test prints a descriptive reading at level L0: the registry covers a survival outcome
@@ -265,7 +265,7 @@ def check(namespace: dict[str, Any]) -> None:
         "'navigation_p1']"
     ) in identify_output
 
-    # Step 6. Eight incidences, each interval covering its population value on this draw, and
+    # Estimate readmission and death risk. Eight incidences, each interval covering its population value on this draw, and
     # simultaneous bands wider than the pointwise intervals.
     assert len(result.estimates) == 8
     for name, estimate in result.estimates.items():
@@ -279,7 +279,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert estimate_output.count("always: 938 of 4000 units followed it throughout") == 1
     assert estimate_output.count("never: 671 of 4000 units followed it throughout") == 1
 
-    # Step 7. Each contrast equals the signed sum with the standard error of the summed influence
+    # Compare the follow-up plans. Each contrast equals the signed sum with the standard error of the summed influence
     # curves, so the joint correlation enters.  Event-free survival is one minus both causes; one
     # minus one cause is a different number, which is the nonzero witness.
     differences, event_free = namespace["differences"], namespace["event_free"]
@@ -326,7 +326,7 @@ def check(namespace: dict[str, Any]) -> None:
         assert not covers(differences["death", horizon], 0.0)
         assert not covers(differences["event-free", horizon], 0.0)
 
-    # Step 8. The censoring indicator is K_k = C_k (1 - D_k): both components remove rows, so
+    # Death as dropout. The censoring indicator is K_k = C_k (1 - D_k): both components remove rows, so
     # dropping either one is a mutation that changes the risk set.
     kept_p1 = namespace["kept_p1"]
     enrolled_died = (frame["enrolled_p1"] == 1) & (frame["death_p1"] == 1)
@@ -373,7 +373,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert raised_never > raised_always + 0.01 and raised_always > 0.0
     assert population["ate_regimen[always vs never, death @ t=2]"] < 0.0
 
-    # Step 9 prints only the operations that ran.
+    # Check the fit prints only the operations that ran.
     assessment_output = stored_output(NOTEBOOK, "assessment")
     assert "unavailable" not in assessment_output and "deferred" not in assessment_output
     ran = namespace["ran"]
@@ -403,10 +403,10 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert largest["epsilon"] == pytest.approx(-0.0679, abs=5e-5)
 
-    # Step 10. The refutation reads a fit of the typed contrast that agrees with Step 7.
+    # Try to break the result. The refutation reads a fit of the typed contrast that agrees with the plan comparison.
     _check_refutation(namespace, readmission_t2)
 
-    # Step 11. Each refit drops one recorded covariate from the full design; every move is
+    # How much each recorded variable moves the answer. Each refit drops one recorded covariate from the full design; every move is
     # positive, and the last refit has no time-varying history left.
     benchmark = namespace["benchmark"]
     assert list(benchmark["dropped"].unique()) == ["age", "baseline_readiness", "identified_needs"]
