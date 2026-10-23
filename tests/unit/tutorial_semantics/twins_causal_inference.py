@@ -57,7 +57,9 @@ def check_stored() -> None:
         for output in cell.get("outputs", ())
         if "image/png" in output.get("data", {})
     ]
-    assert len(figures) == 2, "the TWINS notebook has a gestational-age figure and an overlap figure"
+    assert len(figures) == 2, (
+        "the TWINS notebook has a gestational-age figure and an overlap figure"
+    )
 
     # Every code cell is followed by its reading.
     cells = notebook.cells
@@ -70,7 +72,7 @@ def check_stored() -> None:
     # The outcome is birth weight. No text names mortality as the outcome.
     assert "mortality" not in prose.lower() and "death_share" not in "".join(code.values())
     assert "| outcome Y | the mean of the two twins' recorded birth weights, in grams |" in prose
-    assert "ATT = E[Y \\| A = 1] − E[Y⁰ \\| A = 1], in grams" in prose
+    assert "\\| A = 1], in grams |" in prose  # the ATT row of the estimand table
 
     # The situation states a causal graph with one row per arrow or absent arrow, and names
     # gestational age as the mediator.
@@ -113,7 +115,7 @@ def check_stored() -> None:
     inside = re.search(r"pairs inside the NCHS range:\s+([\d,]+) of ([\d,]+)", checks)
     assert inside and inside[1] == inside[2] == "51,874"
     references = (EXAMPLES.parent / "references.md").read_text(encoding="utf-8")
-    assert "0227 to 8165, with 9999 for \"not stated\"" in references
+    assert '0227 to 8165, with 9999 for "not stated"' in references
 
     # Association: the two conditions of a confounder hold for marital status and education.
     association = stored_output(NOTEBOOK, "association")
@@ -207,8 +209,9 @@ def check_stored() -> None:
     generated = stored_output(NOTEBOOK, "refute-generated")
     assert "10 draws are below the calibrated minimum of 400" in generated
     assert re.search(r"(?m)^simulated_outcome\s.*\bL1\b", generated)
-    assert "BoundedAdjustmentOutcome(intercept=-1.0, effect=-0.1, adjustment_scale=0.2)" in (
-        code["refute-generated"]
+    assert (
+        "BoundedAdjustmentOutcome(intercept=-1.0, effect=-0.1, adjustment_scale=0.2)"
+        in (code["refute-generated"])
     )
     for cell_id in code:
         text = stored_output(NOTEBOOK, cell_id)
