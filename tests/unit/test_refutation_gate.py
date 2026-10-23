@@ -286,6 +286,33 @@ class TestRegistry:
         assert "method" in other.sentence
         assert "TMLE" in other.sentence
 
+    def test_an_uncovered_fit_names_the_row_that_differs_on_fewest_axes(self) -> None:
+        near = _covering_row("placebo", "t")
+        far = replace(
+            near,
+            scope=replace(
+                near.scope,
+                methods=frozenset({"LTMLE"}),
+                outcome_families=frozenset({"survival"}),
+            ),
+            sentence="far row",
+        )
+        fit = _fit_configuration(estimand_kind="att")
+        # The far row comes first, so a reading that took the first candidate would name it.
+        resolution = resolve("placebo", "t", fit, evidence=(far, near))
+        assert not resolution.licensed
+        assert "methods ['TMLE']" in resolution.sentence
+        assert "LTMLE" not in resolution.sentence
+        assert resolution.sentence.endswith("This fit differs on estimand kind 'att'.")
+        assert far.scope.mismatches(fit) == (
+            "method 'TMLE'",
+            "estimand kind 'att'",
+            "outcome family 'gaussian'",
+        )
+        # On a tie the first row wins, so a fit both rows miss by one axis names the far row.
+        tie = _fit_configuration(method="LTMLE", estimand_kind="ate", outcome_family="gaussian")
+        assert "LTMLE" in resolve("placebo", "t", tie, evidence=(far, near)).sentence
+
     @pytest.mark.parametrize(
         "change",
         [

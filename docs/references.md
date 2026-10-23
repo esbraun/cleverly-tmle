@@ -2481,16 +2481,20 @@ implementation provenance and the origin of the one-step form.
 ## The TWINS example
 
 The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the
-exposure coverage, and the reading of its birth-weight table.
+exposure coverage, the outcome range, and the argument against adjustment for gestational age.
 
 - National Center for Health Statistics, linked birth/infant death cohort files for the 1989, 1990,
   and 1991 birth cohorts, distributed by the
   [National Bureau of Economic Research](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data).
   NCHS collected the data, and it is not responsible for any analysis of them. Use of the data
   signifies agreement with the [NCHS data-use rules](https://www.cdc.gov/nchs/data_access/restrictions.htm):
-  statistical analysis only, and no attempt to identify any person. The 1989 user guide counts the
-  deaths of infants who die before their first birthday (introduction, p. 1, and the note to
-  Table 2, p. 6). The table of items not stated by state of residence in each guide names the states that did not collect the
+  statistical analysis only, and no attempt to identify any person. The record layout of the 1989
+  user guide (p. 14) codes the birth weight in grams as 0227 to 8165, with 9999 for "not stated".
+  Pages 14-15 code the gestation recode `GESTAT10` as 01 for under 20 weeks, 02 for 20-27, 03
+  for 28-31, 04 for 32-35, 05 for 36, 06 for 37-39, 07 for 40, 08 for 41, 09 for 42 and over, and
+  10 for not stated. The technical appendix (pp. 12-13) states that a birth weight inconsistent
+  with both the computed gestation and the clinical estimate was reclassified as "not stated".
+  The table of items not stated by state of residence in each guide names the states that did not collect the
   tobacco item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in
   1989 (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12);
   and California, Indiana, New York, and South Dakota in 1991 (p. 9).
@@ -2506,7 +2510,9 @@ exposure coverage, and the reading of its birth-weight table.
   164(11):1115-1120, DOI 10.1093/aje/kwj275. It uses the 1991 US linked file with maternal smoking
   as the exposure. Figure 3 gives the causal graphs, and the discussion explains the paradox as
   selection bias from stratification on birth weight, which smoking affects and which shares
-  unmeasured causes, such as birth defects, with infant mortality.
+  unmeasured causes, such as birth defects, with infant mortality. The notebook applies the same
+  graph argument to gestational age, a variable that smoking affects and that shares unmeasured
+  causes with birth weight. The paper does not analyze gestational age.
 
 The notebook also cites one source for its sensitivity analysis. Its entry is under
 [sensitivity analysis](#sensitivity-analysis).
