@@ -379,18 +379,16 @@ def _check_bound(namespace: dict[str, Any]) -> None:
     assert need.cf_d == 0.0 and sensitivity.omitted_confounding(benchmark=need).bias == 0.0
     assert staffing.cf_d > 0.9 and staffing.cf_y < 0.01
     assert sensitivity.omitted_confounding(benchmark=staffing).ci_lower < 0.0
-    # "a weight-side strength of 0.058, only 1.3 times readiness's 0.045, pulls it to zero".
+    # "A weight-side strength of 0.058, about 1.3 times readiness's 0.045, pulls it to zero".
     tipping_cf_d, tipping_cf_y = namespace["tipping_cf_d"], namespace["tipping_cf_y"]
     assert round(tipping_cf_d / readiness.cf_d, 1) == 1.3
-    for cf_y, cf_d in ((readiness.cf_y, tipping_cf_d), (tipping_cf_y, staffing.cf_d)):
-        assert abs(sensitivity.omitted_confounding(cf_y=cf_y, cf_d=cf_d).ci_lower) < 1e-6
-    assert tipping_cf_y < 0.001
     # The benchmark's weight-side value is a gain; staffing's share of the weights' mean square is
-    # gain / (1 + gain), about one half, and even at that share the tipping strength stays below
-    # 0.01 ("a success-side strength below 0.01").
+    # gain / (1 + gain), about one half ("At its actual share, 0.48, the limit is 0.028").
     share = namespace["staffing_share"]
     assert share == pytest.approx(staffing.cf_d / (1 + staffing.cf_d)) and round(share, 2) == 0.48
-    assert staffing.cf_y < namespace["tipping_cf_y_share"] < 0.01
-    # A confounder as strong as staffing read at its share keeps the lower limit above zero, so
-    # the page does not say that one erases the effect.
-    assert sensitivity.omitted_confounding(cf_y=staffing.cf_y, cf_d=share).ci_lower > 0.0
+    at_share = namespace["at_share"]
+    assert at_share.ci_lower > 0.0 and round(at_share.ci_lower, 3) == 0.028
+    # "would need a success-side strength of only 0.0074 to reach zero".
+    assert staffing.cf_y < tipping_cf_y < 0.01
+    for cf_y, cf_d in ((readiness.cf_y, tipping_cf_d), (tipping_cf_y, share)):
+        assert abs(sensitivity.omitted_confounding(cf_y=cf_y, cf_d=cf_d).ci_lower) < 1e-6
