@@ -1,11 +1,11 @@
 # Marginal sensitivity bound limit coverage
 
-This study measures the coverage of the confidence limits that X82 part H gives each end of the
-marginal sensitivity model bounds. `marginal_sensitivity_bounds` resolves each limit through the
-evidence registry with the instrument `msm_bound_limit` and one rule. A passing cell adds one
+This study measures the coverage of the confidence limits on each end of the marginal sensitivity
+model bounds of X82 part H. The function `marginal_sensitivity_bounds` resolves each limit through
+the evidence registry with the instrument `msm_bound_limit` and one rule. A passing cell adds one
 registry row for the configuration it measured. The study reads each end of the ATE bound at
-$\Gamma = 1.5$ as an estimate of the population end of the law. It reads the reported standard error of
-that end.
+$\Gamma = 1.5$ as an estimate of the population end of the law. It also reads the reported
+standard error of that end.
 
 **No canonical implementation is compared.** The authors' code (Dorn, Guo and Kallus) is R and
 fits `grf` forests, so it computes another estimator. The zero-row equivalence artifact records
