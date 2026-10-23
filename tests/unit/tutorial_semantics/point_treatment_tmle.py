@@ -206,6 +206,33 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
     assert estimate.psi > 0.0
 
 
+def _check_odds_bounds(namespace: dict[str, Any]) -> None:
+    """The bounds on the odds of an offer read as the prose says."""
+    bounds = namespace["odds_bounds"]
+    treated = namespace["with_offer"].rows
+    untreated = namespace["without_offer"].rows
+    assert [row.gamma for row in bounds.rows] == [1.0, 2.0, 3.0, 4.0]
+    # "At gamma = 1 each range is a single value ... 0.167, matches the estimate".
+    first = bounds.rows[0]
+    assert first.lower == pytest.approx(first.upper, abs=1e-12)
+    assert round(first.lower, 3) == round(namespace["estimate"].psi, 3)
+    # "The ranges then widen": each row nests the one before it.
+    for before, after in zip(bounds.rows, bounds.rows[1:], strict=False):
+        assert after.lower < before.lower and after.upper > before.upper
+    # "where that room comes from": the effect range is the difference of the group ranges,
+    # a nonzero witness that each end pairs the opposite ends of the two arms.
+    for row, one, zero in zip(bounds.rows, treated, untreated, strict=True):
+        assert row.lower == pytest.approx(one.lower - zero.upper, abs=1e-12)
+        assert row.upper == pytest.approx(one.upper - zero.lower, abs=1e-12)
+        assert row.upper - row.lower > (one.upper - one.lower) + 1e-12 or row.gamma == 1.0
+    # "stay above zero through gamma = 3. At gamma = 4 the lower limit is -0.0032".
+    assert bounds.rows[2].lower_limit > 0.0 > bounds.rows[3].lower_limit
+    assert bounds.limit_breakdown == 4.0
+    assert bounds.breakdown is None
+    # "no simulation study backs these limits for this kind of fit".
+    assert bounds.limit_descriptive
+
+
 def _check_surface(namespace: dict[str, Any]) -> None:
     """Step 11: the stress surface reads as the prose says."""
     estimate = namespace["estimate"]
@@ -373,6 +400,7 @@ def check(namespace: dict[str, Any]) -> None:
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
     _check_evalue(namespace)
+    _check_odds_bounds(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
