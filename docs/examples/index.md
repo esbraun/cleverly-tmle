@@ -20,13 +20,13 @@ treatment was unlikely.
 | your situation | example | the mistake it shows |
 | --- | --- | --- |
 | a treatment given once and an outcome measured later | [one treatment, one outcome](point-treatment-tmle.ipynb) | a simple comparison of treated and untreated patients mixes the treatment's effect with who received it. The page also shows what happens to the estimate when one or both models are wrong |
-| flexible models such as gradient boosting, or patients who share a navigator team | [flexible models and shared teams](cross-fitting.ipynb) | a model that predicts the same rows it was trained on looks more accurate than it is, and an analysis that treats teammates as independent ignores that their results move together. Both make the interval too narrow |
+| flexible models such as gradient boosting, or patients who share a care team | [flexible models and shared teams](cross-fitting.ipynb) | a model that predicts the same rows it was trained on looks more accurate than it is, and an analysis that treats teammates as independent ignores that their results move together. Both make the interval too narrow |
 | one recorded variable strongly predicts who gets the treatment | [a strong predictor of treatment](collaborative-tmle.ipynb) | some patients become nearly certain or nearly unable to get the treatment, so the few exceptions get very large weights. In 2,000 simulated repeats, the 95% interval of standard TMLE contained the truth only 93% of the time, so it was slightly too narrow |
 | many outcomes are missing, for example unanswered surveys | [missing outcomes](survey-nonresponse.ipynb) | analyzing only those who answered estimates the effect for people like the respondents, who differ from the whole group |
 | policies to compare, such as offering a program only to high-risk patients, raising each patient's chance of an offer, or raising how much of the program each patient gets | [three policy proposals](interventions.ipynb) | each policy has its own starting point: offering only to high-risk patients is compared with offering no one, and the other two with current practice, so the answers do not rank the policies or compare one with another directly. A staffing limit on how much each patient can get is part of the question: the same raise with and without the limit gives two different answers |
 | several treatment levels, summarized by one trend | [one trend across three contact schedules](msm-projections.ipynb) | a straight line through the levels still reports a slope when it does not fit them, so the slope alone can mislead |
 | time until an event, when another event such as death can come first and some people leave follow-up | [time to an event](longitudinal-survival.ipynb) | treating death like dropout estimates readmission in a world where nobody dies, which the program cannot bring about |
-| a treatment repeated weekly, where earlier offers change later behavior | [weekly offers](sequential-offers.ipynb) | treating any two of its five policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
+| a treatment repeated weekly, where earlier offers change later behavior | [weekly offers](sequential-offers.ipynb) | treating two policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
 | a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
 
@@ -45,7 +45,7 @@ yes-or-no successful transition, a simulated score with no fixed range, or, on t
 
 ## What must hold for a causal answer
 
-Every example, including the retailer and twins pages, needs at least these four conditions
+Every example, including the retailer and real-data pages below, needs at least these four conditions
 for its answer to be causal, written here for the health program's offer:
 
 - consistency: the offer means the same thing for every patient;
@@ -80,8 +80,7 @@ Patients take up the offer to different degrees, and the plan controls only the 
 analyzing it keeps the meaning of the treatment the same for everyone. And only information
 recorded before the assignment goes into the adjustment. Length of stay and completed contacts
 happen after it, and the assignment can change them, so adjusting for them would remove part of the
-effect. The full design, including how each page handles deaths and unreturned surveys, is under
-Details.
+effect.
 
 :::{dropdown} Details: the full study design
 | design element | program definition |
@@ -141,7 +140,7 @@ gestational age, and how strong a missing confounder would have to be to change 
 
 ## The methods behind each example
 
-Each technical reference page gives the method's exact quantity, its conditions, and the
+Each technical reference page gives exactly what each method estimates, its conditions, and the
 simulation studies that check it.
 
 | example | method | reference |
