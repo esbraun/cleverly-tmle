@@ -415,3 +415,130 @@ def test_a_ratio_refuses_an_arm_bound_without_a_logarithm(value: float, odds: bo
     with pytest.raises(CapabilityError, match="no log"):
         _log_end(_End(value, np.zeros(3)), odds)
     assert np.isfinite(_log_end(_End(0.5, np.ones(3)), odds).value)
+
+
+# ---------------------------------------------------------------------------------------
+# Away from Gamma = 1: rho and R in closed form (review H1)
+
+
+def closed_form(
+    mu: np.ndarray, y: np.ndarray, gamma: float, upper: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(rho, R)`` of a binary outcome, written out apart from the shipped code."""
+    tau = gamma / (1 + gamma)
+    if upper:
+        q = (mu > 1 - tau).astype(float)
+        rho = np.minimum(gamma * mu, 1 - (1 - mu) / gamma)
+        r = q + np.where(y > q, gamma, 1 / gamma) * (y - q)
+    else:
+        q = (mu > tau).astype(float)
+        rho = np.maximum(1 - gamma * (1 - mu), mu / gamma)
+        r = q + np.where(y < q, gamma, 1 / gamma) * (y - q)
+    return rho, r
+
+
+def test_the_effect_on_the_treated_away_from_gamma_one(binary: Any) -> None:
+    p = parts(binary)
+    a, y = p["a"], p["y"]
+    mu0, e1, e0 = p["mu"][0.0], p["g"][1.0], p["g"][0.0]
+    share = float(np.mean(a))
+    ends = []
+    for upper in (True, False):
+        rho, r = closed_form(mu0, y, 2.0, upper)
+        bounded = a * rho + (1 - a) * e1 / e0 * (r - rho)
+        ends.append(float(np.mean(a * y - bounded)) / share)
+    row = marginal_sensitivity_bounds(binary, 2.0, estimand="att").rows[0]
+    # The lower ATT end subtracts the upper bound on E[Y(0) | A = 1].
+    assert row.lower == pytest.approx(ends[0], rel=1e-10)
+    assert row.upper == pytest.approx(ends[1], rel=1e-10)
+    # Witness: rho on the wrong arm's regression moves the end.
+    rho, r = closed_form(p["mu"][1.0], y, 2.0, True)
+    wrong = float(np.mean(a * y - (a * rho + (1 - a) * e1 / e0 * (r - rho)))) / share
+    assert abs(wrong - row.lower) > 1e-3
+
+
+def test_a_missing_outcome_away_from_gamma_one() -> None:
+    fit = (
+        TMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            missingness_learner=LogisticRegression(),
+            random_state=0,
+            n_folds=5,
+        )
+        .fit(
+            missing_frame(binary_frame()),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="D",
+        )
+        .single()
+    )
+    p = parts(fit)
+    nuisance = fit.repeats[0].nuisance
+    response = tilt_missingness(nuisance, fit.config.missingness_bound)
+    observed = np.asarray(fit.data.observed, dtype=bool)
+    y = np.where(observed, p["y"], 0.0)
+    treated = (p["a"] == 1.0).astype(float)
+    weight = np.where(observed, 1.0 / response[:, list(nuisance.arms).index(1.0)], 0.0)
+    mu, e = p["mu"][1.0], p["g"][1.0]
+    rho, r = closed_form(mu, y, 2.0, True)
+    summand = (
+        treated * (mu + weight * (y - mu))
+        + (1 - treated) * rho
+        + treated * weight * (1 - e) / e * (r - rho)
+    )
+    row = marginal_sensitivity_bounds(fit, 2.0, estimand="ey1").rows[0]
+    assert row.upper == pytest.approx(float(np.mean(summand)), rel=1e-10)
+    # Witness: the (1 - T) factor on rho is the untreated rows' bound.
+    wrong = treated * (mu + weight * (y - mu)) + rho + treated * weight * (1 - e) / e * (r - rho)
+    assert abs(float(np.mean(wrong)) - row.upper) > 1e-2
+
+
+def test_a_collaborative_fit_does_not_select_the_response_model() -> None:
+    """Review H2: the bounds read the response model; a selecting CTMLE must not select it."""
+    settings: dict[str, Any] = {
+        "outcome_learner": LogisticRegression(),
+        "treatment_learner": LogisticRegression(),
+        "missingness_learner": LogisticRegression(),
+        "random_state": 0,
+        "cross_fit": False,
+    }
+    roles: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": "A",
+        "covariates": ["W1", "W2"],
+        "delta": "D",
+    }
+    frame = missing_frame(binary_frame())
+    collaborative = CTMLE(**settings, estimands=("ate", "ey1", "ey0")).fit(frame, **roles)
+    ordinary = TMLE(**settings).fit(frame, **roles)
+    selected = collaborative.single()
+    assert marginal_bound_refusal(selected) is None
+    np.testing.assert_array_equal(
+        tilt_missingness(selected.repeats[0].nuisance, selected.config.missingness_bound),
+        tilt_missingness(ordinary.single().repeats[0].nuisance, selected.config.missingness_bound),
+    )
+
+
+def test_an_undefined_ratio_names_the_last_defined_gamma(
+    monkeypatch: pytest.MonkeyPatch, binary: Any
+) -> None:
+    from cleverly._refusal import RefusalReason
+    from cleverly.sensitivity import marginal
+
+    shipped = marginal._target_ends
+
+    def failing_after_the_first(result: Any, target: Any, sides: Any) -> Any:
+        if calls:
+            raise CapabilityError(
+                "an arm bound has no log.", reason=RefusalReason.INVALID_DECLARATION
+            )
+        calls.append(1)
+        return shipped(result, target, sides)
+
+    calls: list[int] = []
+    monkeypatch.setattr(marginal, "_target_ends", failing_after_the_first)
+    with pytest.raises(CapabilityError, match=r"defined up to gamma=1\.5"):
+        marginal_sensitivity_bounds(binary, (1.5, 3.0), estimand="rr")

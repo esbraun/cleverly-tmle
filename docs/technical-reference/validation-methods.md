@@ -2281,12 +2281,13 @@ times the arm's augmented outcome.
 | sampling weights | weighted means, and weighted quantile and tail regressions |
 | a stratum-conditional alias | the mean over the stratum's rows, divided by the stratum's share |
 | missing outcomes | the residual terms of $s_a$ take the factor $\Delta / P(\Delta = 1 \mid A, W)$. The quantile and tail regressions train on observed rows |
-| a selecting `CTMLE` | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds |
+| a selecting `CTMLE` | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. At $\Gamma = 1$ the bounds give the AIPW estimate with that mechanism, not the C-TMLE estimate |
 
 The missing-outcome row assumes $\Delta \perp Y \mid A, W$, and it assumes that $U$ acts on $A$
 only. A ratio reports its ends and limits on the ratio scale, and its standard errors on the log
 scale (`scale="log"`). An arm bound at or below zero has no logarithm, so a ratio at that
-$\Gamma$ raises `CapabilityError` with the code `invalid_declaration`.
+$\Gamma$ raises `CapabilityError` with the code `invalid_declaration`. The message names the
+largest grid $\Gamma$ at which the ratio is defined.
 
 **Scope.**
 

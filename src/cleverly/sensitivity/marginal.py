@@ -1023,7 +1023,9 @@ def marginal_sensitivity_bounds(
         outcomes.
     gamma : float or sequence of float, default=DEFAULT_GAMMA_GRID
         The sensitivity parameter :math:`\\Gamma \\ge 1` (Tan's :math:`\\Lambda`), or a grid.
-        :math:`\\Gamma = 1` reproduces the cross-fitted AIPW estimate.
+        :math:`\\Gamma = 1` reproduces the cross-fitted AIPW estimate. On a selecting
+        ``CTMLE`` fit that estimate reads the refitted mechanism, so it is not the C-TMLE
+        estimate.
     estimand : str or None, default=None
         The reported name of an arm mean (``"ey1"``), a difference (``"ate"``), an effect on
         the treated or the controls (``"att"``, ``"atc"``, two arms only), a ratio
@@ -1107,7 +1109,22 @@ def marginal_sensitivity_bounds(
                     quantile_names.add(side.quantile_learner)
                 if side.pseudo_outcome_learner is not None:
                     pseudo_names.add(side.pseudo_outcome_learner)
-            low, up = _target_ends(result, target, sides)
+            try:
+                low, up = _target_ends(result, target, sides)
+            except CapabilityError as error:
+                if not target.ratio:
+                    raise
+                defined = rows[-1].gamma if rows else None
+                reach = (
+                    f"The ratio is defined up to gamma={defined:g}; pass a grid that stops there."
+                    if defined is not None
+                    else "No gamma of the grid gives a defined ratio."
+                )
+                raise CapabilityError(
+                    f"at gamma={value:g}, {error.refusal.condition} {reach}",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=error.refusal.alternative,
+                ) from error
             lowers.append(low.value)
             uppers.append(up.value)
             lower_vars.append(influence_variance(low.curve, cluster))
