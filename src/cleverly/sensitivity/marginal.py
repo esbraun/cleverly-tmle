@@ -50,6 +50,29 @@ outcome both nuisances are closed forms of :math:`\hat\mu`:
 the authors' replication code for Dorn, Guo and Kallus,
 ``CausalML/DoublyValidDoublySharpSensitivity`` (``simplified_dvds.R``).
 
+**Compositions.**  Each arm bound is the mean of a per-row summand, so the other
+parameters are means of the same summands.
+
+* More than two arms: the model restricts the odds of ``A = a`` against ``A != a``, so
+  ``e`` is ``P(A = a | W)`` and the summand reads the indicator of arm ``a``.
+* ``att`` and ``atc`` (two arms): :math:`E[Y(0) \mid A = 1] P(A = 1)` is the mean of the
+  arm-0 summand less its observed-arm part, and the mean is divided by the share of the
+  conditioning arm (a delta-method curve).
+* ``rr`` and ``or``: the ratio map is increasing in the arm and decreasing in the
+  reference, so ``RR+ = psi+_1 / psi-_0``. Each end's limits come from its log-scale curve.
+  The set is componentwise, with no sharpness claim beyond the arm bounds.
+* Sampling weights: every mean is a weighted mean and every regression is weighted.
+* Baseline strata: a stratum-conditional parameter is the mean over the stratum's rows,
+  divided by the stratum's share.
+* Missing outcomes: under :math:`\Delta \perp Y \mid A, W`, with ``U`` acting on ``A``
+  only, the summand's residual terms are multiplied by
+  :math:`\Delta / P(\Delta = 1 \mid A, W)` from the fit's response model, and the
+  quantile and the tail regression train on observed rows.
+* A selecting ``CTMLE`` fit stores a mechanism that does not estimate ``P(A | W)``, so the
+  bounds refit the fit's treatment learner on every covariate, on the fit's folds, as
+  :func:`~cleverly.sensitivity.omitted_variable_bounds` does under
+  ``assume_consistent_mechanism=True``.
+
 **The interval.**  ``[lower - z se_lower, upper + z se_upper]`` with
 :math:`z = \Phi^{-1}(1 - (1 - \text{level})/2)` covers the identified set with asymptotic
 probability at least ``level`` by the union bound.  It is a set interval: the tighter
@@ -65,11 +88,10 @@ a registered coverage cell adds a row, it prints the registry's descriptive sent
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from sklearn.base import clone
 
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
@@ -92,7 +114,8 @@ __all__ = [
 FloatArray = np.ndarray
 
 #: The registry instrument of the bound's confidence limits.  The rule is the outcome kind,
-#: ``"continuous"`` or ``"binary"``, with ``"+clustered"`` on a clustered fit.
+#: ``"continuous"`` or ``"binary"``, followed by one ``"+feature"`` per composition the
+#: bound used (:func:`_limit_reading`), ending with ``"+clustered"`` on a clustered fit.
 MSM_BOUND_INSTRUMENT = "msm_bound_limit"
 
 #: The default grid of the sensitivity parameter.
@@ -107,8 +130,13 @@ _OWNER = "X87"
 #: The roadmap row of the compositions X82 part H2 adds.
 _PART_H2 = "X82"
 
-#: The fitted methods whose stored mechanism estimates ``P(A | W)``.
-_FULL_MECHANISM_METHODS = frozenset({"tmle", "drtmle"})
+#: The fitted methods the bounds read. A selecting C-TMLE has its mechanism refitted.
+_BOUNDED_METHODS = frozenset({"tmle", "drtmle", "collaborative_tmle"})
+
+#: The statuses a collaborative fit withholds its interval under because its mechanism is
+#: selected. The bounds refit the mechanism on every covariate, so their own curve does not
+#: read the selection.
+_SELECTION_STATUSES = frozenset({"working_mechanism_plugin", "generated_design_plugin"})
 
 
 @dataclass(frozen=True)
@@ -158,7 +186,8 @@ class MarginalSensitivityBounds:
     level : float
         The coverage level of the set interval.
     null : float or None
-        The null value of the estimand, ``0.0`` for the ATE and ``None`` for an arm mean.
+        The null value of the estimand: ``0.0`` for a difference, ``1.0`` for a ratio and
+        ``None`` for an arm mean.
     outcome_kind : {"continuous", "binary"}
         Which nuisance route the bounds used.
     quantile_learner : tuple of str
@@ -169,6 +198,9 @@ class MarginalSensitivityBounds:
         The registry's reading of the confidence limits.
     backend : str or None
         The dataframe backend of the fit's data, which :meth:`to_frame` emits.
+    scale : {"identity", "log"}
+        The scale of the standard errors. A risk ratio or an odds ratio reports its ends
+        and limits on the ratio scale and its standard errors on the log scale.
 
     Attributes
     ----------
@@ -186,6 +218,7 @@ class MarginalSensitivityBounds:
     pseudo_outcome_learner: tuple[str, ...] = ()
     limit_reading: Resolution | None = field(default=None, compare=False)
     backend: str | None = None
+    scale: str = "identity"
 
     @property
     def breakdown(self) -> float | None:
@@ -314,12 +347,20 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             alternative=NO_ALTERNATIVE,
         )
     method = getattr(result, "fitted_method", "unknown")
-    if method not in _FULL_MECHANISM_METHODS:
+    if method == "adaptive_iptw":
+        from ..estimators.iptw import OPERATION_REFUSALS
+
+        return OPERATION_REFUSALS["marginal_bounds"]
+    if method not in _BOUNDED_METHODS:
         return _gap(
-            f"a {method} fit stores a selected or targeted treatment mechanism, and the bound "
-            "divides by an estimate of P(A | W). A refit of the full mechanism is the step.",
+            f"the bounds read the outcome regression and the treatment mechanism of a TMLE, "
+            f"DR-TMLE or C-TMLE fit, and a {method} fit is none of these.",
             _PART_H2,
         )
+    if method == "collaborative_tmle" and _refits_mechanism(result):
+        refusal = _collaborative_refusal(result)
+        if refusal is not None:
+            return refusal
     if getattr(data, "intermediate", None) is not None:
         return _gap(
             "a controlled direct effect also needs a bound on confounding of the intermediate "
@@ -330,16 +371,6 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             "a missing treatment needs a joint model of U on the treatment and on its "
             "observation, which no read source defines."
         )
-    if data.has_missing_outcome:
-        return _gap("the bounds on a fit with missing outcomes are not implemented yet.", _PART_H2)
-    if not data.is_binary_treatment:
-        return _gap(
-            "the bounds on a treatment with more than two arms are not implemented yet.", _PART_H2
-        )
-    if data.weights_name is not None:
-        return _gap("the bounds on a weighted fit are not implemented yet.", _PART_H2)
-    if getattr(data, "strata", None) is not None:
-        return _gap("the stratum-conditional bounds are not implemented yet.", _PART_H2)
     if data.family not in ("gaussian", "binomial"):
         return Refusal(
             RefusalReason.DIFFERENT_ESTIMAND,
@@ -349,7 +380,9 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
         )
     status = result.inference_status
     status = status() if callable(status) else status
-    if status != "influence_curve":
+    if status != "influence_curve" and not (
+        status in _SELECTION_STATUSES and _refits_mechanism(result)
+    ):
         record = status_record(status)
         return Refusal(
             RefusalReason.INFERENCE_GAP,
@@ -357,6 +390,35 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             "nuisances support one. " + record.reason,
             alternative=record.alternative or NO_ALTERNATIVE,
             roadmap=record.reopened_by,
+        )
+    return None
+
+
+#: The refusal of ``att`` or ``atc`` on a fit with more than two arms.
+MULTI_ARM_CONDITIONAL_REFUSAL = _gap(
+    "on more than two arms the model bounds the odds of each arm against all the others. "
+    "The effect on the treated also needs E[Y(b) | A = a] for one other arm a, which that "
+    "model does not bound."
+)
+
+
+def _collaborative_refusal(result: Any) -> Refusal | None:
+    """Why the mechanism of a selecting C-TMLE fit cannot be refitted, or ``None``."""
+    from ..estimators.ctmle import is_per_arm_oat
+
+    if result.estimator is None:
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "the bounds refit the treatment mechanism of a selecting CTMLE fit on every "
+            "covariate, which reads the fitted estimator, and this result carries none.",
+            alternative=NO_ALTERNATIVE,
+        )
+    if is_per_arm_oat(result.estimator):
+        return _gap(
+            "a per-arm outcome-adaptive CTMLE declares a treatment learner that reads one "
+            "column, the outcome prediction at one arm, so no learner for the mechanism on "
+            "every covariate exists to refit.",
+            _PART_H2,
         )
     return None
 
@@ -397,9 +459,9 @@ def _default_mean_candidates(seed: int) -> dict[str, Any]:
     }
 
 
-def _pinball(y: FloatArray, q: FloatArray, tau: float) -> float:
+def _pinball(y: FloatArray, q: FloatArray, tau: float, weights: FloatArray | None = None) -> float:
     u = y - q
-    return float(np.mean(np.maximum(tau * u, (tau - 1.0) * u)))
+    return float(np.average(np.maximum(tau * u, (tau - 1.0) * u), weights=weights))
 
 
 # ---------------------------------------------------------------------------------------
@@ -408,18 +470,54 @@ def _pinball(y: FloatArray, q: FloatArray, tau: float) -> float:
 
 @dataclass(frozen=True)
 class _Side:
-    """The cross-fitted summand of one arm bound, on the outcome scale."""
+    """The cross-fitted summand of one arm bound, on the outcome scale.
+
+    ``summand`` is the per-row estimating function and ``own`` its observed-arm part,
+    ``1{A = a}`` times the arm's augmented outcome. ``value`` and ``curve`` are the
+    unweighted marginal mean and its centred curve.
+    """
 
     value: float
     curve: FloatArray
+    summand: FloatArray
+    own: FloatArray
     quantile_learner: str | None = None
     pseudo_outcome_learner: str | None = None
 
 
-def _binary_side(
-    y: FloatArray, treated: FloatArray, e: FloatArray, mu: FloatArray, gamma: float, upper: bool
+def _side(
+    summand: FloatArray,
+    own: FloatArray,
+    quantile_learner: str | None = None,
+    pseudo_outcome_learner: str | None = None,
 ) -> _Side:
-    """The binary-outcome side, with both nuisances closed forms of ``mu``."""
+    value = float(np.mean(summand))
+    return _Side(value, summand - value, summand, own, quantile_learner, pseudo_outcome_learner)
+
+
+def _observation(
+    y: FloatArray, observed_weight: FloatArray | None
+) -> tuple[FloatArray, FloatArray]:
+    """The outcome with unobserved rows set to zero, and ``Delta / P(Delta = 1 | A, W)``."""
+    if observed_weight is None:
+        return y, np.ones_like(y)
+    return np.where(observed_weight > 0, y, 0.0), observed_weight
+
+
+def _binary_side(
+    y: FloatArray,
+    treated: FloatArray,
+    e: FloatArray,
+    mu: FloatArray,
+    gamma: float,
+    upper: bool,
+    observed_weight: FloatArray | None = None,
+) -> _Side:
+    """The binary-outcome side, with both nuisances closed forms of ``mu``.
+
+    ``observed_weight`` is ``Delta / P(Delta = 1 | A, W)`` on a fit with missing outcomes.
+    """
+    y, obs = _observation(y, observed_weight)
     tau = gamma / (1.0 + gamma)
     if upper:
         q = (mu > 1.0 - tau).astype(float)
@@ -431,9 +529,15 @@ def _binary_side(
         rho = np.maximum(1.0 - gamma + gamma * mu, mu / gamma)
         residual = y - q
         r = q + np.where(residual < 0, gamma, 1.0 / gamma) * residual
-    summand = treated * y + (1.0 - treated) * rho + treated * (1.0 - e) / e * (r - rho)
-    value = float(np.mean(summand))
-    return _Side(value, summand - value)
+    own = treated * (mu + obs * (y - mu))
+    summand = own + (1.0 - treated) * rho + treated * obs * (1.0 - e) / e * (r - rho)
+    return _side(summand, own)
+
+
+def _fit(learner: Any, x: FloatArray, y: FloatArray, weights: FloatArray | None) -> Any:
+    from ..learners._fitting import fit_learner
+
+    return fit_learner(learner, x, y, sample_weight=weights)
 
 
 def _continuous_side(
@@ -449,21 +553,34 @@ def _continuous_side(
     quantile_learner: QuantileFactory | None,
     pseudo_outcome_learner: Any,
     seed: int,
+    *,
+    weights: FloatArray | None = None,
+    observed_weight: FloatArray | None = None,
 ) -> _Side:
-    """The continuous-outcome side: the upper bound of ``sign * Y``, read back by sign."""
+    """The continuous-outcome side: the upper bound of ``sign * Y``, read back by sign.
+
+    ``weights`` are the fit's sampling weights, which every regression and every held-out
+    loss reads. ``observed_weight`` is ``Delta / P(Delta = 1 | A, W)`` on a fit with missing
+    outcomes: the quantile and the tail regression train on observed rows only.
+    """
+    y, obs = _observation(y, observed_weight)
     sign = 1.0 if upper else -1.0
     y_s, mu_s = sign * y, sign * mu
+    own_s = treated * (mu_s + obs * (y_s - mu_s))
     if gamma == 1.0:
         # phi_1(u) = u, so R = Y and rho = mu: the AIPW mean, with no learner to fit.
-        summand = treated * y_s + (1.0 - treated) * mu_s + treated * (1.0 - e) / e * (y_s - mu_s)
-        value = float(np.mean(summand))
-        return _Side(sign * value, sign * (summand - value))
+        summand = own_s + (1.0 - treated) * mu_s + treated * obs * (1.0 - e) / e * (y_s - mu_s)
+        return _side(sign * summand, sign * own_s)
     tau = gamma / (1.0 + gamma)
-    rows = treated > 0.5
+    rows = (treated > 0.5) & (obs > 0)
     n = y.shape[0]
+    w = np.ones(n) if weights is None else np.asarray(weights, dtype=float)
 
     def tail(q: FloatArray, target: FloatArray) -> FloatArray:
         return q + np.maximum(target - q, 0.0) / (1.0 - tau)
+
+    def train_weights(mask: FloatArray) -> FloatArray | None:
+        return None if weights is None else w[mask]
 
     # For fold k the other folds split by parity of their order: the quantile trains on
     # one half and the tail regression on the other, so no training pseudo-outcome reads a
@@ -490,10 +607,11 @@ def _continuous_side(
         held_out = np.empty(n, dtype=float)
         on_second: list[FloatArray] = []
         for test, first, second in halves:
-            model = clone(learner).fit(x[rows & first], y_s[rows & first])
+            train = rows & first
+            model = _fit(learner, x[train], y_s[train], train_weights(train))
             held_out[test] = model.predict(x[test])
             on_second.append(np.asarray(model.predict(x[rows & second]), dtype=float))
-        risk = _pinball(y_s[rows], held_out[rows], tau)
+        risk = _pinball(y_s[rows], held_out[rows], tau, w[rows])
         if risk < best_risk:
             q_name, q_hat, q_second, best_risk = name, held_out, on_second, risk
 
@@ -510,37 +628,141 @@ def _continuous_side(
         for (test, _first, second), q_on_second in zip(halves, q_second, strict=True):
             train = rows & second
             target = tail(q_on_second, y_s[train])
-            model = clone(learner).fit(x[train], target)
+            model = _fit(learner, x[train], target, train_weights(train))
             predictions[test] = model.predict(x[test])
         # The held-out loss reads each row's pseudo-outcome from the quantile fitted
         # without its fold, as the evaluation does.
-        risk = float(np.mean((tail(q_hat[rows], y_s[rows]) - predictions[rows]) ** 2))
+        loss = (tail(q_hat[rows], y_s[rows]) - predictions[rows]) ** 2
+        risk = float(np.average(loss, weights=w[rows]))
         if risk < best_risk:
             c_name, c_hat, best_risk = name, predictions, risk
     rho = mu_s / gamma + (1.0 - 1.0 / gamma) * c_hat
     r = y_s / gamma + (1.0 - 1.0 / gamma) * tail(q_hat, y_s)
-    summand = treated * y_s + (1.0 - treated) * rho + treated * (1.0 - e) / e * (r - rho)
-    value = float(np.mean(summand))
-    return _Side(sign * value, sign * (summand - value), q_name, c_name)
+    summand = own_s + (1.0 - treated) * rho + treated * obs * (1.0 - e) / e * (r - rho)
+    return _side(sign * summand, sign * own_s, q_name, c_name)
 
 
 # ---------------------------------------------------------------------------------------
-# The public function
+# The bounded parameter
 
 
-def _estimand_arms(result: TMLEResult, estimand: str) -> tuple[float, float | None]:
-    """``(arm, versus)``: the arm of a mean, or the arms of the difference ``arm - versus``."""
-    arms = tuple(float(level) for level in result.repeats[0].nuisance.propensity.arms)
+#: The estimand stems, and the scale each reports on.
+_LINEAR_STEMS = ("ey", "ate", "att", "atc")
+_RATIO_STEMS = ("rr", "or")
+
+
+@dataclass(frozen=True)
+class _Target:
+    """One bounded parameter: its stem, its arms and the stratum it conditions on.
+
+    ``arm`` is the arm a level reports and the non-reference arm of a contrast; ``versus``
+    is the reference arm, or ``None`` for a level. ``stratum`` is a code into
+    ``data.strata_levels``, or ``None`` for a marginal parameter.
+    """
+
+    name: str
+    stem: str
+    arm: float
+    versus: float | None = None
+    stratum: int | None = None
+
+    @property
+    def ratio(self) -> bool:
+        return self.stem in _RATIO_STEMS
+
+    @property
+    def null(self) -> float | None:
+        if self.versus is None:
+            return None
+        return 1.0 if self.ratio else 0.0
+
+
+def _named_targets(result: TMLEResult) -> dict[str, _Target]:
+    """Every marginal parameter the bounds can take, by its reported name."""
+    from ..targets.base import arm_alias, parameter_name
+
+    data = result.data
     reference = float(result.config.reference_arm)
-    other = next(arm for arm in arms if arm != reference)
-    if estimand == "ate":
-        return other, reference
-    names = {f"ey{int(arm)}": arm for arm in arms if float(arm).is_integer()}
-    if estimand in names:
-        return names[estimand], None
-    raise ValueError(
-        f"estimand must be 'ate' or an arm mean ({', '.join(sorted(names))}); got {estimand!r}"
-    )
+    label = data.arm_label
+    binary = bool(data.is_binary_treatment)
+    out: dict[str, _Target] = {}
+    for arm in data.arm_codes:
+        name = parameter_name("ey", arm=label(arm))
+        out[name] = _Target(name, "ey", float(arm))
+    if binary:
+        out["ey1"] = _Target("ey1", "ey", 1.0)
+        out["ey0"] = _Target("ey0", "ey", 0.0)
+    for arm in data.arm_codes:
+        if float(arm) == reference:
+            continue
+        for stem in ("ate", "att", "atc", *_RATIO_STEMS):
+            name = arm_alias(stem, arm=label(arm), versus=label(reference), collapse=binary)
+            out[name] = _Target(name, stem, float(arm), reference)
+    # A fit with structured parameter keys may report aliases of its own.
+    from ._parameters import arm_parameters
+
+    for name, parameter in arm_parameters(result).items():
+        stem = "ey" if parameter.stem in ("ey1", "ey0") else parameter.stem
+        out.setdefault(name, _Target(name, stem, parameter.arm, parameter.versus))
+    if data.strata is not None:
+        # The conditional report suffixes the marginal alias with the stratum's label.
+        from ..targets.base import stratum_alias
+
+        for code in range(data.n_strata):
+            label_s = data.stratum_label(code)
+            for marginal in list(out.values()):
+                if marginal.stratum is None:
+                    name = stratum_alias(marginal.name, label_s)
+                    out[name] = replace(marginal, name=name, stratum=code)
+    return out
+
+
+def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
+    """The parameter an ``estimand`` name asks for, with ``None`` read as the default."""
+    from ._parameters import stratum_parameter
+
+    data = result.data
+    named = _named_targets(result)
+    if estimand is None:
+        if data.is_binary_treatment:
+            return named["ate"]
+        # A fit with more than two arms has no single ATE: take its first reported
+        # marginal contrast or mean, else the first contrast against the reference.
+        for name in result.estimates:
+            if name in named and not named[name].ratio:
+                return named[name]
+        return next(target for target in named.values() if target.stem == "ate")
+    if estimand in named:
+        target = named[estimand]
+    else:
+        conditional = stratum_parameter(result, estimand)
+        if conditional is None:
+            raise ValueError(
+                f"estimand must name an arm mean, a contrast, att, atc, rr or or of this fit "
+                f"({', '.join(sorted(named))}), or a reported stratum-conditional alias; "
+                f"got {estimand!r}"
+            )
+        stem = "ey" if conditional.stem in ("ey1", "ey0") else conditional.stem
+        target = _Target(estimand, stem, conditional.arm, conditional.versus, conditional.stratum)
+    if target.stem in ("att", "atc") and not data.is_binary_treatment:
+        raise CapabilityError.from_refusal(MULTI_ARM_CONDITIONAL_REFUSAL)
+    if target.ratio:
+        observed = np.asarray(data.outcome, dtype=float)[np.asarray(data.observed, dtype=bool)]
+        if data.family != "binomial" and target.stem == "or":
+            raise CapabilityError(
+                "the odds ratio bounds read a binary outcome; this fit's family is "
+                f"{data.family!r}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Ask for the risk ratio ('rr') of a nonnegative outcome.",
+            )
+        if np.any(observed < 0):
+            raise CapabilityError(
+                "the risk ratio bounds take the ratio of two arm bounds, which needs a "
+                "nonnegative outcome; this outcome takes negative values.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Bound the difference ('ate') instead.",
+            )
+    return target
 
 
 def _gammas(gamma: float | Sequence[float]) -> tuple[float, ...]:
@@ -553,15 +775,40 @@ def _gammas(gamma: float | Sequence[float]) -> tuple[float, ...]:
     return out
 
 
+def _refits_mechanism(result: TMLEResult) -> bool:
+    """Whether the bounds refit the treatment mechanism instead of reading the fit's.
+
+    A selecting C-TMLE conditions its mechanism on a selected function of the
+    covariates, which does not estimate ``P(A | W)``. A derivative C-TMLE (C-TMLE0)
+    selects nothing, so its mechanism is the ordinary one.
+    """
+    if getattr(result, "fitted_method", None) != "collaborative_tmle":
+        return False
+    from ..estimators.ctmle import CTMLEDerivativeFit
+
+    return not isinstance(result.extra.get("ctmle"), CTMLEDerivativeFit)
+
+
+def _mechanism(result: TMLEResult, repeat: Any) -> Any:
+    """The treatment mechanism of one draw: the fit's, or one refit on every covariate."""
+    if not _refits_mechanism(result):
+        return repeat.nuisance.propensity
+    from .omitted_variable import _full_mechanism
+
+    return _full_mechanism(result, repeat)
+
+
 def _draw_sides(
     result: TMLEResult,
     repeat: Any,
     gamma: float,
-    arms: tuple[float, float | None],
+    wanted: Sequence[tuple[float, bool]],
     quantile_learner: QuantileFactory | None,
     pseudo_outcome_learner: Any,
 ) -> dict[tuple[float, bool], _Side]:
-    """Every side the estimand needs, on one cross-fitting draw."""
+    """Every ``(arm, upper)`` side in ``wanted``, on one cross-fitting draw."""
+    from ..estimators._nuisance import tilt_missingness
+
     data = result.data
     nuisance = repeat.nuisance
     folds = nuisance.folds
@@ -579,22 +826,29 @@ def _draw_sides(
             random_state=seed,
         )
     assignment, n_folds = np.asarray(folds.assignment), int(folds.n_folds)
-    level_index = {float(level): i for i, level in enumerate(nuisance.propensity.arms)}
-    g = nuisance.propensity.bounded(result.config.g_bounds)
+    propensity = _mechanism(result, repeat)
+    level_index = {float(level): i for i, level in enumerate(propensity.arms)}
+    g = propensity.bounded(result.config.g_bounds)
     y = np.asarray(data.outcome, dtype=float)
     x = np.asarray(data.covariates, dtype=float)
+    weights = np.asarray(data.weights, dtype=float) if data.weights_name is not None else None
+    response = None
+    if data.has_missing_outcome:
+        response = tilt_missingness(nuisance, result.config.missingness_bound)
+    observed = np.asarray(data.observed, dtype=bool)
     binary = data.family == "binomial"
+    treatment = np.asarray(data.treatment, dtype=float)
     sides: dict[tuple[float, bool], _Side] = {}
-    arm, versus = arms
-    wanted = [(arm, True), (arm, False)]
-    if versus is not None:
-        wanted = [(arm, True), (arm, False), (versus, True), (versus, False)]
     for level, upper in wanted:
-        treated = (np.asarray(data.treatment, dtype=float) == level).astype(float)
+        treated = (treatment == level).astype(float)
         e = g[:, level_index[level]]
         mu = nuisance.scaler.unscale_levels(np.asarray(nuisance.outcome.arms[level], dtype=float))
+        observed_weight = None
+        if response is not None:
+            column = list(nuisance.arms).index(level)
+            observed_weight = np.where(observed, 1.0 / response[:, column], 0.0)
         if binary:
-            sides[(level, upper)] = _binary_side(y, treated, e, mu, gamma, upper)
+            sides[(level, upper)] = _binary_side(y, treated, e, mu, gamma, upper, observed_weight)
         else:
             sides[(level, upper)] = _continuous_side(
                 x,
@@ -609,8 +863,103 @@ def _draw_sides(
                 quantile_learner,
                 pseudo_outcome_learner,
                 seed,
+                weights=weights,
+                observed_weight=observed_weight,
             )
     return sides
+
+
+def _wanted(target: _Target) -> list[tuple[float, bool]]:
+    """The sides the target reads: both sides of its arm and, for a contrast, of ``versus``."""
+    wanted = [(target.arm, True), (target.arm, False)]
+    if target.versus is not None:
+        wanted += [(target.versus, True), (target.versus, False)]
+    return wanted
+
+
+@dataclass(frozen=True)
+class _End:
+    """One end of the bound on one draw: its value and influence curve, on the bound's scale."""
+
+    value: float
+    curve: FloatArray
+
+
+def _mean(numerator: FloatArray, denominator: FloatArray, mass: FloatArray) -> _End:
+    """``E[mass numerator] / E[mass denominator]`` and its influence curve.
+
+    ``mass`` is the sampling weight times the stratum indicator. The denominator is one
+    for a marginal mean and the indicator of the conditioning arm for ``att`` and ``atc``.
+    """
+    share = float(np.mean(mass * denominator))
+    value = float(np.mean(mass * numerator)) / share
+    return _End(value, mass * (numerator - value * denominator) / share)
+
+
+def _log_end(end: _End, odds: bool) -> _End:
+    """The end on the log scale (of the mean, or of its odds)."""
+    value = end.value
+    if not value > 0.0 or (odds and not value < 1.0):
+        raise CapabilityError(
+            f"an arm bound of {value:.4g} has no log{' odds' if odds else ''} at this gamma, so "
+            "the ratio of the arm bounds is undefined there.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Ask for a smaller gamma, or bound the difference ('ate').",
+        )
+    scale = value * (1.0 - value) if odds else value
+    transformed = np.log(value / (1.0 - value)) if odds else np.log(value)
+    return _End(float(transformed), end.curve / scale)
+
+
+def _target_ends(
+    result: TMLEResult, target: _Target, sides: dict[tuple[float, bool], _Side]
+) -> tuple[_End, _End]:
+    """``(lower, upper)`` of the target on one draw, a ratio on the log scale."""
+    data = result.data
+    n = data.n
+    mass = np.asarray(data.weights, dtype=float).copy()
+    if target.stratum is not None:
+        mass = mass * (np.asarray(data.strata) == target.stratum)
+    ones = np.ones(n)
+    arm_up, arm_low = sides[(target.arm, True)], sides[(target.arm, False)]
+    if target.versus is None:
+        return _mean(arm_low.summand, ones, mass), _mean(arm_up.summand, ones, mass)
+    ref_up, ref_low = sides[(target.versus, True)], sides[(target.versus, False)]
+    if target.stem == "ate":
+        return (
+            _mean(arm_low.summand - ref_up.summand, ones, mass),
+            _mean(arm_up.summand - ref_low.summand, ones, mass),
+        )
+    treatment = np.asarray(data.treatment, dtype=float)
+    if target.stem == "att":
+        # E[Y(a) | A = a] is identified; E[Y(ref) | A = a] reads the reference arm's bound
+        # without its observed-arm part.
+        given = (treatment == target.arm).astype(float)
+        own = arm_up.own
+        return (
+            _mean(own - (ref_up.summand - ref_up.own), given, mass),
+            _mean(own - (ref_low.summand - ref_low.own), given, mass),
+        )
+    if target.stem == "atc":
+        given = (treatment == target.versus).astype(float)
+        own = ref_up.own
+        return (
+            _mean((arm_low.summand - arm_low.own) - own, given, mass),
+            _mean((arm_up.summand - arm_up.own) - own, given, mass),
+        )
+    # A ratio of two arm bounds is monotone in each: the upper end divides the arm's upper
+    # bound by the reference's lower bound.
+    odds = target.stem == "or"
+    arms = {key: _log_end(_mean(side.summand, ones, mass), odds) for key, side in sides.items()}
+    lower = _End(
+        arms[(target.arm, False)].value - arms[(target.versus, True)].value,
+        arms[(target.arm, False)].curve - arms[(target.versus, True)].curve,
+    )
+    upper = _End(
+        arms[(target.arm, True)].value - arms[(target.versus, False)].value,
+        arms[(target.arm, True)].curve - arms[(target.versus, False)].curve,
+    )
+    return lower, upper
 
 
 def _median_rule(values: FloatArray, variances: FloatArray) -> tuple[float, float]:
@@ -620,19 +969,36 @@ def _median_rule(values: FloatArray, variances: FloatArray) -> tuple[float, floa
 
 
 def _limit_reading(
-    result: TMLEResult, outcome_kind: str, estimand: str, custom_learners: bool
+    result: TMLEResult, outcome_kind: str, target: _Target, custom_learners: bool
 ) -> Resolution:
     from ..validation._interpretation import fit_configuration, resolve
 
-    # A study of the continuous rule covers the default quantile and tail learners only.
+    # A study of the continuous rule covers the default quantile and tail learners and the
+    # marginal ATE or arm mean of an unweighted, fully observed two-arm fit. Each other
+    # feature names a rule of its own, which no row covers.
+    data = result.data
     features = [outcome_kind]
     if outcome_kind == "continuous" and custom_learners:
         features.append("custom_learners")
-    if result.data.cluster is not None:
+    if not data.is_binary_treatment:
+        features.append("multi_arm")
+    if target.stem in ("att", "atc"):
+        features.append("conditional")
+    if target.ratio:
+        features.append("ratio")
+    if target.stratum is not None:
+        features.append("stratum")
+    if data.weights_name is not None:
+        features.append("weighted")
+    if data.has_missing_outcome:
+        features.append("missing_outcome")
+    if _refits_mechanism(result):
+        features.append("refit_mechanism")
+    if data.cluster is not None:
         features.append("clustered")
     rule = "+".join(features)
     try:
-        fit = fit_configuration(result, estimand)
+        fit = fit_configuration(result, target.name)
     except (AttributeError, KeyError, TypeError, ValueError):
         fit = None
     return resolve(MSM_BOUND_INSTRUMENT, rule, fit)
@@ -652,13 +1018,19 @@ def marginal_sensitivity_bounds(
     Parameters
     ----------
     result : TMLEResult
-        A fitted two-arm ``TMLE`` or ``DRTMLE`` result with a Gaussian or binary outcome.
+        A fitted ``TMLE``, ``DRTMLE`` or ``CTMLE`` result with a Gaussian or binary outcome.
+        It may have more than two arms, sampling weights, baseline strata or missing
+        outcomes.
     gamma : float or sequence of float, default=DEFAULT_GAMMA_GRID
         The sensitivity parameter :math:`\\Gamma \\ge 1` (Tan's :math:`\\Lambda`), or a grid.
         :math:`\\Gamma = 1` reproduces the cross-fitted AIPW estimate.
     estimand : str or None, default=None
-        ``"ate"`` or an arm mean such as ``"ey1"``. ``None`` bounds the ATE, which every
-        two-arm fit defines, whatever estimands the fit reported.
+        The reported name of an arm mean (``"ey1"``), a difference (``"ate"``), an effect on
+        the treated or the controls (``"att"``, ``"atc"``, two arms only), a ratio
+        (``"rr"``, ``"or"``), any of these against a named reference arm, or a
+        stratum-conditional alias such as ``"ate[V=1]"``. The fit need not have reported
+        it. ``None`` bounds the ATE of a two-arm fit, and the first reported contrast or
+        mean of a fit with more arms.
     level : float, default=0.95
         The coverage level of the set interval.
     quantile_learner : callable, optional
@@ -677,7 +1049,9 @@ def marginal_sensitivity_bounds(
     Raises
     ------
     CapabilityError
-        When :func:`marginal_bound_refusal` refuses the fit.
+        When :func:`marginal_bound_refusal` refuses the fit, when ``att`` or ``atc`` is
+        asked of a fit with more than two arms, or when a ratio's outcome scale does not
+        fit it or an arm bound has no logarithm.
     ValueError
         When ``gamma`` holds a value below 1, or ``estimand`` or ``level`` is invalid.
 
@@ -715,8 +1089,7 @@ def marginal_sensitivity_bounds(
     if not 0.0 < level < 1.0:
         raise ValueError(f"level must lie in (0, 1); got {level!r}")
     grid = _gammas(gamma)
-    estimand = "ate" if estimand is None else estimand
-    arm, versus = _estimand_arms(result, estimand)
+    target = _resolve_target(result, estimand)
     cluster = result.data.cluster
     z = reference_quantile(1.0 - level)
     outcome_kind = "binary" if result.data.family == "binomial" else "continuous"
@@ -727,18 +1100,14 @@ def marginal_sensitivity_bounds(
         lowers, uppers, lower_vars, upper_vars = [], [], [], []
         for repeat in result.repeats:
             sides = _draw_sides(
-                result, repeat, value, (arm, versus), quantile_learner, pseudo_outcome_learner
+                result, repeat, value, _wanted(target), quantile_learner, pseudo_outcome_learner
             )
             for side in sides.values():
                 if side.quantile_learner is not None:
                     quantile_names.add(side.quantile_learner)
                 if side.pseudo_outcome_learner is not None:
                     pseudo_names.add(side.pseudo_outcome_learner)
-            up, low = sides[(arm, True)], sides[(arm, False)]
-            if versus is not None:
-                up_v, low_v = sides[(versus, True)], sides[(versus, False)]
-                up = _Side(up.value - low_v.value, up.curve - low_v.curve)
-                low = _Side(low.value - up_v.value, low.curve - up_v.curve)
+            low, up = _target_ends(result, target, sides)
             lowers.append(low.value)
             uppers.append(up.value)
             lower_vars.append(influence_variance(low.curve, cluster))
@@ -746,31 +1115,36 @@ def marginal_sensitivity_bounds(
         lower, lower_var = _median_rule(np.asarray(lowers), np.asarray(lower_vars))
         upper, upper_var = _median_rule(np.asarray(uppers), np.asarray(upper_vars))
         lower_se, upper_se = float(np.sqrt(lower_var)), float(np.sqrt(upper_var))
+        lower_limit, upper_limit = lower - z * lower_se, upper + z * upper_se
+        if target.ratio:
+            lower, upper = float(np.exp(lower)), float(np.exp(upper))
+            lower_limit, upper_limit = float(np.exp(lower_limit)), float(np.exp(upper_limit))
         rows.append(
             MarginalSensitivityRow(
                 gamma=value,
-                estimand=estimand,
+                estimand=target.name,
                 lower=lower,
                 upper=upper,
                 lower_std_error=lower_se,
                 upper_std_error=upper_se,
-                lower_limit=lower - z * lower_se,
-                upper_limit=upper + z * upper_se,
+                lower_limit=lower_limit,
+                upper_limit=upper_limit,
             )
         )
     return MarginalSensitivityBounds(
         rows=tuple(rows),
-        estimand=estimand,
+        estimand=target.name,
         level=level,
-        null=0.0 if versus is not None else None,
+        null=target.null,
         outcome_kind=outcome_kind,
         quantile_learner=tuple(sorted(quantile_names)),
         pseudo_outcome_learner=tuple(sorted(pseudo_names)),
         limit_reading=_limit_reading(
             result,
             outcome_kind,
-            estimand,
+            target,
             custom_learners=quantile_learner is not None or pseudo_outcome_learner is not None,
         ),
         backend=result.data.backend,
+        scale="log" if target.ratio else "identity",
     )

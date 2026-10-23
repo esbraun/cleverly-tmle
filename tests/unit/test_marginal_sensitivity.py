@@ -17,7 +17,7 @@ from scipy.optimize import linprog
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 
-from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Incremental
@@ -626,7 +626,7 @@ def test_invalid_arguments_raise(binary: Any) -> None:
     with pytest.raises(ValueError, match="at least 1"):
         marginal_sensitivity_bounds(binary, 0.5)
     with pytest.raises(ValueError, match="estimand"):
-        marginal_sensitivity_bounds(binary, 2.0, estimand="att")
+        marginal_sensitivity_bounds(binary, 2.0, estimand="ate[2 vs 0]")
     with pytest.raises(ValueError, match="level"):
         marginal_sensitivity_bounds(binary, 2.0, level=1.0)
 
@@ -709,31 +709,15 @@ def refused_with(result: Any, reason: str, owner: str | None) -> None:
         )
 
 
-def test_a_collaborative_fit_is_refused() -> None:
+def test_an_adaptive_iptw_fit_is_redirected() -> None:
+    from cleverly.estimators import AdaptiveIPTW
+
     fit = (
-        CTMLE(
-            outcome_learner=LogisticRegression(),
-            treatment_learner=LogisticRegression(),
-            random_state=0,
-            estimands=("ate", "ey1", "ey0"),
-        )
+        AdaptiveIPTW(treatment_learner=LogisticRegression(), random_state=0)
         .fit(binary_frame(), outcome="Y", treatment="A", covariates=["W1", "W2"])
         .single()
     )
-    refused_with(fit, "implementation_gap", "X82")
-
-
-def test_a_multi_arm_fit_is_refused() -> None:
-    frame = binary_frame()
-    rng = np.random.default_rng(2)
-    frame = frame.assign(A=rng.integers(0, 3, size=len(frame)))
-    fit = binary_fit(frame)
-    refused_with(fit, "implementation_gap", "X82")
-
-
-def test_a_weighted_fit_is_refused() -> None:
-    frame = gaussian_frame().assign(wt=np.linspace(0.5, 1.5, 400))
-    refused_with(gaussian_fit(frame, weights="wt"), "implementation_gap", "X82")
+    refused_with(fit, "api_redirection", None)
 
 
 def refusal_frame(n: int = 300, seed: int = 4) -> pd.DataFrame:
@@ -798,8 +782,6 @@ def _composition(kind: str) -> Any:
     [
         ("intermediate", "implementation_gap", "X87"),
         ("missing_treatment", "implementation_gap", "X87"),
-        ("missing_outcome", "implementation_gap", "X82"),
-        ("strata", "implementation_gap", "X82"),
         ("incremental", "different_estimand", None),
     ],
 )
