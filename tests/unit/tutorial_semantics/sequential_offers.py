@@ -47,8 +47,6 @@ UNPRINTED_DECIMALS = {
     f"estimate of it, 100 draws: {_PROBE}/summary.log",
     "0.0029": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
     "-0.0060": f"bias of the wrong-model LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
-    "0.088": "the size of the printed weekly-discount contrast -0.088, which At a glance reads as "
-    "a fall of 0.088",
     "0.64": "0.01 / 0.25**3, the product of three consent probabilities below which the cumulative "
     "probability of a shipping follower falls under the cap of 0.01, recomputed in _check_cap",
 }
