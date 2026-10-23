@@ -3513,6 +3513,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
         "licenses."
     ),
+    "marginal-bound-limit-coverage": (
+        "It measures the coverage of the marginal sensitivity bound limits of X82 part H. A "
+        "limit is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
+        "licenses."
+    ),
     "evalue-limit-coverage": (
         "It measures the coverage of the risk-ratio intervals that two E-value limits map. "
         "VERDICT_EVIDENCE, not a support row, records what the study licenses."

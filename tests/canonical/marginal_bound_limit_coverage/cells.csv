@@ -1,0 +1,5 @@
+scenario,parameter,method,estimand_kind,outcome_family,treatment_kind,learners,cross_fitting,inference,known_mechanism,n,covariates_per_row,min_event_count,clusters,arms,replicates,nodes
+SH1,ate_lower,TMLE,ate,gaussian,discrete,"LinearRegression() | LogisticRegression(C=1000000.0,max_iter=2000)",folds=5,influence_curve,False,8000,0.0025,,,2,,
+SH1,ate_upper,TMLE,ate,gaussian,discrete,"LinearRegression() | LogisticRegression(C=1000000.0,max_iter=2000)",folds=5,influence_curve,False,8000,0.0025,,,2,,
+SH2,ate_lower,TMLE,ate,binomial,discrete,"LogisticRegression(C=1000000.0,max_iter=2000) | LogisticRegression(C=1000000.0,max_iter=2000)",folds=5,influence_curve,False,8000,0.0025,934.0,,2,,
+SH2,ate_upper,TMLE,ate,binomial,discrete,"LogisticRegression(C=1000000.0,max_iter=2000) | LogisticRegression(C=1000000.0,max_iter=2000)",folds=5,influence_curve,False,8000,0.0025,934.0,,2,,
