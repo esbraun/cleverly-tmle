@@ -58,6 +58,11 @@ _PROBE = "reviews/notebook-review/probes/sequential-pricing"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "-0.00013": f"mean of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "-0.45": f"t statistic of the price_up placebo, 400 draws: {_PROBE}/placebo.log",
+    "0.65": f"two-sided p-value of that t statistic, 400 draws: {_PROBE}/placebo.log",
+    "1.01": f"mean reported SE over the SD of the placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "94.5": f"share of the placebo 95% intervals that contain 0, 400 draws: {_PROBE}/placebo.log",
     "-0.0002": f"bias of the LTMLE renewal contrast of price_up, 200 draws: {_PROBE}/summary.log",
     "0.0004": f"bias of the LTMLE renewal contrast of price_down, 200 draws: {_PROBE}/summary.log",
     "0.0005": f"Monte Carlo standard error of both renewal biases, 200 draws: {_PROBE}/summary.log, "
@@ -730,6 +735,7 @@ def _check_refits(namespace: dict[str, Any]) -> None:
     assert estimand == _key("price_up")
     assert report.estimand == estimand
     assert tuple(test.name for test in report.tests) == (
+        "placebo",
         "subset",
         "random_common_cause",
         "bootstrap_stability",
@@ -740,11 +746,22 @@ def _check_refits(namespace: dict[str, Any]) -> None:
     assert report.passed is None
     printed = stored_output(NOTEBOOK, "refute")
     assert "This fit differs on outcome family 'binomial'" in printed
+    # The banded placebo runs: each placebo price keeps the subscriber's band.
+    assert "The placebo dose keeps each unit's declared band" in printed
+    placebo = report["placebo"]
+    values = np.asarray(placebo.values)
+    assert len(values) == 10
+    assert float(values.mean()) == pytest.approx(0.00064, abs=0.000005)
+    assert placebo.statistic == pytest.approx(0.72, abs=0.005)
+    assert placebo.statistic_pvalue == pytest.approx(0.49, abs=0.005)
+    assert float(values.std(ddof=1)) == pytest.approx(0.0028, abs=0.00005)
+    se_over_sd = float(np.mean(placebo.standard_errors)) / float(values.std(ddof=1))
+    assert se_over_sd == pytest.approx(1.98, abs=0.005)
     # The subset ratio, the noise-column shift and the bootstrap spread that the reading quotes.
     subset = report["subset"]
-    assert subset.statistic == pytest.approx(0.86, abs=0.005)
-    assert subset.statistic_pvalue == pytest.approx(0.66, abs=0.005)
-    assert report["random_common_cause"].statistic == pytest.approx(-0.019, abs=0.0005)
+    assert subset.statistic == pytest.approx(0.98, abs=0.005)
+    assert subset.statistic_pvalue == pytest.approx(0.93, abs=0.005)
+    assert report["random_common_cause"].statistic == pytest.approx(-0.034, abs=0.0005)
     table = report.to_frame().set_index("test")
     spread = float(table.loc["bootstrap_stability", "refuted_sd"])
     assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
@@ -753,8 +770,8 @@ def _check_refits(namespace: dict[str, Any]) -> None:
     # The checks the page does not run are refused before any refit, for the reasons it gives.
     result, revenue = namespace["result"], namespace["revenue_result"]
     for fit in (result, revenue):
-        refusal = refute_refusal(fit, estimand=estimand, tests=("placebo",))
-        assert refusal is not None and "functions of the history" in refusal.message()
+        # "The revenue contrast takes the same tests": the banded placebo runs on both fits.
+        assert refute_refusal(fit, estimand=estimand, tests=("placebo",)) is None
         refusal = refute_refusal(
             fit,
             estimand=estimand,
