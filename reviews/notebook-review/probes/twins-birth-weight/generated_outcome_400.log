@@ -1,1 +1,14 @@
 fit 25.1 s, att -173.2687
+400 draws in 8767 s
+Refutation tests for 'att'
+----------------------------------
+test               original  refuted (mean)  sd     expected                                    rung  ok 
+-----------------  --------  --------------  -----  ------------------------------------------  ----  ---
+simulated_outcome  -173.27   -152            11.08  readings inside their bands around -152.35  L2    yes
+
+simulated_outcome: process=bounded_beta_adjustment_dependent; family=gaussian; effect=-152.35; successful=400; failed=0
+reading: bias 0.03182 [-0.06618, 0.1298] inside [-0.2, 0.2]; standard-error ratio and coverage withheld (covariate part of the curve)
+  bias = 0.03182, 95% interval [-0.06618, 0.1298], band [-0.2, 0.2]: inside
+  On the generated law named here, the bias lies inside its equivalence band. Your own outcome law is not this one. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on the held design, truth -152.35.
+
+VERDICT: every refutation test with a verdict passed it.

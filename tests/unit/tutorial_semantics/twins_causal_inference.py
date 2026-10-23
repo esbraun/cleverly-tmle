@@ -26,7 +26,15 @@ PROBE_LOG = (
 )
 
 #: Decimals the prose writes that no stored output prints, each with the reason.
-UNPRINTED_DECIMALS: dict[str, str] = {}
+_PROBE = "reviews/notebook-review/probes/twins-birth-weight/generated_outcome_400.log"
+
+UNPRINTED_DECIMALS: dict[str, str] = {
+    "0.03182": f"bias reading of the generated-outcome test, 400 draws: {_PROBE}",
+    "-0.06618": f"lower limit of that bias interval, 400 draws: {_PROBE}",
+    "0.1298": f"upper limit of that bias interval, 400 draws: {_PROBE}",
+    "-0.2": f"lower limit of the level-2 equivalence band: {_PROBE}",
+    "0.2": f"upper limit of the level-2 equivalence band: {_PROBE}",
+}
 
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.
 _MACHINE_NOISE = re.compile(r"\d\.\d+e-(0[89]|[1-9]\d)")
@@ -135,7 +143,8 @@ def check_stored() -> None:
         assert f"causal study protocol: schema 1; {fingerprint}" in text
         assert "assumption rationale:" not in text
     assert f"`{fingerprint}`" in prose
-    assert "intercurrent-event handling: ['Fetal death of a twin: while alive." in protocol_text
+    intercurrent = "intercurrent-event handling: ['Fetal death of a twin: the cohort conditions on"
+    assert intercurrent in protocol_text
 
     # Design: the pair is the unit, so no cluster; the ATT; the declared outcome support.
     assert "cluster=" not in code["identify"] and "ATT(reference=0)" in code["identify"]
@@ -241,15 +250,28 @@ def check_stored() -> None:
     # benchmark covariates.
     surface = stored_output(NOTEBOOK, "simulated-confounding")
     assert "This surface is qualitative. It is not a bound" in surface
-    cells_printed = re.findall(r"(?m)^(0(?:\.0[25])?)\s+(0(?:\.[12])?)\s+\S+\s+[+-]", surface)
+    cells_printed = re.findall(r"(?m)^(0(?:\.0[25])?)\s+(-?0(?:\.1)?)\s+\S+\s+[+-]", surface)
     assert len(cells_printed) == 9, cells_printed
     assert 'benchmark_covariates=("mother_education", "married")' in code["simulated-confounding"]
     for covariate in ("mother_education", "married"):
         assert re.search(rf"(?m)^\s+{covariate}\s+treatment\s", surface), covariate
         assert re.search(rf"(?m)^\s+{covariate}\s+outcome\s", surface), covariate
-    # "the estimate moves by -7.8858 g": away from zero at the benchmark-sized cell.
-    near_benchmark = re.search(r"(?m)^0\.02\s+0\.1\s+\S+\s+(\S+)", surface)
-    assert near_benchmark and float(near_benchmark[1]) < 0
+    # The grid runs both signs of the outcome strength. A positive strength lowers the weight,
+    # and a negative one raises it, as the outcome association column shows.
+    assert "outcome=(-0.1, 0.0, 0.1)" in code["simulated-confounding"]
+    association = {
+        strength: float(value)
+        for strength, value in re.findall(
+            r"(?m)^0\s+(-?0(?:\.1)?)\s+.*\s([+-]\d\.\d+)\s*$", surface
+        )
+    }
+    assert association["0.1"] < 0 < association["-0.1"], association
+    # "the cell at 0.02 and -0.1 moves the estimate to -120.52 g, which stays below zero":
+    # the threat to the sign moves the estimate toward zero, and the estimate stays negative.
+    threat = re.search(r"(?m)^0\.02\s+-0\.1\s+(\S+)\s+(\S+)", surface)
+    assert threat and float(threat[1]) < 0 < float(threat[2])
+    away = re.search(r"(?m)^0\.02\s+0\.1\s+\S+\s+(\S+)", surface)
+    assert away and float(away[1]) < 0
 
     # Over-adjustment: each refit moves the ATT by under one standard error.
     refit = stored_output(NOTEBOOK, "over-adjustment")
@@ -259,4 +281,6 @@ def check_stored() -> None:
 
     # The review probe of 400 generated-outcome draws is committed with its reading.
     probe = PROBE_LOG.read_text(encoding="utf-8")
-    assert "400 draws" in probe or "successful=400" in probe
+    assert "successful=400; failed=0" in probe
+    assert "L2    yes" in probe
+    assert "bias 0.03182 [-0.06618, 0.1298] inside [-0.2, 0.2]" in probe
