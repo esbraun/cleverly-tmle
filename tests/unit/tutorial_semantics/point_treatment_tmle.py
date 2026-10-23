@@ -206,6 +206,43 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
     assert estimate.psi > 0.0
 
 
+def _check_odds_bounds(namespace: dict[str, Any]) -> None:
+    """The bounds on the odds of an offer read as the prose says."""
+    bounds = namespace["odds_bounds"]
+    treated = namespace["with_offer"].rows
+    untreated = namespace["without_offer"].rows
+    assert [row.gamma for row in bounds.rows] == [1.0, 2.0, 3.0, 4.0]
+    # "At gamma = 1 each range is a single value ... 0.167, matches the estimate".
+    for first in (bounds.rows[0], treated[0], untreated[0]):
+        assert first.lower == pytest.approx(first.upper, abs=1e-12)
+    assert bounds.rows[0].lower == pytest.approx(namespace["estimate"].psi, abs=5e-4)
+    # "The ranges then widen": each row nests the one before it.
+    for before, after in zip(bounds.rows, bounds.rows[1:], strict=False):
+        assert after.lower < before.lower and after.upper > before.upper
+    # "where that room comes from": the effect range is the difference of the group ranges,
+    # a nonzero witness that each end pairs the opposite ends of the two arms.
+    for row, one, zero in zip(bounds.rows, treated, untreated, strict=True):
+        assert row.lower == pytest.approx(one.lower - zero.upper, abs=1e-12)
+        assert row.upper == pytest.approx(one.upper - zero.lower, abs=1e-12)
+        assert row.upper - row.lower > (one.upper - one.lower) + 1e-12 or row.gamma == 1.0
+    # "if everyone were offered ... as low as 0.476": a bound on the mean under offering to
+    # all, which sits well below the offered group's observed mean, so it is not that mean.
+    frame = namespace["frame"]
+    offered = frame["transition_navigation"] == 1
+    assert treated[3].lower < float(frame["transition_score"][offered].mean()) - 0.05
+    # "stay above zero through gamma = 3 and fall to -0.0032 at gamma = 4".
+    assert bounds.rows[2].lower_limit > 0.0 > bounds.rows[3].lower_limit
+    assert bounds.limit_breakdown == 4.0
+    assert bounds.breakdown is None
+    # "no simulation study backs these limits for this fit. The study behind them used linear
+    # models and at least 8,000 patients, while this fit uses boosted models and 3,000".
+    assert bounds.limit_descriptive
+    sentence = bounds.limit_reading.sentence
+    assert "This fit differs on learner HistGradientBoostingRegressor(" in sentence
+    assert "n = 3000 (below 8000)" in sentence
+    assert "'LinearRegression()'" in sentence
+
+
 def _check_surface(namespace: dict[str, Any]) -> None:
     """Step 11: the stress surface reads as the prose says."""
     estimate = namespace["estimate"]
@@ -373,6 +410,7 @@ def check(namespace: dict[str, Any]) -> None:
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
     _check_evalue(namespace)
+    _check_odds_bounds(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:

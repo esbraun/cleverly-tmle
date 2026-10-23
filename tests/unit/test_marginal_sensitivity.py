@@ -647,10 +647,14 @@ def covering_row(rule: str) -> VerdictEvidence:
     )
 
 
-def test_every_limit_is_descriptive_on_the_shipped_registry(gaussian: Any, binary: Any) -> None:
-    assert not [
-        row for row in interpretation.VERDICT_EVIDENCE if row.instrument == MSM_BOUND_INSTRUMENT
-    ]
+def test_every_test_fit_is_descriptive_on_the_shipped_registry(gaussian: Any, binary: Any) -> None:
+    # The shipped SH rows need n >= 8,000 and five-fold cross-fitting; these fits have neither.
+    shipped = {
+        row.rule
+        for row in interpretation.VERDICT_EVIDENCE
+        if row.instrument == MSM_BOUND_INSTRUMENT
+    }
+    assert shipped == {"continuous", "binary"}
     for fit in (gaussian, binary):
         bounds = marginal_sensitivity_bounds(fit, 1.5)
         assert bounds.limit_descriptive
@@ -669,6 +673,23 @@ def test_a_registered_row_licenses_exactly_its_rule(
     )
     assert not marginal_sensitivity_bounds(binary, 1.5).limit_descriptive
     assert marginal_sensitivity_bounds(gaussian, 1.5).limit_descriptive
+
+
+def test_a_repeated_fit_reads_its_own_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Study SH measured one cross-fitting draw, so the median rule names a rule of its own.
+    fit = binary_fit(repeats=3, simultaneous=False)
+    monkeypatch.setattr(
+        interpretation,
+        "VERDICT_EVIDENCE",
+        (*interpretation.VERDICT_EVIDENCE, covering_row("binary")),
+    )
+    assert marginal_sensitivity_bounds(fit, 1.5, estimand="ey1").limit_descriptive
+    monkeypatch.setattr(
+        interpretation,
+        "VERDICT_EVIDENCE",
+        (*interpretation.VERDICT_EVIDENCE, covering_row("binary+repeats")),
+    )
+    assert not marginal_sensitivity_bounds(fit, 1.5, estimand="ey1").limit_descriptive
 
 
 def test_a_continuous_row_covers_the_default_learners_only(

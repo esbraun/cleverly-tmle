@@ -81,8 +81,10 @@ quantile is a plug-in threshold, so its sharpness needs a margin condition: the 
 regression puts little mass near :math:`1 - \tau`.  Validity needs no such condition.
 
 **What the interval may claim.**  It resolves through the registry of
-:mod:`cleverly.validation._interpretation`, instrument :data:`MSM_BOUND_INSTRUMENT`.  Until
-a registered coverage cell adds a row, it prints the registry's descriptive sentence.
+:mod:`cleverly.validation._interpretation`, instrument :data:`MSM_BOUND_INSTRUMENT`.  Study
+``marginal-bound-limit-coverage`` (X82 SH) registers the ``continuous`` and ``binary`` rows
+for the ATE of a five-fold cross-fitted TMLE with GLM nuisances at ``n >= 8000``.  Every
+other fit prints the registry's descriptive sentence.
 """
 
 from __future__ import annotations
@@ -115,7 +117,8 @@ FloatArray = np.ndarray
 
 #: The registry instrument of the bound's confidence limits.  The rule is the outcome kind,
 #: ``"continuous"`` or ``"binary"``, followed by one ``"+feature"`` per composition the
-#: bound used (:func:`_limit_reading`), ending with ``"+clustered"`` on a clustered fit.
+#: bound used (:func:`_limit_reading`), then ``"+repeats"`` on a fit with more than one
+#: cross-fitting draw and ``"+clustered"`` on a clustered fit.
 MSM_BOUND_INSTRUMENT = "msm_bound_limit"
 
 #: The default grid of the sensitivity parameter.
@@ -991,9 +994,9 @@ def _limit_reading(
 ) -> Resolution:
     from ..validation._interpretation import fit_configuration, resolve
 
-    # A study of the continuous rule covers the default quantile and tail learners and the
-    # marginal ATE or arm mean of an unweighted, fully observed two-arm fit. Each other
-    # feature names a rule of its own, which no row covers.
+    # Study SH covers the default quantile and tail learners and the marginal ATE of an
+    # unweighted, fully observed two-arm fit with one draw. Each other feature names a rule
+    # of its own, which no row covers.
     data = result.data
     features = [outcome_kind]
     if outcome_kind == "continuous" and custom_learners:
@@ -1012,6 +1015,9 @@ def _limit_reading(
         features.append("missing_outcome")
     if _refits_mechanism(result):
         features.append("refit_mechanism")
+    if len(getattr(result, "repeats", ())) > 1:
+        # Study SH measured one cross-fitting draw; the median rule over draws is unmeasured.
+        features.append("repeats")
     if data.cluster is not None:
         features.append("clustered")
     rule = "+".join(features)
