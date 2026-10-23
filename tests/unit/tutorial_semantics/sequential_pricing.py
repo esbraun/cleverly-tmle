@@ -1338,7 +1338,7 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     assert "Each estimate stays near its truth, and each interval contains it" in support
     assert all(abs(rise_fit[_key(plan)].psi - truth[_key(plan)]) < 0.01 for plan in held)
     assert [round(100 * zero[plan]) for plan in ("up_6", "up_25")] == [6, 30]
-    assert "The share with zero exact weight grows from 6% to 30%" in support
+    assert "The share of month-3 prices with an exact ratio of zero grows from 6% to 30%" in support
     saturation = truth[_key("up_25")] / truth[_key("up_6")]
     assert (
         f"the true 25% effect is {saturation:.2f} times the 6% effect, against {25 / 6:.2f} for a "
@@ -1467,9 +1467,10 @@ def _check_phrase_rules() -> None:
     assert "it measures that gap from last month's band" in markdown["plan"]
     # The mechanism of the ladder names the zero region and the held region.
     heading = markdown["support-heading"]
-    assert "A subscriber whose engine price lies below that value has an exact weight of zero" in (
-        heading
+    assert (
+        "A subscriber whose engine price lies below that value in month 3 has an exact" in heading
     )
+    assert "month-3 ratio of zero, because the plan never produces such a price" in heading
     assert "Near the top, the plan's price can be a held or a raised one" in heading
     assert "carry the largest weights" in heading
     assert "moved prices carry a larger density ratio" not in heading
