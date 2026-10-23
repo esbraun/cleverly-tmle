@@ -941,12 +941,23 @@ reads the treatment mechanism as consistent, which is the assumption of the publ
 | the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
 | limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
 | a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
-| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | refused with the reason `implementation_gap`. The fit declares only a learner that reads one outcome prediction, so no learner exists for the mechanism on every covariate ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)). Test: `test_a_per_arm_fit_refuses_the_refit` |
+| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | runs with a declared `mechanism_learner=`, which is refitted on the full adjustment set. Without it, the bound refuses with the reason `invalid_declaration`, because the fit's treatment learner reads one outcome prediction. Tests: `TestThePerArmParametricPointBound` |
+| `mechanism_learner=` | raises `ValueError` | replaces the default refit learner. The fit's own treatment learner reproduces the default bound. Test: `test_the_fit_s_own_learner_reproduces_the_default` |
 
 The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
 keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
-assumption, the summary prints it, and `to_dict()` adds it. On another fit the keyword raises
-`ValueError`. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
+assumption, the summary prints it, and `to_dict()` adds it.
+
+The result facade accepts both keywords on `omitted_confounding()`, `robustness_value()`, and
+`contour()`. The bare capability row stays unavailable. A request that names
+`assume_consistent_mechanism=True` reads the refusal that the free function raises. Test:
+`TestTheFacadeLiftsItsRow`.
+
+With a declared learner, the
+assumption says the bound holds only if that learner is consistent for the mechanism. The package
+does not check that condition. `SensitivityBounds.mechanism_learner` records the learner
+fingerprint. On another fit the keyword raises `ValueError`, and `mechanism_learner=` without
+`assume_consistent_mechanism=True` raises `ValueError` too. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
 takes the median of the draws' point bounds.
 
 `tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the
