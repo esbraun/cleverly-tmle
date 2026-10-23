@@ -1,12 +1,17 @@
 # Example notebooks
 
-This page tells you how to write a tutorial under `docs/examples/` as an executed notebook. Each
-step of a tutorial notebook shows its code, its output, and a plain reading of that output. The
-reader is a practitioner who is new to TMLE and new to `cleverly`.
+This page tells you how to write a tutorial under `docs/examples/` as an executed notebook. A
+tutorial shows its code, its output, and a plain reading of each output. The reader is the data
+scientist that [Writing for readers](writing-for-readers.md#the-readers) describes: someone who
+knows Python and regression, but not causal inference or `cleverly`, and who wants to run the
+analysis and explain the result. That guide holds the writing rules for every markdown cell. This
+page adds the rules that are special to a notebook: its outline, its code cells, its tests, and
+how to execute it.
 
-Use [point-treatment TMLE](../examples/point-treatment-tmle.ipynb) as the reference. It follows
-every rule on this page. The [TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes
-public data, and it is not a program tutorial.
+Roadmap item X88 rewrites the notebooks to this page, one notebook at a time. Until a notebook's
+rewrite merges, use it as an example of code-cell practice, not of prose or headings. The
+[TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
+program tutorial.
 
 ## What a tutorial notebook consists of
 
@@ -41,31 +46,40 @@ selection `-k <stem>` runs all of them.
 The link test `tests/unit/test_documentation_links.py` also reads the markdown cells. Every relative
 link and every heading anchor in them must resolve.
 
-## The cell outline
+## The page outline
 
-Every tutorial notebook follows this order. Use the cell ids in the table where the step applies.
-Each code cell is followed by a markdown cell that starts with `**What this output tells you.**`.
+Every tutorial follows this outline. The landmark column names the role of each section. Write
+the heading itself as a landmark the reader recognizes, in words that fit the page, as rule R13 of
+the guide asks. The title is the only level-one heading. "At a glance", each main-path landmark,
+"Go deeper", and "Where to go next" are level two, and each lesson under "Go deeper" is level
+three.
 
-| order | cell id | type | contents | the output it shows |
-| --- | --- | --- | --- | --- |
-| 1 | `title` | markdown | the title as the only level-one heading, then the situation: the setting, the data, the treatment, the outcome, the time order, and which quantities are counterfactual. Add a compact causal graph where one applies, as [the situation step](#the-situation-step) describes. The learning table is optional. If you add one, list the decisions the problem teaches, not the features the page calls | none |
-| 2 | `plan` | markdown | the question, the target population, the intervention, and the estimand, before any code. The identification assumptions, each marked as checkable from data or as scientific judgment. "Why this method", with each method feature tied to a feature of the problem. A table of the terms the page uses most | none |
-| 3 | `setup` | code | the imports and the installed `cleverly` version | the version |
-| 4 | `data` | code | the data under the program's column names, as [the data step](#the-data-step) describes | the shape, the column names, the first rows, and the known truth of the synthetic law |
-| 5 | `association` | code | an unadjusted comparison, where confounding is part of the lesson | the naive contrast beside the truth |
-| 6 | `protocol` | code | the `StudyProtocol` for the question | `protocol.summary_lines()`, including the fingerprint |
-| 7 | `identify` | code | the `CausalStudy`, the design, and `study.identify(...)` | `effect.summary(protocol="fingerprint")`: the formula, the nuisances, the assumptions, and the protocol fingerprint |
-| 8 | one id per fit | code | each fit, with its method written out in full | `result.summary(protocol="fingerprint")` and the numbers the prose quotes |
-| 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial. Before the code, name the mechanism that causes the difference and the estimand of each method, as [comparisons](#comparisons) requires | the numbers that show the failure |
-| 10 | `assessment` | code | `result.assess()` and the retained reports the page reads | the assessment summary and each report summary |
-| 11 | `sensitivity` | code | the sensitivity analysis that is derived for the fitted estimator and runs on this fit. [The sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names one for each kind of fit | the robustness value and the bounds, the E-value, the stress surface, the tipping point, or the benchmark refits |
-| 12 | `method-evidence` | markdown | "Method evidence": a table that links the registered study page of each method the page fits. [The method-evidence step](#the-method-evidence-step) gives the rule | none |
-| 13 | `interpret` | markdown | the answer to the question of row 2: what the estimate means, for which population and intervention, the reported interval, the evidence behind the reading, the assumptions that stay unverified, and the conclusions the analysis does not support | none |
-| 14 | `where-next` | markdown | the next tutorial and the related reference entries | none |
+| landmark | contents | cell ids |
+| --- | --- | --- |
+| At a glance | the question in one sentence, the answer with its interval in plain words, the one caveat that matters most, and the list of sections. Use the printed numbers of the estimate cell | `title`, which also holds the level-one title. The title names the data situation first, then the question |
+| The question | the decision, who it applies to, and what is compared, in the program's words. The quantity to estimate, in one plain sentence. A causal graph only where it informs, as [drawing a causal graph](#drawing-a-causal-graph) describes | `plan` |
+| The data | the imports and the installed `cleverly` version, then what one row is, the columns, and the known answer of the simulated data | `setup`, `data` |
+| Why a simple comparison misleads | the naive difference beside the known answer, and why it is off | `association` |
+| Set up the analysis | the study description, the roles of the columns, and the conditions the answer needs. Mark each condition "the data can check this" or "this needs judgment" | `protocol`, `identify` |
+| Estimate the effect | each fit, with each setting explained in a short list | one id for each fit |
+| Check the fit | the overlap check and the model checks, read in plain words | `assessment` |
+| Try to break the result | the refutation checks | the refutation cell |
+| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | `sensitivity` |
+| What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
+| How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes | `method-evidence` |
+| Go deeper | theory and comparisons between estimators | the comparison cells, and `failure-mode` only when it is not the point of the page |
+| Where to go next | the next tutorial and the related reference entries | `where-next` |
 
-A tutorial can add steps between rows 8 and 11, such as a second population or a truncation curve.
-Give each added step a heading, a code cell, and its reading. Keep every scientific claim of the
-Markdown tutorial. A claim the output cannot show moves into the reading as a stated condition.
+A lesson stays on the main path, before the conclusion, when it is the point of the page. An
+example is the failure mode that the [examples index](../examples/index.md) names for the page,
+such as "what happens when a model is wrong". Put it after the estimate and give it its own
+level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
+extreme weights. Give each one a heading, a code cell, and its reading.
+
+Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
+cell, update the callback in the same change. Keep every scientific claim of the page, in plain
+words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
+when it is redundant or no longer true, and record the reason in the claim ledger.
 
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
@@ -73,27 +87,30 @@ A tutorial notebook is an end-to-end example that works. Do not show a refusal a
 | --- | --- |
 | a step that would print a `CapabilityError`, a `DataError`, or a refusal message | change it to an analysis that `cleverly` supports, or remove it |
 | a step that prints a capability list with unavailable rows | print only the rows that run |
-| a statistical failure mode that runs and prints numbers, such as an interval that misses | keep it. Row 9 of the outline is for this step |
+| a statistical failure mode that runs and prints numbers, such as an interval that misses | keep it, as the failure-mode lesson |
 | a limit that the reading must name | write the requirement in one sentence, such as "Declare `q_bounds` for a cross-fitted continuous outcome" |
 
-### The situation step
+### Drawing a causal graph
 
 Draw a causal graph only when it informs identification, data construction, the estimator, or the
-reading. Every node and every arrow must do one of these jobs. Under the graph, give a table with
-one row for each arrow or absent arrow and what it asserts. Name each confounder, mediator,
-competing event, censoring variable, and effect modifier. State which assumptions the graph encodes
-and which it leaves open. A `text` fence renders the graph without an extra build dependency.
+reading. Every node and every arrow must do one of these jobs. Under the graph, say in prose what
+each arrow and each missing arrow assumes. Use a table only when there are four or more arrows to
+describe.
+
+Name each confounder, mediator, competing event, censoring variable, and effect modifier.
+State which assumptions the graph encodes and which it leaves open. A `text` fence renders the
+graph without an extra build dependency.
 
 ### Comparisons
 
 Keep a comparison only when it teaches a real distinction. Do not add an estimator only as a
-reference value.
+reference value. A comparison goes under "Go deeper", unless it is the point of the page.
 
 | for each comparison | what to write |
 | --- | --- |
-| the estimands | the estimand of each method. Compare numbers only for methods that target the same estimand, or say that the difference is the lesson |
+| the estimands | the quantity each method estimates. Compare numbers only for methods that estimate the same quantity, or say that the difference is the lesson |
 | the assumptions | the assumptions that each method adds |
-| the mechanism | the feature of the law or problem that causes the difference, named before the output |
+| the mechanism | the feature of the simulated data or the problem that causes the difference, named before the output |
 | the evidence | the diagnostic, population quantity, or registered study that shows the mechanism |
 | the reading | what the difference shows. One simulated sample does not show a general property |
 
@@ -147,7 +164,8 @@ To add a strategy, such as a dynamic rule, append it and its version:
 `treatment_strategies=(*program.treatment_strategies, "<the rule>")`. Write a new `StudyProtocol`
 only when neither helper fits the design.
 
-Print each protocol record once on the page. The table gives where each notebook prints it.
+Print each protocol record once on the page, and read it in plain words as the study description
+(see the guide's library words). The table gives where each notebook prints it.
 
 | record | where the notebook prints it | later summaries of its study |
 | --- | --- | --- |
@@ -171,52 +189,43 @@ where `base` is the protocol that `replace` received.
 | Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
 | Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
-| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The stored cell timestamps of the reference notebook span about 11 seconds |
+| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The stored cell timestamps of `point-treatment-tmle.ipynb` span about 11 seconds |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
 | Pair every figure with printed values | an image cannot enter the `--check` comparison |
 | Use no network, and write files only inside a `TemporaryDirectory` | the offline gate refuses a connection, and the kernel runs from the repository root |
 | Write plain Python. Do not use IPython magics or shell escapes. `display(...)` is allowed | the fast tier runs the cells without a kernel |
+| Print only the part of a library summary that the reading needs, with plain labels. Show a full `summary()` once on the page, and say which lines matter (rule R12) | 40 lines of output bury the two lines that the reading uses |
 | Run `ruff format` and `ruff check` on the notebook before you execute it | the formatter rewrites code cells, and a rewritten cell breaks the stamp |
 
 ## Rules for markdown cells
 
-The prose rules in `CLAUDE.md` apply to every markdown cell. Write one idea per sentence, and use a
-table where the content is parallel. `python -m tests.prose --path <notebook>` reports the findings.
+The rules of [Writing for readers](writing-for-readers.md) apply to every markdown cell.
+`python -m tests.prose --path <notebook>` reports the dash, transition, intensifier, and
+paragraph findings. `scripts/render_for_reader_review.py` reports the rest of the mechanical
+measures.
 
-Start each reading with `**What this output tells you.**`. Then name the part of the output you
-read, give its value, and say what it means for the program. Quote a number only when a stored
-output prints it.
-
-Each reading also follows these rules.
+After each output, start with the finding. Say what to look at and what it means, in two to four
+sentences, and quote a number only when a stored output prints it (rules R5 and R6). These rules
+keep each reading accurate.
 
 | rule | reason |
 | --- | --- |
-| Put a status word, a label, or a column name in backticks only when a stored output prints it. The assessment summary prints `Returned results`, not `completed` | the reader searches the output for the quoted token. No test catches this, because each program protocol prints "regardless of completed contacts" |
-| Do not write that one seeded draw shows or establishes a property of the method. Cite a registered study for the property | one draw is one sample. The callback pins it as a relation, and a relation certifies no method |
+| Say once, in the conclusion, that the page shows one simulated draw. Do not write that a seeded draw shows or establishes a property of the method; cite a registered study for the property. Where a sentence states a relation that holds on fewer than 90% of swept draws, qualify it in plain words, such as "in this sample", or quote the printed numbers without a multiplier such as "about three times" | one draw is one sample. The callback pins it as a relation, and a relation certifies no method. A multiplier reads as a property of the method |
 | Before you call an interval that misses the true value sampling variation, run a seed sweep of the shown configuration with at least 60 draws. Use that explanation only when the sweep covers near the nominal level. Otherwise name the measured bias or under-coverage and the cause that a probe shows | a 95% interval misses on about one draw in 20 only when the configuration covers at the nominal level. A configuration with a bias can miss on most draws |
-| A sentence that holds on fewer than 90% of the swept draws says "on this draw". Alternatively, quote the printed numbers without a multiplier such as "about three times" | a relation of one seeded draw is a property of that draw. A multiplier reads as a property of the method |
 | Name the source of each repeated-draw number that a reading quotes: a committed probe script or a registered study. List the number in the callback's `UNPRINTED_DECIMALS` with that source. In `check`, assert the number against the committed file that holds it, such as the probe log or the study summary | no stored output prints a sweep number, so the narration test needs the entry. The narration test checks only that a reason exists. The assertion keeps the number equal to its source |
-| A support or calibration reading names the fitted model that it comes from. It also says what that model cannot see | a support report of a wrong treatment model describes that model, not the population. An in-sample calibration slope near 1 does not show that a model is correct |
-| Compare two estimates from one fit with `result.contrast(...)`, and read its interval. Do not compare their difference with the larger standard error | the two estimates share rows. `contrast` uses the joint influence curve, so it includes their correlation |
+| An overlap or calibration reading names the fitted model that it comes from. It also says what that model cannot see | an overlap check of a wrong treatment model describes that model, not the population. An in-sample calibration slope near 1 does not show that a model is correct |
+| Compare two estimates from one fit with `result.contrast(...)`, and read its interval. Do not compare their difference with the larger standard error | the two estimates share rows. `contrast` accounts for their correlation |
 | Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Run the analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | an underived bound can be too narrow |
 | Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
+| Put a status word, a label, or a column name in backticks only when the reader must find it in a stored output (rule R15). The assessment summary prints `Returned results`, not `completed` | the reader searches the output for the quoted token |
 
-Introduce each TMLE concept the first time the page uses it. Write one plain sentence, then link
-to the reference. The table gives a starting sentence and a link for the common concepts.
+Define each technical term in plain words where it first appears, and link to the reference page.
+The guide's [library words](writing-for-readers.md#library-words-and-their-plain-replacements)
+table gives a plain replacement for each `cleverly` term.
 
-| concept | one plain sentence | link |
-| --- | --- | --- |
-| estimand | the number the question asks for, written before any model is chosen | [estimands](../user-guide/estimands.md) |
-| nuisance | a model the estimate needs but the question does not ask about, such as Q or g | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
-| targeting | a small update to the outcome model, weighted by the treatment model, that removes first-order bias | [targeting and bounds](../user-guide/methods-learners.md#targeting-and-bounds) |
-| influence curve | how much each row moves the estimate. Its variance gives the standard error | [inference](../technical-reference/inference.md) |
-| cross-fitting | each row's nuisance prediction comes from models fit without that row | [CV-TMLE](../technical-reference/cv-tmle.md) |
-| positivity | every kind of patient has some chance of each arm | [diagnostics](../user-guide/results-assessment.md#diagnostics) |
-| double robustness | the point estimate stays consistent when either nuisance model is consistent | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
-| sensitivity analysis | how strong an unmeasured confounder would need to be to change the conclusion | [sensitivity analysis](../user-guide/results-assessment.md#sensitivity-analysis) |
-
-Link to a sibling tutorial by its notebook file name, such as `cross-fitting.ipynb`. A heading
-anchor in a notebook includes its step number, such as `#step-9-reuse-the-same-outer-split`.
+Link to a sibling tutorial by its notebook file name, such as `cross-fitting.ipynb`, and name the
+section in words (rule R14). Do not link to a heading anchor in another notebook: its headings
+change when it is rewritten, and the link test resolves a fragment only against a heading.
 
 ### Sensitivity analysis for each kind of fit
 
@@ -241,30 +250,32 @@ supports and states each refused one as a limit.
 
 | check | what to run | how to read it |
 | --- | --- | --- |
-| refutation | `refute()`: `placebo`, `subset`, and `random_common_cause` at the default `R`. Add `negative_control_outcome` where the data hold a pre-treatment measure | a verdict prints only where a `VERDICT_EVIDENCE` row covers the fit. Otherwise the numbers print with `passed=None`. Quote the scope sentence the registry prints |
+| refutation | `refute()`: `placebo`, `subset`, and `random_common_cause` at the default `R`. Add `negative_control_outcome` where the data hold a pre-treatment measure | a verdict prints only where a `VERDICT_EVIDENCE` row covers the fit. Otherwise the numbers print with `passed=None`. Say in plain words whether a simulation study backs a pass or fail for this fit |
 | generated outcomes | `dummy_outcome`, `simulated_outcome`, and `plasmode` at a small `R` | a level-1 reading. The level-2 bands need `R` = 400, so run that version once as a review probe outside the notebook |
 | tilt | `missingness()` and `tipping_gamma()` | the tilt at which the estimate reaches its null |
 
 A tutorial cell runs offline in the fast suite at its documented size, and the suite shrinks only
 `n=` and `density_bins=`. Keep `R` at its default or at a small count in every executed cell.
 
-### The method-evidence step
+### How we know the method works
 
-The `method-evidence` cell links the evidence for each method on the page. Do not copy study
+The `method-evidence` cell sits under the landmark "How we know the method works". It links the
+simulation study that checks each method on the page, in a short paragraph or a table. Do not copy study
 results, cell names, or citations into the notebook. The study page holds them, and a copy goes
 stale when the study is regenerated.
 
 | part of the cell | what to write |
 | --- | --- |
-| the table | one row for each fit: the step, a link to the registered study page in `docs/technical-reference/method-evidence/`, and whether the study uses the law of the page or another law |
+| the table | one row for each fit: the section, a link to the registered study page in `docs/technical-reference/method-evidence/`, and whether the study uses the law of the page or another law |
 | the gap | one sentence for each part of the page that no registered study covers, such as a learner, a fold count, or a fitted mechanism |
-| the review probes | one sentence that a review probe is a script under `reviews/notebook-review/probes/` and is not a registered study. Quote a probe result in the step reading that uses it |
+| the page's own simulations | one sentence that says a simulation run for this page (a script under `reviews/notebook-review/probes/`) checks a reading of the page, and is not a simulation study that validates the method. Quote its result in the reading that uses it |
 | the technical entry | a link to the "Validation issues special to this method" section of the method's technical entry |
 
 ## Write the callback
 
 Start from the tutorial's existing module in `tests/unit/tutorial_semantics/`. Keep each assertion
-that still describes the page. Rename a namespace key only when the notebook renames the variable.
+that still describes the page. Rename a namespace key only when the notebook renames the variable. Keep the markdown cell ids and
+the `text` graph fence that the callback reads.
 
 Add an assertion for each seeded relation the new readings narrate. An example is "the interval
 contains the true value". A relation is a claim about this draw, so it certifies no method. Use
@@ -285,8 +296,8 @@ a sampling claim, and it belongs in a registered study.
 
 Do these steps in order. Run each command from the repository root.
 
-1. Read the Markdown tutorial, its callback module, and the reference notebook.
-2. Write `docs/examples/<stem>.ipynb` with the cell outline above. Leave the readings short for now.
+1. Read the Markdown tutorial, its callback module, and a merged notebook for code-cell practice.
+2. Write `docs/examples/<stem>.ipynb` with the page outline above. Leave the readings short for now.
 3. Format and lint the code cells.
 
    ```bash
@@ -330,7 +341,11 @@ Do these steps in order. Run each command from the repository root.
 Use the callback module name for ``<module>``. It replaces hyphens with underscores, so the
 selection is valid in a pytest expression.
 
-11. Report to the orchestrator. The report is in the last section.
+11. For a new page or a whole-page rewrite, run the
+    [reader review](writing-for-readers.md#the-reader-review) to its pass. For a rewrite, also
+    compare the stored outputs with the notebook before the rewrite: only the prints you meant to
+    change may differ, and no estimate may move.
+12. Report to the orchestrator. The report is in the last section.
 
 A markdown edit does not change the stamp, so it needs no new execution. A code edit does. After a
 code edit, go back to step 3. A new execution can move a number, and the narration test then names
@@ -340,7 +355,7 @@ Remove `execute.log` and `check.log` before you hand off.
 
 ## Share one machine
 
-Several authors execute notebooks at the same time on one machine. Follow these limits.
+On a local machine, several authors can execute notebooks at the same time. Follow these limits.
 
 | limit | reason |
 | --- | --- |
@@ -349,18 +364,26 @@ Several authors execute notebooks at the same time on one machine. Follow these 
 | Execute one notebook at a time | each execution starts its own kernel |
 | Set `n_jobs=1` everywhere | a parallel learner competes with the other authors |
 
-## Do not edit shared files
+In a cloud session, each author has a machine of its own. Run `nox -s docs` once before you open
+the pull request.
 
-Edit only your notebook, your callback module, and the deletion of your Markdown source. Report any
-other change the conversion needs. The orchestrator applies shared edits one at a time, so parallel
-authors do not collide on one file.
+## Own one notebook
 
-| shared file | what to report instead |
-| --- | --- |
-| `tests/prose-report.md` | the finding id, the sentence, and the `accepted: <reason>` you propose |
-| `docs/examples/index.md`, another tutorial, or any page that links to your `.md` file | each link to rewrite. `git grep -n "<stem>.md"` lists them |
-| `tests/unit/test_documentation_runtime.py`, `tests/unit/tutorial_semantics/__init__.py`, `tests/documents.py`, `tests/notebooks.py`, `tests/conftest.py` | the change and the failure it repairs |
-| `scripts/execute_notebook.py`, `docs/conf.py`, `pyproject.toml`, `uv.lock` | the change and the failure it repairs |
+Each notebook has exactly one owner at a time: the thread or author whose branch edits it. Edit
+only your notebook, its callback module, and the files your change needs. Two rules apply to other
+files.
 
-The report also gives the notebook's execution time, the exit status of each command in step 10,
-and every claim of the Markdown tutorial that the notebook changed or removed.
+- When you rename headings, you may retarget the links to them in other notebooks' markdown cells,
+  so that they become file links. A markdown edit does not change the execution stamp. Bring in
+  `main` first, and change nothing else in those notebooks.
+- Each branch that changes a document makes the `tests/prose-report.md` rows of other branches
+  stale. Rerun `python -m tests.prose --update` after you bring in `main`, just before you merge.
+
+Report a change that shared infrastructure needs, and do not make it yourself. The shared files are
+`tests/unit/test_documentation_runtime.py`, `tests/unit/tutorial_semantics/__init__.py`,
+`tests/documents.py`, `tests/notebooks.py`, `tests/conftest.py`, `scripts/execute_notebook.py`,
+`docs/conf.py`, `pyproject.toml`, and `uv.lock`. Send the change and the failure it repairs to
+the orchestrator.
+
+The report also gives the notebook's execution time, the exit status of each targeted check, and
+every claim of the page that the change moved or removed.
