@@ -1,7 +1,8 @@
 """Task automation for cleverly.
 
 The sessions mirror CI. Registered studies run through their own regeneration commands;
-reader-facing documentation examples execute in the fast test suite.
+reader-facing documentation examples execute in the fast test suite, and the tutorial notebooks'
+refit cells execute in the ``slow`` session.
 """
 
 from __future__ import annotations
@@ -12,8 +13,9 @@ nox.options.default_venv_backend = "uv|virtualenv"
 # The order and the membership follow `ci.yml`'s jobs, `docs` included: that job builds the site
 # with `-W` on every pull request, so a bare `nox` that skipped the build would report green on a
 # tree the request rejects.  `minimal-install` has no session here, because it exists to install
-# one dataframe backend and nothing else.
-nox.options.sessions = ["lint", "typecheck", "docs", "tests"]
+# one dataframe backend and nothing else, and `property-differential` has none because it runs one
+# module that `pytest` can name directly.
+nox.options.sessions = ["lint", "typecheck", "docs", "tests", "slow"]
 
 PYTHONS = ["3.11", "3.12", "3.13"]
 
@@ -84,6 +86,24 @@ def tests(session: nox.Session) -> None:
         "auto",
         "--dist",
         "loadgroup",
+        *session.posargs,
+        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
+    )
+
+
+@nox.session(python="3.12")
+def slow(session: nox.Session) -> None:
+    """The slow tier: each tutorial notebook whole, refit cells included, as CI's slow-tests job."""
+    session.install("-e", ".[dev]")
+    session.run(
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "--dist",
+        "loadgroup",
+        "-m",
+        "slow",
         *session.posargs,
         env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
     )

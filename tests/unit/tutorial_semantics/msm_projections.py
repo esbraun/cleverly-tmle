@@ -312,6 +312,17 @@ def check(namespace: dict[str, Any]) -> None:
     # "The slope's confidence-limit value is descriptive."
     assert robustness["msm[assigned contacts]"]["limit_licensed"] is False
     assert "limit_licensed" not in robustness["ate[high vs low]"]
+    # The slope has no E-value: the E-value reads an arm contrast.
+    trend = namespace["trend_result"]
+    with pytest.raises(Exception, match="arm contrast"):
+        trend.sensitivity.evalue(estimand="msm[assigned contacts]")
+    assert "estimand kind" in namespace["robustness"]["msm[assigned contacts]"]["limit_sentence"]
+    assert round(trend["msm[assigned contacts]"].std_error, 4) == 0.0086
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Steps 13 and 14: the refutation, the generated outcomes, and the stress surface."""
+    assert namespace["SLOPE"] == "msm[assigned contacts]"
     _check_refutation(namespace)
     _check_stress_surface(namespace)
 
@@ -441,8 +452,3 @@ def _check_stress_surface(namespace: dict[str, Any]) -> None:
     assert round(strength[("discharge_risk", "outcome")], 3) == 0.916
     assert round(strength[("age", "treatment")], 3) == 0.276
     assert round(strength[("age", "outcome")], 3) == -0.361
-    assert round(slope.std_error, 4) == 0.0086
-    # The slope has no E-value: the E-value reads an arm contrast.
-    with pytest.raises(Exception, match="arm contrast"):
-        trend.sensitivity.evalue(estimand=namespace["SLOPE"])
-    assert "estimand kind" in namespace["robustness"]["msm[assigned contacts]"]["limit_sentence"]

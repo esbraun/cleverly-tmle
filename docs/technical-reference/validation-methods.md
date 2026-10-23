@@ -941,12 +941,23 @@ reads the treatment mechanism as consistent, which is the assumption of the publ
 | the mechanism of $\nu^2$ | the primary mechanism, which the ordinary TMLE also fits | one refit of the fit's treatment learner on every mechanism covariate, on the fit's folds. A `strategy="lasso"` fit refits the unpenalized member of its path, `L1Logistic(0.0)` |
 | limits and the confidence-limit robustness value | refused. The remainder is linear in the error of the mechanism that the estimator does not assume consistent | refused. The selected mechanism has no derived curve for $\nu^2$ |
 | a declared missing treatment | admitted | refused, because no refit of the composite mechanism is implemented |
-| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | refused with the reason `implementation_gap`. The fit declares only a learner that reads one outcome prediction, so no learner exists for the mechanism on every covariate ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)). Test: `test_a_per_arm_fit_refuses_the_refit` |
+| a per-arm outcome-adaptive fit (`strategy="oat"`, `oat_design="per_arm"`) | not applicable | runs with a declared `mechanism_learner=`, which is refitted on the full adjustment set. Without it, the bound refuses with the reason `invalid_declaration`, because the fit's treatment learner reads one outcome prediction. Tests: `TestThePerArmParametricPointBound` |
+| `mechanism_learner=` | raises `ValueError` | replaces the default refit learner. The fit's own treatment learner reproduces the default bound. Test: `test_the_fit_s_own_learner_reproduces_the_default` |
 
 The limits refuse with the key `consistent_mechanism` and the reason `inference_gap`. The bound
 keeps the point bounds and the point robustness value. `SensitivityBounds.assumption` holds the
-assumption, the summary prints it, and `to_dict()` adds it. On another fit the keyword raises
-`ValueError`. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
+assumption, the summary prints it, and `to_dict()` adds it.
+
+The result facade accepts both keywords on `omitted_confounding()`, `robustness_value()`, and
+`contour()`. The bare capability row stays unavailable. A request that names
+`assume_consistent_mechanism=True` reads the refusal that the free function raises. Test:
+`TestTheFacadeLiftsItsRow`.
+
+With a declared learner, the
+assumption says the bound holds only if that learner is consistent for the mechanism. The package
+does not check that condition. `SensitivityBounds.mechanism_learner` records the learner
+fingerprint. On another fit the keyword raises `ValueError`, and `mechanism_learner=` without
+`assume_consistent_mechanism=True` raises `ValueError` too. A collaborative fit that selects nothing keeps its redirection to `TMLE`. Every other rule of the refusal table still applies. A fit with `repeats` above 1
 takes the median of the draws' point bounds.
 
 `tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the
@@ -2476,9 +2487,10 @@ refuses stops the call before any refit, with the check's reason code.
 
 The support check also runs with every row at the smallest and the largest pooled position. On a panel with up to four banded
 nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the
-per-draw check only. The banded placebo reads
-descriptively until study SJ of [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)
-registers its rows.
+per-draw check only. The banded placebo prints a verdict on the two configurations of the
+[band-rank placebo study](method-evidence/refuter-calibration-band.md). On any other fit it reads
+descriptively. Both rows name the study's own classifier learner, so a banded user fit with another
+learner stays descriptive.
 
 | case | `refute()` | reason code |
 | --- | --- | --- |
@@ -3032,6 +3044,7 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `negative_control_outcome` on a longitudinal fit | z | `L2` on the six end-of-study configurations of the same study, for a Gaussian control |
 | `placebo` on a point fit | t | `L2` on the six configurations of the [point refutation study](method-evidence/refuter-calibration-point.md): `TMLE` with GLM nuisances on a Gaussian and a binary outcome, `TMLE` with a depth-2 booster, greedy `CTMLE`, and `DRTMLE` with a declared and an estimated mechanism. Each covers the ATE of two arms, five folds and $n \ge 2000$ |
 | `subset`, `negative_control_outcome` on a point fit | rho, z | `L2` on the T1, T2 and D1 configurations of the same study: `TMLE` with GLM nuisances on either outcome, and `DRTMLE` with a declared mechanism |
+| `placebo` with the band-rank draw | t | `L2` on the PJ1 and LJ1 configurations of the [band-rank placebo study](method-evidence/refuter-calibration-band.md): `TMLE` of the policy `up` on a covariate band, and `LTMLE` with three banded nodes. Each covers a classifier density ratio, five folds and $n \ge 2000$ |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
