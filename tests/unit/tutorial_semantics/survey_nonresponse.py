@@ -452,7 +452,7 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     assert rv["limit_licensed"] is False
     assert "differs on outcome family 'gaussian'" in rv["limit_sentence"]
     printed = stored_output(NOTEBOOK, "evalue-bound")
-    assert "This fit differs on outcome family 'gaussian'." in printed
+    assert "This fit differs on outcome family 'gaussian'," in printed
     # The benchmarks: the table of the reading, recomputed from the fit.
     expected = {
         "discharge_risk": (1.0, 0.361, (-0.0759, 0.3716), (-0.0947, 0.3906)),
