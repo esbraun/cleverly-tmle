@@ -886,3 +886,26 @@ class TestDummyOutcomeNegativeControl:
         assert not bias.inside
         assert test.spread > 0.0
         assert len(set(test.values)) == len(test.values)
+
+
+def test_every_band_sentence_is_stated_for_the_side_the_reading_fell_on() -> None:
+    """Each generated-outcome and plasmode row says 'lies inside' once, and outside flips it."""
+    from cleverly.validation import _interpretation
+    from cleverly.validation.refute import _band_sentence
+
+    rows = [
+        row
+        for row in _interpretation.VERDICT_EVIDENCE
+        if row.instrument in ("generated_outcome", "plasmode")
+    ]
+    assert {(row.instrument, row.rule) for row in rows} >= {
+        (instrument, rule)
+        for instrument in ("generated_outcome", "plasmode")
+        for rule in ("bias_band", "se_ratio_band", "coverage_band")
+    }
+    for row in rows:
+        assert row.sentence.count("lies inside") == 1, row.sentence
+        assert _band_sentence(row.sentence, True) == row.sentence
+        flipped = _band_sentence(row.sentence, False)
+        assert flipped != row.sentence
+        assert "lies outside" in flipped and "lies inside" not in flipped
