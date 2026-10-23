@@ -3876,6 +3876,20 @@ def _read_configuration(result: Any, estimand: str) -> FitConfiguration | None:
         return None
 
 
+def _band_sentence(sentence: str, inside: bool) -> str:
+    """The registry sentence of a band reading, stated for the side of the band it fell on.
+
+    Every ``generated_outcome`` and ``plasmode`` row words its sentence for a reading that
+    lies inside its band. A reading outside the band reads ``lies outside`` instead.
+    """
+    if inside:
+        return sentence
+    outside = sentence.replace("lies inside", "lies outside")
+    if outside == sentence:  # pragma: no cover - the registry test pins the wording
+        raise ValueError(f"a band sentence must say 'lies inside': {sentence!r}")
+    return outside
+
+
 def _resolve(
     instrument: str,
     rule: str,
@@ -4041,7 +4055,7 @@ def _generated_outcome_test(
             )
             if resolution.licensed and calibrated:
                 licensed_inside.append(reading.inside)
-                sentences.append(resolution.sentence)
+                sentences.append(_band_sentence(resolution.sentence, reading.inside))
         if licensed_inside:
             passed = all(licensed_inside)
             rung = "L2"
