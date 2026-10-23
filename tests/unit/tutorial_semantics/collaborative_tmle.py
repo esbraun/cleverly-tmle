@@ -167,6 +167,9 @@ def check(namespace: dict[str, Any]) -> None:
         ordinary_support.clever_covariate_max["mean"] > 5 * oat_support.clever_covariate_max["mean"]
     )
     assert namespace["se_ratio"] < 0.9
+    # "about 14% of patients get a predicted offer probability below 0.1 or above 0.9".
+    tails = ordinary_support.tail_mass[0.1]
+    assert round(tails["below"] + tails["above"], 2) == 0.14
 
     # "Check the fit": the working mechanisms read the outcome prediction only, so they discriminate
     # the offer weakly.  The ordinary g, which holds staffing, discriminates it well.
@@ -382,3 +385,12 @@ def _check_bound(namespace: dict[str, Any]) -> None:
     for cf_y, cf_d in ((readiness.cf_y, tipping_cf_d), (tipping_cf_y, staffing.cf_d)):
         assert abs(sensitivity.omitted_confounding(cf_y=cf_y, cf_d=cf_d).ci_lower) < 1e-6
     assert tipping_cf_y < 0.001
+    # The benchmark's weight-side value is a gain; staffing's share of the weights' mean square is
+    # gain / (1 + gain), about one half, and even at that share the tipping strength stays below
+    # 0.01 ("a success-side strength below 0.01").
+    share = namespace["staffing_share"]
+    assert share == pytest.approx(staffing.cf_d / (1 + staffing.cf_d)) and round(share, 2) == 0.48
+    assert staffing.cf_y < namespace["tipping_cf_y_share"] < 0.01
+    # A confounder as strong as staffing read at its share keeps the lower limit above zero, so
+    # the page does not say that one erases the effect.
+    assert sensitivity.omitted_confounding(cf_y=staffing.cf_y, cf_d=share).ci_lower > 0.0
