@@ -1309,6 +1309,82 @@ def _sg_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The theory line of every X82 SH coverage row.
+_SH_THEORY = (
+    "X82-H-plan.md rev 2.5, section 8. Measured, not proved: 2,000 replications at n = 8,000, "
+    "each row's 99% exact coverage limit above 0.90 and its bias inside 0.25 SD, and 6,800 "
+    "further draws per cell whose SE ratio and coverage intervals lie inside the calibration "
+    "bands."
+)
+
+#: The GLM fingerprint of ``marginal-bound-limit-coverage``.
+_SH_LOGISTIC = "LogisticRegression(C=1000000.0,max_iter=2000)"
+
+#: The ``msm_bound_limit`` cells of ``marginal-bound-limit-coverage``: rule, outcome family,
+#: nuisance learners, smallest event count, the law the sentence names, and the cell.  The
+#: SH2 event floor lies between the minimum and the 5th percentile of the smallest arm event
+#: count over the cell's 2,000 primary draws (827 / 863 / 884 at min / p1 / p5), so every
+#: licensed fit has an event count the coverage rows pooled.
+#: ``tests/unit/test_marginal_bound_limit_registry.py`` recomputes this floor.
+_SH_CELLS: Final[dict[str, tuple[str, str, tuple[str, ...], int | None, str]]] = {
+    "SH1": (
+        "continuous",
+        "gaussian",
+        ("LinearRegression()", _SH_LOGISTIC),
+        None,
+        "a Gaussian linear outcome with 20 covariates",
+    ),
+    "SH2": (
+        "binary",
+        "binomial",
+        (_SH_LOGISTIC,),
+        875,
+        "a logistic outcome with 20 covariates and prevalence near 0.33",
+    ),
+}
+
+
+def _sh_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the passing cells of the X82 SH coverage study license."""
+    return tuple(
+        VerdictEvidence(
+            instrument="msm_bound_limit",
+            rule=rule,
+            rung="L2",
+            theory=_SH_THEORY,
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}),
+                estimand_kinds=frozenset({"ate"}),
+                outcome_families=frozenset({family}),
+                treatment_kinds=frozenset({"discrete"}),
+                learners=frozenset(learners),
+                cross_fitting=frozenset({"folds=5"}),
+                inference=frozenset({"influence_curve"}),
+                known_mechanism=frozenset({False}),
+                arms=frozenset({2}),
+                nodes=frozenset({None}),
+                n_min=8000,
+                covariates_per_row_max=0.0025,
+                min_event_count_min=events,
+            ),
+            sentence=(
+                f"The 95% limits of each end of the ATE bound covered at the nominal level on "
+                f"{law} at Gamma = 1.5 and n = 8,000: five-fold cross-fitted TMLE, correctly "
+                "specified GLM nuisances, the default quantile and tail learners. Another law "
+                "or learner is not covered."
+            ),
+            study=(
+                "marginal-bound-limit-coverage",
+                *(
+                    f"interval_calibration/{cell}_ate_{end}__correctly_specified"
+                    for end in ("lower", "upper")
+                ),
+            ),
+        )
+        for cell, (rule, family, learners, events, law) in _SH_CELLS.items()
+    )
+
+
 #: The plasmode rows cover every fit, a clustered one included: the readings are exact
 #: whatever the cluster count, because whole clusters are the i.i.d. units of a draw.
 _PLASMODE_SCOPE = CalibrationScope(clusters_min=1)
@@ -1413,6 +1489,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
     *_point_rows(),
     *_band_rows(),
     *_sg_rows(),
+    *_sh_rows(),
 )
 
 

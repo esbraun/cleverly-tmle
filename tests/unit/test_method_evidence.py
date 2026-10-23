@@ -1180,6 +1180,9 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
+                elif suffix == "wrong_gamma_control":
+                    # X82 SH: a smaller Gamma's end read against the declared truth must miss.
+                    expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
                         row.efficiency_empirical_ci_lower > band[1]

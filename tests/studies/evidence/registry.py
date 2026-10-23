@@ -648,6 +648,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
+    from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
@@ -753,6 +754,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
         OVB_LIMIT_COVERAGE,
         EVALUE_LIMIT_COVERAGE,
+        MARGINAL_BOUND_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
         REFUTER_CALIBRATION_LONGITUDINAL,
         REFUTER_CALIBRATION_POINT,
