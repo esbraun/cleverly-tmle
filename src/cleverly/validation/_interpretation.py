@@ -1043,8 +1043,13 @@ _SG_THEORY = (
 )
 
 #: The ``ovb_limit`` cells of ``ovb-limit-coverage``: rule, estimand kinds, treatment kind,
-#: arm count, smallest event count (the recorded draw's, rounded down to 50), the law the
-#: sentence names, and the cell's rows.
+#: arm count, smallest event count, the law the sentence names, and the cell's rows.  The
+#: event floor lies between the minimum and the 5th percentile of the smallest arm event
+#: count over the cell's 1,600 primary draws, so every licensed fit has an event count the
+#: coverage rows pooled.  Min / p1 / p5: O1 239 / 254 / 266, O2 245 / 262 / 271, O3
+#: 296 / 313 / 325, O4 295 / 314 / 325.  O3 and O4 take the conservative end, p5: about 72
+#: draws per cell lie below it, too few to read coverage in that tail on its own.
+#: ``tests/unit/test_sensitivity_limit_coverage_registry.py`` recomputes these bounds.
 _SG_OVB_CELLS: Final[
     dict[str, tuple[str, tuple[str, ...], str, int, int | None, str, tuple[str, ...]]]
 ] = {
@@ -1071,7 +1076,7 @@ _SG_OVB_CELLS: Final[
         ("ey_regime[coin]", "ate_regime[coin vs always]"),
         "discrete",
         2,
-        350,
+        325,
         "a binary law with a stochastic regime named coin",
         ("coin", "coin_vs_always"),
     ),
@@ -1080,7 +1085,7 @@ _SG_OVB_CELLS: Final[
         ("msm[W2]", "msm[a:W2]"),
         "discrete",
         2,
-        350,
+        325,
         "a binary law with the linear MSM of modifier W2",
         ("w2", "a_w2"),
     ),
@@ -1352,7 +1357,8 @@ def resolve(
     if candidates:
         # The nearest row differs on the fewest axes; a tie keeps registry order.
         row = min(candidates, key=lambda candidate: len(candidate.scope.mismatches(fit)))
-        mismatch = row.scope.mismatch(fit)
+        found = row.scope.mismatches(fit)
+        mismatch = found[0] if len(found) == 1 else ", ".join(found[:-1]) + " and " + found[-1]
         return Resolution(
             rung="L0",
             licensed=False,

@@ -43,8 +43,10 @@ from tests.studies.marginal_bound_coverage import (
     end_values,
 )
 
-#: Replications per scenario.  Every cell of a scenario reads the same draws.
-PROPERTY_REPLICATES = 4_000
+#: Replications per scenario.  Every cell of a scenario reads the same draws.  6,800 is the
+#: smallest multiple of 400 whose arm-pooled predictive family-wise pass probability, from the
+#: pilots of ``X82-H-plan.md`` section 8, reaches 0.95 (it is 0.959).
+PROPERTY_REPLICATES = 6_800
 
 #: The standard-error factor of the ``inflated_se_control`` arm.
 INFLATED_SE_FACTOR = 1.5

@@ -301,6 +301,29 @@ class TestRegistry:
             assert "LTMLE" not in sentence and "survival" not in sentence
             assert "method 'CTMLE'" in sentence
 
+    def test_a_tie_names_the_earlier_row_and_every_difference(self) -> None:
+        """Two rows that differ on one axis each: the earlier row is named, with all its axes."""
+        first = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"DRTMLE"}))
+        )
+        second = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"IPSI"}))
+        )
+        fit = _fit_configuration(method="CTMLE")
+        for rows, named in (((first, second), "DRTMLE"), ((second, first), "IPSI")):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert f"['{named}']" in sentence
+        wide = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        sentence = resolve(
+            "placebo", "t", _fit_configuration(method="CTMLE"), evidence=(wide,)
+        ).sentence
+        assert "method 'CTMLE' and outcome family" in sentence
+
     @pytest.mark.parametrize(
         "change",
         [
