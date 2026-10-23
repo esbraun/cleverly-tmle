@@ -166,6 +166,7 @@ not change the package version.
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
+| beta | Plain-language rewrite of the example notebooks | no new theory; documentation only | X86 for each notebook. It runs before X68 and X69 | [X88](#x88-plain-language-rewrite-of-the-example-notebooks) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -461,7 +462,7 @@ The `F4-calibration-draws` owner holds two cells that read one draw set of the m
 missing-outcome DR-TMLE study. It is a standing record of a reading, and it does not gate the
 beta release.
 
-The `X82-short-study-sanity` owner holds the four truth rows of the sanity phases of the longitudinal and point refutation studies. The phase cannot resolve the coverage floor at 200 replications. It is a standing record of a reading, and it does not gate the beta release.
+The `X82-short-study-sanity` owner holds the five truth rows of the sanity phases of the longitudinal, point and band-rank refutation studies. The phase cannot resolve the coverage floor at 200 replications. It is a standing record of a reading, and it does not gate the beta release.
 
 The `composite-high-arm` owner holds the `ey[high]` truth row of both implementations in the
 composite missing-data study. It is a standing record of a reading, and it does not gate the beta
@@ -552,7 +553,7 @@ owners do the same for the stratified DR-TMLE study.
 | `adaptive-iptw-flexible-learner` | the three `bias/{ey0,ey1,ate}__flexible` cells of `adaptive-iptw`, declared `reporting` before the run | reading `flexible-learner limit`, declared in `PRE_ROUTED_GROUPS` of `tests/studies/canonical_adaptive_iptw.py` before the run. Law P is H1, so the validity term vanishes for the gradient-boosting mechanism. The bias comes from the learner's own error terms. The standardized biases are 0.832, -0.718 and 1.182, and the plug-in coverage is 0.898, 0.890 and 0.830. The key of a fit reads the mechanism learner family. A boosted fit matches no row and carries the `experimental` label. The owner closes when a published rate for a flexible mechanism bounds the first and third second-order terms of C3, or when a registered study shows a flexible mechanism that passes `bias_equivalent` at the declared margin. No size, margin, law or learner of the declared run changes |
 | `adaptive-iptw-finite-sample` | the `bias/ate__rate` cell and its 14 `targeting_necessity` rows, and the `interval_calibration/ey0__known_clustered__correctly_specified` cell of `adaptive-iptw` | reading `finite-sample`. The `rate` mechanism at n = 3,000 gives an ATE bias of 0.155 SD, with a 99% interval of 0.050 to 0.261 SD. The design predicts 0.086, which the interval contains. The diagnosis after the fold-wise fix finds no defect. The `targeting_necessity` family reads the same estimates, and its other 13 rows are red through the family clause only. The three `root_n_points` rungs pass. The clustered cell has 200 clusters, an SE ratio of 1.030 with a 99% interval of 0.990 to 1.072 against an upper bound of 1.07, and a coverage of 0.953. The in-sample fit on the same draws reads 1.027. The owner closes when the rerun at a larger size shows the contraction that the design predicts, with no change of margin, law or learner |
 | `adaptive-iptw-composite-l3` | the `bias/ey_low__composite_l3` cell of `adaptive-iptw` | reading `draw-specific, not reproduced`. The declared 400 draws read -0.153 SD, with a 99% interval of -0.282 to -0.023. The declared bias reading does not apply, because the predicted bias is near 0. The in-sample fit on the same draws reads -0.151, and 800 other draws read -0.01 to -0.03. A diagnostic ([`tests/diagnostics/adaptive_iptw_composite_l3/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/adaptive_iptw_composite_l3)) runs the same scene on 4,000 draws with seeds that the study never uses. It reads -0.011 SD, with a 99% interval of -0.052 to 0.030. `tests/unit/test_adaptive_iptw_composite_l3_reading.py` rebuilds the reading. The owner closes at the next regeneration of the study |
-| `X82-short-study-sanity` | the `end_of_study/ate` and `survival/ate` truth rows of `refuter-calibration-longitudinal`, the sanity phase of the S1 and L1 fits that the refutation rules read. The `gaussian/ate` and `binomial/ate` truth rows of `refuter-calibration-point`, the sanity phase of the T1 and T2 fits | reading `under-resolved at its declared size`. The phase has 200 replications. At a true coverage of 0.95, 190 covers of 200 give a 99% lower limit of 0.8960, below the floor of 0.90. The measured coverages are 0.9150 and 0.9450, and both SE-ratio intervals contain 1. The `SDR` row reads an SE ratio of 0.9271, a possible mild shortfall of its standard error, so the owner treats it as a signal to recheck at a larger size. The end-of-study bias interval, -0.0303 to 0.0065, contains 0. No reading names a defect. No rule row reads these rows, and the 40 property cells pass. In the point study the phase also has 200 replications. The Gaussian row reads a coverage of 0.9400 with a lower limit of 0.8829, and its bias interval, -0.0035 to 0.0140, contains 0 and crosses the margin of 0.0119. The binary row reads a coverage of 0.9650, and its SE-ratio interval, 0.9118 to 1.2189, contains 1 and crosses the screen limit of 1.20. No reading names a defect, and the 27 property cells pass. It is a standing record of a reading, and it does not gate the beta release |
+| `X82-short-study-sanity` | the `end_of_study/ate` and `survival/ate` truth rows of `refuter-calibration-longitudinal`, the sanity phase of the S1 and L1 fits that the refutation rules read. The `gaussian/ate` and `binomial/ate` truth rows of `refuter-calibration-point`, the sanity phase of the T1 and T2 fits. The `point/ate` truth row of `refuter-calibration-band`, the sanity phase of the PJ1 fit | reading `under-resolved at its declared size`. The phase has 200 replications. At a true coverage of 0.95, 190 covers of 200 give a 99% lower limit of 0.8960, below the floor of 0.90. The measured coverages are 0.9150 and 0.9450, and both SE-ratio intervals contain 1. The `SDR` row reads an SE ratio of 0.9271, a possible mild shortfall of its standard error, so the owner treats it as a signal to recheck at a larger size. The end-of-study bias interval, -0.0303 to 0.0065, contains 0. No reading names a defect. No rule row reads these rows, and the 40 property cells pass. In the point study the phase also has 200 replications. The Gaussian row reads a coverage of 0.9400 with a lower limit of 0.8829, and its bias interval, -0.0035 to 0.0140, contains 0 and crosses the margin of 0.0119. The binary row reads a coverage of 0.9650, and its SE-ratio interval, 0.9118 to 1.2189, contains 1 and crosses the screen limit of 1.20. No reading names a defect, and the 27 property cells pass. In the band-rank study the phase also has 200 replications. The PJ1 row reads a coverage of 0.9500 with a lower limit of 0.8960. Its bias interval, -0.0024 to 0.0078, contains 0 and crosses the margin of 0.0070. Its SE-ratio interval, 0.9052 to 1.1631, contains 1. No reading names a defect, and the four property cells pass. It is a standing record of a reading, and it does not gate the beta release |
 
 ## Detailed implementation contracts
 
@@ -829,7 +830,9 @@ the broad review that step 1 of the documentation procedure otherwise excludes.
 | succinctness | each sentence adds verifiable information. Remove repetition, generic introductions, restated headings, closing summaries, and adjectives with no evidence |
 
 The succinctness check targets the patterns of unreviewed generated text. Remove them, and do not
-replace them with other words of the same kind. Keep a table where the content is parallel.
+replace them with other words of the same kind. Apply
+[Writing for readers](development/writing-for-readers.md), which names the reader of each area
+and lists these patterns.
 
 Acceptance: a reviewer other than the author reads each changed page against the four checks and
 records the findings in the pull request. `python -m tests.prose` has no unjudged finding, and the
@@ -1585,6 +1588,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
 | H | marginal sensitivity model bounds. Part H1 ships the two-arm ATE and arm means of a `TMLE` or `DRTMLE` fit with a Gaussian or binary outcome, clusters and repeats, descriptive until study SH registers its rows. Part H2 adds multi-arm treatments under the one-against-rest model, ATT and ATC, risk and odds ratios, weights, strata, missing outcomes, and `CTMLE` and `AdaptiveIPTW` fits through a refit of the full mechanism | the linear program of the model solved on a finite law, and a mutation control for each nuisance |
+| J | the band-rank placebo on a dose whose declared support is a function of the covariates or the history, shipped: each dose's position within its band is permuted or kernel-drawn, then mapped into the receiving unit's band. The follow-up study SJ registers `L2` rows for its cells PJ1 and LJ1, and every other banded reading stays descriptive. A stratified draw for a bound pattern that varies by row, or for an atom outside some band, is exact but not built | an exact enumeration of the point and the longitudinal placebo laws, and a mutation control for each guard |
 | I | every applicable instrument for `AdaptiveIPTW`, shipped: every point `refute` test, simulated confounding on the arm axis, and the derived risk ratio of the E-value. Each study-backed reading stays descriptive until the follow-up study SI registers its rows | an exact enumeration of the placebo law, a zero paired shift on a known mechanism, and a zero-strength reproduction |
 
 Each short-study follow-up adds the registry rows that its passing cells license. A failed cell
@@ -1721,7 +1725,8 @@ registered study covers them
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 The bound of a regime mean, a shift mean on declared dose atoms, and an identity-link MSM coefficient has shipped,
 with descriptive limits. The point bound of a DR-TMLE fit and of a selecting C-TMLE fit has shipped under
-`assume_consistent_mechanism=True`, with no limits
+`assume_consistent_mechanism=True`, with no limits. A per-arm outcome-adaptive fit needs a
+declared `mechanism_learner=` for it
 ([omitted-variable bounds](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
 ##### Remaining linear functionals
@@ -1785,12 +1790,10 @@ Each item is one pull request that edits one notebook and its
 | item | notebook | what it adds | waits on |
 | --- | --- | --- | --- |
 | (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
-| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | (0), SP, SG |
+| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | shipped |
 | (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
-| (b) | `cross-fitting.ipynb` | fold noise beside the shift, the clustered plasmode, `bootstrap_stability`, and the bound under the median rule | (0), SP, SG |
-| (c) | `collaborative-tmle.ipynb` | `refute`, the risk-ratio E-value, and the bound under `assume_consistent_mechanism=True` | (0), SP, SG |
+| (i2) | `sequential-pricing.ipynb` | the band-rank placebo of X82 part J in Step 11. It reads descriptively until the study SJ registers its rows | shipped |
 | (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
-| (e) | `msm-projections.ipynb` | the MSM tensor placebo, generated truths of the coefficients, and the slope replay | (0), SP, SG |
 | (j) | `twins-causal-inference.ipynb` | the estimand changes to smoking and birth weight (ATT on the pair mean), then the point checks | (0), SP, SG |
 
 SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers
@@ -1816,6 +1819,37 @@ second mechanism, and no read source defines it. A longitudinal fit is refused u
 
 Acceptance: a read source for each bound; the linear program of the joint model solved on a finite
 law; a registered coverage study for each interval.
+
+### X88. Plain-language rewrite of the example notebooks
+
+Each notebook under `docs/examples/` is rewritten for a data scientist who is new to causal
+inference and to `cleverly`, and who wants to run the analysis and explain the result.
+[Writing for readers](development/writing-for-readers.md) holds the rules, the library words to
+replace, the machine-writing tells to remove, and the reader review. Statistical content does not
+change: the fits, learners, seeds, and estimates stay the same.
+
+| item | what | waits on |
+| --- | --- | --- |
+| (0a) | the writing guide, `scripts/render_for_reader_review.py`, the documentation rules in `CLAUDE.md` and `contributing.md`, and the page outline in `example-notebooks.md` | nothing |
+| (0b) | a baseline reader review of each notebook whose X86 item has merged | (0a) |
+| (P) | the pilot rewrite of `point-treatment-tmle.ipynb`, which may amend the guide | (0a); X86 (a) |
+| (B) | the other nine notebooks, one pull request each | (P); (0b) for the notebook; the notebook's own X86 item |
+| (z) | `docs/examples/index.md` as a landing page, toctree captions, and a check across all pages for template sameness | every (B) item |
+| (L) | only if (0b) recommends it: plain wording of the summary strings that the notebooks print, such as the `refute(...).summary()` lines `rung`, `ok`, and `Covered:` | X82 parts H and J; (z); X86 (a2) and (i2) |
+
+Each rewrite keeps every scientific claim, in plain words, in a Details dropdown, or on a linked
+page. It drops a claim only when the claim is redundant or no longer true, and it records the fate
+of each claim. The notebook headings become landmarks such as "Why a
+simple comparison misleads" and "What we can and can't conclude", and the main path comes before
+theory and comparisons.
+
+The guide and the reader review apply to any page. Later phases, each started by the maintainer,
+apply them to `README.md` and the getting-started pages, then the user guide, then the technical
+reference with the statistician as its reader.
+
+Acceptance: for each notebook, the reader review of the guide passes; the fits and estimates do
+not move; the fast suite, the link test, and the documentation build pass; an implementation
+review approves.
 
 ### P1. EP learner
 

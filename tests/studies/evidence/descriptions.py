@@ -5060,3 +5060,36 @@ def _refuter_point_cells() -> None:
 
 
 _refuter_point_cells()
+
+
+def _refuter_band_cells() -> None:
+    """The band-rank placebo study (X82 SJ): its point law and four cells."""
+    slug = "refuter-calibration-band"
+    STUDY_SCENARIOS[(slug, "point")] = (
+        "law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; "
+        "TMLE of a capped +0.5 shift at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-band"] = "`cleverly` fit that the band-rank placebo rule reads"
+    fits = {
+        "PJ1": "TMLE of a capped dose shift on law P",
+        "LJ1": "LTMLE of a dose shift at three nodes on the pricing-shaped law L",
+    }
+    size = "no more than 20 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    for cell, fit in fits.items():
+        for key, value in {
+            ("refuter_size", f"{cell}__placebo"): (
+                f"{fit}: the placebo t rule against the exact band-rank null",
+                size,
+            ),
+            ("refuter_power", f"{cell}__placebo_stale_rows"): (
+                f"{fit}: the placebo t rule, with a declared share of stale rows",
+                power,
+            ),
+        }.items():
+            if key in CELLS:
+                raise ValueError(f"{key} is already described")
+            CELLS[key] = value
+
+
+_refuter_band_cells()

@@ -1,0 +1,3 @@
+cell,arms,clusters,covariates_per_row,cross_fitting,estimand_kind,inference,known_mechanism,learners,method,n,nodes,outcome_family,placebo_draw,replicates,treatment_kind,min_event_count_min,min_event_count_max
+PJ1,1,,0.001,folds=5,ate_policy[up vs natural course],influence_curve,False,LinearRegression() | QuadraticLogistic(),TMLE,2000,,gaussian,band_permute,20,continuous,,
+LJ1,1,,0.002,folds=5,ate_regimen,influence_curve,False,GLM() | GLM() | QuadraticLogistic(law='panel'),LTMLE,2000,3.0,binomial,band_markov,20,continuous,688,793
