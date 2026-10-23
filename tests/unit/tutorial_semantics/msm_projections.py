@@ -334,14 +334,20 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     adjustment = namespace["study"].design.adjustment
     assert tuple(benchmarks) == tuple(adjustment)
     for name in ("discharge_risk", "age"):
-        record, bound = benchmarks[name]
+        record, worst, aligned = benchmarks[name]
         assert f"{record.cf_d:.2f}" == "0.57"
-        assert bound.lower < 0.0 < bound.upper
-    record, bound = benchmarks["baseline_support_need"]
-    assert record.cf_d == pytest.approx(0.0, abs=1e-3) and bound.ci_lower > 0.0
-    # "The benchmark caps its cf_y at 1.000" for discharge_risk, whose gain exceeds 1.
+        assert worst.lower < 0.0 < worst.upper
+        # "At the alignment the recorded characteristics actually show (rho), the range stays
+        # above zero." Witness: the same benchmark at rho = 1 crosses zero (checked above).
+        assert record.rho != pytest.approx(1.0)
+        assert 0.0 < aligned.lower < aligned.upper
+    record, worst, aligned = benchmarks["baseline_support_need"]
+    assert record.cf_d == pytest.approx(0.0, abs=1e-3) and worst.ci_lower > 0.0
+    # "The benchmark caps its cf_y at 1.000" for discharge_risk, whose gain exceeds 1, and
+    # "the slope refitted without discharge risk is 0.148".
     record = benchmarks["discharge_risk"][0]
     assert record.cf_y == 1.0 and record.gain_y > 1.0
+    assert f"{record.psi_short:.3f}" == "0.148"
     # The bisection finds the weight-side strength at which the lower limit reaches zero when
     # cf_y = 1, and it lies far below the recorded confounders' strengths.
     tipping = namespace["tipping_cf_d"]
