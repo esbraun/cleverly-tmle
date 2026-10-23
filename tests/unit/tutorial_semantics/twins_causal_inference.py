@@ -113,7 +113,7 @@ def check_stored() -> None:
     inside = re.search(r"pairs inside the NCHS range:\s+([\d,]+) of ([\d,]+)", checks)
     assert inside and inside[1] == inside[2] == "51,874"
     references = (EXAMPLES.parent / "references.md").read_text(encoding="utf-8")
-    assert "codes the birth weight in grams as 0227 to 8165" in references
+    assert "0227 to 8165, with 9999 for \"not stated\"" in references
 
     # Association: the two conditions of a confounder hold for marital status and education.
     association = stored_output(NOTEBOOK, "association")

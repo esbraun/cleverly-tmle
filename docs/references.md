@@ -2488,16 +2488,17 @@ exposure coverage, the outcome range, and the argument against adjustment for ge
   [National Bureau of Economic Research](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data).
   NCHS collected the data, and it is not responsible for any analysis of them. Use of the data
   signifies agreement with the [NCHS data-use rules](https://www.cdc.gov/nchs/data_access/restrictions.htm):
-  statistical analysis only, and no attempt to identify any person. The record layout of the 1989
-  user guide (p. 14) codes the birth weight in grams as 0227 to 8165, with 9999 for "not stated".
-  Pages 14-15 code the gestation recode `GESTAT10` as 01 for under 20 weeks, 02 for 20-27, 03
-  for 28-31, 04 for 32-35, 05 for 36, 06 for 37-39, 07 for 40, 08 for 41, 09 for 42 and over, and
-  10 for not stated. The technical appendix (pp. 12-13) states that a birth weight inconsistent
-  with both the computed gestation and the clinical estimate was reclassified as "not stated".
-  The table of items not stated by state of residence in each guide names the states that did not collect the
-  tobacco item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in
-  1989 (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12);
-  and California, Indiana, New York, and South Dakota in 1991 (p. 9).
+  statistical analysis only, and no attempt to identify any person. The table of items not
+  stated by state of residence in each guide names the states that did not collect the tobacco
+  item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in 1989
+  (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12); and
+  California, Indiana, New York, and South Dakota in 1991 (p. 9).
+- The 1989 user guide of the linked file. Its record layout (p. 14) codes the birth weight in
+  grams as 0227 to 8165, with 9999 for "not stated". Pages 14-15 code the gestation recode
+  `GESTAT10` as 01 for under 20 weeks, 02 for 20-27, 03 for 28-31, 04 for 32-35, 05 for 36, 06
+  for 37-39, 07 for 40, 08 for 41, 09 for 42 and over, and 10 for not stated. The technical
+  appendix (pp. 12-13) states that a birth weight inconsistent with both the computed gestation
+  and the clinical estimate was reclassified as "not stated".
 - Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
   latent-variable models*](https://proceedings.neurips.cc/paper/2017/hash/94b5bde6de888ddf9cde6748ad2523d1-Abstract.html),
   *Advances in Neural Information Processing Systems* 30 (NIPS 2017). Section 4.3 describes the
