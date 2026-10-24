@@ -76,7 +76,6 @@ results are returned in it.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, TypeAlias
@@ -85,6 +84,8 @@ import numpy as np
 
 from .._refusal import NO_ALTERNATIVE
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import FitWarning, records_data
+from .._warnings import warn as _warn
 from ..data.known_mechanism import (
     KnownNodeMechanisms,
     known_node_mechanisms,
@@ -162,6 +163,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "unit_ids",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
+    "validation_warnings",
     "dose_supports",
     "dose_atoms",
     "baseline_names",
@@ -254,10 +256,10 @@ def markov_restriction(markov_order: int) -> str:
         f"statistical-model restriction, Markov order {markov_order}: at every node the "
         "outcome regression and the treatment and censoring mechanisms depend on the history "
         f"only through W and the last {markov_order + 1} nodes. It restricts the observed-data "
-        "model and does not change the estimand. Every nuisance the estimator fits reads the "
+        "model and does not change the estimand. Every model the estimator fits reads the "
         "window, so the estimator's own consistency and interval conditions apply to the "
-        "nuisances fitted on the window, and each of them needs the restriction for the "
-        "nuisance it reads."
+        "models fitted on the window, and each of them needs the restriction for the "
+        "model it reads."
     )
 
 
@@ -501,10 +503,14 @@ class LongitudinalData:
     #: history.  Every nuisance design then reads ``W`` and a window of the last nodes, and
     #: the frames a rule or a policy reads keep the full history.
     markov_order: int | None = None
+    #: The package warnings raised while this data was built and checked (a dropped
+    #: constant covariate, say), which every fit on it adds to its own record.
+    validation_warnings: tuple[FitWarning, ...] = field(default=(), compare=False, repr=False)
 
     # ------------------------------------------------------------------ build
 
     @classmethod
+    @records_data
     def from_frame(
         cls,
         data: Any,
@@ -3311,7 +3317,10 @@ class LongitudinalData:
         """Build a dataframe of ``payload`` in the backend this data came from."""
         return frame_from_dict(payload, backend=self.backend)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
+        """One line of at most 100 characters: the rows and the facts a fit reads first."""
+        from .._summary import short_repr
+
         parts = [
             f"n={self.n}",
             f"T={self.n_times}",
@@ -3331,7 +3340,7 @@ class LongitudinalData:
             parts.append(f"clusters={self.n_clusters}")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
-        return f"LongitudinalData({', '.join(parts)})"
+        return short_repr("LongitudinalData", [("", part) for part in parts])
 
 
 #: What to tell a caller whose node has more levels than the estimator accepts.  Not
@@ -3511,7 +3520,7 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
         for value in unique
     )
     if numeric_levels and unique.size >= MIN_CONTINUOUS_LEVELS:
-        warnings.warn(
+        _warn(
             f"treatment node {name!r} is numeric and takes {unique.size} distinct values; "
             "it will be modelled as that many unordered arms, with one multinomial "
             "mechanism per node and one counterfactual mean per assigned sequence. If it "

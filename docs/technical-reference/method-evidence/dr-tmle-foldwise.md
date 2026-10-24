@@ -46,13 +46,15 @@ Each cell fits the ATE. Each cell except `ate__pooled` uses the foldwise constru
 | `double_robustness/ate__bivariate` | positive | 3,000 | 4,000 | `reduction="bivariate"` |
 | `double_robustness/ate__bivariate_oc` | positive | 3,000 | 1,600 | `reduction="bivariate"` under `outcome_correct` |
 | `double_robustness/ate__k5` | positive | 3,000 | 2,000 | `n_folds=5` |
-| `double_robustness/ate__spline_qr` | positive | 3,000 | 2,800 | cubic B-spline `Q_r` learner with 5 knots, canonical GLMs for `g_{r,1}` and `g_{r,2}` |
+| `double_robustness/ate__spline_qr` | positive | 3,000 | 1,200 | cubic B-spline `Q_r` learner with 5 knots, canonical GLMs for `g_{r,1}` and `g_{r,2}` |
 | `double_robustness/ate__both_wrong` | control | 3,000 | 400 | both nuisances misspecified |
 | `double_robustness/multi_arm_drtmle__treatment_correct` | positive | 2,000 | 3,600 | the three-arm law of `canonical-multi-arm-drtmle`, five folds, on that study's registered draws |
 | `double_robustness/<label>__stratified` | positive | 2,000 | 3,200 | the stratified paper law under `outcome_correct`: the marginal ATE and the three stratum ATEs of one fit |
 
 The arm-pooled joint predictive rule of the property module sized each budget from the X83
-pilots. At the declared budgets the rule predicts a family-wise pass of about 0.963.
+pilots. The spline cell changes the reduced learner, so it does not share the bias of its
+regime, and its budget comes from its own 800-draw pilot. At the declared budgets the rule
+predicts a family-wise pass of about 0.944.
 
 ### How to read the leak control
 
@@ -109,7 +111,7 @@ The accuracy table reads the three primary regimes at n = 3,000.
 | `double_robustness` | `ate__bivariate_oc` | positive | average treatment effect: only the outcome regression is correct, n = 3,000, the single bivariate reduced mechanism | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0013 to 0.0011, margin 0.0046, SE ratio 1.0095 | pass |
 | `double_robustness` | `ate__both_wrong` | control | average treatment effect: both nuisances are misspecified, n = 3,000, ten folds | bias interval must fall entirely outside the margin, with the reported standard error on the scale of the empirical spread | bias 0.2209 to 0.2279, margin 0.0068, SE ratio 0.6504 | pass |
 | `double_robustness` | `ate__k5` | positive | average treatment effect: only the treatment mechanism is correct, n = 3,000, five folds | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.000172 to 0.0023, margin 0.0047, SE ratio 1.0150 | pass |
-| `double_robustness` | `ate__spline_qr` | positive | average treatment effect: only the treatment mechanism is correct, n = 3,000, a cubic-spline reduced outcome regression Q_r with the canonical GLMs for g_r1 and g_r2; piecewise-constant reduced learners (capped boosting, k-NN) reached max_outer = 100 under both constructions on the pilot, so the study covers smooth reduced learners only | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0036 to 0.0055, margin 0.0048, SE ratio 0.9865 | **fail** |
+| `double_robustness` | `ate__spline_qr` | positive | average treatment effect: only the treatment mechanism is correct, n = 3,000, a cubic-spline reduced outcome regression Q_r with the canonical GLMs for g_r1 and g_r2; piecewise-constant reduced learners (capped boosting, k-NN) reached max_outer = 100 under both constructions on the pilot, so the study covers smooth reduced learners only | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0014 to 0.0015, margin 0.0048, SE ratio 0.9747 | pass |
 | `double_robustness` | `marginal_ate__stratified` | positive | average treatment effect over every stratum, from the stratified fit: the stratified paper law; only the outcome regression is correct, n = 2,000, ten folds | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.000356 to 0.0025, margin 0.0059, SE ratio 1.0613 | pass |
 | `double_robustness` | `multi_arm_drtmle__treatment_correct` | positive | medium-versus-high ATE of the three-arm law: only the treatment mechanism is correct, n = 2,000, five folds, on the draws of the registered multi-arm cell | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.000456 to 0.0028, margin 0.0067, SE ratio 1.0068 | pass |
 | `double_robustness` | `v0_ate__stratified` | positive | average treatment effect in stratum V = 0: the stratified paper law; only the outcome regression is correct, n = 2,000, ten folds | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.000239 to 0.0033, margin 0.0084, SE ratio 1.0104 | pass |
@@ -121,7 +123,7 @@ The accuracy table reads the three primary regimes at n = 3,000.
 
 ## Result
 
-All 9 primary rows pass. 12 of the 13 property rows pass. The table gives the endpoints that
+All 9 primary rows pass. All 13 property rows pass. The table gives the endpoints that
 each claim reads.
 
 | claim | measured | verdict |
@@ -131,7 +133,7 @@ each claim reads.
 | a pooled fit leaks | the pooled bias interval lies entirely outside the margin, with coverage 0.912 | pass |
 | one-wrong robustness holds across the variants | the benkeser order, both bivariate cells, five folds, the multi-arm law and the four stratified cells pass | pass |
 | the both-wrong control fails | bias +8.22 SD | pass |
-| the spline reduced learners keep the bias inside the margin | +0.239 SD; the 99% interval reaches above 0.25 SD | **fail** |
+| a spline `Q_r` keeps the bias inside the margin | +0.001 SD; the 99% interval, -0.0014 to 0.0015, lies inside the margin of 0.0048 | pass |
 
 The measured-values table below checks each of these numbers against the committed rows.
 
@@ -152,16 +154,12 @@ and no test gates these numbers.
 The leak is zero within resolution when both nuisances are correct. It is positive in each
 one-correct regime, and it is largest under `treatment_correct`.
 
-### The red spline cell
+### The spline cell, and the red cell it replaced
 
-The declared run's spline cell, `double_robustness/ate__spline_reduced`, is red on its bias clause. The cell fits the primary
-`treatment_correct` configuration at n = 3,000 with cubic B-spline reduced learners. Its
-standardized bias is +0.239 SD. The 99% interval of the bias is 0.0036 to 0.0055 against a margin
-of 0.0048. Its coverage is 0.936 and its SE ratio 0.987. No fit failed.
-
-The planning value of the
-cell was +0.097 SD. The primary `treatment_correct` ATE, with the GLM reduced learners, reads
-+0.072 SD.
+The first declared run, at commit `67021895`, fitted a cell `double_robustness/ate__spline_reduced`
+with cubic B-spline learners on both `Q_r` and `g_{r,2}`. That cell was red on its bias clause:
++0.239 SD, with the 99% interval 0.0036 to 0.0055 against a margin of 0.0048. Every other row of
+that run passed.
 
 A diagnosis read the cell after the run. It is recorded in the X83 plans record
 (`cleverly-beta-plans`, `reviews/x83/spline-diagnosis.md`), not in this repository. It fitted
@@ -176,25 +174,26 @@ paired shift of each arm, in SD of the GLM foldwise fit.
 | spline on `Q_r` only, foldwise | +0.004 ± 0.042 |
 | spline on `g_{r,2}` only, foldwise | +0.319 ± 0.057 |
 
-The pooled arm reads +0.209 ± 0.049 above the foldwise arm, which is the fold leak. At
-n = 1,000 the foldwise shift is +0.218 ± 0.033 on 153 draws, so it does not fall in SD units.
+The shift comes from the `g_{r,2}` regression, and it appears under the pooled construction too,
+so it is not a defect of the foldwise construction. Under `treatment_correct` the main-effects
+outcome GLM gives a near-constant `Q̄_n(a, W)`. The design of `g_{r,2}` is then near degenerate,
+and a flexible learner fits noise to a target near 0. The cell had measured the wrong thing:
+before the fix, `g_{r,2}` was fitted by the reduced outcome learner, so a spline meant for `Q_r`
+also reached `g_{r,2}`.
 
-The red row is a finding about a flexible learner on the `g_{r,2}` regression. The cell fits
-the spline on `Q_r` and on `g_{r,2}`. The arm that fits the spline on `Q_r` only shows no shift
-(+0.004 ± 0.042). Under `treatment_correct` the
-main-effects outcome GLM gives a near-constant `Q̄_n(a, W)`. The design of `g_{r,2}` is then near
-degenerate, and a flexible learner fits noise to a target near 0. The spline error for `Q_r` is
-about 3e-3 in L2, against an SD of 0.21.
+`DRTMLE` now gives the `g_{r,2}` regression its own learner, `reduced_mechanism_residual_learner`.
+It defaults to the outcome learner, as `g_{r,2}` is fitted in R `drtmle`. The primary rows and
+every unchanged cell of the second declared run are byte-identical to the first run, which shows
+that the default fits did not move.
 
-The same shift appears under the pooled construction, so the diagnosis finds no defect of the
-foldwise construction. The red row stands as a published finding. No replication was added.
-`DRTMLE` gives the `g_{r,2}` regression its own learner, `reduced_mechanism_residual_learner`. Its
-default keeps the default fits unchanged. The cell `ate__spline_qr` replaces the red cell. It fits
-the spline on `Q_r` only and keeps the canonical GLMs for `g_{r,1}` and `g_{r,2}`.
+The cell `ate__spline_qr` replaces the red cell under a fresh
+declaration. It fits the spline on `Q_r` only and keeps the canonical GLMs for `g_{r,1}` and
+`g_{r,2}`. It passes: +0.001 SD, coverage 0.946, SE ratio 0.975. No replication was added to
+either run.
 
 "0 failed fits" does not mean that every fit exited on tolerance. A fit that reaches `max_outer`
 and whose closing pass meets the tolerance reports `converged=True` and no failure. The spline
-arms reached the cap on 7% to 10% of the diagnosis draws.
+arms of the diagnosis reached the cap on 7% to 10% of its draws.
 
 ## Measured values
 
@@ -210,7 +209,7 @@ from the committed results and checked at the precision printed.
 | `paired_tests_total` | 0 | external comparisons declared |
 | `paired_tests_passed` | 0 | external comparisons passing |
 | `property_cells_total` | 13 | repeated-sampling property cells |
-| `property_cells_passed` | 12 | cells whose own and family verdicts pass |
+| `property_cells_passed` | 13 | cells whose own and family verdicts pass |
 | `subject_failures` | 0 | primary fits that failed |
 | `max_standardized_bias` | 0.0723 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9427 | lowest primary coverage |
@@ -222,12 +221,12 @@ from the committed results and checked at the precision printed.
 | `properties[fold_locality/ate__pooled]:coverage` | 0.9118 | pooled leak-pair coverage |
 | `properties[fold_locality/ate__foldwise]:fold_locality_displacement` | 0.2664 | paired displacement of the leak pair |
 | `properties[double_robustness/ate__both_wrong]:standardized_bias` | 8.2191 | both-wrong control bias in SD |
-| `properties[double_robustness/ate__spline_qr]:standardized_bias` | 0.2393 | spline `Q_r` bias in SD |
-| `properties[double_robustness/ate__spline_qr]:bias_ci_lower` | 0.0036 | its 99% lower endpoint |
-| `properties[double_robustness/ate__spline_qr]:bias_ci_upper` | 0.0055 | its 99% upper endpoint |
+| `properties[double_robustness/ate__spline_qr]:standardized_bias` | 0.0014 | spline `Q_r` bias in SD |
+| `properties[double_robustness/ate__spline_qr]:bias_ci_lower` | -0.0014 | its 99% lower endpoint |
+| `properties[double_robustness/ate__spline_qr]:bias_ci_upper` | 0.0015 | its 99% upper endpoint |
 | `properties[double_robustness/ate__spline_qr]:bias_margin` | 0.0048 | its margin, 0.25 empirical SD |
-| `properties[double_robustness/ate__spline_qr]:coverage` | 0.9361 | its coverage |
-| `properties[double_robustness/ate__spline_qr]:se_ratio` | 0.9865 | its SE ratio |
+| `properties[double_robustness/ate__spline_qr]:coverage` | 0.9458 | its coverage |
+| `properties[double_robustness/ate__spline_qr]:se_ratio` | 0.9747 | its SE ratio |
 | `properties[double_robustness/ate__spline_qr]:failed_replicates` | 0 | its failed fits |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals |

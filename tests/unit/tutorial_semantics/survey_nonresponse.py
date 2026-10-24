@@ -17,6 +17,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import CapabilityError, CrossFitting
+from cleverly._summary import vocabulary
 from cleverly.datasets import missing_outcome_bounded_dgp, navigation_protocol
 from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
@@ -112,21 +113,21 @@ def check(namespace: dict[str, Any]) -> None:
     expression = effect.functional.expression
     assumptions = " ".join(effect.identification.assumptions).lower()
     nuisances = effect.identification.required_nuisances
-    summary = effect.summary()
+    summary = effect.summary(detail="full")
 
     assert "responded=1" in expression
     assert "missingness at random" in assumptions
     assert "response positivity" in assumptions
     assert "missingness_mechanism" in nuisances
     assert fitted.nuisance.missingness is not None
-    assert expression in summary
+    assert expression in summary.section("Assumptions").lines[0]
 
     # Step 6: a cross-fitted, stacked fit with boosted trees for Q, logistic g and pi, and the
     # known range of the score as q_bounds.
     method = namespace["method"]
     fit_summary = fitted.summary()
-    assert "stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds" in fit_summary
-    assert "TMLE (in-sample nuisances)" not in fit_summary
+    assert dict(fit_summary.header)["Out-of-fold predictions"] == "5 folds"
+    assert fitted.config.estimator_name == "stacked CV-TMLE (Levy)"
     assert method.cross_fitting == CrossFitting(n_folds=5)
     assert method.targeting.q_bounds == (0.0, 1.0)
     assert isinstance(method.models.outcome_learner, HistGradientBoostingRegressor)
@@ -335,11 +336,12 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
-    report = str(refutation.summary())
-    # The report names the nearest registered row, a TMLE row with GLM nuisances, and the learner
-    # on which this fit differs.  Nonzero witness: the first registered row is a longitudinal one.
-    assert "Covered: methods ['TMLE']" in report and "LTMLE" not in report
-    assert "This fit differs on learner HistGradientBoostingRegressor" in report
+    report = " ".join(refutation.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines)
+    # The full summary names the nearest registered row, a TMLE row with GLM nuisances, and the
+    # learner on which this fit differs.  Nonzero witness: the first registered row is a
+    # longitudinal one.
+    assert "The nearest fits studied: method TMLE," in report and "LTMLE" not in report
+    assert "Where this fit differs, it has a learner outside those studied" in report
     # "The verdict column reads descriptive".
     assert set(refutation.to_frame()["verdict"]) == {"descriptive"}
     # The placebo reading: "+0.0009203 ... spread 0.006121 ... t +0.6724 (p = 0.509) ... 0.9123".
@@ -441,7 +443,10 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     # The E-value is the closed form of VanderWeele and Ding at the risk ratio.
     rr = evalue.risk_ratio
     assert evalue.point == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)))
-    assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in str(evalue.summary())
+    # The short summary flags the conversion; the full one states the scale it used.
+    assert "approximate_scale" in evalue.summary().note_codes
+    assumptions = " ".join(evalue.summary(detail="full").section("Assumptions").lines)
+    assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in assumptions
     rv = namespace["rv"]
     assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3612)
     assert rv["limit_licensed"] is False

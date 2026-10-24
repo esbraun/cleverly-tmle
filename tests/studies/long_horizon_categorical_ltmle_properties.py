@@ -41,8 +41,9 @@ family                                   cells
 ``learned_mechanism`` (reporting)        ``respond_vs_ref__k5__learned`` at 48,000
 =======================================  =======================================================
 
-**Budgets.**  The replicate counts below are provisional.  The declaration commit sets them from
-the pilots.
+**Budgets.**  The pilot merge at 67ac67df sets the replicate counts below (plans
+``X39-pilot-merge-reading.md``).  Calibration R is 14,000.  The bootstrap band R is 2,000.
+The bias families keep 2,000 although the bias ladder reads 1,000.
 
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
 ``reporting``.  Its gated truth rows (``GATED_ROWS``) and gated property cells (``GATED_CELLS``)
@@ -123,11 +124,14 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyCell
 from tests.studies.evidence.replication import fit_properties
 
+#: The factor of the shrunken-SE control, the one the study shares.
+SHRUNKEN_SE_FACTOR = shared.SHRUNKEN_SE_FACTOR
+
 TAG = "S2"
 
-#: Provisional: the calibration pilot sets each study's calibration R.
-CALIBRATION_REPLICATES = 6_000
-#: Provisional: the bias pilots pick R from 1,000, 1,200, 2,000, 3,000 and 4,000.
+#: The calibration pilot sets each study's calibration R (pilot merge at 67ac67df).
+CALIBRATION_REPLICATES = 14_000
+#: The bias pilots read R 1,000 on the ladder 1,000 to 4,000; the study keeps 2,000.
 BIAS_REPLICATES = 2_000
 ROOT_N_REPLICATES = 1_000
 BAND_REPLICATES = 2_000

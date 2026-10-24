@@ -357,9 +357,10 @@ class LearnedRuleRecord:
         """
         low, high = min(self.treated_shares), max(self.treated_shares)
         return (
-            f"target: average over {self.n_folds} training-fold rules of each rule's value "
-            "(data-adaptive; van der Laan and Luedtke 2015, Section 7); "
-            f"treated share by fold {low:.3g} to {high:.3g}"
+            f"Target: the average value of the {self.n_folds} rules learned on the training "
+            "folds, each estimated on the fold it did not train on. The target depends on the "
+            "data, because the rules do (van der Laan and Luedtke 2015, Section 7). Share of "
+            f"units the rules treat, by fold: {low:.3g} to {high:.3g}."
         )
 
 

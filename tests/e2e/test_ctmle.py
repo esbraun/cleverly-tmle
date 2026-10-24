@@ -27,6 +27,7 @@ from scipy.special import expit
 
 from cleverly import CapabilityError, SuperLearner, load
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly._typing import FloatArray
 from cleverly.datasets import (
     instrument_dgp,
@@ -36,7 +37,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
-from cleverly.inference.influence import counterfactual_means
+from cleverly.inference.influence import counterfactual_means, spread_name
 from cleverly.validation.nuisance import (
     CALIBRATION_CONSTANT_WITHIN_FOLDS,
     NUISANCE_SELECTION_MISSING,
@@ -486,9 +487,7 @@ class TestDownstreamMachineryStillWorks:
         else:
             # The default outcome learner is outside the stacked interval of X58.
             assert refusal is not None and "outcome_learner" in refusal
-            assert (
-                oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval (X58): {refusal}"
-            )
+            assert oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval: {refusal}"
         assert sentence in diagnostics.summary()
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 
@@ -499,7 +498,12 @@ class TestDownstreamMachineryStillWorks:
         assert "placebo" in {test.name for test in refutation.tests}
 
     def test_the_summary_prints(self, fit) -> None:
-        assert "Targeted maximum likelihood estimation" in fit.summary()
+        selection = fit.extra["ctmle"]
+        assert selection.strategy == "greedy"
+        assert (
+            dict(fit.summary().header)["Method"]
+            == "collaborative TMLE (C-TMLE), adding covariates one at a time"
+        )
 
     def test_to_frame_returns_the_callers_backend(self, fit) -> None:
         frame = fit.to_frame()
@@ -1083,17 +1087,23 @@ class TestTheSelectorPathsPublishNoInference:
         result = self._fit("greedy")
         summary = result.summary()
 
-        # The refusal's own sentences, so the summary cannot paraphrase the raise into a
-        # second claim.
-        assert WORKING_MECHANISM.reason in summary
-        assert "working-mechanism se" in summary
+        # The status's plain reason, which the status record holds beside the raise's.
+        withheld = summary.note("no_inference").text
+        assert WORKING_MECHANISM.plain_reason in withheld
+        label = vocabulary.SPREAD_LABELS[spread_name("std_err", "working_mechanism_plugin")]
+        assert label in summary.table("estimates").columns
         # No `95% CI` heading with a "-" under it: the whole column is refused, and a dash
         # beneath that heading would still tell a reader an interval belongs there.
         assert "95% CI" not in summary
         assert "p_value" not in summary
-        # The selector is named in the facts block, so a reader does not have to go to the
+        # The full summary names the selector, so a reader does not have to go to the
         # nuisance report to learn which mechanism the refusal is about.
-        assert result.extra["ctmle"].describe() in summary
+        details = result.summary(detail="full").section("Method details").lines
+        selection = result.extra["ctmle"]
+        assert details[0].startswith(
+            f"The search built {len(selection.path)} candidate treatment models "
+            f"({vocabulary.CTMLE_SEARCHES[selection.strategy]})."
+        )
 
     def test_the_assessment_carries_the_same_sentence(self) -> None:
         result = self._fit("greedy")

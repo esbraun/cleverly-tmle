@@ -73,7 +73,6 @@ tolerance, and ``tests/unit/test_survival_monotone.py`` pins it.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal
@@ -83,6 +82,7 @@ from scipy.optimize import minimize_scalar
 from scipy.special import expit, xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import (
     CapabilityError,
@@ -321,7 +321,7 @@ def check_hazard_node_bounds(
         for cause, (lower, upper) in bounds.items():
             if upper - lower < SMALL_SCALE:
                 which = "" if cause is None else f" for cause {cause!r}"
-                warnings.warn(
+                _warn(
                     f"node_bounds at {time!r}{which} has a width of {upper - lower:.3g} on the "
                     f"hazard scale, below {SMALL_SCALE:g}. The fluctuation moves that hazard by "
                     "at most the width, so its score barely responds to a step.",
@@ -1384,7 +1384,7 @@ def solve_per_horizon(
             else f"did not meet the {stopping} stopping rule after {iterations} iteration(s) "
             f"(largest score over its threshold = {ratio:.3g})"
         )
-        warnings.warn(
+        _warn(
             f"hazard targeting at horizon {horizon} {detail}. Raise max_iter, or check "
             "result.diagnostics for a positivity problem",
             ConvergenceWarning,
@@ -1717,7 +1717,7 @@ def walk_curve(
             else f"without meeting the {stopping} stopping rule (largest score over its "
             f"threshold = {ratio:.3g})"
         )
-        warnings.warn(
+        _warn(
             f"one-step hazard targeting stopped after {steps} step(s) {detail}. Try a smaller "
             "step_size, or check result.diagnostics for a positivity problem",
             ConvergenceWarning,
@@ -1844,7 +1844,7 @@ def _bounded_records(
         grid = data.time_grid
         nodes = sorted({cell[0] for cell in excluded})
         named = ", ".join(f"{grid[k - 1] if grid is not None else k:g}" for k in nodes)
-        warnings.warn(
+        _warn(
             HAZARD_BOUND_EXCLUDES_DATA.format(nodes=named, count=len(excluded)),
             ConvergenceWarning,
             stacklevel=3,

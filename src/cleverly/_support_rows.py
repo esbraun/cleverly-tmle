@@ -294,7 +294,8 @@ def _guard(*names: str) -> dict[str, Any]:
 _PLUGIN_STUDY = "omitted-variable-bound-plugin-se"
 _PLUGIN_LIMIT = (
     "The cells calibrate the interval of the plug-in omitted-variable limits, for a treatment "
-    "mechanism that is a LogisticRegression or is declared known (X26). They do not calibrate "
+    # Roadmap: X26.
+    "mechanism that is a LogisticRegression or is declared known. They do not calibrate "
     "the Wald interval of the effect."
 )
 
@@ -495,7 +496,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="clustered",
             cells=["unequal_noninformative", "unequal_informative"],
-            limits=["The fold-evaluated cluster-covariate cell is red (F28)."],
+            # Roadmap: F28.
+            limits=["The fold-evaluated cluster-covariate cell is red."],
         ),
         "weighting",
         {"unweighted": "none", "cluster_average": "fixed"},
@@ -508,7 +510,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("fold_evaluated",),
             dependence="clustered",
             cells=["fold_evaluated_property"],
-            limits=["The cluster-covariate cell is red (F28)."],
+            # Roadmap: F28.
+            limits=["The cluster-covariate cell is red."],
         ),
         "weighting",
         {"fold_evaluated": "none"},
@@ -521,7 +524,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             dependence="t",
             kinds=_WALD_T,
             cells=["few_cluster_reference"],
-            limits=["The informative-size cells at 10 to 30 clusters include red cells (F28)."],
+            # Roadmap: F28.
+            limits=["The informative-size cells at 10 to 30 clusters include red cells."],
         ),
         "splitting",
         {
@@ -566,7 +570,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P10",),
             qualifiers=["strata"],
             cells=["stratified_l1_logit"],
-            limits=["The logit slope at the smallest stratum is red (X8)."],
+            # Roadmap: X8.
+            limits=["The logit slope at the smallest stratum is red."],
         ),
         "treatment",
         {"logit_binary": ("binary",), "dose_logit": ("continuous",)},
@@ -601,7 +606,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             outcome=CONTINUOUS,
             qualifiers=["strata"],
             cells=["stratified_msm_identity"],
-            limits=["One paired cell at the smallest stratum is red (X8)."],
+            # Roadmap: X8.
+            limits=["One paired cell at the smallest stratum is red."],
         )
     )
     rows.append(
@@ -630,7 +636,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             treatment=("continuous",),
             options={"ratio": "density"},
             cells=["continuous_modified_policy"],
-            limits=["One paired calibration leg is red (RM18)."],
+            # Roadmap: RM18.
+            limits=["One paired calibration leg is red."],
         )
     )
     rows.append(
@@ -659,7 +666,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P11",),
             splitting=("fold_evaluated",),
             cells=["non_exceptional", "misspecified_limit"],
-            limits=["The exceptional and weak-blip laws are red (F27)."],
+            # Roadmap: F27.
+            limits=["The exceptional and weak-blip laws are red."],
         )
     )
     rows.append(
@@ -817,7 +825,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
 
 #: The limit line of a stacked DR-TMLE row whose evidence ran the pooled reduced regressions.
 LEAK = (
-    "Pooled reduced regressions: R drtmle cvFolds parity. The drtmle-foldwise study (X83) "
+    "Pooled reduced regressions: R drtmle cvFolds parity. The drtmle-foldwise study "
     "measured the fold leak on shared draws at n = 1,000: ATE bias 0.400 SD pooled against "
     "0.156 SD foldwise, a paired displacement of 0.266 SD. Row D11 covers the binary "
     "unstratified foldwise default."
@@ -835,8 +843,9 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             cells=["both_correct", "outcome_correct", "treatment_correct"],
+            # Roadmap: RM18.
             limits=[
-                "The one-inconsistent-nuisance cells are red (RM18).",
+                "The one-inconsistent-nuisance cells are red.",
                 LEAK,
             ],
         ),
@@ -848,7 +857,8 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
-            limits=["The boundary and one-sided-bias cells are red (RM18).", LEAK],
+            # Roadmap: RM18.
+            limits=["The boundary and one-sided-bias cells are red.", LEAK],
         ),
         point_row(
             "D03",
@@ -858,11 +868,12 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["strata"],
             cells=["stratified_both_correct"],
+            # Roadmap: X8.
             limits=[
-                "Two truth cells and the small-stratum cell are red (X8).",
+                "Two truth cells and the small-stratum cell are red.",
                 LEAK,
                 "Foldwise reduced regressions do not remove the stratified treatment_correct "
-                "bias: the X83 pilot (200 draws, n = 2,000) read foldwise marginal 0.29, v1 0.30, "
+                "bias: a 200-draw pilot at n = 2,000 read foldwise marginal 0.29, v1 0.30, "
                 "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
             ],
         ),
@@ -1030,7 +1041,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 engine=_ctmle(strategy),
                 kinds=_POINT,
                 cells=[f"binary_{strategy}"],
-                limits=["The selector plug-in interval is withheld (F18)."],
+                # Roadmap: F18.
+                limits=["The selector plug-in interval is withheld."],
             )
         )
         rows.append(
@@ -1042,7 +1054,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 treatment=("arms3",),
                 kinds=_POINT,
                 cells=[f"multi_arm_selector_{strategy}"],
-                limits=["The selector plug-in interval is withheld (F18)."],
+                # Roadmap: F18.
+                limits=["The selector plug-in interval is withheld."],
             )
         )
     shared = _ctmle("oat", "shared")
@@ -1074,7 +1087,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             kinds=_POINT,
             cells=["multi_arm_binary_oat"],
-            limits=["The generated-design interval is withheld (F19)."],
+            # Roadmap: F19.
+            limits=["The generated-design interval is withheld."],
         ),
         point_row(
             "C05.binary",
@@ -1503,20 +1517,24 @@ def _c_rows() -> tuple[SupportRow, ...]:
 SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ("T10.fold_evaluated", "wald"): (
         "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
-        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187 (F28)."
+        # Roadmap: F28.
+        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187."
     ),
     ("T11.fold_evaluated", "wald_t"): (
         "Row T11.fold_evaluated is red when cluster sizes are informative at 10 to 30 clusters: "
         "at 10 clusters bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180 and SE ratio "
-        "0.8297 to 0.8849 (F28)."
+        # Roadmap: F28.
+        "0.8297 to 0.8849."
     ),
     ("T16.logit_binary", "wald"): (
         "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
-        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+        # Roadmap: X8.
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387."
     ),
     ("T16.dose_logit", "wald"): (
         "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
-        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+        # Roadmap: X8.
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387."
     ),
     # X40: the owner chose this label for the four red price_down cells of the five-node price
     # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
@@ -2135,6 +2153,7 @@ def long_row(
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
     learners: Mapping[str, type] | None = None,
+    kind_families: Mapping[Kind, Iterable[str]] | None = None,
 ) -> SupportRow:
     """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
 
@@ -2190,6 +2209,9 @@ def long_row(
         The stated limits of the row.
     learners : mapping of str to type or None, default None
         The exact learner class per nuisance role, where the study fixes one.
+    kind_families : mapping of str to iterable of str or None, default None
+        The target families that a listed kind covers. A kind with no entry covers every family
+        of the row.
 
     Returns
     -------
@@ -2223,7 +2245,18 @@ def long_row(
             *_x33_options(node_bounds=node_bounds, hazard_pooling=hazard_pooling),
         ),
     )
-    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), learners, tuple(limits))
+    return SupportRow(
+        row_id,
+        key,
+        kinds,
+        tuple(evidence),
+        tuple(cells),
+        learners,
+        tuple(limits),
+        kind_families=tuple(
+            (kind, frozenset(covered)) for kind, covered in (kind_families or {}).items()
+        ),
+    )
 
 
 def _long_rows() -> tuple[SupportRow, ...]:
@@ -2243,7 +2276,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             kinds=_LONG_DERIVED,
             cells=["interval_calibration", "simultaneous_coverage"],
-            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here (X20)."],
+            # Roadmap: X20.
+            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here."],
         ),
         long_row(
             "G03",
@@ -2274,7 +2308,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             dependence="clustered",
             kinds=_POINT,
             cells=["boot_ey_clustered"],
-            limits=["Only the full-refit bootstrap measures this configuration (X20)."],
+            # Roadmap: X20.
+            limits=["Only the full-refit bootstrap measures this configuration."],
         ),
         long_row(
             "G06",
@@ -2442,7 +2477,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=("2",) * 5,
             weighting="fixed",
             cells=["weighted_t5"],
-            limits=["The fixed-weight cell reads a finite-sample shortfall (X13)."],
+            # Roadmap: X13.
+            limits=["The fixed-weight cell reads a finite-sample shortfall."],
         ),
         long_row(
             "G16",
@@ -2473,7 +2509,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             kinds=_LONG_BAND,
             cells=["three_arm_t3"],
-            limits=["The three-arm cell reads a finite-sample shortfall (X13)."],
+            # Roadmap: X13.
+            limits=["The three-arm cell reads a finite-sample shortfall."],
         ),
         long_row(
             "G18.stochastic",
@@ -3486,7 +3523,8 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                "reference mean only. A static level or contrast is refused (X72).",
+                # Roadmap: X72.
+                "reference mean only. A static level or contrast is refused.",
             ),
         ),
         row("G42.weighted", _structural_cells("s2w"), weighting="fixed"),
@@ -3533,12 +3571,362 @@ def _categorical_long_rows() -> tuple[SupportRow, ...]:
     )
 
 
+_LH_BCA: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca"})
+_LH_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", "band"})
+_LH_BOOT_BAND: Final[frozenset[Kind]] = frozenset(
+    {"point", "wald", "bootstrap_bca", "bootstrap_band"}
+)
+#: The scenario sizes at which the study gates the Wald and the BCa interval of each row that
+#: reads the Wald note: ``tests/unit/test_long_horizon_support.py`` derives both from
+#: ``tests/long_horizon_design.py``.
+_LH_GATED_N: Final[Mapping[str, tuple[tuple[int, ...], tuple[int, ...]]]] = {
+    "binary_k3": ((4_000,), (4_000,)),
+    "binary_k4": ((16_000,), (16_000,)),
+    "binary_k5": ((76_000,), (76_000,)),
+    "categorical_k3": ((28_000,), (28_000,)),
+    "categorical_k4": ((128_000,), (108_000, 124_000, 128_000)),
+    "categorical_k5": ((116_000,), (64_000, 72_000, 96_000, 116_000, 124_000)),
+    "sdr_binary_k3": ((4_000,), (4_000,)),
+    "sdr_binary_k4": ((16_000,), (16_000,)),
+    "sdr_binary_k5": ((76_000,), (76_000,)),
+    "sdr_categorical_k5": (
+        (44_000, 116_000),
+        (44_000, 64_000, 72_000, 76_000, 96_000, 116_000, 124_000),
+    ),
+}
+#: The rows whose gated BCa quantities all use static or dynamic plans, so that the row licenses
+#: the BCa interval for those plans only.
+_LH_STATIC_BCA_ROWS: Final[frozenset[str]] = frozenset(
+    {
+        "binary_k3",
+        "binary_k4",
+        "categorical_k3",
+        "categorical_k4",
+        "sdr_binary_k3",
+        "sdr_binary_k4",
+    }
+)
+_LH_STATIC_BCA_FAMILIES: Final[frozenset[str]] = frozenset({"end_of_study", "regimens", "static"})
+
+
+def _lh_sizes(sizes: Sequence[int]) -> str:
+    """Scenario sizes as a list, such as ``n = 4,000 and 16,000``."""
+    text = [f"{n:,}" for n in sizes]
+    return text[0] if len(text) == 1 else f"{', '.join(text[:-1])} and {text[-1]}"
+
+
+def _lh_note(wald: Sequence[int], bca: Sequence[int], *, static_bca: bool) -> str:
+    """The stated limit of a long-horizon row that reads a Wald interval and a BCa interval."""
+    note = (
+        "The Wald interval is gated for a quantity only where n is at least twice its n_kappa. "
+        f"The study gates it at n = {_lh_sizes(wald)}. "
+        "Where the Wald interval is not gated, the BCa interval at B = 199 is gated instead, "
+        f"at n = {_lh_sizes(bca)}, and the BCa row of a Wald-gated quantity reports. "
+        "The row grain checks neither n nor the quantity. "
+        "A fit at another n or on another quantity reads as this row."
+    )
+    if static_bca:
+        note += (
+            " The study gates BCa on plans without a known stochastic node only, "
+            "so the row licenses BCa for those plans."
+        )
+    return note
+
+
+_LH_SWITCH_LIMIT: Final[str] = (
+    "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
+    "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
+    "bias -0.0015 to 0.0038, SE ratio 0.9624"
+)
+# Roadmap: X20.
+_LH_CROSSFIT_NOTE: Final[str] = (
+    "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
+    "ratio of 1.17 to 1.33 here, and six of the Wald rows lose their gate below twice "
+    "n_kappa."
+)
+_LH_MSM_NOTE: Final[str] = (
+    "Both coefficients are gated at n = 96,000, which is at least twice the n_kappa of the "
+    "intercept (94,226) and of the duration (50,908). The MSM fit runs no bootstrap."
+)
+_LH_SDR_BAND_NOTE: Final[str] = "The SDR bootstrap band is experimental and gates no row."
+_LH_NO_PRIMARY_NOTE: Final[str] = (
+    "The study fits this setting in its property cells only, so no BCa row gates it and the "
+    "Wald interval rests on the calibration cells."
+)
+_LH_LEARNED_NOTE: Final[str] = (
+    "The cell is a bias check of the necessity family: it states no interval, and the "
+    "treatment of the third arm is learned."
+)
+
+
+def _long_horizon_rows() -> tuple[SupportRow, ...]:
+    """The rows of the three long-horizon studies (X39): ``G46``.
+
+    One row for each estimator, decision count, arm count, splitting and working model that a
+    primary scenario covers. The row ids read ``G46.tmle.<name>`` and ``G46.sdr.<name>``.
+
+    Every row licenses ``point``. It licenses ``wald`` when the study gates a Wald row of a
+    member scenario, or an ``interval_calibration`` cell of the row's setting. It licenses
+    ``bootstrap_bca`` when the study gates a BCa row of a member scenario. The study gates BCa
+    only where the Wald row is not gated (n below twice n_kappa). The six rows whose gated BCa
+    rows all use plans without a known stochastic node license BCa for those plans only
+    (``kind_families``). The row grain checks neither n nor the quantity, so each row states
+    its gated n and that limit in its first note. The cross-fitted rows and every SDR row
+    license no bootstrap band: the cross-fitted bootstrap is experimental (X20), and the SDR
+    bootstrap band is experimental. A row licenses ``band`` when the study gates the Wald-curve
+    band of its setting (``binary_k5``) and ``bootstrap_band`` when it gates the studentized
+    sup-t band at B = 199 (``categorical_k5``).
+    """
+    tmle2 = ("long-horizon-ltmle", "tmle", 2)
+    tmle3 = ("long-horizon-categorical-ltmle", "tmle", 3)
+    sdr2 = ("long-horizon-sdr", "sdr", 2)
+    sdr3 = ("long-horizon-sdr", "sdr", 3)
+    #: name, study, decisions, folds, msm, learned, kinds, stochastic, cells, limits
+    declared: tuple[
+        tuple[
+            str,
+            tuple[str, str, int],
+            int,
+            int,
+            bool,
+            bool,
+            frozenset[Kind],
+            bool,
+            tuple[str, ...],
+            tuple[str, ...],
+        ],
+        ...,
+    ] = (
+        ("binary_k3", tmle2, 3, 1, False, False, _LH_BCA, True, ("binary_k3",), ()),
+        ("binary_k4", tmle2, 4, 1, False, False, _LH_BCA, True, ("binary_k4",), ()),
+        ("binary_k5", tmle2, 5, 1, False, False, _LH_BAND, True, ("binary_k5",), ()),
+        (
+            "binary_k5_msm",
+            tmle2,
+            5,
+            1,
+            True,
+            False,
+            _LONG_WALD,
+            False,
+            ("binary_k5_msm",),
+            (_LH_MSM_NOTE,),
+        ),
+        (
+            "categorical_k3",
+            tmle3,
+            3,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("categorical_k3",),
+            (),
+        ),
+        (
+            "categorical_k4",
+            tmle3,
+            4,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("categorical_k4", "categorical_k4_high", "categorical_k4_static"),
+            (),
+        ),
+        (
+            "categorical_k5",
+            tmle3,
+            5,
+            1,
+            False,
+            False,
+            _LH_BOOT_BAND,
+            True,
+            (
+                "categorical_k5",
+                "categorical_k5_mix",
+                "categorical_k5_static",
+                "categorical_k5_switch",
+                "categorical_k5_high",
+            ),
+            (),
+        ),
+        (
+            "categorical_k5_crossfit",
+            tmle3,
+            5,
+            5,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("categorical_k5_crossfit",),
+            (_LH_CROSSFIT_NOTE,),
+        ),
+        (
+            "sdr_binary_k3",
+            sdr2,
+            3,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k3",),
+            (),
+        ),
+        (
+            "sdr_binary_k4",
+            sdr2,
+            4,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k4",),
+            (),
+        ),
+        (
+            "sdr_binary_k5",
+            sdr2,
+            5,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k5",),
+            (),
+        ),
+        (
+            "sdr_categorical_k5",
+            sdr3,
+            5,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            (
+                "sdr_categorical_k5",
+                "sdr_categorical_k5_mix",
+                "sdr_categorical_k5_static",
+                "sdr_categorical_k5_switch",
+                "sdr_categorical_k5_high",
+                "sdr_policy_k5",
+                "sdr_policy_k5_mix",
+                "sdr_policy_k5_taper",
+            ),
+            (_LH_SWITCH_LIMIT, _LH_SDR_BAND_NOTE),
+        ),
+        (
+            "sdr_categorical_k5_crossfit",
+            sdr3,
+            5,
+            5,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("sdr_categorical_k5_crossfit",),
+            (_LH_CROSSFIT_NOTE,),
+        ),
+        (
+            "sdr_categorical_k3",
+            sdr3,
+            3,
+            1,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("interval_calibration/categorical_respond_vs_ref__k3__known_mechanism",),
+            (_LH_NO_PRIMARY_NOTE,),
+        ),
+        (
+            "sdr_categorical_k4",
+            sdr3,
+            4,
+            1,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            (
+                "interval_calibration/categorical_respond_vs_ref__k4__known_mechanism",
+                "root_n_and_efficiency/respond_vs_ref__k4__n_4000",
+            ),
+            (_LH_NO_PRIMARY_NOTE,),
+        ),
+        (
+            "categorical_k5_learned",
+            tmle3,
+            5,
+            1,
+            False,
+            True,
+            frozenset({"point"}),
+            True,
+            ("categorical_probability_necessity/third_arm__k5__binary_complement",),
+            (_LH_LEARNED_NOTE,),
+        ),
+        (
+            "sdr_categorical_k5_learned",
+            sdr3,
+            5,
+            1,
+            False,
+            True,
+            frozenset({"point"}),
+            True,
+            ("categorical_probability_necessity/third_arm__k5__binary_complement",),
+            (_LH_LEARNED_NOTE,),
+        ),
+    )
+    rows: list[SupportRow] = []
+    for name, (
+        slug,
+        engine,
+        arms,
+    ), nodes, folds, msm, learned, kinds, stochastic, cells, limits in declared:
+        roles = "C" if learned else "AC"
+        if name in _LH_GATED_N:
+            wald, bca = _LH_GATED_N[name]
+            limits = (_lh_note(wald, bca, static_bca=name in _LH_STATIC_BCA_ROWS), *limits)
+        rows.append(
+            long_row(
+                f"G46.{engine}.{name}",
+                [slug],
+                regimens=("static", "stochastic") if stochastic else ("static",),
+                msm=msm,
+                treatment=tuple(str(arms) for _ in range(nodes)),
+                splitting=("cross_fitted",) if folds > 1 else ("in_sample",),
+                qualifiers=[f"{role}{k}" for role in roles for k in range(1, nodes + 1)],
+                engine=engine,
+                kinds=kinds,
+                cells=cells,
+                limits=limits,
+                kind_families=(
+                    {"bootstrap_bca": _LH_STATIC_BCA_FAMILIES}
+                    if name in _LH_STATIC_BCA_ROWS
+                    else None
+                ),
+            )
+        )
+    return tuple(rows)
+
+
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
-#: structural nested mean model (``G42``) and the categorical tilt (``G43``).
+#: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
+#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
-    (*_long_rows(), *_categorical_long_rows())
+    (*_long_rows(), *_categorical_long_rows(), *_long_horizon_rows())
 )
 
 
@@ -3582,7 +3970,8 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
-        "and licenses no configuration (F27)."
+        # Roadmap: F27.
+        "and licenses no configuration."
     ),
 }
 

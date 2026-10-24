@@ -46,8 +46,7 @@ def test_the_record_declares_a_pending_comparator_and_its_sizes(study: object) -
     assert sizes == {s.name: s.n for s in study.SCENARIOS}  # type: ignore[attr-defined]
     assert all(size % 4_000 == 0 for size in sizes.values())
     assert study.PRIMARY_N == record.n == min(sizes.values())  # type: ignore[attr-defined]
-    # Not yet registered: the artefacts and the pages come with the regeneration.
-    assert record.slug not in {other.slug for other in registered()}
+    assert record.slug in {other.slug for other in registered()}
 
 
 @pytest.mark.parametrize("study", STUDIES, ids=lambda module: module.STUDY.slug)
@@ -113,16 +112,20 @@ def test_the_declared_runner_is_a_stub_that_stops(study: object) -> None:
 
 
 @pytest.mark.parametrize("study", STUDIES[1:], ids=lambda module: module.STUDY.slug)
-def test_the_cross_fitted_scenario_compares_a_different_estimator(study: object) -> None:
-    """The shipped SDR study and S2 label their cross-fitted scenario so (review minor 4).
+def test_the_cross_fitted_scenario_declares_its_comparison_kind_with_the_runs(
+    study: object,
+) -> None:
+    """The comparison kind stays one default while the comparator is pending.
 
-    The comparison label enters the declaration hash, so it is set before the declaration.
+    ``test_a_study_with_a_reference_declares_its_comparison_kind`` forbids an override on a
+    record with no compared reference.  X59 declares ``"<crossfit scenario>:*"`` as a
+    ``"different estimator"`` override together with the R runs.
     """
     record = study.STUDY  # type: ignore[attr-defined]
+    assert record.reference is None
+    assert not record.comparison_overrides
     crossfit = next(s for s in study.SCENARIOS if s.name.endswith("k5_crossfit"))  # type: ignore[attr-defined]
-    for estimand in record.scenarios[crossfit.name]:
-        assert record.comparison_kind(crossfit.name, estimand) == "different estimator"
-    others = [s for s in study.SCENARIOS if s is not crossfit]  # type: ignore[attr-defined]
-    for scenario in others:
+    for scenario in study.SCENARIOS:  # type: ignore[attr-defined]
         for estimand in record.scenarios[scenario.name]:
             assert record.comparison_kind(scenario.name, estimand) == "matching implementation"
+    assert crossfit.n_folds == 5

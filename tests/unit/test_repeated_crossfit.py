@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.data.weighting import REPORTED_DRAW
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators.serialize import dumps, loads
@@ -153,6 +154,12 @@ def ratio_repeated(binary_frame: Any) -> Any:
     """
     estimator = fast_tmle(repeats=REPEATS, estimands=("ate", "rr", "or"))
     return estimator.fit(binary_frame, **COLUMNS).single()
+
+
+def spread_lines(result: Any) -> list[str]:
+    """The Settings lines of the full summary that report the spread across splits."""
+    lines = result.summary(detail="full").section("Settings").lines
+    return [line for line in lines if "splits" in line or "no spread" in line]
 
 
 class TestOneRepeatIsAnOrdinaryFit:
@@ -549,17 +556,19 @@ class TestRepeatedCanonicalCVTMLE:
         first = _per_draw_detail(canonical)[0]
         assert canonical.cv_targeting.fold_epsilon == first.fold_epsilon
         assert canonical.cv_targeting.fold_estimates == first.fold_estimates
-        assert "the fold columns describe the first" in canonical.cv_targeting.summary()
+        note = canonical.cv_targeting.summary().note("cv_first_split")
+        assert "the fold columns describe the first split only" in note.text
 
     def test_the_score_equation_is_still_solved(self, canonical: Any) -> None:
         check = score_check(canonical)
         assert check.passed, check.summary()
 
     def test_the_summary_names_the_estimator_and_the_variance_rule(self, canonical: Any) -> None:
-        summary = canonical.summary()
-        assert "fold-evaluated CV-TMLE" in summary
-        assert "independent draws" in summary
-        assert "split dispersion" in summary
+        settings = canonical.summary(detail="full").section("Settings").lines
+        assert vocabulary.CROSS_FIT_EVALUATION[True] in " ".join(settings)
+        repeated = canonical.summary().note("repeated_splits").text
+        assert "median over 3 random splits" in repeated
+        assert "includes the spread between splits" in repeated
 
 
 class TestTheRejectedVarianceRule:
@@ -681,9 +690,9 @@ class TestTheSpreadAcrossDraws:
         assert spread["ate"] == pytest.approx(float(np.std(ate_draws, ddof=1)))
 
     def test_the_summary_says_which_scale_the_split_noise_is_on(self, ratio_repeated: Any) -> None:
-        summary = ratio_repeated.summary()
-        assert "the log scale for a ratio" in summary
-        assert "sd(psi) across" not in summary
+        (line,) = spread_lines(ratio_repeated)
+        assert "on the scale the interval is computed on" in line
+        assert "spread_scale" in ratio_repeated.summary().note_codes
 
     def test_one_draw_has_no_spread_to_report(self, once: Any) -> None:
         """And the ordinary reason for it never reaches an ordinary reader.
@@ -835,11 +844,13 @@ class TestTheSpreadAcrossDraws:
         draws[-1] = replace(draws[-1], psi={**draws[-1].psi, "rr": -0.5})
         mutated = replace(ratio_repeated, repeats=tuple(draws))
 
-        summary = mutated.summary()
-        assert "rr    -  (no spread on the inference scale)" in summary
-        assert "nan" not in summary
-        # The finite parameters still report their share, so the dash is not a blanket.
-        assert "of std_err" in summary
+        summary = mutated.summary(detail="full")
+        assert "rr has no spread on that scale" in str(summary)
+        assert "nan" not in str(summary)
+        # The finite parameters still report their spread, so the line is not a blanket.
+        (line,) = [line for line in spread_lines(mutated) if line.startswith("Spread")]
+        assert "ate " in line
+        assert "rr " not in line
 
     def test_no_reported_parameter_leaves_a_reason_and_no_row(self, repeated: Any) -> None:
         """The last omission reason, and the only one no fitted result reaches.
@@ -909,9 +920,12 @@ class TestTheSpreadAcrossDraws:
         assert frame["estimand"].to_list() == list(repeated.estimates)
 
     def test_the_summary_shows_it_beside_the_standard_error(self, repeated: Any, once: Any) -> None:
-        assert "split noise" in repeated.summary()
-        assert "of std_err" in repeated.summary()
-        assert "split noise" not in once.summary()
+        assert any(
+            line.startswith("Spread of each row across the 3 splits")
+            for line in spread_lines(repeated)
+        )
+        assert spread_lines(once) == []
+        assert once.summary(detail="full").section("Settings").lines
 
     def test_it_survives_the_round_trip(self, repeated: Any) -> None:
         report = repeated.diagnostics.nuisance_models()
@@ -945,16 +959,18 @@ class TestWhatTheResultExposes:
         assert repeated.n_repeats == REPEATS
 
     def test_the_summary_says_the_fit_was_repeated(self, repeated: Any, once: Any) -> None:
-        assert "median over 3 independent draws" in repeated.summary()
-        assert "independent draws" not in once.summary()
+        assert "median over 3 random splits" in repeated.summary().note("repeated_splits").text
+        assert "repeated_splits" not in once.summary().note_codes
+        assert once.summary().table("estimates").rows
 
     def test_the_summary_says_the_report_is_coordinatewise(self, repeated: Any, once: Any) -> None:
         # ``contrast()`` refuses because a coordinatewise median breaks the identities
         # between rows.  A reader who subtracts two rows of the printed table performs the
         # same operation by hand, so the table has to say so.
-        assert "the report above is coordinatewise" in repeated.summary()
-        assert "ate versus ey1 - ey0" in repeated.summary()
-        assert "coordinatewise" not in once.summary()
+        text = "a difference of two rows need not equal a third"
+        assert text in repeated.summary().note("repeated_splits").text
+        assert "repeated_splits" not in once.summary().note_codes
+        assert once.summary().table("estimates").rows
 
     def test_the_declared_plan_records_the_count(self, repeated: Any) -> None:
         assert repeated.config.crossfit.repeats == REPEATS

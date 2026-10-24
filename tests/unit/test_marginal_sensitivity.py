@@ -660,7 +660,10 @@ def test_every_test_fit_is_descriptive_on_the_shipped_registry(gaussian: Any, bi
         assert bounds.limit_descriptive
         assert bounds.limit_reading is not None
         assert bounds.limit_reading.sentence.startswith(DESCRIPTIVE_SENTENCE)
-        assert f"confidence limit: {DESCRIPTIVE_SENTENCE}" in bounds.summary()
+        summary = bounds.summary(detail="full")
+        assert "limits_descriptive" in summary.note_codes
+        prefix = f"Evidence for the interval: {DESCRIPTIVE_SENTENCE}"
+        assert any(line.startswith(prefix) for line in summary.section("Settings").lines)
 
 
 def test_a_registered_row_licenses_exactly_its_rule(

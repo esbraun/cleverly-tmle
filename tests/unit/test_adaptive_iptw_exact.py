@@ -742,7 +742,7 @@ class TestW13TreatmentAdjustment:
     def test_the_mechanism_reads_the_subset_and_the_summary_prints_the_pinned_line(self) -> None:
         from sklearn.linear_model import LogisticRegression
 
-        from cleverly.data.treatment_covariates import adaptive_iptw_restriction_line
+        from cleverly._summary import vocabulary
         from cleverly.estimators import AdaptiveIPTW
 
         rng = np.random.default_rng(8)
@@ -777,11 +777,14 @@ class TestW13TreatmentAdjustment:
             .single()
         )
         assert set(spy) == {1}
-        summary = result.summary()
-        line = adaptive_iptw_restriction_line(["W1"], ["W2"])
-        assert line in summary
+        summary = result.summary(detail="full")
+        line = vocabulary.IPTW_RESTRICTED.format(
+            names="W1"
+        ) + vocabulary.IPTW_RESTRICTED_OMITTED.format(omitted="W2")
+        assert line in summary.section("Method details").lines
+        assert "consistent only when W2 add no confounding beyond those" in line
+        # It fits no outcome model, so the restriction text of a doubly robust fit is wrong.
         assert "consistent when the outcome regression is consistent" not in summary
-        assert line.startswith("treatment-mechanism covariates: the treatment mechanism")
 
 
 # --------------------------------------------------------------------------------------- pins

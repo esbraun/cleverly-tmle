@@ -98,18 +98,23 @@ MINIMUM_T_REFERENCE_CLUSTERS: Final[int] = 3
 MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
-#: ``{clusters}`` is the positive-mass cluster count of the fit.
+#: ``{clusters}`` is the positive-mass cluster count of the fit, and ``{stratum}`` is
+#: :data:`T_REFERENCE_STRATUM` on a fit with strata and empty otherwise.
 T_REFERENCE_NOTE: Final[str] = (
-    "An estimate that reads fewer than "
+    "An estimate based on fewer than "
     f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
-    "p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it "
-    "reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes "
-    "min(J - 2, J - V). The fit reads {clusters} such clusters, and the fewest in one "
-    "reported stratum is {fewest}. The df column gives each estimate's degrees of freedom, "
-    "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
-    "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
+    "p-value on a Student t reference with J - 2 degrees of freedom, where J is that cluster "
+    "count (Nugent et al. (2024), Section 2.2); an estimate averaged over V cross-fitting "
+    "folds takes min(J - 2, J - V). The fit has {clusters} clusters with positive weight "
+    "mass{stratum}. The df "
+    "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
+    "reference. The validation evidence for few clusters uses parametric models for the "
+    "outcome and the treatment; Wang et al. (2024), Remark 3, caution against complex "
     "learners at about 20 clusters."
 )
+
+#: The clause :data:`T_REFERENCE_NOTE` adds on a fit with strata.
+T_REFERENCE_STRATUM: Final[str] = ", and the fewest in one reported stratum is {fewest}"
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale
 #: refusals of :class:`~cleverly.TMLE` say it, so the two name one fact in one wording.
@@ -119,15 +124,17 @@ HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows include
 #: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
 #: print it, and both estimators skip the default band on such a fit.
 NO_SIMULTANEOUS_BANDS: Final[str] = (
-    "no simultaneous bands: a band is a joint confidence statement, and this fit reports none."
+    "No simultaneous bands: a band is a joint confidence statement, and this fit reports no "
+    "confidence interval."
 )
 
 #: The line a result summary prints when a fit skips its default band because an estimate
 #: carries a Student t reference.
 NO_T_REFERENCE_BANDS: Final[str] = (
-    "no simultaneous bands: an estimate of this fit reads fewer than "
-    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and carries a t reference, "
-    "and no source gives a t-calibrated band, so the fit reports pointwise intervals only."
+    "No simultaneous bands: an estimate of this fit is based on fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and uses a t reference, and "
+    "no source gives a band calibrated to a t reference, so the fit reports one-at-a-time "
+    "intervals only."
 )
 
 
@@ -174,11 +181,16 @@ class StatusRecord:
     shown_reason : str or None, default None
         For a shown status, the sentences the experimental label adds to say what the interval
         does not cover. Required when ``interval`` is ``"shown"``.
+    plain_reason : str
+        One or two plain sentences, with no roadmap id, that a result summary prints in its
+        note for this status: why the interval is withheld or labelled, and the alternative
+        when one exists. Required.
 
     Raises
     ------
     ValueError
-        When a shown record has no ``shown_reason``, or a withheld record has one.
+        When a shown record has no ``shown_reason``, or a withheld record has one, or a
+        record has no ``plain_reason``.
     """
 
     reason: str
@@ -191,10 +203,13 @@ class StatusRecord:
     code: RefusalReason = RefusalReason.INFERENCE_GAP
     interval: Interval = "withheld"
     shown_reason: str | None = None
+    plain_reason: str = ""
 
     def __post_init__(self) -> None:
         if (self.interval == "shown") != (self.shown_reason is not None):
             raise ValueError("a shown status states a shown_reason, and a withheld one states none")
+        if not self.plain_reason:
+            raise ValueError("a status states its plain_reason, the sentences a summary prints")
 
     def summary_note(self) -> str:
         """The paragraph a result summary prints under its table of diagnostics.
@@ -227,6 +242,11 @@ class StatusRecord:
 STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
+            plain_reason=(
+                "The collaborative search chose the treatment model from the data, and no result "
+                "shows that the reported spread is a valid standard error after that choice. For "
+                "an interval, fit TMLE or DR-TMLE on the same design."
+            ),
             reason=(
                 "The greedy, ordered, discrete, lasso and learners collaborative paths report "
                 "no confidence interval, no p-value and no standard error. The reported curve "
@@ -256,6 +276,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative="For an interval, fit TMLE or DRTMLE on the same design.",
         ),
         "generated_design_plugin": StatusRecord(
+            plain_reason=(
+                "The outcome-adaptive collaborative fit builds its treatment model on fitted "
+                "outcome predictions, and the reported spread leaves out the uncertainty of that "
+                "step (a validation study of the per-arm design found it 8 to 24 percent too "
+                "small). For an interval, fit TMLE, or the per-arm design with ParametricOutcome "
+                "and ParametricMechanism learners."
+            ),
             reason=(
                 "This outcome-adaptive collaborative fit, strategy='oat', reports no confidence "
                 "interval, no p-value and no standard error. The shared design, "
@@ -294,6 +321,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
         ),
         "estimated_mechanism_plugin": StatusRecord(
+            plain_reason=(
+                "Adaptive IPTW with an estimated treatment or missingness model carries a bias of "
+                "the same order as that model's error unless conditions hold that no fit can "
+                "check, so no valid standard error is available. For an interval, pass the known "
+                "treatment probabilities on complete data and fit those estimates on their own, "
+                "or fit TMLE or DR-TMLE."
+            ),
             reason=(
                 "An AdaptiveIPTW fit with an estimated treatment or missingness mechanism "
                 "reports no confidence interval, no p-value and no standard error. Van der "
@@ -328,6 +362,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
         ),
         "estimated_weight_plugin": StatusRecord(
+            plain_reason=(
+                "The interval treats the estimated observation weights as fixed, so it leaves out "
+                "the uncertainty of estimating them, and cleverly marks it experimental."
+            ),
             reason=(
                 "A DR-TMLE fit with a guard and weights declared estimated "
                 "(weights_estimated=True) reports its interval, p-value and standard error "
@@ -366,6 +404,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
         ),
         "trimmed_ratio_plugin": StatusRecord(
+            plain_reason=(
+                "Trimming the density ratios (ratio_trim=) leaves a bias of the size of the "
+                "outcome-model error at every sample size, and no result gives an interval for the "
+                "trimmed fit. ratio_trim=None fits the untrimmed estimator, which has one."
+            ),
             reason=(
                 "A longitudinal fit that trims its per-node density ratios at a declared "
                 "quantile (ratio_trim=) reports no confidence interval, no p-value and no "
@@ -396,6 +439,12 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
         ),
         "adaptive_baseline_plugin": StatusRecord(
+            plain_reason=(
+                "This fit reads a regression from a learner other than cleverly.learners.GLM, and "
+                "no result makes that learner's error negligible for this estimator, so no valid "
+                "standard error is available. For an interval, use GLM models, or fit LTMLE or "
+                "SDR; a StructuralNestedMean fit gets one from cross-fitting (n_folds above 1)."
+            ),
             reason=(
                 "A sequential g-computation or IPW fit reports no confidence interval, no "
                 "p-value and no standard error when a regression it reads is fitted by a "
@@ -429,6 +478,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative="For an interval, pass GLM models, or fit LTMLE or SDR.",
         ),
         "no_cluster_variance_plugin": StatusRecord(
+            plain_reason=(
+                f"The fit reads fewer than {MINIMUM_T_REFERENCE_CLUSTERS} clusters with positive "
+                "weight mass, in the whole fit or in one reported stratum, which is too few for "
+                "any cluster-based standard error."
+            ),
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
                 f"error when it reads fewer than {MINIMUM_T_REFERENCE_CLUSTERS} clusters with "
@@ -455,6 +509,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
         ),
         "few_cluster_plugin": StatusRecord(
+            plain_reason=(
+                f"With {MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_INTERVAL_CLUSTERS - 1} clusters "
+                f"({MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1} "
+                "on a longitudinal fit) the interval uses a t distribution with the degrees of "
+                "freedom in the df column, and no validation study measures intervals at so few "
+                "clusters, so cleverly marks it experimental."
+            ),
             reason=(
                 "A clustered fit that reads from "
                 f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters with positive weight mass up to one "
@@ -493,6 +554,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
         ),
         "constant_node_plugin": StatusRecord(
+            plain_reason=(
+                "A regression in this estimate's recursion saw a single outcome value at some time "
+                "point (for example, no events there), so the reported spread leaves out that "
+                "point's variance and can be too small."
+            ),
             reason=(
                 "A longitudinal parameter reports no confidence interval, no p-value and no "
                 "standard error when a node regression of its recursion read a constant "
@@ -528,6 +594,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
         ),
         "stack_failure_plugin": StatusRecord(
+            plain_reason=(
+                "The stacked estimating equation of an arm this estimate reads failed on this "
+                "sample, and the fit's warning says why, so no standard error is available."
+            ),
             reason=(
                 "A per-arm outcome-adaptive C-TMLE fit with parametric learners "
                 "(ParametricOutcome and ParametricMechanism) reports no confidence interval, "

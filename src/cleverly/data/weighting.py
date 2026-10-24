@@ -280,7 +280,6 @@ the supported answer is to expand the rows -- ``frame.loc[frame.index.repeat(cou
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Literal, TypedDict, cast
@@ -289,6 +288,7 @@ import numpy as np
 
 from .._inference_status import status_record
 from .._typing import FloatArray
+from .._warnings import warn as _warn
 from ..exceptions import DataError, WeightingWarning
 from .validate import check_weights
 
@@ -464,7 +464,7 @@ def warn_if_counts(weights: FloatArray, name: str, *, stacklevel: int = 3) -> No
         return
     if float(w.min()) < 1.0 or float(w.mean()) < 1.5:
         return
-    warnings.warn(
+    _warn(
         f"{name} are whole numbers averaging {w.mean():.3g}, which looks like counts of "
         "identical units. They are being read as probability weights, which estimates the "
         "right parameter but with a standard error too large by roughly "
@@ -532,7 +532,7 @@ def warn_if_concentrated(weights: FloatArray, name: str, *, stacklevel: int = 3)
     design_effect = w.size / ess
     if design_effect <= CONCENTRATED_DESIGN_EFFECT:
         return
-    warnings.warn(
+    _warn(
         f"{name} are concentrated: the effective sample size is {ess:.0f} of {w.size} rows "
         f"(design effect {design_effect:.1f}). The estimate rests on that much of the "
         "sample, sample-size-dependent settings such as g_bounds='auto' are resolved from "

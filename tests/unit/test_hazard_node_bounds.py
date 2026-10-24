@@ -375,9 +375,11 @@ class TestBoundsChangeTheFit:
             _assert_in_bounds(state, resolved)
 
     def test_the_summary_prints_the_hazard_scale_and_the_clipped_share(self) -> None:
-        text = _witness("one_step", bounded=True).summary()
-        assert "node_bounds: t=2 in [0.02, 0.2] (bounded cause-specific hazards" in text
-        assert "hazard node bounds: largest clipped share of initial hazards" in text
+        lines = _witness("one_step", bounded=True).summary(detail="full").section("Settings").lines
+        assert "Declared bounds on the hazard scale: time 2 in [0.02, 0.2]." in lines
+        assert any(line.startswith("The node bounds clipped up to ") for line in lines)
+        plain = _witness("one_step", bounded=False).summary(detail="full").section("Settings").lines
+        assert not any(line.startswith("Declared bounds") for line in plain)
 
     @pytest.mark.parametrize("targeting", ALGORITHMS)
     def test_the_replay_carries_the_bounds(self, targeting: str) -> None:

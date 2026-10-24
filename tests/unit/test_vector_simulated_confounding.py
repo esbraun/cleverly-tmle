@@ -130,7 +130,8 @@ def test_each_cell_equals_an_independent_refit_of_the_longhand_law() -> None:
     frame = surface.to_frame()
     assert {"treatment_strength[F]", "treatment_strength[D]"} <= set(frame.columns)
     assert "induced_treatment_association[D]" in frame.columns
-    assert "treatment strength (F, D)" in surface.summary()
+    columns = surface.summary().table("Movement").columns
+    assert columns[1:3] == ("treatment strength (F)", "treatment strength (D)")
 
 
 def test_calibration_reports_each_component_by_its_law() -> None:

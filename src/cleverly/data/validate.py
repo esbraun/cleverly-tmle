@@ -8,12 +8,12 @@ constant covariates make the treatment model's design matrix singular.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import NO_ALTERNATIVE, DataError, DataWarning, RefusalReason
 
 __all__ = [
@@ -294,7 +294,7 @@ def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
             "counterfactual contrast to be defined"
         )
     if distinct < MIN_CONTINUOUS_LEVELS:
-        warnings.warn(
+        _warn(
             f"{name} was declared continuous but takes only {distinct} distinct values. "
             "That is estimable: the density becomes a probability mass function and a "
             "shift moves along the ordered values, but if those values are the arms of "
@@ -640,7 +640,7 @@ def check_covariates(
             seen[digest] = j
 
     if dropped:
-        warnings.warn(
+        _warn(
             f"dropped {len(dropped)} constant or duplicated covariate(s): {dropped}",
             UserWarning,
             stacklevel=3,

@@ -33,6 +33,7 @@ from cleverly import (
     TMLEMethod,
     load,
 )
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.data.known_mechanism import (
     CONTINUOUS_REFUSAL,
@@ -765,7 +766,8 @@ def test_a_saved_result_reports_the_known_mechanism(tmp_path: Any) -> None:
         _tmle(estimands=("ate",)).fit(frame, **ROLES, treatment_probabilities=_columns(2)).single()
     )
     assert result.config.treatment_mechanism == "known"
-    assert "treatment mechanism: known (declared)" in result.summary()
+    header = dict(result.summary().header)
+    assert header[vocabulary.TREATMENT_MODEL] == vocabulary.KNOWN_MECHANISM == "known (declared)"
     assert list(result.to_frame()["treatment_mechanism"]) == ["known"]
     assert result.diagnostics.support().treatment_mechanism == "known"
     path = tmp_path / "known.cleverly"

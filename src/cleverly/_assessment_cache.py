@@ -27,6 +27,11 @@ from .utils.frames import emit_frame
 
 
 def _frame_payload(frame: Any) -> dict[str, Any]:
+    # A sensitivity result that keeps its rows as Python values (``MissingnessTilt``,
+    # ``SensitivityContour``) gives them directly.
+    rows = getattr(frame, "_payload", None)
+    if callable(rows):
+        return dict(rows())
     if isinstance(frame, _CachedFrame):
         return dict(zip(frame.columns, frame.values, strict=True))
     if type(frame).__module__.startswith("polars"):
@@ -83,6 +88,11 @@ def _normalize(value: Any) -> Any:
         }
     if isinstance(value, (tuple, list)):
         return [_normalize(item) for item in value]
+    # A fitted object's repr is a rounded one-line summary, so two different results can
+    # share it. Such an object keys by the content its ``_cache_token`` names instead.
+    token = getattr(value, "_cache_token", None)
+    if callable(token):
+        return {"token": _normalize(token()), "type": type(value).__qualname__}
     return {"object": repr(value), "type": type(value).__qualname__}
 
 

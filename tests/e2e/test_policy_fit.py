@@ -233,7 +233,10 @@ class TestCategoricalPolicies:
         fit = _fit_frame(frame, policies=[Shift(0.0, cap=None), treat_high])
         assert fit.config.parameter_axis == "policy"
         assert fit.estimates["ate_policy[treat high W vs natural course]"].psi > 0.0
-        assert "propensity truncated" in fit.summary()
+        settings = fit.summary(detail="full").section("Settings").lines
+        assert any(
+            line.startswith("Estimated treatment probabilities limited to") for line in settings
+        )
 
     def test_a_three_level_policy_and_the_lmtp_example_form(self) -> None:
         rng = np.random.default_rng(6)

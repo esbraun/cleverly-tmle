@@ -55,9 +55,9 @@ def stopping_conditions(stopping: str) -> list[Refusal]:
     return [
         Refusal(
             RefusalReason.INFERENCE_GAP,
-            f"The declared rule stopping={stopping!r} ends the targeting at a score residual "
-            "that the rule allows, and no registered study measures the interval at that "
-            "residual.",
+            f"The declared rule stopping={stopping!r} stops adjusting the outcome predictions "
+            "before the estimating equation is solved, and no simulation study measures the "
+            "interval coverage at the remainder it leaves.",
             alternative=(
                 "stopping='relative' solves the score equation to tol, as the registered "
                 "studies do. The summary states the coverage bound at the residual."

@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.sensitivity import evalue_from_rr
 from cleverly.sensitivity.evalue import EValue, _evalue_for_limit
 from cleverly.sensitivity.omitted_variable import _confounding_strength
@@ -61,8 +62,12 @@ class TestEValue:
         assert pytest.approx(2.0) == 3.0 * 4.0 / (3.0 + 4.0 - 1.0)
         report = EValue("rr", "risk ratio", 2.0, (1.5, 2.5), evalue, evalue_from_rr(1.5), False)
         summary = report.summary()
-        assert "If its two risk-ratio associations had equal strength" in summary
-        assert "Unequal strengths can trade off" in summary
+        assert summary.note("sensitivity_assumption").text == NOTE_TEXTS["assumption_evalue"]
+        assert "taken as equal" in NOTE_TEXTS["assumption_evalue"]
+        assert "Unequal strengths can trade off" in NOTE_TEXTS["assumption_evalue"]
+        assert summary.reading.startswith(
+            "An unmeasured confounder would need a risk ratio of 3.41"
+        )
         assert "at least 3.41 with both" not in summary
 
 

@@ -21,7 +21,6 @@ updated fit, which is what makes this the "iterative" TMLE.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
@@ -30,6 +29,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import ConvergenceWarning, MethodConfigurationError
 from ..utils.bounds import expit, logit, shrink_probabilities
 from ._score import (
@@ -709,7 +709,7 @@ def solve_fluctuation(
         else _classify(epsilon, current, detail, alpha, iterations, max_iter, mask)
     )
     if not converged and warn:
-        warnings.warn(
+        _warn(
             f"targeting step did not drive the relative score below {tol:g} after "
             f"{iterations} iteration(s) (relative score = {relative:.3g}): "
             f"{_FAILURE_TEXT[failure] if failure else 'cause not identified'}. "
@@ -890,7 +890,7 @@ def _solve_fluctuation_ruled(
                 f"{iterations} iteration(s) (relative score = {relative_score(score, scale):.3g}): "
                 f"{cause}"
             )
-        warnings.warn(
+        _warn(
             message + ". Inspect res.fluctuations[group].failure and res.diagnostics.support().",
             ConvergenceWarning,
             stacklevel=3,
@@ -1129,7 +1129,7 @@ def _solve_fluctuation_bounded(
                 f"targeting step did not drive the relative score below {tol:g} after "
                 f"{iterations} iteration(s) (relative score = {relative:.3g}): {cause}{bounded}"
             )
-        warnings.warn(
+        _warn(
             message + ". Inspect res.fluctuations[group].failure and res.diagnostics.support().",
             ConvergenceWarning,
             stacklevel=3,
@@ -1377,7 +1377,7 @@ def _solve_linear(
     carried = tuple(moved(fit, own) for fit, own in zip(carry_fits, carry_submodels, strict=True))
     escaped = any(values.min() < 0.0 or values.max() > 1.0 for values in targeted.arms.values())
     if escaped:
-        warnings.warn(
+        _warn(
             "the linear fluctuation produced targeted predictions outside the outcome's "
             "range. fluctuation='logistic' (the default) is bounded by construction and is "
             "preferred unless you specifically need the linear submodel.",

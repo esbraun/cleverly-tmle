@@ -97,6 +97,7 @@ from typing import Any
 import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
+from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
@@ -568,6 +569,31 @@ class MSMRegimenFit:
     @property
     def converged(self) -> bool:
         return all(node.converged for node in self.nodes) and self.alternation.converged
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The working model's link, its cells, and the coefficient of each term.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds what the coefficients summarize.
+
+        Returns
+        -------
+        Summary
+            The summary. The result's ``summary()`` gives each coefficient's interval.
+        """
+        from ._record_summary import msm_fit_summary
+
+        return msm_fit_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._record_summary import msm_fit_repr
+
+        return msm_fit_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)

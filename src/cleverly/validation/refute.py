@@ -87,13 +87,13 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._inference_status import InferenceStatus, supplies_inference
+from .._summary import Detail, Summary, check_detail
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
-from ..utils.text import format_table
 from . import _interpretation
 from ._band_placebo import (
     BAND_SENTENCE,
@@ -425,22 +425,6 @@ class EmpiricalRefitRecord:
     family: str
 
 
-def _format_number(value: float | None) -> str:
-    """Format one optional number for a summary line.
-
-    Parameters
-    ----------
-    value : float or None
-        Number to format.
-
-    Returns
-    -------
-    str
-        Five significant figures, and ``"-"`` for a missing value.
-    """
-    return "-" if value is None else f"{value:.5g}"
-
-
 @dataclass(frozen=True)
 class RefutationTest:
     """The outcome of one refutation test.
@@ -524,6 +508,16 @@ class RefutationTest:
     extras : tuple of tuple
         Further named numbers the test prints beside its statistic, such as the scale ratio
         of the placebo draws.
+    conditions : tuple of str
+        The sentences that say what a reading of this test can and cannot show, which its
+        printed summary keeps beside the numbers.
+    evidence : str
+        What sets this test's pass or fail, or how this fit differs from the fits a study
+        covers, in plain words.
+    withheld : str
+        Why a test that a study covers for this kind of fit gives no pass or fail on this
+        report, as a clause in plain words. Empty when it gives one, or when no study
+        covers it.
     """
 
     name: str
@@ -553,6 +547,9 @@ class RefutationTest:
     statistic_pvalue: float | None = None
     readings: tuple[BandReading, ...] = ()
     extras: tuple[tuple[str, float], ...] = ()
+    conditions: tuple[str, ...] = ()
+    evidence: str = ""
+    withheld: str = ""
 
     @property
     def verdict(self) -> str:
@@ -617,6 +614,11 @@ class RefutationTest:
         indexed = [(item.replicate, item.seed) for item in self.records]
         indexed.extend((item.replicate, item.seed) for item in self.failures)
         return tuple(seed for _, seed in sorted(indexed))
+
+    def __repr__(self) -> str:
+        from ._refute_summary import test_repr
+
+        return test_repr(self)
 
     def to_frame(self, data: Any = None, *, backend: str | None = None) -> Any:
         """Return one row per empirical refit draw.
@@ -786,91 +788,34 @@ class RefutationResult:
             raise ValueError(f"refutation {name!r} has no empirical draw records")
         return test.to_frame(data, backend=self.backend)
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the tests.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints the header, one row per test, the statistics behind each
+            reading and one note per test. ``"full"`` adds what each test was compared
+            with and the repeats of each test.
 
         Returns
         -------
-        str
-            A printable table, one line per refutation test, then the statistic and the
-            interpretation sentence of each test. A descriptive test prints a dash in the
-            ``ok`` column and no verdict.
+        Summary
+            A ``str`` whose value is the printed text. Its ``tables``, ``notes`` and
+            ``reading`` hold the parts as data. A test that gives no pass or fail prints
+            "no pass or fail" in its result column.
         """
+        from ._refute_summary import refutation_summary
 
-        def mark(test: RefutationTest) -> str:
-            return "-" if test.passed is None else ("yes" if test.passed else "NO")
+        return refutation_summary(self, check_detail(detail))
 
-        lines = [
-            f"Refutation tests for {self.estimand!r}",
-            "-" * 34,
-            format_table(
-                ["test", "original", "refuted (mean)", "sd", "expected", "rung", "ok"],
-                [
-                    [
-                        test.name,
-                        f"{test.original:.5g}",
-                        f"{test.mean:.5g}",
-                        f"{test.spread:.4g}" if np.isfinite(test.spread) else "-",
-                        test.expectation,
-                        test.rung,
-                        mark(test),
-                    ]
-                    for test in self.tests
-                ],
-            ),
-        ]
-        for test in self.tests:
-            lines.append("")
-            if test.declaration is not None:
-                if isinstance(test.declaration, BootstrapMeasurementError):
-                    variables = ", ".join(test.declaration.variables)
-                    lines.append(
-                        f"{test.name}: variables={variables}; resampling={test.resampling}; "
-                        f"original={_format_number(test.declared_effect)}; "
-                        f"successful={len(test.records)}; failed={test.n_failed}"
-                    )
-                else:
-                    lines.append(
-                        f"{test.name}: process={test.declaration.name}; family={test.family}; "
-                        f"effect={_format_number(test.declared_effect)}; "
-                        f"successful={len(test.records)}; failed={test.n_failed}"
-                    )
-                lines.append(f"reading: {test.detail}")
-            else:
-                lines.append(f"{test.name}: {test.detail}")
-            if test.statistic is not None:
-                p_text = (
-                    ""
-                    if test.statistic_pvalue is None
-                    else f" (two-sided p = {test.statistic_pvalue:.3g} under its reference)"
-                )
-                lines.append(f"  {test.statistic_name} = {test.statistic:.5g}{p_text}")
-            for reading in test.readings:
-                low, high = reading.band
-                lines.append(
-                    f"  {_READING_LABELS[reading.name]} = {reading.estimate:.4g}, 95% interval "
-                    f"[{reading.lower:.4g}, {reading.upper:.4g}], band [{low:g}, {high:g}]: "
-                    + ("inside" if reading.inside else "outside")
-                )
-            for label, value in test.extras:
-                lines.append(f"  {label} = {value:.4g}")
-            if test.scope_sentence:
-                lines.append(f"  {test.scope_sentence}")
-        verdict = self.passed
-        lines.append("")
-        if verdict is True:
-            lines.append("VERDICT: every refutation test with a verdict passed it.")
-        elif verdict is None:
-            lines.append(
-                "VERDICT: none. At least one test is descriptive, and no test with a verdict "
-                "failed."
-            )
-        else:
-            lines.append("VERDICT: at least one refutation test failed.")
-        return "\n".join(lines)
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+    def __repr__(self) -> str:
+        from ._refute_summary import report_repr
+
+        return report_repr(self)
 
 
 _KNOWN_TESTS = (
@@ -973,11 +918,13 @@ def _validated_tests(
     Raises
     ------
     ValueError
-        If a test name is unknown, ``n_replicates`` is not a positive integer, the
+        If no test is named, a test name is unknown, ``n_replicates`` is not a positive integer, the
         placebo mode or the control kind is unknown, the floor is outside ``(0, 1)``, the
         node is not a positive integer, or a control test has no control.
     """
     requested = tuple(tests)
+    if not requested:
+        raise ValueError(f"name at least one refutation test; choose from {list(_KNOWN_TESTS)}")
     unknown = [name for name in requested if name not in _KNOWN_TESTS]
     if unknown:
         raise ValueError(
@@ -3751,6 +3698,8 @@ def _bootstrap_stability_test(
         rung="L0",
         scope_sentence=_STABILITY_SENTENCE,
         extras=(("shift against the original fit", shift),),
+        conditions=(_STABILITY_SENTENCE,),
+        evidence=_interpretation.PLAIN_NONE,
         mean_kind="geometric" if is_ratio else "arithmetic",
         spread_kind="log" if is_ratio else "reported",
     )
@@ -3760,7 +3709,8 @@ _STABILITY_SENTENCE = (
     "The draws describe how far the estimate moves under resampling of units that keep their "
     "folds. Copy-fold resampling trains on fewer distinct units, so the spread tends to exceed "
     "the standard error. No result covers a refit bootstrap of a cross-fitted estimator, so "
-    "the report states no verdict. The subset test is the calibrated stability check."
+    'the report states no verdict. The random-subsamples test ("subset") is the calibrated '
+    "stability check."
 )
 
 
@@ -3858,6 +3808,8 @@ def _bootstrap_measurement_error_test(
         resampling=design.resampling,
         rung="L0",
         scope_sentence=" ".join(sentences),
+        conditions=tuple(sentences),
+        evidence=_interpretation.PLAIN_NONE,
     )
 
 
@@ -4027,18 +3979,34 @@ def _generated_outcome_test(
     passed: bool | None = None
     rung: Rung = "L0"
     sentences: list[str] = []
+    # The sentences about what licenses a reading, which the plain ``evidence`` restates;
+    # every other sentence is a condition the printed summary keeps.
+    resolved: set[str] = set()
+    evidence = _interpretation.PLAIN_NONE
+    withheld = ""
+    licensed_plain = ""
+    not_read = "No readings were computed, so there is nothing to compare."
     if len(families) > 1:
         detail = f"successful refits reported inconsistent outcome families {sorted(families)}"
+        sentences.append("The refits reported different outcome families, so no reading runs.")
+        evidence = not_read
     elif failures:
         detail = (
             f"{len(failures)} refit(s) failed and failure_policy='fail' keeps every failure; "
             "the equivalence readings need every draw"
         )
+        sentences.append(f"{len(failures):,} refits failed, and the readings need every draw.")
+        evidence = not_read
     elif len(scaled) < _MINIMUM_BAND_DRAWS or float(np.std(scaled, ddof=1)) <= 0.0:
         detail = (
             f"only {len(values)} usable draw(s), or draws that do not vary; the equivalence "
             "intervals are undefined"
         )
+        sentences.append(
+            f"{len(values):,} usable draws, or draws that do not vary, leave the readings "
+            "undefined."
+        )
+        evidence = not_read
     else:
         # A Monte Carlo truth widens the bias and coverage intervals in quadrature.
         truth_variance = (
@@ -4062,9 +4030,13 @@ def _generated_outcome_test(
                 fit,
                 len(values),
             )
+            evidence = resolution.plain or evidence
+            if resolution.licensed:
+                licensed_plain = licensed_plain or resolution.plain
             if resolution.licensed and calibrated:
                 licensed_inside.append(reading.inside)
                 sentences.append(_band_sentence(resolution.sentence, reading.inside))
+                resolved.add(sentences[-1])
         if licensed_inside:
             passed = all(licensed_inside)
             rung = "L2"
@@ -4080,8 +4052,19 @@ def _generated_outcome_test(
                 f"{len(values)} draws are below the calibrated minimum of "
                 f"{bands.minimum_draws}, so the readings state no verdict."
             )
+            resolved.add(sentences[-1])
+            evidence = (
+                f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} its "
+                "simulation study needs, so it gives no pass or fail."
+            )
+            if licensed_plain:
+                withheld = (
+                    f"its {len(values):,} repeats are fewer than the "
+                    f"{bands.minimum_draws:,} its study used"
+                )
         else:
             sentences.append(_interpretation.DESCRIPTIVE_SENTENCE)
+            resolved.add(sentences[-1])
         detail = "; ".join(
             f"{_READING_LABELS[reading.name]} {reading.estimate:.4g} "
             f"[{reading.lower:.4g}, {reading.upper:.4g}] "
@@ -4144,10 +4127,11 @@ def _generated_outcome_test(
             design = f"resampled {units} and {clip}"
         precision = getattr(process, "precision", None)
         law_name = process.name if precision is None else f"{process.name} (phi {precision:g})"
-        sentences.append(
+        law_sentence = (
             f"Generated law: {law_name}, {len(values)} draws on {design}, "
             f"truth {declared_effect:.5g}."
         )
+        sentences.append(law_sentence)
     return RefutationTest(
         name=name,
         estimand=estimand,
@@ -4168,6 +4152,14 @@ def _generated_outcome_test(
         rung=rung,
         scope_sentence=" ".join(dict.fromkeys(sentences)),
         readings=readings,
+        # The generated law prints in the full summary's repeats, in plain words.
+        conditions=tuple(
+            item
+            for item in dict.fromkeys(sentences)
+            if item not in resolved and not item.startswith("Generated law: ")
+        ),
+        evidence=licensed_plain if passed is not None else evidence,
+        withheld=withheld,
     )
 
 
@@ -4211,6 +4203,15 @@ def _plugin_reference_clause(status: InferenceStatus) -> str:
         "; the fit reports no interval, so the reference uses the plug-in spread of its "
         "curve, a diagnostic"
     )
+
+
+def _placebo_conditions(clauses: str) -> tuple[str, ...]:
+    """The conditions a placebo reading carries: the shared sentence, then the clauses its
+    detail appends for this fit's design, as one sentence-ended string."""
+    extra = clauses.lstrip(". ").strip()
+    if not extra:
+        return (_PLACEBO_SENTENCE,)
+    return (_PLACEBO_SENTENCE, extra if extra.endswith(".") else extra + ".")
 
 
 _PLACEBO_SENTENCE = (
@@ -4419,6 +4420,8 @@ def _future_treatment_test(
         standard_errors=(std_error,),
         rung="L0",
         scope_sentence=_FUTURE_TREATMENT_SENTENCE,
+        conditions=(_FUTURE_TREATMENT_SENTENCE,),
+        evidence=_interpretation.PLAIN_NONE,
         statistic=z,
         statistic_name="z",
         statistic_pvalue=pvalue,
@@ -4883,8 +4886,9 @@ def refute(
     Raises
     ------
     ValueError
-        If a test name is unknown, ``n_replicates`` is not a positive integer, or the
-        negative-control test has no outcome. These checks precede every refusal and refit.
+        If no test is named, a test name is unknown, ``n_replicates`` is not a positive
+        integer, or the negative-control test has no outcome. These checks precede every
+        refusal and refit.
     CapabilityError
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
@@ -5063,6 +5067,8 @@ def refute(
                         detail=gap,
                         rung="L0",
                         scope_sentence=_PLACEBO_SENTENCE,
+                        conditions=(_PLACEBO_SENTENCE, gap[0].upper() + gap[1:] + "."),
+                        evidence="No refit ran, so there is nothing to compare.",
                     )
                 )
                 continue
@@ -5098,6 +5104,14 @@ def refute(
             passed: bool | None = None
             if reading is not None and resolution.licensed:
                 passed = not reading.rejects
+            placebo_withheld = ""
+            if computed:
+                placebo_withheld = (
+                    "its expected value is computed from the fitted outcome model rather than "
+                    "exact, so the t reference does not hold"
+                )
+            elif reading is None:
+                placebo_withheld = "one shuffled copy has no spread"
             mean = float(np.exp(np.mean(np.log(values)))) if is_ratio else float(np.mean(values))
             if computed and np.isnan(placebo_null):
                 detail = (
@@ -5126,6 +5140,7 @@ def refute(
                     f"{placebo_null:g}; the t statistic of the {replicate_count} draws is "
                     f"{reading.t:+.4g} on {reading.df} degrees of freedom"
                 )
+            plain_length = len(detail)
             if learned:
                 detail += (
                     f". The reference is the outcome mean {placebo_null:.5g}, the value of "
@@ -5173,6 +5188,9 @@ def refute(
                     mean_kind=mean_kind,
                     rung=resolution.rung,
                     scope_sentence=f"{_PLACEBO_SENTENCE} {resolution.sentence}",
+                    conditions=_placebo_conditions(detail[plain_length:]),
+                    evidence=resolution.plain,
+                    withheld=placebo_withheld if resolution.licensed else "",
                     statistic=None if reading is None else reading.t,
                     statistic_name="t",
                     statistic_pvalue=None if reading is None else reading.pvalue,
@@ -5241,6 +5259,8 @@ def refute(
                     mean_kind=mean_kind,
                     rung="L0",
                     scope_sentence=_NOISE_SENTENCE,
+                    conditions=(_NOISE_SENTENCE,),
+                    evidence=_interpretation.PLAIN_NONE,
                     statistic=shift,
                     statistic_name=f"paired shift in {unit}",
                     extras=tuple(extras),
@@ -5305,6 +5325,15 @@ def refute(
                     spread_kind="log" if is_ratio else "reported",
                     rung=resolution.rung,
                     scope_sentence=f"{_SUBSET_SENTENCE} {resolution.sentence}",
+                    conditions=(_SUBSET_SENTENCE,),
+                    evidence=resolution.plain,
+                    withheld=(
+                        ""
+                        if passed is not None or not resolution.licensed
+                        else "fewer than two subsamples have no spread"
+                        if reading_s is None
+                        else "the spread ratio is undefined"
+                    ),
                     statistic=None if reading_s is None else reading_s.rho,
                     statistic_name="scatter ratio rho",
                     statistic_pvalue=None if reading_s is None else reading_s.pvalue,
@@ -5377,6 +5406,11 @@ def refute(
                         + (f"{_PRE_TREATMENT_SENTENCE} " if pre_treatment else "")
                         + resolution.sentence
                     ),
+                    conditions=(
+                        _NEGATIVE_CONTROL_SENTENCE,
+                        *((_PRE_TREATMENT_SENTENCE,) if pre_treatment else ()),
+                    ),
+                    evidence=resolution.plain,
                     statistic=z,
                     statistic_name="z",
                     statistic_pvalue=pvalue,

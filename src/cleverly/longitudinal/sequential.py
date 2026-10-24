@@ -120,7 +120,6 @@ it is supposed to apply.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
@@ -130,6 +129,7 @@ import numpy as np
 
 from .._refusal import Refusal
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions, fit_mixed_density
@@ -3244,7 +3244,7 @@ def _fluctuate_node_bounded(
             l=bound.reported[0],
             u=bound.reported[1],
         )
-        warnings.warn(text, ConvergenceWarning, stacklevel=2)
+        _warn(text, ConvergenceWarning, stacklevel=2)
         return Fluctuation(
             epsilon=np.zeros(1),
             targeted=InitialFit(initial, initial_arms),

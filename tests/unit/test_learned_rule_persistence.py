@@ -56,8 +56,9 @@ def test_the_blip_quantiles_are_those_of_each_complement_fit(result: Any) -> Non
 
 def test_the_summary_states_the_data_adaptive_target(result: Any) -> None:
     line = result.extra["learned_rule"].describe()
-    assert line in result.summary()
-    assert "data-adaptive" in line and "average over 5 training-fold rules" in line
+    assert line in result.summary(detail="full").section("Method details").lines
+    assert "The target depends on the data" in line
+    assert "average value of the 5 rules learned on the training folds" in line
 
 
 @pytest.mark.parametrize("route", ["save", "dumps"])

@@ -1095,8 +1095,10 @@ def test_save_and_load_round_trip(tmp_path: Any) -> None:
 
 def test_the_summary_names_the_estimator() -> None:
     frame, columns = _small()
-    assert "sequential g-computation" in _random_fit("gcomp", frame, columns, {}).summary()
-    assert "Horvitz-Thompson" in _random_fit("horvitz_thompson", frame, columns, {}).summary()
+    gcomp = dict(_random_fit("gcomp", frame, columns, {}).summary().header)
+    assert gcomp["Method"] == "sequential g-computation"
+    weighted = dict(_random_fit("horvitz_thompson", frame, columns, {}).summary().header)
+    assert "Horvitz-Thompson" in weighted["Method"]
 
 
 def test_the_fit_reads_its_scale_from_a_declared_container() -> None:

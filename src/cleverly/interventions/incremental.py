@@ -110,9 +110,10 @@ from typing import Any, cast
 import numpy as np
 
 from .._refusal import Refusal, RefusalReason
+from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
-from ..data.weighting import effective_sample_size, format_score_load
+from ..data.weighting import effective_sample_size
 from ..exceptions import DataError
 from .support import _intervention_loads, _InterventionLoadRow
 
@@ -725,22 +726,30 @@ class IncrementalSupport:
     score_load: _InterventionLoadRow | None = field(default=None, hash=False)
     score_load_omission: str | None = None
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """This tilt's overlap: the bound on its weights and what the data gave.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default="short"
+            ``"full"`` adds how to read the bound.
 
         Returns
         -------
-        str
-            A printable table, one line per row of the report.
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
         """
-        low, high = self.guaranteed
-        score = format_score_load(self.score_load, style="inline")
-        return (
-            f"{self.name}: min g={self.min_propensity:.3g}, "
-            f"covariate in [{low:.3g}, {high:.3g}] by construction, "
-            f"max={self.max_ratio:.3g}, "
-            f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), {score}"
-        )
+        from ._support_summary import tilt_support_summary
+
+        return tilt_support_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._support_summary import tilt_support_repr
+
+        return tilt_support_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def check_incremental_support(

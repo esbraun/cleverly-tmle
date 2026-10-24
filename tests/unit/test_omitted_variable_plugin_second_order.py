@@ -820,7 +820,8 @@ class TestThePackageReadsTheStack:
             result, "ate", nu2_estimator="plugin", cf_y=0.3, cf_d=0.3
         )
         assert bound.limit_refusal is not None and bound.limit_refusal.roadmap == "F26"
-        assert "plug-in nu^2, uncorrected" in bound.summary()
+        settings = bound.summary(detail="full").section("Settings").lines
+        assert "Estimate of nu^2: plug-in, uncorrected." in settings
         assert bound.to_dict()["nu2_correction"] is None
 
     def test_the_doubly_robust_bound_carries_no_correction(self) -> None:

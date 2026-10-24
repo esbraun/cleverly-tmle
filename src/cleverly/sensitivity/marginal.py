@@ -103,6 +103,7 @@ from ..inference.delta import reference_quantile
 from ..utils.frames import emit_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
     from ..estimators.base import TMLEResult
     from ..validation._interpretation import Resolution
 
@@ -142,7 +143,7 @@ _BOUNDED_METHODS = frozenset({"tmle", "drtmle", "collaborative_tmle"})
 _SELECTION_STATUSES = frozenset({"working_mechanism_plugin", "generated_design_plugin"})
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class MarginalSensitivityRow:
     """The bounds at one value of the sensitivity parameter.
 
@@ -175,8 +176,20 @@ class MarginalSensitivityRow:
     lower_limit: float
     upper_limit: float
 
+    def __repr__(self) -> str:
+        from .._summary import short_repr
 
-@dataclass(frozen=True)
+        return short_repr(
+            "MarginalSensitivityRow",
+            [
+                ("gamma", f"{self.gamma:g}"),
+                ("", self.estimand),
+                ("", f"range [{self.lower:.4g}, {self.upper:.4g}]"),
+            ],
+        )
+
+
+@dataclass(frozen=True, repr=False)
 class MarginalSensitivityBounds:
     """Marginal sensitivity model bounds over a grid of :math:`\\Gamma`.
 
@@ -263,29 +276,31 @@ class MarginalSensitivityBounds:
         payload = {name: [getattr(row, name) for row in self.rows] for name in names}
         return emit_frame(payload, backend=self.backend)
 
-    def summary(self) -> str:
-        """Return a text report of the bounds and how to read them.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the assumptions and the settings.
 
         Returns
         -------
-        str
-            The grid, the breakdown values, and the limit reading.
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
         """
-        lines = [
-            f"Marginal sensitivity model bounds for {self.estimand} "
-            f"({self.outcome_kind} outcome, {self.level:.0%} set interval)",
-        ]
-        for row in self.rows:
-            lines.append(
-                f"  gamma={row.gamma:g}: bounds [{row.lower:.4g}, {row.upper:.4g}], "
-                f"interval [{row.lower_limit:.4g}, {row.upper_limit:.4g}]"
-            )
-        if self.null is not None:
-            lines.append(f"  breakdown gamma (bounds): {self.breakdown}")
-            lines.append(f"  breakdown gamma (interval): {self.limit_breakdown}")
-        if self.limit_reading is not None:
-            lines.append(f"  confidence limit: {self.limit_reading.sentence}")
-        return "\n".join(lines)
+        from ._summaries import marginal_summary
+
+        return marginal_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summaries import marginal_repr
+
+        return marginal_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 # ---------------------------------------------------------------------------------------

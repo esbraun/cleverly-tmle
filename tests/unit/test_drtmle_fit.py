@@ -24,6 +24,7 @@ import pytest
 from scipy.special import expit
 
 from cleverly import AssessmentStatus, CapabilityError
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.datasets import DGP, nonlinear_dgp, nonlinear_logit
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -242,10 +243,15 @@ class TestWhatItReports:
         plain = ordinary.diagnostics.score_equations()
 
         assert corrected.corrected and not plain.corrected
-        assert "efficient" not in corrected.summary().lower().split("validity is not")[0]
-        assert "Validity is not efficiency" in corrected.summary()
-        assert "With one wrong nuisance the interval holds only in the cases" in corrected.summary()
-        assert "solved the estimated efficient score equation" in plain.summary()
+        summary = corrected.summary()
+        assert "efficient" not in summary.lower()
+        assert summary.note("dr_curve").text == vocabulary.NOTE_TEXTS["dr_curve"]
+        assert "holds only in the cases cleverly.estimators.drtmle lists" in (
+            summary.note("dr_curve").text
+        )
+        # The pair: a plain fit's check has no such note and the same passing reading.
+        assert "dr_curve" not in plain.summary().note_codes
+        assert plain.summary().reading == summary.reading
 
     def test_the_alternation_terminated_on_its_own(self, fit) -> None:
         """On *this* process, and the qualification is the point.
@@ -414,7 +420,10 @@ class TestAnEmptyGuardIsAPlainTMLE:
         # reduction records, so this fit gets a plain fit's verdict word for word.
         check = bare.diagnostics.score_equations()
         assert not check.corrected
-        assert "solved the estimated efficient score equation" in check.summary()
+        assert "dr_curve" not in check.summary().note_codes
+        assert check.summary().reading == vocabulary.EQUATION_READINGS["passed"].format(
+            spread="standard error"
+        )
 
 
 class TestTheCurveReadsWhatTheAlternationLeft:
@@ -762,8 +771,24 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         """Derived from the rows, so it cannot go on claiming a term the curve dropped."""
         summary = single_guard.diagnostics.score_equations().summary()
 
-        assert "D = D* - D*_Q." in summary
-        assert "D*_g" not in summary.split("Validity is not efficiency")[1]
+        held = summary.note("held_to_nothing").text
+        assert "treatment correction, arm 0" in held and "outcome correction" not in held
+        checks = dict(
+            zip(
+                summary.tables[1].column("correction"),
+                summary.tables[1].column("check"),
+                strict=True,
+            )
+        )
+        assert {cell.value: kind.text for cell, kind in checks.items()} == {
+            "mean (D*_g)[0]": "described",
+            "mean (D*_Q)[0]": "size",
+            "mean (D*_Q)[0] identity": "identity",
+            "mean (D*_g)[1]": "described",
+            "mean (D*_Q)[1]": "size",
+            "mean (D*_Q)[1] identity": "identity",
+        }
+        assert "D*_" not in summary
 
     def test_it_survives_a_round_trip(self, single_guard, tmp_path) -> None:
         """``guard`` is already on the serialised record, so no format bump was needed.
@@ -1366,6 +1391,9 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         assert "state identity" not in summary
         assert "iterating longer will not fix" not in summary
         assert "do not describe this estimate" not in summary
+        check = repeated.diagnostics.score_equations().summary()
+        assert "identity_failure" not in check.note_codes
+        assert check.facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS["passed"]
 
     def test_the_curve_is_still_the_arms_own(self, repeated) -> None:
         r"""Which arm contributes what, and on one outcome scale.
@@ -1518,8 +1546,13 @@ class TestTheContractSaysWhichEstimator:
         summary = check.summary()
         frame = check.to_frame()
 
-        assert "contract: bound-active" in summary
-        assert "outside Theorem 1" in summary
+        assert summary.note("cap_active").text == vocabulary.NOTE_TEXTS["cap_active"].format(
+            which="the initial treatment model, the treatment model at the end and the "
+            "reduced regression"
+        )
+        assert not {"theorem_in_sample", "theorem_cross_fitted"} & set(summary.note_codes)
+        # Not a failure: the result reads the checks, not the cap.
+        assert summary.facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS["passed"]
         assert {"initial_clipped", "gr1_margin"} <= set(frame.columns)
 
     def test_a_cross_fitted_theorem_fit_is_not_called_the_theorems_estimator(self, fit) -> None:
@@ -1534,9 +1567,12 @@ class TestTheContractSaysWhichEstimator:
         summary = check.summary()
 
         assert check.contract == "theorem"
-        assert "this fit is Theorem 1's estimator" not in summary
-        assert "uses Theorem 1's construction" in summary
-        assert "Theorem 1 does not cover cross-fitting" in summary
+        assert "theorem_in_sample" not in summary.note_codes
+        assert (
+            summary.note("theorem_cross_fitted").text
+            == (vocabulary.NOTE_TEXTS["theorem_cross_fitted"])
+        )
+        assert summary.facts[vocabulary.PREDICTIONS] == "cross-fitted"
 
     def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
         """No corrections, no mechanism tilt, nothing for the label to be about."""

@@ -233,6 +233,13 @@ class StudyRecord:
     #: A study may use an exact bound only to size a negative control without claiming that
     #: its deliberately misspecified estimator attains the bound.
     calibration_efficiency_ratio: bool = True
+    #: Bias families whose rows each answer to their own standardized-bias interval.
+    #:
+    #: A positive passes when its interval lies inside the margin and a control when it lies
+    #: wholly outside, each on an independent stream at its own n.  No displacement is computed
+    #: between the two arms, so :func:`tests.studies.evidence.claims.thresholds` publishes no
+    #: displacement threshold for these families and the pair test reads no displacement column.
+    bias_row_families: frozenset[str] = frozenset()
     #: Measured-table quantity -> the decimal places that quantity's claim needs.
     #:
     #: :func:`tests.studies.evidence.document.render` chooses a precision from the value
@@ -292,6 +299,11 @@ class StudyRecord:
     failure_bound: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        undeclared = self.bias_row_families - set(self.property_cells)
+        if undeclared:
+            raise ValueError(
+                f"bias_row_families names families the record does not declare: {sorted(undeclared)}"
+            )
         if self.publication_policy not in ("gated", "reporting"):
             raise ValueError(
                 "publication_policy must be 'gated' or 'reporting'; "
@@ -553,6 +565,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_learned_weighted_tmle import (
         STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
     )
+    from tests.studies.canonical_long_horizon_categorical_ltmle import (
+        STUDY as LONG_HORIZON_CATEGORICAL_LTMLE,
+    )
+    from tests.studies.canonical_long_horizon_ltmle import STUDY as LONG_HORIZON_LTMLE
+    from tests.studies.canonical_long_horizon_sdr import STUDY as LONG_HORIZON_SDR
     from tests.studies.canonical_longitudinal_incremental import STUDY as LONGITUDINAL_IPSI
     from tests.studies.canonical_longitudinal_incremental_dropout import (
         STUDY as LONGITUDINAL_IPSI_DROPOUT,
@@ -731,6 +748,9 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_REPEATED,
         CANONICAL_IPSI_REPEATED,
         CANONICAL_SDR_REPEATED,
+        LONG_HORIZON_LTMLE,
+        LONG_HORIZON_CATEGORICAL_LTMLE,
+        LONG_HORIZON_SDR,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

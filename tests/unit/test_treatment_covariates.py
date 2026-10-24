@@ -24,6 +24,7 @@ import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
 from cleverly import ATE, CausalStudy, CounterfactualMean, PointTreatment
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.data.treatment_covariates import (
     RESTRICTION_TEMPLATE,
@@ -46,7 +47,7 @@ PINNED = (
     "observed-data model and does not change the estimand. The fit is consistent when the "
     "treatment mechanism fitted on {Wg} is consistent, which needs the restriction, or when "
     "the outcome regression is consistent. The interval needs the restriction and both "
-    "nuisances consistent at the usual product rate. When the restriction fails, the "
+    "fitted models consistent at the usual product rate. When the restriction fails, the "
     "remainder is first order in the outcome-regression error. To exclude instruments, omit "
     "them from adjustment= instead: the outcome regression and the treatment mechanism then "
     "both use {Wg}."
@@ -65,6 +66,13 @@ R_H6 = "treatment_adjustment repeats {cols}"
 
 #: A covariate's id is its column mean over 1000, so a spy learner reads which columns it got.
 OFFSET = 1000.0
+
+
+def restrictions(result: Any) -> list[str]:
+    """The model restrictions a full summary lists under its assumptions."""
+    lead = "- model restriction: "
+    lines = result.summary(detail="full").section("Assumptions").lines
+    return [line[len(lead) :] for line in lines if line.startswith(lead)]
 
 
 def make_frame(n: int = 240, seed: int = 3) -> pd.DataFrame:
@@ -598,12 +606,11 @@ def study(**design: Any) -> CausalStudy:
 def test_a_restricted_design_records_the_text_and_prints_it_after_the_assumptions() -> None:
     effect = study(treatment_adjustment=("c2", "c3")).identify(ATE())
     assert effect.identification.model_restrictions == (pinned("{c2, c3}"),)
-    lines = effect.summary().splitlines()
-    start = lines.index("model restrictions:")
-    assert lines[start + 1] == "  - " + pinned("{c2, c3}")
-    assert lines.index("assumptions:") < start
-    facts = effect.summary_lines()
-    assert "model restrictions: " + pinned("{c2, c3}") in facts
+    summary = effect.summary(detail="full")
+    assert "model_restriction" in summary.note_codes
+    lines = summary.section(vocabulary.SECTION_ASSUMPTIONS).lines
+    assert lines[-1] == "- model restriction: " + pinned("{c2, c3}")
+    assert all(f"- {item}" in lines[:-1] for item in effect.identification.assumptions)
 
 
 def test_an_unrestricted_design_prints_no_restriction() -> None:
@@ -645,11 +652,7 @@ def test_a_fitted_result_prints_the_restriction_of_its_design() -> None:
             random_state=0,
         )
     )
-    summary = result.summary().splitlines()
-    kinds = [line.split(":")[0] for line in summary]
-    assert summary[kinds.index("model restrictions")] == "model restrictions: " + pinned("{c2, c3}")
-    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
-    assert sum(line.startswith("model restrictions") for line in summary) == 1
+    assert restrictions(result) == [pinned("{c2, c3}")]
 
 
 def test_a_low_level_fit_prints_the_same_text_from_its_data() -> None:
@@ -660,10 +663,9 @@ def test_a_low_level_fit_prints_the_same_text_from_its_data() -> None:
         covariates=COVARIATES,
         treatment_covariates=WG,
     )
-    summary = result.single().summary().splitlines()
-    assert "model restrictions: " + pinned("{c2, c3}") in summary
+    assert restrictions(result.single()) == [pinned("{c2, c3}")]
     plain = spied().fit(make_frame(), outcome="Y", treatment="A", covariates=COVARIATES)
-    assert "restriction" not in plain.single().summary()
+    assert "restriction" not in plain.single().summary(detail="full")
 
 
 def test_a_study_fit_reads_wg_through_the_design() -> None:

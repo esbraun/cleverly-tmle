@@ -2408,6 +2408,161 @@ def _adaptive_iptw_cases() -> tuple[RowCase, ...]:
     )
 
 
+#: The sample a long-horizon case draws. The key reads the structure of a fit, not a value, and
+#: 4,000 units pass the fit's preflight for every plan of every scenario.
+LONG_HORIZON_CASE_N = 4_000
+
+#: Each long-horizon row to the primary scenarios whose fits it covers, as (study, scenario).
+#: ``tests/unit/test_long_horizon_support.py`` requires every scenario of the three studies in
+#: exactly one row.
+LONG_HORIZON_MEMBERS: dict[str, tuple[tuple[str, str], ...]] = {
+    "G46.tmle.binary_k3": (("S1", "binary_k3"),),
+    "G46.tmle.binary_k4": (("S1", "binary_k4"),),
+    "G46.tmle.binary_k5": (("S1", "binary_k5"),),
+    "G46.tmle.binary_k5_msm": (("S1", "binary_k5_msm"),),
+    "G46.tmle.categorical_k3": (("S2", "categorical_k3"),),
+    "G46.tmle.categorical_k4": tuple(
+        ("S2", name) for name in ("categorical_k4", "categorical_k4_high", "categorical_k4_static")
+    ),
+    "G46.tmle.categorical_k5": tuple(
+        ("S2", name)
+        for name in (
+            "categorical_k5",
+            "categorical_k5_mix",
+            "categorical_k5_static",
+            "categorical_k5_switch",
+            "categorical_k5_high",
+        )
+    ),
+    "G46.tmle.categorical_k5_crossfit": (("S2", "categorical_k5_crossfit"),),
+    "G46.sdr.sdr_binary_k3": (("S3", "sdr_binary_k3"),),
+    "G46.sdr.sdr_binary_k4": (("S3", "sdr_binary_k4"),),
+    "G46.sdr.sdr_binary_k5": (("S3", "sdr_binary_k5"),),
+    "G46.sdr.sdr_categorical_k5": tuple(
+        ("S3", name)
+        for name in (
+            "sdr_categorical_k5",
+            "sdr_categorical_k5_mix",
+            "sdr_categorical_k5_static",
+            "sdr_categorical_k5_switch",
+            "sdr_categorical_k5_high",
+            "sdr_policy_k5",
+            "sdr_policy_k5_mix",
+            "sdr_policy_k5_taper",
+        )
+    ),
+    "G46.sdr.sdr_categorical_k5_crossfit": (("S3", "sdr_categorical_k5_crossfit"),),
+    "G46.sdr.sdr_categorical_k3": (),
+    "G46.sdr.sdr_categorical_k4": (),
+    "G46.tmle.categorical_k5_learned": (),
+    "G46.sdr.sdr_categorical_k5_learned": (),
+}
+
+_LONG_HORIZON_SLUG = {
+    "S1": "long-horizon-ltmle",
+    "S2": "long-horizon-categorical-ltmle",
+    "S3": "long-horizon-sdr",
+}
+
+#: The rows that no primary scenario covers, each with the property cell its case stands on.
+_LONG_HORIZON_CELL_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("G46.tmle.categorical_k5_learned", "S2", "third_arm__k5__binary_complement"),
+    (
+        "G46.sdr.sdr_categorical_k3",
+        "S3",
+        "categorical_respond_vs_ref__k3__known_mechanism",
+    ),
+    (
+        "G46.sdr.sdr_categorical_k4",
+        "S3",
+        "categorical_respond_vs_ref__k4__known_mechanism",
+    ),
+    ("G46.sdr.sdr_categorical_k4", "S3", "respond_vs_ref__k4__n_4000"),
+    ("G46.sdr.sdr_categorical_k5_learned", "S3", "third_arm__k5__binary_complement"),
+)
+
+#: The rows whose study gates a band, with the study that fits it.
+_LONG_HORIZON_BAND_ROWS = (("G46.tmle.binary_k5", "S1"), ("G46.tmle.categorical_k5", "S2"))
+
+
+def _long_horizon_primary_case(row: str, study: str, name: str) -> RowCase:
+    """The study's own primary fit of one scenario, run up to the classifier."""
+
+    def build() -> Observed:
+        from tests import discrete_law_longitudinal_horizon as law_
+        from tests import long_horizon_design as design
+        from tests.studies import long_horizon_primary as primary
+
+        module = design.STUDIES[study]
+        scenario = next(s for s in module.SCENARIOS if s.name == name)
+        frame = law_.draw(scenario.K, scenario.m, LONG_HORIZON_CASE_N, 0, scenario.law)
+        return capture(lambda: primary.fit(frame, scenario, module.ESTIMATOR))
+
+    return RowCase(
+        row, _LONG_HORIZON_SLUG[study], name, "tests/studies/long_horizon_primary.py:177", build
+    )
+
+
+def _long_horizon_band_case(row: str, study: str) -> RowCase:
+    """The study's own band fit, with the simultaneous band on, up to the classifier."""
+
+    def build() -> Observed:
+        from tests import discrete_law_longitudinal_horizon as law_
+        from tests import long_horizon_design as design
+        from tests.studies import long_horizon_properties as properties
+
+        config, plans, _ = design.band_config(study)
+        boot = study in design.BOOT_BAND_STUDIES
+        arm = properties.Arm(
+            "k5", "positive", config, read="boot_band" if boot else "band", plans=plans
+        )
+        extra = {"n_bootstrap": design.B_GATE} if boot else {}
+        drawn = law_.draw(config.K, config.m, LONG_HORIZON_CASE_N, 0, config.law)
+        return capture(
+            lambda: properties._call(arm, drawn, plans, simultaneous=True, reference=None, **extra)
+        )
+
+    return RowCase(
+        row,
+        _LONG_HORIZON_SLUG[study],
+        "k5__simultaneous_band",
+        "tests/studies/long_horizon_properties.py:603",
+        build,
+    )
+
+
+def _long_horizon_cell_case(row: str, study: str, cell: str) -> RowCase:
+    """The study's own property fit of one cell, run up to the classifier."""
+
+    def build() -> Observed:
+        from tests import discrete_law_longitudinal_horizon as law_
+        from tests.studies import long_horizon_properties as properties
+
+        arm = next(
+            arm
+            for fit_set in properties.fit_sets(study)
+            for arm in fit_set.arms
+            if arm.cell == cell and not arm.joint
+        )
+        config = arm.config
+        drawn = law_.draw(config.K, config.m, LONG_HORIZON_CASE_N, 0, config.law)
+        return capture(lambda: config.fit_sample(drawn))
+
+    return RowCase(row, _LONG_HORIZON_SLUG[study], cell, "tests/long_horizon_design.py:787", build)
+
+
+def _long_horizon_cases() -> tuple[RowCase, ...]:
+    """The cases of the three long-horizon studies (X39): one for each member scenario."""
+    cases = [
+        _long_horizon_primary_case(row, study, name)
+        for row, members in LONG_HORIZON_MEMBERS.items()
+        for study, name in members
+    ]
+    cases += [_long_horizon_band_case(row, study) for row, study in _LONG_HORIZON_BAND_ROWS]
+    cases += [_long_horizon_cell_case(*item) for item in _LONG_HORIZON_CELL_ROWS]
+    return tuple(cases)
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -2420,4 +2575,5 @@ CASES: tuple[RowCase, ...] = (
     *_categorical_incremental_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
+    *_long_horizon_cases(),
 )

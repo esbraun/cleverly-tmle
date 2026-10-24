@@ -275,11 +275,12 @@ def check(namespace: dict[str, Any]) -> None:
     _assert_committed_numbers()
     # The full summary prints the protocol's fields; the short default leaves them out.
     assert "Discharge-home order" not in namespace["effect"].summary()
-    summary = namespace["effect"].summary(detail="full")
+    # A full summary wraps its lines, so each check reads the words in order.
+    summary = " ".join(str(namespace["effect"].summary(detail="full")).split())
     assert "Discharge-home order" in summary
     assert "scores death before day 30 as the worst transition score" in summary
     assert "Analyze the offer regardless of completed contacts" in summary
-    assert "stacked CV-TMLE" in namespace["result"].summary()
+    assert dict(namespace["result"].summary().header)["Out-of-fold predictions"] != "no"
     assert list(namespace["frame"].columns[:2]) == ["transition_score", "transition_navigation"]
 
     # Step 2: "all four covariates enter g" and "enter Q".  Moving one covariate at a time
@@ -462,7 +463,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert bounds.confounding_strength < at_rv.confounding_strength
     # "Both limits exclude zero on this draw".
     assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
-    assert "the sign of the effect survives" in bounds.summary()
+    assert dict(bounds.summary().header)["Conclusion"] == "range excludes 0"
     # "the bias bound would be about 5% larger" with the law's nu^2: the bias scale is
     # proportional to sqrt(nu^2).
     assert 1.03 < np.sqrt(moments["nu2"] / elements.nu2) < 1.07

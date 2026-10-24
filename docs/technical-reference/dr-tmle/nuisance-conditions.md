@@ -51,9 +51,10 @@ Practical consequences:
   the routing.
 
   Theory asks for a flexible `Q_r` learner when only the mechanism is consistent. The same
-  learner on `g_{r,2}` fits noise when `Q̄_n` is near constant. The
-  [fold-wise study's red spline cell](../method-evidence/dr-tmle-foldwise.md#the-red-spline-cell)
-  fitted one spline on both, and its paired diagnosis puts the bias in `g_{r,2}`.
+  learner on `g_{r,2}` fits noise when `Q̄_n` is near constant. A
+  [fold-wise study cell](../method-evidence/dr-tmle-foldwise.md#the-spline-cell-and-the-red-cell-it-replaced)
+  that fitted one spline on both was red, and its paired diagnosis put the bias in `g_{r,2}`.
+  Its replacement fits the spline on `Q_r` only and passes.
 
   `Q_r` and `g_{r,2}` have signed targets, so a classifier cannot fit them. `DRTMLE` refuses a
   classifier in either regression slot before it fits a learner. A `None` slot takes

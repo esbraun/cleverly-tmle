@@ -29,6 +29,7 @@ from cleverly import variable_importance
 from cleverly._inference_status import (
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
+    T_REFERENCE_STRATUM,
 )
 from cleverly.datasets import (
     make_binary_outcome,
@@ -529,10 +530,15 @@ class TestTheSummaryNamesEachCount:
     def test_a_small_stratum_inside_a_large_fit(self) -> None:
         """44 clusters, 12 in one stratum: the note names both counts."""
         result = fit_strata(stratified(44, small=12))
-        text = result.summary()
-        assert T_REFERENCE_NOTE.format(clusters=44, fewest=12) in text
-        assert NO_T_REFERENCE_BANDS in text
-        assert "the fit reads 44 clusters with positive weight mass, fewer than" not in text
+        summary = result.summary(detail="full")
+        settings = summary.section("Settings").lines
+        note = T_REFERENCE_NOTE.format(clusters=44, stratum=T_REFERENCE_STRATUM.format(fewest=12))
+        assert note in settings
+        assert ("Clusters", "44") in summary.header
+        assert ("Fewest in a stratum", "12 clusters") in summary.header
+        # The fit asks for no bands, so the full summary does not explain their absence.
+        assert result.simultaneous is None
+        assert NO_T_REFERENCE_BANDS not in settings
 
 
 class TestTheLongitudinalDerivedEstimates:
@@ -565,7 +571,7 @@ class TestBandsRefuseTheTReference:
     def test_the_default_band_is_skipped_and_named(self) -> None:
         result = _binary(12, estimands=("ey0", "ey1", "ate"), simultaneous=True)
         assert result.simultaneous is None
-        assert NO_T_REFERENCE_BANDS in result.summary()
+        assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
 
     def test_an_explicit_band_raises(self, twelve: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
@@ -575,33 +581,40 @@ class TestBandsRefuseTheTReference:
     def test_forty_clusters_keep_the_default_band(self) -> None:
         result = _binary(40, estimands=("ey0", "ey1", "ate"), simultaneous=True)
         assert result.simultaneous is not None
-        assert NO_T_REFERENCE_BANDS not in result.summary()
+        assert NO_T_REFERENCE_BANDS not in result.summary(detail="full").section("Settings").lines
+
+
+def bootstrap_interval_column(summary: Any) -> str:
+    """The label of the bootstrap table's interval column."""
+    (table,) = [table for table in summary.tables if (table.title or "").startswith("Bootstrap")]
+    return table.columns[-1]
 
 
 class TestTheBootstrapIsADiagnosticBelowTen:
     def test_five_clusters_print_a_percentile_range(self) -> None:
         result = _binary(5, estimands=("ate",), n_bootstrap=20)
-        text = result.summary()
-        assert "percentile range" in text
-        assert "percentile CI" not in text
+        assert bootstrap_interval_column(result.summary()).startswith("percentile range")
         row = result["ate"].to_dict()
         assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= set(row)
         assert "bootstrap_ci_lower" not in row
 
     def test_twelve_clusters_keep_the_percentile_interval_as_experimental(self) -> None:
         result = _binary(12, estimands=("ate",), n_bootstrap=20)
-        text = result.summary()
-        assert "percentile CI" in text
-        assert "percentile range" not in text
+        summary = result.summary()
+        assert bootstrap_interval_column(summary) == "percentile 95% CI"
         assert result["ate"].bootstrap.diagnostic is False
         assert "bootstrap_ci_lower" in result["ate"].to_dict()
         # The t note and the df column appear with the table.
-        assert T_REFERENCE_NOTE.format(clusters=12, fewest=12) in text
-        assert "p_value  df" in text
+        assert "t_reference" in summary.note_codes
+        assert summary.table("estimates").column("df")[0].value == 10
+        assert (
+            T_REFERENCE_NOTE.format(clusters=12, stratum="")
+            in result.summary(detail="full").section("Settings").lines
+        )
 
     def test_forty_clusters_keep_the_percentile_interval(self) -> None:
         result = _binary(40, estimands=("ate",), n_bootstrap=20)
-        assert "percentile CI" in result.summary()
+        assert bootstrap_interval_column(result.summary()) == "percentile 95% CI"
         assert "bootstrap_ci_lower" in result["ate"].to_dict()
 
     def test_a_rule_that_ignores_the_few_cluster_status_fails(

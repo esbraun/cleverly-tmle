@@ -220,8 +220,8 @@ class LongitudinalDiagnostics:
 
     **When any treatment node is categorical the column is** ``assigned_shares``
     **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
-    presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same question
-    about a point treatment.  A single share cannot answer it at three arms: "the fraction
+    presentation a point-treatment summary's "Arm shares" fact uses for the same
+    question.  A single share cannot answer it at three arms: "the fraction
     assigned arm 1" is the fraction assigned whichever label happens to sort second, which
     is not a quantity anybody asked for, and a static plan on a third arm would report ``0``
     exactly as a plan on the first arm does.  A wholly two-level panel keeps

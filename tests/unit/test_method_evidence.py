@@ -1245,7 +1245,9 @@ class TestPublishedVerdicts:
         joint = published.loc[published["property"] == "simultaneous_coverage"]
         for row in joint.itertuples():
             expected = (
-                row.coverage_ci_upper < 1.0 - study.margins.alpha
+                True
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE
+                else row.coverage_ci_upper < 1.0 - study.margins.alpha
                 if row.role == "control"
                 else study.margins.calibration_coverage[0]
                 <= row.coverage_ci_lower
@@ -1326,6 +1328,7 @@ class TestPublishedVerdicts:
 
         targeting = published.loc[
             published["property"].isin({"targeting_necessity", "stratum_targeting_necessity"})
+            & ~published["property"].isin(list(study.bias_row_families))
         ]
         if not targeting.empty:
             # The displacement is a statement about the *pair* -- how far the fluctuation moved
@@ -1614,6 +1617,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         # X33's bound necessity: valid bounds keep the bias inside the margin, and bounds that
         # exclude the truth move it beyond the margin.
         "bound_necessity",
+        # X39: a positive's bias interval inside the margin, a control's outside it, each on
+        # its own stream.
+        "censoring_necessity",
     }
 )
 
@@ -1779,6 +1785,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # the same draws, each reported with no verdict.
         "reported_calibration",
         "unbounded_fit",
+        # X39's reporting rows: a support-loss pair and a learned mechanism, each published
+        # with its summary statistics and no verdict.
+        "support_loss",
+        "learned_mechanism",
     }
 )
 
@@ -3343,7 +3353,9 @@ class TestTheQuantityVocabulary:
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
-        if {"targeting_necessity", "stratum_targeting_necessity"} & set(study.property_cells):
+        if {"targeting_necessity", "stratum_targeting_necessity"} & (
+            set(study.property_cells) - study.bias_row_families
+        ):
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
@@ -3575,11 +3587,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES = (
-    "tests.studies.long_horizon_ltmle_properties",
-    "tests.studies.long_horizon_categorical_ltmle_properties",
-    "tests.studies.long_horizon_sdr_properties",
-)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:
@@ -3908,3 +3916,13 @@ def test_a_record_requires_a_comparison_exactly_when_it_names_a_reference() -> N
     assert one.comparison_kind("a", "b") == "related target"
     assert one.comparison_kind("c", "anything") == "different estimator"
     assert one.comparison_kind("d", "e") == backed.comparison
+
+
+def test_a_record_names_only_declared_families_as_row_gated() -> None:
+    """``bias_row_families`` is a subset of the declared property families."""
+    record = next(study for study in STUDIES if study.slug == "long-horizon-ltmle")
+    assert record.bias_row_families <= set(record.property_cells)
+    with pytest.raises(ValueError, match="bias_row_families"):
+        dataclasses.replace(
+            record, bias_row_families=record.bias_row_families | {"selector_necessity"}
+        )

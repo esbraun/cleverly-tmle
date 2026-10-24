@@ -67,6 +67,7 @@ categorized API tables.
    cleverly.Inference
    cleverly.Runtime
    cleverly.MethodAvailability
+   cleverly.MethodAvailabilities
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
@@ -147,6 +148,9 @@ categorized API tables.
    cleverly.sensitivity.MarginalSensitivityBounds
    cleverly.sensitivity.MarginalSensitivityRow
    cleverly.sensitivity.SensitivityElements
+   cleverly.sensitivity.RobustnessValue
+   cleverly.sensitivity.SensitivityContour
+   cleverly.sensitivity.MissingnessTilt
    cleverly.sensitivity.BenchmarkResult
    cleverly.sensitivity.ConfounderStrengthGrid
    cleverly.sensitivity.ObservedConfounderCalibration

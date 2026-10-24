@@ -55,10 +55,9 @@ tilted mechanism.  ``form="one_step"`` reports the estimating-equation correctio
 from __future__ import annotations
 
 import inspect
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from sklearn.base import BaseEstimator, is_classifier
@@ -66,6 +65,7 @@ from sklearn.base import BaseEstimator, is_classifier
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Classification, Preflight
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
 from ..exceptions import (
     CapabilityError,
@@ -105,6 +105,9 @@ from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import composite_state, composite_view
 from .reduced import _reduced_column
 from .tmle import TMLE, _in_report_order, _is_natural_course
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 __all__ = [
     "FORMS",
@@ -674,6 +677,32 @@ class AdaptiveIPTWFit:
         if self.missing_data != "complete":
             line += f"; missing data route {self.missing_data}"
         return line
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the weight adjustment, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._method_summary import iptw_summary
+
+        return iptw_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import iptw_repr
+
+        return iptw_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -1609,7 +1638,7 @@ class AdaptiveIPTW(TMLE):
             item.spec.name for item in solved if relative_score(item.score, item.scale) > self.tol
         ]
         if unmet:
-            warnings.warn(
+            _warn(
                 f"AdaptiveIPTW stopped at max_iter={self.max_iter} before the relative score "
                 f"reached tol={self.tol:g} for {sorted(set(unmet))}. A refit of the reduced "
                 "regression on each tilted propensity moves the score, and a flexible "
@@ -1680,7 +1709,7 @@ class AdaptiveIPTW(TMLE):
             requested
         ) == self._resolved_names(data, refuse_outside=False)
         if defaulted:
-            warnings.warn(
+            _warn(
                 f"AdaptiveIPTW dropped {sorted(failures)} from the default report: "
                 + next(iter(failures.values())),
                 DataWarning,

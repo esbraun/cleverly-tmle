@@ -378,8 +378,14 @@ class TestDefaultIdentity:
     def test_the_summary_prints_the_bounds_only_when_declared(
         self, baseline: Any, binding: Any
     ) -> None:
-        assert "node_bounds" not in baseline.summary()
-        assert "node_bounds: t=1 in [0.3, 0.7]; t=2 in [0.3, 0.7]" in binding.summary()
+        def declared(result: Any) -> list[str]:
+            lines = result.summary(detail="full").section("Settings").lines
+            return [line for line in lines if line.startswith("Declared bounds")]
+
+        assert declared(baseline) == []
+        assert declared(binding) == [
+            "Declared bounds on the outcome scale: time 1 in [0.3, 0.7]; time 2 in [0.3, 0.7]."
+        ]
 
     def test_the_replay_carries_the_bounds(self, binding: Any) -> None:
         draw = binding.repeats[0]

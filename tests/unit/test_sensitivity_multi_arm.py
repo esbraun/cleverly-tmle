@@ -455,7 +455,8 @@ class TestTheRestOfTheFacade:
 
     def test_the_contour_grid_takes_a_contrast(self, exact_fit: Any) -> None:
         grid = exact_fit.sensitivity.contour("ate[high vs low]", grid_size=3)
-        assert grid.shape == (9, 3)
+        assert grid.to_frame().shape == (9, 3)
+        assert len(grid) == 9 and grid.columns == ("cf_d", "cf_y", "value")
 
     def test_an_ambiguous_default_is_refused_by_name_rather_than_guessed(
         self, exact_fit: Any

@@ -86,7 +86,6 @@ combines the errors of :math:`K + 1` factors, and the density of dose :math:`k` 
 from __future__ import annotations
 
 import hashlib
-import warnings
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -94,6 +93,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..data.validate import MAX_TREATMENT_LEVELS, arm_indicators, atom_block
 from ..exceptions import CapabilityError, DataError, PositivityWarning, Refusal, RefusalReason
 from ..learners.crossfit import Folds
@@ -1632,7 +1632,7 @@ def warn_unsupported_values(
     zero = moved & (parts.joint()[:, evaluation] <= 0.0)
     if not zero.any():
         return
-    warnings.warn(
+    _warn(
         f"policy {name!r} sends {int(zero.sum())} of the {int(moved.sum())} rows it moves at "
         f"{where} to a value where the estimated density of the node is zero. "
         "Identification requires the assigned value to lie in the conditional support of the "

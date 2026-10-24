@@ -366,19 +366,19 @@ class TestSplitPlanRecord:
         text = repr(plan)
 
         assert text == (
-            "SplitPlan(n=5000, n_folds=4, n_repeats=1, "
-            f"fingerprint={plan.fingerprint}, generator=None, source=abc123)"
+            f"SplitPlan(n=5000, folds=4, repeats=1, no generator, fingerprint={plan.fingerprint}, "
+            "bound)"
         )
-        assert len(text) < 200
+        assert len(text) <= 100
 
     def test_the_representation_names_the_generator_a_plan_records(self) -> None:
         """``generator=`` is what says whether a fit can accept the plan at all."""
         plan = _package_plan(120, n_folds=4)
         text = repr(plan)
 
+        generator = RANDOM_PARTITION_GENERATOR.removeprefix("cleverly.")
         assert text == (
-            "SplitPlan(n=120, n_folds=4, n_repeats=1, "
-            f"fingerprint={plan.fingerprint}, generator={RANDOM_PARTITION_GENERATOR})"
+            f"SplitPlan(n=120, folds=4, repeats=1, {generator}, fingerprint={plan.fingerprint})"
         )
 
     def test_a_hand_built_plan_is_bound_to_no_data(self) -> None:

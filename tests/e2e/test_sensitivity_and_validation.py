@@ -1332,7 +1332,7 @@ class TestValidation:
         assert check.passed
         assert bool(check)
         assert check.failures == ()
-        assert "PASS" in check.summary()
+        assert check.summary().facts["Result"] == "passed"
         check.raise_if_failed()
 
     def test_the_score_check_can_be_made_to_fail(self, good_overlap) -> None:
@@ -1374,9 +1374,10 @@ class TestValidation:
 
         assert not broken.score_verdict.passed
         summary = broken.summary()
-        assert "score check: FAIL" in summary
-        assert "mean" in summary.split("score check: FAIL")[1]
-        assert "do not describe this estimate" in summary
+        unsolved = summary.note("score_unsolved")
+        assert unsolved.kind == "warning"
+        assert "the means and the average effect" in unsolved.text
+        assert "may be wrong" in unsolved.text
         # The interval is still printed -- the line says it is not licensed, it does not
         # withhold it. Predeclaring which regimes are refused outright needs the
         # targeting-and-exit study's evidence; see
@@ -1473,7 +1474,9 @@ class TestRefutation:
     def test_the_results_tabulate(self, refutation) -> None:
         frame = nw.from_native(refutation.to_frame(), eager_only=True)
         assert len(frame) == 3
-        assert "VERDICT" in refutation.summary()
+        summary = refutation.summary()
+        assert [row[0].value for row in summary.tables[0].rows] == frame["test"].to_list()
+        assert summary.reading
 
     def test_a_negative_control_outcome_shows_no_effect(self) -> None:
         frame, _ = make_linear_ate(n=700, seed=84)
@@ -1946,8 +1949,12 @@ class TestTheMechanismDenominatorsAreDiagnosed:
     def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
         # Traceability: a reported number must be traceable to every bound that shaped
         # it, not just the one with a familiar name.
-        assert "P(Delta=1|A,W) truncated to" in strained.summary()
-        assert "truncated to [0.01, 1]" not in good_overlap.summary()
+        def recorded(result: object) -> list[str]:
+            settings = result.summary(detail="full").section("Settings").lines
+            return [line for line in settings if "that the outcome is recorded raised" in line]
+
+        assert recorded(strained)
+        assert not recorded(good_overlap)
 
     def test_the_curve_sweeps_the_mechanism_bound(self, strained) -> None:
         curve = nw.from_native(

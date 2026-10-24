@@ -38,6 +38,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import variable_importance
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
@@ -336,9 +337,12 @@ class TestEverySpreadIsNamedByItsStatus:
 
     def test_the_split_noise_share_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
         summary = repeated_selector_fit.summary()
-        label = spread_name("std_err", DIAGNOSTIC)
-        assert f"of {label})" in summary
-        assert "of std_err)" not in summary
+        label = vocabulary.SPREAD_LABELS[spread_name("std_err", DIAGNOSTIC)]
+        assert label in summary.table("estimates").columns
+        assert f"its {label} includes the spread between splits" in (
+            summary.note("repeated_splits").text
+        )
+        assert "std. error" not in summary.note("repeated_splits").text
 
     def test_the_nuisance_note_keeps_its_capitals(self, repeated_selector_fit: Any) -> None:
         """``str.capitalize`` printed "f18". Only the first letter may change."""
@@ -377,15 +381,16 @@ class TestEverySpreadIsNamedByItsStatus:
         assert check.inference == DIAGNOSTIC
         unit = spread_name("standard errors", DIAGNOSTIC)
         assert f"The {unit} above" in check.one_line()
-        assert f"the {unit} this fit reports" in check.summary()
-        assert "influence-curve standard errors" not in check.summary()
+        reading = check.summary().reading
+        assert "so the plug-in standard error may be wrong" in reading
+        assert "so the standard error may be wrong" not in reading
 
     def test_an_ordinary_failing_score_verdict_is_unchanged(self, ordinary_fit: Any) -> None:
         check = score_check(ordinary_fit, tolerance=0.0)
         assert not check.passed
         assert check.inference == "influence_curve"
         assert "  The standard errors above are read off" in check.one_line()
-        assert "the influence-curve standard errors this fit reports" in check.summary()
+        assert "so the standard error may be wrong" in check.summary().reading
 
     def test_the_coverage_study_labels_what_it_measured(self) -> None:
         study = CoverageStudy(

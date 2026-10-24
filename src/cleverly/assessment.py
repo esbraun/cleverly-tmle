@@ -15,9 +15,22 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
 from types import MappingProxyType
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .sensitivity import (
+        BenchmarkResult,
+        EValue,
+        MarginalSensitivityBounds,
+        MissingnessTilt,
+        RobustnessValue,
+        SensitivityBounds,
+        SensitivityContour,
+        SensitivityElements,
+        SimulatedConfoundingResult,
+    )
 
 from ._assessment_cache import (
     _RETAIN_PACKED,
@@ -4733,7 +4746,7 @@ class SensitivityFacade(_CapabilityFacade):
         eligible = {**arm_parameters(self._result), **axis_parameters(self._result)}
         return _default_estimand_candidates(self._result, eligible)
 
-    def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
+    def omitted_confounding(self, *args: Any, **kwargs: Any) -> SensitivityBounds:
         """Bound omitted-confounder bias for a reported estimand.
 
         Parameters
@@ -4775,7 +4788,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("omitted_confounding", args, kwargs)
 
-    def robustness_value(self, *args: Any, **kwargs: Any) -> Any:
+    def robustness_value(self, *args: Any, **kwargs: Any) -> RobustnessValue:
         """Return the confounding strength needed to cross the null.
 
         Parameters
@@ -4786,9 +4799,9 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        dict of str to float
-            Null-crossing strengths for the estimate and confidence limit, plus the
-            maximum-bias scale.
+        RobustnessValue
+            A ``dict`` of the null-crossing strengths for the estimate and confidence
+            limit, plus the maximum-bias scale, with a printed ``summary()``.
 
         See Also
         --------
@@ -4796,7 +4809,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("robustness_value", args, kwargs)
 
-    def elements(self, *args: Any, **kwargs: Any) -> Any:
+    def elements(self, *args: Any, **kwargs: Any) -> SensitivityElements:
         """Return the variance elements used by omitted-variable bounds.
 
         Parameters
@@ -4816,7 +4829,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("elements", args, kwargs)
 
-    def benchmark(self, *args: Any, **kwargs: Any) -> Any:
+    def benchmark(self, *args: Any, **kwargs: Any) -> BenchmarkResult:
         """Benchmark confounding strength against observed covariates.
 
         Parameters
@@ -4849,7 +4862,7 @@ class SensitivityFacade(_CapabilityFacade):
             _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)
 
-    def contour(self, *args: Any, **kwargs: Any) -> Any:
+    def contour(self, *args: Any, **kwargs: Any) -> SensitivityContour:
         """Evaluate bias bounds over a confounding-strength grid.
 
         Parameters
@@ -4860,8 +4873,9 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        dataframe
-            Bias bounds over the requested grid of confounding strengths.
+        SensitivityContour
+            Bias bounds over the requested grid of confounding strengths; ``to_frame()``
+            gives the long frame.
 
         See Also
         --------
@@ -4869,7 +4883,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("contour", args, kwargs)
 
-    def simulated_confounding(self, *args: Any, **kwargs: Any) -> Any:
+    def simulated_confounding(self, *args: Any, **kwargs: Any) -> SimulatedConfoundingResult:
         """Refit across a simulated common-cause strength grid.
 
         Parameters
@@ -4890,7 +4904,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("simulated_confounding", args, kwargs)
 
-    def evalue(self, *args: Any, **kwargs: Any) -> Any:
+    def evalue(self, *args: Any, **kwargs: Any) -> EValue:
         """Return an E-value on the risk-ratio scale.
 
         Parameters
@@ -4910,7 +4924,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("evalue", args, kwargs)
 
-    def marginal_bounds(self, *args: Any, **kwargs: Any) -> Any:
+    def marginal_bounds(self, *args: Any, **kwargs: Any) -> MarginalSensitivityBounds:
         """Bound an arm mean or the ATE under the marginal sensitivity model.
 
         Parameters
@@ -4930,7 +4944,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("marginal_bounds", args, kwargs)
 
-    def missingness(self, *args: Any, **kwargs: Any) -> Any:
+    def missingness(self, *args: Any, **kwargs: Any) -> MissingnessTilt:
         """Vary unobserved-outcome odds under a missingness tilt.
 
         Parameters
@@ -4941,8 +4955,8 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        dataframe
-            One row per tilt value and estimand.
+        MissingnessTilt
+            The tilt; ``to_frame()`` gives one row per tilt value and estimand.
 
         See Also
         --------
@@ -4950,7 +4964,7 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("missingness", args, kwargs)
 
-    def tipping_gamma(self, *args: Any, **kwargs: Any) -> Any:
+    def tipping_gamma(self, *args: Any, **kwargs: Any) -> float | None:
         """Find the missingness tilt at which the estimate crosses its null.
 
         Parameters
