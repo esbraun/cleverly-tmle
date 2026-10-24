@@ -381,15 +381,16 @@ class TestEverySpreadIsNamedByItsStatus:
         assert check.inference == DIAGNOSTIC
         unit = spread_name("standard errors", DIAGNOSTIC)
         assert f"The {unit} above" in check.one_line()
-        assert f"the {unit} this fit reports" in check.summary()
-        assert "influence-curve standard errors" not in check.summary()
+        reading = check.summary().reading
+        assert "so the plug-in standard error may be wrong" in reading
+        assert "so the standard error may be wrong" not in reading
 
     def test_an_ordinary_failing_score_verdict_is_unchanged(self, ordinary_fit: Any) -> None:
         check = score_check(ordinary_fit, tolerance=0.0)
         assert not check.passed
         assert check.inference == "influence_curve"
         assert "  The standard errors above are read off" in check.one_line()
-        assert "the influence-curve standard errors this fit reports" in check.summary()
+        assert "so the standard error may be wrong" in check.summary().reading
 
     def test_the_coverage_study_labels_what_it_measured(self) -> None:
         study = CoverageStudy(

@@ -1059,6 +1059,231 @@ REFUTATION_TITLE: Final = "Refutation tests"
 STATISTICS_TITLE: Final = "Test statistics"
 READINGS_TITLE: Final = "Readings against their allowed bands"
 
+# ------------------------------------------- checks (T3): equations solved, DR-TMLE corrections
+
+#: Header labels of the equation and correction checks.
+EQUATIONS: Final = "Equations"
+ALLOWED_ERROR: Final = "Allowed error"
+PREDICTIONS: Final = "Predictions"
+HEADER_LABELS = HEADER_LABELS | {EQUATIONS, ALLOWED_ERROR, PREDICTIONS}
+
+#: The notes of the equation check (``ScoreCheck``) and the correction check
+#: (``CorrectionCheck``).
+T3_EQUATION_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "identity_failure": "warning",
+        "row_not_converged": "warning",
+        "equations_only": "note",
+        "dr_curve": "note",
+        "held_to_nothing": "note",
+        "correction_rows": "note",
+        "correction_scale": "note",
+        "theorem_in_sample": "note",
+        "theorem_cross_fitted": "note",
+        "cap_active": "note",
+        "unsolved_guard": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_EQUATION_NOTE_CODES})
+
+T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "identity_failure": (
+            "{count} of the failed rows {verb} two computations of the same expression, "
+            "and they disagree. That is a defect in cleverly, not in your data; please "
+            "report it. Running the correction step longer will not fix it."
+        ),
+        "row_not_converged": "{sentences}",
+        "equations_only": (
+            "This fit reports no interval, so the check verifies the equations only. {reason}"
+        ),
+        "dr_curve": (
+            "The standard error comes from the doubly robust estimator's own curve. Under "
+            "the method's conditions its interval is valid; with one of the two models wrong "
+            "it holds only in the cases cleverly.estimators.drtmle lists."
+        ),
+        "held_to_nothing": "Rows marked described are held to no allowed error: {reasons}",
+        "correction_rows": (
+            "In the corrections table, a size row holds the mean of a DR-TMLE correction to "
+            "its allowed error, and an identity row checks that the value the correction "
+            "step solved equals the value in the standard error's curve."
+        ),
+        "correction_scale": (
+            "{scale}A correction is allowed an error of {threshold}, and a solved value and "
+            "its value in the curve must agree to within {identity}."
+        ),
+        "theorem_in_sample": (
+            "No cap binds, so this in-sample fit is the estimator the DR-TMLE theorem "
+            "covers, under the theorem's conditions."
+        ),
+        "theorem_cross_fitted": (
+            "No cap binds, so this fit uses the theorem's construction, but the theorem does "
+            "not cover out-of-fold predictions when the reduced regression selects its form "
+            "from the data."
+        ),
+        "cap_active": (
+            "A cap is active ({which}). Simulation studies support such fits, but the "
+            "theorem does not cover them. This is not a failure, and the result above does "
+            "not read it."
+        ),
+        "unsolved_guard": (
+            "The {equations} {verb} not among the equations this fit's guard= solves, so the "
+            "reported standard error does not subtract {pronoun}; {rows} a description, "
+            "held to nothing."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_EQUATION_NOTE_TEXTS})
+
+#: Plain names of the equations a fit solves, keyed by the group or estimand name the
+#: equation check's rows carry. An estimand alias the caller chose prints as written.
+EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "mean": "outcome means",
+        "regime": "rule means",
+        "msm": "projection",
+        "mtp": "shifted-treatment mean",
+    }
+)
+
+#: Plain names of the parts of an equation, keyed by the qualifier in a row name.
+EQUATION_PARTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "mechanism": "treatment model",
+        "reduced": "reduced regression",
+        "strata": "strata",
+        "D*_Q": "outcome correction",
+        "D*_Y": "outcome correction",
+        "D*_g": "treatment correction",
+        "D*_A": "treatment correction",
+        "D*_M": "recording correction",
+    }
+)
+
+#: What each row of the equation check's corrections table checks, for its ``check``
+#: column, keyed by the row's ``kind``.
+CORRECTION_ROW_KINDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"correction": "size", "identity": "identity", "diagnostic": "described"}
+)
+
+#: The ``Allowed error`` fact of the equation check, by the rule the fit declared.
+ALLOWED_RELATIVE: Final = "{tolerance:g} x SE / sqrt(n)"
+ALLOWED_DECLARED: Final = "{rule} rule"
+
+#: Why a step of the correction stopped short, keyed by the code the step records.
+STEP_FAILURES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "max_iter_reached": "it reached its iteration limit",
+        "nonfinite_step": "a step gave a value that is not finite",
+        "line_search_exhausted": "no step size reduced the error",
+        "singular_hessian": "the step's curvature matrix was singular",
+        "bounds_pinned": "most predictions sat at their bounds",
+        "stalled": "it stopped making progress",
+        "bound_excludes_data": "the outcome bound excludes some of the data",
+    }
+)
+
+#: The sentences of the ``row_not_converged`` note, one per finding.
+ROW_STOPPED: Final = "{name}: the correction step stopped because {reason}."
+ROW_FOLDS: Final = "{name}: {failed} of {total} folds did not converge."
+ROW_CONDITION: Final = (
+    "{name}: the step's curvature matrix has condition number {condition}, so the step "
+    "size is barely determined and a solved equation may still be fragile."
+)
+
+#: Why a diagnostic row of the equation check is held to nothing.
+HELD_UNSOLVED: Final = "{names} {verb} not among the equations this fit's guard= solves"
+HELD_BY_RULE: Final = (
+    "{names} restate{s} outcome equations that the reduced-regression row judges by the "
+    "declared stopping rule"
+)
+
+#: The reading sentence of the equation check, by its result.
+EQUATION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": (
+            "The correction step solved every estimating equation to within its allowed "
+            "error. That is needed for the {spread} to describe this estimate, but it does "
+            "not show that it does."
+        ),
+        "passed_declared": (
+            "The correction step met its declared stopping rule on every equation it judges "
+            "by that rule; those equations are solved to the rule's bound, not to machine "
+            "precision."
+        ),
+        "failed": (
+            "{count} of {total} equations {verb} not solved within {its} allowed error "
+            "({names}), so the {spread} may be wrong."
+        ),
+        "failed_rule": (
+            "The correction step did not meet its declared stopping rule on {names}, so the "
+            "{spread} may be off by more than the rule allows."
+        ),
+        "failed_identity": (
+            "Two computations of the same expression disagree ({names}), so the {spread} "
+            "does not describe this estimate."
+        ),
+    }
+)
+
+#: Plain names of the caps the DR-TMLE contract reads, keyed by the names
+#: ``CorrectionCheck.truncations_active`` returns.
+CAP_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "g-hat at the initial fit": "the initial treatment model",
+        "pi-hat at the initial fit": "the initial recording model",
+        "g* at the exit": "the treatment model at the end",
+        "pi* at the exit": "the recording model at the end",
+        "g_r1": "the reduced regression",
+        "gamma_a / gamma_m": "the reduced regressions",
+    }
+)
+
+#: The reading sentence of the correction check, by its result.
+CORRECTION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": (
+            "Every correction is a negligible mean of the same expression the correction "
+            "step solved."
+        ),
+        "none": "This fit reports no corrections.",
+        "identity": (
+            "{count} identity {checks} failed: a solved value and its value in the curve "
+            "differ. That is a defect in cleverly, not in your data, and the standard error "
+            "does not describe this estimate."
+        ),
+        "correction": (
+            "{count} {corrections} above the allowed error at the fit's final state, so the "
+            "standard error may be wrong."
+        ),
+    }
+)
+
+#: The first sentence of the ``correction_scale`` note, when the fit rescaled its outcome.
+RESCALED: Final = (
+    "Corrections are on the outcome's own scale, {scale} times the scale they were solved on. "
+)
+
+#: The ``Predictions`` fact of the correction check.
+PREDICTION_WORDS: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "cross-fitted", False: "in-sample"}
+)
+
+#: A line of the correction check's full detail, one per split.
+CORRECTION_MARGINS: Final = (
+    "{split}the cap binds on {clipped} of {n} rows at the end; the treatment model comes "
+    "within {margin} of its limits{observation}, and the reduced {regression} within "
+    "{reduced}."
+)
+
+#: Titles of the equation and correction checks and their full-detail sections.
+EQUATION_TITLE: Final = "Check of the estimating equations"
+STEP_EQUATIONS_TITLE: Final = "Equations the correction step solves"
+CORRECTIONS_TITLE: Final = "DR-TMLE corrections"
+ESTIMATE_EQUATIONS_TITLE: Final = "Each estimate's equation"
+CORRECTION_TITLE: Final = "Check of the DR-TMLE corrections"
+SECTION_DETAILS: Final = "Details"
+
 
 # ----------------------------------------------------------------- study setup (T5)
 

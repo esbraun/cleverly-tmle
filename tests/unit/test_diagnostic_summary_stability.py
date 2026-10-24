@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.validation.drtmle import CorrectionCheck, CorrectionRow
 from cleverly.validation.score import ScoreCheck, ScoreCheckRow
 
@@ -89,6 +90,11 @@ def test_correction_check_distinguishes_construction_from_theorem_scope(
     assert check.contract == "theorem"
     assert check.passed
     summary = check.summary()
-    assert ("this fit is Theorem 1's estimator" in summary) is not cross_fitted
-    assert ("uses Theorem 1's construction" in summary) is cross_fitted
-    assert ("Theorem 1 does not cover cross-fitting" in summary) is cross_fitted
+    # The scope sentence is a disclaimer, so it stays pinned: its code and its exact text.
+    covered, construction = "theorem_in_sample", "theorem_cross_fitted"
+    expected = construction if cross_fitted else covered
+    assert expected in summary.note_codes
+    assert summary.note(expected).text == vocabulary.NOTE_TEXTS[expected]
+    assert (covered in summary.note_codes) is not cross_fitted
+    assert (construction in summary.note_codes) is cross_fitted
+    assert "cap_active" not in summary.note_codes
