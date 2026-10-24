@@ -381,7 +381,7 @@ SUPPORT_AXES: Final[Mapping[str, str]] = MappingProxyType(
 #: block, and the note prints among the warnings in its place. The phrases are filled with
 #: the fit's folds (``declared``, ``used``) and mean treatment bounds (``low``, ``high``),
 #: so a warning about other folds or other bounds stays.
-RESTATED_WARNINGS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
+RESTATED_WARNINGS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "folds_reduced": ("reducing n_folds from {declared} to", "to {used}: only"),
         "weights_capped": (
@@ -633,7 +633,7 @@ CHOSEN: Final = "Chosen"
 CRITERION: Final = "Criterion"
 SEARCH: Final = "Search"
 COVARIATES_SEARCHED: Final = "Covariates searched"
-ADJUSTMENT: Final = "P-value adjustment"
+ADJUSTMENT: Final = "Multiple testing"
 LOSS: Final = "Loss"
 BEST: Final = "Best candidate"
 ENSEMBLE_RISK: Final = "Ensemble CV risk"
@@ -756,8 +756,28 @@ LOSS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 #: What each DR-TMLE guard protects against, keyed by the guard name.
 GUARD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "Q": "a wrong outcome model, when the treatment model is right",
-        "g": "a wrong treatment model, when the outcome model is right",
+        "Q": "a wrong outcome model",
+        "g": "a wrong treatment model",
+    }
+)
+
+#: What the extra equations of each DR-TMLE guard are shown to do, keyed by the guard
+#: name. ``drtmle.py``'s module docstring states the conditions: the one-wrong interval is
+#: valid for a known mechanism, conservative for a correctly specified parametric one, not
+#: established for a data-adaptive learner, and not established at all with the mechanism
+#: wrong.
+GUARD_SENTENCES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "Q": (
+            "The fit solved extra equations meant to keep the interval valid when the "
+            "outcome model is wrong. That protection is shown only when the treatment "
+            "probabilities are known or come from a correctly specified parametric model, "
+            "not for a flexible learner."
+        ),
+        "g": (
+            "The fit also solved the equations meant for a wrong treatment model. When the "
+            "treatment model is wrong, no result shows that the interval keeps its coverage."
+        ),
     }
 )
 
@@ -765,7 +785,7 @@ GUARD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 REDUCTION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "univariate": "three one-dimensional regressions",
-        "bivariate": "one two-dimensional treatment regression",
+        "bivariate": "two regressions, one of them two-dimensional",
         "missing_outcome": "five regressions for missing outcomes",
     }
 )
@@ -832,6 +852,9 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "multiple_testing": "note",
         "separate_fits": "note",
         "learners_failed": "warning",
+        "fit_cautions": "warning",
+        "stacked_refused": "note",
+        "rows_shown": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T1_NOTE_CODES})
@@ -853,8 +876,9 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "the interval is built."
         ),
         "bootstrap_failed": (
-            "{failed} of {requested} replicates failed and are left out, so any interval "
-            "from these replicates is conditional on the replicates that ran."
+            "{failed} of {requested} replicates gave no usable estimate and are left out. If "
+            "those were the resamples where a treatment group was rarest, the remaining "
+            "spread, and any interval from it, is too narrow."
         ),
         "bootstrap_describes": (
             "These numbers describe the replicate estimates. The fitted result's summary "
@@ -867,18 +891,17 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "split_spread": (
             "Each spread is the standard deviation of the estimate across {repeats} random "
             "splits into folds. It shows how much the split moved the estimate; it is a "
-            "diagnostic, not a standard error, and the reported {spread} already includes "
-            "it."
+            "diagnostic, not a standard error. {tail}"
         ),
         "spread_missing": (
-            "{names} {verb} no spread: a split gave a value the scale of the interval "
-            "cannot take."
+            "{names} {verb} no spread: a split gave a value that is not finite on the scale "
+            "of the interval."
         ),
         "cv_two_reports": (
             "The fold-averaged estimate evaluates the parameter inside each fold and "
-            "averages the folds, with the cross-validated standard error. The whole-sample "
+            "averages the folds, with {spread}. The whole-sample "
             "estimate puts the held-out predictions together and evaluates them once. They "
-            "agree for the means and the average effect when the folds have equal weight, "
+            "agree for the means and the average effect when every fold carries the same total weight, "
             "and they can differ for ratios and for effects among the treated or untreated."
         ),
         "cv_first_split": (
@@ -886,8 +909,9 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "describe the first split only."
         ),
         "left_out": (
-            "The chosen treatment model leaves out {names}. The search chose by "
-            "cross-validated risk; it does not show why a covariate was left out."
+            "The chosen treatment model leaves out {names}. The search chose by the "
+            "cross-validated loss of the adjusted outcome predictions; it does not show why "
+            "a covariate was left out."
         ),
         "search_stopped": (
             "The search stopped after candidate {stopped} because the cross-validated risk "
@@ -908,7 +932,9 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "multiple_testing": (
             "The adjusted p-values control the false discovery rate over the {count} tests "
-            "({method}). The intervals and the unadjusted p-values are not adjusted."
+            "({method}) if the tests are independent or positively dependent, which these "
+            "fits do not guarantee. The intervals and the unadjusted p-values are not "
+            "adjusted."
         ),
         "separate_fits": (
             "Each row comes from its own fit with that candidate as the treatment and the "
@@ -917,6 +943,31 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "of one effect."
         ),
         "learners_failed": "These candidates failed to fit and were left out: {names}.",
+        "fit_cautions": (
+            "The fits of {names} carry warnings that change how to read their rows; print "
+            "each with result.fits[name].summary()."
+        ),
+        "stacked_interval": (
+            "Each interval is pointwise and comes from one stacked estimating equation of "
+            "the declared parametric outcome and treatment models{weights}. It covers the "
+            "arm mean when the outcome model is correct; otherwise it covers the value the "
+            "estimate settles at, which can move with the sample size while a limit on the "
+            "treatment probabilities binds."
+        ),
+        "stacked_weights": (
+            ", with the data weights in every equation, so the interval treats the weights "
+            "as fixed"
+        ),
+        "stacked_weights_estimated": (
+            ", with the data weights in every equation, so the interval treats the weights "
+            "as fixed although they are declared estimated"
+        ),
+        "stacked_refused": "No stacked interval: {reason}",
+        "rows_shown": (
+            "The table shows {shown} of the {total} candidates: the first, the last, the "
+            "chosen one and each one whose covariates change. selection.to_frame() lists "
+            "them all."
+        ),
         "spread_withheld": (
             "No interval for {names}, so the std. error column is empty there; the spread "
             "is still a diagnostic of the split."
@@ -924,3 +975,26 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T1_NOTE_TEXTS})
+
+#: The end of the ``split_spread`` note, by whether the fit supplies an interval.
+SPLIT_SPREAD_TAILS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "inference": "The reported std. error already includes it.",
+        "withheld": (
+            "The fit gives no interval, so the plug-in SE beside it is a diagnostic too."
+        ),
+    }
+)
+#: What the fold-averaged estimate of a cross-validated report carries, by the same rule.
+CV_SPREAD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "inference": "the cross-validated standard error",
+        "withheld": (
+            "a cross-validated spread that is a diagnostic here, as the fit gives no interval"
+        ),
+    }
+)
+#: The Adaptive IPTW cap warning ``rounds_capped`` restates.
+RESTATED_WARNINGS = MappingProxyType(
+    {**RESTATED_WARNINGS, "rounds_capped": ("before the relative score reached tol=",)}
+)

@@ -362,6 +362,9 @@ class WaldTest:
         The degrees of freedom of the t reference, as
         :attr:`ParameterEstimate.reference_df` gives them. ``None`` for the normal
         reference.
+    transform : str or None, default=None
+        The name of the transform the estimate's interval is built on, or ``None`` when
+        the estimate carries none. The test is computed on that scale.
     """
 
     name: str
@@ -371,6 +374,7 @@ class WaldTest:
     pvalue: float
     scale: Scale
     reference_df: int | None = None
+    transform: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The test as a mapping of its fields.
@@ -379,7 +383,7 @@ class WaldTest:
         -------
         dict of str to Any
             ``estimand``, ``null``, ``null_inference_value``, ``statistic``, ``p_value``,
-            ``scale`` and ``reference_df``.
+            ``scale``, ``reference_df`` and ``transform``.
         """
         return {
             "estimand": self.name,
@@ -389,6 +393,7 @@ class WaldTest:
             "p_value": self.pvalue,
             "scale": self.scale,
             "reference_df": self.reference_df,
+            "transform": self.transform,
         }
 
     def summary(self, *, detail: Detail = "short") -> Summary:
@@ -833,6 +838,7 @@ class ParameterEstimate:
             pvalue=pvalue,
             scale=self.scale,
             reference_df=self.reference_df,
+            transform=None if self.transform is None else self.transform.name,
         )
 
     def _plugin_pvalue(self) -> float:

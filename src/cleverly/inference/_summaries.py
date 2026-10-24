@@ -14,6 +14,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
 from .._summary import (
     Cell,
     Detail,
@@ -115,7 +116,10 @@ def estimate_summary(estimate: ParameterEstimate, detail: Detail) -> Summary:
     sections: list[SummarySection] = []
     if detail == "full":
         level = level_text(estimate.alpha)
-        lines = [f"Intervals and p-values are at the {level} level."]
+        null = 1 if estimate.scale == "ratio" else 0
+        lines = [
+            f"The interval is at the {level} level; the p-value tests the null value {null}."
+        ]
         summary = estimate.bootstrap
         if summary is not None:
             decimals = decimals_for([summary.std_error])
@@ -204,7 +208,12 @@ def wald_summary(test: WaldTest, detail: Detail) -> Summary:
     header = [
         (vocabulary.ESTIMAND, test.name),
         (vocabulary.NULL_VALUE, f"{test.null:g}"),
-        (vocabulary.SCALE, vocabulary.SCALE_WORDS.get(test.scale, test.scale)),
+        (
+            vocabulary.SCALE,
+            f"transformed ({test.transform}); test on that scale"
+            if test.transform is not None
+            else vocabulary.SCALE_WORDS.get(test.scale, test.scale),
+        ),
         (vocabulary.REFERENCE, reference_text(test.reference_df)),
     ]
     table = SummaryTable(
@@ -245,10 +254,10 @@ def wald_summary(test: WaldTest, detail: Detail) -> Summary:
 
 def _test_scale(test: WaldTest) -> str | None:
     """The scale the test is computed on, when it is not the scale of the estimate."""
+    if test.transform is not None:
+        return f"transformed ({test.transform})"
     if test.scale == "ratio":
         return "log"
-    if not math.isclose(float(test.null), float(test.null_inference_value), rel_tol=0, abs_tol=0):
-        return "transformed"
     return None
 
 
@@ -403,14 +412,23 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
     Returns
     -------
     Summary
-        The summary. The interval prints under "limits", as the record does not know
-        whether its fit supplies inference.
+        The summary. A range the fit declares a diagnostic prints under diagnostic
+        labels; otherwise the fitted result's summary says whether it is a confidence
+        interval.
     """
     kind = vocabulary.BOOTSTRAP_INTERVAL_WORDS[summary.interval]
     decimals = decimals_for([summary.std_error])
     low, high = summary.ci
+    diagnostic = summary.diagnostic or summary.below_floor
+    limits = f"{kind} range" if diagnostic else kind
+    suffix = " (diagnostic)" if diagnostic else ""
     table = SummaryTable(
-        ("", vocabulary.REPLICATE_COLUMNS["sd"], f"{kind} lower", f"{kind} upper"),
+        (
+            "",
+            vocabulary.REPLICATE_COLUMNS["sd"],
+            f"{limits} lower{suffix}",
+            f"{limits} upper{suffix}",
+        ),
         (
             (
                 Cell(vocabulary.REPLICATES_ROW, vocabulary.REPLICATES_ROW),
@@ -426,7 +444,20 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
         (vocabulary.REPLICATES, count_text(summary.n_replicates)),
         (vocabulary.FAILED, count_text(summary.n_failed)),
     ]
-    notes = [note("bootstrap_describes", vocabulary.NOTE_TEXTS["bootstrap_describes_one"])]
+    if diagnostic:
+        reason = "below_floor" if summary.below_floor else "declared"
+        notes = [
+            note(
+                "bootstrap_diagnostic",
+                vocabulary.BOOTSTRAP_DIAGNOSTIC[reason].format(
+                    names="this row", clusters=MINIMUM_INTERVAL_CLUSTERS
+                ),
+            )
+        ]
+    else:
+        notes = [
+            note("bootstrap_describes", vocabulary.NOTE_TEXTS["bootstrap_describes_one"])
+        ]
     if summary.n_failed:
         notes.append(_failed_note(summary.n_failed, requested))
     if summary.support.label == vocabulary.EXPERIMENTAL:
@@ -627,7 +658,8 @@ def spread_summary(spread: RepeatSpread, detail: Detail) -> Summary:
         note(
             "split_spread",
             vocabulary.NOTE_TEXTS["split_spread"].format(
-                repeats=count_text(spread.n_repeats), spread=se_label
+                repeats=count_text(spread.n_repeats),
+                tail=vocabulary.SPLIT_SPREAD_TAILS["withheld" if none else "inference"],
             ),
         )
     ]

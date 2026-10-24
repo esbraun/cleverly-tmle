@@ -127,7 +127,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -219,6 +219,25 @@ class SimultaneousBands:
         from scipy import stats
 
         return float(stats.norm.ppf(1.0 - self.alpha / 2.0))
+
+    def to_frame(self) -> Any:
+        """One row per estimand: the lower and upper limit of its band.
+
+        Returns
+        -------
+        dataframe
+            The columns ``estimand``, ``lower`` and ``upper``, in the default dataframe
+            backend.
+        """
+        from ..utils.frames import frame_from_dict
+
+        return frame_from_dict(
+            {
+                "estimand": list(self.bands),
+                "lower": [float(low) for low, _ in self.bands.values()],
+                "upper": [float(high) for _, high in self.bands.values()],
+            }
+        )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the bands, laid out like a statsmodels summary.

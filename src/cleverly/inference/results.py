@@ -611,6 +611,9 @@ class RepeatSpread(dict[str, float]):
 
         return spread_repr(self, self.n_repeats)
 
+    def __str__(self) -> str:
+        return str(self.summary())
+
     def _repr_html_(self) -> str:
         return self.summary().as_html()
 
