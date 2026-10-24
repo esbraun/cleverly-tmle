@@ -923,16 +923,17 @@ result = ParametricGFormula(
     censoring=["C1", "C2"],
 )
 print(result.summary())
-print(result.simulation.monte_carlo_share)
+print(result.simulation.summary())
 ```
 
 `gformula()` is the one-call form. The fit refuses an undeclared time-varying column that is not
 coded 0/1, before any learner. Declare it in `covariate_types=` as `"binary"`, `"categorical"` or
 `"normal"`.
 
-The interval includes the simulation error. `result.simulation.monte_carlo_share` gives the share
-of each variance that the simulation contributes, and the fit warns above 10%. Raise `n_draws=` to
-lower it. A fit with the same `random_state=` repeats exactly.
+The interval includes the simulation error. `result.simulation.summary()` lists the models the
+simulation draws from and the share of each variance that the simulation contributes, and the fit
+warns above 10%. Raise `n_draws=` to lower it. `result.simulation.monte_carlo_share` holds the same
+shares as a dictionary. A fit with the same `random_state=` repeats exactly.
 
 A data-adaptive learner for any model that the estimate reads gives the status
 `adaptive_baseline_plugin`: the point estimate only. A fixed number at a continuous treatment node

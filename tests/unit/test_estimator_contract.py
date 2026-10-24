@@ -140,6 +140,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "LongPanel",
         "LongitudinalTreatment",
         "MSMProjection",
+        "MethodAvailabilities",
         "MethodAvailability",
         "MethodConfigurationError",
         "ModelSpec",
@@ -490,6 +491,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "CTMLESelection": "argument",
     "StudyResult": "argument",
     "RefutationTest": "argument",
+    "MethodAvailabilities": "argument",
     "ValidationReport": "field",
     # Point-estimate objects with a summary (X89 T1): built without a fit's data, so the
     # caller names the backend.

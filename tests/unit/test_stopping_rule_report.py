@@ -275,10 +275,11 @@ class TestTheVerdictReadsTheRule:
         assert "PASS" not in summary
 
     def test_the_verdict_text_says_the_rule_and_not_the_machine_precision_root(self) -> None:
-        text = score_check(one_step("sample_size")).summary()
-        assert "met the sample_size stopping rule" in text
-        assert "not to machine precision" in text
-        assert "the theory does not license" not in text
+        summary = score_check(one_step("sample_size")).summary()
+        assert summary.facts[vocabulary.ALLOWED_ERROR] == "sample_size rule"
+        assert summary.reading == vocabulary.EQUATION_READINGS["passed_declared"]
+        assert "not to machine precision" in summary.reading
+        assert "the theory does not license" not in summary
 
     def test_a_default_fit_reads_the_default_bar_and_prints_nothing_new(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)
@@ -591,10 +592,22 @@ class TestThePointSummary:
         assert f"(on {worst})" in summary.note("stopping_rule").text
         assert summary.note_codes.count("stopping_rule") == 1
 
-    def test_the_check_summary_repeats_the_line_after_the_verdict(self) -> None:
-        check = score_check(one_step("scaled_var"))
-        assert check.summary().splitlines()[-1] == check.rule_line()
-        assert "residual" in check.summary()
+    def test_the_check_summary_states_the_rule_remainder(self) -> None:
+        result = one_step("scaled_var")
+        check = score_check(result)
+        # The check states the same remainder as the estimate summary, in the same words.
+        assert check.summary().note("stopping_rule").text == rule_note(result)
+        assert check.summary().facts[vocabulary.ALLOWED_ERROR] == "scaled_var rule"
+        details = check.summary(detail="full").section(vocabulary.SECTION_DETAILS).lines
+        worst = max(
+            (row for row in check.rows if math.isfinite(row.residual_se)),
+            key=lambda row: row.residual_se,
+        )
+        assert any(
+            line.startswith(f"{worst.name}: the remaining error is worth {worst.residual_se:.3g}")
+            and f"{worst.coverage_bound:.4f} coverage" in line
+            for line in details
+        )
 
     def test_the_default_summary_has_no_rule_line(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)

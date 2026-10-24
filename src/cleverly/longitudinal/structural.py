@@ -41,13 +41,12 @@ from scipy import stats
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
-    NO_SIMULTANEOUS_BANDS,
-    NO_T_REFERENCE_BANDS,
     InferenceStatus,
     precedent_status,
     status_record,
     supplies_inference,
 )
+from .._summary import Detail, Summary, check_detail
 from .._support import (
     UNCLASSIFIED,
     Classification,
@@ -74,9 +73,7 @@ from ..exceptions import (
 from ..inference.cluster import (
     cluster_inference_status,
     cluster_sums,
-    fewest_clusters,
     influence_covariance,
-    positive_mass_clause,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
@@ -84,9 +81,6 @@ from ..inference.influence import (
     Scale,
     has_t_reference,
     make_estimate,
-    reference_label,
-    support_column,
-    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
@@ -102,7 +96,6 @@ from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
-from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData, Repeated
 from .estimator import LTMLE, _reference_df, refuse_unsupported
 from .regimen import DynamicRegimen, Regimen, _same_label, resolve_regimens
@@ -1059,32 +1052,6 @@ class StructuralConfig:
     support_key: SupportKey | None = None
     fit_seed: int | None = None
 
-    def describe(self) -> list[str]:
-        """The settings as summary lines."""
-        lines = [f"model: {SNMM_LABEL}"]
-        for node in self.nodes:
-            features = ", ".join(feature.name for feature in node.features)
-            lines.append(
-                f"node {node.time} ({node.treatment}): blip features [{features}] x "
-                f"{list(node.levels)}"
-            )
-        if self.regimens:
-            lines.append(
-                "regimens = "
-                + ", ".join(
-                    f"{label} ({'/'.join(str(v) for v in values)})"
-                    for label, values in self.regimens
-                )
-                + f"; reference = {self.reference}"
-            )
-        lines.append(f"cross-fitting = {self.n_folds} folds; outcome family = {self.family}")
-        if self.reads_covariates:
-            lines.append(
-                "a blip feature reads a time-varying covariate: static levels and contrasts "
-                "are not reported (X72 in docs/roadmap.md)"
-            )
-        return lines
-
 
 @dataclass(frozen=True)
 class StructuralDiagnostics:
@@ -1110,6 +1077,31 @@ class StructuralDiagnostics:
     extreme_share: tuple[float, ...]
     n_constant_fits: int
     learner_diagnostics: tuple[Any, ...] = ()
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The smallest eigenvalue and the share of extreme probabilities at each time.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds what each column measures.
+
+        Returns
+        -------
+        Summary
+            The summary.
+        """
+        from ._record_summary import structural_diagnostics_summary
+
+        return structural_diagnostics_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._record_summary import structural_diagnostics_repr
+
+        return structural_diagnostics_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def _split_seeds(random_state: int | None, count: int) -> list[int]:
@@ -2015,54 +2007,30 @@ class StructuralModelCheck:
         """Whether the check reports a statistic."""
         return self.reason is None
 
-    def summary(self) -> str:
-        """A printable table of the two sets of contrasts and the joint statistic.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The two sets of contrasts, the joint test, and how to read it.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how the check works and what its degrees of freedom mean.
 
         Returns
         -------
-        str
-            One row per contrast, then the Wald statistic or the reason for none.
+        Summary
+            The summary. It prints as text; ``reading`` says what the test means.
         """
-        standard = np.sqrt(np.clip(np.diag(self.covariance), 0.0, None))
-        rows = [
-            [
-                name,
-                f"{a:.4f}",
-                f"{b:.4f}",
-                f"{a - b:.4f}",
-                f"{s:.4f}",
-            ]
-            for name, a, b, s in zip(
-                self.names, self.structural, self.nonparametric, standard, strict=True
-            )
-        ]
-        table = format_table(
-            ["contrast", "structural", "nonparametric", "difference", "se of difference"], rows
-        )
-        if self.tested:
-            tail = (
-                f"joint Wald statistic = {self.statistic:.3f} on {self.df} contrasts, "
-                f"covariance df = {self.reference_df:.1f}, p = {format_pvalue(self.pvalue)}"
-            )
-        else:
-            tail = f"no test is reported: {self.reason}"
-        if self.n_splits > 1:
-            tail += f"\nestimates and covariance over {self.n_splits} fold splits"
-        marker = (
-            [f"experimental: {self.support.reason}"]
-            if (self.support.label == "experimental")
-            else []
-        )
-        return "\n".join(
-            [
-                "Structural model check (a necessary condition, not a test of the model)",
-                "",
-                table,
-                "",
-                tail,
-                *marker,
-            ]
-        )
+        from ._structural_summary import check_summary
+
+        return check_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._structural_summary import check_repr
+
+        return check_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass
@@ -2608,110 +2576,31 @@ class StructuralNestedMeanResult:
         payload["model"] = [self.label for _ in self.estimates]
         return self.data.frame_like(payload)
 
-    def summary(self) -> str:
-        """A printable report: the estimates, the model condition, then the settings.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The estimates, what each row means, the blip features and the model condition.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default="short"
+            ``"full"`` adds the assumptions, the settings and diagnostics in words, the
+            method and the study description.
 
         Returns
         -------
-        str
-            The table, the structural condition, the settings and the diagnostics.
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
         """
-        level = f"{(1 - self.config.alpha_sig) * 100:g}%"
-        status = self.inference_status
-        record = None if supplies_inference(status) else status_record(status)
-        t_reference = has_t_reference(self.estimates)
-        support_cells = support_column(self.estimates)
-        rows = []
-        for name, estimate in self.estimates.items():
-            if record is not None:
-                rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
-                continue
-            low, high = estimate.ci
-            rows.append(
-                [
-                    name,
-                    f"{estimate.psi:.4f}",
-                    f"{estimate.std_error:.4f}",
-                    f"[{low:.4f}, {high:.4f}]",
-                    format_pvalue(estimate.pvalue),
-                    *([reference_label(estimate)] if t_reference else []),
-                ]
-            )
-        if record is not None:
-            headers = ["parameter", "estimate", record.summary_label]
-        else:
-            headers = [
-                "parameter",
-                "estimate",
-                "std. error",
-                f"{level} CI",
-                "p-value",
-                *(["df"] if t_reference else []),
-            ]
-        if support_cells is not None:
-            headers.append("support")
-            rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-        table = format_table(headers, rows)
-        facts = list(self.config.describe())
-        if self.data.cluster is not None:
-            count = f"{self.data.n_clusters}" + positive_mass_clause(
-                self.data.cluster, self.data.weights if self.data.is_weighted else None
-            )
-            facts.append(f"clusters = {count} ({self.data.cluster_name}, cluster-robust variance)")
-        if self.data.is_weighted:
-            report = self.data.weight_report()
-            facts.append(
-                f"observation weights ({report.name or 'weights'}, "
-                + ("estimated" if report.estimated else "fixed")
-                + f"): effective n = {report.effective_n:.1f}, "
-                f"design effect = {report.design_effect:.2f}"
-            )
-        smallest = min(self.diagnostics.smallest_eigenvalue)
-        shares = [s for s in self.diagnostics.extreme_share if not np.isnan(s)]
-        facts.append(f"smallest standardized Jacobian eigenvalue = {smallest:.3g}")
-        if shares:
-            facts.append(
-                f"largest share of rows with a class probability within "
-                f"{self.config.positivity_margin:g} of 0 or 1 = {max(shares):.1%}"
-            )
-        facts.extend(self.provenance.describe())
-        lines = [
-            f"Structural nested mean model ({self.data.n_times} time points, n = {self.n})",
-            f"The intervals are {self.label}.",
-            "",
-            table,
-            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
-            *(["", record.summary_note()] if record is not None else []),
-            "",
-            *(f"  {line}" for line in facts),
-        ]
-        if self.simultaneous is None and record is not None and len(self.estimates) > 1:
-            lines.extend(["", f"  {NO_SIMULTANEOUS_BANDS}"])
-        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
-            lines.extend(["", f"  {NO_T_REFERENCE_BANDS}"])
-        if self.simultaneous is not None:
-            band_marker = (
-                " [experimental]" if self.simultaneous.support.label == "experimental" else ""
-            )
-            lines.extend(
-                [
-                    "",
-                    f"  simultaneous {level} bands (multiplier bootstrap, critical value "
-                    f"{self.simultaneous.critical_value:.3f} vs "
-                    f"{self.simultaneous.pointwise_critical_value:.3f} pointwise){band_marker}:",
-                ]
-            )
-            for name, (low, high) in self.simultaneous.bands.items():
-                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
-        if t_reference and self.data.cluster is not None:
-            positive = fewest_clusters(
-                self.data.cluster, weights=self.data.weights if self.data.is_weighted else None
-            )
-            lines.append(f"  clusters with positive mass = {positive}")
-        return "\n".join(lines)
+        from ._structural_summary import structural_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"StructuralNestedMeanResult({', '.join(self.estimates)})"
+        return structural_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._structural_summary import structural_repr
+
+        return structural_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 # ---------------------------------------------------------------------- one-call form

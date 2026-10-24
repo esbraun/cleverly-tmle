@@ -638,14 +638,14 @@ def test_w6_the_structural_label_survives_save_and_load(tmp_path: Any) -> None:
     frame = result.to_frame()
     assert set(frame["model"]) == {module.SNMM_LABEL}
     assert len(frame["model"]) == len(result)
-    assert module.SNMM_LABEL in result.summary()
+    assert "structural_model" in result.summary().note_codes
     path = tmp_path / "snmm.joblib"
     result.save(path)
     loaded = cleverly.load(path)
     assert isinstance(loaded, StructuralNestedMeanResult)
     assert loaded.label == module.SNMM_LABEL
     assert set(loaded.to_frame()["model"]) == {module.SNMM_LABEL}
-    assert module.SNMM_LABEL in loaded.summary()
+    assert str(loaded.summary()) == str(result.summary())
     assert loaded.psi("ey_regimen[always]") == result.psi("ey_regimen[always]")
     assert loaded.inference_status == result.inference_status
     assert list(loaded.kinds.values()) == list(result.kinds.values())
@@ -1316,6 +1316,7 @@ def test_the_summary_prints_the_condition_and_the_bands() -> None:
     result = snmm(
         _simulated(300), regimens=REGIMENS, n_folds=2, **{**GLMS, "simultaneous": True}, **SIM
     )
-    text = result.summary()
-    assert "simultaneous" in text and "valid under the linear structural nested mean model" in text
+    summary = result.summary()
+    assert summary.table("Simultaneous 95% bands").rows
+    assert "linear structural nested mean model" in summary.note("structural_model").text
     assert warnings is not None

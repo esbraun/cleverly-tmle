@@ -15,7 +15,14 @@ from typing import Any
 
 from cleverly._summary import vocabulary
 
-__all__ = ["header_values", "read_refutation", "text_tables"]
+__all__ = [
+    "header_values",
+    "read_corrections",
+    "read_equations",
+    "read_refutation",
+    "sci_close",
+    "text_tables",
+]
 
 _NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:e[-+]?\d+)?(?![\w])")
 
@@ -70,11 +77,18 @@ def text_tables(text: str) -> list[tuple[str, list[str], list[list[str]]]]:
             continue
         labels = re.split(r"\s{2,}", lines[index - 1].strip())
         title = lines[index - 2].strip() if index >= 2 and not _rule(lines[index - 2], "=") else ""
-        rows = []
+        rows: list[list[str]] = []
         for row in lines[index + 1 :]:
             if _rule(row, "=") or not row.strip():
                 break
-            rows.append(re.split(r"\s{2,}", row.strip()))
+            cells = re.split(r"\s{2,}", row.strip())
+            if rows and len(cells) == 1 and len(labels) > 1:
+                # A wrapped row: a last column of words continues indented, a row name
+                # continues at the margin.
+                at = -1 if row.startswith(" ") else 0
+                rows[-1][at] = f"{rows[-1][at]} {cells[0]}"
+                continue
+            rows.append(cells)
         found.append((title, labels, rows))
     return found
 
@@ -220,3 +234,210 @@ def _read_readings(names: dict[str, Any], labels: list[str], rows: list[list[str
         band_low, band_high = _numbers(row[4])
         assert close(band_low, reading.band[0]) and close(band_high, reading.band[1]), row
         assert row[5] == ("yes" if reading.inside else "no"), (row, reading)
+
+
+# ----------------------------------------------------------------- equations and corrections
+
+
+def sci_close(shown: str, value: float | None, reference: float = float("nan")) -> bool:
+    """Whether a number printed in scientific notation agrees with ``value``.
+
+    A printed zero also matches a residue far below ``reference`` (five orders), which the
+    summary prints as zero so that it reads the same on every machine; ``"< x"`` matches a
+    value at or below ``x``.
+
+    Parameters
+    ----------
+    shown : str
+        The printed number, ``"-"`` for a missing one.
+    value : float or None
+        The value read from the object.
+    reference : float
+        The bar the value is read against.
+
+    Returns
+    -------
+    bool
+        Whether the two agree.
+    """
+    missing = value is None or not math.isfinite(float(value))
+    if shown == vocabulary.MISSING:
+        return missing
+    if missing:
+        return False
+    number = float(value)  # type: ignore[arg-type]
+    if shown.startswith("<"):
+        return abs(number) <= float(shown[1:])
+    mantissa, _, exponent = shown.partition("e")
+    printed = float(shown)
+    if printed == 0.0:
+        # A printed zero is a residue far below the bar, or an exact zero; nothing larger.
+        if math.isfinite(reference) and reference > 0:
+            return abs(number) < reference * 1e-5
+        return number == 0.0
+    unit = 10 ** (int(exponent or 0) - _decimals(mantissa))
+    return abs(printed - number) <= 0.5 * unit * (1 + 1e-9)
+
+
+def _result_word(passed: bool, threshold: float) -> str:
+    if not math.isfinite(threshold):
+        return vocabulary.CHECK_RESULTS["descriptive"]
+    return vocabulary.CHECK_RESULTS["passed" if passed else "failed"]
+
+
+def _read_number_cells(cells: list[str], record: dict[str, Any]) -> None:
+    error, allowed, ratio, result = cells
+    threshold = float(record["threshold"])
+    assert sci_close(error, abs(float(record["score"])), threshold), (cells, record)
+    assert sci_close(allowed, threshold), (cells, record)
+    assert sci_close(ratio, float(record["ratio"]), 1.0), (cells, record)
+    assert result == _result_word(bool(record["passed"]), threshold), (cells, record)
+
+
+#: What each correction and each row kind is called in print, written out here rather than
+#: read from the vocabulary, so a wrong entry there fails the reader.
+_CORRECTION_WORDS = {
+    "D*_Q": "outcome",
+    "D*_Y": "outcome",
+    "D*_g": "treatment",
+    "D*_A": "treatment",
+    "D*_M": "recording",
+}
+_CHECK_WORDS = {"correction": "size", "identity": "identity", "diagnostic": "described"}
+_GROUP_WORDS = {"mean": "outcome means"}
+_PART_WORDS = {
+    "mechanism": "treatment model",
+    "reduced": "reduced regression",
+    "strata": "strata",
+}
+
+
+def _read_step_label(shown: str, name: str) -> None:
+    """A step row's label names its group and its part in plain words."""
+    stem = re.sub(r"\[draw \d+\]$", "", name)
+    match = re.fullmatch(r"(\S+)(?: \((\w+)\))?", stem)
+    assert match is not None, name
+    group, part = match[1], match[2]
+    expected = _GROUP_WORDS.get(group, group)
+    if part is not None:
+        expected += f" ({_PART_WORDS[part]})"
+    assert shown == expected, (shown, name)
+
+
+def read_equations(check: Any, text: str) -> None:
+    """Assert that every number an equation-check summary prints equals the check's.
+
+    Parameters
+    ----------
+    check : ScoreCheck
+        The check.
+    text : str
+        Its short summary.
+    """
+    frame = check.to_frame()
+    records = [
+        dict(zip(frame.columns, values, strict=True)) for values in frame.itertuples(index=False)
+    ]
+    facts = header_values(text)
+    result = "descriptive" if not records else ("passed" if check.passed else "failed")
+    assert facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS[result]
+    assert int(facts[vocabulary.EQUATIONS].replace(",", "")) == len(records)
+    assert int(facts[vocabulary.ROWS].replace(",", "")) == check.n
+    allowed = facts[vocabulary.ALLOWED_ERROR]
+    if check.declared:
+        assert check.stopping in allowed, allowed
+    else:
+        assert close(_numbers(allowed)[0], check.tolerance), allowed
+
+    def recomputed(record: dict[str, Any]) -> bool:
+        return record["kind"] in ("correction", "identity") or record["method"] == "recomputed"
+
+    expected = {
+        vocabulary.STEP_EQUATIONS_TITLE: [r for r in records if r["kind"] == "fluctuation"],
+        vocabulary.CORRECTIONS_TITLE: [r for r in records if recomputed(r)],
+        vocabulary.ESTIMATE_EQUATIONS_TITLE: [
+            r for r in records if r["kind"] != "fluctuation" and not recomputed(r)
+        ],
+    }
+    tables = text_tables(text)
+    if not records:
+        assert [(labels, rows) for _, labels, rows in tables] == [
+            (["equations"], [["none reported"]])
+        ], tables
+        return
+    assert [title for title, _, _ in tables] == [
+        title for title, rows in expected.items() if rows
+    ], tables
+    for title, labels, rows in tables:
+        wanted = expected[title]
+        assert len(rows) == len(wanted), (title, rows)
+        splits = ["split"] if "split" in labels else []
+        lead = {
+            vocabulary.STEP_EQUATIONS_TITLE: ["equation", *splits],
+            vocabulary.ESTIMATE_EQUATIONS_TITLE: ["estimate"],
+        }.get(title, ["correction", "arm", *splits, "check"])
+        assert labels == [*lead, "error", "allowed", "ratio", "result"], labels
+        for row, record in zip(rows, wanted, strict=True):
+            name = str(record["name"])
+            draw = re.search(r"\[draw (\d+)\]$", name)
+            if "split" in labels:
+                assert draw is not None and int(row[lead.index("split")]) == int(draw[1]) + 1
+            if title == vocabulary.ESTIMATE_EQUATIONS_TITLE:
+                assert row[0] == name, (row, record)
+            elif title == vocabulary.STEP_EQUATIONS_TITLE:
+                _read_step_label(row[0], name)
+            else:
+                part = re.search(r"\((D\*_\w)\)\[(.+?)\]( identity)?(\[draw \d+\])?$", name)
+                assert part is not None, name
+                assert row[0] == _CORRECTION_WORDS[part[1]], (row, record)
+                assert row[1] == part[2], (row, record)
+                assert row[lead.index("check")] == _CHECK_WORDS[str(record["kind"])], row
+            _read_number_cells(row[len(lead) :], record)
+
+
+def read_corrections(check: Any, text: str) -> None:
+    """Assert that every number a correction-check summary prints equals the check's.
+
+    Parameters
+    ----------
+    check : CorrectionCheck
+        The check.
+    text : str
+        Its short summary.
+    """
+    frame = check.to_frame()
+    records = [
+        dict(zip(frame.columns, values, strict=True)) for values in frame.itertuples(index=False)
+    ]
+    facts = header_values(text)
+    result = "descriptive" if not records else ("passed" if check.passed else "failed")
+    assert facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS[result]
+    assert int(facts[vocabulary.EQUATIONS].replace(",", "")) == sum(
+        bool(record["solved"]) for record in records
+    )
+    assert int(facts[vocabulary.ROWS].replace(",", "")) == check.n
+    assert close(_numbers(facts[vocabulary.ALLOWED_ERROR])[0], check.tolerance)
+    assert facts[vocabulary.PREDICTIONS] == ("cross-fitted" if check.cross_fitted else "in-sample")
+    tables = text_tables(text)
+    assert len(tables) == 1, tables
+    _, labels, rows = tables[0]
+    if not records:
+        assert labels == ["corrections"] and rows == [["none reported"]], (labels, rows)
+        return
+    splits = "split" in labels
+    assert splits == (len({record["draw"] for record in records}) > 1)
+    lead = ["correction", "arm", *(["split"] if splits else [])]
+    assert labels == [*lead, "solved", "in SE", "difference", "cap bias"], labels
+    assert len(rows) == len(records), rows
+    identity = check.identity_threshold
+    for row, record in zip(rows, records, strict=True):
+        assert row[0] == _CORRECTION_WORDS[str(record["equation"])], (row, record)
+        assert row[1] == str(record["arm"]), (row, record)
+        if splits:
+            assert int(row[2]) == int(record["draw"]) + 1, (row, record)
+        solved, curve, difference, cap = row[len(lead) :]
+        bar = check.threshold if record["solved"] else 0.0
+        assert sci_close(solved, float(record["stored"]), bar), (row, record)
+        assert sci_close(curve, float(record["reported"]), bar), (row, record)
+        assert sci_close(difference, float(record["residual"]), identity), (row, record)
+        assert sci_close(cap, float(record["clip_bias"]), identity), (row, record)

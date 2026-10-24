@@ -11,6 +11,7 @@ import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
 from cleverly import AssessmentStatus, CapabilityError, DataError, PositivityWarning, load
+from cleverly._summary import vocabulary
 from cleverly.estimators import DRTMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
@@ -890,8 +891,9 @@ class TestTheContractSeesTheObservationTruncations:
         assert randomized_fit.nuisance.folds.n_folds == 1
         summary = randomized_fit.diagnostics.corrections().summary()
 
-        assert "this fit is Theorem 1's estimator" in summary
-        assert "does not cover cross-fitting" not in summary
+        assert summary.note("theorem_in_sample").text == vocabulary.NOTE_TEXTS["theorem_in_sample"]
+        assert "theorem_cross_fitted" not in summary.note_codes
+        assert summary.facts[vocabulary.PREDICTIONS] == "in-sample"
 
     def test_a_pinched_observation_mechanism_is_bound_active(self, pinched_observation_fit) -> None:
         """The nonzero witness. Both observation truncations bite, and the label says so."""
@@ -941,8 +943,9 @@ class TestTheContractSeesTheObservationTruncations:
 
         assert {"observation_clipped", "observation_margin"} <= set(frame.columns)
         assert all(row.observation_clipped > 0 for row in check.rows)
-        assert "pi* at the exit" in summary
-        assert "none of the three truncations" not in summary
+        assert "the recording model at the end" in summary.note("cap_active").text
+        assert "the initial recording model" in summary.note("cap_active").text
+        assert "theorem_in_sample" not in summary.note_codes
 
 
 class TestTheJointRowCountsTheTruncationTheEstimatorApplies:

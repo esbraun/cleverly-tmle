@@ -47,26 +47,10 @@ CENSORING_MODEL: Final = "Censoring model"
 #: The censoring indicators of a longitudinal fit, and what every plan does with them.
 CENSORING: Final = "Censoring"
 ANALYSIS: Final = "Analysis"
-#: The study-setup and simulation summaries (X89 T5).
+#: Shared with the study-setup summaries (X89 T5).
 DESIGN: Final = "Design"
 TREATMENT: Final = "Treatment"
-BASELINE: Final = "Baseline"
-FOLLOWED: Final = "Observed to the end"
-EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
-CENSORED_BEFORE_END: Final = "Censored before the end"
 STRATA: Final = "Strata"
-HELD_FIXED: Final = "Held fixed"
-PROTOCOL: Final = "Study protocol"
-ANSWERED_BY: Final = "Answered by"
-METHODS_FIT: Final = "Methods that fit"
-POPULATION: Final = "Population"
-TIME_ZERO: Final = "Time zero"
-INTERFERENCE_UNIT: Final = "Interference unit"
-REPLICATIONS: Final = "Replications"
-ROWS_PER_REPLICATION: Final = "Rows per replication"
-INTERVAL_LEVEL: Final = "Interval level"
-TOTAL_TIME: Final = "Total time"
-ACCOUNTED: Final = "Accounted for"
 #: The longitudinal and structural summaries (X89 T2).
 COVARIATE_MODELS: Final = "Covariate models"
 CONTRASTS: Final = "Contrasts"
@@ -113,23 +97,7 @@ HEADER_LABELS: frozenset[str] = frozenset(
         ANALYSIS,
         DESIGN,
         TREATMENT,
-        BASELINE,
-        FOLLOWED,
-        EFFECTIVE_SAMPLE_SIZE,
-        CENSORED_BEFORE_END,
         STRATA,
-        HELD_FIXED,
-        PROTOCOL,
-        ANSWERED_BY,
-        METHODS_FIT,
-        POPULATION,
-        TIME_ZERO,
-        INTERFERENCE_UNIT,
-        REPLICATIONS,
-        ROWS_PER_REPLICATION,
-        INTERVAL_LEVEL,
-        TOTAL_TIME,
-        ACCOUNTED,
         COVARIATE_MODELS,
         CONTRASTS,
         FOLD_SPLITS,
@@ -424,18 +392,6 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "fit_warning_parameter_space": "warning",
         "fit_warning_data": "warning",
         "fit_warning_other": "warning",
-        # The study-setup and simulation summaries (X89 T5).
-        "further_conditions": "note",
-        "checkable": "note",
-        "model_restriction": "note",
-        "several_readings": "note",
-        "unbound_effect": "warning",
-        "no_method": "warning",
-        "other_methods": "note",
-        "failed_replications": "warning",
-        "measures_diagnostic": "warning",
-        "mixed_statuses": "note",
-        "worker_time": "note",
         # The longitudinal, structural and support summaries (X89 T2).
         "bootstrap_bands": "note",
         "model_based_interval": "note",
@@ -651,56 +607,6 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "fit_warning": "During the fit cleverly warned: {messages}",
         "fit_warning_more": (
             "It also gave {count} more warnings of this kind; result.fit_warnings lists them."
-        ),
-        # The study-setup and simulation summaries (X89 T5).
-        "other_methods": (
-            "The methods table lists the methods that fit. {count} other {methods} "
-            "cannot estimate this question; the full summary says why."
-        ),
-        "further_conditions": (
-            "The full summary states {count} further {conditions} the answer rests on."
-        ),
-        "checkable": (
-            "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
-            "after a fit, result.diagnostics.support() shows where the fitted treatment model "
-            "gives units little chance of a compared treatment. That check reads a fitted "
-            "model, so a clean result does not prove overlap."
-        ),
-        "model_restriction": (
-            "The design restricts the model of the data; the full summary states how. The "
-            "question is unchanged, and the interval of a fit is claimed only under the "
-            "restriction."
-        ),
-        "several_readings": (
-            "The answer has {count} causal readings, each resting on its own condition; the "
-            "full summary states each."
-        ),
-        "unbound_effect": (
-            "This question is not bound to data, so it cannot be estimated, and the methods "
-            "table is worked out from the question without the study's design."
-        ),
-        "no_method": "No method fits this question; the full summary says why each does not.",
-        "data_warning": "When cleverly read the data it warned: {messages}",
-        "failed_replications": (
-            "Replications that raised an error: {count} of {total}. Every column leaves "
-            "them out, and the full summary lists the errors."
-        ),
-        "measures_diagnostic": (
-            "One or more estimates supply no interval{some}, so mean SE, SE ratio, coverage "
-            "and rejected describe the {noun} and not a confidence interval."
-        ),
-        "mixed_statuses": (
-            "The replicates took more than one inference status, named as in the inference "
-            "column of to_frame(): {clauses}."
-        ),
-        "worker_time": (
-            "The parallel workers' times are each worker's own elapsed time, added across "
-            "workers, so they can pass the time the fit waited and are not added to the "
-            "table above."
-        ),
-        "spread_scale_simulation": (
-            "For {names}, mean SE and SE ratio are on the log scale; truth, bias and MC SD "
-            "are on the ratio scale."
         ),
         # The longitudinal, structural and support summaries (X89 T2).
         "in_sample_flexible_longitudinal": (
@@ -1059,8 +965,354 @@ REFUTATION_TITLE: Final = "Refutation tests"
 STATISTICS_TITLE: Final = "Test statistics"
 READINGS_TITLE: Final = "Readings against their allowed bands"
 
+# ------------------------------------------- checks (T3): equations solved, DR-TMLE corrections
+
+#: Header labels of the equation and correction checks.
+EQUATIONS: Final = "Equations"
+ALLOWED_ERROR: Final = "Allowed error"
+PREDICTIONS: Final = "Predictions"
+HEADER_LABELS = HEADER_LABELS | {EQUATIONS, ALLOWED_ERROR, PREDICTIONS}
+
+#: The notes of the equation check (``ScoreCheck``) and the correction check
+#: (``CorrectionCheck``).
+T3_EQUATION_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "identity_failure": "warning",
+        "row_not_converged": "warning",
+        "equations_only": "note",
+        "dr_curve": "note",
+        "held_to_nothing": "note",
+        "correction_rows": "note",
+        "default_bar": "note",
+        "correction_scale": "note",
+        "theorem_in_sample": "note",
+        "theorem_cross_fitted": "note",
+        "cap_active": "note",
+        "unsolved_guard": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_EQUATION_NOTE_CODES})
+
+T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "identity_failure": (
+            "{count} of the failed rows {verb} two computations of the same expression, "
+            "and they disagree. That is a defect in cleverly, not in your data; please "
+            "report it. Running the correction step longer will not fix it."
+        ),
+        "row_not_converged": "{sentences}",
+        "equations_only": (
+            "This fit reports no interval, so the check verifies the equations only. {reason}"
+        ),
+        "dr_curve": (
+            "The standard error comes from the doubly robust estimator's own curve. Under "
+            "the method's conditions its interval is valid; with one of the two models wrong "
+            "it holds only in the cases cleverly.estimators.drtmle lists."
+        ),
+        "held_to_nothing": "Rows marked described are held to no allowed error: {reasons}",
+        "correction_rows": (
+            "In the corrections table, a size row holds the mean of a DR-TMLE correction to "
+            "its allowed error, and an identity row checks that the value the correction "
+            "step solved equals the value the standard error uses."
+        ),
+        "default_bar": (
+            "The declared rule judges only the equations it stopped; {names} {verb} held to "
+            "the default allowed error, {allowed}."
+        ),
+        "correction_scale": (
+            "{scale}A correction is allowed an error of {threshold}, and a solved value and "
+            "the value the standard error uses must agree to within {identity}."
+        ),
+        "theorem_in_sample": (
+            "No cap binds, so this in-sample fit is the estimator the DR-TMLE theorem "
+            "covers, under the theorem's conditions."
+        ),
+        "theorem_cross_fitted": (
+            "No cap binds, so this fit uses the theorem's construction, but the theorem does "
+            "not cover cross-fitted (out-of-fold) predictions."
+        ),
+        "cap_active": (
+            "A cap is active ({which}). Simulation studies support such fits, but the "
+            "theorem does not cover them. This is not a failure, and the result above does "
+            "not read it."
+        ),
+        "unsolved_guard": (
+            "The {equations} {verb} not among the equations this fit's guard= solves, so the "
+            "reported standard error does not subtract {pronoun}; {rows} a description, "
+            "held to nothing."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_EQUATION_NOTE_TEXTS})
+
+#: Plain names of the equations a fit solves, keyed by the group or estimand name the
+#: equation check's rows carry. An estimand alias the caller chose prints as written.
+EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "mean": "outcome means",
+        "regime": "rule means",
+        "msm": "projection",
+        "mtp": "shifted-treatment mean",
+    }
+)
+
+#: Plain names of the parts of an equation, keyed by the qualifier in a row name.
+EQUATION_PARTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "mechanism": "treatment model",
+        "reduced": "reduced regression",
+        "strata": "strata",
+        "D*_Q": "outcome correction",
+        "D*_Y": "outcome correction",
+        "D*_g": "treatment correction",
+        "D*_A": "treatment correction",
+        "D*_M": "recording correction",
+    }
+)
+
+#: What each row of the equation check's corrections table checks, for its ``check``
+#: column, keyed by the row's ``kind``.
+CORRECTION_ROW_KINDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"correction": "size", "identity": "identity", "diagnostic": "described"}
+)
+
+#: The ``Allowed error`` fact of the equation check, by the rule the fit declared.
+ALLOWED_RELATIVE: Final = "{tolerance:g} x SE / sqrt(n)"
+ALLOWED_DECLARED: Final = "{rule} rule"
+
+#: Why a step of the correction stopped short, keyed by the code the step records.
+STEP_FAILURES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "max_iter_reached": "it reached its iteration limit",
+        "nonfinite_step": "a step gave a value that is not finite",
+        "line_search_exhausted": "no step size reduced the error",
+        "singular_hessian": "the step's curvature matrix was singular",
+        "bounds_pinned": "most predictions sat at their bounds",
+        "separation_suspected": (
+            "its step size grew without limit, the sign of treatment groups that the "
+            "covariates separate almost perfectly"
+        ),
+        "bound_excludes_data": "the outcome bound excludes some of the data",
+    }
+)
+
+#: The sentences of the ``row_not_converged`` note, one per finding.
+ROW_STOPPED: Final = "{name}: the correction step stopped because {reason}."
+ROW_FOLDS: Final = "{name}: {failed} of {total} folds did not converge."
+ROW_CONDITION: Final = (
+    "{name}: the step's curvature matrix has condition number {condition}, so the step "
+    "size is barely determined and a solved equation may still be fragile."
+)
+
+#: Why a diagnostic row of the equation check is held to nothing.
+HELD_UNSOLVED: Final = "{names} {verb} not among the equations this fit's guard= solves"
+HELD_BY_RULE: Final = (
+    "{names} restate{s} outcome equations that the reduced-regression row judges by the "
+    "declared stopping rule"
+)
+
+#: The reading sentence of the equation check, by its result.
+EQUATION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": (
+            "The correction step solved every estimating equation to within its allowed "
+            "error. That is needed for the {spread} to describe this estimate, but it does "
+            "not show that it does."
+        ),
+        "passed_declared": (
+            "The correction step met its declared stopping rule on every equation it judges "
+            "by that rule; those equations are solved to the rule's bound, not to machine "
+            "precision."
+        ),
+        "failed": (
+            "{count} of {total} equations {verb} not solved within {its} allowed error "
+            "({names}), so the {spread} may be wrong."
+        ),
+        "failed_rule": (
+            "The correction step did not meet its declared stopping rule on {names}, so the "
+            "{spread} may be off by more than the rule allows."
+        ),
+        "none": "This fit reports no estimating equations.",
+        "failed_identity": (
+            "Two computations of the same expression disagree ({names}), so the {spread} "
+            "does not describe this estimate."
+        ),
+    }
+)
+
+#: Plain names of the caps the DR-TMLE contract reads, keyed by the names
+#: ``CorrectionCheck.truncations_active`` returns.
+CAP_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "g-hat at the initial fit": "the initial treatment model",
+        "pi-hat at the initial fit": "the initial recording model",
+        "g* at the exit": "the treatment model at the end",
+        "pi* at the exit": "the recording model at the end",
+        "g_r1": "the reduced regression",
+        "gamma_a / gamma_m": "the reduced regressions",
+    }
+)
+
+#: The reading sentence of the correction check, by its result.
+CORRECTION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": (
+            "Every correction is a negligible mean of the same expression the correction "
+            "step solved."
+        ),
+        "passed_partial": (
+            "Every correction this fit solves is a negligible mean of the same expression "
+            "the correction step solved; the others are described only."
+        ),
+        "none": "This fit reports no corrections.",
+        "identity": (
+            "{count} identity {checks} failed: a solved value and the value the standard "
+            "error uses differ. That is a defect in cleverly, not in your data, and the "
+            "standard error does not describe this estimate."
+        ),
+        "correction": (
+            "{count} {corrections} above the allowed error at the fit's final state, so the "
+            "standard error may be wrong."
+        ),
+    }
+)
+
+#: The first sentence of the ``correction_scale`` note, when the fit rescaled its outcome.
+RESCALED: Final = (
+    "Corrections are on the outcome's own scale, {scale} times the scale they were solved on. "
+)
+
+#: The ``Predictions`` fact of the correction check.
+PREDICTION_WORDS: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "cross-fitted", False: "in-sample"}
+)
+
+#: A line of the correction check's full detail, one per split.
+CORRECTION_MARGINS: Final = (
+    "{split}the cap binds on {clipped} of {n} rows at the end; the treatment model comes "
+    "within {margin} of its limits{observation}, and the reduced {regression} within "
+    "{reduced}."
+)
+
+#: Titles of the equation and correction checks and their full-detail sections.
+EQUATION_TITLE: Final = "Check of the estimating equations"
+STEP_EQUATIONS_TITLE: Final = "Equations the correction step solves"
+CORRECTIONS_TITLE: Final = "DR-TMLE corrections"
+ESTIMATE_EQUATIONS_TITLE: Final = "Each estimate's equation"
+CORRECTION_TITLE: Final = "Check of the DR-TMLE corrections"
+SECTION_DETAILS: Final = "Details"
+
 
 # ----------------------------------------------------------------- study setup (T5)
+
+#: The header labels of the study-setup and simulation summaries.
+BASELINE: Final = "Baseline"
+FOLLOWED: Final = "Observed to the end"
+EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
+CENSORED_BEFORE_END: Final = "Censored before the end"
+HELD_FIXED: Final = "Held fixed"
+PROTOCOL: Final = "Study protocol"
+ANSWERED_BY: Final = "Answered by"
+METHODS_FIT: Final = "Methods that fit"
+POPULATION: Final = "Population"
+TIME_ZERO: Final = "Time zero"
+INTERFERENCE_UNIT: Final = "Interference unit"
+REPLICATIONS: Final = "Replications"
+ROWS_PER_REPLICATION: Final = "Rows per replication"
+INTERVAL_LEVEL: Final = "Interval level"
+TOTAL_TIME: Final = "Total time"
+ACCOUNTED: Final = "Accounted for"
+HEADER_LABELS = HEADER_LABELS | {
+    BASELINE,
+    FOLLOWED,
+    EFFECTIVE_SAMPLE_SIZE,
+    CENSORED_BEFORE_END,
+    HELD_FIXED,
+    PROTOCOL,
+    ANSWERED_BY,
+    METHODS_FIT,
+    POPULATION,
+    TIME_ZERO,
+    INTERFERENCE_UNIT,
+    REPLICATIONS,
+    ROWS_PER_REPLICATION,
+    INTERVAL_LEVEL,
+    TOTAL_TIME,
+    ACCOUNTED,
+}
+
+#: The study-setup and simulation summaries' note codes and texts.
+T5_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "further_conditions": "note",
+        "checkable": "note",
+        "model_restriction": "note",
+        "several_readings": "note",
+        "unbound_effect": "warning",
+        "no_method": "warning",
+        "other_methods": "note",
+        "failed_replications": "warning",
+        "measures_diagnostic": "warning",
+        "mixed_statuses": "note",
+        "worker_time": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T5_NOTE_CODES})
+
+T5_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "other_methods": (
+            "The methods table lists the methods that fit. {count} other {methods} "
+            "cannot estimate this question; the full summary says why."
+        ),
+        "further_conditions": (
+            "The full summary states {count} further {conditions} the answer rests on."
+        ),
+        "checkable": (
+            "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
+            "after a fit, result.diagnostics.support() shows where the fitted treatment model "
+            "gives units little chance of a compared treatment. That check reads a fitted "
+            "model, so a clean result does not prove overlap."
+        ),
+        "model_restriction": (
+            "The design restricts the model of the data; the full summary states how. The "
+            "question is unchanged, and the interval of a fit is claimed only under the "
+            "restriction."
+        ),
+        "several_readings": (
+            "The answer has {count} causal readings, each resting on its own condition; the "
+            "full summary states each."
+        ),
+        "unbound_effect": (
+            "This question is not bound to data, so it cannot be estimated, and the methods "
+            "table is worked out from the question without the study's design."
+        ),
+        "no_method": "No method fits this question; the full summary says why each does not.",
+        "data_warning": "When cleverly read the data it warned: {messages}",
+        "failed_replications": (
+            "Replications that raised an error: {count} of {total}. Every column leaves "
+            "them out, and the full summary lists the errors."
+        ),
+        "measures_diagnostic": (
+            "One or more estimates supply no interval{some}, so mean SE, SE ratio, coverage "
+            "and rejected describe the {noun} and not a confidence interval."
+        ),
+        "mixed_statuses": (
+            "The replicates took more than one inference status, named as in the inference "
+            "column of to_frame(): {clauses}."
+        ),
+        "worker_time": (
+            "The parallel workers' times are each worker's own elapsed time, added across "
+            "workers, so they can pass the time the fit waited and are not added to the "
+            "table above."
+        ),
+        "spread_scale_simulation": (
+            "For {names}, mean SE and SE ratio are on the log scale; truth, bias and MC SD "
+            "are on the ratio scale."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T5_NOTE_TEXTS})
 
 #: The Design fact, keyed by the design class's name. ``{T}`` is the number of time points.
 DESIGN_WORDS: Final[Mapping[str, str]] = MappingProxyType(
@@ -1531,6 +1783,254 @@ REGIME_SUPPORT_TITLE: Final = "Overlap of each regime"
 POLICY_SUPPORT_TITLE: Final = "Overlap of policy {name}"
 TILT_SUPPORT_TITLE: Final = "Overlap of tilt {name}"
 
+#: The structural nested mean summary (X89 T2): the Question, the row meanings and the
+#: blip-feature table.
+STRUCTURAL_QUESTION: Final = "effect of each treatment time on {Y} under the blip model"
+STRUCTURAL_QUESTION_PLANS: Final = (
+    "effect of each treatment time on {Y} under the blip model, and the plan means it implies"
+)
+STRUCTURAL_LEVEL: Final = "{A} = {level} instead of {ref}"
+STRUCTURAL_DOSE: Final = "one more unit of {A}"
+STRUCTURAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "blip": (
+            "coefficient of {feature} in the effect on {Y} of {change} at time {t}, with later "
+            "treatments at their reference"
+        ),
+        "intercept": (
+            "effect on {Y} of {change} at time {t}, with later treatments at their reference, "
+            "for a unit whose other blip features are zero"
+        ),
+        "reference": "mean {Y} if every unit had the reference level of every treatment",
+        "level": "mean {Y} if every unit followed plan {d}, read from the blip model",
+        "contrast": (
+            "mean {Y} under plan {d} minus that mean under plan {r}, read from the blip model"
+        ),
+    }
+)
+BLIP_TITLE: Final = "Blip features at each time point"
+TIME: Final = "time"
+BLIP_TREATMENT: Final = "treatment"
+BLIP_LEVELS: Final = "levels"
+BLIP_FEATURES: Final = "features"
+STRUCTURAL_FAMILY: Final = "Outcome regressions: {family}."
+FAMILY_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"binomial": "logistic, for a 0-or-1 outcome", "gaussian": "linear, for a continuous outcome"}
+)
+STRUCTURAL_EIGENVALUE: Final = (
+    "Smallest standardized eigenvalue of the estimating equation's derivative: {value}. Near "
+    "zero, the treatment varies little given the history, or the blip features are nearly "
+    "collinear given it, so the coefficients are weakly identified."
+)
+STRUCTURAL_EXTREME: Final = (
+    "Largest share of rows with an estimated treatment probability within {margin} of 0 or 1, "
+    "over the time points: {share}."
+)
+STRUCTURAL_RESTRICTION: Final = (
+    "the effect of each treatment time, with later treatments at their reference, is linear "
+    "in the declared blip features"
+)
+STRUCTURAL_CONSTRUCTION: Final = (
+    "G-estimation: at each time point, from the last to the first, the blip coefficients solve "
+    "an estimating equation that pairs the outcome, with later blips removed, against the "
+    "treatment minus its predicted value."
+)
+
+#: The overlap reports of regimes, policies and tilts.
+REGIME_ROW_TITLE: Final = "Overlap of regime {name}"
+SUPPORT_REGIMES: Final = "Regimes"
+SUPPORT_NO_REGIMES: Final = "The fit declares no regimes, so there is no overlap to report."
+SUPPORT_WORST: Final = "Least supported"
+SUPPORT_REGIME_TABLE: Final = "How much the data support each regime"
+SUPPORT_REGIME_ONE_TABLE: Final = "How much the data support the regime"
+SUPPORT_POLICY_TABLE: Final = "How much the data support the policy"
+SUPPORT_TILT_TABLE: Final = "How much the data support the tilt"
+SUPPORT_SPLIT: Final = " (score load from split {split} of {repeats})"
+SUPPORT_REGIME: Final = "regime"
+SUPPORT_MIN_G: Final = "min probability"
+SUPPORT_MAX_RATIO: Final = "max ratio"
+SUPPORT_RATIO_ESS: Final = "effective n"
+SUPPORT_LOAD_EFFECTIVE: Final = "score load"
+SUPPORT_UNSUPPORTED: Final = "unsupported"
+SUPPORT_TWO_MECHANISMS: Final = (
+    "min probability is the smallest estimated probability of an arm the regime assigns, max "
+    "ratio the largest weight ratio, and effective n the effective sample size of those ratios. "
+    "All three read the estimated treatment model before any limit, which is what the data "
+    "support. unsupported counts the rows given an arm whose estimated probability is exactly zero."
+)
+SUPPORT_REGIME_DETAIL: Final = (
+    "{name}: weight ratio quantiles {quantiles}; probability of the assigned arm {tails}."
+)
+SUPPORT_MOVED: Final = "Rows moved"
+SUPPORT_UNSUPPORTED_ROWS: Final = "Rows sent to zero density"
+SUPPORT_NOT_MEASURED: Final = "not measured"
+SUPPORT_OUTSIDE: Final = "Rows sent outside the declared support"
+SUPPORT_MECHANISM_NOTE: Final = (
+    "The weight is the density ratio divided by the probability of staying under observation "
+    "after its bound, and by the intermediate's density when the fit holds one; the smallest "
+    "other factor is their smallest product."
+)
+SUPPORT_CAPPED: Final = "Rows held by the cap"
+SUPPORT_MIN_DENSITY: Final = "Smallest density at an observed dose"
+SUPPORT_NO_DENSITY: Final = "not measured: the classifier fits no density"
+SUPPORT_MIN_MECHANISM: Final = "Smallest other factor dividing the weight"
+SUPPORT_RATIO: Final = "density ratio"
+SUPPORT_WEIGHT: Final = "weight"
+SUPPORT_QUANTILE: Final = "{q} quantile"
+SUPPORT_LARGEST: Final = "largest"
+SUPPORT_ESS_ROW: Final = "effective size"
+SUPPORT_SHARE_OF_ROWS: Final = "effective share"
+SUPPORT_MEAN_RATIO: Final = "mean ratio"
+SUPPORT_FOLD_MEAN: Final = "mean ratio, fold {fold}"
+SUPPORT_MEAN_RATIO_READING: Final = (
+    "The mean ratio's expected value under the true density equals the probability that the "
+    "policy's dose stays inside the support of the observed doses given the covariates, which is "
+    "one when the policy keeps that support; an upper cap alone does not ensure this for a "
+    "negative shift or a gap in the support. In a sample the mean also moves with sampling and "
+    "with error in the density model, so a mean near one does not prove that the support holds "
+    "or that the effect is identified."
+)
+SUPPORT_ATOMS: Final = "Mean fitted probability of each declared atom: {masses}."
+SUPPORT_NO_ZERO_CHECK: Final = (
+    "The classifier fits no density, so the report cannot count rows sent to a dose of zero "
+    "density."
+)
+SUPPORT_FACTORS: Final = "Odds factors"
+SUPPORT_BOUND: Final = "Tilt weight bound"
+SUPPORT_NO_FACTOR: Final = "none (the natural course)"
+SUPPORT_TILT_READING: Final = (
+    "An odds tilt keeps the tilt part of each weight inside the bound for any treatment "
+    "model, so it needs no treatment probability away from 0 or 1. When outcomes are missing, "
+    "the probability of staying under observation still divides the weight and needs "
+    "positivity; the largest weight and the effective size do not include it. min "
+    "probability is shown for comparison with a fit that sets each unit's treatment."
+)
+
+#: The parametric g-formula simulation report.
+YES: Final = "yes"
+NO: Final = "no"
+GFORMULA_DRAWS: Final = "Draws per unit (estimate)"
+GFORMULA_DERIVATIVE_DRAWS: Final = "Draws per unit (derivatives)"
+GFORMULA_MODELS: Final = "Models"
+GFORMULA_PARAMETRIC: Final = "All models parametric"
+GFORMULA_MODELS_TITLE: Final = "The models the simulation draws from"
+GFORMULA_MODEL: Final = "model"
+GFORMULA_ROLE: Final = "role"
+GFORMULA_RESPONSE: Final = "response"
+GFORMULA_LEARNER: Final = "learner"
+GFORMULA_READ: Final = "in estimate"
+GFORMULA_CONSTANT: Final = "constant"
+#: Short learner names for the models table, which has six columns.
+GFORMULA_LEARNERS: Final[Mapping[str, str]] = MappingProxyType(
+    {"GLM": "GLM", "LogisticRegression": "logistic", "LinearRegression": "linear"}
+)
+GFORMULA_ROLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "covariate": "covariate",
+        "outcome": "outcome",
+        "hazard": "event hazard",
+        "treatment": "natural treatment",
+    }
+)
+GFORMULA_RESPONSES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "binary": "0 or 1",
+        "multi": "categories",
+        "normal": "normal",
+        "mean": "mean",
+    }
+)
+GFORMULA_SHARE_TITLE: Final = "Share of each row's variance from the simulation"
+GFORMULA_SHARE: Final = "share"
+GFORMULA_SUPPORT_TITLE: Final = "Support of each set dose"
+GFORMULA_COLUMN: Final = "treatment"
+GFORMULA_DOSE: Final = "dose"
+GFORMULA_RULE_DOSE: Final = "set by a rule"
+GFORMULA_OFF: Final = "histories > {z} SD off"
+GFORMULA_WINDOW: Final = "observed within {z} SD"
+GFORMULA_READ_MODELS: Final = (
+    "The simulation draws each unit's covariates and outcome forward in time from these "
+    "models, under each plan. in estimate says whether the estimate draws from the model: a "
+    "set dose replaces the treatment model, which is then fitted but not used."
+)
+GFORMULA_READ_SHARE: Final = (
+    "share is the part of each row's variance that comes from simulating a finite number of "
+    "draws per unit rather than from the data; a larger n_draws lowers it."
+)
+GFORMULA_READ_SUPPORT: Final = (
+    "For each set dose, the first share counts simulated histories whose fitted mean dose lies "
+    "more than {z} fitted standard deviations from the dose, and the second the observed doses "
+    "within {z} standard deviations of it. A large first share or a small second one says the "
+    "dose lies outside what the data show, so the estimate rests on the models' extrapolation."
+)
+
+#: The structural model check summary.
+CHECK_QUESTION: Final = "do the model's plan contrasts agree with LTMLE on the same rows?"
+CHECK_CONTRASTS: Final = "Contrasts"
+CHECK_SPLITS_LABEL: Final = "Fold splits"
+CHECK_TEST: Final = "Test"
+CHECK_TEST_F: Final = "scaled joint Wald statistic against F({df}, {df2})"
+CHECK_TEST_CHI2: Final = "joint Wald statistic against chi-squared({df})"
+CHECK_TABLE_TITLE: Final = "The model's contrasts against LTMLE"
+CHECK_STRUCTURAL: Final = "structural"
+CHECK_LTMLE: Final = "LTMLE"
+CHECK_DIFFERENCE: Final = "difference"
+CHECK_SPREAD: Final = "std. error"
+CHECK_JOINT_TITLE: Final = "Joint test"
+CHECK_STATISTIC: Final = "statistic"
+CHECK_CONTRASTS_COLUMN: Final = "contrasts"
+CHECK_COVARIANCE_DF: Final = "covariance df"
+CHECK_PVALUE: Final = "p-value"
+CHECK_READING: Final = (
+    "A small p-value says the model fails for these contrasts; a large one does not confirm "
+    "the model."
+)
+CHECK_NO_TEST: Final = "No test: {reason}"
+CHECK_HOW_TO_READ: Final[tuple[str, ...]] = (
+    "The check fits LTMLE on the same rows, weights, clusters and folds and compares each plan "
+    "contrast with the one the structural model implies. When the model holds, each "
+    "difference has mean zero. The two estimates share most of their error, so the test reads "
+    "the standard error of the difference, not that of either estimate.",
+    "covariance df is the effective degrees of freedom of the estimated covariance. The test "
+    "scales the Wald statistic and reads it against an F reference whose second degrees of "
+    "freedom come from it, which allows for a covariance estimated with error. A small value "
+    "says a few rows or clusters carry most of the variance, or few fold splits were averaged.",
+)
+
+#: The small summaries of an MSM fit's working-model record and an SNMM's positivity record.
+MSM_FIT_TITLE: Final = "Working-model coefficients"
+MSM_TABLE: Final = "Coefficient of each term"
+MSM_TERM: Final = "term"
+MSM_COEFFICIENT: Final = "coefficient"
+MSM_LINK: Final = "Link"
+MSM_LINK_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"identity": "the mean", "log": "the log of the mean", "logit": "the log odds"}
+)
+MSM_CELLS: Final = "Plan and time cells"
+MSM_CONVERGED: Final = "Converged"
+MSM_CAUSE_LABEL: Final = "Cause"
+MSM_FIT_READING: Final = "The result's summary() gives each coefficient with its interval."
+MSM_HOW_TO_READ: Final = (
+    "The coefficients project the plan means at every plan and time onto the working model, "
+    "which is linear in {scale}. They summarize those means, so they keep their meaning when "
+    "the working model is wrong."
+)
+DIAGNOSTICS_TITLE: Final = "Positivity of the structural fit"
+DIAGNOSTICS_TABLE: Final = "What each time point measured"
+DIAGNOSTICS_NODE: Final = "treatment time"
+DIAGNOSTICS_TIME: Final = "time {time}"
+DIAGNOSTICS_EIGENVALUE: Final = "smallest eigenvalue"
+DIAGNOSTICS_EXTREME: Final = "near 0 or 1"
+DIAGNOSTICS_CONSTANT: Final = "Fits with a one-class fold"
+DIAGNOSTICS_READING: Final = (
+    "smallest eigenvalue is the smallest standardized eigenvalue of the estimating "
+    "equation's derivative at that time: near zero, the treatment varies little given the "
+    "history, or the blip features are nearly collinear given it, so the coefficients are "
+    "weakly identified. near 0 or 1 is the share of rows whose estimated treatment "
+    "probability lies within the positivity margin of 0 or 1; a "
+    "dose has none."
+)
+
 #: What one row of a longitudinal table estimates, keyed by the name's prefix and the
 #: outcome kind. ``{Y}`` is the outcome (with ``{at}`` its time, empty at the end of study),
 #: ``{d}`` the plan, ``{r}`` the reference plan, ``{t}`` the time and ``{cause}`` the cause.
@@ -1685,6 +2185,72 @@ SUPPORT_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
         "unsupported": "rows without support",
     }
 )
+
+EVERY_ROW: Final = "every row"
+SECTION_HOW_TO_READ: Final = "How to read"
+
+#: The notes of the structural, g-formula and overlap summaries (X89 T2).
+T2_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "structural_model": "note",
+        "check_splits": "note",
+        "draw_order": "note",
+        "simulation_share": "note",
+        "unsupported_rows": "warning",
+        "score_load": "note",
+        "score_load_rows": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_NOTE_CODES})
+
+T2_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "check_experimental": "cleverly marks this check experimental. {reason}",
+        "check_splits": (
+            "Each number is the mean over {k} fold splits, the first of them the fit's own."
+        ),
+        "draw_order": (
+            "The order in which the covariates of one time point are drawn defines the "
+            "models, so at most one order is correctly specified in general."
+        ),
+        "score_load": (
+            "Score load reads the limited treatment model the fit used, while the ratios and "
+            "their effective size read the estimated model before any limit. It counts the "
+            "rows that effectively carry the estimating equation, of the rows the equation "
+            "reads, so it is not the effective size of the ratios."
+        ),
+        "score_load_rows": (
+            "Score load counts the rows that effectively carry the estimating equation, of the "
+            "rows the equation reads, so it is not the effective size of the ratios."
+        ),
+        "simulation_share": (
+            "The simulation contributes up to {share} of the variance ({name}); a larger "
+            "n_draws lowers it."
+        ),
+        "structural_check": "result.check_model() compares the plan contrasts with LTMLE.",
+        "structural_covariate_feature": (
+            "A blip feature reads a covariate measured after baseline, so the fit reports the "
+            "blips and the reference mean but no plan means or contrasts."
+        ),
+        "structural_model": (
+            "The intervals hold under the linear structural nested mean model with the blip "
+            "features declared at each time point. A blip that depends on an undeclared "
+            "earlier treatment or covariate makes the coefficients, and the plan means read "
+            "from them, biased."
+        ),
+        "unsupported_density": (
+            "{name} moves {count} rows to a dose where the estimated density is exactly zero. "
+            "This flags the density model; it does not prove that the effect is unidentified."
+        ),
+        "unsupported_rows": (
+            "Rows given an arm whose estimated probability is exactly zero: {counts}. The data "
+            "give no support there. If the true probability is zero, the effect is not "
+            "identified for those rows."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T2_NOTE_TEXTS})
+
 
 # ----------------------------------------------------------------- point-estimate objects (T1)
 
