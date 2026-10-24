@@ -817,28 +817,24 @@ class TestTheLongitudinalSummary:
         assert result.converged
         residuals = {name: hand_residual(e) for name, e in result.estimates.items()}
         worst = max(residuals, key=lambda name: residuals[name])
-        expected = (
-            f"stopping rule {rule}: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
-            f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
-        )
-        lines = result.summary().splitlines()
-        assert lines[-1] == f"  {expected}"
-        assert lines[-2] == ""
-        assert "did not meet" not in result.summary()
-        assert "did not converge" not in result.summary()
+        summary = result.summary()
+        text = summary.note("stopping_rule").text
+        assert text == rule_note(result)
+        # The remainder of the note is the one the stored influence curve gives by hand.
+        shown = "less than 0.001" if residuals[worst] < 0.001 else f"{residuals[worst]:.3g}"
+        assert f"{shown} standard errors of bias (on {worst})" in text
+        assert "score_unsolved" not in summary.note_codes
 
     def test_a_working_model_prints_the_line_on_its_regimen_parameters(self) -> None:
         result = longitudinal.working_model("scaled_var")
         assert result.converged
         residuals = {name: hand_residual(e) for name, e in result.estimates.items()}
         worst = max(residuals, key=lambda name: residuals[name])
-        expected = (
-            f"stopping rule scaled_var: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
-            f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
-        )
-        assert result.summary().splitlines()[-1] == f"  {expected}"
+        assert worst.startswith("msm_regimen[")
+        text = result.summary().note("stopping_rule").text
+        assert text == rule_note(result)
+        shown = "less than 0.001" if residuals[worst] < 0.001 else f"{residuals[worst]:.3g}"
+        assert f"{shown} standard errors of bias (on {worst})" in text
 
     def test_a_fit_that_missed_its_rule_prints_the_failure_line(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)
@@ -858,13 +854,14 @@ class TestTheLongitudinalSummary:
         ]
         assert misses
         key, step = misses[0]
-        named = f"{key} at t={step.time} is {step.fluctuation.rule_ratio:.3g} times its threshold"
-        lines = result.summary().splitlines()
-        assert lines[-1].startswith("  the targeting did not meet the scaled_var stopping rule; ")
-        assert named in lines[-1]
-        assert lines[-1].endswith(". See res.fits")
-        assert lines[-2].startswith("  stopping rule scaled_var: the largest score residual is ")
-        assert "at least one node's targeting step did not converge" not in result.summary()
+        ratio = step.fluctuation.rule_ratio
+        named = f"{key} at time {step.time} stopped at {ratio:.3g} times its threshold"
+        summary = result.summary()
+        item = summary.note("score_unsolved")
+        assert item.kind == "warning"
+        assert item.text.startswith("The fit did not meet its declared stopping rule: ")
+        assert named in item.text
+        assert summary.note("stopping_rule").text == rule_note(result)
 
     def test_the_shipped_rule_prints_the_shipped_warning(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)
@@ -873,12 +870,12 @@ class TestTheLongitudinalSummary:
             result = LTMLE(longitudinal.PLANS, alpha=0.55, **longitudinal.learners()).fit(
                 frame, outcome="Y", **longitudinal.NODES
             )
-        text = result.summary()
-        assert "stopping rule" not in text
+        summary = result.summary()
+        assert "stopping_rule" not in summary.note_codes
         if not result.converged:
-            assert text.splitlines()[-1] == (
-                "  warning: at least one node's targeting step did not converge"
-            )
+            assert summary.note("score_unsolved").text == vocabulary.NOTE_TEXTS[
+                "score_unsolved_longitudinal"
+            ].format(draw="", what="interval")
 
     def test_the_default_summary_has_no_rule_line(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)

@@ -114,9 +114,10 @@ def test_the_bootstrap_diagnostic_refits(one_step: Any) -> None:
 
 
 def test_the_summary_reports_the_walk(one_step: Any) -> None:
-    text = one_step.summary()
-    assert "hazard targeting: one step over 8 parameter(s)" in text
-    assert "converged" in text
+    lines = one_step.summary(detail="full").section("Settings").lines
+    (walk,) = [line for line in lines if line.startswith("The hazard update took ")]
+    assert "steps over 8 estimates and solved its equations" in walk
+    assert one_step.converged
 
 
 def test_the_nuisance_report_has_hazard_rows(one_step: Any) -> None:
