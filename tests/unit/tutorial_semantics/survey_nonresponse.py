@@ -443,8 +443,7 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     # The E-value is the closed form of VanderWeele and Ding at the risk ratio.
     rr = evalue.risk_ratio
     assert evalue.point == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)))
-    assumptions = " ".join(evalue.summary(detail="full").section("Assumptions").lines)
-    assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in assumptions
+    assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in str(evalue.summary())
     rv = namespace["rv"]
     assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3612)
     assert rv["limit_licensed"] is False
