@@ -3490,12 +3490,294 @@ def _categorical_long_rows() -> tuple[SupportRow, ...]:
     )
 
 
+_LH_BCA: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca"})
+_LH_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", "band"})
+_LH_BOOT_BAND: Final[frozenset[Kind]] = frozenset(
+    {"point", "wald", "bootstrap_bca", "bootstrap_band"}
+)
+_LH_WALD_NOTE: Final[str] = (
+    "The Wald interval is gated for a quantity only where n is at least twice its n_kappa. "
+    "Below that, the BCa interval at B = 199 is gated instead, and the BCa row of a "
+    "Wald-gated quantity reports."
+)
+_LH_CROSSFIT_NOTE: Final[str] = (
+    "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
+    "ratio of 1.17 to 1.33 here (X20), and six of the Wald rows lose their gate below twice "
+    "n_kappa."
+)
+_LH_MSM_NOTE: Final[str] = (
+    "Both coefficients are gated at n = 96,000, which is at least twice the n_kappa of the "
+    "intercept (94,226) and of the duration (50,908). The MSM fit runs no bootstrap."
+)
+_LH_SDR_BAND_NOTE: Final[str] = "The SDR bootstrap band is experimental and gates no row."
+_LH_NO_PRIMARY_NOTE: Final[str] = (
+    "The study fits this setting in its property cells only, so no BCa row gates it and the "
+    "Wald interval rests on the calibration cells."
+)
+_LH_LEARNED_NOTE: Final[str] = (
+    "The cell is a bias check of the necessity family: it states no interval, and the "
+    "treatment of the third arm is learned."
+)
+
+
+def _long_horizon_rows() -> tuple[SupportRow, ...]:
+    """The rows of the three long-horizon studies (X39): ``G46``.
+
+    One row for each estimator, decision count, arm count, splitting and working model that a
+    primary scenario covers. The row ids read ``G46.tmle.<name>`` and ``G46.sdr.<name>``.
+
+    Every row licenses ``point``. It licenses ``wald`` when the study gates a Wald row of a
+    member scenario, or an ``interval_calibration`` cell of the row's setting. It licenses
+    ``bootstrap_bca`` when the study gates a BCa row of a member scenario. The study gates BCa
+    only where the Wald row is not gated (n below twice n_kappa), so BCa stays experimental on
+    every quantity that the study does not gate it on. The cross-fitted rows and every SDR row
+    license no bootstrap band: the cross-fitted bootstrap is experimental (X20), and the SDR
+    bootstrap band is experimental. A row licenses ``band`` when the study gates the Wald-curve
+    band of its setting (``binary_k5``) and ``bootstrap_band`` when it gates the studentized
+    sup-t band at B = 199 (``categorical_k5``).
+    """
+    tmle2 = ("long-horizon-ltmle", "tmle", 2)
+    tmle3 = ("long-horizon-categorical-ltmle", "tmle", 3)
+    sdr2 = ("long-horizon-sdr", "sdr", 2)
+    sdr3 = ("long-horizon-sdr", "sdr", 3)
+    #: name, study, decisions, folds, msm, learned, kinds, stochastic, cells, limits
+    declared: tuple[
+        tuple[
+            str,
+            tuple[str, str, int],
+            int,
+            int,
+            bool,
+            bool,
+            frozenset[Kind],
+            bool,
+            tuple[str, ...],
+            tuple[str, ...],
+        ],
+        ...,
+    ] = (
+        ("binary_k3", tmle2, 3, 1, False, False, _LH_BCA, True, ("binary_k3",), (_LH_WALD_NOTE,)),
+        ("binary_k4", tmle2, 4, 1, False, False, _LH_BCA, True, ("binary_k4",), (_LH_WALD_NOTE,)),
+        ("binary_k5", tmle2, 5, 1, False, False, _LH_BAND, True, ("binary_k5",), (_LH_WALD_NOTE,)),
+        (
+            "binary_k5_msm",
+            tmle2,
+            5,
+            1,
+            True,
+            False,
+            _LONG_WALD,
+            False,
+            ("binary_k5_msm",),
+            (_LH_MSM_NOTE,),
+        ),
+        (
+            "categorical_k3",
+            tmle3,
+            3,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("categorical_k3",),
+            (_LH_WALD_NOTE,),
+        ),
+        (
+            "categorical_k4",
+            tmle3,
+            4,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("categorical_k4", "categorical_k4_high", "categorical_k4_static"),
+            (_LH_WALD_NOTE,),
+        ),
+        (
+            "categorical_k5",
+            tmle3,
+            5,
+            1,
+            False,
+            False,
+            _LH_BOOT_BAND,
+            True,
+            (
+                "categorical_k5",
+                "categorical_k5_mix",
+                "categorical_k5_static",
+                "categorical_k5_switch",
+                "categorical_k5_high",
+            ),
+            (_LH_WALD_NOTE,),
+        ),
+        (
+            "categorical_k5_crossfit",
+            tmle3,
+            5,
+            5,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("categorical_k5_crossfit",),
+            (_LH_CROSSFIT_NOTE,),
+        ),
+        (
+            "sdr_binary_k3",
+            sdr2,
+            3,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k3",),
+            (_LH_WALD_NOTE,),
+        ),
+        (
+            "sdr_binary_k4",
+            sdr2,
+            4,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k4",),
+            (_LH_WALD_NOTE,),
+        ),
+        (
+            "sdr_binary_k5",
+            sdr2,
+            5,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k5",),
+            (_LH_WALD_NOTE,),
+        ),
+        (
+            "sdr_categorical_k5",
+            sdr3,
+            5,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            (
+                "sdr_categorical_k5",
+                "sdr_categorical_k5_mix",
+                "sdr_categorical_k5_static",
+                "sdr_categorical_k5_switch",
+                "sdr_categorical_k5_high",
+                "sdr_policy_k5",
+                "sdr_policy_k5_mix",
+                "sdr_policy_k5_taper",
+            ),
+            (_LH_WALD_NOTE, _LH_SDR_BAND_NOTE),
+        ),
+        (
+            "sdr_categorical_k5_crossfit",
+            sdr3,
+            5,
+            5,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("sdr_categorical_k5_crossfit",),
+            (_LH_CROSSFIT_NOTE,),
+        ),
+        (
+            "sdr_categorical_k3",
+            sdr3,
+            3,
+            1,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("interval_calibration/categorical_respond_vs_ref__k3__known_mechanism",),
+            (_LH_NO_PRIMARY_NOTE,),
+        ),
+        (
+            "sdr_categorical_k4",
+            sdr3,
+            4,
+            1,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            (
+                "interval_calibration/categorical_respond_vs_ref__k4__known_mechanism",
+                "root_n_and_efficiency/respond_vs_ref__k4__n_4000",
+            ),
+            (_LH_NO_PRIMARY_NOTE,),
+        ),
+        (
+            "categorical_k5_learned",
+            tmle3,
+            5,
+            1,
+            False,
+            True,
+            frozenset({"point"}),
+            True,
+            ("categorical_probability_necessity/third_arm__k5__binary_complement",),
+            (_LH_LEARNED_NOTE,),
+        ),
+        (
+            "sdr_categorical_k5_learned",
+            sdr3,
+            5,
+            1,
+            False,
+            True,
+            frozenset({"point"}),
+            True,
+            ("categorical_probability_necessity/third_arm__k5__binary_complement",),
+            (_LH_LEARNED_NOTE,),
+        ),
+    )
+    rows: list[SupportRow] = []
+    for name, (
+        slug,
+        engine,
+        arms,
+    ), nodes, folds, msm, learned, kinds, stochastic, cells, limits in declared:
+        roles = "C" if learned else "AC"
+        rows.append(
+            long_row(
+                f"G46.{engine}.{name}",
+                [slug],
+                regimens=("static", "stochastic") if stochastic else ("static",),
+                msm=msm,
+                treatment=tuple(str(arms) for _ in range(nodes)),
+                splitting=("cross_fitted",) if folds > 1 else ("in_sample",),
+                qualifiers=[f"{role}{k}" for role in roles for k in range(1, nodes + 1)],
+                engine=engine,
+                kinds=kinds,
+                cells=cells,
+                limits=limits,
+            )
+        )
+    return tuple(rows)
+
+
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
-#: structural nested mean model (``G42``) and the categorical tilt (``G43``).
+#: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
+#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
-    (*_long_rows(), *_categorical_long_rows())
+    (*_long_rows(), *_categorical_long_rows(), *_long_horizon_rows())
 )
 
 
