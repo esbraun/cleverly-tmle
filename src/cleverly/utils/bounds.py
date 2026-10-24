@@ -108,7 +108,7 @@ def shrink_probabilities(p: FloatArray, alpha: float) -> FloatArray:
 #: where "not mean" *was* "an odds"; as groups were added they silently inherited the ATT
 #: bound instead -- and a group registered through
 #: :func:`~cleverly.fluctuation.register_submodel` inherited it too, with nothing saying
-#: so.  ``TMLEConfig.describe`` has always reported this bound as the "ATT/ATC" one, which
+#: so.  The point summary reports this bound as the "ATT/ATC" one, which
 #: is what it now is.
 CONDITIONAL_GROUPS: frozenset[str] = frozenset({"att", "atc"})
 

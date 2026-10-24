@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
@@ -277,8 +278,8 @@ def check(namespace: dict[str, Any]) -> None:
     for name, (low, high) in bands.bands.items():
         assert low < result[name].ci[0] and high > result[name].ci[1]
     estimate_output = stored_output(NOTEBOOK, "estimate")
-    assert estimate_output.count("always: 938 of 4000 units followed it throughout") == 1
-    assert estimate_output.count("never: 671 of 4000 units followed it throughout") == 1
+    assert len(re.findall(r"^always +938 of 4,000 ", estimate_output, re.MULTILINE)) == 1
+    assert len(re.findall(r"^never +671 of 4,000 ", estimate_output, re.MULTILINE)) == 1
 
     # Compare the follow-up plans. Each contrast equals the signed sum with the standard error of the summed influence
     # curves, so the joint correlation enters.  Event-free survival is one minus both causes; one

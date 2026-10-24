@@ -36,6 +36,7 @@ from .._summary import (
     short_repr,
     vocabulary,
 )
+from .._summary._cells import number_cell
 from .._summary._estimates import plain_support_reason, without_roadmap
 from ..inference.influence import spread_name
 
@@ -116,10 +117,7 @@ def _decimals(values: Iterable[Any]) -> int:
 
 
 def _number(value: Any, decimals: int) -> Cell:
-    if value is None or not _finite(value):
-        # A missing number is stored as None: nan never compares equal.
-        return Cell(None, number_text(value, decimals))
-    return Cell(float(value), number_text(value, decimals))
+    return number_cell(value, decimals)
 
 
 def _interval(low: Any, high: Any, decimals: int) -> Cell:

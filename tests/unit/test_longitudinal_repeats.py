@@ -32,6 +32,7 @@ import pytest
 
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly._summary import vocabulary
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -196,9 +197,8 @@ def test_none_seed_draws_fresh_concrete_seeds(monkeypatch: pytest.MonkeyPatch) -
     # One multiplier seed for the fit, used by every draw's critical value.
     seed = result.config.multiplier_seed
     assert isinstance(seed, int)
-    assert f"multiplier seed: {seed} (drawn, random_state=None)" in result.config.describe(
-        contrast=True
-    )
+    # The seed is recorded for replay; the summary prints no seed.
+    assert str(seed) not in str(result.summary(detail="full"))
     rebuilt = median_bands(
         [draw.estimates for draw in result.repeats],
         {name: result[name] for name in result.simultaneous.bands},
@@ -295,10 +295,17 @@ def test_config_records_repeats_and_the_multiplier_seed() -> None:
     result = _fit("ltmle", repeats=3)
     assert result.config.repeats == 3
     assert result.config.multiplier_seed == 11
-    assert "cross-fitting: 5 fold(s), median over 3 draws" in result.config.describe(contrast=True)
+    full = result.summary(detail="full")
+    assert full.table(vocabulary.PLANS_SPLIT_TITLE.format(repeats=3)) is not None
+    settings = full.section(vocabulary.SECTION_SETTINGS).lines
+    assert "Folds: 5, in each of 3 splits." in settings
+    assert any(line.startswith("Spread of each row across the 3 splits") for line in settings)
     single = _fit("ltmle")
     assert single.config.repeats == 1
-    assert not any("median over" in line for line in single.config.describe(contrast=True))
+    single_full = single.summary(detail="full")
+    assert vocabulary.PLANS_TITLE in [table.title for table in single_full.tables]
+    lines = single_full.section(vocabulary.SECTION_SETTINGS).lines
+    assert not any(line.startswith("Spread of each row") for line in lines)
 
 
 def test_read_through_fields_are_draw_zero() -> None:
@@ -327,7 +334,7 @@ def test_converged_reads_every_draw() -> None:
     stagewise = result.diagnostics.support()
     assert all(stagewise.to_frame()["converged"])
     assert stagewise.draw_converged == (True, True, False)
-    assert "in at least one draw" in result.summary()
+    assert "in at least one split" in result.summary().note("score_unsolved").text
 
 
 # ================================================================ 4.2 aggregation
@@ -923,7 +930,10 @@ def test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental(
         # The limits of a median band have no projection rule, so no band is built, and
         # the summary says so.
         assert result.simultaneous is None
-        assert estimator_module.NO_ISOTONIC_REPEAT_BANDS in result.summary()
+        assert (
+            estimator_module.NO_ISOTONIC_REPEAT_BANDS
+            in result.summary(detail="full").section("Settings").lines
+        )
         risks = [e.psi for n, e in result.estimates.items() if n.startswith("risk_regimen[a1")]
         assert risks == sorted(risks)
     else:
@@ -1072,15 +1082,24 @@ def test_readers_report_the_combined_estimates() -> None:
     frame = result.to_frame()
     for name, estimate in result.estimates.items():
         assert frame.loc[frame["estimand"] == name, "psi"].item() == estimate.psi
-    text = str(result.summary())
-    assert "median over 3 draws" in text
-    assert "leverage of draw 1 of 3" in text
-    # The split-noise block names every parameter with its spread across the draws.
-    assert "split noise: spread across the 3 draws on the inference scale" in text
+    summary = result.summary()
+    assert "median over 3 random splits" in summary.note("repeated_splits").text
+    # The plan table reads one fitted recursion, so it says which.
+    assert any(table.title.endswith("(split one of 3)") for table in summary.tables if table.title)
+    # The spread line names every parameter with its spread across the draws.
+    (spread_line,) = [
+        line
+        for line in result.summary(detail="full").section("Settings").lines
+        if line.startswith("Spread of each row across the 3 splits")
+    ]
     spread = result.repeat_spread()
     for name in result.estimates:
-        assert f"  {name} {spread[name]:.4g}  (" in text
-    assert "split noise" not in str(single.summary())
+        assert f"{name} {spread[name]:.4g}" in spread_line
+    assert "repeated_splits" not in single.summary().note_codes
+    assert not any(
+        line.startswith("Spread of each row")
+        for line in single.summary(detail="full").section("Settings").lines
+    )
 
 
 def test_refute_reruns_every_draw_with_its_own_seed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1168,9 +1187,12 @@ def test_long_panel_repeats_reproduce_the_wide_fit() -> None:
             _close(left.estimates[name].psi, estimate.psi)
             _close(left.estimates[name].influence_curve, estimate.influence_curve)
     pd.testing.assert_frame_equal(adapted.to_frame(), wide.to_frame(), rtol=RTOL)
-    describe = adapted.config.describe(contrast=True)
-    assert any(line.startswith("long panel: unit column 'customer'") for line in describe)
-    assert "cross-fitting: 2 fold(s), median over 3 draws" in describe
+    full = adapted.summary(detail="full")
+    assert dict(full.header)[vocabulary.UNITS] == f"{adapted.n:,}"
+    settings = full.section(vocabulary.SECTION_SETTINGS).lines
+    assert any(line.startswith("Long panel: unit column 'customer'") for line in settings)
+    assert "Folds: 2, in each of 3 splits." in settings
+    assert full.table(vocabulary.PLANS_SPLIT_TITLE.format(repeats=3)) is not None
     # The study design ``LongPanel`` reaches the same repeated engine.
     from tests.unit.test_long_panel import ROLES
 

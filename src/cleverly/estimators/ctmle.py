@@ -351,7 +351,6 @@ from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
-from ..data.treatment_covariates import pool_line
 from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
@@ -373,7 +372,6 @@ from ..learners.super_learner import resolve_learner
 from ..targets.base import READS_SINK, parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
-from ..utils.text import format_table
 from ._ctmle_derivative import (
     DERIVATIVE_ONE_STEP_REFUSAL,
     DERIVATIVE_TARGET_WEIGHTS_REFUSAL,
@@ -404,6 +402,7 @@ from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 
 if TYPE_CHECKING:
+    from .._summary import Detail, Summary
     from .base import TMLEResult
 
 __all__ = [
@@ -1384,97 +1383,38 @@ class CTMLESelection:
         """
         return _unordered_candidates(self.treatment_risk)
 
-    def summary(self) -> str:
-        """A printable report of the selection.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the search, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how the risks are computed.
 
         Returns
         -------
-        str
-            The candidate table, the criterion and the reported mechanism.
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data. A long
+            path prints its landmark candidates; :meth:`to_frame` lists them all.
         """
-        indexed = self.strategy in _INDEXED_STRATEGIES
-        rows = []
-        for index, names in enumerate(self.path):
-            marker = "<--" if index == self.selected else ""
-            if self.final is not None and index == self.final:
-                marker = "<-- final"
-            rows.append(
-                [
-                    str(index),
-                    self._label(index) if indexed else (", ".join(names) or "(intercept)"),
-                    str(self.n_steps[index]),
-                    f"{self.train_risk[index]:.6g}",
-                    f"{self.cv_risk[index]:.6g}",
-                    marker,
-                ]
-            )
-        table = format_table(
-            ["k", "candidate g" if indexed else "covariates in g", "steps", "risk", "cv risk", ""],
-            rows,
-        )
-        criterion = "penalized " if self.penalized else ""
-        loss_name = "log-likelihood" if self.loss == "loglik" else "squared-error"
-        header = [
-            "Collaborative TMLE selection",
-            "=" * 28,
-            f"strategy = {self.strategy}; preorder = {self.preorder or 'n/a'}; "
-            f"target = {self.estimand} ({', '.join(self.target_names)}); "
-            f"criterion = cross-validated {criterion}{loss_name} loss",
-            "",
-        ]
-        if self.restricted_pool is not None:
-            header.insert(-1, pool_line(self.restricted_pool))
-        if self.patience is not None:
-            header.insert(-1, self._patience_line())
-        chosen = self.selected_covariates
-        footer = [""]
-        if indexed:
-            footer.append(f"selected g: {self._label(self.reported)}")
-            footer.append(
-                "covariates in selected g: " + (", ".join(chosen) if chosen else "(none)")
-            )
-            if self.strategy == "learners":
-                footer.append(
-                    "treatment risk decreases along the declared order: "
-                    + ("yes" if self.treatment_risk_decreasing else "no")
-                )
-            return "\n".join([*header, table, *footer])
-        footer.append("selected g: " + (", ".join(chosen) if chosen else "(intercept only)"))
-        if self.dropped:
-            footer.append(
-                "left out: "
-                + ", ".join(self.dropped)
-                + f". The selected candidate minimized targeted cross-validated {criterion}"
-                f"{loss_name} loss; this criterion does not determine why a covariate "
-                "was left out"
-            )
-        return "\n".join([*header, table, *footer])
+        from .._summary import check_detail
+        from ._method_summary import selection_summary
 
-    def _patience_line(self) -> str:
-        """The summary line that states what ``patience=`` did to the path."""
-        assert self.patience is not None
-        if self.stopped_at is None:
-            return (
-                f"patience = {self.patience}: the counter never triggered, so the search read "
-                "every candidate"
-            )
-        # An indexed path (lasso, learners) fits every candidate of a pass before it scores
-        # them, so after the stop its later candidates are fitted but not scored.
-        later = (
-            "were fitted but not scored"
-            if self.strategy in _INDEXED_STRATEGIES
-            else "were not fitted or scored"
-        )
-        return (
-            f"patience = {self.patience}: the counter stopped the search after candidate "
-            f"{self.stopped_at + 1}, and later candidates {later}"
-        )
+        return selection_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import selection_repr
+
+        return selection_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def describe(self) -> str:
         """One sentence naming the strategy, the candidate the search cut at, and its target.
 
-        The sentence every report of a collaborative fit prints, in the house pattern of
-        :meth:`~cleverly.estimators.TMLEConfig.describe`.  Its counterpart is
+        The sentence the assessment and nuisance reports print for a collaborative fit.
+        Its counterpart is
         :meth:`CTMLEOutcomeAdaptiveFit.describe`, so a caller renders a retained artifact
         without first discriminating which of the two it holds.  Two call sites
         discriminated by hand and had already drifted to ``candidate=2/5`` against
@@ -1509,7 +1449,8 @@ class CTMLESelection:
         return float(self.treatment_risk[self.reported])
 
 
-#: What the stacked parametric interval of an admitted per-arm fit covers (X58).
+#: What the stacked parametric interval of an admitted per-arm fit covers.
+# Roadmap: X58.
 _STACKED_INTERVAL_NOTE: Final = (
     "Its intervals read the stacked parametric curve of {models}. Each interval is pointwise "
     "and covers the arm mean when the outcome model is correct, and its limit psi* otherwise. "
@@ -1637,51 +1578,37 @@ class CTMLEOutcomeAdaptiveFit:
             if self.stacked_interval is not None:
                 sentence += f". {_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval)}"
             if self.stacked_refusal is not None:
-                sentence += f". No stacked interval (X58): {self.stacked_refusal}"
+                sentence += f". No stacked interval: {self.stacked_refusal}"
             return sentence
         return (
             f"C-TMLE outcome-adaptive fit used {count} Qbar features in one categorical mechanism"
         )
 
-    def summary(self) -> str:
-        """A printable report of the outcome-adaptive treatment design.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the outcome-adaptive treatment model, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
 
         Returns
         -------
-        str
-            The design, the features and the treatment negative log likelihood.
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
         """
-        features = ", ".join(self.treatment_features)
-        if self.design == "per_arm" and (len(self.factors) > 1 or self.strata):
-            inside = ", inside each baseline stratum" if self.strata else ""
-            model = f"per_arm; each factor below ~ Qbar(a, W){inside}, one set per arm"
-        elif self.design == "per_arm":
-            model = "per_arm; treatment model = 1{A = a} ~ Qbar(a, W), one per arm"
-        else:
-            model = "shared; treatment model = A ~ [Qbar(a, W)]"
-        lines = [
-            "Collaborative TMLE outcome-adaptive fit",
-            "=" * 39,
-            f"strategy = oat; design = {model}",
-            f"features: {features}",
-            f"treatment negative log likelihood: {self.treatment_risk:.6g}",
-        ]
-        if self.treatment_risk_by_arm is not None:
-            lines.extend(
-                f"  arm {label}: {value:.6g}" for label, value in self.treatment_risk_by_arm.items()
-            )
-        if (len(self.factors) > 1 or self.strata) and self.risk_by_factor is not None:
-            lines.append("factors, negative log likelihood summed over arms:")
-            lines.extend(
-                f"  {factor}: {self.risk_by_factor[factor]:.6g}" for factor in self.factors
-            )
-        if self.strata:
-            lines.append(f"fitted inside each baseline stratum: {'; '.join(self.strata)}")
-        if self.stacked_interval is not None:
-            lines.append(_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval))
-        if self.stacked_refusal is not None:
-            lines.append(f"No stacked interval (X58): {self.stacked_refusal}")
-        return "\n".join(lines)
+        from .._summary import check_detail
+        from ._method_summary import oat_summary
+
+        return oat_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import oat_repr
+
+        return oat_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -1714,6 +1641,8 @@ class CTMLEDerivativeFit:
     treatment_risk : float
         The mean cross-validated deviance at the chosen penalty when the lasso source chose
         it, otherwise the weighted negative log likelihood of the mechanism's predictions.
+    arm_labels : tuple of str, default=()
+        The treatment level of each arm, in the order of the scores; empty when unknown.
     """
 
     strategy: CTMLEStrategy
@@ -1725,6 +1654,7 @@ class CTMLEDerivativeFit:
     derivative_score_before: FloatArray
     derivative_score_after: FloatArray
     treatment_risk: float
+    arm_labels: tuple[str, ...] = ()
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -1765,38 +1695,31 @@ class CTMLEDerivativeFit:
             return "C-TMLE derivative fit used two declared learners as mechanism and partner"
         return "C-TMLE derivative fit used two declared arrays as mechanism and partner"
 
-    def summary(self) -> str:
-        """A printable report of the derivative fit.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the derivative fit, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
 
         Returns
         -------
-        str
-            The source, the penalties, the coefficients and the derivative scores.
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
         """
-        lines = [
-            "Collaborative TMLE derivative fit (C-TMLE0)",
-            "=" * 43,
-            f"strategy = derivative; source = {self.source}",
-            self.describe(),
-            "",
-            format_table(
-                ["column", "epsilon"],
-                [
-                    [name, f"{value:.6g}"]
-                    for name, value in zip(self.names, self.epsilon, strict=True)
-                ],
-            ),
-            "",
-            "derivative score before / after targeting (normalized): "
-            + "; ".join(
-                f"{before:.3g} / {after:.3g}"
-                for before, after in zip(
-                    self.derivative_score_before, self.derivative_score_after, strict=True
-                )
-            ),
-            f"treatment risk: {self.treatment_risk:.6g}",
-        ]
-        return "\n".join(lines)
+        from .._summary import check_detail
+        from ._method_summary import derivative_summary
+
+        return derivative_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import derivative_repr
+
+        return derivative_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -3205,6 +3128,7 @@ default="greedy"
             derivative_score_before=update.score_before,
             derivative_score_after=update.score_after,
             treatment_risk=treatment_risk,
+            arm_labels=tuple(str(level) for level in data.treatment_levels),
         )
         # The fit record needs this solve.  ``targeting_outcome`` stays empty: the retarget
         # rebuilds the update at its own bounds, so a stored ``Q*`` would never be read.

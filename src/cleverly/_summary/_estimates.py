@@ -64,7 +64,7 @@ _ID = re.compile(r"\b(?:[A-Z]{1,2}\d+[a-z]?(?:\.[A-Za-z_]+)*)\b")
 
 #: A sentence that points at a roadmap item, and a roadmap id in parentheses.
 _ROADMAP_SENTENCE = re.compile(r"\s*\b[A-Z]{1,2}\d+[a-z]? in docs/roadmap\.md\b[^.]*\.")
-_ROADMAP_PAREN = re.compile(r"\s*\(\s*[A-Z]{1,2}\d+[a-z]?\s*\)")
+_ROADMAP_PAREN = re.compile(r"\s*\(\s*(?:roadmap\s+)?[A-Z]{1,2}\d+[a-z]?(?:\s+part\s+[a-z])?\s*\)")
 
 
 def without_roadmap(text: str) -> str:
@@ -193,7 +193,9 @@ def estimates_table(
                         (float(low), float(high)),
                         f"[{number_text(low, decimals)}, {number_text(high, decimals)}]",
                     ),
-                    Cell(float(estimate.pvalue), pvalue_text(estimate.pvalue)),
+                    # A transformed estimate whose default null has no value on its
+                    # scale has no default test, and prints none.
+                    Cell(float(pvalue := estimate._reported_pvalue()), pvalue_text(pvalue)),
                     *(
                         [
                             Cell(

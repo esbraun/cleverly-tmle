@@ -673,24 +673,45 @@ class SplitPlan:
         return fold_fingerprint(self.assignments)
 
     def __repr__(self) -> str:
-        """Return a summary rather than every label.
+        """Return one line rather than every label.
 
         A plan holds one label per row per repeat, so the generated ``__repr__`` prints
         the whole dataset back: 150 KB for a 50,000-row plan, in a traceback or a
         notebook cell that asked for one line.  What identifies a plan is its shape and
         its fingerprint, and both are here.  The generator says whether a fit can accept
-        the plan at all: ``generator=None`` is a plan with no record, which every fit
-        refuses.
+        the plan at all: ``no generator`` is a plan with no record, which every fit
+        refuses.  ``bound`` marks a plan tied to one dataset's fingerprint, which
+        :attr:`source_fingerprint` holds.
         """
+        from .._summary import short_repr
+
+        facts: list[tuple[str, object]] = [
+            ("n", self.n),
+            ("folds", self.n_folds),
+            ("repeats", self.n_repeats),
+            # The generator's name without its package prefix, unlabelled, so the line keeps
+            # the fingerprint within 100 characters.
+            (
+                "",
+                "no generator"
+                if self.provenance is None
+                else self._generators().removeprefix("cleverly."),
+            ),
+            ("fingerprint", self.fingerprint),
+        ]
+        if self.source_fingerprint is not None:
+            facts.append(("", "bound"))
+        return short_repr("SplitPlan", facts)
+
+    def _generators(self) -> str:
         if self.provenance is None:
-            generator = "None"
-        else:
-            generator = "+".join(sorted({origin.generator for origin in self.provenance}))
-        bound = "" if self.source_fingerprint is None else f", source={self.source_fingerprint}"
-        return (
-            f"SplitPlan(n={self.n}, n_folds={self.n_folds}, n_repeats={self.n_repeats}, "
-            f"fingerprint={self.fingerprint}, generator={generator}{bound})"
-        )
+            return "None"
+        return "+".join(sorted({origin.generator for origin in self.provenance}))
+
+    def _cache_token(self) -> tuple[str, str | None, str]:
+        """The content an assessment cache keys this plan by: its repr leaves the source
+        digest out, so two plans bound to different data would otherwise share a key."""
+        return (self.fingerprint, self.source_fingerprint, self._generators())
 
     def to_folds(self) -> tuple[Folds, ...]:
         """Return fresh mutable-array fold objects for every repeat.

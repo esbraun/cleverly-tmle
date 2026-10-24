@@ -73,6 +73,11 @@ SEED = 1
 UNEQUAL_SEED = 20261101
 
 
+def _bootstrap_table(summary: Any) -> Any:
+    """The bootstrap table of a summary."""
+    return next(t for t in summary.tables if (t.title or "").startswith("Bootstrap ("))
+
+
 def subject(regimens: Any = None, **settings: Any) -> LTMLE:
     """The ``canonical-ltmle-crossfit`` subject at five whole-cluster folds."""
     configuration: dict[str, Any] = {
@@ -592,7 +597,7 @@ class TestEveryTargetKind:
     def test_the_band_below_forty_clusters_is_skipped_and_named(self) -> None:
         result = fit_law(21, simultaneous=True)
         assert result.simultaneous is None
-        assert NO_T_REFERENCE_BANDS in result.summary()
+        assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
         assert {e.reference_df for e in result.estimates.values()} == {19}
 
     def test_the_cross_fitted_floor_is_the_smallest_measured_count(self) -> None:
@@ -745,8 +750,9 @@ class TestTheClusteredCrossFitBootstrapIsADiagnostic:
 
     def test_the_percentile_interval_is_experimental(self) -> None:
         result, seen = self.bootstrapped()
-        text = result.summary()
-        assert "percentile CI" in text and "[experimental]" in text
+        summary = result.summary()
+        assert "percentile 95% CI" in _bootstrap_table(summary).columns
+        assert "bootstrap_experimental" in summary.note_codes
         for estimate in result.estimates.values():
             assert estimate.bootstrap.support.label == "experimental"
             assert {"bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(estimate.to_dict())

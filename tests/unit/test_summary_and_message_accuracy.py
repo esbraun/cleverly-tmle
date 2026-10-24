@@ -676,15 +676,20 @@ class TestTheReferenceLineBelongsToAContrast:
 
     def test_a_regime_mean_summary_prints_no_reference(self) -> None:
         result = sweep.fit_ltmle()
-        lines = result.summary().splitlines()
-        assert not any(line.strip().startswith("reference:") for line in lines)
-        # The replay reads the field, so the correction hides the line and keeps the field.
+        summary = result.summary()
+        assert all(name.startswith("ey_regimen[") for name in result.estimates)
+        meanings = [str(summary.header)] + [
+            row[1].text for row in summary.table(vocabulary.KEY_TITLE).rows
+        ]
+        assert not any("minus" in text or "instead of" in text for text in meanings)
+        # The replay reads the field, so the summary hides it and the record keeps it.
         assert result.config.reference == "always"
 
     def test_a_regime_contrast_summary_keeps_its_reference(self) -> None:
         """The nonzero witness: a result that holds a contrast prints its reference."""
         result = _longitudinal_fit(_longitudinal_study().identify(_contrast()))
-        assert "  reference: never" in result.summary().splitlines()
+        summary = result.summary()
+        assert dict(summary.header)[vocabulary.QUESTION].endswith("instead of never")
 
 
 # ------------------------------------------- row 2: the history at each treatment node
@@ -705,16 +710,17 @@ class TestTheIdentificationSummaryPrintsEachNodesHistory:
         )
         study = CausalStudy(frame.assign(K=1.0), design=design)
         assert "K" in study.design.baseline
-        lines = study.identify(_contrast()).summary().splitlines()
-        assert "history at A1: ['W1', 'W2']" in lines
-        assert "history at A2: ['W1', 'W2', 'L2', 'A1']" in lines
-        assert not any(line.startswith("adjustment/history") for line in lines)
+        summary = study.identify(_contrast()).summary()
+        (table,) = [table for table in summary.tables if table.title == vocabulary.HISTORY_TITLE]
+        rows = {row[0].text: row[1].text for row in table.rows}
+        assert rows == {"A1": "W1, W2", "A2": "W1, W2, L2, A1"}
+        assert dict(summary.header)[vocabulary.BASELINE] == "W1, W2"
 
     def test_a_point_design_keeps_its_adjustment_line(self) -> None:
         study = CausalStudy(_missing_frame().fillna({"Y": 0.0}), design=_design())
-        lines = study.identify(ATE()).summary()
-        assert "adjustment/history: ['W1', 'W2', 'W3']" in lines.splitlines()
-        assert "history at" not in lines
+        summary = study.identify(ATE()).summary()
+        assert dict(summary.header)[vocabulary.ADJUSTED_FOR] == "W1, W2, W3"
+        assert vocabulary.HISTORY_TITLE not in summary
 
 
 # --------------------------------------------------------- row 3: the DR-TMLE line
@@ -736,29 +742,42 @@ def _method_lines(result: Any) -> tuple[str, ...]:
     return summary.section(vocabulary.SECTION_METHOD).lines
 
 
+def _reduction_line(reduction: str) -> str:
+    words = vocabulary.REDUCTION_WORDS[reduction]
+    return f"The extra equations come from the regressions in the table ({words})."
+
+
 class TestTheDRTMLESummaryNamesItsGuardAndReduction:
-    """Row 3. A DR-TMLE full summary names the method, the guard and the reduction."""
+    """Row 3. A DR-TMLE summary names the method, the guard and the reduction."""
 
     def test_the_default_guard(self) -> None:
-        lines = _method_lines(sweep.fit_drtmle())
-        assert "DR-TMLE: guard Q, g; univariate reduction" in lines
+        result = sweep.fit_drtmle()
+        summary = result.summary()
+        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model or a wrong treatment model"
+        assert summary.note("guard_scope").text == " ".join(
+            vocabulary.GUARD_SENTENCES[guard] for guard in ("Q", "g")
+        )
+        assert _reduction_line("univariate") in _method_lines(result)
 
     def test_a_one_equation_guard(self) -> None:
-        lines = _method_lines(_guarded(("Q",)))
-        assert "DR-TMLE: guard Q; univariate reduction" in lines
+        result = _guarded(("Q",))
+        summary = result.summary()
+        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model"
+        assert summary.note("guard_scope").text == vocabulary.GUARD_SENTENCES["Q"]
+        assert _reduction_line("univariate") in _method_lines(result)
 
     def test_an_empty_guard_names_the_ordinary_tmle(self) -> None:
-        lines = _method_lines(_guarded(()))
-        assert (
-            "DR-TMLE: empty guard, so no reduced regression was fitted and the estimate is "
-            "the ordinary TMLE"
-        ) in lines
+        summary = _guarded(()).summary()
+        assert summary.note("ordinary_tmle").text == vocabulary.NOTE_TEXTS["ordinary_tmle"]
+        assert "guard_scope" not in summary.note_codes
+        assert summary.facts[vocabulary.GUARD] == "none"
 
     def test_the_bivariate_reduction(self) -> None:
         frame, _ = make_binary_outcome(n=160, seed=11)
         estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), reduction="bivariate")
         lines = _method_lines(estimator.fit(frame, outcome="Y", treatment="A").single())
-        assert "DR-TMLE: guard Q, g; bivariate reduction" in lines
+        assert _reduction_line("bivariate") in lines
+        assert _reduction_line("univariate") not in lines
 
     def test_the_missing_outcome_reduction(self) -> None:
         """The line names the construction that ran, which the constructor did not name."""
@@ -773,11 +792,15 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
         assert estimator.reduction == "univariate"
         result = estimator.fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta")
         lines = _method_lines(result.single())
-        assert "DR-TMLE: guard Q, g; missing_outcome reduction" in lines
+        assert _reduction_line("missing_outcome") in lines
+        assert _reduction_line("univariate") not in lines
 
-    def test_an_ordinary_fit_prints_no_dr_tmle_line(self) -> None:
-        lines = _method_lines(sweep.fit_ordinary())
-        assert not any(line.startswith("DR-TMLE:") for line in lines)
+    def test_an_ordinary_fit_prints_no_dr_tmle_facts(self) -> None:
+        result = sweep.fit_ordinary()
+        summary = result.summary()
+        assert vocabulary.GUARD not in summary.facts
+        assert not {"guard_scope", "ordinary_tmle"} & set(summary.note_codes)
+        assert not any(line.startswith("The extra equations") for line in _method_lines(result))
 
 
 # ------------------------------------------------------ row 4: the support columns' basis
@@ -826,7 +849,7 @@ class TestTheSupportTableStatesEachColumnsBasis:
 
 def _record_lines() -> tuple[str, ...]:
     """The record's fields as a summary prints them, without the fingerprint line."""
-    return navigation_protocol().summary_lines()[1:]
+    return navigation_protocol().summary_lines()
 
 
 def _count(text: str, lines: tuple[str, ...]) -> list[int]:
@@ -857,11 +880,7 @@ class TestTheProtocolPrintsAtFullDetailOnly:
 
     @staticmethod
     def _summaries(effect: Any, result: Any, **options: Any) -> list[str]:
-        return [
-            effect.summary(**options),
-            "\n".join(effect.summary_lines(**options)),
-            result.summary(**options),
-        ]
+        return [effect.summary(**options), result.summary(**options)]
 
     @pytest.mark.parametrize("kind", ["point", "longitudinal"])
     def test_the_short_default_prints_no_protocol_line(
@@ -893,7 +912,7 @@ class TestTheProtocolPrintsAtFullDetailOnly:
 
     def test_an_unknown_detail_is_refused(self, point: Any) -> None:
         effect, result = point
-        for call in (effect.summary, effect.summary_lines, result.summary):
+        for call in (effect.summary, result.summary):
             with pytest.raises(ValueError, match="detail must be 'short' or 'full'"):
                 call(detail="fingerprint")
 
@@ -907,8 +926,16 @@ class TestTheProtocolPrintsAtFullDetailOnly:
         assert result.summary(detail="full").section(vocabulary.SECTION_STUDY).lines == (
             _record_lines()
         )
-        assert results.summary(detail="full").count(full) == len(levels)
+        combined = results.summary(detail="full")
+        if levels == (None,):
+            assert combined == full
+        else:
+            # One table over the levels, and a section equal at every level prints once.
+            assert combined.section(vocabulary.SECTION_STUDY).lines == _record_lines()
+            titles = [section.title for section in combined.sections]
+            assert titles.count(vocabulary.SECTION_STUDY) == 1
         assert vocabulary.SECTION_STUDY not in results.summary()
+        assert not results.summary().sections
 
     def test_an_absent_protocol_prints_absent_at_full_detail(self) -> None:
         fitted = TMLE(**linear_in_sample()).fit(_linear_frame(), outcome="Y", treatment="A")
@@ -1050,6 +1077,11 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         assert "bootstrap_diagnostic" not in result.summary().note_codes
 
 
+def _plans_table(summary: Any) -> Any:
+    (table,) = [t for t in summary.tables if (t.title or "").startswith(vocabulary.PLANS_TITLE)]
+    return table
+
+
 class TestCompetingRisksFollowerLines:
     """A competing-risks LTMLE fit prints each regimen's follower line once.
 
@@ -1065,8 +1097,6 @@ class TestCompetingRisksFollowerLines:
         return competing("relative")
 
     def test_each_regimen_line_prints_once(self) -> None:
-        import re
-
         result = self._fit()
         deepest = max(fit.horizon for fit in result.fits.values())
         per_regimen: dict[str, set[str | None]] = {}
@@ -1075,12 +1105,8 @@ class TestCompetingRisksFollowerLines:
                 per_regimen.setdefault(fit.regimen.label, set()).add(fit.cause)
         # Witness: the fit really holds one deepest fit per cause, so the check is not vacuous.
         assert per_regimen == {"always": {"relapse", "death"}, "never": {"relapse", "death"}}
-        lines = [
-            line
-            for line in result.summary().splitlines()
-            if re.match(r"  (always|never)( \(\w+\))?: \d+ of \d+ units followed", line)
-        ]
-        assert [line.split(":")[0].strip() for line in lines] == ["always", "never"]
+        table = _plans_table(result.summary())
+        assert [row[0].value for row in table.rows] == ["always", "never"]
 
     def test_a_cause_whose_line_differs_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Mutation of the shared-mechanism premise: give one cause's fit another weight.  The
@@ -1101,7 +1127,15 @@ class TestCompetingRisksFollowerLines:
                 return getattr(original, name)
 
         monkeypatch.setitem(result.fits, key, Heavier())
-        text = result.summary()
-        assert "  always (relapse): " in text and "  always (death): " in text
-        assert "max weight 99.0" in text
-        assert text.count("  never: ") == 1
+        table = _plans_table(result.summary())
+        plans = [row[0].value for row in table.rows]
+        assert plans == ["always (relapse)", "always (death)", "never"]
+        weights = dict(
+            zip(
+                plans,
+                (row[table.columns.index(vocabulary.LARGEST_WEIGHT)].value for row in table.rows),
+                strict=True,
+            )
+        )
+        assert weights["always (death)"] == 99.0
+        assert weights["always (relapse)"] != 99.0

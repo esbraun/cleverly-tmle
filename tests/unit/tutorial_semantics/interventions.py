@@ -159,11 +159,12 @@ def check(namespace: dict[str, Any]) -> None:
     # recomputes it from the structural equations as 0.024137 (MC SE 2.4e-06).
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
     assert double_odds == pytest.approx(0.024137, abs=2e-5)
-    assert "positivity *for the assigned dose*" in namespace["shift_effect"].summary()
-    assert "An upper cap alone does not ensure this for negative shifts or support gaps" in (
-        namespace["shift_effect"].summary()
-    )
-    assert "*no positivity assumption*" in namespace["incremental_effect"].summary()
+    # A full summary wraps its lines, so each check reads the words in order.
+    shift = " ".join(str(namespace["shift_effect"].summary(detail="full")).split())
+    assert "positivity *for the assigned dose*" in shift
+    assert "An upper cap alone does not ensure this for negative shifts or support gaps" in shift
+    incremental = " ".join(str(namespace["incremental_effect"].summary(detail="full")).split())
+    assert "*no positivity assumption*" in incremental
 
     # Each reading names the fields its protocol changes in the program protocol.
     program = navigation_protocol()

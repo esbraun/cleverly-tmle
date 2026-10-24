@@ -192,7 +192,7 @@ Print each protocol record once on the page, and read it in plain words as the s
 | --- | --- | --- |
 | the record of the protocol step | the protocol step, with `"\n".join(protocol.summary_lines())` | keep the default `summary()`, which prints no protocol line |
 | a record that a later step declares | the step that declares it, with `"\n".join(record.summary_lines())`, or with the fingerprint and the fields that it changed | keep the default |
-| no record | nothing to print. A summary with `detail="full"` states `causal study protocol: absent` | keep the default |
+| no record | nothing to print. A summary with `detail="full"` says that no study protocol was recorded | keep the default |
 
 Every protocol that a notebook derives with `dataclasses.replace` needs two records. The reading
 names the changed fields. The callback asserts the exact set with `changed_fields(protocol, base)`,
@@ -311,7 +311,7 @@ Use the shared helpers in `tests/unit/tutorial_semantics/__init__.py`. Do not de
 | helper | what it checks |
 | --- | --- |
 | `covers(estimate, value)` | the estimate's interval, or a `(low, high)` pair, contains the value |
-| `assert_protocol_recorded(NOTEBOOK, "<cell id>", protocol, *results)` | the cell prints the protocol fingerprint, and each result carries it |
+| `assert_protocol_recorded(NOTEBOOK, "<cell id>", protocol, *results)` | the cell prints the protocol's fingerprint or every one of its fields, and each result carries the fingerprint |
 | `changed_fields(protocol, base)` | the set of fields in which `protocol` differs from the protocol it was derived from. Assert the exact set the reading names |
 
 Do not loosen a tolerance to make a relation pass. A relation that moves under a supported change is

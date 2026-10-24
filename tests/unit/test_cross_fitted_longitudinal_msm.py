@@ -922,7 +922,7 @@ def test_twenty_one_clusters_take_the_t_reference_and_skip_the_band() -> None:
     _assert_cluster_se(result)
     assert {result[f"msm_regimen[{term}]"].reference_df for term in TERMS} == {19}
     assert result.simultaneous is None
-    assert NO_T_REFERENCE_BANDS in result.summary()
+    assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
 
 
 def test_nineteen_clusters_show_a_labelled_t_interval_for_every_coefficient() -> None:

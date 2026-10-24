@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
@@ -378,10 +379,11 @@ class TestTheSurroundingMachineryStillWorks:
 
     def test_the_settings_report_names_the_working_model(self, fitted: Any) -> None:
         result, _ = fitted
-        # A working model has no reference line, even where the report would hold a contrast.
-        lines = result.config.describe(contrast=True)
-        assert any("working model: 2 term(s) (intercept), duration" in line for line in lines)
-        assert not any(line.startswith("reference:") for line in lines)
+        # A working model names its terms, and no row reads as a contrast of two plans.
+        summary = result.summary()
+        assert "(intercept), duration" in summary.note("working_model").text
+        key = summary.table(vocabulary.KEY_TITLE)
+        assert not any("minus" in row[1].text or "instead of" in row[1].text for row in key.rows)
 
     def test_the_provenance_digests_the_evaluated_design(self, fitted: Any) -> None:
         """A design is a closure with no stable fingerprint; the arrays are what was used."""

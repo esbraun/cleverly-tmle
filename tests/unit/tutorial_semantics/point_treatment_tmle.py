@@ -275,7 +275,8 @@ def check(namespace: dict[str, Any]) -> None:
     _assert_committed_numbers()
     # The full summary prints the protocol's fields; the short default leaves them out.
     assert "Discharge-home order" not in namespace["effect"].summary()
-    summary = namespace["effect"].summary(detail="full")
+    # A full summary wraps its lines, so each check reads the words in order.
+    summary = " ".join(str(namespace["effect"].summary(detail="full")).split())
     assert "Discharge-home order" in summary
     assert "scores death before day 30 as the worst transition score" in summary
     assert "Analyze the offer regardless of completed contacts" in summary
