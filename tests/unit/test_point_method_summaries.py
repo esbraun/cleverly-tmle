@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from cleverly._summary import vocabulary
+from cleverly._summary import Cell, Summary, SummaryTable, note, vocabulary
 from cleverly.estimators import _method_summary
 from cleverly.inference.results import RepeatSpread
 from tests.unit.summary_fixtures import _point_readers as read
@@ -132,3 +132,15 @@ def test_a_reader_rejects_a_missing_row() -> None:
     kept = "\n".join(line for line in text.splitlines() if not line.startswith(first + " "))
     with pytest.raises(AssertionError):
         read.read_bands(bands, kept)
+
+
+@pytest.mark.parametrize("word", ["plug-in", "out-of-fold"])
+def test_a_note_never_breaks_a_word_at_its_hyphen(word: str) -> None:
+    """A hyphenated word that reaches the wrap point moves whole to the next line."""
+    table = SummaryTable(("", "value"), ((Cell("a", "a"), Cell(1.0, "1.0")),))
+    for pad in range(60, 80):
+        text = "x" * pad + f" {word} " + "y" * 10
+        printed = str(Summary.build(title="T", tables=[table], notes=[note("split_spread", text)]))
+        lines = printed.splitlines()
+        assert any(word in line for line in lines), (pad, printed)
+        assert not any(line.rstrip().endswith(word.split("-")[0] + "-") for line in lines)
