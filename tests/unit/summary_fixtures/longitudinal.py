@@ -104,7 +104,9 @@ def _study_learners(**overrides: Any) -> dict[str, Any]:
 @functools.cache
 def rule() -> Any:
     """A plan that follows a declared rule at the second time point."""
-    adaptive = DynamicRegimen("adaptive", (1, lambda h: (h["L2"] > 0).astype(int)), rule_kind="known")
+    adaptive = DynamicRegimen(
+        "adaptive", (1, lambda h: (h["L2"] > 0).astype(int)), rule_kind="known"
+    )
     estimator = LTMLE({"never": 0, "adaptive": adaptive}, reference="never", **learners())
     return estimator.fit(_frame(), **COLUMNS)
 
@@ -137,9 +139,7 @@ def gcomp() -> Any:
 @functools.cache
 def ipw() -> Any:
     """Sequential inverse probability weighting."""
-    return SequentialIPW(PLANS, reference="never", treatment_learner=GLM()).fit(
-        _frame(), **COLUMNS
-    )
+    return SequentialIPW(PLANS, reference="never", treatment_learner=GLM()).fit(_frame(), **COLUMNS)
 
 
 @functools.cache

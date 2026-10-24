@@ -232,4 +232,5 @@ def test_a_ratio_of_means_is_reported(result: Any) -> None:
 
 def test_the_settings_report_names_the_outcome_kind(result: Any) -> None:
     assert result.config.outcome_kind == "repeated"
-    assert "outcome: repeated" in result.summary()
+    outcome = dict(result.summary().header)["Outcome"]
+    assert outcome == f"{', '.join(result.config.outcome_names)}, measured at each time point"

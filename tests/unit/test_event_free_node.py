@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_longitudinal
 from cleverly.estimators import _nuisance
 from cleverly.exceptions import CapabilityError, DataWarning
@@ -207,8 +208,16 @@ def test_a_constant_node_parameter_reports_no_interval() -> None:
     )
     assert difference.inference == "constant_node_plugin"
     summary = result.summary()
-    assert summary.count("not reported") == 2 * len(CONSTANT_NODE)
-    assert "constant-node se, a diagnostic and not a standard error" in summary
+    rows = {row[0].value: row for row in summary.table("estimates").rows}
+    for name in CONSTANT_NODE:
+        assert rows[name][0].text == name + vocabulary.NO_INFERENCE_MARK
+        assert [cell.text for cell in rows[name][2:5]] == [vocabulary.MISSING] * 3
+    starred = [name for name, row in rows.items() if row[0].text.endswith("*")]
+    assert sorted(starred) == sorted(CONSTANT_NODE)
+    text = summary.note("no_inference").text
+    assert "plug-in SE (diagnostic)" in text
+    for name in CONSTANT_NODE:
+        assert name in text
     curve = result.curve()
     rows = curve[curve["inference"] == "constant_node_plugin"]
     assert set(rows["parameter"]) == set(CONSTANT_NODE)

@@ -41,6 +41,11 @@ ALPHA = 0.05
 # ------------------------------------------------------------------ T2: the BCa interval
 
 
+def _bootstrap_table(summary: Any) -> Any:
+    """The bootstrap table of a summary."""
+    return next(t for t in summary.tables if (t.title or "").startswith("Bootstrap ("))
+
+
 def _skewed() -> tuple[np.ndarray, float, np.ndarray]:
     """An exponential sample of 40, its mean and 199 fixed bootstrap means."""
     sample = np.random.default_rng(20).exponential(size=40)
@@ -306,8 +311,10 @@ class TestSupport:
             assert estimate.bootstrap.support.label == "experimental"
             assert estimate.bootstrap.support.row == "G01"
             assert "BCa bootstrap interval" in estimate.bootstrap.support.reason
-        text = bca.summary()
-        assert "BCa CI" in text and "[experimental]" in text
+        summary = bca.summary()
+        assert "BCa 95% CI" in _bootstrap_table(summary).columns
+        assert "bootstrap_experimental" in summary.note_codes
+        assert "bootstrap_experimental" not in percentile.summary().note_codes
 
     def test_a_row_that_lists_bca_supports_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The mutation control: the label follows the row, not a constant."""
@@ -322,7 +329,9 @@ class TestSupport:
             assert estimate.bootstrap is not None
             assert estimate.bootstrap.interval == "bca"
             assert estimate.bootstrap.support.label == "experimental"
-        assert "BCa CI" in result.summary()
+        summary = result.summary()
+        assert "BCa 95% CI" in _bootstrap_table(summary).columns
+        assert "bootstrap_experimental" in summary.note_codes
 
     def test_a_cross_fitted_bca_fit_is_experimental(self) -> None:
         result = _fit(n_folds=2, n_bootstrap=3, bootstrap_interval="bca")
@@ -347,7 +356,11 @@ class TestTheBootstrapBand:
         errors = np.column_stack([result.bootstrap.std_errors[name] for name in names])
         expected, _ = studentized_critical_value(estimates, draws, errors, ALPHA)
         assert band.critical_value == pytest.approx(expected, abs=1e-14)
-        assert "replicates) [experimental]:" in result.summary()
+        summary = result.summary()
+        assert summary.table("Bootstrap sup-t 95% bands").rows
+        bands_note = summary.note("bootstrap_bands").text
+        assert f"They come from {band.n_replicates} resamples." in bands_note
+        assert "cleverly marks them experimental" in bands_note
 
     def test_the_band_of_a_supported_fit_is_experimental(self) -> None:
         band = _canonical(n_bootstrap=3, simultaneous=True).bootstrap_band

@@ -330,7 +330,7 @@ def test_converged_reads_every_draw() -> None:
     stagewise = result.diagnostics.support()
     assert all(stagewise.to_frame()["converged"])
     assert stagewise.draw_converged == (True, True, False)
-    assert "in at least one draw" in result.summary()
+    assert "in at least one split" in result.summary().note("score_unsolved").text
 
 
 # ================================================================ 4.2 aggregation
@@ -926,7 +926,10 @@ def test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental(
         # The limits of a median band have no projection rule, so no band is built, and
         # the summary says so.
         assert result.simultaneous is None
-        assert estimator_module.NO_ISOTONIC_REPEAT_BANDS in result.summary()
+        assert (
+            estimator_module.NO_ISOTONIC_REPEAT_BANDS
+            in result.summary(detail="full").section("Settings").lines
+        )
         risks = [e.psi for n, e in result.estimates.items() if n.startswith("risk_regimen[a1")]
         assert risks == sorted(risks)
     else:
@@ -1075,15 +1078,24 @@ def test_readers_report_the_combined_estimates() -> None:
     frame = result.to_frame()
     for name, estimate in result.estimates.items():
         assert frame.loc[frame["estimand"] == name, "psi"].item() == estimate.psi
-    text = str(result.summary())
-    assert "median over 3 draws" in text
-    assert "leverage of draw 1 of 3" in text
-    # The split-noise block names every parameter with its spread across the draws.
-    assert "split noise: spread across the 3 draws on the inference scale" in text
+    summary = result.summary()
+    assert "median over 3 random splits" in summary.note("repeated_splits").text
+    # The plan table reads one fitted recursion, so it says which.
+    assert any(table.title.endswith("(split one of 3)") for table in summary.tables if table.title)
+    # The spread line names every parameter with its spread across the draws.
+    (spread_line,) = [
+        line
+        for line in result.summary(detail="full").section("Settings").lines
+        if line.startswith("Spread of each row across the 3 splits")
+    ]
     spread = result.repeat_spread()
     for name in result.estimates:
-        assert f"  {name} {spread[name]:.4g}  (" in text
-    assert "split noise" not in str(single.summary())
+        assert f"{name} {spread[name]:.4g}" in spread_line
+    assert "repeated_splits" not in single.summary().note_codes
+    assert not any(
+        line.startswith("Spread of each row")
+        for line in single.summary(detail="full").section("Settings").lines
+    )
 
 
 def test_refute_reruns_every_draw_with_its_own_seed(monkeypatch: pytest.MonkeyPatch) -> None:

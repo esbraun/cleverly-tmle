@@ -84,8 +84,9 @@ def _method(result: LongitudinalResult) -> str:
         key, vocabulary.LONGITUDINAL_METHOD_NAMES["tmle"]
     )
     normalization = result.config.normalization
-    if key == "ipw" and normalization in vocabulary.IPW_FORMS:
-        name += f", {vocabulary.IPW_FORMS[normalization]}"
+    form = vocabulary.IPW_FORMS.get(normalization) if normalization is not None else None
+    if key == "ipw" and form is not None:
+        name += f", {form}"
     return name
 
 
@@ -944,7 +945,7 @@ def _settings(result: LongitudinalResult) -> SummarySection:
         lines.extend(simulation_lines(result.simulation))
     estimates = result.estimates
     t_reference = any(estimate.reference_df is not None for estimate in estimates.values())
-    if result.simultaneous is None and len(estimates) > 1 and _asks_bands(result):
+    if result.simultaneous is None and len(estimates) > 1:
         if result.n_repeats > 1 and config.isotonic:
             lines.append(NO_ISOTONIC_REPEAT_BANDS)
         elif not supplies_inference(result.inference_status):
@@ -963,7 +964,7 @@ def _settings(result: LongitudinalResult) -> SummarySection:
     if result.n_repeats > 1:
         spreads = result.repeat_spread()
         listed = ", ".join(
-            f"{name} {spread:.3g}" for name, spread in spreads.items() if np.isfinite(spread)
+            f"{name} {spread:.4g}" for name, spread in spreads.items() if np.isfinite(spread)
         )
         if listed:
             lines.append(
@@ -979,10 +980,6 @@ def _settings(result: LongitudinalResult) -> SummarySection:
             f"Why {', '.join(names)} {'is' if len(names) == 1 else 'are'} experimental: {reason}"
         )
     return SummarySection(vocabulary.SECTION_SETTINGS, tuple(lines))
-
-
-def _asks_bands(result: LongitudinalResult) -> bool:
-    return bool(getattr(result.estimator, "simultaneous", True))
 
 
 def _hazard_lines(result: LongitudinalResult) -> list[str]:

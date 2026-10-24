@@ -1187,7 +1187,10 @@ class TestDeclaredNaturalTreatment:
         assert set(book.known) == {1, 2}
         assert {m.key for m in book.stacked} == {"covariate:2:L2", "outcome"}
         assert not any(model.role == "treatment" for model in result.simulation.models)
-        assert "known factors (declared, no learner): A1, A2" in result.summary()
+        assert (
+            "Declared known, with no learner and no limit: A1, A2."
+            in result.summary(detail="full").section("Settings").lines
+        )
         units = np.random.default_rng(2).choice(self.N, 25, replace=False)
         for plan in store["plans"][-2:]:
             expected = gateaux_curve(book, phi_d(declared), plan, units=units)
@@ -1837,7 +1840,10 @@ class TestFixedDose:
         assert rows[("central", 1)].off_support > 0.0
         assert rows[("far", 1)].off_support > 0.9
         assert rows[("far", 2)].off_support > 0.9
-        assert "model reliance" in result.summary()
+        assert any(
+            line.startswith("Model reliance: ")
+            for line in result.summary(detail="full").section("Settings").lines
+        )
 
     def test_the_support_shares_are_weighted(self) -> None:
         """A weighted fit weights the fitted law, the window and the off-support share."""
@@ -2113,8 +2119,9 @@ class TestRuleSetDose:
         assert abs(near["window2"] - near["window2_fixed"]) > 0.05
         assert rows[("far", 1)].off_support > 0.9
         assert rows[("far", 2)].off_support > 0.9
-        assert "rule-set dose" in result.summary()
-        assert "model reliance" in result.summary()
+        settings = result.summary(detail="full").section("Settings").lines
+        assert any("the rule-set dose" in line for line in settings)
+        assert any(line.startswith("Model reliance: ") for line in settings)
 
     def test_a_rule_read_on_the_observed_history_is_caught(self, monkeypatch: Any) -> None:
         """The control: the dose the rule sets on the observed history misses the closed form."""
@@ -2616,10 +2623,18 @@ class TestSurface:
             method.estimator_kwargs(longitudinal=True)
 
     def test_the_summary_names_the_estimator_and_its_simulation(self) -> None:
-        text = quiet_fit(ParametricGFormula({"a": 1}, random_state=0), small_b()).summary()
-        assert "parametric g-formula" in text
-        assert "simulation:" in text
-        assert "Philox" in text
+        result = quiet_fit(ParametricGFormula({"a": 1}, random_state=0), small_b())
+        summary = result.summary()
+        assert dict(summary.header)["Method"].startswith("parametric g-formula")
+        settings = result.summary(detail="full").section("Settings").lines
+        report = result.simulation
+        assert (
+            f"The simulation draws {report.n_draws} histories per unit for the estimate and "
+            f"{report.n_derivative_draws} for the derivatives; the interval includes the "
+            "simulation error."
+        ) in settings
+        # The random stream is library bookkeeping, kept on the record and not printed.
+        assert "Philox" not in str(result.summary(detail="full"))
 
     def test_save_and_load_round_trip(self, tmp_path: Any) -> None:
         result = quiet_fit(ParametricGFormula({"a": 1, "b": 0}, random_state=0), small_b())

@@ -544,14 +544,19 @@ def test_the_sdr_function_is_the_class_fit(panel: Any) -> None:
 
 
 def test_the_summary_names_the_estimator(ordinary: Any) -> None:
-    text = ordinary.summary()
-    assert text.startswith("Longitudinal SDR (2 time points, n = 400)")
+    summary = ordinary.summary()
+    assert summary.heading.strip() == "Longitudinal estimate (SDR)"
+    header = dict(summary.header)
+    assert header["Method"] == "sequentially doubly robust estimator (SDR)"
+    assert (header["Time points"], header["Rows"]) == ("2", "400")
+    full = ordinary.summary(detail="full")
     assert (
-        "  estimator: sequentially doubly robust (Diaz, Williams, Hoffman and Schenck 2023, "
-        "Section 5.3), no fluctuation" in text
+        full.section("Settings")
+        .lines[0]
+        .endswith("on each partial-path probability of treatment and staying under observation.")
     )
-    assert "on each partial path treatment-and-censoring probability" in text
-    assert "Longitudinal TMLE" not in text
+    assert "Diaz, Williams, Hoffman and Schenck" in " ".join(full.section("Method details").lines)
+    assert "LTMLE" not in summary.heading
 
 
 def test_the_diagnostics_report_no_score_equation(ordinary: Any) -> None:

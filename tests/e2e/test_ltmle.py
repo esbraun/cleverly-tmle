@@ -50,6 +50,10 @@ COLUMNS: dict[str, Any] = {
 FIT_ARGUMENTS = (*COLUMNS, "family", "id", "weights", "weights_type", "weights_estimated")
 
 
+#: The title of the plan table of a longitudinal summary.
+PLANS = "What each plan assigns and who followed it to the end"
+
+
 def run(frame: Any, **overrides: Any) -> LongitudinalResult:
     settings = {**FAST, **overrides}
     regimens = settings.pop("regimens", {"always": 1, "never": 0})
@@ -460,7 +464,8 @@ def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
     assert float(diagnostics["share_truncated"].max()) == 1.0
     fit = result.fits["always"]
     np.testing.assert_allclose(fit.cumulative[:, -1], 0.9)
-    assert "max truncated share 100.0%" in result.summary()
+    capped = result.summary().note("weights_capped")
+    assert "for 100.0% of the units still following it then" in capped.text
 
 
 def test_an_upper_cumulative_bound_alone_warns_and_reports_its_own_share() -> None:
@@ -483,7 +488,8 @@ def test_an_upper_cumulative_bound_alone_warns_and_reports_its_own_share() -> No
     # 66 of the 168 rows scored at the first node, and 19 of the 119 at the second.
     shares = list(result.diagnostics.support().to_frame()["share_truncated"])
     assert shares == [pytest.approx(66 / 168), pytest.approx(19 / 119)]
-    assert "max truncated share 39.3% at t=1" in result.summary()
+    capped = result.summary().note("weights_capped").text
+    assert "plan always through time 1 to [1e-12, 0.5] for 39.3% of the units" in capped
 
 
 def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
@@ -518,9 +524,12 @@ def test_summary_and_frame_report_the_same_numbers(
     result, _ = fitted
     frame = result.to_frame()
     assert list(frame["estimand"]) == list(result)
-    text = result.summary()
-    assert "Longitudinal TMLE" in text
-    assert "always" in text
+    summary = result.summary()
+    assert summary.heading.strip() == "Longitudinal estimate (LTMLE)"
+    table = summary.table("estimates")
+    assert [row[0].value for row in table.rows] == list(frame["estimand"])
+    for row, psi in zip(table.rows, frame["psi"], strict=True):
+        assert row[1].value == psi
 
 
 def test_the_tidy_frame_uses_the_same_column_names_as_a_point_treatment_fit(
@@ -547,8 +556,7 @@ def test_the_confidence_label_follows_alpha_sig() -> None:
     """
     frame, _ = make_longitudinal(n=800, seed=21)
     result = LTMLE({"always": 1, "never": 0}, alpha_sig=0.10, **FAST).fit(frame, **COLUMNS)
-    assert "90% CI" in result.summary()
-    assert "confidence level: 90%" in result.summary()
+    assert "90% CI" in result.summary().table("estimates").columns
     wide = result["ey_regimen[always]"].ci
     tight = (
         LTMLE({"always": 1, "never": 0}, alpha_sig=0.01, **FAST)
@@ -583,7 +591,9 @@ def test_simultaneous_bands_are_wider_than_the_pointwise_intervals(
     for name, (low, high) in bands.bands.items():
         point_low, point_high = result[name].ci
         assert low <= point_low and point_high <= high
-    assert "simultaneous" in result.summary()
+    summary = result.summary()
+    printed = {row[0].value: row[1].value for row in summary.table("Simultaneous 95% bands").rows}
+    assert printed == {name: tuple(band) for name, band in bands.bands.items()}
 
 
 def test_a_single_regimen_gets_no_bands() -> None:
@@ -651,7 +661,8 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
         assert clustered.psi(name) == pytest.approx(independent.psi(name), abs=0.02)
         assert clustered[name].std_error > independent[name].std_error
     assert clustered.validate()["score_equations"].status is AssessmentStatus.PASSED
-    assert "cluster-robust variance" in clustered.summary()
+    assert dict(clustered.summary().header)["Clusters"] == "100"
+    assert "Clusters" not in dict(independent.summary().header)
 
 
 class TestObservationWeights:
@@ -717,16 +728,18 @@ class TestObservationWeights:
         frame, _ = self._biased()
         result = run(frame, weights="w")
         summary = result.summary()
-        assert "observation weights (w, fixed)" in summary
-        assert "weight-tilted population" in summary
         report = result.data.weight_report()
+        assert dict(summary.header)["Weights"] == (
+            f"w; effective sample size {report.effective_n:,.0f}"
+        )
+        assert "population that the observation weights" in summary.note("weighted_population").text
         assert report.effective_n < result.n
         assert report.design_effect > 1.0
 
     def test_estimated_weights_are_declared(self) -> None:
         frame, _ = self._biased()
         result = run(frame, weights="w", weights_estimated=True)
-        assert "observation weights (w, estimated)" in result.summary()
+        assert dict(result.summary().header)["Weights"].startswith("w, estimated; ")
         assert "conditions on the fitted weights" in result.data.weight_report().summary()
 
     def test_the_default_bound_is_fixed_not_resolved_from_effective_n(self) -> None:
@@ -734,13 +747,15 @@ class TestObservationWeights:
         result = run(frame, weights="w")
         assert result.data.effective_n < result.n
         assert result.config.g_bounds == (0.01, 1.0)
-        assert "R ltmle-compatible heuristic" in result.summary()
+        settings = result.summary(detail="full").section("Settings").lines
+        assert settings[0].startswith("Probability limits [0.01, 1] (the default) on ")
 
     def test_an_explicit_bound_is_never_second_guessed(self) -> None:
         frame, _ = self._biased()
         result = run(frame, weights="w", g_bounds=(0.02, 0.98))
         assert result.config.g_bounds == (0.02, 0.98)
-        assert "package default" not in result.summary()
+        settings = result.summary(detail="full").section("Settings").lines
+        assert settings[0].startswith("Probability limits [0.02, 0.98] on ")
 
     def test_the_diagnostics_fold_the_weights_into_the_leverage(self) -> None:
         """The two reweightings multiply, so the leverage reported is their product.
@@ -924,7 +939,13 @@ class TestTheReportSaysWhichRuleWasRun:
 
         digests = [dict(result.config.plan_fingerprints)["rule"] for result in (low, high)]
         assert digests[0] != digests[1]
-        assert digests[0] in low.summary() and digests[1] in high.summary()
+        # The summary prints no digest. It tells the two rules apart by who followed them.
+        assert digests[0] not in str(low.summary(detail="full"))
+        followed = [
+            {row[0].value: row[1].value for row in result.summary().table(PLANS).rows}["rule"]
+            for result in (low, high)
+        ]
+        assert followed[0] != followed[1]
         # And the estimates really do differ, so the two digests are not a distinction
         # without a parameter behind it.
         assert low.psi("ey_regimen[rule]") != high.psi("ey_regimen[rule]")
@@ -1436,11 +1457,11 @@ class TestASurvivalOutcome:
     ) -> None:
         result, _ = fitted
         summary = result.summary()
-        assert "outcome: survival, event indicator at Y1, Y2" in summary
-        assert "horizons reported: t = 1, 2" in summary
-        # "throughout" means through the study, so it is said once per regimen and from
-        # the fit that runs to the last node -- not once per horizon.
-        assert summary.count("units followed it throughout") == 2
+        assert dict(summary.header)["Outcome"] == "event at Y1, Y2"
+        assert sorted({name.rsplit("@ t=", 1)[1] for name in result.estimates}) == ["1]", "2]"]
+        # The plan table reads the fit that runs to the last node, so it has one row per
+        # regimen and not one per horizon.
+        assert [row[0].value for row in summary.table(PLANS).rows] == ["always", "never"]
 
 
 class TestCompetingRisks:
@@ -1510,7 +1531,8 @@ class TestCompetingRisks:
         }
         assert set(fitted) == expected
         assert fitted.config.causes == ("relapse", "death")
-        assert "causes reported: relapse, death" in fitted.summary()
+        outcome = dict(fitted.summary().header)["Outcome"]
+        assert outcome == "relapse at R1, R2; death at D1, D2 (competing causes)"
 
     def test_the_curve_carries_a_cause_column(self, fitted: LongitudinalResult) -> None:
         curve = fitted.curve()

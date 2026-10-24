@@ -15,9 +15,9 @@ import numpy as np
 import pytest
 
 from cleverly._summary import Summary, SummaryTable, vocabulary
-from cleverly._summary._estimates import estimates_table, without_roadmap
+from cleverly._summary._estimates import without_roadmap
 from cleverly._summary._render import _table_lines, _wrap_name
-from cleverly.longitudinal import LTMLE, SDR, SequentialGComputation
+from cleverly.longitudinal import SDR, SequentialGComputation
 from cleverly.longitudinal._summary import max_truncated, meaning
 from tests.unit.summary_fixtures import longitudinal as fixtures
 
@@ -173,9 +173,9 @@ def test_the_capped_note_fires_with_the_share_the_limit_moved() -> None:
 
 def test_the_capped_note_reads_the_path_share_on_sdr() -> None:
     frame = fixtures._frame()
-    result = SDR(
-        fixtures.PLANS, reference="never", g_bounds=(0.2, 1.0), **fixtures.learners()
-    ).fit(frame, **fixtures.COLUMNS)
+    result = SDR(fixtures.PLANS, reference="never", g_bounds=(0.2, 1.0), **fixtures.learners()).fit(
+        frame, **fixtures.COLUMNS
+    )
     item = result.summary().note("weights_capped")
     assert "followed paths of plan" in item.text
     binding = max(
@@ -254,18 +254,6 @@ def test_a_long_row_name_wraps_at_a_space_or_after_a_bracket() -> None:
     head, body = _table_lines(table, Summary.WIDTH)
     assert max(len(line) for line in [*head, *body]) <= Summary.WIDTH
     assert len(body) > len(table.rows)
-
-
-def test_a_table_whose_rows_are_all_experimental_drops_the_support_column() -> None:
-    result = _fit("clustered_weighted")
-    assert all(e.support.label == vocabulary.EXPERIMENTAL for e in result.estimates.values())
-    table, notes = estimates_table(result.estimates, level=0.95)
-    assert vocabulary.SUPPORT not in table.columns
-    (item,) = [item for item in notes if item.code == "experimental"]
-    assert item.text.startswith("Every row: ")
-    one = dict(list(result.estimates.items())[:1])
-    table, _ = estimates_table(one, level=0.95)
-    assert vocabulary.SUPPORT in table.columns
 
 
 def test_a_roadmap_pointer_in_a_warning_leaves_the_summary() -> None:

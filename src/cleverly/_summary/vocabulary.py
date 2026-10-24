@@ -120,8 +120,6 @@ P_VALUE: Final = "p-value"
 DF: Final = "df"
 SUPPORT: Final = "support"
 EXPERIMENTAL: Final = "experimental"
-#: The rows an experimental note names when every row of the table is experimental.
-EVERY_ROW: Final = "every row"
 MEANING: Final = "meaning"
 BAND: Final = "band"
 #: The suffix a row label takes when its estimate supplies no inference in a table whose

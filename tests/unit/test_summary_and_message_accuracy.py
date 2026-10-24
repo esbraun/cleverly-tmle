@@ -684,7 +684,8 @@ class TestTheReferenceLineBelongsToAContrast:
     def test_a_regime_contrast_summary_keeps_its_reference(self) -> None:
         """The nonzero witness: a result that holds a contrast prints its reference."""
         result = _longitudinal_fit(_longitudinal_study().identify(_contrast()))
-        assert "  reference: never" in result.summary().splitlines()
+        summary = result.summary()
+        assert dict(summary.header)[vocabulary.QUESTION].endswith("instead of never")
 
 
 # ------------------------------------------- row 2: the history at each treatment node
@@ -1050,6 +1051,11 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         assert "bootstrap_diagnostic" not in result.summary().note_codes
 
 
+def _plans_table(summary: Any) -> Any:
+    (table,) = [t for t in summary.tables if (t.title or "").startswith(vocabulary.PLANS_TITLE)]
+    return table
+
+
 class TestCompetingRisksFollowerLines:
     """A competing-risks LTMLE fit prints each regimen's follower line once.
 
@@ -1065,8 +1071,6 @@ class TestCompetingRisksFollowerLines:
         return competing("relative")
 
     def test_each_regimen_line_prints_once(self) -> None:
-        import re
-
         result = self._fit()
         deepest = max(fit.horizon for fit in result.fits.values())
         per_regimen: dict[str, set[str | None]] = {}
@@ -1075,12 +1079,8 @@ class TestCompetingRisksFollowerLines:
                 per_regimen.setdefault(fit.regimen.label, set()).add(fit.cause)
         # Witness: the fit really holds one deepest fit per cause, so the check is not vacuous.
         assert per_regimen == {"always": {"relapse", "death"}, "never": {"relapse", "death"}}
-        lines = [
-            line
-            for line in result.summary().splitlines()
-            if re.match(r"  (always|never)( \(\w+\))?: \d+ of \d+ units followed", line)
-        ]
-        assert [line.split(":")[0].strip() for line in lines] == ["always", "never"]
+        table = _plans_table(result.summary())
+        assert [row[0].value for row in table.rows] == ["always", "never"]
 
     def test_a_cause_whose_line_differs_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Mutation of the shared-mechanism premise: give one cause's fit another weight.  The
@@ -1101,7 +1101,15 @@ class TestCompetingRisksFollowerLines:
                 return getattr(original, name)
 
         monkeypatch.setitem(result.fits, key, Heavier())
-        text = result.summary()
-        assert "  always (relapse): " in text and "  always (death): " in text
-        assert "max weight 99.0" in text
-        assert text.count("  never: ") == 1
+        table = _plans_table(result.summary())
+        plans = [row[0].value for row in table.rows]
+        assert plans == ["always (relapse)", "always (death)", "never"]
+        weights = dict(
+            zip(
+                plans,
+                (row[table.columns.index(vocabulary.LARGEST_WEIGHT)].value for row in table.rows),
+                strict=True,
+            )
+        )
+        assert weights["always (death)"] == 99.0
+        assert weights["always (relapse)"] != 99.0
