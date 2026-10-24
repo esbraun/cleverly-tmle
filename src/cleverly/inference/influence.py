@@ -1136,6 +1136,7 @@ class ParameterEstimate:
     def _repr_html_(self) -> str:
         return self.summary().as_html()
 
+
 def support_column(estimates: Mapping[str, ParameterEstimate]) -> list[str] | None:
     """The ``support`` cell of each estimate, or ``None`` when every estimate is supported.
 

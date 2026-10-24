@@ -57,7 +57,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from sklearn.base import BaseEstimator, is_classifier
@@ -105,6 +105,9 @@ from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import composite_state, composite_view
 from .reduced import _reduced_column
 from .tmle import TMLE, _in_report_order, _is_natural_course
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 __all__ = [
     "FORMS",
@@ -674,6 +677,32 @@ class AdaptiveIPTWFit:
         if self.missing_data != "complete":
             line += f"; missing data route {self.missing_data}"
         return line
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the weight adjustment, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._method_summary import iptw_summary
+
+        return iptw_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import iptw_repr
+
+        return iptw_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)

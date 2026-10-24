@@ -117,9 +117,7 @@ def estimate_summary(estimate: ParameterEstimate, detail: Detail) -> Summary:
     if detail == "full":
         level = level_text(estimate.alpha)
         null = 1 if estimate.scale == "ratio" else 0
-        lines = [
-            f"The interval is at the {level} level; the p-value tests the null value {null}."
-        ]
+        lines = [f"The interval is at the {level} level; the p-value tests the null value {null}."]
         summary = estimate.bootstrap
         if summary is not None:
             decimals = decimals_for([summary.std_error])
@@ -337,9 +335,7 @@ def replicate_rows(bootstrap: BootstrapResult) -> dict[str, Any]:
     """
     table = _replicate_table(list(bootstrap.draws.items()))
     columns = ("estimand", "n_replicates", "mean", "sd", "min", "max")
-    return {
-        name: [row[index].value for row in table.rows] for index, name in enumerate(columns)
-    }
+    return {name: [row[index].value for row in table.rows] for index, name in enumerate(columns)}
 
 
 def _unit(bootstrap: BootstrapResult) -> str:
@@ -455,9 +451,7 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
             )
         ]
     else:
-        notes = [
-            note("bootstrap_describes", vocabulary.NOTE_TEXTS["bootstrap_describes_one"])
-        ]
+        notes = [note("bootstrap_describes", vocabulary.NOTE_TEXTS["bootstrap_describes_one"])]
     if summary.n_failed:
         notes.append(_failed_note(summary.n_failed, requested))
     if summary.support.label == vocabulary.EXPERIMENTAL:
@@ -469,9 +463,15 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
         )
     sections: list[SummarySection] = []
     if detail == "full":
-        lines = [f"One-sided limits: lower {number_text(summary.ci_one_sided_lower, decimals)}, "
-                 f"upper {number_text(summary.ci_one_sided_upper, decimals)}."]
-        if summary.interval == "bca" and summary.z0 is not None and summary.acceleration is not None:
+        lines = [
+            f"One-sided limits: lower {number_text(summary.ci_one_sided_lower, decimals)}, "
+            f"upper {number_text(summary.ci_one_sided_upper, decimals)}."
+        ]
+        if (
+            summary.interval == "bca"
+            and summary.z0 is not None
+            and summary.acceleration is not None
+        ):
             lines.append(
                 f"Bias correction {summary.z0:.3g} and acceleration {summary.acceleration:.3g}."
             )

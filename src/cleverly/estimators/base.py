@@ -18,8 +18,6 @@ import numpy as np
 from .._inference_status import (
     InferenceStatus,
     is_labelled,
-    status_record,
-    supplies_inference,
 )
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
@@ -68,7 +66,6 @@ from ..targets import TARGETS, all_names, resolve_estimands
 from ..targets.base import arm_alias, parameter_name
 from ..utils.frames import emit_frame
 from ..utils.memos import without_memos
-from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, RepeatFit
 from .targeting import TargetingSpec
 
@@ -431,66 +428,31 @@ class CVTargeting:
         }
         return emit_frame(payload, data, backend=self.backend)
 
-    def summary(self) -> str:
-        """A printable report of the fold-level targeting."""
-        errors = self.plugin_std_error
-        status = self.inference
-        cv_label = spread_name("cv std_err", status)
-        rows = []
-        for name, values in self.fold_estimates.items():
-            spread = f"{np.std(values, ddof=1):.4g}" if len(values) > 1 else "n/a"
-            rows.append(
-                [
-                    name,
-                    f"{self.fold_evaluated[name].psi:.5g}",
-                    f"{errors[name]:.4g}",
-                    f"{self.pooled[name].psi:.5g}",
-                    f"{self.pooled[name].plugin_std_error:.4g}",
-                    spread,
-                    f"[{min(values):.5g}, {max(values):.5g}]",
-                ]
-            )
-        table = format_table(
-            [
-                "estimand",
-                "fold-evaluated",
-                cv_label,
-                "pooled",
-                spread_name("std_err", status),
-                "fold sd",
-                "fold range",
-            ],
-            rows,
-        )
-        header = [
-            f"Cross-validated targeting over {self.n_folds} folds "
-            f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
-            "fold-evaluated: evaluated inside each fold and averaged (original CV-TMLE).",
-            "pooled: this fit's updated validation predictions stitched and evaluated once.",
-        ]
-        if self.repeats > 1:
-            header.append(
-                f"both reports and the {cv_label} combine {self.repeats} draws by their "
-                "median and split dispersion; the fold columns describe the first."
-            )
-        if not supplies_inference(status):
-            # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
-            header.append(status_record(status).reason)
-        elif is_labelled(status):
-            header.append(f"experimental: {status_record(status).shown_reason}")
-        header.append("")
-        epsilon_lines = ["", "common fluctuation coefficients:"]
-        for group, eps in self.epsilon.items():
-            formatted = "(" + ", ".join(f"{e:.4g}" for e in eps) + ")"
-            epsilon_lines.append(f"  {group}: {formatted}")
-        if self.fold_epsilon:
-            epsilon_lines.append("fold-specific fluctuation coefficients:")
-        for group, per_fold in self.fold_epsilon.items():
-            formatted = ", ".join(
-                "(" + ", ".join(f"{e:.4g}" for e in eps) + ")" for eps in per_fold
-            )
-            epsilon_lines.append(f"  {group}: {formatted}")
-        return "\n".join([*header, table, *epsilon_lines])
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of both cross-validated reports, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._method_summary import cv_summary
+
+        return cv_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import cv_repr
+
+        return cv_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -1439,7 +1401,7 @@ class TMLEResult:
         )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
-        """A printable report of the fit, laid out like a statsmodels summary.
+        """A printable report of the fit, like a statsmodels summary.
 
         The header names the question, the data and the models; the table gives each
         estimate with its standard error, interval and p-value; numbered notes say what
@@ -1581,37 +1543,34 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
         stacked = nw.concat([nw.from_native(frame, eager_only=True) for frame in frames])
         return stacked.to_native()
 
-    def summary(self, *, detail: Detail = "short") -> str:
-        """The results, headed by level -- or bare, when there is only one.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The results as one summary: a single result's own, or one table over the levels.
 
-        A single-entry set prints exactly what its result prints.  Heading it
-        ``--- None = ... ---`` would put the internal sentinel in front of every ordinary
-        fit's output.
+        A single-entry set prints exactly what its result prints. Several levels of the
+        intermediate variable print one estimates table with a row per estimand and level,
+        the facts the levels share, and each level's notes.
 
         Parameters
         ----------
         detail : {"short", "full"}, default "short"
-            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
-            protocol record, or that the fit had none.
+            ``"full"`` adds each result's sections.
 
         Returns
         -------
-        str
-            Each result's summary, headed by its level of the intermediate variable.
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
         """
-        if len(self.results) == 1 and self.levels[0] is None:
-            return self.single().summary(detail=detail)
-        blocks = []
-        for value in self.levels:
-            label = (
-                "no intermediate" if value is None else f"{self.intermediate_name} = {value:.0f}"
-            )
-            blocks.append(f"--- {label} ---")
-            blocks.append(self.results[value].summary(detail=detail))
-        return "\n\n".join(blocks)
+        from ._method_summary import result_set_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return result_set_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import result_set_repr
+
+        return result_set_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def _level_order(value: float | None) -> tuple[int, float]:

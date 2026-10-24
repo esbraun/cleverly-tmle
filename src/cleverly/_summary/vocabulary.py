@@ -694,6 +694,52 @@ BOOTSTRAP_TITLE: Final = "Bootstrap replicates"
 BOOTSTRAP_INTERVAL_TITLE: Final = "Bootstrap interval"
 BANDS_TITLE: Final = "Simultaneous {level} bands"
 SPREAD_TITLE: Final = "Spread across cross-fitting splits"
+SEARCH_TITLE: Final = "Collaborative treatment-model search"
+ENSEMBLE_TITLE: Final = "Super learner"
+IMPORTANCE_TITLE: Final = "Variable importance"
+OAT_TITLE: Final = "Outcome-adaptive treatment model"
+DERIVATIVE_TITLE: Final = "Collaborative TMLE, derivative form"
+REDUCED_TITLE: Final = "DR-TMLE extra regressions"
+IPTW_TITLE: Final = "Adaptive IPTW fit"
+CV_TITLE: Final = "Cross-validated estimates"
+RESULT_SET_TITLE: Final = "Controlled direct effects ({method})"
+#: The Question of a result set over several levels of the intermediate variable.
+RESULT_SET_QUESTION: Final = "effect of {A} on {Y} with {Z} held at each level below for every unit"
+
+#: The parts of an outcome-adaptive per-arm treatment model, keyed by the start of the
+#: factor label ``CTMLEOutcomeAdaptiveFit.factors`` records.
+OAT_FACTORS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "P(A=a": "treatment",
+        "P(Delta=1": "outcome recorded",
+        "P(Delta_A=1": "treatment recorded",
+    }
+)
+#: Where a derivative-form fit took its two treatment models, keyed by ``source``.
+DERIVATIVE_SOURCES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "lasso": "lasso path",
+        "learners": "two declared learners",
+        "arrays": "two declared probability arrays",
+    }
+)
+#: The two forms of an Adaptive IPTW estimate, keyed by ``form``.
+IPTW_FORMS: Final[Mapping[str, str]] = MappingProxyType(
+    {"targeted": "targeted", "one_step": "one-step"}
+)
+#: Why the Adaptive IPTW weight adjustment stopped, keyed by ``stop``.
+IPTW_STOPS: Final[Mapping[str, str]] = MappingProxyType(
+    {"tolerance": "score tolerance met", "cap": "round limit"}
+)
+#: The spread columns of a cross-validated report, keyed by its frame column.
+CV_SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "cv_std_err": "CV std. error",
+        "cv_plugin_std_err": "CV SE (diagnostic)",
+        "pooled_std_err": "std. error",
+        "pooled_plugin_std_err": "plug-in SE (diagnostic)",
+    }
+)
 #: The row label of a one-row bootstrap table.
 REPLICATES_ROW: Final = "replicates"
 #: The kind of a bootstrap interval, keyed by ``BootstrapSummary.interval``.
@@ -743,8 +789,8 @@ CTMLE_PREORDERS: Final[Mapping[str, str]] = MappingProxyType(
 #: The losses a collaborative search and a super learner score candidates by.
 LOSS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "loglik": "log-likelihood",
-        "squared": "squared-error",
+        "loglik": "negative log-likelihood",
+        "squared": "squared error",
         "mse": "squared error",
         "squared_error": "squared error",
         "nll": "negative log-likelihood",
@@ -775,7 +821,7 @@ GUARD_SENTENCES: Final[Mapping[str, str]] = MappingProxyType(
             "not for a flexible learner."
         ),
         "g": (
-            "The fit also solved the equations meant for a wrong treatment model. When the "
+            "The fit solved the extra equations meant for a wrong treatment model. When the "
             "treatment model is wrong, no result shows that the interval keeps its coverage."
         ),
     }
@@ -855,6 +901,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "fit_cautions": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
+        "guard_scope": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T1_NOTE_CODES})
@@ -862,9 +909,9 @@ NOTE_CODES = MappingProxyType({**NOTE_CODES, **T1_NOTE_CODES})
 T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "rounds_capped": (
-            "The weight adjustment stopped at its round limit before the weighted score of "
-            "{names} met its tolerance, so the estimate may keep part of the bias the "
-            "adjustment is meant to remove."
+            "The weight adjustment stopped at its round limit ({rounds}) before the "
+            "weighted score of every estimate met its tolerance, so an estimate may keep part "
+            "of the bias the adjustment is meant to remove."
         ),
         "levels_separate": (
             "Each level of {Z} is a different parameter. The levels do not split the total "
@@ -899,10 +946,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "cv_two_reports": (
             "The fold-averaged estimate evaluates the parameter inside each fold and "
-            "averages the folds, with {spread}. The whole-sample "
-            "estimate puts the held-out predictions together and evaluates them once. They "
-            "agree for the means and the average effect when every fold carries the same total weight, "
-            "and they can differ for ratios and for effects among the treated or untreated."
+            "averages the folds, with {spread}. The whole-sample estimate puts the held-out "
+            "predictions together and evaluates them once. They agree for the means and the "
+            "average effect when every fold carries the same total weight, and they can "
+            "differ for ratios and for effects among the treated or untreated."
         ),
         "cv_first_split": (
             "Both estimates combine {repeats} splits by their median; the fold columns "
@@ -914,9 +961,9 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "a covariate was left out."
         ),
         "search_stopped": (
-            "The search stopped after candidate {stopped} because the cross-validated risk "
-            "had not improved for {patience} candidates in a row; later candidates were "
-            "{later}."
+            "The search stopped after candidate {stopped}: {patience} since the best one so "
+            "far had a higher cross-validated risk, which is the stopping rule. Later "
+            "candidates were {later}."
         ),
         "search_never_stopped": (
             "The stopping rule (patience {patience}) never triggered, so every candidate "
@@ -937,8 +984,8 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "adjusted."
         ),
         "separate_fits": (
-            "Each row comes from its own fit with that candidate as the treatment and the "
-            "other declared variables as adjustment. Each row needs its own no-unmeasured-"
+            "Each row comes from its own fit with that candidate as the treatment; the "
+            "full summary lists what each fit adjusts for. Each row needs its own no-unmeasured-"
             "confounding and positivity conditions, and a row is not the candidate's share "
             "of one effect."
         ),
@@ -955,8 +1002,7 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "treatment probabilities binds."
         ),
         "stacked_weights": (
-            ", with the data weights in every equation, so the interval treats the weights "
-            "as fixed"
+            ", with the data weights in every equation, so the interval treats the weights as fixed"
         ),
         "stacked_weights_estimated": (
             ", with the data weights in every equation, so the interval treats the weights "
@@ -980,9 +1026,7 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T1_NOTE_TEXTS})
 SPLIT_SPREAD_TAILS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "inference": "The reported std. error already includes it.",
-        "withheld": (
-            "The fit gives no interval, so the plug-in SE beside it is a diagnostic too."
-        ),
+        "withheld": ("The fit gives no interval, so the plug-in SE beside it is a diagnostic too."),
     }
 )
 #: What the fold-averaged estimate of a cross-validated report carries, by the same rule.
@@ -996,5 +1040,9 @@ CV_SPREAD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 )
 #: The Adaptive IPTW cap warning ``rounds_capped`` restates.
 RESTATED_WARNINGS = MappingProxyType(
-    {**RESTATED_WARNINGS, "rounds_capped": ("before the relative score reached tol=",)}
+    {
+        **RESTATED_WARNINGS,
+        "rounds_capped": ("before the relative score reached tol=",),
+        "risk_order": ("strategy='learners' needs treatment_candidates= ordered",),
+    }
 )
