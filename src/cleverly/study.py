@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
+from ._summary import Detail
 from ._support import combine_support
 from ._typing import Family
 from .data import CausalData
@@ -80,7 +81,7 @@ from .methods import (
     TMLEMethod,
 )
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
-from .protocol import ProtocolDetail, StudyProtocol, protocol_summary_lines
+from .protocol import StudyProtocol, protocol_summary_lines
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -308,13 +309,14 @@ class CausalResult(Protocol):
         """
         ...
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+    def summary(self, *, detail: Detail = "short") -> str:
         """Return a printable fit summary.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            How much of the protocol record the summary prints.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
 
         Returns
         -------
@@ -4375,14 +4377,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             return True, None, False, IPW_MTP_REFUSAL
         return True, None, True, None
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+    def summary(self, *, detail: Detail = "short") -> str:
         """Return a readable identification summary.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` prints every field of the protocol record. ``"fingerprint"`` prints
-            only its schema and fingerprint, for a reader who has the record already.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
 
         Returns
         -------
@@ -4428,20 +4430,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     else []
                 ),
                 *restrictions,
-                *protocol_summary_lines(self.protocol, protocol),
+                *protocol_summary_lines(self.protocol, detail),
             ]
         )
 
     def summary_lines(
-        self, *, protocol: ProtocolDetail = "full", fitted_method: str | None = None
+        self, *, detail: Detail = "short", fitted_method: str | None = None
     ) -> tuple[str, ...]:
         """Return identification facts for inclusion in result summaries.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` gives every field of the protocol record. ``"fingerprint"`` gives
-            only its schema and fingerprint.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
         fitted_method : str or None
             The method that fitted the result. An ``"adaptive_iptw"`` fit fits no outcome
             regression, so its lines name the reduced regression in place of the outcome
@@ -4474,7 +4476,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 if self.identification.model_restrictions and not iptw
                 else ()
             ),
-            *protocol_summary_lines(self.protocol, protocol),
+            *protocol_summary_lines(self.protocol, detail),
         )
 
     def estimate(

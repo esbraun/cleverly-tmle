@@ -322,7 +322,8 @@ def _check_design(namespace: dict[str, Any]) -> None:
         "history at price_3: ['usage', 'engaged_1', 'engaged_2', 'engaged_3', 'price_1', 'price_2']"
     ) in printed
     assert "history at price_1: ['usage', 'engaged_1']" in printed
-    assert printed.rstrip().endswith(f"causal study protocol: schema 1; {FINGERPRINT}")
+    # The short summary prints the analysis and leaves the record to the protocol step.
+    assert "causal study protocol" not in printed and FINGERPRINT not in printed
     for assumption in (
         "consistency: each observed history equals the potential history",
         "no interference: one unit's potential history",

@@ -30,8 +30,8 @@ It also holds the witnesses of the summary displays that RM16b corrects:
 * a longitudinal identification summary prints the history at each treatment node;
 * a DR-TMLE summary names the guard and the reduction, or the empty guard;
 * the regime support table names the mechanism that each column reads;
-* ``protocol="fingerprint"`` prints one protocol line, and no summary prints the fingerprint
-  twice;
+* a short summary prints no protocol line, a full one prints the record's fields once, and
+  no summary prints the fingerprint;
 * the split-spread fact and the bootstrap row name their spread as the status allows, and the
   bootstrap heading names the full-refit bootstrap.
 
@@ -812,11 +812,12 @@ class TestTheSupportTableStatesEachColumnsBasis:
             assert item.score_load["effective"] > item.effective_sample_size + 1.0
 
 
-# ------------------------------------------------- row 5: the fingerprint-only protocol
+# ------------------------------------------------- row 5: the protocol at each detail
 
 
 def _record_lines() -> tuple[str, ...]:
-    return navigation_protocol().summary_lines()
+    """The record's fields as a summary prints them, without the fingerprint line."""
+    return navigation_protocol().summary_lines()[1:]
 
 
 def _count(text: str, lines: tuple[str, ...]) -> list[int]:
@@ -825,10 +826,10 @@ def _count(text: str, lines: tuple[str, ...]) -> list[int]:
     return [printed.count(line) for line in lines]
 
 
-class TestTheProtocolPrintsOnceOrAsItsFingerprint:
-    """Row 5. ``protocol="fingerprint"`` prints one line; the default prints the record.
+class TestTheProtocolPrintsAtFullDetailOnly:
+    """Row 5. A short summary prints no protocol line; a full one prints the fields once.
 
-    The result summary no longer repeats the fingerprint as a provenance line.
+    No summary prints the fingerprint, which identifies the record for a program.
     """
 
     @pytest.fixture(scope="class")
@@ -854,47 +855,50 @@ class TestTheProtocolPrintsOnceOrAsItsFingerprint:
         ]
 
     @pytest.mark.parametrize("kind", ["point", "longitudinal"])
-    def test_the_fingerprint_option_prints_one_line(
-        self, kind: str, request: pytest.FixtureRequest
-    ) -> None:
-        effect, result = request.getfixturevalue(kind)
-        for text in self._summaries(effect, result, protocol="fingerprint"):
-            assert _count(text, _record_lines()) == [1] + [0] * 10
-
-    @pytest.mark.parametrize("kind", ["point", "longitudinal"])
-    def test_the_default_prints_the_record_once_in_order(
+    def test_the_short_default_prints_no_protocol_line(
         self, kind: str, request: pytest.FixtureRequest
     ) -> None:
         effect, result = request.getfixturevalue(kind)
         fingerprint = navigation_protocol().fingerprint
         for text in self._summaries(effect, result):
+            assert _count(text, _record_lines()) == [0] * 10
+            assert "causal study protocol" not in text
+            assert fingerprint not in text
+
+    @pytest.mark.parametrize("kind", ["point", "longitudinal"])
+    def test_full_detail_prints_the_fields_once_in_order(
+        self, kind: str, request: pytest.FixtureRequest
+    ) -> None:
+        effect, result = request.getfixturevalue(kind)
+        fingerprint = navigation_protocol().fingerprint
+        for text in self._summaries(effect, result, detail="full"):
             printed = [line.strip() for line in text.splitlines()]
             start = printed.index(_record_lines()[0])
-            assert tuple(printed[start : start + 11]) == _record_lines()
-            assert text.count(fingerprint) == 1
+            assert tuple(printed[start : start + 10]) == _record_lines()
+            assert _count(text, _record_lines()) == [1] * 10
+            assert fingerprint not in text
 
-    def test_an_unknown_option_is_refused(self, point: Any) -> None:
+    def test_an_unknown_detail_is_refused(self, point: Any) -> None:
         effect, result = point
         for call in (effect.summary, effect.summary_lines, result.summary):
-            with pytest.raises(ValueError, match="protocol must be 'full' or 'fingerprint'"):
-                call(protocol="short")
+            with pytest.raises(ValueError, match="detail must be 'short' or 'full'"):
+                call(detail="fingerprint")
 
     @pytest.mark.parametrize("levels", [(None,), (0.0, 1.0)], ids=["single", "by_level"])
-    def test_a_result_set_forwards_the_option(
+    def test_a_result_set_forwards_the_detail(
         self, levels: tuple[float | None, ...], point: Any
     ) -> None:
         _, result = point
         results = TMLEResultSet(dict.fromkeys(levels, result), intermediate_name="Z")
-        text = results.summary(protocol="fingerprint")
-        counts = _count(text, _record_lines())
-        assert counts == [len(levels)] + [0] * 10
+        assert _count(results.summary(detail="full"), _record_lines()) == [len(levels)] * 10
+        assert _count(results.summary(), _record_lines()) == [0] * 10
 
-    def test_an_absent_protocol_prints_absent_in_both_modes(self) -> None:
+    def test_an_absent_protocol_prints_absent_at_full_detail(self) -> None:
         fitted = TMLE(**linear_in_sample()).fit(_linear_frame(), outcome="Y", treatment="A")
-        for option in ("full", "fingerprint"):
-            assert "causal study protocol: absent" in fitted.summary(protocol=option)
-        with pytest.raises(ValueError, match="protocol must be 'full' or 'fingerprint'"):
-            fitted.summary(protocol="short")
+        assert "causal study protocol: absent" in fitted.summary(detail="full")
+        assert "causal study protocol" not in fitted.summary()
+        with pytest.raises(ValueError, match="detail must be 'short' or 'full'"):
+            fitted.summary(detail="fingerprint")
 
 
 def _linear_frame() -> pd.DataFrame:

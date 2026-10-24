@@ -39,9 +39,9 @@ rejects blank text and unmatched treatment strategy and version counts.
 its canonical representation, and `fingerprint` supplies its BLAKE2b digest. The digest identifies
 the protocol record. It does not replace the separate data and fold fingerprints in `Provenance`.
 
-Each identification and result summary prints the whole record by default. Pass
-`protocol="fingerprint"` to `summary()` to print only the line with the schema and the
-fingerprint, for example after you print `"\n".join(protocol.summary_lines())` once.
+An identification or result summary prints the analysis by default. Pass `detail="full"` to
+`summary()` to print the record's fields too. No summary prints the fingerprint, and
+`"\n".join(protocol.summary_lines())` prints the whole record with it.
 
 The fingerprint records the protocol. It does not verify it. The package does not check that
 `treatment_strategies` names the regimens or arms a result estimates, because the strategies are
@@ -66,4 +66,4 @@ and concepts from the literature on
 target-trial protocol or a claim of ICH estimand compliance.
 
 Trusted point and longitudinal artifacts written before `StudyProtocol` still load. Their
-summaries state `causal study protocol: absent`, and their protocol fingerprint is `None`.
+full summaries state `causal study protocol: absent`, and their protocol fingerprint is `None`.
