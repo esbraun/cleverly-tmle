@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import copy
 import itertools
-import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
@@ -61,6 +60,9 @@ from .._support import (
     support_for,
 )
 from .._typing import FloatArray, Learner
+from .._warnings import FitWarning, records_fit
+from .._warnings import suppressed as _suppressed
+from .._warnings import warn as _warn
 from ..data.validate import arm_indicators
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import (
@@ -1406,6 +1408,7 @@ class StructuralNestedMean:
 
     # ------------------------------------------------------------------ fit
 
+    @records_fit
     def fit(
         self,
         data: Any,
@@ -1741,9 +1744,8 @@ class StructuralNestedMean:
                     f"a structural fit draws one split; frozen_seeds holds {len(seeds)}"
                 )
             settings._frozen_seed = None if seeds[0] is None else int(seeds[0])
-        with warnings.catch_warnings():
+        with _suppressed():
             # A refit on a perturbed panel repeats the original fit's status warnings.
-            warnings.simplefilter("ignore")
             return settings.fit(data)
 
     def _check_positivity(
@@ -1932,7 +1934,7 @@ def _status(data: LongitudinalData, folds: Folds, *, parametric: bool) -> Infere
 def _warn_statuses(estimates: Mapping[str, ParameterEstimate]) -> None:
     statuses = {estimate.inference for estimate in estimates.values()}
     for status in sorted(s for s in statuses if not supplies_inference(s)):
-        warnings.warn(
+        _warn(
             f"this StructuralNestedMean fit takes the {status!r} status: "
             + status_record(status).reason,
             UserWarning,
@@ -2101,6 +2103,9 @@ class StructuralNestedMeanResult:
         The settings the fit ran with, which :meth:`check_model` reuses.
     label : str
         The structural condition under which the intervals are valid.
+    fit_warnings : tuple of FitWarning
+        The package warnings the fit raised, in first-seen order. Set by the fit entry
+        point.
 
     Attributes
     ----------
@@ -2127,6 +2132,9 @@ class StructuralNestedMeanResult:
     estimator: StructuralNestedMean
     label: str
     simultaneous: SimultaneousBands | None = None
+    #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
+    #: still names them.
+    fit_warnings: tuple[FitWarning, ...] = ()
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, as
     #: on :class:`~cleverly.longitudinal.LongitudinalResult`, so a mapping handed to the
     #: constructor by ``dataclasses.replace`` cannot answer for another fit.
@@ -2535,8 +2543,7 @@ class StructuralNestedMeanResult:
         )
         # The split is the structural fit's own, so both estimators hold out the same rows.
         nonparametric_fit._folds = lambda _data, _seed=None: folds  # type: ignore[assignment]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        with _suppressed():
             return nonparametric_fit.fit(self.data)
 
     # ----------------------------------------------------------------- reports

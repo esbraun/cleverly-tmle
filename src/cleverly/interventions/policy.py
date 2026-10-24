@@ -107,7 +107,6 @@ from __future__ import annotations
 
 import contextlib
 import itertools
-import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
@@ -117,6 +116,7 @@ import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
 from ..exceptions import (
@@ -5439,7 +5439,7 @@ def _warn_outside_cell_support(
         for count, side in ((below, "below the smallest"), (above, "above the largest")):
             if not count:
                 continue
-            warnings.warn(
+            _warn(
                 f"policy {name!r} assigns {count / natural.shape[0]:.1%} of rows a "
                 f"{component.name!r} dose {side} one observed in the categorical cell the "
                 "policy sends them to. The outcome regression is extrapolating there. "
@@ -5478,7 +5478,7 @@ def _warn_outside_support(
                 f"has cap=None, and {fraction:.1%} of rows are assigned a dose above "
                 f"the largest one observed ({boundary:.3g}). "
             )
-        warnings.warn(
+        _warn(
             f"policy {name!r} {description}"
             "The outcome regression is extrapolating there. Identification requires the policy "
             "to preserve conditional treatment support; a cap alone does not establish this.",

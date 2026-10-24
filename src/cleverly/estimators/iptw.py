@@ -55,7 +55,6 @@ tilted mechanism.  ``form="one_step"`` reports the estimating-equation correctio
 from __future__ import annotations
 
 import inspect
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
@@ -66,6 +65,7 @@ from sklearn.base import BaseEstimator, is_classifier
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Classification, Preflight
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
 from ..exceptions import (
     CapabilityError,
@@ -1607,7 +1607,7 @@ class AdaptiveIPTW(TMLE):
             item.spec.name for item in solved if relative_score(item.score, item.scale) > self.tol
         ]
         if unmet:
-            warnings.warn(
+            _warn(
                 f"AdaptiveIPTW stopped at max_iter={self.max_iter} before the relative score "
                 f"reached tol={self.tol:g} for {sorted(set(unmet))}. A refit of the reduced "
                 "regression on each tilted propensity moves the score, and a flexible "
@@ -1678,7 +1678,7 @@ class AdaptiveIPTW(TMLE):
             requested
         ) == self._resolved_names(data, refuse_outside=False)
         if defaulted:
-            warnings.warn(
+            _warn(
                 f"AdaptiveIPTW dropped {sorted(failures)} from the default report: "
                 + next(iter(failures.values())),
                 DataWarning,

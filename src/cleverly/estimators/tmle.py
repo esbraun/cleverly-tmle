@@ -84,7 +84,6 @@ support is fitted in sample instead, with ``cross_fit=False``.
 from __future__ import annotations
 
 import copy
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
@@ -121,6 +120,8 @@ from .._typing import (
     TargetingMethod,
     TargetingScheme,
 )
+from .._warnings import records_fit
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
@@ -1137,7 +1138,7 @@ class TMLE:
                 "needs cross-fitted nuisance predictions; pass cross_fit=True"
             )
         if self.targeting_scheme == "fold" and not self.cross_fit:
-            warnings.warn(
+            _warn(
                 "targeting_scheme='fold' needs validation folds to target within, and "
                 "cross_fit=False leaves none; falling back to pooled targeting. Set "
                 "cross_fit=True for the fold-specific targeting extension.",
@@ -1307,6 +1308,7 @@ class TMLE:
 
     # ------------------------------------------------------------------- fit
 
+    @records_fit
     def fit(
         self,
         data: Any,
@@ -4126,7 +4128,7 @@ class TMLE:
         """
         if not (data.declares_estimated_weights and self.n_bootstrap):
             return
-        warnings.warn(
+        _warn(
             "weights_estimated=True with n_bootstrap: the bootstrap resamples rows and "
             "renormalises the weights it was given, never re-deriving them, so its "
             "intervals condition on the fitted weights. Re-deriving the weights inside "
@@ -4153,7 +4155,7 @@ class TMLE:
             outside = nuisance.propensity.truncate(config.g_bounds).fraction
             kind = "a known" if nuisance.treatment_mechanism == "known" else "an estimated"
             if outside > _TRUNCATION_WARN_FRACTION:
-                warnings.warn(
+                _warn(
                     f"{outside:.1%} of units have {kind} treatment probability outside the "
                     f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm. Those "
                     "units still contribute, but their contributions use bounded rather "
@@ -4217,7 +4219,7 @@ class TMLE:
                     "variance. Inspect res.diagnostics.support() and re-run with a different "
                     "nuisance_bound."
                 )
-                warnings.warn(
+                _warn(
                     f"{below:.1%} of estimated {label} values fall below the nuisance bound "
                     f"{config.missingness_bound:.4g}. {guidance}",
                     PositivityWarning,
@@ -4897,7 +4899,7 @@ class TMLE:
             # Only reachable when resolve_n_folds collapsed the split -- too few units
             # in the rarer treatment arm to stratify. The constructor already warned
             # about the cross_fit=False route, so this is the remaining silent one.
-            warnings.warn(
+            _warn(
                 "targeting_scheme='fold' was requested but the data supports only a "
                 "single fold, so there is no validation split to target within; "
                 "falling back to pooled targeting.",
@@ -5292,7 +5294,7 @@ class TMLE:
         failed = [i for i, record in enumerate(fold_records) if not record.converged]
         modes = sorted({reasons[i] for i in failed})
         if failed:
-            warnings.warn(
+            _warn(
                 f"{len(failed)} of {len(fold_records)} fold(s) did not converge in the "
                 f"{group!r} targeting step ({', '.join(modes)}). The pooled score "
                 "can still look solved because each fold's score is near zero on its own "
@@ -5881,7 +5883,7 @@ def _average_over_folds(
         )
 
     if dropped:
-        warnings.warn(
+        _warn(
             f"{', '.join(dropped)} could not be evaluated inside every validation fold "
             "(a fold with no units in the conditioning arm, or a counterfactual mean "
             "at the boundary), so it is omitted from the cross-validated report. Fewer "

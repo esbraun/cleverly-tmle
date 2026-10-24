@@ -61,7 +61,6 @@ fluctuation is pooled across the regimens where the point-treatment one is not.
 from __future__ import annotations
 
 import copy
-import warnings
 from abc import ABCMeta, abstractmethod
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
@@ -106,6 +105,8 @@ from .._typing import (
     Learner,
     StoppingRule,
 )
+from .._warnings import FitWarning, records_fit
+from .._warnings import warn as _warn
 from ..data.weighting import REPORTED_DRAW
 from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
@@ -668,7 +669,7 @@ def _warn_parameter_space(
         f"{'; '.join(items)}: outside the outcome range [{low:.4g}, {high:.4g}]"
         for (low, high), items in outside.items()
     )
-    warnings.warn(
+    _warn(
         f"{described}. {_RANGE_CAUSE[estimator]}. It is reported as computed, with no "
         "truncation. A ratio or odds functional of such a level is refused",
         ParameterSpaceWarning,
@@ -1825,6 +1826,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     estimator : object or None
         The estimator settings the fit ran under, with no bootstrap and no simultaneous
         band, which a refutation refits.  ``None`` on a result built by hand.  Keyword-only.
+    fit_warnings : tuple of FitWarning
+        The package warnings the fit raised, in first-seen order. Set by the fit entry
+        point.  Keyword-only.
 
     Attributes
     ----------
@@ -1925,6 +1929,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
     #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.
     bootstrap_band: BootstrapBand | None = None
+    #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
+    #: still names them.
+    fit_warnings: tuple[FitWarning, ...] = field(default=(), kw_only=True)
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
     #: :attr:`fitted_method`.
@@ -4533,7 +4540,7 @@ def _warn_parameter_statuses(estimates: Mapping[str, ParameterEstimate]) -> None
             continue
         shown = ", ".join(names[:_WARNED_NAMES])
         more = f", and {len(names) - _WARNED_NAMES} more" if len(names) > _WARNED_NAMES else ""
-        warnings.warn(
+        _warn(
             f"{len(names)} reported parameter(s) take the {status!r} status: {shown}{more} "
             "(constant_node_parameters(result) lists them). "
             + status_record(status).reason
@@ -5115,6 +5122,7 @@ class _SequentialEstimator:
         """
         return profile_phases()
 
+    @records_fit
     def fit(
         self,
         data: Any,
@@ -6246,7 +6254,7 @@ class _SequentialEstimator:
             )
             for label, time, share, constant in affected
         )
-        warnings.warn(
+        _warn(
             "Cumulative mechanism truncation exceeded 5% of scored rows: "
             f"{details}. The fit divides by the truncated weights; "
             "material truncation can trade reduced weight extremes for truncation bias and "
@@ -7559,6 +7567,7 @@ class IPSI(_SequentialEstimator):
             **refused,
         )
 
+    @records_fit
     def fit(self, data: Any, **kwargs: Any) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
 
@@ -7700,9 +7709,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
                 ratio=self.ratio,
             )
         except DataError as error:
-            warnings.warn(
-                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=5
-            )
+            _warn(GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=5)
             return _unavailable_mechanism(data, plans)
 
     @abstractmethod
@@ -8777,7 +8784,7 @@ class ParametricGFormula(_Baseline):
         }
         if over:
             worst = max(over, key=lambda name: over[name])
-            warnings.warn(
+            _warn(
                 f"the simulation is {over[worst]:.0%} of the variance of {worst!r}"
                 + (f" and of {len(over) - 1} other parameter(s)" if len(over) > 1 else "")
                 + f", above {MONTE_CARLO_WARN_SHARE:.0%}. The interval includes it. "

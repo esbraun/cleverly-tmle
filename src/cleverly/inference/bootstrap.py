@@ -39,7 +39,6 @@ the model that produced them, which the package never sees.
 from __future__ import annotations
 
 import math
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol, TypeVar
@@ -48,6 +47,8 @@ import numpy as np
 
 from .._support import UNCLASSIFIED, Support
 from .._typing import FloatArray, IntArray
+from .._warnings import suppressed as _suppressed
+from .._warnings import warn as _warn
 from ..utils.parallel import map_parallel
 from .delta import normal_cdf, normal_quantile
 from .influence import BootstrapInterval, BootstrapSummary
@@ -755,10 +756,10 @@ def _run_draws(
         except Exception:
             return None
 
-    with warnings.catch_warnings():
+    with _suppressed():
         # Replicates routinely trip positivity and convergence warnings; surfacing
-        # them once per replicate would bury the real output.
-        warnings.simplefilter("ignore")
+        # them once per replicate would bury the real output, and recording them would
+        # put a resample's warning on the main fit.
         outcomes = map_parallel(replicate, design.draws, n_jobs=n_jobs)
 
     # Outside the guard above: a refit that breaks the contract is a programming error, and
@@ -773,7 +774,7 @@ def _run_draws(
             "bootstrap. Check res.diagnostics.support() and consider tighter g_bounds."
         )
     if n_failed:
-        warnings.warn(
+        _warn(
             f"{n_failed} of {n_replicates} bootstrap replicates failed and were dropped",
             UserWarning,
             stacklevel=3,

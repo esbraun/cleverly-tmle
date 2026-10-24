@@ -76,7 +76,6 @@ results are returned in it.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, TypeAlias
@@ -85,6 +84,8 @@ import numpy as np
 
 from .._refusal import NO_ALTERNATIVE
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import FitWarning, records_data
+from .._warnings import warn as _warn
 from ..data.known_mechanism import (
     KnownNodeMechanisms,
     known_node_mechanisms,
@@ -501,10 +502,14 @@ class LongitudinalData:
     #: history.  Every nuisance design then reads ``W`` and a window of the last nodes, and
     #: the frames a rule or a policy reads keep the full history.
     markov_order: int | None = None
+    #: The package warnings raised while this data was built and checked (a dropped
+    #: constant covariate, say), which every fit on it adds to its own record.
+    validation_warnings: tuple[FitWarning, ...] = field(default=(), compare=False, repr=False)
 
     # ------------------------------------------------------------------ build
 
     @classmethod
+    @records_data
     def from_frame(
         cls,
         data: Any,
@@ -3511,7 +3516,7 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
         for value in unique
     )
     if numeric_levels and unique.size >= MIN_CONTINUOUS_LEVELS:
-        warnings.warn(
+        _warn(
             f"treatment node {name!r} is numeric and takes {unique.size} distinct values; "
             "it will be modelled as that many unordered arms, with one multinomial "
             "mechanism per node and one counterfactual mean per assigned sequence. If it "

@@ -333,7 +333,6 @@ from __future__ import annotations
 import copy
 import inspect
 import numbers
-import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -350,6 +349,7 @@ from .._inference_status import (
 )
 from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
 from ..data.treatment_covariates import pool_line
 from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
@@ -1199,7 +1199,7 @@ def _warn_on_unordered_candidates(path: Sequence[_Candidate]) -> None:
     if not offending:
         return
     named = ", ".join(f"{index} ({path[index].label})" for index in offending)
-    warnings.warn(
+    _warn(
         "strategy='learners' needs treatment_candidates= ordered from the least to the most "
         "adaptive, with a decreasing treatment loss. The treatment negative log likelihood "
         f"rises by more than 1% at candidate {named}. The fit proceeds, but the search can stop "
@@ -2209,7 +2209,7 @@ default="greedy"
         if report is None or not report.failures:
             return estimates
         held = _held_estimates(estimates, reads, report.failures)
-        warnings.warn(
+        _warn(
             "the stacked per-arm interval failed on this sample: "
             + "; ".join(
                 f"arm {data.arm_label(arm)!r}: {reason}" for arm, reason in report.failures.items()

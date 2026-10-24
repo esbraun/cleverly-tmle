@@ -70,6 +70,7 @@ from ..utils.frames import emit_frame
 from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..estimators._nuisance import NuisanceEstimates
     from ..estimators.base import TMLEResult
     from ..fluctuation.submodel import Submodel
 
@@ -1324,28 +1325,11 @@ def _group_score_load(
         # zero and is correctly the one the report must expose rather than average away.
         selected = int(np.argmin([column["targeted_ratio"] for column in columns]))
 
-        if group == "ipsi":
-            lower = upper = float("nan")
-            clipped_count = clipped_fraction = 0.0
-        else:
-            lower, upper = g_bounds_for(
-                group, result.config.g_bounds, result.config.g_bounds_conditional
-            )
-            if fluctuation.reduction is not None or fluctuation.mechanism is not None:
-                # These fits solve the outcome equation against a treatment mechanism
-                # changed during targeting.  Its score loads are exact, but the retained
-                # initial nuisance cannot recover which cells the bound moved.  Reporting
-                # initial-g clipping here would attach the right numerical bound to the
-                # wrong mechanism.
-                clipped_count = clipped_fraction = float("nan")
-                omissions[f"{group}.clipping"] = (
-                    "the score used a targeted treatment mechanism whose exact clipping "
-                    "mask was not retained"
-                )
-            else:
-                clipped = result.nuisance.propensity.truncate((lower, upper)).units
-                clipped_count = float(np.count_nonzero(clipped))
-                clipped_fraction = float(np.mean(clipped))
+        clipping = group_clipping(result, group)
+        lower, upper = clipping.bounds
+        clipped_count, clipped_fraction = clipping.count, clipping.fraction
+        if clipping.omission is not None:
+            omissions[f"{group}.clipping"] = clipping.omission
 
         rows[group] = {
             **columns[selected],
@@ -1355,6 +1339,76 @@ def _group_score_load(
             "clipped_fraction": clipped_fraction,
         }
     return rows, omissions
+
+
+#: Why a group's clipping is unknown when its score used a mechanism changed in targeting.
+TARGETED_MECHANISM_CLIPPING = (
+    "the score used a targeted treatment mechanism whose exact clipping mask was not retained"
+)
+
+
+@dataclass(frozen=True)
+class GroupClipping:
+    """How many units one target group's treatment-probability bound moved.
+
+    Parameters
+    ----------
+    bounds : tuple of float
+        The bound pair the group's clever covariate reads; ``nan`` for a group that reads
+        no arm probability.
+    count : float
+        The units the pair moved, ``nan`` when the mask was not retained.
+    fraction : float
+        The same as a share of the rows.
+    omission : str or None
+        Why the count is unknown, or ``None``.
+    """
+
+    bounds: tuple[float, float]
+    count: float
+    fraction: float
+    omission: str | None = None
+
+
+def group_clipping(
+    result: TMLEResult, group: str, nuisance: NuisanceEstimates | None = None
+) -> GroupClipping:
+    """How many units the treatment-probability bound of one target group moved.
+
+    The one rule the positivity report and the result summary read. ``att`` and ``atc``
+    read ``g_bounds_conditional``; every other arm-probability group reads ``g_bounds``.
+    The ``ipsi`` group discards the propensity, so its bound moves nothing.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fit whose treatment mechanism was fitted or declared.
+    group : str
+        A key of ``result.fluctuations``.
+    nuisance : NuisanceEstimates or None
+        One draw's nuisance predictions; ``None`` reads ``result.nuisance``, the first
+        draw.
+
+    Returns
+    -------
+    GroupClipping
+        The pair, the count and the share.
+    """
+    if group == "ipsi":
+        return GroupClipping((float("nan"), float("nan")), 0.0, 0.0)
+    pair = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
+    fluctuation = result.fluctuations.get(group)
+    if fluctuation is not None and (
+        fluctuation.reduction is not None or fluctuation.mechanism is not None
+    ):
+        # These fits solve the outcome equation against a treatment mechanism changed
+        # during targeting.  The retained initial nuisance cannot recover which cells the
+        # bound moved, and reporting initial-g clipping here would attach the right
+        # numerical bound to the wrong mechanism.
+        return GroupClipping(pair, float("nan"), float("nan"), TARGETED_MECHANISM_CLIPPING)
+    propensity = (result.nuisance if nuisance is None else nuisance).propensity
+    clipped = propensity.truncate(pair).units
+    return GroupClipping(pair, float(np.count_nonzero(clipped)), float(np.mean(clipped)))
 
 
 def _reported_beta(result: TMLEResult, group: str) -> Any:
