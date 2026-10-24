@@ -157,7 +157,6 @@ P_VALUE: Final = "p-value"
 DF: Final = "df"
 SUPPORT: Final = "support"
 EXPERIMENTAL: Final = "experimental"
-EVERY_ROW: Final = "every row"
 MEANING: Final = "meaning"
 BAND: Final = "band"
 #: The suffix a row label takes when its estimate supplies no inference in a table whose
@@ -443,13 +442,6 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "working_model": "note",
         "isotonic_moves": "note",
         "model_reliance": "note",
-        "structural_model": "note",
-        "check_splits": "note",
-        "draw_order": "note",
-        "simulation_share": "note",
-        "unsupported_rows": "warning",
-        "score_load": "note",
-        "score_load_rows": "note",
     }
 )
 
@@ -776,48 +768,6 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "where the true curve strictly increases."
         ),
         "model_reliance": "{statement}",
-        "structural_model": (
-            "The intervals hold under the linear structural nested mean model with the blip "
-            "features declared at each time point. A blip that depends on an undeclared "
-            "earlier treatment or covariate makes the coefficients, and the plan means read "
-            "from them, biased."
-        ),
-        "structural_covariate_feature": (
-            "A blip feature reads a covariate measured after baseline, so the fit reports the "
-            "blips and the reference mean but no plan means or contrasts."
-        ),
-        "structural_check": "result.check_model() compares the plan contrasts with LTMLE.",
-        "check_experimental": "cleverly marks this check experimental. {reason}",
-        "check_splits": (
-            "Each number is the mean over {k} fold splits, the first of them the fit's own."
-        ),
-        "draw_order": (
-            "The order in which the covariates of one time point are drawn defines the "
-            "models, so at most one order is correctly specified in general."
-        ),
-        "simulation_share": (
-            "The simulation contributes up to {share} of the variance ({name}); a larger "
-            "n_draws lowers it."
-        ),
-        "unsupported_rows": (
-            "Rows given an arm whose estimated probability is exactly zero: {counts}. The data "
-            "give no support there. If the true probability is zero, the effect is not "
-            "identified for those rows."
-        ),
-        "score_load": (
-            "Score load reads the limited treatment model the fit used, while the ratios and "
-            "their effective size read the estimated model before any limit. It counts the "
-            "rows that effectively carry the estimating equation, of the rows the equation "
-            "reads, so it is not the effective size of the ratios."
-        ),
-        "score_load_rows": (
-            "Score load counts the rows that effectively carry the estimating equation, of the "
-            "rows the equation reads, so it is not the effective size of the ratios."
-        ),
-        "unsupported_density": (
-            "{name} moves {count} rows to a dose where the estimated density is exactly zero. "
-            "This flags the density model; it does not prove that the effect is unidentified."
-        ),
     }
 )
 
@@ -827,7 +777,6 @@ SECTION_ASSUMPTIONS: Final = "Assumptions"
 SECTION_SETTINGS: Final = "Settings"
 SECTION_METHOD: Final = "Method details"
 SECTION_STUDY: Final = "Study description"
-SECTION_HOW_TO_READ: Final = "How to read"
 ASSUMPTIONS_LEAD: Final = "The estimate equals {functional} when these hold:"
 ASSUMPTIONS_LEAD_GENERIC: Final = "The estimate has its causal meaning when these hold:"
 #: The conditions a fit with no study adds for a partly recorded outcome.
@@ -1984,6 +1933,72 @@ SUPPORT_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
         "unsupported": "rows without support",
     }
 )
+
+EVERY_ROW: Final = "every row"
+SECTION_HOW_TO_READ: Final = "How to read"
+
+#: The notes of the structural, g-formula and overlap summaries (X89 T2).
+T2_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "structural_model": "note",
+        "check_splits": "note",
+        "draw_order": "note",
+        "simulation_share": "note",
+        "unsupported_rows": "warning",
+        "score_load": "note",
+        "score_load_rows": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_NOTE_CODES})
+
+T2_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "check_experimental": "cleverly marks this check experimental. {reason}",
+        "check_splits": (
+            "Each number is the mean over {k} fold splits, the first of them the fit's own."
+        ),
+        "draw_order": (
+            "The order in which the covariates of one time point are drawn defines the "
+            "models, so at most one order is correctly specified in general."
+        ),
+        "score_load": (
+            "Score load reads the limited treatment model the fit used, while the ratios and "
+            "their effective size read the estimated model before any limit. It counts the "
+            "rows that effectively carry the estimating equation, of the rows the equation "
+            "reads, so it is not the effective size of the ratios."
+        ),
+        "score_load_rows": (
+            "Score load counts the rows that effectively carry the estimating equation, of the "
+            "rows the equation reads, so it is not the effective size of the ratios."
+        ),
+        "simulation_share": (
+            "The simulation contributes up to {share} of the variance ({name}); a larger "
+            "n_draws lowers it."
+        ),
+        "structural_check": "result.check_model() compares the plan contrasts with LTMLE.",
+        "structural_covariate_feature": (
+            "A blip feature reads a covariate measured after baseline, so the fit reports the "
+            "blips and the reference mean but no plan means or contrasts."
+        ),
+        "structural_model": (
+            "The intervals hold under the linear structural nested mean model with the blip "
+            "features declared at each time point. A blip that depends on an undeclared "
+            "earlier treatment or covariate makes the coefficients, and the plan means read "
+            "from them, biased."
+        ),
+        "unsupported_density": (
+            "{name} moves {count} rows to a dose where the estimated density is exactly zero. "
+            "This flags the density model; it does not prove that the effect is unidentified."
+        ),
+        "unsupported_rows": (
+            "Rows given an arm whose estimated probability is exactly zero: {counts}. The data "
+            "give no support there. If the true probability is zero, the effect is not "
+            "identified for those rows."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T2_NOTE_TEXTS})
+
 
 # ----------------------------------------------------------------- point-estimate objects (T1)
 
