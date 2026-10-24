@@ -67,6 +67,13 @@ R_H6 = "treatment_adjustment repeats {cols}"
 OFFSET = 1000.0
 
 
+def restrictions(result: Any) -> list[str]:
+    """The model restrictions a full summary lists under its assumptions."""
+    lead = "- model restriction: "
+    lines = result.summary(detail="full").section("Assumptions").lines
+    return [line[len(lead) :] for line in lines if line.startswith(lead)]
+
+
 def make_frame(n: int = 240, seed: int = 3) -> pd.DataFrame:
     """Four covariates ``c1..c4`` whose mean is ``1000 * j``, a binary treatment and an outcome."""
     rng = np.random.default_rng(seed)
@@ -643,11 +650,7 @@ def test_a_fitted_result_prints_the_restriction_of_its_design() -> None:
             random_state=0,
         )
     )
-    summary = result.summary().splitlines()
-    kinds = [line.split(":")[0] for line in summary]
-    assert summary[kinds.index("model restrictions")] == "model restrictions: " + pinned("{c2, c3}")
-    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
-    assert sum(line.startswith("model restrictions") for line in summary) == 1
+    assert restrictions(result) == [pinned("{c2, c3}")]
 
 
 def test_a_low_level_fit_prints_the_same_text_from_its_data() -> None:
@@ -658,10 +661,9 @@ def test_a_low_level_fit_prints_the_same_text_from_its_data() -> None:
         covariates=COVARIATES,
         treatment_covariates=WG,
     )
-    summary = result.single().summary().splitlines()
-    assert "model restrictions: " + pinned("{c2, c3}") in summary
+    assert restrictions(result.single()) == [pinned("{c2, c3}")]
     plain = spied().fit(make_frame(), outcome="Y", treatment="A", covariates=COVARIATES)
-    assert "restriction" not in plain.single().summary()
+    assert "restriction" not in plain.single().summary(detail="full")
 
 
 def test_a_study_fit_reads_wg_through_the_design() -> None:

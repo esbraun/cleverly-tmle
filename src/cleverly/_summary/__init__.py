@@ -83,7 +83,7 @@ class Cell:
     Parameters
     ----------
     value : Any
-        The raw number, string or ``None``. :meth:`SummaryTable.to_frame` returns it.
+        The raw number, string or ``None``. :meth:`SummaryTable.as_dict` returns it.
     text : str
         The display string.
     """
@@ -176,24 +176,18 @@ class SummaryTable:
                 return dict(zip(self.columns, row, strict=True))
         raise KeyError(label)
 
-    def to_frame(self) -> Any:
-        """The raw values, as a pandas frame when pandas is installed.
+    def as_dict(self) -> dict[str, list[Any]]:
+        """The raw values, one list per column.
 
         Returns
         -------
-        dataframe or dict
-            One column per label, the row-label column first. A dict of lists without
-            pandas.
+        dict of str to list
+            One list per label, the row-label column (``"row"``) first.
         """
         columns = [label or "row" for label in self.columns]
-        payload = {
+        return {
             name: [row[index].value for row in self.rows] for index, name in enumerate(columns)
         }
-        try:
-            import pandas as pd
-        except ImportError:  # pragma: no cover - pandas is a test dependency
-            return payload
-        return pd.DataFrame(payload, columns=columns)
 
 
 @dataclass(frozen=True)

@@ -57,7 +57,7 @@ from cleverly import (
     PointTreatment,
     RegimeContrast,
 )
-from cleverly._inference_status import status_record
+from cleverly._summary import vocabulary
 from cleverly.assessment import INTERPRETERS
 from cleverly.data.validate import MISSING_OUTCOME_DECLARATION
 from cleverly.datasets import (
@@ -727,19 +727,28 @@ def _guarded(guard: tuple[str, ...]) -> Any:
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
+def _method_lines(result: Any) -> tuple[str, ...]:
+    """The Method details lines of a full summary, or none."""
+    summary = result.summary(detail="full")
+    titles = [section.title for section in summary.sections]
+    if vocabulary.SECTION_METHOD not in titles:
+        return ()
+    return summary.section(vocabulary.SECTION_METHOD).lines
+
+
 class TestTheDRTMLESummaryNamesItsGuardAndReduction:
-    """Row 3. A DR-TMLE summary names the method, the guard and the reduction."""
+    """Row 3. A DR-TMLE full summary names the method, the guard and the reduction."""
 
     def test_the_default_guard(self) -> None:
-        lines = sweep.fit_drtmle().summary().splitlines()
+        lines = _method_lines(sweep.fit_drtmle())
         assert "DR-TMLE: guard Q, g; univariate reduction" in lines
 
     def test_a_one_equation_guard(self) -> None:
-        lines = _guarded(("Q",)).summary().splitlines()
+        lines = _method_lines(_guarded(("Q",)))
         assert "DR-TMLE: guard Q; univariate reduction" in lines
 
     def test_an_empty_guard_names_the_ordinary_tmle(self) -> None:
-        lines = _guarded(()).summary().splitlines()
+        lines = _method_lines(_guarded(()))
         assert (
             "DR-TMLE: empty guard, so no reduced regression was fitted and the estimate is "
             "the ordinary TMLE"
@@ -748,7 +757,7 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
     def test_the_bivariate_reduction(self) -> None:
         frame, _ = make_binary_outcome(n=160, seed=11)
         estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), reduction="bivariate")
-        lines = estimator.fit(frame, outcome="Y", treatment="A").single().summary().splitlines()
+        lines = _method_lines(estimator.fit(frame, outcome="Y", treatment="A").single())
         assert "DR-TMLE: guard Q, g; bivariate reduction" in lines
 
     def test_the_missing_outcome_reduction(self) -> None:
@@ -763,11 +772,11 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
         )
         assert estimator.reduction == "univariate"
         result = estimator.fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta")
-        lines = result.single().summary().splitlines()
+        lines = _method_lines(result.single())
         assert "DR-TMLE: guard Q, g; missing_outcome reduction" in lines
 
     def test_an_ordinary_fit_prints_no_dr_tmle_line(self) -> None:
-        lines = sweep.fit_ordinary().summary().splitlines()
+        lines = _method_lines(sweep.fit_ordinary())
         assert not any(line.startswith("DR-TMLE:") for line in lines)
 
 
@@ -872,11 +881,15 @@ class TestTheProtocolPrintsAtFullDetailOnly:
         effect, result = request.getfixturevalue(kind)
         fingerprint = navigation_protocol().fingerprint
         for text in self._summaries(effect, result, detail="full"):
+            assert fingerprint not in text
+            if hasattr(text, "section"):
+                # A structured summary wraps long lines; its section holds them whole.
+                assert text.section(vocabulary.SECTION_STUDY).lines == _record_lines()
+                continue
             printed = [line.strip() for line in text.splitlines()]
             start = printed.index(_record_lines()[0])
             assert tuple(printed[start : start + 10]) == _record_lines()
             assert _count(text, _record_lines()) == [1] * 10
-            assert fingerprint not in text
 
     def test_an_unknown_detail_is_refused(self, point: Any) -> None:
         effect, result = point
@@ -890,13 +903,18 @@ class TestTheProtocolPrintsAtFullDetailOnly:
     ) -> None:
         _, result = point
         results = TMLEResultSet(dict.fromkeys(levels, result), intermediate_name="Z")
-        assert _count(results.summary(detail="full"), _record_lines()) == [len(levels)] * 10
-        assert _count(results.summary(), _record_lines()) == [0] * 10
+        full = str(result.summary(detail="full"))
+        assert result.summary(detail="full").section(vocabulary.SECTION_STUDY).lines == (
+            _record_lines()
+        )
+        assert results.summary(detail="full").count(full) == len(levels)
+        assert vocabulary.SECTION_STUDY not in results.summary()
 
     def test_an_absent_protocol_prints_absent_at_full_detail(self) -> None:
         fitted = TMLE(**linear_in_sample()).fit(_linear_frame(), outcome="Y", treatment="A")
-        assert "causal study protocol: absent" in fitted.summary(detail="full")
-        assert "causal study protocol" not in fitted.summary()
+        section = fitted.summary(detail="full").section(vocabulary.SECTION_STUDY)
+        assert section.lines == (vocabulary.NO_PROTOCOL,)
+        assert vocabulary.SECTION_STUDY not in fitted.summary()
         with pytest.raises(ValueError, match="detail must be 'short' or 'full'"):
             fitted.summary(detail="fingerprint")
 
@@ -992,9 +1010,12 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         return fitted.fit(_binary_frame(), outcome="Y", treatment="A").single()
 
     @staticmethod
-    def _heading(result: Any) -> str:
+    def _table(result: Any) -> Any:
+        """The bootstrap table, after checking its title names the usable replicates."""
         usable = result.bootstrap.n_requested - result.bootstrap.n_failed
-        return f"full-refit bootstrap (iid resampling, {usable} usable replicates):"
+        title = f"Bootstrap (iid resampling, {usable} usable replicates)"
+        (table,) = [table for table in result.summary().tables if table.title == title]
+        return table
 
     def test_a_selector_fit_publishes_a_standard_deviation(self) -> None:
         result = self._fit(CTMLE, strategy="greedy", selection_folds=3)
@@ -1002,13 +1023,17 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         row = estimate.to_dict()
         assert row["bootstrap_sd"] == estimate.bootstrap.std_error
         assert "bootstrap_std_err" not in row
-        low, high = estimate.bootstrap.ci
-        lines = result.summary().splitlines()
-        assert self._heading(result) in lines
-        assert (
-            f"  ate   bootstrap sd {estimate.bootstrap.std_error:.4g}  percentile range "
-            f"[{low:.5g}, {high:.5g}] ({status_record(estimate.inference).bootstrap_note})"
-        ) in lines
+        table = self._table(result)
+        assert table.columns == (
+            "",
+            "bootstrap SD (diagnostic)",
+            "percentile range (diagnostic)",
+        )
+        ((label, spread, interval),) = table.rows
+        assert label.value == "ate"
+        assert spread.value == estimate.bootstrap.std_error
+        assert interval.value == estimate.bootstrap.ci
+        assert "bootstrap_diagnostic" in result.summary().note_codes
 
     def test_an_ordinary_fit_keeps_the_standard_error(self) -> None:
         result = self._fit(TMLE)
@@ -1016,13 +1041,13 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         row = estimate.to_dict()
         assert row["bootstrap_std_err"] == estimate.bootstrap.std_error
         assert "bootstrap_sd" not in row
-        low, high = estimate.bootstrap.ci
-        lines = result.summary().splitlines()
-        assert self._heading(result) in lines
-        assert (
-            f"  ate   bootstrap se {estimate.bootstrap.std_error:.4g}  "
-            f"percentile CI [{low:.5g}, {high:.5g}]"
-        ) in lines
+        table = self._table(result)
+        assert table.columns == ("", "bootstrap SE", "percentile 95% CI")
+        ((label, spread, interval),) = table.rows
+        assert label.value == "ate"
+        assert spread.value == estimate.bootstrap.std_error
+        assert interval.value == estimate.bootstrap.ci
+        assert "bootstrap_diagnostic" not in result.summary().note_codes
 
 
 class TestCompetingRisksFollowerLines:

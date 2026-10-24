@@ -197,19 +197,17 @@ class TestBackendParity:
         assert pandas_spread.to_dict(orient="list") == polars_spread.to_dict(as_series=False)
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
-        """Same text, character for character -- apart from when each fit ran.
+        """Same text, character for character, at either detail.
 
-        The summary ends with a provenance line carrying ``created_utc`` at one-second
-        resolution (:func:`cleverly.provenance.record`).  The two fits in the fixture take
-        about a second each, so they straddle a second boundary often enough for a bare
-        string comparison to be a coin flip rather than a test -- which is what it was.
-        The backend claim is about the numbers and the layout, not about the clock, so the
-        timestamp is normalised out and asserted separately to be present.
+        A summary prints no run time (``created_utc`` stays on ``result.provenance``), so
+        two fits that straddle a second boundary still print the same text.
         """
         from_pandas, from_polars, _ = paired_fits
-        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}")
-        assert stamp.search(from_pandas.summary()), "the provenance line should carry a time"
-        assert stamp.sub("<t>", from_pandas.summary()) == stamp.sub("<t>", from_polars.summary())
+        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        for detail in ("short", "full"):
+            text = str(from_pandas.summary(detail=detail))
+            assert not stamp.search(text)
+            assert text == str(from_polars.summary(detail=detail))
 
     @pytest.mark.parametrize("estimand", ESTIMANDS)
     def test_an_arrow_backed_fit_is_bit_identical(self, paired_fits, estimand: str) -> None:
@@ -379,14 +377,17 @@ class TestResultApi:
 
     def test_the_summary_reports_the_configuration_actually_used(self, cross_fitted_fit) -> None:
         result = cross_fitted_fit
-        text = result.summary()
-        assert "Targeted maximum likelihood estimation" in text
-        assert "cross-fitted over 5 folds" in text
-        assert "propensity truncated to" in text
+        summary = result.summary(detail="full")
+        header = dict(summary.header)
+        assert header["Method"] == "targeted maximum likelihood (TMLE)"
+        assert header["Out-of-fold predictions"] == "5 folds"
+        settings = summary.section("Settings").lines
+        assert any(
+            line.startswith("Estimated treatment probabilities limited to") for line in settings
+        )
         # The resolved outcome bounds are reported, not just the request.
-        assert "outcome scaled from" in text
-        for estimand in ESTIMANDS:
-            assert estimand in text
+        assert any(line.startswith("Outcome predictions kept inside") for line in settings)
+        assert [cell.value for cell in summary.table("estimates").column("")] == list(ESTIMANDS)
 
     def test_the_config_records_resolved_values(self, cross_fitted_fit) -> None:
         result = cross_fitted_fit

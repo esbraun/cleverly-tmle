@@ -163,6 +163,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "unit_ids",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
+    "validation_warnings",
     "dose_supports",
     "dose_atoms",
     "baseline_names",

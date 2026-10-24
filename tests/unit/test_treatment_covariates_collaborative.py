@@ -67,6 +67,21 @@ DRTMLE_PINNED = (
 )
 
 
+def restrictions(result: Any) -> list[str]:
+    """The model restrictions a full summary lists under its assumptions."""
+    lead = "- model restriction: "
+    lines = result.summary(detail="full").section("Assumptions").lines
+    return [line[len(lead) :] for line in lines if line.startswith(lead)]
+
+
+def method_lines(result: Any) -> tuple[str, ...]:
+    """The Method details lines of a full summary, or none."""
+    summary = result.summary(detail="full")
+    if "Method details" not in [section.title for section in summary.sections]:
+        return ()
+    return summary.section("Method details").lines
+
+
 def collaborative(**overrides: Any) -> CTMLE:
     """A C-TMLE whose learners are spies, fitted in sample on two selection folds."""
     settings: dict[str, Any] = {
@@ -427,7 +442,7 @@ def test_an_empty_learners_fit_is_admitted_and_carries_the_restriction() -> None
     result = x16_fit(COVARIATES, ["c2", "c3"], strategy="learners", treatment_candidates=[])
     tmle = fit_tmle_like()
     assert result.inference_status == tmle.inference_status
-    assert "model restrictions: " + pinned("{c2, c3}") in result.summary().splitlines()
+    assert pinned("{c2, c3}") in restrictions(result)
     nonempty = x16_fit(
         COVARIATES,
         ["c2", "c3"],
@@ -435,7 +450,7 @@ def test_an_empty_learners_fit_is_admitted_and_carries_the_restriction() -> None
         treatment_candidates=[LogisticRegression(C=0.001)],
     )
     assert nonempty.inference_status == "working_mechanism_plugin"
-    assert "model restrictions: " + pinned("{c2, c3}") in nonempty.summary().splitlines()
+    assert pinned("{c2, c3}") in restrictions(nonempty)
 
 
 def fit_tmle_like() -> Any:
@@ -471,7 +486,7 @@ def test_an_empty_learners_fit_equals_the_tmle_fit_on_wg() -> None:
 def test_every_x16_fit_prints_the_restriction() -> None:
     for settings in X16_STRATEGIES:
         result = x16_fit(COVARIATES, ["c2", "c3"], **settings)
-        assert "model restrictions: " + pinned("{c2, c3}") in result.summary().splitlines()
+        assert pinned("{c2, c3}") in restrictions(result)
 
 
 def test_a_declared_empty_wg_gives_an_intercept_pool_to_the_x16_strategies() -> None:
@@ -527,7 +542,7 @@ def test_every_collaborative_fit_prints_the_restriction() -> None:
         {"strategy": "discrete", "candidates": [[], ["c2", "c3"]]},
     ):
         result = fit(collaborative(**settings))
-        assert "model restrictions: " + pinned("{c2, c3}") in result.summary().splitlines()
+        assert pinned("{c2, c3}") in restrictions(result)
 
 
 def test_a_collaborative_study_prints_the_restriction_of_its_design() -> None:
@@ -548,7 +563,7 @@ def test_a_collaborative_study_prints_the_restriction_of_its_design() -> None:
         simultaneous=False,
         random_state=0,
     )
-    assert "model restrictions: " + pinned("{c2, c3}") in result.summary().splitlines()
+    assert pinned("{c2, c3}") in restrictions(result)
 
 
 def _learners() -> dict[str, Any]:
@@ -579,15 +594,15 @@ def test_the_drtmle_line_is_pinned() -> None:
     assert DRTMLE_LINE_TEMPLATE == DRTMLE_PINNED
     result = fit(drtmle())
     expected = DRTMLE_PINNED.replace("{Wg}", "{c2, c3}")
-    assert expected in result.summary().splitlines()
-    assert "model restrictions: " + pinned("{c2, c3}") in result.summary().splitlines()
+    assert expected in method_lines(result)
+    assert pinned("{c2, c3}") in restrictions(result)
 
 
 def test_the_drtmle_line_names_only_a_drtmle_fit_with_wg() -> None:
-    assert "DRTMLE with" not in fit(drtmle(), wg=None).summary()
+    assert not any("DRTMLE with" in line for line in method_lines(fit(drtmle(), wg=None)))
     tmle = fit(TMLE(**_learners(), estimands=("ate",), cross_fit=False, simultaneous=False))
-    assert "DRTMLE with" not in tmle.summary()
-    assert "DRTMLE with" not in fit(collaborative()).summary()
+    assert "DRTMLE with" not in tmle.summary(detail="full")
+    assert "DRTMLE with" not in fit(collaborative()).summary(detail="full")
 
 
 def test_the_theorem_page_has_the_one_wrong_table_the_line_points_to() -> None:
@@ -615,7 +630,7 @@ def test_the_omitted_variable_bound_reads_the_restriction_of_a_plain_tmle_fit() 
     bounds = omitted_variable_bounds(result, "ate")
     assert np.isfinite(bounds.max_bias)
     # The bound is admitted, and the fit it reads states the restriction it needs.
-    assert "model restrictions: " + pinned("{c2, c3}") in result.summary().splitlines()
+    assert pinned("{c2, c3}") in restrictions(result)
     doc = omitted_variable_bounds.__doc__ or ""
     assert "treatment_adjustment" in doc
     assert "restriction" in doc

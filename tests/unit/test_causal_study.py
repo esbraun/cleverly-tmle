@@ -501,12 +501,12 @@ def test_a_result_prints_the_model_restrictions_of_its_identification() -> None:
         "simultaneous": False,
         "random_state": 0,
     }
-    plain = effect.estimate(**kwargs).summary().splitlines()
-    shown = restricted.estimate(**kwargs).summary().splitlines()
+    plain = effect.estimate(**kwargs).summary(detail="full").section("Assumptions").lines
+    shown = restricted.estimate(**kwargs).summary(detail="full").section("Assumptions").lines
     assert not any("restriction" in line for line in plain)
-    kinds = [line.split(":")[0] for line in shown]
-    assert shown[kinds.index("model restrictions")] == "model restrictions: restriction one"
-    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
+    # The restriction follows the identification assumptions it narrows.
+    last = max(shown.index(f"- {item}") for item in effect.identification.assumptions)
+    assert shown.index("- model restriction: restriction one") > last
 
 
 def test_a_cde_mar_record_with_stale_assumptions_is_refused() -> None:

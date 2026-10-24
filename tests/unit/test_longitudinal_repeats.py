@@ -283,6 +283,14 @@ def test_provenance_covers_every_draw() -> None:
     assert single.provenance.fold_fingerprint == single.split_plan.fingerprint
 
 
+def test_fit_warnings_record_what_a_repeated_fit_raised() -> None:
+    """A repeated fit records each warning it shows once, with the draws' copies merged."""
+    result, shown = support.fit_recording("ltmle", repeats=3, g_bounds=(0.3, 0.7))
+    assert shown
+    recorded = [f"{item.category}: {item.message}" for item in result.fit_warnings]
+    assert sorted(recorded) == sorted(set(shown))
+
+
 def test_config_records_repeats_and_the_multiplier_seed() -> None:
     result = _fit("ltmle", repeats=3)
     assert result.config.repeats == 3
@@ -1409,6 +1417,7 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "config": _witness("test_config_records_repeats_and_the_multiplier_seed"),
     "scaler": _witness(EACH_DRAW, "clustered"),
     "provenance": _witness("test_provenance_covers_every_draw"),
+    "fit_warnings": _witness("test_fit_warnings_record_what_a_repeated_fit_raised"),
     "simultaneous": _witness("test_band_uses_split_adjusted_se_and_median_critical_value"),
     "parameter_index": _READERS,
     "msm": _witness("test_msm_coefficients_median_coordinatewise"),

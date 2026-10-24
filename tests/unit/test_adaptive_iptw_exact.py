@@ -777,9 +777,9 @@ class TestW13TreatmentAdjustment:
             .single()
         )
         assert set(spy) == {1}
-        summary = result.summary()
+        summary = result.summary(detail="full")
         line = adaptive_iptw_restriction_line(["W1"], ["W2"])
-        assert line in summary
+        assert line in summary.section("Method details").lines
         assert "consistent when the outcome regression is consistent" not in summary
         assert line.startswith("treatment-mechanism covariates: the treatment mechanism")
 
