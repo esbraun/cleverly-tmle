@@ -22,6 +22,7 @@ import pytest
 from cleverly import _support, variable_importance
 from cleverly import load as cleverly_load
 from cleverly._summary import vocabulary
+from cleverly._summary._estimates import plain_support_reason
 from cleverly._support import Support, combine_support
 from cleverly.datasets import make_binary_outcome, make_clustered
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -78,8 +79,11 @@ class TestEValue:
         row = evalue(result, "ate")
         assert row.support.label == "experimental"
         assert row.to_dict()["support"] == "experimental"
-        assert "[experimental]" in row.summary().splitlines()[0]
-        assert f"experimental: {row.support.reason}" in row.summary()
+        summary = row.summary()
+        assert summary.note("experimental").kind == "note"
+        assert summary.note("experimental").text == plain_support_reason(row.support.reason)
+        settings = row.summary(detail="full").section("Settings").lines
+        assert f"Why experimental: {plain_support_reason(row.support.reason)}" in settings
 
     def test_an_experimental_fit_marks_its_e_value(self, clustered: Any) -> None:
         self.check(clustered)
