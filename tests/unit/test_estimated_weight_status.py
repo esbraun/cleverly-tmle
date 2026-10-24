@@ -23,6 +23,7 @@ import pytest
 
 from cleverly import variable_importance
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly._summary._estimates import plain_support_reason
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -87,10 +88,11 @@ class TestAnEstimatedWeightDRTMLEShowsALabelledInterval:
     def test_the_score_verdict_does_not_claim_an_interval(self, result: Any) -> None:
         check = result.score_verdict
         assert check.passed
-        text = check.summary()
-        assert "With one wrong nuisance it holds only" not in text
-        assert "verifies its score equations, not an interval" in text
-        assert RECORD.reason in text
+        summary = check.summary()
+        assert "dr_curve" not in summary.note_codes
+        assert summary.note("equations_only").text == vocabulary.NOTE_TEXTS[
+            "equations_only"
+        ].format(reason=RECORD.plain_reason)
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:

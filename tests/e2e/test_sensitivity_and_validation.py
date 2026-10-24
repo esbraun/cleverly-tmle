@@ -1332,7 +1332,7 @@ class TestValidation:
         assert check.passed
         assert bool(check)
         assert check.failures == ()
-        assert "PASS" in check.summary()
+        assert check.summary().facts["Result"] == "passed"
         check.raise_if_failed()
 
     def test_the_score_check_can_be_made_to_fail(self, good_overlap) -> None:
