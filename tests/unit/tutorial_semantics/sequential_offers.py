@@ -316,7 +316,10 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert method.models.treatment_learner is None
     summary = result.summary()
     settings = result.summary(detail="full").section("Settings").lines
-    assert "Declared known, with no learner and no limit: offer@1, offer@2, offer@3." in settings
+    assert (
+        "Declared known (no learner fits them, and no limit moves a declared value itself): offer@1, offer@2, offer@3."
+        in settings
+    )
     assert dict(summary.header)["Out-of-fold predictions"] == "no"
     assert dict(summary.header)["Probability limits"] == "[0.01, 1]"
     assert settings[0].startswith(

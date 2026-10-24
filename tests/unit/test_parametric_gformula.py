@@ -1188,7 +1188,7 @@ class TestDeclaredNaturalTreatment:
         assert {m.key for m in book.stacked} == {"covariate:2:L2", "outcome"}
         assert not any(model.role == "treatment" for model in result.simulation.models)
         assert (
-            "Declared known, with no learner and no limit: A1, A2."
+            "Declared known (no learner fits them, and no limit moves a declared value itself): A1, A2."
             in result.summary(detail="full").section("Settings").lines
         )
         units = np.random.default_rng(2).choice(self.N, 25, replace=False)

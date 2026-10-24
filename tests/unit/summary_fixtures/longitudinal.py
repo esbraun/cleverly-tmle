@@ -179,6 +179,14 @@ def survival() -> Any:
 
 
 @functools.cache
+def gridded() -> Any:
+    """Event risks on the unequal time grid (1, 2.5, 4), where a row's time is not its index."""
+    from tests.unit import test_time_to_event_input as grid
+
+    return grid._fit(grid._long(grid.UNEQUAL, grid.LAW.long_frame(grid.UNEQUAL)))
+
+
+@functools.cache
 def repeated_outcome() -> Any:
     """An outcome measured at every time point."""
     from cleverly.longitudinal import Repeated
@@ -271,6 +279,7 @@ FIXTURES = {
     "repeats": repeats,
     "bootstrap": bootstrap,
     "survival": survival,
+    "gridded": gridded,
     "repeated_outcome": repeated_outcome,
     "competing": competing,
     "working_model": working_model,

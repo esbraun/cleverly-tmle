@@ -83,8 +83,9 @@ inference model. Repeated rows of one customer add no independent observations. 
 
 A generated name is `"column@t"`, where `t` is the node index and not the time label. The labels
 stay in `data.panel`, a `PanelLayout`, which `data.panel.decision_times` lists. A rule at node `t`
-reads `"column@s"` for `s <= t`. The summary of a fit on an adapted panel adds a `long panel:`
-line. The line names the unit column, the decision times, and any column left out at a node.
+reads `"column@s"` for `s <= t`. The summary of a fit on an adapted panel counts units, not
+rows, and `summary(detail="full")` names the unit column, the decision times, and any column left
+out at a node.
 `from_long_panel` takes rows in any order. The container follows the sorted unit identifiers.
 
 ```python
@@ -409,12 +410,13 @@ print(bootstrapped.summary())
 The [bootstrap contract](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each replicate resamples and refits. The percentile interval carries the support label
 of the fit. A registered support row decides the label. The `bootstrap` kind of the row covers an
-in-sample end-of-study or survival fit with static regimens. Any other fit prints
-`[experimental]`.
+in-sample end-of-study or survival fit with static regimens. On any other fit, a note under the
+summary says the bootstrap interval is experimental.
 
 The registered study measures correctly specified cell-mean nuisances on finite
-binary laws, at $n = 1000$. A fit with fewer than 20 clusters prints `bootstrap sd` and a
-percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of their inputs.
+binary laws, at $n = 1000$. A fit with fewer than 20 clusters prints a
+`bootstrap SD (diagnostic)` column and a percentile range, both diagnostics. `ratio` and `rmst`
+carry the bootstrap of their inputs.
 
 ### Bootstrap for sparse regimens
 

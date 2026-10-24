@@ -381,16 +381,7 @@ NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "model_based_interval": "note",
         "working_model": "note",
         "isotonic_moves": "note",
-        "structural_model": "note",
-        "check_splits": "note",
-        "draw_order": "note",
-        "simulation_share": "note",
         "model_reliance": "note",
-        "two_mechanisms": "note",
-        "unsupported_rows": "warning",
-        "outside_declared_support": "warning",
-        "mean_ratio": "note",
-        "tilt_bound": "note",
     }
 )
 
@@ -604,8 +595,8 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         # The longitudinal, structural and support summaries (X89 T2).
         "in_sample_flexible_longitudinal": (
             "The models were fitted and evaluated on the same rows. With flexible learners "
-            "this can make the interval too narrow; n_folds of two or more gives out-of-fold "
-            "predictions."
+            "this can make the interval too narrow; cross-fitting (n_folds of two or more, or "
+            "cross_fitting=CrossFitting() on a study) gives out-of-fold predictions."
         ),
         "weights_capped_cumulative": (
             "cleverly limited the estimated probability of following plan {plan} through "
@@ -623,12 +614,12 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "score_unsolved_longitudinal": (
             "At some time point the fit did not solve its estimating equation within "
-            "tolerance{draw}, so the estimate and its interval may be off. "
+            "tolerance{draw}, so the estimate and its {what} may be off. "
             "result.diagnostics.score_equations() gives each time point."
         ),
         "score_rule_unmet_longitudinal": (
             "The fit did not meet its declared stopping rule{draw}: {misses}. The estimate and "
-            "its interval may be off by more than the rule allows; "
+            "its {what} may be off by more than the rule allows; "
             "result.diagnostics.score_equations() gives each time point."
         ),
         "bootstrap_bands": (
@@ -666,52 +657,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The standard errors are unchanged; an interval at a moved level is valid only "
             "where the true curve strictly increases."
         ),
-        "structural_model": (
-            "The intervals hold under the linear structural nested mean model with the blip "
-            "features declared for each time point. A blip that depends on an undeclared "
-            "earlier treatment or covariate makes the coefficients answer a different question. "
-            "result.check_model() compares the plan contrasts with LTMLE."
-        ),
-        "check_splits": (
-            "Each number is the mean over {splits} fold splits, the first of them the fit's own."
-        ),
-        "draw_order": (
-            "The order in which the covariates of one time point are drawn defines the "
-            "models, so at most one order is correctly specified in general."
-        ),
-        "simulation_share": (
-            "The simulation contributes up to {share} of the variance ({name}); a larger "
-            "n_draws lowers it."
-        ),
         "model_reliance": "{statement}",
-        "two_mechanisms": (
-            "The smallest probability, the largest ratio and its effective sample size read the "
-            "estimated treatment model before any limit, which is what the data support. The "
-            "score load reads the limited model the fit used, counted as the rows that "
-            "effectively carry the estimating equation."
-        ),
-        "unsupported_rows": (
-            "{name} gives {count} rows an arm whose estimated probability is exactly zero, so "
-            "the effect is not identified for those rows under the fitted model."
-        ),
-        "unsupported_density": (
-            "{name} moves {count} rows to a dose where the estimated density is exactly zero. "
-            "This flags the density model; it does not prove that the effect is unidentified."
-        ),
-        "outside_declared_support": (
-            "{name} assigns {count} rows a dose outside the declared support."
-        ),
-        "mean_ratio": (
-            "Under the true density the mean ratio equals the probability that the policy's "
-            "dose stays inside the support of the observed doses given the covariates, which "
-            "is one when the policy keeps that support. In a sample it also moves with sampling "
-            "and with error in the density model."
-        ),
-        "tilt_bound": (
-            "An odds tilt keeps every weight inside the bound, whatever the treatment model, so "
-            "it needs no treatment probability away from zero or one. The smallest probability is "
-            "shown for comparison with a fit that sets every unit's treatment."
-        ),
     }
 )
 
@@ -851,6 +797,9 @@ LONGITUDINAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+#: A competing-risks working-model coefficient names its cause.
+MSM_CAUSE: Final = "{text}, for {cause}"
+
 #: The Censoring header fact: the indicators, and that every plan keeps each unit observed,
 #: so a row is its value had no unit been censored.
 CENSORING_FACT: Final = "{names}; each plan keeps every unit observed"
@@ -882,7 +831,7 @@ LONGITUDINAL_MSM_QUESTION: Final = (
 #: The start of the fit-time warning a longitudinal ``weights_capped`` note restates.
 CUMULATIVE_TRUNCATION_WARNING: Final = "Cumulative mechanism truncation exceeded"
 #: Where a longitudinal note's largest share came from, on a fit with repeated splits.
-IN_ONE_SPLIT: Final = ", in one split"
+IN_ONE_SPLIT: Final = ", in at least one split"
 
 #: The titles and column labels of the longitudinal tables.
 PLANS_TITLE: Final = "What each plan assigns and who followed it to the end"
@@ -907,6 +856,9 @@ PLAN_NAMED_POLICY: Final = "random draw {name}"
 PLAN_TILT: Final = "odds of treatment times {delta}"
 PLAN_TILT_LEVELS: Final = "odds of each level times {factors}"
 PLAN_NATURAL: Final = "the data's own treatment process"
+PLAN_SHIFT: Final = "the observed treatment {delta}{cap}"
+PLAN_SCALE: Final = "the observed treatment times {factor}{cap}"
+PLAN_NAMED_MTP: Final = "policy {name}"
 PLAN_EVERY_TIME: Final = "{words} at every time point"
 PLAN_AT_TIME: Final = "{words} at time {t}"
 PLAN_HELD: Final = "{words} from baseline, held"

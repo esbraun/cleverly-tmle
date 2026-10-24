@@ -32,6 +32,7 @@ import pytest
 
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly._summary import vocabulary
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -46,7 +47,6 @@ from cleverly.provenance import fold_fingerprint
 from cleverly.study import LongPanel
 from tests.unit import _longitudinal_repeats_support as support
 from tests.unit._longitudinal_repeats_golden import GOLDEN
-from tests.unit._longitudinal_repeats_support import describe_config
 
 #: The relative tolerance of every float comparison.
 RTOL = 1e-12
@@ -197,9 +197,8 @@ def test_none_seed_draws_fresh_concrete_seeds(monkeypatch: pytest.MonkeyPatch) -
     # One multiplier seed for the fit, used by every draw's critical value.
     seed = result.config.multiplier_seed
     assert isinstance(seed, int)
-    assert f"multiplier seed: {seed} (drawn, random_state=None)" in describe_config(
-        result.config, contrast=True
-    )
+    # The seed is recorded for replay; the summary prints no seed.
+    assert str(seed) not in str(result.summary(detail="full"))
     rebuilt = median_bands(
         [draw.estimates for draw in result.repeats],
         {name: result[name] for name in result.simultaneous.bands},
@@ -296,12 +295,17 @@ def test_config_records_repeats_and_the_multiplier_seed() -> None:
     result = _fit("ltmle", repeats=3)
     assert result.config.repeats == 3
     assert result.config.multiplier_seed == 11
-    assert "cross-fitting: 5 fold(s), median over 3 draws" in describe_config(
-        result.config, contrast=True
-    )
+    full = result.summary(detail="full")
+    assert full.table(vocabulary.PLANS_SPLIT_TITLE.format(repeats=3)) is not None
+    settings = full.section(vocabulary.SECTION_SETTINGS).lines
+    assert "Folds: 5, in each of 3 splits." in settings
+    assert any(line.startswith("Spread of each row across the 3 splits") for line in settings)
     single = _fit("ltmle")
     assert single.config.repeats == 1
-    assert not any("median over" in line for line in describe_config(single.config, contrast=True))
+    single_full = single.summary(detail="full")
+    assert vocabulary.PLANS_TITLE in [table.title for table in single_full.tables]
+    lines = single_full.section(vocabulary.SECTION_SETTINGS).lines
+    assert not any(line.startswith("Spread of each row") for line in lines)
 
 
 def test_read_through_fields_are_draw_zero() -> None:
@@ -1183,9 +1187,12 @@ def test_long_panel_repeats_reproduce_the_wide_fit() -> None:
             _close(left.estimates[name].psi, estimate.psi)
             _close(left.estimates[name].influence_curve, estimate.influence_curve)
     pd.testing.assert_frame_equal(adapted.to_frame(), wide.to_frame(), rtol=RTOL)
-    describe = describe_config(adapted.config, contrast=True)
-    assert any(line.startswith("long panel: unit column 'customer'") for line in describe)
-    assert "cross-fitting: 2 fold(s), median over 3 draws" in describe
+    full = adapted.summary(detail="full")
+    assert dict(full.header)[vocabulary.UNITS] == f"{adapted.n:,}"
+    settings = full.section(vocabulary.SECTION_SETTINGS).lines
+    assert any(line.startswith("Long panel: unit column 'customer'") for line in settings)
+    assert "Folds: 2, in each of 3 splits." in settings
+    assert full.table(vocabulary.PLANS_SPLIT_TITLE.format(repeats=3)) is not None
     # The study design ``LongPanel`` reaches the same repeated engine.
     from tests.unit.test_long_panel import ROLES
 

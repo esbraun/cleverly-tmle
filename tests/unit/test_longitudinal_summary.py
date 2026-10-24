@@ -75,8 +75,8 @@ def test_the_title_names_the_estimator(name: str, short: str) -> None:
 def test_each_row_meaning_names_its_plans_outcome_and_time() -> None:
     result = _fit("means")
     assert meaning(result, "ey_regimen[always]") == "mean Y if every unit followed plan always"
-    assert meaning(result, "ate_regimen[always vs never]") == (
-        "mean Y if every unit followed plan always, minus that mean under plan never"
+    assert meaning(result, "ate_regimen[never vs always]") == (
+        "mean Y if every unit followed plan never, minus that mean under plan always"
     )
     survival = _fit("survival")
     assert meaning(survival, "risk_regimen[never @ t=2]") == (
@@ -93,6 +93,14 @@ def test_each_row_meaning_names_its_plans_outcome_and_time() -> None:
     assert meaning(model, "msm_regimen[duration]") == (
         "coefficient of duration in the working model of the plan means"
     )
+
+
+def test_a_time_grid_row_prints_its_grid_time_not_its_index() -> None:
+    """Witness: a name keeps the node index, so ``t=2`` on the grid (1, 2.5, 4) is time 2.5."""
+    result = _fit("gridded")
+    name = next(name for name in result.estimates if name.startswith("risk_") and "t=2]" in name)
+    assert "by time 2.5 " in meaning(result, name)
+    assert "by time 2 " not in meaning(result, name)
 
 
 def test_the_key_table_holds_every_row_and_a_single_row_has_none() -> None:
@@ -270,3 +278,26 @@ def test_the_header_counts_the_units_and_the_time_points() -> None:
     assert header[vocabulary.ROWS] == f"{result.n:,}"
     assert header[vocabulary.TIME_POINTS] == str(result.data.n_times)
     assert np.isclose(float(header[vocabulary.PROBABILITY_LIMITS].strip("[]").split(",")[0]), 0.01)
+
+
+def test_a_treatment_policy_prints_in_words_and_once_per_plan() -> None:
+    """Witness: a policy's class text never reaches the plan table."""
+    from cleverly.interventions import Scale, Shift
+    from cleverly.interventions.policy import ModifiedPolicy, describe_policy
+    from cleverly.longitudinal._summary import _policy_words, _without_time
+
+    assert _policy_words(Shift(0.0, cap=None), describe_policy) == vocabulary.PLAN_NATURAL
+    assert _policy_words(Shift(1.5, cap=4.0), describe_policy) == (
+        "the observed treatment +1.5, capped at 4"
+    )
+    assert (
+        _policy_words(Scale(1.1, cap=None), describe_policy) == "the observed treatment times 1.1"
+    )
+    from tests.longitudinal_mtp import TO_ATOM_PIECES
+
+    named = ModifiedPolicy("up at 1", pieces=TO_ATOM_PIECES, policy_kind="known")
+    assert _policy_words(named, describe_policy) == "policy up at 1"
+    assert _without_time("policy up at 2", 2) == "policy up"
+    assert _without_time("rule d@3", 3) == "rule d"
+    assert _without_time("policy up at 2", 1) is None
+    assert "Shift(" not in str(_fit("means").summary())

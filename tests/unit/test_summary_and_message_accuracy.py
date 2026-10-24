@@ -676,9 +676,13 @@ class TestTheReferenceLineBelongsToAContrast:
 
     def test_a_regime_mean_summary_prints_no_reference(self) -> None:
         result = sweep.fit_ltmle()
-        lines = result.summary().splitlines()
-        assert not any(line.strip().startswith("reference:") for line in lines)
-        # The replay reads the field, so the correction hides the line and keeps the field.
+        summary = result.summary()
+        assert all(name.startswith("ey_regimen[") for name in result.estimates)
+        meanings = [str(summary.header)] + [
+            row[1].text for row in summary.table(vocabulary.KEY_TITLE).rows
+        ]
+        assert not any("minus" in text or "instead of" in text for text in meanings)
+        # The replay reads the field, so the summary hides it and the record keeps it.
         assert result.config.reference == "always"
 
     def test_a_regime_contrast_summary_keeps_its_reference(self) -> None:

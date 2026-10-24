@@ -12,7 +12,7 @@ a rule's assigned arms, versions, time stamps, seeds and run ids stay on the res
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +49,7 @@ from ..estimators._point_summary import (
     _warning_notes,
 )
 from ..inference.cluster import fewest_clusters, positive_mass_clause
+from .estimator import HORIZON_INFIX
 from .regimen import DynamicRegimen, Regimen, _is_mtp, _is_tilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -191,37 +192,48 @@ def _gformula_models(result: LongitudinalResult) -> dict[str, str]:
 # ----------------------------------------------------------------- names and meanings
 
 
-def _time_text(result: LongitudinalResult, label: str) -> str:
-    """A time label from a parameter name, as the summary prints it."""
-    return label
+def _plans(result: LongitudinalResult) -> set[str]:
+    return {fit.regimen.label for fit in result.fits.values()}
 
 
-def _parse(name: str) -> tuple[str, str, str | None, str | None]:
-    """``(prefix, inside, cause, time)`` of a reported name such as ``cif_regimen[a, c @ t=2]``."""
-    prefix, _, rest = name.partition("[")
-    inside = rest[:-1] if rest.endswith("]") else rest
-    time = None
-    if " @ t=" in inside:
-        inside, _, time = inside.rpartition(" @ t=")
-    cause = None
-    if ", " in inside:
-        inside, _, cause = inside.rpartition(", ")
-    return prefix.removesuffix("_regimen"), inside, cause, time
+def _row(name: str, result: LongitudinalResult) -> tuple[str, str, str | None, str | None, Any]:
+    """``(prefix, plan, reference, cause, time)`` of one reported row.
+
+    Read from the parameter index each name was built with, so a label that holds a comma or
+    a time grid's times print as the fit means them. A contrast's two plans are the split of
+    its label whose sides are both plans of the fit.
+    """
+    prefix = name.partition("[")[0].removesuffix("_regimen")
+    key = (result.parameter_index or {}).get(name)
+    if key is None:
+        inside = name.partition("[")[2].removesuffix("]")
+        cause = None
+        if result.config.outcome_kind == "competing" and ", " in inside:
+            inside, _, cause = inside.rpartition(", ")
+        return prefix, inside, None, cause, None
+    label, cause, horizon = key
+    time = result._time_of(horizon) if HORIZON_INFIX in name else None
+    plans = _plans(result)
+    if label not in plans:
+        parts = label.split(" vs ")
+        for cut in range(1, len(parts)):
+            plan, reference = " vs ".join(parts[:cut]), " vs ".join(parts[cut:])
+            if plan in plans and reference in plans:
+                return prefix, plan, reference, cause, time
+    return prefix, label, None, cause, time
 
 
-def _outcome_word(result: LongitudinalResult, time: str | None) -> tuple[str, str]:
+def _outcome_word(result: LongitudinalResult, time: Any) -> tuple[str, str]:
     """The outcome a row reads and the ``at`` phrase that follows it."""
     data = result.data
     config = result.config
-    if config.outcome_kind == "repeated" and time is not None:
-        horizons = list(config.horizons)
-        try:
-            index = [str(result._time_of(h)) for h in horizons].index(time)
-            column = config.outcome_names[horizons[index] - 1]
-        except (ValueError, IndexError):
-            return data.outcome_name, f" at time {time}"
-        return column, ""
-    return data.outcome_name, ""
+    if time is None:
+        return data.outcome_name, ""
+    if config.outcome_kind == "repeated":
+        for horizon in config.horizons:
+            if result._time_of(horizon) == time and horizon - 1 < len(config.outcome_names):
+                return config.outcome_names[horizon - 1], ""
+    return data.outcome_name, f" at time {time:g}"
 
 
 def meaning(result: LongitudinalResult, name: str, *, question: bool = False) -> str:
@@ -242,25 +254,31 @@ def meaning(result: LongitudinalResult, name: str, *, question: bool = False) ->
         The meaning, or the name itself when the summary has no words for it.
     """
     templates = vocabulary.LONGITUDINAL_QUESTIONS if question else vocabulary.LONGITUDINAL_MEANINGS
-    prefix, inside, cause, time = _parse(name)
+    prefix, plan, reference, cause, time = _row(name, result)
     if prefix == "msm":
-        return templates["msm"].format(term=inside)
-    config = result.config
-    survival = config.outcome_kind in ("survival", "competing")
-    contrast = " vs " in inside
-    plan, _, reference = inside.partition(" vs ")
+        text = templates["msm"].format(term=plan)
+        return text if cause is None else vocabulary.MSM_CAUSE.format(text=text, cause=cause)
+    survival = result.config.outcome_kind in ("survival", "competing")
     key = prefix
     if prefix == "ate" and survival:
         key = "cif_ate" if cause is not None else "risk_ate"
     if prefix in ("ey", "risk") and survival:
         key = "cif" if cause is not None else "risk"
     template = templates.get(key)
+    contrast = reference is not None
     if template is None or contrast != (key in ("ate", "risk_ate", "cif_ate")):
         return name
+    if survival and time is None:
+        return name
     outcome, at = _outcome_word(result, time)
-    if time is not None and not survival and not at and config.outcome_kind != "repeated":
-        at = f" at time {time}"
-    return template.format(Y=outcome, at=at, d=plan, r=reference, t=time or "", cause=cause or "")
+    return template.format(
+        Y=outcome,
+        at=at,
+        d=plan,
+        r=reference or "",
+        t="" if time is None else f"{time:g}",
+        cause=cause or "",
+    )
 
 
 def _question(result: LongitudinalResult) -> str:
@@ -300,7 +318,7 @@ def _node_words(node: Any) -> str:
             return vocabulary.PLAN_NATURAL
         return vocabulary.PLAN_TILT.format(delta=f"{float(delta):g}")
     if _is_mtp(node):
-        return describe_policy(node)
+        return _policy_words(node, describe_policy)
     if callable(node):
         name = getattr(node, "__name__", "<lambda>")
         return (
@@ -309,6 +327,37 @@ def _node_words(node: Any) -> str:
             else vocabulary.PLAN_NAMED_RULE.format(name=name)
         )
     return str(node)
+
+
+def _policy_words(policy: Any, fallback: Any) -> str:
+    """A modified treatment policy in words; its class text when no plain form exists."""
+    from ..interventions.policy import ModifiedPolicy, Scale, Shift
+
+    bound = getattr(policy, "cap", None)
+    if bound is None or not isinstance(bound, (int, float)):
+        bound_text = None if bound is None else str(bound)
+    else:
+        bound_text = f"{float(bound):g}"
+    cap = "" if bound_text is None else f", capped at {bound_text}"
+    if isinstance(policy, Shift) and policy.target is None:
+        if float(policy.delta) == 0.0:
+            return vocabulary.PLAN_NATURAL
+        return vocabulary.PLAN_SHIFT.format(delta=f"{float(policy.delta):+g}", cap=cap)
+    if isinstance(policy, Scale) and policy.target is None:
+        if float(policy.factor) == 1.0:
+            return vocabulary.PLAN_NATURAL
+        return vocabulary.PLAN_SCALE.format(factor=f"{float(policy.factor):g}", cap=cap)
+    if isinstance(policy, ModifiedPolicy):
+        return vocabulary.PLAN_NAMED_MTP.format(name=policy.name)
+    return str(fallback(policy))
+
+
+def _without_time(words: str, t: int) -> str | None:
+    """``words`` without a trailing time tag such as `` at 2`` or ``@2``; None without one."""
+    for tag in (f" at {t}", f"@{t}", f"_{t}"):
+        if words.endswith(tag):
+            return words[: -len(tag)]
+    return None
 
 
 def plan_words(result: LongitudinalResult, regimen: Any) -> str:
@@ -333,6 +382,10 @@ def plan_words(result: LongitudinalResult, regimen: Any) -> str:
     else:  # pragma: no cover - every resolved plan is one of the two
         return str(regimen)
     words = [_node_words(node) for node in nodes]
+    # Per-node names such as "price_up at 1" or "d@1" name one plan: print it once.
+    stripped = [_without_time(text, index) for index, text in enumerate(words, 1)]
+    if len(words) > 1 and None not in stripped and len(set(stripped)) == 1:
+        words = [str(stripped[0])] * len(words)
     if result.config.held_treatment is not None and len(set(words)) == 1:
         return vocabulary.PLAN_HELD.format(words=words[0])
     if len(set(words)) == 1:
@@ -641,16 +694,13 @@ def _capped_note(result: LongitudinalResult) -> Note | None:
     return note("weights_capped", " ".join(sentences))
 
 
-def declared_rule(result: LongitudinalResult) -> str:
-    """The stopping rule the fit declared, ``"relative"`` when it declared none."""
-    return result._declared_rule()
-
-
 def _rule_misses(result: LongitudinalResult) -> list[str]:
     """Each update that stopped above its declared threshold, in plain words."""
     seen: set[int] = set()
     missed: list[str] = []
-    for key, fit in result.fits.items():
+    draws = [repeat.fits for repeat in result.repeats] if result.repeats else [result.fits]
+    fits = [(key, fit) for draw in draws for key, fit in draw.items()]
+    for key, fit in fits:
         record = fit.hazard
         if (
             record is not None
@@ -662,7 +712,7 @@ def _rule_misses(result: LongitudinalResult) -> list[str]:
             where = (
                 "the hazard update of every horizon"
                 if record.algorithm == "one_step"
-                else f"the hazard update at time {fit.horizon}"
+                else f"the hazard update at time {result._time_of(fit.horizon):g}"
             )
             missed.append(f"{where} stopped at {record.rule_ratio:.3g} times its threshold")
         for step in fit.steps:
@@ -676,7 +726,8 @@ def _rule_misses(result: LongitudinalResult) -> list[str]:
                 continue
             seen.add(id(update))
             missed.append(
-                f"{key} at time {step.time} stopped at {update.rule_ratio:.3g} times its threshold"
+                f"{key} at time {result._time_of(step.time):g} stopped at "
+                f"{update.rule_ratio:.3g} times its threshold"
             )
     return missed
 
@@ -686,7 +737,7 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
     from ..fluctuation._score import wald_coverage_bound
 
     notes: list[Note] = []
-    rule = declared_rule(result)
+    rule = result._declared_rule()
     draw = " in at least one split" if result.n_repeats > 1 else ""
     if rule != "relative":
         remainders = {
@@ -717,15 +768,14 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
         else:
             notes.append(note("stopping_rule", vocabulary.NOTE_TEXTS["stopping_rule_plain"]))
     if not result.converged:
+        what = "interval" if spread == vocabulary.SPREAD_LABELS["std_err"] else spread
         misses = _rule_misses(result) if rule != "relative" else []
         if misses:
             text = vocabulary.NOTE_TEXTS["score_rule_unmet_longitudinal"].format(
-                draw=draw, misses="; ".join(misses), spread=spread
+                draw=draw, misses="; ".join(misses), what=what
             )
         else:
-            text = vocabulary.NOTE_TEXTS["score_unsolved_longitudinal"].format(
-                draw=draw, spread=spread
-            )
+            text = vocabulary.NOTE_TEXTS["score_unsolved_longitudinal"].format(draw=draw, what=what)
         notes.append(note("score_unsolved", text))
     return notes
 
@@ -826,8 +876,9 @@ def _fit_notes(result: LongitudinalResult, spread: str) -> list[Note]:
         notes.append(isotonic)
     notes.extend(_score_notes(result, spread))
     kept = list(result.fit_warnings)
-    if capped is not None:
-        # The capped note says what the truncation warning said, with the numbers.
+    if capped is not None and method_key(result) not in _PATH_BOUNDED:
+        # The capped note says what the truncation warning said, with the numbers. On SDR
+        # and IPSI the note reads the share of paths, another number, so the warning stays.
         restated = [
             record
             for record in kept
@@ -888,14 +939,10 @@ def _settings(result: LongitudinalResult) -> SummarySection:
         lines.append(
             f"Probability limits [{low:.4g}, {high:.4g}]{default} on {_bound_target(result)}."
         )
-        for plan, share, time in max_truncated(result):
-            lines.append(
-                f"Plan {plan}: the lower limit raised up to {share:.1%} of its units at "
-                f"time {time}."
-            )
     if config.known_factors:
         lines.append(
-            f"Declared known, with no learner and no limit: {', '.join(config.known_factors)}."
+            "Declared known (no learner fits them, and no limit moves a declared value "
+            f"itself): {', '.join(config.known_factors)}."
         )
     if config.q_bounds is not None:
         low, high = config.q_bounds
@@ -1003,8 +1050,9 @@ def _hazard_lines(result: LongitudinalResult) -> list[str]:
         ]
     if first.share_clipped:
         node, cause, share = max(first.share_clipped, key=lambda item: item[2])
+        time = result._time_of(node)
         lines.append(
-            f"The node bounds clipped up to {share:.1%} of the initial hazards (time {node}, "
+            f"The node bounds clipped up to {share:.1%} of the initial hazards (time {time:g}, "
             f"cause {cause + 1}); {len(first.bound_excludes_data)} cells lie outside a bound."
         )
     return lines
@@ -1057,10 +1105,7 @@ def _method_details(result: LongitudinalResult) -> SummarySection:
         )
     ]
     if result.config.n_folds > 1:
-        lines.append(
-            "Each fold's models predict the units the fold leaves out, and one update per time "
-            "point serves every fold."
-        )
+        lines.append("Each fold's models predict the units the fold leaves out.")
     return SummarySection(vocabulary.SECTION_METHOD, tuple(lines))
 
 
@@ -1204,8 +1249,3 @@ def longitudinal_repr(result: LongitudinalResult) -> str:
         method=_short(result),
         alpha=result.config.alpha_sig,
     )
-
-
-def listed(words: Iterable[str]) -> str:
-    """``a``, ``a and b``, or ``a, b and c``."""
-    return _listed(words)

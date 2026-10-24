@@ -294,7 +294,7 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
     last = count - 1
     wraps = last > 0 and text_columns[last]
 
-    def fitted(gap: int, minimum: int) -> list[int]:
+    def fitted(gap: int, minimum: int, floor: int) -> list[int]:
         # Number columns get a statsmodels-like minimum, so a table of short numbers reads.
         widths_ = [
             width_ if index == 0 or text_columns[index] else max(width_, minimum)
@@ -302,14 +302,16 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
         ]
         if wraps:
             room = width - sum(widths_[:last]) - gap * last
-            widths_[last] = min(widths_[last], max(room, 20))
+            widths_[last] = min(widths_[last], max(room, floor))
         return widths_
 
     # Narrow a table that would pass the width: first drop the number minimum, then close
-    # the gap. A table that still passes it wraps its row names, and one that passes it
-    # after that prints wider, and the rules widen with it.
-    for gap, minimum in ((_COLUMN_GAP, 8), (_COLUMN_GAP, 0), (_COLUMN_GAP - 1, 0)):
-        widths = fitted(gap, minimum)
+    # the gap, then let a last column of words wrap narrower. A table that still passes it
+    # wraps its row names, and one that passes it after that prints wider, and the rules
+    # widen with it.
+    steps = ((_COLUMN_GAP, 8, 20), (_COLUMN_GAP, 0, 20), (_COLUMN_GAP - 1, 0, 20))
+    for gap, minimum, floor in (*steps, (_COLUMN_GAP - 1, 0, 12)):
+        widths = fitted(gap, minimum, floor)
         if sum(widths) + gap * last <= width:
             break
     wrapped: set[int] = {last} if wraps else set()

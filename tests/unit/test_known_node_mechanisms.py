@@ -629,7 +629,10 @@ def test_the_record_names_each_declared_factor() -> None:
     result = _ltmle().fit(frame, **_columns(True), **_mappings(True))
     assert result.config.known_factors == ("A1", "C1", "A2", "C2")
     settings = result.summary(detail="full").section("Settings").lines
-    assert "Declared known, with no learner and no limit: A1, C1, A2, C2." in settings
+    assert (
+        "Declared known (no learner fits them, and no limit moves a declared value itself): A1, C1, A2, C2."
+        in settings
+    )
     header = dict(result.summary().header)
     assert header["Treatment model"] == header["Censoring model"] == "known (declared)"
     estimated = _ltmle(

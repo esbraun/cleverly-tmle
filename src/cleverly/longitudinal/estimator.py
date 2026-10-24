@@ -660,16 +660,6 @@ def _warn_parameter_space(
     )
 
 
-#: The summary title of each estimator.
-_ESTIMATOR_TITLE: dict[str, str] = {
-    "tmle": "TMLE",
-    "sdr": "SDR",
-    "ipsi": "IPSI",
-    "gcomp": "g-computation",
-    "ipw": "IPW",
-    "parametric_gformula": "parametric g-formula",
-}
-
 #: The estimators that fit no targeting step and read parametric nuisances for an interval.
 _BASELINES: frozenset[str] = frozenset({"gcomp", "ipw", "parametric_gformula"})
 
@@ -3090,43 +3080,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     return step.fluctuation.stopping
         return "relative"
 
-    def _rule_misses(self) -> list[str]:
-        """Each node whose largest score over its threshold is above one, once per solve.
-
-        A working model solves one stacked fluctuation per node for every cell it holds, so
-        the cells share the solve and it is named once.
-        """
-        seen: set[int] = set()
-        missed: list[str] = []
-        for key, fit in self.fits.items():
-            record = fit.hazard
-            if (
-                record is not None
-                and id(record) not in seen
-                and record.rule_ratio is not None
-                and record.rule_ratio > 1.0
-            ):
-                seen.add(id(record))
-                where = "every horizon" if record.algorithm == "one_step" else f"t={fit.horizon}"
-                missed.append(
-                    f"the hazard targeting of {where} is {record.rule_ratio:.3g} times its "
-                    "threshold"
-                )
-            for step in fit.steps:
-                fluctuation = step.fluctuation
-                if (
-                    fluctuation is None
-                    or id(fluctuation) in seen
-                    or fluctuation.rule_ratio is None
-                    or fluctuation.rule_ratio <= 1.0
-                ):
-                    continue
-                seen.add(id(fluctuation))
-                missed.append(
-                    f"{key} at t={step.time} is {fluctuation.rule_ratio:.3g} times its threshold"
-                )
-        return missed
-
     def __repr__(self) -> str:
         from ._summary import longitudinal_repr
 
@@ -3134,37 +3087,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     def _repr_html_(self) -> str:
         return self.summary().as_html()
-
-    def _targeting_lines(self) -> list[str]:
-        """What the hazard targeting and the isotonic projection did, one line each."""
-        lines: list[str] = []
-        records = {id(fit.hazard): fit.hazard for fit in self.fits.values() if fit.hazard}
-        if records:
-            converged = all(record.converged for record in records.values())
-            largest = max(record.relative_score for record in records.values())
-            verdict = "converged" if converged else "not converged"
-            first = next(iter(records.values()))
-            if first.algorithm == "one_step":
-                lines.append(
-                    f"hazard targeting: one step over {len(first.targets)} parameter(s), "
-                    f"{first.n_iter} step(s), largest relative score {largest:.2g}, {verdict}"
-                )
-            else:
-                steps = max(record.n_iter for record in records.values())
-                lines.append(
-                    f"hazard targeting: per horizon over {len(records)} horizon(s), at most "
-                    f"{steps} iteration(s), largest relative score {largest:.2g}, {verdict}"
-                )
-            if first.share_clipped:
-                node, cause, share = max(first.share_clipped, key=lambda item: item[2])
-                lines.append(
-                    f"hazard node bounds: largest clipped share of initial hazards "
-                    f"{100 * share:.1f}% (node {node}, cause {cause + 1}); "
-                    f"{len(first.bound_excludes_data)} cell(s) excluded by a bound"
-                )
-        if self.config.isotonic:
-            lines.append(f"isotonic projection moved {len(self.isotonic_moves)} level(s)")
-        return lines
 
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
