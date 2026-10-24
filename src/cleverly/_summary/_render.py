@@ -16,6 +16,11 @@ _GAP = 2
 _COLUMN_GAP = 3
 
 
+def _wrap(text: str, width: int, **options: Any) -> list[str]:
+    """``textwrap.wrap`` that keeps a hyphenated word such as "plug-in" on one line."""
+    return textwrap.wrap(text, width, break_on_hyphens=False, **options)
+
+
 # ----------------------------------------------------------------- numbers
 
 
@@ -167,14 +172,14 @@ def render_text(parts: _Parts, width: int) -> str:
     if tables:
         lines.append("=" * rule_width)
     if parts.reading:
-        lines.extend(textwrap.wrap(parts.reading, width))
+        lines.extend(_wrap(parts.reading, width))
     lines.extend(_note_lines(parts.notes, width))
     for section in parts.sections:
         lines.append("")
         lines.append(section.title)
         lines.append("-" * len(section.title))
         for line in section.lines:
-            lines.extend(textwrap.wrap(line, width, subsequent_indent="  ") or [""])
+            lines.extend(_wrap(line, width, subsequent_indent="  ") or [""])
     return "\n".join(lines)
 
 
@@ -231,7 +236,7 @@ def _column_lines(
     for label, value in facts:
         own = label_width if align == "left" else len(label) + 3
         room = max(8, width - own)
-        chunks = textwrap.wrap(value, room, break_long_words=not whole_words) or [""]
+        chunks = _wrap(value, room, break_long_words=not whole_words) or [""]
         for index, chunk in enumerate(chunks):
             head = f"{label}:" if index == 0 else ""
             if align == "left":
@@ -289,7 +294,7 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
     body: list[str] = []
     for row in texts:
         if wraps and len(row[last]) > widths[last]:
-            chunks = textwrap.wrap(row[last], widths[last]) or [""]
+            chunks = _wrap(row[last], widths[last]) or [""]
             body.append(line([*row[:last], chunks[0]]))
             blank = [""] * last
             body.extend(line([*blank, chunk]) for chunk in chunks[1:])
@@ -311,7 +316,7 @@ def _note_lines(notes: tuple[Note, ...], width: int) -> list[str]:
             number += 1
             marker = f"[{number}] "
             lines.extend(
-                textwrap.wrap(
+                _wrap(
                     item.text,
                     width,
                     initial_indent=marker,

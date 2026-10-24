@@ -563,10 +563,12 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
     def test_the_summary_says_so_only_when_they_disagree(self) -> None:
         frame = self._frame(n_clusters=3, per_cluster=20)
         with pytest.warns(UserWarning, match="only 3 clusters"):
-            capped = self._fit(frame, n_folds=10, cluster_id="pid").config
-        assert any("10 folds were declared" in line for line in capped.describe())
-        agreed = self._fit(self._frame(), n_folds=3).config
-        assert not any("were declared" in line for line in agreed.describe())
+            capped = self._fit(frame, n_folds=10, cluster_id="pid").summary(detail="full")
+        assert "folds_reduced" in capped.note_codes
+        assert "Folds asked for: 10; used: 3." in str(capped)
+        agreed = self._fit(self._frame(), n_folds=3).summary(detail="full")
+        assert "folds_reduced" not in agreed.note_codes
+        assert "Folds asked for" not in str(agreed)
 
     def test_no_cross_fitting_is_declared_as_one_fold(self) -> None:
         config = self._fit(self._frame(), cross_fit=False).config

@@ -28,15 +28,9 @@ from collections.abc import Sequence
 from ..exceptions import DataError
 
 __all__ = [
-    "ADAPTIVE_IPTW_LINE_TEMPLATE",
-    "DRTMLE_LINE_TEMPLATE",
-    "POOL_LINE_TEMPLATE",
     "RESTRICTION_TEMPLATE",
-    "adaptive_iptw_restriction_line",
     "check_treatment_covariates",
-    "drtmle_restriction_line",
     "known_and_restricted",
-    "pool_line",
     "treatment_mechanism_restriction",
 ]
 
@@ -55,83 +49,8 @@ RESTRICTION_TEMPLATE = (
 )
 
 
-#: The result-summary line of a DR-TMLE fit with treatment-mechanism covariates.  It points to
-#: the one-wrong table of the DR-TMLE theorem page, whose mechanism-wrong rows decide the
-#: interval when the restriction fails.
-DRTMLE_LINE_TEMPLATE = (
-    "DRTMLE with treatment-mechanism covariates {Wg}: when the restriction fails, the "
-    "treatment mechanism is inconsistent, and the mechanism-wrong rows of the one-wrong "
-    "table in docs/technical-reference/dr-tmle/theorem.md decide the interval."
-)
-
-#: The result-summary line of an AdaptiveIPTW fit with treatment-mechanism covariates.  The
-#: shipped :data:`RESTRICTION_TEMPLATE` says the fit is consistent when the outcome regression
-#: is, and AdaptiveIPTW fits none, so the summary prints this line in its place.  ``{Wg}`` is
-#: the covariates the mechanism reads, and ``{W minus Wg}`` the adjustment covariates it omits.
-ADAPTIVE_IPTW_LINE_TEMPLATE = (
-    "treatment-mechanism covariates: the treatment mechanism conditions on {Wg} only. "
-    "AdaptiveIPTW is consistent only when {W minus Wg} holds no confounder given {Wg}."
-)
-
-#: The line a collaborative selection summary prints when its pool is a subset of the
-#: adjustment set.
-POOL_LINE_TEMPLATE = "collaborative candidate pool: {Wg}"
-
-
 def _braced(names: Sequence[str]) -> str:
     return "{" + ", ".join(names) + "}"
-
-
-def drtmle_restriction_line(names: Sequence[str]) -> str:
-    """Return the pinned DR-TMLE summary line for a set of treatment-mechanism covariates.
-
-    Parameters
-    ----------
-    names : sequence of str
-        The covariates the treatment mechanism reads, as the caller named them.
-
-    Returns
-    -------
-    str
-        :data:`DRTMLE_LINE_TEMPLATE` with ``{Wg}`` written as ``{name, name}``.
-    """
-    return DRTMLE_LINE_TEMPLATE.replace("{Wg}", _braced(names))
-
-
-def adaptive_iptw_restriction_line(names: Sequence[str], omitted: Sequence[str]) -> str:
-    """Return the pinned AdaptiveIPTW summary line for a set of treatment-mechanism covariates.
-
-    Parameters
-    ----------
-    names : sequence of str
-        The covariates the treatment mechanism reads, as the caller named them.
-    omitted : sequence of str
-        The adjustment covariates the treatment mechanism does not read.
-
-    Returns
-    -------
-    str
-        :data:`ADAPTIVE_IPTW_LINE_TEMPLATE` with each set written as ``{name, name}``.
-    """
-    return ADAPTIVE_IPTW_LINE_TEMPLATE.replace("{W minus Wg}", _braced(omitted)).replace(
-        "{Wg}", _braced(names)
-    )
-
-
-def pool_line(names: Sequence[str]) -> str:
-    """Return the selection-summary line that names a restricted candidate pool.
-
-    Parameters
-    ----------
-    names : sequence of str
-        The covariates the candidate path draws from.
-
-    Returns
-    -------
-    str
-        :data:`POOL_LINE_TEMPLATE` with ``{Wg}`` written as ``{name, name}``.
-    """
-    return POOL_LINE_TEMPLATE.replace("{Wg}", _braced(names))
 
 
 def treatment_mechanism_restriction(names: Sequence[str]) -> str:

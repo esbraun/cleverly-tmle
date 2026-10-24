@@ -1163,12 +1163,13 @@ def _share(value: float) -> str:
 def _phase_rows(profile: PhaseProfile, names: Iterable[str]) -> tuple[tuple[Cell, ...], ...]:
     rows = []
     for name in names:
+        share = profile.share(name)
         rows.append(
             (
                 Cell(name, name),
                 Cell(profile.counts[name], count_text(profile.counts[name])),
                 Cell(profile.exclusive[name], _seconds(profile.exclusive[name])),
-                Cell(profile.share(name), _share(profile.share(name))),
+                Cell(share if np.isfinite(share) else None, _share(share)),
                 Cell(profile.inclusive[name], _seconds(profile.inclusive[name])),
             )
         )

@@ -737,29 +737,42 @@ def _method_lines(result: Any) -> tuple[str, ...]:
     return summary.section(vocabulary.SECTION_METHOD).lines
 
 
+def _reduction_line(reduction: str) -> str:
+    words = vocabulary.REDUCTION_WORDS[reduction]
+    return f"The extra equations come from the regressions in the table ({words})."
+
+
 class TestTheDRTMLESummaryNamesItsGuardAndReduction:
-    """Row 3. A DR-TMLE full summary names the method, the guard and the reduction."""
+    """Row 3. A DR-TMLE summary names the method, the guard and the reduction."""
 
     def test_the_default_guard(self) -> None:
-        lines = _method_lines(sweep.fit_drtmle())
-        assert "DR-TMLE: guard Q, g; univariate reduction" in lines
+        result = sweep.fit_drtmle()
+        summary = result.summary()
+        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model or a wrong treatment model"
+        assert summary.note("guard_scope").text == " ".join(
+            vocabulary.GUARD_SENTENCES[guard] for guard in ("Q", "g")
+        )
+        assert _reduction_line("univariate") in _method_lines(result)
 
     def test_a_one_equation_guard(self) -> None:
-        lines = _method_lines(_guarded(("Q",)))
-        assert "DR-TMLE: guard Q; univariate reduction" in lines
+        result = _guarded(("Q",))
+        summary = result.summary()
+        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model"
+        assert summary.note("guard_scope").text == vocabulary.GUARD_SENTENCES["Q"]
+        assert _reduction_line("univariate") in _method_lines(result)
 
     def test_an_empty_guard_names_the_ordinary_tmle(self) -> None:
-        lines = _method_lines(_guarded(()))
-        assert (
-            "DR-TMLE: empty guard, so no reduced regression was fitted and the estimate is "
-            "the ordinary TMLE"
-        ) in lines
+        summary = _guarded(()).summary()
+        assert summary.note("ordinary_tmle").text == vocabulary.NOTE_TEXTS["ordinary_tmle"]
+        assert "guard_scope" not in summary.note_codes
+        assert summary.facts[vocabulary.GUARD] == "none"
 
     def test_the_bivariate_reduction(self) -> None:
         frame, _ = make_binary_outcome(n=160, seed=11)
         estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), reduction="bivariate")
         lines = _method_lines(estimator.fit(frame, outcome="Y", treatment="A").single())
-        assert "DR-TMLE: guard Q, g; bivariate reduction" in lines
+        assert _reduction_line("bivariate") in lines
+        assert _reduction_line("univariate") not in lines
 
     def test_the_missing_outcome_reduction(self) -> None:
         """The line names the construction that ran, which the constructor did not name."""
@@ -774,11 +787,15 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
         assert estimator.reduction == "univariate"
         result = estimator.fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta")
         lines = _method_lines(result.single())
-        assert "DR-TMLE: guard Q, g; missing_outcome reduction" in lines
+        assert _reduction_line("missing_outcome") in lines
+        assert _reduction_line("univariate") not in lines
 
-    def test_an_ordinary_fit_prints_no_dr_tmle_line(self) -> None:
-        lines = _method_lines(sweep.fit_ordinary())
-        assert not any(line.startswith("DR-TMLE:") for line in lines)
+    def test_an_ordinary_fit_prints_no_dr_tmle_facts(self) -> None:
+        result = sweep.fit_ordinary()
+        summary = result.summary()
+        assert vocabulary.GUARD not in summary.facts
+        assert not {"guard_scope", "ordinary_tmle"} & set(summary.note_codes)
+        assert not any(line.startswith("The extra equations") for line in _method_lines(result))
 
 
 # ------------------------------------------------------ row 4: the support columns' basis
@@ -904,8 +921,16 @@ class TestTheProtocolPrintsAtFullDetailOnly:
         assert result.summary(detail="full").section(vocabulary.SECTION_STUDY).lines == (
             _record_lines()
         )
-        assert results.summary(detail="full").count(full) == len(levels)
+        combined = results.summary(detail="full")
+        if levels == (None,):
+            assert combined == full
+        else:
+            # One table over the levels, and a section equal at every level prints once.
+            assert combined.section(vocabulary.SECTION_STUDY).lines == _record_lines()
+            titles = [section.title for section in combined.sections]
+            assert titles.count(vocabulary.SECTION_STUDY) == 1
         assert vocabulary.SECTION_STUDY not in results.summary()
+        assert not results.summary().sections
 
     def test_an_absent_protocol_prints_absent_at_full_detail(self) -> None:
         fitted = TMLE(**linear_in_sample()).fit(_linear_frame(), outcome="Y", treatment="A")

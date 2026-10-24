@@ -465,7 +465,8 @@ class TestLearners:
         full = _fit(frame, strategy="discrete", candidates=[("W1", "W2", "W3")]).extra["ctmle"]
         # W4: the terminal is treatment_learner's own fit, bit for bit.
         assert selection.treatment_risk[-1] == full.treatment_risk[0]
-        assert "treatment risk decreases along the declared order: yes" in selection.summary()
+        assert selection.treatment_risk_increases == ()
+        assert "risk_order" not in selection.summary().note_codes
 
     def test_the_declared_order_matters(self, frame: Any) -> None:
         """W8: swapping two declared learners that differ changes the path."""
@@ -474,7 +475,10 @@ class TestLearners:
         a = _fit(frame, strategy="learners", treatment_candidates=first).extra["ctmle"]
         b = _fit(frame, strategy="learners", treatment_candidates=swapped).extra["ctmle"]
         assert not np.array_equal(a.treatment_risk, b.treatment_risk)
-        assert "no" in b.summary().splitlines()[-1]
+        assert b.treatment_risk_increases
+        order = b.summary().note("risk_order")
+        assert order.kind == "warning"
+        assert f"rises at candidate {b.treatment_risk_increases[0] + 1}" in order.text
 
     def test_an_unordered_declaration_warns_and_names_the_candidate(self, frame: Any) -> None:
         """The witness: the swapped order's loss rises by 26% at index 1, and only there."""

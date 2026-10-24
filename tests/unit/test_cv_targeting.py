@@ -20,6 +20,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import _average_over_folds
@@ -697,11 +698,16 @@ class TestCVTargetingReport:
         for name, estimate in cv_fit.estimates.items():
             assert float(np.mean(cv.fold_estimates[name])) == pytest.approx(estimate.psi, rel=1e-10)
 
-    def test_the_summary_names_the_folds_and_the_coefficients(self, cv_fit) -> None:
-        text = cv_fit.cv_targeting.summary()
-        assert "Cross-validated targeting over 5 folds" in text
-        assert "fold-specific fluctuation coefficients" in text
-        assert "ate" in text
+    def test_the_summary_names_the_folds_and_keeps_the_coefficients_off(self, cv_fit) -> None:
+        cv = cv_fit.cv_targeting
+        summary = cv.summary()
+        assert summary.heading == vocabulary.CV_TITLE
+        assert summary.facts[vocabulary.FOLDS].startswith("5 (sizes ")
+        rows = summary.table("other").column("")
+        assert [cell.value for cell in rows] == list(cv.variance)
+        # The adjustment coefficients are internals of the fit: kept on the report only.
+        assert cv.fold_epsilon
+        assert "epsilon" not in summary and "coefficient" not in summary
 
     def test_to_frame_has_one_row_per_estimand(self, cv_fit) -> None:
         frame = cv_fit.cv_targeting.to_frame(cv_fit.data)
