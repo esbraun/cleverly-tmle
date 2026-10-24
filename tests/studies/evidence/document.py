@@ -544,6 +544,35 @@ def measured(row: Any) -> str:
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":
         return f"maximum paired difference {render(float(row.maximum_identity_difference))}"
+    if family in {"support_loss", "learned_mechanism"}:
+        # X39's reported readings: the accuracy of one fit, and for a support-loss pair the
+        # share of rows at a mechanism bound, node by node.  No margin reads either.
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+        shares = [
+            render(float(value))
+            for value in (getattr(row, f"binding_share_{node}", None) for node in range(1, 6))
+            if pd.notna(value)
+        ]
+        if family == "support_loss" and shares:
+            measured += f", binding share by node {', '.join(shares)}"
+        return measured
+    if family == "sequential_double_robustness" and not hasattr(row, "absolute_bias_bound"):
+        # X39's rows read the shared bias rule: a positive inside its margin, a control outside
+        # it.  A reported row at n = 4,000 prints the same endpoints and states no verdict.
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}"
+        )
+        if str(row.role) != "control":
+            measured += (
+                f", coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+                f"SE ratio {render(float(row.se_ratio))}"
+            )
+        return measured
     if family == "sequential_double_robustness":
         # Three rules in one family (``longitudinal_sdr_properties``), and each row prints the
         # endpoints its own rule reads.
@@ -687,6 +716,8 @@ _BIAS_GATED = frozenset(
         "weight_necessity",
         "blip_feature_control",
         "bound_necessity",
+        # X39: a positive's bias interval inside the margin, a control's outside it.
+        "censoring_necessity",
         # X21: the estimated-mechanism bias cells, and the bias of the cube-root-rate ladder.
         "bias",
         "root_n_points",

@@ -578,7 +578,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                     "margin:efficiency_ratio_upper": high,
                 }
             )
-    if {"targeting_necessity", "stratum_targeting_necessity"} & set(record.property_cells):
+    displaced = set(record.property_cells) - record.bias_row_families
+    if {"targeting_necessity", "stratum_targeting_necessity"} & displaced:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
     if "fold_locality" in record.property_cells:
         declared["margin:fold_locality_displacement"] = (
@@ -604,7 +605,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     elif correction_cells:
         declared["margin:correction_displacement"] = record.properties().CORRECTION_DISPLACEMENT
-    if set(record.property_cells) & {
+    if displaced & {
         "atom_necessity",
         "classifier_split",
         "branch_necessity",
@@ -626,7 +627,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # X33's failure rule: the largest share of unconverged fits a gated cell may carry.
     if hasattr(record.properties(), "UNCONVERGED_SHARE"):
         declared["margin:unconverged_share"] = record.properties().UNCONVERGED_SHARE
-    if "policy_necessity" in record.property_cells:
+    if "policy_necessity" in displaced:
         declared["margin:policy_displacement"] = record.properties().POLICY_DISPLACEMENT
     if "inverse_necessity" in record.property_cells:
         declared["margin:inverse_displacement"] = record.properties().INVERSE_DISPLACEMENT
@@ -638,7 +639,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         declared["margin:learner_weight_displacement"] = (
             record.properties().LEARNER_WEIGHT_DISPLACEMENT
         )
-    if "categorical_probability_necessity" in record.property_cells:
+    if "categorical_probability_necessity" in displaced:
         declared["margin:categorical_probability_displacement"] = (
             record.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
         )
