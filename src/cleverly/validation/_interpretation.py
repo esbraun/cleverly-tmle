@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 
+from .._inference_status import supplies_inference
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
 
@@ -696,12 +698,16 @@ class Resolution:
         The interpretation sentence the test may print.
     evidence : VerdictEvidence or None
         The covering row, or ``None`` when the reading is descriptive.
+    plain : str
+        What sets the reading's pass or fail, or what the nearest studied fits were and
+        how this fit differs, in plain words for a printed summary.
     """
 
     rung: Rung
     licensed: bool
     sentence: str
     evidence: VerdictEvidence | None = None
+    plain: str = ""
 
 
 DESCRIPTIVE_SENTENCE = (
@@ -1527,7 +1533,13 @@ def resolve(
     for row in candidates:
         if row.scope.covers(fit):
             if row.rung in ("L2", "L3"):
-                return Resolution(rung=row.rung, licensed=True, sentence=row.sentence, evidence=row)
+                return Resolution(
+                    rung=row.rung,
+                    licensed=True,
+                    sentence=row.sentence,
+                    evidence=row,
+                    plain=PLAIN_LICENSED,
+                )
             nearest = nearest or row
     if nearest is not None:
         return Resolution(
@@ -1535,6 +1547,7 @@ def resolve(
             licensed=False,
             sentence=DESCRIPTIVE_SENTENCE,
             evidence=nearest,
+            plain=PLAIN_UNMEASURED,
         )
     if candidates:
         # The nearest row differs on the fewest axes; a tie keeps registry order.
@@ -1548,8 +1561,162 @@ def resolve(
                 f"{DESCRIPTIVE_SENTENCE} Covered: {row.scope.describe()}. "
                 f"This fit differs on {mismatch}."
             ),
+            plain=(
+                f"The nearest fits studied: {plain_scope(row.scope)}. "
+                f"Where this fit differs, it has "
+                f"{_joined(plain_mismatches(row.scope, fit))}."
+            ),
         )
-    return Resolution(rung="L0", licensed=False, sentence=DESCRIPTIVE_SENTENCE)
+    return Resolution(rung="L0", licensed=False, sentence=DESCRIPTIVE_SENTENCE, plain=PLAIN_NONE)
+
+
+#: What sets a licensed reading's pass or fail, in plain words.
+PLAIN_LICENSED = (
+    "An exact reference or a simulation study of this kind of fit sets its pass or fail."
+)
+#: A reading whose covering study measures no failure rate.
+PLAIN_UNMEASURED = (
+    "Studies cover this kind of fit, but none measures how often the test fails a correct fit."
+)
+#: A reading no study covers at all.
+PLAIN_NONE = "No study covers this test."
+
+_PLAIN_FAMILIES = {"gaussian": "continuous", "binomial": "binary", "survival": "survival"}
+
+
+def _plain_cross_fitting(value: str) -> str:
+    if value == "off":
+        return "no out-of-fold predictions"
+    if value.startswith("folds="):
+        return f"out-of-fold predictions in {value.split('=', 1)[1]} folds"
+    return f"cross-fitting {value}"
+
+
+def _plain_inference(value: str) -> str:
+    if value == "influence_curve":
+        return "an interval"
+    try:
+        shown = supplies_inference(value)
+    except KeyError:
+        return f"inference {value}"
+    return "an interval from a plug-in standard error" if shown else "no interval"
+
+
+def _joined(parts: list[str]) -> str:
+    if len(parts) <= 1:
+        return "".join(parts)
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _either(values: Iterable[str]) -> str:
+    items = sorted(set(values))
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " or " + items[-1]
+
+
+def plain_scope(scope: CalibrationScope) -> str:
+    """The covered configuration of a scope in plain words, for a printed summary.
+
+    Parameters
+    ----------
+    scope : CalibrationScope
+        The scope.
+
+    Returns
+    -------
+    str
+        One clause, or ``"every kind of fit"``.
+    """
+    parts: list[str] = []
+    if scope.methods is not None:
+        parts.append(f"method {_either(scope.methods)}")
+    if scope.estimand_kinds is not None:
+        parts.append(f"estimate {_either(scope.estimand_kinds)}")
+    if scope.outcome_families is not None:
+        families = {_PLAIN_FAMILIES.get(value, value) for value in scope.outcome_families}
+        parts.append(f"a {_either(families)} outcome")
+    if scope.treatment_kinds is not None:
+        parts.append(f"a {_either(scope.treatment_kinds)} treatment")
+    if scope.learners is not None:
+        parts.append("the learners studied")
+    if scope.cross_fitting is not None:
+        parts.append(_either(_plain_cross_fitting(value) for value in scope.cross_fitting))
+    if scope.inference is not None:
+        parts.append(_either(_plain_inference(value) for value in scope.inference))
+    if scope.n_min:
+        parts.append(f"{scope.n_min:,} rows or more")
+    if scope.n_max is not None:
+        parts.append(f"{scope.n_max:,} rows or fewer")
+    return ", ".join(parts) if parts else "every kind of fit"
+
+
+def plain_mismatches(scope: CalibrationScope, fit: FitConfiguration | None) -> list[str]:
+    """The axes on which ``fit`` lies outside ``scope``, in plain words.
+
+    The plain form of :meth:`CalibrationScope.mismatches`, axis for axis.
+
+    Parameters
+    ----------
+    scope : CalibrationScope
+        The scope.
+    fit : FitConfiguration or None
+        The configuration to test.
+
+    Returns
+    -------
+    list of str
+        One phrase per axis, empty when the fit is covered.
+    """
+    if fit is None:
+        return [] if scope == CalibrationScope.unrestricted() else ["a fit cleverly cannot read"]
+    found: list[str] = []
+    if scope.methods is not None and fit.method not in scope.methods:
+        found.append(f"another method ({fit.method})")
+    if scope.estimand_kinds is not None and fit.estimand_kind not in scope.estimand_kinds:
+        found.append(f"another estimate ({fit.estimand_kind})")
+    if scope.outcome_families is not None and fit.outcome_family not in scope.outcome_families:
+        family = _PLAIN_FAMILIES.get(fit.outcome_family, fit.outcome_family)
+        found.append(f"another kind of outcome ({family})")
+    if scope.treatment_kinds is not None and fit.treatment_kind not in scope.treatment_kinds:
+        found.append(f"another kind of treatment ({fit.treatment_kind})")
+    if scope.cross_fitting is not None and fit.cross_fitting not in scope.cross_fitting:
+        found.append(_plain_cross_fitting(fit.cross_fitting))
+    if scope.inference is not None and fit.inference not in scope.inference:
+        found.append(_plain_inference(fit.inference))
+    if scope.known_mechanism is not None and fit.known_mechanism not in scope.known_mechanism:
+        found.append(
+            "a declared treatment model" if fit.known_mechanism else "an estimated treatment model"
+        )
+    if scope.arms is not None and fit.arms not in scope.arms:
+        found.append(f"{fit.arms} treatment levels")
+    if scope.replicates is not None and fit.replicates not in scope.replicates:
+        found.append("no repeats" if fit.replicates is None else f"{fit.replicates} repeats")
+    if scope.nodes is not None and fit.nodes not in scope.nodes:
+        found.append("no time points" if fit.nodes is None else f"{fit.nodes} time points")
+    if scope.placebo_draws is not None and fit.placebo_draw not in scope.placebo_draws:
+        found.append(
+            "another way of drawing the shuffled treatment"
+            + ("" if fit.placebo_draw is None else f" ({fit.placebo_draw})")
+        )
+    if scope.learners is not None and any(item not in scope.learners for item in fit.learners):
+        found.append("a learner outside those studied")
+    if fit.n < scope.n_min:
+        found.append(f"{fit.n:,} rows (fewer than {scope.n_min:,})")
+    if scope.n_max is not None and fit.n > scope.n_max:
+        found.append(f"{fit.n:,} rows (more than {scope.n_max:,})")
+    if (
+        scope.covariates_per_row_max is not None
+        and fit.covariates_per_row > scope.covariates_per_row_max
+    ):
+        found.append("more covariates per row than studied")
+    if scope.min_event_count_min is not None and (
+        fit.min_event_count is None or fit.min_event_count < scope.min_event_count_min
+    ):
+        found.append("fewer events than studied")
+    if fit.clusters is not None and (
+        scope.clusters_min is None or fit.clusters < scope.clusters_min
+    ):
+        found.append(f"{fit.clusters} clusters")
+    return found
 
 
 @dataclass(frozen=True)

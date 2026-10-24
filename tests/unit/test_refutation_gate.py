@@ -19,6 +19,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_binary_outcome
 from cleverly.exceptions import CapabilityError
 from cleverly.validation import BootstrapMeasurementError, EmpiricalInclusionRule, refute
@@ -564,7 +565,13 @@ class TestEmptyRegistry:
         report = refute(_binary_fit(), random_state=2)
         assert [test.passed for test in report.tests] == [None, None, None]
         assert report.passed is None
-        assert "VERDICT: none" in report.summary()
+        summary = report.summary()
+        assert dict(summary.header)[vocabulary.RESULT] == vocabulary.CHECK_RESULTS["descriptive"]
+        assert summary.reading == vocabulary.REFUTATION_READINGS["descriptive_all"].format(
+            n="three"
+        )
+        for code in ("test_placebo", "test_random_common_cause", "test_subset"):
+            assert vocabulary.EVIDENCE_WORDS["L2"] not in summary.note(code).text
 
 
 class TestVerdictThroughACoveringRow:
@@ -576,6 +583,10 @@ class TestVerdictThroughACoveringRow:
         result = _binary_fit(cross_fit=False)
         sound = refute(result, tests=("placebo",), n_replicates=20, random_state=3)
         assert sound["placebo"].passed is True
+        # Witness for the descriptive print above: a covered fit prints its pass.
+        printed = sound.summary()
+        assert printed.tables[0].rows[0][-1].text == vocabulary.CHECK_RESULTS["passed"]
+        assert printed.note("test_placebo").text.endswith(vocabulary.EVIDENCE_WORDS["L2"] + ".")
 
         real_refit = result.estimator.refit
 

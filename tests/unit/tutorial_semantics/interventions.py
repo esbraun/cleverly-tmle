@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from cleverly import CapabilityError
+from cleverly._summary import vocabulary
 from cleverly.datasets import navigation_protocol
 from cleverly.validation import BoundedAdjustmentOutcome, GaussianAdjustmentOutcome, refute
 from tests.unit.tutorial_semantics import (
@@ -394,9 +395,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         # "No check prints a verdict": no registry row covers a TMLE regime contrast.
         assert test.passed is None and test.rung == "L0" and len(test.values) == 20
     assert screen_report.passed is None
-    assert (
-        "This fit differs on estimand kind 'ate_regime[screen on risk vs offer to none]'"
-        in screen_report.summary()
+    compared = screen_report.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines
+    assert any(
+        "another estimate (ate_regime[screen on risk vs offer to none])" in line
+        for line in compared
     )
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)

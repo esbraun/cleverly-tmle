@@ -21,6 +21,7 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 
 import cleverly.datasets.offers as offers_law
 from cleverly import CapabilityError, sensitivity
+from cleverly._summary import vocabulary
 from cleverly.datasets import OFFER_LEVELS, offers_protocol, win_back
 from cleverly.utils.bounds import expit
 from cleverly.validation import refute
@@ -605,9 +606,10 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
-    # The only longitudinal calibration covers a survival fit, and the report says this fit differs
-    # on its outcome family.
-    assert "This fit differs on outcome family 'binomial'" in refutation.summary()
+    # The only longitudinal calibration covers a survival fit, and the full summary says this fit
+    # differs on its outcome family.
+    compared = refutation.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines
+    assert any("another kind of outcome (binary)" in line for line in compared)
     # The placebo reading: "-0.0023826 ... spread 0.01815 ... t -0.5872 (p = 0.564) ... 1.15".
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)
