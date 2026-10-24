@@ -51,7 +51,7 @@ statement of :math:`\Psi(P_w)`.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
@@ -800,6 +800,10 @@ class ParameterEstimate:
             # Its default null lies outside the transform's domain; wald_test(null=...)
             # still lets the caller declare an interior null.
             return float("nan")
+
+    def _cache_token(self) -> dict[str, Any]:
+        """The content an assessment cache key reads when this estimate is an argument."""
+        return {field_.name: getattr(self, field_.name) for field_ in fields(self)}
 
     @property
     def supplies_inference(self) -> bool:

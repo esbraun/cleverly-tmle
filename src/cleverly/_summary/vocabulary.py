@@ -332,6 +332,25 @@ NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     }
 )
 
+#: How a cross-fitted fit built its estimate, from its targeting scheme and evaluation.
+CROSS_FIT_CONSTRUCTION: Final = (
+    "The models predict each row from the folds that leave it out; {targeting}, and {evaluation}."
+)
+#: Keyed by whether one targeting step serves every fold (``targeting_scheme="pooled"``).
+CROSS_FIT_TARGETING: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        True: "one final adjustment of the outcome predictions serves every fold",
+        False: "each fold gets its own final adjustment of the outcome predictions",
+    }
+)
+#: Keyed by ``cv_evaluation``.
+CROSS_FIT_EVALUATION: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: "each estimate is computed once on all rows",
+        True: "each estimate is the average of its estimates in the held-out folds",
+    }
+)
+
 #: Plain names of the axes a support reason says the nearest validated fit differs on, keyed
 #: by the names in ``cleverly._support.KEY_AXES``.
 SUPPORT_AXES: Final[Mapping[str, str]] = MappingProxyType(
@@ -395,8 +414,8 @@ EXPERIMENTAL_REASONS: Final[Mapping[str, str]] = MappingProxyType(
 BOOTSTRAP_DIAGNOSTIC: Final[Mapping[str, str]] = MappingProxyType(
     {
         "withheld": (
-            "The bootstrap range of {names} is a diagnostic, not a confidence interval, "
-            "because the fit gives these rows no interval."
+            "The bootstrap range of {names} is a diagnostic, not a confidence interval, as "
+            "the fit withholds that interval."
         ),
         "below_floor": (
             "The bootstrap range of {names} is a diagnostic, not a confidence interval, "
@@ -417,11 +436,11 @@ REPEATS: Final = " ({count} times)"
 NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "no_inference": (
-            "No confidence interval or p-value for {names}: {reason} The {label} column is "
+            "No confidence interval or p-value for {names}. {reason} The {label} column is "
             "a diagnostic, not a standard error."
         ),
         "no_inference_row": (
-            "No confidence interval or p-value for {names}, marked *: {reason} Their "
+            "No confidence interval or p-value for {names}, marked *. {reason} Their "
             "{label}: {spreads}."
         ),
         "experimental": (

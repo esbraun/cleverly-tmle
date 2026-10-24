@@ -279,7 +279,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert "Discharge-home order" in summary
     assert "scores death before day 30 as the worst transition score" in summary
     assert "Analyze the offer regardless of completed contacts" in summary
-    assert "stacked CV-TMLE" in namespace["result"].summary()
+    assert dict(namespace["result"].summary().header)["Out-of-fold predictions"] != "no"
     assert list(namespace["frame"].columns[:2]) == ["transition_score", "transition_navigation"]
 
     # Step 2: "all four covariates enter g" and "enter Q".  Moving one covariate at a time

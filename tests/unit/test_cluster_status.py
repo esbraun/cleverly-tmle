@@ -83,6 +83,16 @@ IN_SAMPLE: dict[str, Any] = {"cross_fit": False}
 ESTIMANDS = ("ate", "ey0")
 
 
+def clusters_line(result: Any) -> str:
+    """The cluster facts the full summary prints under Settings."""
+    (line,) = [
+        line
+        for line in result.summary(detail="full").section("Settings").lines
+        if line.startswith("Clusters: ")
+    ]
+    return line
+
+
 def unequal_clusters(frame: Any, seed: int = 7) -> Any:
     """``frame`` with a random 2 to 10 rows kept in each cluster of its first half.
 
@@ -168,9 +178,7 @@ class TestUnequalCrossFittedClustersKeepTheInterval:
         assert {e.reference_df for e in unequal_result.estimates.values()} == {None}
 
     def test_the_summary_states_the_sizes_it_read(self, unequal_result: Any) -> None:
-        assert "clusters = 40, sizes 2 to 10 (cluster-robust variance)" in (
-            unequal_result.summary()
-        )
+        assert clusters_line(unequal_result) == "Clusters: 40, sizes 2 to 10."
 
     def test_the_evalue_is_available(self, unequal_result: Any) -> None:
         assert unequal_result.sensitivity.capability("evalue").available
@@ -201,7 +209,8 @@ class TestTheNeighbouringFitsKeepTheirInterval:
         result = fit(equal_frame, **CROSS_FITTED)
         assert_keeps_inference(result)
         # Equal sizes print the count alone.
-        assert "clusters = 40 (cluster-robust variance)" in result.summary()
+        assert clusters_line(result) == "Clusters: 40."
+        assert dict(result.summary().header)["Clusters"] == "40"
 
     @pytest.mark.parametrize("estimator", [TMLE, DRTMLE], ids=["TMLE", "DRTMLE"])
     def test_unequal_sizes_in_sample_keep_the_interval(
@@ -246,7 +255,7 @@ class TestFewClustersShowALabelledTInterval:
         assert support.label == "experimental"
         assert STATUS_RECORDS[FEW].shown_reason in support.reason
         assert "X54" in support.evidence
-        assert STATUS_RECORDS[FEW].shown_reason in result.summary()
+        assert STATUS_RECORDS[FEW].plain_reason in result.summary().note("experimental").text
 
     def test_the_nuisance_report_and_the_assessment_carry_the_note(self, few_frame: Any) -> None:
         assert_assessment_note(fit(few_frame, **IN_SAMPLE), FEW)
@@ -367,9 +376,7 @@ class TestAStratumWithFewClustersReadsItsOwnCount:
             "ate[S='big']": None,
         }
         assert all(e.support.label == "experimental" for e in result.estimates.values())
-        assert "clusters = 50, fewest in one stratum 3 (cluster-robust variance)" in (
-            result.summary()
-        )
+        assert clusters_line(result) == "Clusters: 50; fewest in a stratum: 3."
 
     def test_a_two_cluster_stratum_withholds_every_estimate(self, two_stratum_frame: Any) -> None:
         result = fit_stratified(two_stratum_frame)
@@ -409,7 +416,7 @@ class TestUnequalSizesInsideAReportedStratumKeepTheInterval:
         result = fit_stratified(frame, **CROSS_FITTED)
         assert sizes(frame) == (40, 10, 10)
         assert_keeps_inference(result)
-        assert "within-stratum sizes 3 to 7" in result.summary()
+        assert "within-stratum sizes 3 to 7" in clusters_line(result)
 
 
 def fit_weighted(frame: Any, **settings: Any) -> Any:
@@ -429,7 +436,7 @@ class TestUnequalWeightMassKeepsTheInterval:
         result = fit_weighted(frame, **CROSS_FITTED)
         assert_keeps_inference(result)
         # Weights are normalised to mean one, so the masses 5 and 20 print as 4 and 16.
-        assert "clusters = 40, weight mass 4 to 16 (cluster-robust variance)" in (result.summary())
+        assert clusters_line(result) == "Clusters: 40, weight mass 4 to 16."
 
 
 class TestThePrecedence:
@@ -508,7 +515,7 @@ class TestZeroWeightClusters:
         )
         assert result.data.n_clusters == 40
         assert_shows_interval(result, FEW, 1)
-        assert "positive weight mass in 3" in result.summary()
+        assert "positive weight mass in 3" in dict(result.summary().header)["Clusters"]
 
     def test_all_positive_clusters_keep_the_interval(self, equal_frame: Any) -> None:
         frame = equal_frame.assign(w=np.ones(len(equal_frame)))

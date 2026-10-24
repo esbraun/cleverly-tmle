@@ -7,8 +7,9 @@ Each class names a component that can vanish and a witness that fails when it do
   count from 10 to 40 moves a number. The copies live in ``tests/unit/golden/rm42b``. The
   script that made them fits the configuration in :func:`golden_fit` on that commit and dumps
   ``summary()``, ``repr``, ``to_dict()`` and ``to_frame()`` of the ``ate`` estimate. The
-  summary has its version and time stamp replaced. That commit's default summary is today's
-  ``summary(detail="full")``; the short default leaves out its protocol line only.
+  summary has its version and time stamp replaced. Today's summary is laid out differently,
+  so the test reads the facts, cells and bounds the old text printed and finds each one in
+  the structured summary, the raw numbers to ``rel=1e-10``.
 * ``TestTheLabelAtEverySurface`` fits one experimental point fit and one experimental
   longitudinal fit and reads the label from every report that prints an estimate.
 * ``TestAWithheldStatusWinsOverAShownOne`` pins the two-tier precedence.
@@ -33,7 +34,8 @@ from scipy import stats
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import _support
-from cleverly._inference_status import STATUS_RECORDS, precedent_status
+from cleverly._inference_status import NO_T_REFERENCE_BANDS, STATUS_RECORDS, precedent_status
+from cleverly._summary._estimates import plain_support_reason
 from cleverly._support import Support, combine_support
 from cleverly.data.causal_data import CausalData
 from cleverly.datasets import make_binary_outcome, make_clustered, make_linear_ate
@@ -69,26 +71,84 @@ def golden_fit(name: str) -> Any:
     return TMLE(**linear_in_sample()).fit(data).single()
 
 
-def stamped(text: str) -> str:
-    """``text`` with its version and time stamp replaced, as the golden copies have it."""
-    return re.sub(r"cleverly [\d.]+ \| \S+", "cleverly VERSION | TIMESTAMP", text)
+def golden_text(name: str) -> dict[str, Any]:
+    """What the old summary text of a golden copy printed, read from its lines.
+
+    Returns the ``n``, ``P(A=1)`` and cluster facts, each row's displayed cells (``psi``,
+    ``std_err``, the interval, ``p_value`` and ``df``), the two propensity bounds, and
+    whether the text held the t-reference paragraph and the no-band line.
+    """
+    text = GOLDEN[name]["summary"]
+    facts = re.search(r"n = (\d+); covariates = \d+; P\(A=1\) = ([\d.]+)", text)
+    assert facts is not None
+    clusters = re.search(r"clusters = (\d+)", text)
+    bounds = re.search(r"propensity truncated to \[([^]]+)\]; ATT/ATC to \[([^]]+)\]", text)
+    assert bounds is not None
+    rows = {}
+    for line in text.splitlines():
+        match = re.match(r"(\w+)\s+(\S+)\s+(\S+)\s+\[(\S+), (\S+)\]\s+(\S+)(?:\s+(\d+))?\s*$", line)
+        if match and match[1] != "estimand":
+            name_, psi, se, low, high, p, df = match.groups()
+            rows[name_] = {"psi": psi, "std_err": se, "ci": (low, high), "p": p, "df": df}
+    return {
+        "n": int(facts[1]),
+        "treated": facts[2],
+        "clusters": None if clusters is None else int(clusters[1]),
+        "bounds": (bounds[1], bounds[2]),
+        "rows": rows,
+        "t_reference": "Student t reference" in text,
+        "no_band": "no simultaneous bands:" in text,
+    }
 
 
-def without_protocol_line(summary: str) -> str:
-    """``summary`` without the protocol line, which only a full summary prints."""
-    removed = summary.replace("\ncausal study protocol: absent\n", "\n", 1)
-    assert removed != summary, "the golden summary no longer holds its protocol line"
-    return removed
+def agrees(shown: str, golden: str) -> bool:
+    """Two displays of one number agree within half a unit of the coarser last place."""
+    places = min(len(text.split(".")[1]) if "." in text else 0 for text in (shown, golden))
+    return abs(float(shown) - float(golden)) <= 0.5 * 10**-places + 1e-12
 
 
-def unlabelled(summary: str) -> str:
-    """``summary`` without the support column and its note, which the label adds."""
-    lines = []
-    for line in stamped(summary).splitlines():
-        if line.startswith("experimental:"):
-            continue
-        lines.append(re.sub(r"\s+(support|experimental|-{12})\s*$", "", line).rstrip())
-    return "\n".join(line for line in lines if line)
+def assert_golden_summary(result: Any, name: str) -> None:
+    """The structured summary of ``result`` prints what the golden copy ``name`` printed."""
+    golden = golden_text(name)
+    frame = pd.DataFrame(GOLDEN[name]["frame"]).set_index("estimand")
+    summary = result.summary(detail="full")
+    header = dict(summary.header)
+    assert header["Rows"] == f"{golden['n']:,}"
+    assert agrees(header["Treated share"], golden["treated"])
+    if golden["clusters"] is None:
+        assert "Clusters" not in header
+    else:
+        assert header["Clusters"] == str(golden["clusters"])
+    table = summary.table("estimates")
+    columns = list(table.columns)
+    rows = {row[0].value: row for row in table.rows}
+    assert list(rows) == list(golden["rows"])
+    for row_name, shown in golden["rows"].items():
+        cells = dict(zip(columns, rows[row_name], strict=True))
+        estimate, spread = cells["estimate"], cells["std. error"]
+        interval = cells["95% CI"]
+        assert estimate.value == pytest.approx(frame.loc[row_name, "psi"], rel=1e-10)
+        assert spread.value == pytest.approx(frame.loc[row_name, "std_err"], rel=1e-10)
+        assert interval.value == pytest.approx(
+            (frame.loc[row_name, "ci_lower"], frame.loc[row_name, "ci_upper"]), rel=1e-10
+        )
+        assert agrees(estimate.text, shown["psi"])
+        assert agrees(spread.text, shown["std_err"])
+        low, high = interval.text.strip("[]").split(", ")
+        assert agrees(low, shown["ci"][0])
+        assert agrees(high, shown["ci"][1])
+        if shown["df"] is None:
+            assert "df" not in cells
+        else:
+            assert cells["df"].text == shown["df"]
+    assert ("t_reference" in summary.note_codes) == golden["t_reference"]
+    settings = summary.section("Settings").lines
+    mean_bounds, conditional_bounds = golden["bounds"]
+    assert any(f"limited to [{mean_bounds}] for the means" in line for line in settings)
+    assert any(
+        f"limited to [{conditional_bounds}] for the effect among" in line for line in settings
+    )
+    assert (NO_T_REFERENCE_BANDS in settings) == golden["no_band"]
 
 
 def assert_numbers_equal(actual: dict[str, Any], golden: dict[str, Any]) -> None:
@@ -109,8 +169,10 @@ class TestAGoldenCopy:
         estimate = result["ate"]
         assert estimate.support.label == "supported"
         assert estimate.support.row == "T01.continuous"
-        assert stamped(result.summary(detail="full")) == golden["summary"]
-        assert stamped(result.summary()) == without_protocol_line(golden["summary"])
+        assert_golden_summary(result, "canonical")
+        summary = result.summary(detail="full")
+        assert "support" not in summary.table("estimates").columns
+        assert "experimental" not in summary.note_codes
         assert repr(estimate) == golden["repr"]
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
         frame = result.to_frame()
@@ -123,11 +185,13 @@ class TestAGoldenCopy:
     def test_deleting_the_row_turns_the_label_experimental(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The mutation control: with no row the label and the summary change."""
+        """The mutation control: with no row the label, the column and the note appear."""
         monkeypatch.setattr(_support, "registered_rows", lambda: ())
         result = golden_fit("canonical")
         assert result["ate"].support.label == "experimental"
-        assert stamped(result.summary(detail="full")) != GOLDEN["canonical"]["summary"]
+        summary = result.summary()
+        assert "support" in summary.table("estimates").columns
+        assert "experimental" in summary.note_codes
         assert repr(result["ate"]) != GOLDEN["canonical"]["repr"]
 
     @pytest.mark.parametrize("clusters", [10, 20, 39, 40])
@@ -137,7 +201,12 @@ class TestAGoldenCopy:
         golden = GOLDEN[f"clusters_{clusters}"]
         estimate = result["ate"]
         assert result.inference_status == "influence_curve"
-        assert unlabelled(result.summary(detail="full")) == unlabelled(golden["summary"])
+        assert_golden_summary(result, f"clusters_{clusters}")
+        summary = result.summary()
+        assert [cell.value for cell in summary.table("estimates").column("support")] == [
+            "experimental"
+        ] * 5
+        assert "experimental" in summary.note_codes
         assert repr(estimate).removesuffix(" [experimental]") == golden["repr"]
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
 
@@ -159,9 +228,15 @@ class TestTheLabelAtEverySurface:
         estimate = point["ate"]
         assert estimate.support.label == "experimental"
         assert repr(estimate).endswith(" [experimental]")
-        text = point.summary()
-        assert "support" in text
-        assert f"experimental: {estimate.support.reason}" in text
+        summary = point.summary()
+        assert [cell.value for cell in summary.table("estimates").column("support")] == [
+            "experimental"
+        ] * 5
+        assert "experimental" in summary.note_codes
+        reason = plain_support_reason(estimate.support.reason)
+        assert any(
+            reason in line for line in point.summary(detail="full").section("Settings").lines
+        )
         row = estimate.to_dict()
         assert row["support"] == "experimental"
         assert row["support_reason"] == estimate.support.reason

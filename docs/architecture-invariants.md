@@ -251,8 +251,13 @@ one.
 A reader of `std_error`, `ci`, or `pvalue` must branch on each estimate's `supplies_inference`.
 The `inference_status` of a result is the fit status, so it alone does not say that every
 estimate supplies inference. A reader that decides columns from it must also handle the estimates
-that do not: `summary()` stars them, `curve()` and `incidence_total()` add an `inference` column
-and the plug-in columns, and `to_frame()` holds the union of the columns.
+that do not. In a summary, `cleverly._summary.estimates_table` is the one place this rule
+applies: it stars a row whose estimate supplies no inference, prints its spread under the
+diagnostic label from `spread_name`, and adds a `no_inference` note whose text reads the
+status's `plain_reason` from `STATUS_RECORDS`. A summary that has not moved to
+`cleverly._summary` yet, such as `LongitudinalResult.summary()`, stars those rows in its own
+table. `curve()` and `incidence_total()` add an `inference` column and the plug-in columns, and
+`to_frame()` holds the union of the columns.
 
 A frame or label that
 publishes a spread must take its names from `spread_columns()` or `spread_name`, which raises

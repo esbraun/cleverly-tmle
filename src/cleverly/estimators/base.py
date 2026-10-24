@@ -1553,6 +1553,20 @@ class TMLEResult:
     def _repr_html_(self) -> str:
         return self.summary().as_html()
 
+    def _cache_token(self) -> dict[str, Any]:
+        """The content an assessment cache key reads when this result is an argument.
+
+        The repr is a rounded one-line summary that two different fits can share.
+        """
+        return {
+            "method": self.fitted_method,
+            "config": repr(self.config),
+            "n": self.data.n,
+            "estimates": {
+                name: estimate._cache_token() for name, estimate in self.estimates.items()
+            },
+        }
+
 
 @dataclass(frozen=True)
 class TMLEResultSet(Mapping["float | None", TMLEResult]):

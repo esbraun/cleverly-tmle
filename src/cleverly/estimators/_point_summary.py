@@ -450,8 +450,23 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
             )
         )
     usable = bootstrap.n_requested - bootstrap.n_failed
+    every_diagnostic = sum(len(names) for names in diagnostic.values()) == len(rows)
+    if every_diagnostic:
+        # A table of diagnostics says so in its labels, and needs no row marks.
+        columns = (
+            "",
+            vocabulary.SPREAD_LABELS["bootstrap sd"],
+            f"{interval_name} range (diagnostic)".strip(),
+        )
+        rows = [(Cell(row[0].value, str(row[0].value)), *row[1:]) for row in rows]
+    else:
+        columns = (
+            "",
+            vocabulary.SPREAD_LABELS["bootstrap se"],
+            f"{interval_name} {level} CI".strip(),
+        )
     table = SummaryTable(
-        ("", vocabulary.SPREAD_LABELS["bootstrap se"], f"{interval_name} {level} CI".strip()),
+        columns,
         tuple(rows),
         title=f"Bootstrap ({bootstrap.resampling} resampling, {usable:,} usable replicates)",
     )
@@ -789,6 +804,12 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
             lines.append(f"Folds asked for: {config.crossfit.n_folds}; used: {config.n_folds}.")
         else:
             lines.append(f"Folds: {config.n_folds}.")
+        lines.append(
+            vocabulary.CROSS_FIT_CONSTRUCTION.format(
+                targeting=vocabulary.CROSS_FIT_TARGETING[config.targeting_scheme == "pooled"],
+                evaluation=vocabulary.CROSS_FIT_EVALUATION[config.cv_evaluation],
+            )
+        )
     lines.extend(_band_settings(result))
     estimates = result.estimates
     if any(estimate.reference_df is not None for estimate in estimates.values()):
@@ -812,10 +833,16 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
         listed = ", ".join(
             f"{name} {spread:.3g}" for name, spread in spreads.items() if np.isfinite(spread)
         )
+        missing = [name for name, spread in spreads.items() if not np.isfinite(spread)]
         if listed:
             lines.append(
                 f"Spread of each row across the {result.n_repeats} splits (a diagnostic, on "
                 f"the scale the interval is computed on): {listed}."
+            )
+        if missing:
+            lines.append(
+                f"{_listed(missing)} {'has' if len(missing) == 1 else 'have'} no spread on "
+                "that scale: a split gave a value the scale cannot take."
             )
     reasons: dict[str, list[str]] = {}
     for name, estimate in estimates.items():
