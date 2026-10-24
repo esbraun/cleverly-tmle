@@ -545,3 +545,20 @@ def test_roadmap_pointers_leave_and_a_column_named_like_an_id_stays() -> None:
         "No stacked interval: it needs W"
     )
     assert without_roadmap("column X1 is constant") == "column X1 is constant"
+
+
+def test_a_long_column_name_in_the_header_is_never_broken() -> None:
+    """A value with a word too long for its half of the header takes a full-width row."""
+    names = "married, lung_heart_kidney_disease, previous_preterm_or_small and 12 more"
+    header = (
+        ("Question", "average effect of A on Y (1 compared with 0)"),
+        ("Adjusted for", names),
+        ("Rows", "51,874"),
+        ("Treated share", "0.163"),
+    )
+    lines = _render._header_lines(header, WIDTH, 2)
+    printed = " ".join(" ".join(lines).split())
+    for name in ("lung_heart_kidney_disease,", "previous_preterm_or_small"):
+        assert name in printed.split()
+    assert all(len(line) <= WIDTH for line in lines)
+    assert lines[-2].startswith("Adjusted for:")

@@ -178,10 +178,10 @@ def check_stored() -> None:
     assert 'outcome="birth_weight_g"' in code["identify"]
     assert "Targeting(q_bounds=NCHS_RANGE)" in code["att-fit"]
     assert "CrossFitting(n_folds=3, learner_folds=3)" in code["att-fit"]
-    assert "stacked CV-TMLE (Levy): nuisances cross-fitted over 3 folds" in fit_text
-    assert "outcome scaled from [227, 8165] to [0, 1]" in fit_text
-    assert "ATT/ATC to [0.025, 0.975]" in fit_text
-    assert "clusters =" not in fit_text
+    assert re.search(r"Out-of-fold predictions:\s+3 folds", fit_text)
+    # The ATT reads the fixed limits, not the sample-size rule.
+    assert re.search(r"Probability limits:\s+\[0\.025, 0\.975\]", fit_text)
+    assert "Clusters:" not in fit_text
     initial = re.search(r"initial outcome predictions: ([\d,]+) g to ([\d,]+) g", fit_text)
     assert initial
     low, high = (float(value.replace(",", "")) for value in initial.groups())

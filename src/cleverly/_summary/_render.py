@@ -190,15 +190,40 @@ def _header_lines(
     if split is None:
         split = _default_split(len(header))
     left_facts, right_facts = header[:split], header[split:]
+    # A value with a word too long for its half, such as a long column name, takes a row of
+    # the full width below the two columns, so no name is broken across lines.
+    wide = tuple(
+        fact
+        for fact in header
+        if _longest_word(fact[1]) > _room(fact, header[:split] if fact in left_facts else (), half)
+    )
+    left_facts = tuple(fact for fact in left_facts if fact not in wide)
+    right_facts = tuple(fact for fact in right_facts if fact not in wide)
     left = _column_lines(left_facts, half, align="left")
     right = _column_lines(right_facts, width - _GAP - half, align="right")
     rows = max(len(left), len(right))
     left += [""] * (rows - len(left))
     right += [""] * (rows - len(right))
-    return [(f"{a:<{half}}" + " " * _GAP + b).rstrip() for a, b in zip(left, right, strict=True)]
+    lines = [(f"{a:<{half}}" + " " * _GAP + b).rstrip() for a, b in zip(left, right, strict=True)]
+    return lines + _column_lines(wide, width, align="left", whole_words=True)
 
 
-def _column_lines(facts: tuple[tuple[str, str], ...], width: int, *, align: str) -> list[str]:
+def _longest_word(value: str) -> int:
+    return max((len(word) for word in value.split()), default=0)
+
+
+def _room(fact: tuple[str, str], column: tuple[tuple[str, str], ...], width: int) -> int:
+    """The characters a fact's value has in its half of the header."""
+    if column:
+        own = max(len(label) for label, _ in column) + 3
+    else:
+        own = len(fact[0]) + 3
+    return max(8, width - own)
+
+
+def _column_lines(
+    facts: tuple[tuple[str, str], ...], width: int, *, align: str, whole_words: bool = False
+) -> list[str]:
     """One header column. The left column aligns its values after its widest label; the
     right column right-aligns each value, so each fact has the room its own label leaves."""
     if not facts:
@@ -208,7 +233,7 @@ def _column_lines(facts: tuple[tuple[str, str], ...], width: int, *, align: str)
     for label, value in facts:
         own = label_width if align == "left" else len(label) + 3
         room = max(8, width - own)
-        chunks = textwrap.wrap(value, room) or [""]
+        chunks = textwrap.wrap(value, room, break_long_words=not whole_words) or [""]
         for index, chunk in enumerate(chunks):
             head = f"{label}:" if index == 0 else ""
             if align == "left":
