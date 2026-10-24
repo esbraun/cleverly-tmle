@@ -2797,12 +2797,17 @@ class DiagnosticsFacade(_CapabilityFacade):
             from .inference.sparse import influence_report
 
             alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
-            return influence_report(
+            report = influence_report(
                 self._result.estimates,
                 alpha=alpha,
                 backend=self._result.data.backend,
                 cluster=getattr(self._result.data, "cluster", None),
             )
+            warned = any(
+                record.category == "SparseInfluenceWarning"
+                for record in getattr(self._result, "fit_warnings", ())
+            )
+            return replace(report, warned=warned)
 
         return _cached(self._result, "diagnostics.influence", (), {}, compute)
 

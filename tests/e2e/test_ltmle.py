@@ -12,6 +12,7 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import AssessmentStatus, CapabilityError, load
+from cleverly._summary import vocabulary
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -739,7 +740,9 @@ class TestObservationWeights:
         frame, _ = self._biased()
         result = run(frame, weights="w", weights_estimated=True)
         assert dict(result.summary().header)["Weights"].startswith("w, estimated; ")
-        assert "conditions on the fitted weights" in result.data.weight_report().summary()
+        summary = result.data.weight_report().summary()
+        assert "treats the fitted weights as known" in summary.note("weights_estimated").text
+        assert dict(summary.header)[vocabulary.WEIGHTS_TREATED] == "estimated"
 
     def test_the_default_bound_is_fixed_not_resolved_from_effective_n(self) -> None:
         frame, _ = self._biased()

@@ -728,6 +728,8 @@ INTERNAL_TERMS: Final[tuple[str, ...]] = (
     "Levy",
     "run_id",
     "docs/roadmap.md",
+    "clever covariate",
+    "Kish",
 )
 
 # ----------------------------------------------------------------- checks (T3)
@@ -1201,6 +1203,186 @@ CORRECTIONS_TITLE: Final = "DR-TMLE corrections"
 ESTIMATE_EQUATIONS_TITLE: Final = "Each estimate's equation"
 CORRECTION_TITLE: Final = "Check of the DR-TMLE corrections"
 SECTION_DETAILS: Final = "Details"
+
+
+# -------------------------------------- checks (T3): influence measures, observation weights
+
+#: Header labels of the influence report and the weight report.
+ESTIMATES_MEASURED: Final = "Estimates"
+WEIGHT_COLUMN: Final = "Weight column"
+WEIGHT_KIND: Final = "Weight type"
+WEIGHTS_TREATED: Final = "Treated as"
+EFFECTIVE_ROWS: Final = "Effective rows"
+HEADER_LABELS = HEADER_LABELS | {
+    ESTIMATES_MEASURED,
+    WEIGHT_COLUMN,
+    WEIGHT_KIND,
+    WEIGHTS_TREATED,
+    EFFECTIVE_ROWS,
+}
+
+#: The notes of the influence report (``InfluenceReport``) and the weight report
+#: (``WeightReport``).
+T3_SPREAD_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "influence_terms": "note",
+        "cluster_unit": "note",
+        "sparse_warning_pointer": "note",
+        "weights_population": "note",
+        "weights_fixed": "note",
+        "weights_estimated": "note",
+        "zero_weights": "note",
+        "outcome_adaptive_weighted": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_SPREAD_NOTE_CODES})
+
+#: The sentence on survey designs that both weight notes end with.
+_DESIGN_SENTENCE: Final = (
+    "Stratification and finite-population corrections are ignored, which is conservative; "
+    "a multi-stage design must give its sampling units with id=."
+)
+
+T3_SPREAD_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "influence_terms": (
+            "Each estimate is an average of one contribution per {unit}. Effective {units} is "
+            "how many equal contributions would give the same spread; it is the {units} over "
+            "the contributions' kurtosis. Skewness measures their asymmetry, which a "
+            "symmetric shape lacks. SE uncertainty "
+            "is the relative standard deviation of the variance estimate. Coverage loss is "
+            "predicted from the shape for the {level}% interval: positive means the interval "
+            "covers less than its level, negative more."
+        ),
+        "cluster_unit": (
+            "The fit has clusters, so each measure reads the sum of each cluster's "
+            "contributions and counts clusters, not rows."
+        ),
+        "sparse_warning_pointer": (
+            "The fit's warning names the interval to prefer for this kind of fit."
+        ),
+        "weights_population": (
+            "An estimate on these weights describes the population they represent: each row "
+            "counts in proportion to its weight, not once."
+        ),
+        "weights_fixed": (
+            "The standard error treats the weights as fixed known numbers. " + _DESIGN_SENTENCE
+        ),
+        "weights_estimated": (
+            "The weights were declared estimated, so an interval a fit reports treats the "
+            "fitted weights as known. For weights fitted by maximum likelihood in a correct "
+            "selection model that is conservative for the whole population; for calibrated, "
+            "raked or trimmed weights there is no general guarantee. The bootstrap "
+            "(n_bootstrap=) does not close the gap: it resamples rows and keeps the weights "
+            "it was given. A DRTMLE fit with a non-empty guard, and an AdaptiveIPTW fit with "
+            "a known treatment mechanism, show an interval on estimated weights under the "
+            "experimental label. " + _DESIGN_SENTENCE
+        ),
+        "zero_weights": (
+            "{count} rows carry zero weight: they do not enter the estimate but count "
+            "toward the rows."
+        ),
+        "outcome_adaptive_weighted": (
+            "An outcome-adaptive C-TMLE fit reports no standard error on weighted data. "
+            "Under the default per-arm design, its diagnostic standard error reads the curve "
+            "of {source}, which is not the efficient one."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_SPREAD_NOTE_TEXTS})
+
+#: The source the ``outcome_adaptive_weighted`` note cites.
+CTMLE_CURVE_SOURCE: Final = "Benkeser, Cai and van der Laan (2020), Theorem 1"
+
+#: Titles of the influence report, its table and its full-detail sections.
+INFLUENCE_TITLE: Final = "How single {units} move the estimate"
+INFLUENCE_DEFINITIONS: Final = "How these are measured"
+INFLUENCE_BOOTSTRAP: Final = "Bootstrap shape"
+INFLUENCE_KURTOSIS: Final = "Kurtosis of each estimate"
+
+#: A line of the kurtosis section, one per estimate. The table leaves kurtosis out: it is
+#: the units over the effective units.
+INFLUENCE_KURTOSIS_LINE: Final = "{name}: {kurtosis}"
+
+#: The definitions the influence report's full detail prints, one line each.
+INFLUENCE_DEFINITION_LINES: Final[tuple[str, ...]] = (
+    "effective {units}: (sum of squared contributions)^2 / sum of fourth powers, which is "
+    "the {units} divided by the kurtosis",
+    "skewness: third central moment over the second to the power 1.5",
+    "kurtosis: fourth central moment over the second squared (3 for a normal shape)",
+    "SE uncertainty: sqrt((kurtosis - 1) / {units}), the relative standard deviation of the "
+    "variance estimate; the fit warns above {threshold}",
+    "coverage loss: the second-order Edgeworth term of the studentized statistic "
+    "(Hall 1992), positive for a predicted shortfall",
+)
+
+#: A line of the bootstrap section, one per estimate with an attached bootstrap.
+INFLUENCE_BOOTSTRAP_LINE: Final = "{name}: bias correction {z0}, acceleration {acceleration}"
+
+#: The flag column of the influence report.
+INFLUENCE_FLAG: Final = "noisy"
+
+#: The reading of the influence report.
+INFLUENCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "none": (
+            "No estimate's standard error is itself noisy: every SE uncertainty is at most "
+            "{threshold}, the value that triggers the warning."
+        ),
+        "one": (
+            "{names}: the variance estimate is itself noisy (relative SD {value}, above the "
+            "{threshold} that triggers the warning), so a Wald interval can miss its level."
+        ),
+        "several": (
+            "{names}: each variance estimate is itself noisy (relative SD up to {value}, "
+            "above the {threshold} that triggers the warning), so a Wald interval can miss "
+            "its level."
+        ),
+        "empty": "This fit reports no estimate with a curve, so there is nothing to measure.",
+    }
+)
+
+#: Titles of the weight report and its full-detail section.
+WEIGHT_TITLE: Final = "Observation weights"
+WEIGHT_ESTIMAND: Final = "Estimand"
+
+#: The ``Treated as`` fact of the weight report.
+WEIGHT_TREATMENT: Final[Mapping[bool, str]] = MappingProxyType({True: "estimated", False: "fixed"})
+
+#: The rows of the weight report's table, in printed order.
+WEIGHT_MEASURES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "design_effect": "design effect",
+        "min_ratio": "smallest weight / mean",
+        "max_ratio": "largest weight / mean",
+        "cv": "variation (CV)",
+        "top_1pct": "share held by the top 1%",
+        "top_5pct": "share held by the top 5%",
+        "n_zero": "rows with zero weight",
+    }
+)
+
+#: The reading of the weight report.
+WEIGHT_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "constant": "The weights are constant, so the fit is the unweighted one.",
+        "dominant": (
+            "The weights dominate: the effective rows are under 1/{limit:g} of the rows, so "
+            "estimates rest on a few heavily weighted rows and the interval's large-sample "
+            "argument works from that smaller number."
+        ),
+    }
+)
+
+#: The full-detail estimand lines of the weight report.
+WEIGHT_ESTIMAND_LINES: Final[tuple[str, ...]] = (
+    "Estimand: the requested causal parameter in the weight-tilted population "
+    "dP_w = w dP / E[w], estimated on the weighted sample (weighted model fits, a weighted "
+    "correction step and a weighted plug-in).",
+    "Standard errors: the influence curve (w / E[w]) times the efficient influence function "
+    "of that parameter, which is its efficient influence function when the weights are "
+    "observed data.",
+)
 
 
 # ----------------------------------------------------------------- study setup (T5)

@@ -134,24 +134,31 @@ class TestTheWeightTextAgreesWithTheStatus:
     """The weight report and the bootstrap warning are true of the status fit and a control.
 
     ``data.weight_report()`` belongs to the data, so it cannot read a fit's status. Its
-    estimated-weight line said "the interval conditions on the fitted weights" on every
-    fit, which contradicts a guarded DR-TMLE fit that reports no interval. The line now
-    names that fit and its status, and the ordinary TMLE is the control whose interval the
-    conditioning sentence describes.
+    estimated-weight note said "the interval conditions on the fitted weights" on every
+    fit, which contradicts a guarded DR-TMLE fit that reports no interval. The note now
+    names that fit and its experimental label, and the ordinary TMLE is the control whose
+    interval the conditioning sentence describes.
     """
 
     def test_the_status_fit_reads_its_own_status_in_the_weight_report(self, result: Any) -> None:
         assert result.inference_status == STATUS
-        text = result.data.weight_report().summary()
-        assert "the interval conditions on the fitted weights" not in text
-        assert STATUS in text
-        assert f"{RECORD.reopened_by} in docs/roadmap.md" in text
+        assert "experimental" in RECORD.plain_reason
+        summary = result.data.weight_report().summary()
+        text = summary.note("weights_estimated").text
+        assert text == vocabulary.NOTE_TEXTS["weights_estimated"]
+        assert "the interval conditions on the fitted weights" not in summary
+        assert (
+            "A DRTMLE fit with a non-empty guard, and an AdaptiveIPTW fit with a known "
+            "treatment mechanism, show an interval on estimated weights under the "
+            "experimental label."
+        ) in text
+        assert "weights_fixed" not in summary.note_codes
 
     def test_the_ordinary_tmle_has_the_interval_the_report_describes(self, frame: Any) -> None:
         control = fit(frame, estimator=TMLE)
         assert_keeps_inference(control)
-        text = control.data.weight_report().summary()
-        assert "an interval that a fit reports conditions on the fitted weights" in text
+        text = control.data.weight_report().summary().note("weights_estimated").text
+        assert "an interval a fit reports treats the fitted weights as known" in text
         lower, upper = control.estimates["ate"].ci
         assert np.isfinite(lower) and np.isfinite(upper)
 

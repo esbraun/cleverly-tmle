@@ -19,7 +19,9 @@ __all__ = [
     "header_values",
     "read_corrections",
     "read_equations",
+    "read_influence",
     "read_refutation",
+    "read_weights",
     "sci_close",
     "text_tables",
 ]
@@ -441,3 +443,96 @@ def read_corrections(check: Any, text: str) -> None:
         assert sci_close(curve, float(record["reported"]), bar), (row, record)
         assert sci_close(difference, float(record["residual"]), identity), (row, record)
         assert sci_close(cap, float(record["clip_bias"]), identity), (row, record)
+
+
+def read_influence(report: Any, text: str) -> None:
+    """Assert that every number an influence-report summary prints equals the report's.
+
+    Parameters
+    ----------
+    report : InfluenceReport
+        The report.
+    text : str
+        Its short summary.
+    """
+    frame = report.to_frame()
+    records = [
+        dict(zip(frame.columns, values, strict=True)) for values in frame.itertuples(index=False)
+    ]
+    facts = header_values(text)
+    label = vocabulary.CLUSTERS if report.clustered else vocabulary.ROWS
+    if records:
+        assert int(facts[label].replace(",", "")) == int(records[0]["n"])
+    assert int(facts[vocabulary.ESTIMATES_MEASURED]) == len(records)
+    tables = text_tables(text)
+    if not records:
+        assert [(labels, rows) for _, labels, rows in tables] == [
+            (["estimates"], [["none reported"]])
+        ], tables
+        return
+    assert len(tables) == 1, tables
+    _, labels, rows = tables[0]
+    units = "clusters" if report.clustered else "rows"
+    assert labels == [
+        "estimate",
+        f"effective {units}",
+        "skewness",
+        "SE uncertainty",
+        "coverage loss",
+        "flag",
+    ], labels
+    assert len(rows) == len(records), rows
+    for row, record in zip(rows, records, strict=True):
+        # A long name wraps at "[" or a space, and the reader joins its pieces with a space.
+        assert row[0].replace(" ", "") == str(record["name"]).replace(" ", ""), (row, record)
+        for shown, key in zip(
+            row[1:5], ("kish", "skewness", "variance_rel_sd", "edgeworth_loss"), strict=True
+        ):
+            assert close(shown, float(record[key])), (key, shown, record)
+        sparse = float(record["variance_rel_sd"]) > 0.125
+        assert row[5] == ("noisy" if sparse else vocabulary.MISSING), (row, record)
+
+
+#: The weight report's table rows, label to ``to_dict`` key, written out here so a label
+#: paired with the wrong number fails.
+_WEIGHT_ROWS = {
+    "design effect": "design_effect",
+    "smallest weight / mean": "min_ratio",
+    "largest weight / mean": "max_ratio",
+    "variation (CV)": "cv",
+    "share held by the top 1%": "top_1pct",
+    "share held by the top 5%": "top_5pct",
+    "rows with zero weight": "n_zero",
+}
+
+
+def read_weights(report: Any, text: str) -> None:
+    """Assert that every number a weight-report summary prints equals the report's.
+
+    Parameters
+    ----------
+    report : WeightReport
+        The report.
+    text : str
+        Its short summary.
+    """
+    values = report.to_dict()
+    facts = header_values(text)
+    assert facts[vocabulary.WEIGHT_COLUMN] == (values["name"] or vocabulary.MISSING)
+    assert facts[vocabulary.WEIGHT_KIND] == values["kind"]
+    assert int(facts[vocabulary.ROWS].replace(",", "")) == values["n"]
+    assert facts[vocabulary.WEIGHTS_TREATED] == ("estimated" if values["estimated"] else "fixed")
+    assert close(facts[vocabulary.EFFECTIVE_ROWS], values["effective_n"])
+    tables = text_tables(text)
+    assert len(tables) == 1, tables
+    _, labels, rows = tables[0]
+    assert labels == ["measure", "value"], labels
+    assert [row[0] for row in rows] == list(_WEIGHT_ROWS), rows
+    for label, shown in rows:
+        key = _WEIGHT_ROWS[label]
+        value = values[key]
+        if key in ("min_ratio", "max_ratio") and shown != vocabulary.MISSING:
+            # A ratio prints three significant figures.
+            assert math.isclose(float(shown), value, rel_tol=5e-3), (label, shown, value)
+        else:
+            assert close(shown, value), (label, shown, value)

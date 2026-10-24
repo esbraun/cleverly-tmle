@@ -51,6 +51,7 @@ from typing import Any
 import numpy as np
 from scipy.stats import norm
 
+from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import SparseInfluenceWarning
@@ -129,6 +130,11 @@ class InfluenceReport:
         The two-sided level the Edgeworth loss is read at.
     backend : str or None, default=None
         Dataframe backend :meth:`to_frame` emits when it receives no data.
+    clustered : bool, default=False
+        Whether each measure reads cluster sums, so the units are clusters.
+    warned : bool, default=False
+        Whether the fit raised :class:`~cleverly.exceptions.SparseInfluenceWarning`, whose
+        advice the summary then points at.
 
     Attributes
     ----------
@@ -138,6 +144,8 @@ class InfluenceReport:
     rows: tuple[InfluenceRow, ...]
     alpha: float
     backend: str | None = None
+    clustered: bool = False
+    warned: bool = False
 
     @property
     def sparse(self) -> tuple[str, ...]:
@@ -149,6 +157,33 @@ class InfluenceReport:
             if row.name == name:
                 return row
         raise KeyError(f"{name!r} is not in this report; it holds {[r.name for r in self.rows]}")
+
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the report.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per estimate, the reading and the notes. ``"full"``
+            adds how each measure is defined and, with a bootstrap, its shape.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._sparse_summary import influence_summary
+
+        return influence_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._sparse_summary import influence_repr
+
+        return influence_repr(self)
 
     def to_frame(self, data: Any = None) -> Any:
         """One row per estimate, in the input dataframe backend.
@@ -325,7 +360,7 @@ def influence_report(
                 cluster=cluster,
             )
         )
-    return InfluenceReport(tuple(rows), alpha, backend)
+    return InfluenceReport(tuple(rows), alpha, backend, clustered=cluster is not None)
 
 
 #: The advice of a fit whose full-refit bootstrap a study can license.

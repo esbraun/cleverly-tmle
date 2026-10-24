@@ -161,7 +161,12 @@ def _authored(result: Any, summary: Summary, key: str | None = None) -> str:
     for table in summary.tables:
         pieces.extend([table.title or "", *table.columns])
         pieces.extend(cell.text for row in table.rows for cell in row)
-    messages = [record.message for record in getattr(result, "fit_warnings", ())]
+    # A summary quotes a warning without its roadmap ids, so both forms are taken out.
+    messages = [
+        text
+        for record in getattr(result, "fit_warnings", ())
+        for text in (record.message, without_roadmap(record.message))
+    ]
     if key is not None:
         messages.extend(FIXTURES[key].quotes(result))
     for item in summary.notes:
