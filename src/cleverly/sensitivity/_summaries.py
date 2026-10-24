@@ -357,7 +357,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
     tables.append(SummaryTable(("", "robustness value"), tuple(rv_rows), title="Robustness value"))
 
     assumption = TEXTS["assumption_bounds"]
-    if derived:
+    if derived and inferential:
         assumption += " " + TEXTS["assumption_bounds_limits"].format(level=level)
     notes = [note("sensitivity_assumption", assumption)]
     if derived:

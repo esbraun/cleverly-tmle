@@ -816,7 +816,7 @@ class TestW11Integration:
             assert f"g[{label}]" in summary
 
     def test_the_tilt_at_zero_reproduces_the_fit(self, live_fit) -> None:
-        frame = missingness_tilt(live_fit, gamma=[0.0])
+        frame = missingness_tilt(live_fit, gamma=[0.0]).to_frame()
         assert len(frame) > 0
         for _, row in frame.iterrows():
             assert row["psi"] == pytest.approx(live_fit.estimates[row["estimand"]].psi, abs=1e-12)
