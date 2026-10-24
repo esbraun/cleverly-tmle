@@ -493,6 +493,12 @@ BACKEND_ROUTES: dict[str, str] = {
     "RefutationTest": "argument",
     "MethodAvailabilities": "argument",
     "ValidationReport": "field",
+    # Point-estimate objects with a summary (X89 T1): built without a fit's data, so the
+    # caller names the backend.
+    "BootstrapResult": "argument",
+    "ParameterEstimate": "argument",
+    "RepeatSpread": "argument",
+    "SimultaneousBands": "argument",
 }
 
 

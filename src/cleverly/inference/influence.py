@@ -1097,17 +1097,25 @@ class ParameterEstimate:
                 row["bootstrap_acceleration"] = self.bootstrap.acceleration
         return row
 
-    def to_frame(self) -> Any:
+    def to_frame(self, backend: str | None = None) -> Any:
         """This estimate as a one-row frame: the row of :meth:`to_dict`.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
 
         Returns
         -------
         dataframe
-            One row, in the default dataframe backend.
+            One row, in ``backend``.
         """
         from ..utils.frames import frame_from_dict
 
-        return frame_from_dict({key: [value] for key, value in self.to_dict().items()})
+        return frame_from_dict(
+            {key: [value] for key, value in self.to_dict().items()}, backend=backend
+        )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the estimate, laid out like a statsmodels summary.

@@ -1126,11 +1126,16 @@ def test_the_diagnostics_name_each_factor_and_stratum() -> None:
     assert set(fit.risk_by_factor) == set(fit.factors)
     assert "3 factors per arm" in fit.describe()
     assert "inside each of 3 baseline strata" in fit.describe()
-    summary = fit.summary()
-    assert "each factor below ~ Qbar(a, W), inside each baseline stratum" in summary
-    assert "1{A = a} ~ Qbar(a, W), one per arm" not in summary
-    for factor in fit.factors:
-        assert f"  {factor}: " in summary
+    summary = fit.summary(detail="full")
+    assert summary.facts["Strata"].count("S=") == 3
+    settings = summary.section("Settings").lines
+    assert "Each arm's model has 3 parts: treatment, outcome recorded, treatment recorded." in (
+        settings
+    )
+    assert "It is fitted inside each of 3 baseline strata." in settings
+    parts = summary.tables[1]
+    assert [row[0].value for row in parts.rows] == list(fit.factors)
+    assert [row[1].value for row in parts.rows] == [fit.risk_by_factor[f] for f in fit.factors]
     text = summary + fit.describe() + result.summary()
     assert "efficien" not in text.lower()
     assert result.nuisance.treatment_observation.shape == (result.data.n, 2)
