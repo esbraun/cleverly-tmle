@@ -77,7 +77,7 @@ from cleverly.validation import RepeatSpreadRow
 from tests.conftest import linear_drtmle, linear_in_sample
 from tests.unit import _capability_sweep_support as sweep
 from tests.unit import test_fold_policy_rules as fold_rules
-from tests.unit.test_intervention_load_diagnostics import SUPPORT_SUMMARY_CAVEAT
+from tests.unit.test_intervention_load_diagnostics import SCORE_LOAD_NOTE
 
 # ------------------------------------------------------------ row 6: missing outcomes
 
@@ -809,7 +809,7 @@ class TestTheSupportTableStatesEachColumnsBasis:
             .single()
         )
         report = result.diagnostics.support()
-        assert tuple(report.summary().splitlines()[-2:]) == SUPPORT_SUMMARY_CAVEAT
+        assert report.summary().note("score_load").text == SCORE_LOAD_NOTE
 
         g = np.asarray(result.nuisance.propensity.values, dtype=float)
         observed = np.asarray(result.data.treatment, dtype=float)

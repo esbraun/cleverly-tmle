@@ -384,6 +384,10 @@ NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "model_reliance": "note",
         "structural_model": "note",
         "check_splits": "note",
+        "draw_order": "note",
+        "simulation_share": "note",
+        "unsupported_rows": "warning",
+        "score_load": "note",
     }
 )
 
@@ -675,6 +679,29 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "check_splits": (
             "Each number is the mean over {k} fold splits, the first of them the fit's own."
         ),
+        "draw_order": (
+            "The order in which the covariates of one time point are drawn defines the "
+            "models, so at most one order is correctly specified in general."
+        ),
+        "simulation_share": (
+            "The simulation contributes up to {share} of the variance ({name}); a larger "
+            "n_draws lowers it."
+        ),
+        "unsupported_rows": (
+            "{name} gives {count} rows an arm whose estimated probability is exactly zero, so "
+            "the data give no support there. If the true probability is zero, the effect is "
+            "not identified for those rows."
+        ),
+        "score_load": (
+            "Score load reads the limited treatment model the fit used, while the ratios and "
+            "their effective size read the estimated model before any limit. It counts the "
+            "rows that effectively carry the estimating equation, of the rows the equation "
+            "reads, so it is not the effective size of the ratios."
+        ),
+        "unsupported_density": (
+            "{name} moves {count} rows to a dose where the estimated density is exactly zero. "
+            "This flags the density model; it does not prove that the effect is unidentified."
+        ),
     }
 )
 
@@ -684,6 +711,7 @@ SECTION_ASSUMPTIONS: Final = "Assumptions"
 SECTION_SETTINGS: Final = "Settings"
 SECTION_METHOD: Final = "Method details"
 SECTION_STUDY: Final = "Study description"
+SECTION_HOW_TO_READ: Final = "How to read"
 ASSUMPTIONS_LEAD: Final = "The estimate equals {functional} when these hold:"
 ASSUMPTIONS_LEAD_GENERIC: Final = "The estimate has its causal meaning when these hold:"
 #: The conditions a fit with no study adds for a partly recorded outcome.
@@ -845,6 +873,109 @@ STRUCTURAL_CONSTRUCTION: Final = (
     "an estimating equation that pairs the outcome, with later blips removed, against the "
     "treatment minus its predicted value."
 )
+
+#: The overlap reports of regimes, policies and tilts.
+REGIME_ROW_TITLE: Final = "Overlap of regime {name}"
+SUPPORT_REGIMES: Final = "Regimes"
+SUPPORT_WORST: Final = "Least supported"
+SUPPORT_REGIME_TABLE: Final = "How much the data support each regime"
+SUPPORT_POLICY_TABLE: Final = "How much the data support the policy"
+SUPPORT_TILT_TABLE: Final = "How much the data support the tilt"
+SUPPORT_SPLIT: Final = " (score load from split {split} of {repeats})"
+SUPPORT_REGIME: Final = "regime"
+SUPPORT_MIN_G: Final = "min probability"
+SUPPORT_MAX_RATIO: Final = "max ratio"
+SUPPORT_RATIO_ESS: Final = "effective n"
+SUPPORT_LOAD_EFFECTIVE: Final = "score load"
+SUPPORT_UNSUPPORTED: Final = "unsupported"
+SUPPORT_TWO_MECHANISMS: Final = (
+    "min probability is the smallest estimated probability of an arm the regime assigns, max "
+    "ratio the largest weight ratio, and effective n the effective sample size of those ratios. "
+    "All three read the estimated treatment model before any limit, which is what the data "
+    "support. unsupported counts the rows given an arm whose estimated probability is exactly zero."
+)
+SUPPORT_REGIME_DETAIL: Final = (
+    "{name}: weight ratio quantiles {quantiles}; probability of the assigned arm {tails}."
+)
+SUPPORT_MOVED: Final = "Rows moved"
+SUPPORT_CAPPED: Final = "Rows held by the cap"
+SUPPORT_MIN_DENSITY: Final = "Smallest density at an observed dose"
+SUPPORT_NO_DENSITY: Final = "not measured: the classifier fits no density"
+SUPPORT_MIN_MECHANISM: Final = "Smallest other probability in the weight"
+SUPPORT_RATIO: Final = "density ratio"
+SUPPORT_WEIGHT: Final = "weight"
+SUPPORT_QUANTILE: Final = "{q} quantile"
+SUPPORT_LARGEST: Final = "largest"
+SUPPORT_ESS_ROW: Final = "effective size"
+SUPPORT_SHARE_OF_ROWS: Final = "share of rows"
+SUPPORT_MEAN_RATIO: Final = "mean ratio"
+SUPPORT_FOLD_MEAN: Final = "mean ratio, fold {fold}"
+SUPPORT_MEAN_RATIO_READING: Final = (
+    "The mean ratio's expected value under the true density equals the probability that the "
+    "policy's dose stays inside the support of the observed doses given the covariates, which is "
+    "one when the policy keeps that support; an upper cap alone does not ensure this for a "
+    "negative shift or a gap in the support. In a sample the mean also moves with sampling and "
+    "with error in the density model, so a mean near one does not prove that the support holds "
+    "or that the effect is identified."
+)
+SUPPORT_ATOMS: Final = "Mean fitted probability of each declared atom: {masses}."
+SUPPORT_NO_ZERO_CHECK: Final = (
+    "The classifier fits no density, so the report cannot count rows sent to a dose of zero "
+    "density."
+)
+SUPPORT_FACTORS: Final = "Factors"
+SUPPORT_BOUND: Final = "Bound on the tilt part of the weight"
+SUPPORT_BOUND_FACT: Final = "[{low}, {high}], whatever the treatment model"
+SUPPORT_MIN_G_HEADER: Final = "Smallest treatment probability"
+SUPPORT_TILT_READING: Final = (
+    "An odds tilt keeps the tilt part of each weight inside the bound, so it needs no "
+    "treatment probability away from 0 or 1; the probability of staying under observation "
+    "still divides the weight and needs positivity. The smallest treatment probability is "
+    "shown for comparison with a fit that sets each unit's treatment."
+)
+
+#: The parametric g-formula simulation report.
+YES: Final = "yes"
+NO: Final = "no"
+GFORMULA_DRAWS: Final = "Draws per unit (estimate)"
+GFORMULA_DERIVATIVE_DRAWS: Final = "Draws per unit (derivatives)"
+GFORMULA_MODELS: Final = "Models"
+GFORMULA_PARAMETRIC: Final = "All models parametric"
+GFORMULA_MODELS_TITLE: Final = "The models the simulation draws from"
+GFORMULA_MODEL: Final = "model"
+GFORMULA_ROLE: Final = "role"
+GFORMULA_RESPONSE: Final = "response"
+GFORMULA_LEARNER: Final = "learner"
+GFORMULA_READ: Final = "in estimate"
+GFORMULA_CONSTANT: Final = "constant"
+#: Short learner names for the models table, which has six columns.
+GFORMULA_LEARNERS: Final[Mapping[str, str]] = MappingProxyType(
+    {"GLM": "GLM", "LogisticRegression": "logistic", "LinearRegression": "linear"}
+)
+GFORMULA_ROLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "covariate": "covariate",
+        "outcome": "outcome",
+        "hazard": "event hazard",
+        "treatment": "natural treatment",
+    }
+)
+GFORMULA_RESPONSES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "binary": "0 or 1",
+        "multi": "categories",
+        "normal": "normal",
+        "mean": "mean",
+    }
+)
+GFORMULA_SHARE_TITLE: Final = "Share of each row's variance from the simulation"
+GFORMULA_SHARE: Final = "share"
+GFORMULA_SUPPORT_TITLE: Final = "Support of each set dose"
+GFORMULA_COLUMN: Final = "treatment"
+GFORMULA_DOSE: Final = "dose"
+GFORMULA_RULE_DOSE: Final = "set by a rule"
+GFORMULA_OFF: Final = "simulated histories over {z} SD away"
+GFORMULA_WINDOW: Final = "observed doses in the window"
 
 #: The structural model check summary.
 CHECK_QUESTION: Final = "do the model's plan contrasts agree with LTMLE on the same rows?"

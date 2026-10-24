@@ -149,20 +149,21 @@ SUPPORT_FRAME_COLUMNS = (
 #: side.
 SUPPORT_SUMMARY_HEADINGS = (
     "regime",
-    "min g",
+    "min probability",
     "max ratio",
-    "ratio effective n",
+    "effective n",
     "score load",
     "unsupported",
 )
 
-#: The two lines the regime table closes with: the mechanism each column reads, and what the
-#: score column is not.  They are the only place the table says either, so deleting one
-#: removes that distinction.
-SUPPORT_SUMMARY_CAVEAT = (
-    "min g, max ratio and ratio effective n read the treatment mechanism before truncation.",
-    "score load reads the truncated mechanism of the targeting step, as Kish-equivalent "
-    "mask rows from abs(w_i * H_ij), not estimator ESS.",
+#: The note every summary with a score load carries: which treatment model each figure
+#: reads, and what the score column is not.  It is the only place a summary says either,
+#: so deleting it removes that distinction.
+SCORE_LOAD_NOTE = (
+    "Score load reads the limited treatment model the fit used, while the ratios and their "
+    "effective size read the estimated model before any limit. It counts the rows that "
+    "effectively carry the estimating equation, of the rows the equation reads, so it is not "
+    "the effective size of the ratios."
 )
 
 
@@ -754,23 +755,23 @@ def test_the_regime_frame_carries_every_score_column_in_order(
 def test_the_regime_table_puts_the_score_column_between_the_two_counts_it_is_not(
     intervention_results: dict[str, Any],
 ) -> None:
-    """Header order, and the caveat the table ends on.
+    """Column order, and the note that says what the score column is not.
 
-    Neither was asserted, so deleting the score column or the closing sentence left a table
-    that still printed and still passed.
+    Neither was asserted, so deleting the score column or the note left a table that still
+    printed and still passed.
     """
-    summary = intervention_results["regime"].diagnostics.support().summary()
-    lines = summary.splitlines()
-    # The title also starts with "regime", so the table header is picked out by a heading
-    # only it carries.
-    header = next(line for line in lines if line.startswith("regime") and "min g" in line)
-    positions = [header.index(heading) for heading in SUPPORT_SUMMARY_HEADINGS]
+    report = intervention_results["regime"].diagnostics.support()
+    summary = report.summary()
+    (table,) = summary.tables
 
-    assert lines[0] == f"regime support (n = {N})"
-    assert positions == sorted(positions)
-    assert header.index("ratio effective n") < header.index("score load")
-    assert header.index("score load") < header.index("unsupported")
-    assert tuple(lines[-2:]) == SUPPORT_SUMMARY_CAVEAT
+    assert summary.heading == "Overlap of each regime"
+    assert summary.facts["Rows"] == f"{N:,}"
+    assert table.columns == SUPPORT_SUMMARY_HEADINGS
+    assert summary.note("score_load").text == SCORE_LOAD_NOTE
+    for row, item in zip(table.rows, report.regimes.values(), strict=True):
+        assert item.score_load is not None
+        assert row[4].value == (item.score_load["effective"], item.score_load["n_targeted"])
+        assert row[3].value == item.effective_sample_size
 
 
 def test_the_regime_table_says_a_missing_score_load_is_unavailable(
@@ -782,9 +783,10 @@ def test_the_regime_table_says_a_missing_score_load_is_unavailable(
     summary = report.summary()
     frame = report.to_frame()
 
-    assert summary.count("unavailable") == len(report.regimes)
-    assert "draw" not in summary
-    assert tuple(summary.splitlines()[-2:]) == SUPPORT_SUMMARY_CAVEAT
+    (table,) = summary.tables
+    assert [row[4].value for row in table.rows] == [None] * len(report.regimes)
+    assert "score_load" not in summary.note_codes
+    assert "split" not in table.title
     assert list(frame["score_equation"]) == [None] * len(report.regimes)
     assert list(frame["score_load_omission"]) == [SCORE_LOAD_MISSING] * len(report.regimes)
     assert all(math.isnan(value) for value in np.asarray(frame["score_effective_n"]))
@@ -794,19 +796,25 @@ def test_the_regime_table_says_a_missing_score_load_is_unavailable(
 def test_the_shift_and_tilt_summaries_carry_the_fitted_score_fragment(
     intervention_results: dict[str, Any], group: str
 ) -> None:
-    """The one-line reports gained a clause that nothing pinned.
+    """Each row's summary carries the fitted load as a cell, and drops it when it is missing.
 
-    The clause is written out here rather than rebuilt from the formatter, so a change to
-    the wording, the precision or the draw count fails rather than following along.
+    The cell text is written out here rather than rebuilt from the formatter, so a change to
+    the wording or the precision fails rather than following along.
     """
     for row in _rows(intervention_results[group], group).values():
         reported = row.score_load
         assert reported is not None
-        assert (
-            f"score load={reported['effective']:.1f}/{reported['n_targeted']:.0f} "
-            "Kish-equivalent mask rows (draw 01 of 01)"
-        ) in row.summary()
-        assert "score load unavailable" in dataclasses.replace(row, score_load=None).summary()
+        summary = row.summary()
+        cells = [cell for line in summary.tables[0].rows for cell in line]
+        assert any(
+            cell.value == (reported["effective"], reported["n_targeted"])
+            and cell.text == f"{reported['effective']:,.1f} of {reported['n_targeted']:,.0f}"
+            for cell in cells
+        )
+        assert summary.note("score_load").text == SCORE_LOAD_NOTE
+        assert "split" not in summary.tables[0].title
+        missing = dataclasses.replace(row, score_load=None).summary()
+        assert "score_load" not in missing.note_codes
 
 
 def test_the_combined_row_reports_load_without_grading_or_pooling_it(
@@ -913,7 +921,8 @@ def test_a_repeated_intervention_fit_prints_the_draw_count_it_stored(
         assert row.score_load["reported_repeat"] == REPORTED_DRAW
         assert row.score_load["n_repeats"] == REPEATS
 
-    assert f"draw {REPORTED_DRAW:02d}/{REPEATS:02d}" in result.diagnostics.support().summary()
+    (table,) = result.diagnostics.support().summary().tables
+    assert table.title.endswith(f"(score load from split {REPORTED_DRAW} of {REPEATS})")
     assert f"draw {REPORTED_DRAW:02d} of {REPEATS:02d}" in _support_detail(result)
 
 

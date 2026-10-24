@@ -61,6 +61,7 @@ from typing import Any, cast
 import numpy as np
 from scipy.special import ndtri
 
+from .._summary import Summary
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..exceptions import CapabilityError, DataError, RefusalReason
@@ -2002,52 +2003,25 @@ class GFormulaReport:
         shares = [value for value in self.monte_carlo_share.values() if np.isfinite(value)]
         return max(shares) if shares else float("nan")
 
-    def describe(self) -> list[str]:
-        """The settings lines of ``LongitudinalResult.summary()``.
+    def summary(self) -> Summary:
+        """The models, the simulation's share of the variance and the support of set doses.
 
         Returns
         -------
-        list of str
-            One line per setting.
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
         """
-        lines = [
-            f"simulation: {self.n_draws} simulated histories per unit for the estimate and "
-            f"{self.n_derivative_draws} for the derivatives (Philox streams 0 and 1, seed "
-            f"{self.seed}); the interval includes the simulation error"
-        ]
-        typed = [
-            f"{variable} ({kind}, node {node})" for node, variable, kind in self.covariate_types
-        ]
-        if typed:
-            lines.append("covariate models: " + ", ".join(typed))
-            lines.append(
-                "  the draw order within a node defines non-nested models, so at most one order "
-                "is correctly specified in general"
-            )
-        if self.monte_carlo_share:
-            worst = max(self.monte_carlo_share, key=lambda name: self.monte_carlo_share[name])
-            lines.append(
-                f"Monte Carlo share of the variance: at most {self.max_share:.1%} ({worst}); "
-                "raise n_draws to lower it"
-            )
-        if self.model_reliance is not None:
-            lines.append(f"model reliance: {self.model_reliance}")
-        for row in self.support:
-            if row.dose is None:
-                lines.append(
-                    f"  support of {row.plan} at {row.name!r}, rule-set dose: "
-                    f"{row.off_support:.1%} of simulated histories lie more than {SUPPORT_Z:g} "
-                    f"fitted SD from the fitted mean dose; {row.window:.1%} of observed doses "
-                    "lie in the same window around the rule's dose on the observed history"
-                )
-                continue
-            lines.append(
-                f"  support of {row.plan} at {row.name!r}, dose {row.dose:g}: "
-                f"{row.off_support:.1%} of simulated histories lie more than {SUPPORT_Z:g} "
-                f"fitted SD from the fitted mean dose; {row.window:.1%} of observed doses lie "
-                "in the same window"
-            )
-        return lines
+        from ._gformula_summary import gformula_report_summary
+
+        return gformula_report_summary(self)
+
+    def __repr__(self) -> str:
+        from ._gformula_summary import gformula_report_repr
+
+        return gformula_report_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def monte_carlo_share(
@@ -2172,10 +2146,10 @@ def _report(
         for model in book.models
     )
     reliance = (
-        "a fixed or rule-set continuous dose is not pathwise differentiable without a model. "
-        "The estimate and its interval hold inside the fitted parametric laws, which are "
-        "extrapolated to the dose at every node. The interval does not cover a misspecified "
-        "model."
+        "a fixed or rule-set dose of a continuous treatment has no estimate without a model "
+        "of the covariates and the outcome. The estimate and its interval hold inside the "
+        "fitted parametric models, which are extrapolated to the dose at every time point. "
+        "The interval does not cover a wrong model."
         if set_doses
         else None
     )
