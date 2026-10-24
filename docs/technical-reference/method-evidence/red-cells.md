@@ -113,6 +113,7 @@ The test fails on four states.
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 2 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | sequentially doubly robust longitudinal estimation |
+| [`X39-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | long-horizon sequentially doubly robust estimation |
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | stratified incremental and MSM targeting |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
@@ -136,7 +137,7 @@ The test fails on four states.
 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) | 5 | longitudinal refutation verdict rules, point-treatment refutation verdict rules, band-rank placebo verdict rule |
-| total | 213 | 40 studies |
+| total | 214 | 41 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -233,6 +234,7 @@ same text as the "measured" column of its study page.
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `double_robustness/static__both_wrong` | control | its own rule | bias -0.0251 to -0.0151, margin 0.0167, SE ratio 0.6640 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to 1.0442 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
 | [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | property | `simultaneous_coverage/all_reported__simultaneous_band` | positive | its own rule | joint coverage 0.9140 to 0.9283 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [long-horizon sequentially doubly robust estimation](long-horizon-sequentially-doubly-robust-estimation.md) | truth | `cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]` | cleverly-long-horizon-sdr | its truth gate | bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624 | [`X39-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [point-treatment survival](point-treatment-survival.md) | property | `interval_calibration/weighted_t5__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to 1.0015 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted point-treatment survival](cross-fitted-point-treatment-survival.md) | property | `interval_calibration/three_arm_t3__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to 1.0764 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ate__flexible` | positive | its own rule | bias 0.0204 to 0.0254, margin 0.0048 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |
@@ -379,6 +381,8 @@ row. A move to `gated` is a separate registry decision.
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
+| [long-horizon longitudinal TMLE](long-horizon-longitudinal-tmle.md) | 136 | 0 |
+| [long-horizon categorical longitudinal TMLE](long-horizon-categorical-longitudinal-tmle.md) | 196 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 39 | 0 |
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 46 | 0 |
 | [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |

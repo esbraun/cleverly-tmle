@@ -233,9 +233,11 @@ drop it without a message, and it now raises `DataError`.
 
 ### Long horizons
 
-The registered evidence for `LTMLE` and `SDR` covers two decision nodes. The
-[roadmap](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) plans laws with
-three to five. Every $L_t$ block accumulates into the history design, so a long panel adds columns
+Most registered evidence for `LTMLE` and `SDR` covers two decision nodes. Three studies cover three to
+five: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md),
+[three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and
+[`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
+Every $L_t$ block accumulates into the history design, so a long panel adds columns
 at each node and needs more customers. `times=` cannot coarsen a grid. To model fewer decisions,
 aggregate the frame to the coarser decision times before you read it.
 
@@ -416,10 +418,8 @@ percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of their 
 
 ### Bootstrap for sparse regimens
 
-This feature is **experimental**. The X39 long-horizon studies have not run, so every item in this
-section prints `experimental`. The label makes no coverage claim. The roadmap row
-[X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) holds the pending
-studies.
+Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
+The label of a fit follows the support rows `G46`. A fit outside those rows prints `experimental`, and the label makes no coverage claim.
 
 Use the refit bootstrap for `LTMLE` or `SDR` when few units follow a regimen, or when the
 influence curve has heavy tails. The Wald interval reads its variance from those few rows. The
@@ -434,8 +434,8 @@ The bootstrap is opt in. A fit never turns it on.
 | --- | --- | --- |
 | `n_bootstrap=B` | refits the whole estimator on `B` resamples and attaches an interval to each estimate | `supported` only for a covered fit, otherwise `experimental` |
 | `bootstrap_interval="percentile"` | takes the quantiles of the `B` draws. This is the default | as above |
-| `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `experimental` on every fit |
-| `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `experimental` on every fit |
+| `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `supported` for a single-fold fit that matches a long-horizon row, otherwise `experimental` |
+| `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `supported` for a three-level `LTMLE` fit at five decisions that matches `G46.tmle.categorical_k5`, otherwise `experimental` |
 | `result.diagnostics.influence()` | reports how few rows carry each influence curve. Call it directly: `run_all()` does not include it | a diagnostic, with no label |
 
 Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
@@ -508,7 +508,7 @@ advise the bootstrap. For the cross-fitted fit the bootstrap over-covers, and th
 
 **Cost.** Each resample refits every nuisance. A fit of 64,000 rows and five decisions takes about
 0.2 seconds for each resample on the fast path, a development measurement that no committed
-artifact records yet. The X39 studies plan `B = 199`, so one such fit costs about 40 seconds of
+artifact records yet. The X39 studies declare `B = 199`, so one such fit costs about 40 seconds of
 bootstrap time.
 
 The fast path fits the distinct rows with the resample counts as weights. It
@@ -517,10 +517,9 @@ mechanisms, categorical treatment, and learners that declare `frequency_exact`. 
 refits each materialized resample, which costs much more. Set `n_jobs` to run resamples in
 parallel.
 
-**Evidence.** The code ships as experimental. The long-horizon Python studies over three to five
-decisions are pending, as a follow-up. The R comparators (`ltmle` and `lmtp`) are deferred to
-[X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). No coverage result for
-BCa, the sup-t band or the warning threshold exists in this repository yet.
+**Evidence.** The three long-horizon studies fit the bootstrap with `B = 199`. Each study gates a BCa interval only where its Wald interval does not gate, that is where $n$ is below twice the exact-law tail size. The three-level `LTMLE` study gates the sup-t band over six plans at five decisions.
+
+The `SDR` bootstrap band, the cross-fitted bootstrap and an MSM fit stay `experimental`. The studies carry Python property evidence. The R comparators (`ltmle` and `lmtp`) are deferred to [X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). No study gates the warning threshold.
 
 ## Repeated outcomes
 

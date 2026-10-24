@@ -124,7 +124,6 @@ not change the package version.
 | milestone | item | readiness | dependency | details |
 | --- | --- | --- | --- | --- |
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
-| B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BP | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
@@ -147,7 +146,7 @@ not change the package version.
 | after beta | Bootstrap extensions | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) | [X55](#x55-bootstrap-extensions) |
 | after beta | Competing-event intervention targets | [published support](technical-reference/hard-stop-review.md) for part (a); source audit for parts (b) and (c) | the shipped censored `LTMLE` | [X56](#x56-competing-event-intervention-targets) |
 | after beta | Joint intervention axes and tilt compositions | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt | [X57](#x57-joint-intervention-axes-and-tilt-compositions) |
-| after beta | Long-horizon comparator parity for `LTMLE` and `SDR` | no new theory; comparator setup | the X39 studies | [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr) |
+| after beta | Long-horizon comparator parity for `LTMLE` and `SDR` | no new theory; comparator setup | the three long-horizon studies | [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr) |
 | after beta | Settings of the stacked and natural-course contracts | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) |
 | after beta | Fold targeting and fold evaluation | natural extension for parts (a) to (c) | the shipped fold-specific update and fold-evaluated report | [X61](#x61-fold-targeting-and-fold-evaluation) |
 | after beta | Other DR-TMLE and C-TMLE compositions | natural extension for parts (a), (c) and (d); no new theory for part (b) | the shipped `DRTMLE` and `CTMLE`; X50 part (c) and X51 part (a) for part (d) | [X62](#x62-other-dr-tmle-and-c-tmle-compositions) |
@@ -211,7 +210,8 @@ The first beta is ready when each statement below holds:
 - continuous longitudinal modified treatment policies pass their support checks and carry
   explicit support and identification assumptions;
 - known stochastic binary and finite-category policies carry evidence over three to five
-  decisions ([X39](#x39-longitudinal-evidence-over-three-to-five-decisions));
+  decisions (the [three-level `LTMLE`](technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md)
+  and [`SDR`](technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md) studies);
 - sequential g-computation and IPW are available over a declared subset, with correctly scoped
   uncertainty;
 - both applied tutorials run through the public API and explain method choice and causal
@@ -499,6 +499,9 @@ closes these cells.
 The `X4-finite-sample` owner holds one coverage cell of the SDR study at n = 2,000. `LTMLE`
 shares its shortfall on the same draws, so the diagnosis finds no defect in `SDR`.
 
+The `X39-finite-sample` owner holds one reporting Wald row of the `long-horizon-sdr` study. The
+scenario $n$ lies below the tail size of the quantity, so no gated list holds the row.
+
 The `X45-finite-sample` owner holds one calibration cell of the `parametric-gformula` study.
 The study declares the reading before its run, and the diagnosis finds no defect in
 `ParametricGFormula`.
@@ -530,6 +533,7 @@ owners do the same for the stratified DR-TMLE study.
 | `F4-calibration-draws` | the `interval_calibration/ate__correctly_specified` and `simultaneous_coverage/arms__simultaneous_band` cells of `multi-arm-mar-drtmle`, which read one set of 2,400 fits | reading `finite-sample, one draw set`. The SE-ratio interval ends at 0.9294 against a floor of 0.93, and the joint-coverage interval at 0.9196 against 0.92. The calibration fits have an empirical SD 1.037 times their mean standard error. The same configuration gives 0.997 at `n_2000` and 0.989 at `l3_ate_low__both_correct`, on independent draws. `simultaneous=True` changes no estimate and no standard error. The band critical value averages 2.500 against the oracle 2.508, and the oracle band covers 0.9342 against the package's 0.9337, so the band construction explains none of the shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). Pooled over the 4,400 independent both-correct fits of `ate[low vs high]` at n = 2,000, the spread is 1.020 times the mean standard error (bootstrap 99% interval 0.991 to 1.047), and a Bartlett test across the three cells gives p = 0.20, so the draw set differs from its siblings by no more than chance. No defect was found in the K-arm code. The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then both cells stay published red under `reporting` |
 | `composite-high-arm` | the `ey[high]` truth rows of `cleverly-composite-drtmle` and `drtmle-r-composite` on the three-arm scenario of `composite-missing-drtmle` | reading `finite-sample, shared with the comparator` ([`tests/unit/test_composite_high_arm_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_composite_high_arm_reading.py)). Coverage is 0.9225 in the package and 0.9237 in R `drtmle`, and the 99% intervals end at 0.8949 and 0.8963 against a floor of 0.90. The paired mean difference is 4e-6. The mean standard error is 0.0342 in both, against an efficiency-bound SD of 0.0344 at n = 2,000, so the variance estimate is not low. The empirical SD of the estimates is 0.0367, 1.066 times the bound. The 47 package fits that reached `max_outer` cover at 0.957, against 0.921 for the fits that met the tolerance, so the cap is not the cause. `high` has the smallest composite mechanism of the law, 0.070 where `W = 0`, which holds half the mass. Every other arm and contrast of the scenario passes. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when a small-sample interval correction with its own registered study does. Until then both rows stay published red under `reporting` |
 | `X4-finite-sample` | the `sequential_double_robustness/both_correct__n_2000` cell of `longitudinal-sdr` | reading `finite-sample, shared with LTMLE`. Coverage is 0.911, with a 99% interval of 0.885 to 0.933 against a floor of 0.90. The bias interval is inside its margin, and the SE ratio is 0.946. The law's smallest path probability is near 0.012, so an inverse weight can reach about 85. A diagnostic refitted the cell's fit and the shipped `LTMLE` with the same learners on 1,000 fresh draws ([`tests/diagnostics/x4_both_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x4_both_correct)). Both cover 0.903, with SE ratios 0.918 and 0.917. Each standard error correlates with its own error, at 0.301 and 0.321. The same cell at n = 8,000 covers 0.950 with an SE ratio of 0.999 ([`tests/unit/test_sdr_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_sdr_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then the cell stays published red under `reporting` |
+| `X39-finite-sample` | the Wald truth row `ey_regimen[switch]` of the `sdr_categorical_k5_switch` scenario of `long-horizon-sdr` | reading `reporting, below the tail size`. Coverage is 0.9133, with a 99% interval of 0.8903 to 0.9330 against a floor of 0.90. The bias interval is inside its margin, and the SE ratio is 0.9624 with a 99% interval of 0.9117 to 1.0211. The scenario $n$ of 72,000 is below the tail size $n_\kappa$ = 134,244 of this quantity on this law, so `GATED_ROWS` of [`tests/long_horizon_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/long_horizon_design.py) lists no row of it for this scenario. The `__bca` row of the scenario covers 0.9625. All 32 calibration positives of the study, which run at $2 n_\kappa$, pass. The owner closes when a re-declared scenario passes the Wald row at $n$ of at least $2 n_\kappa$ of this quantity, with its law and size declared before its run. Until then the row stays published red under `reporting` |
 | `X8-logit-small-stratum` | the `interval_calibration/logit_v1_a__correctly_specified` and `interval_calibration/logit_v2_a__correctly_specified` cells of `canonical-stratified-incremental-msm` | reading `finite-sample, inherited from the unstratified fit` for stratum 2. The SE ratios are 0.967 and 0.862, and the lower ends of their intervals are 0.927 and 0.782 against a floor of 0.93. Coverage is 0.943 and 0.944. Stratum 1 holds about 600 of the 2,000 rows, and stratum 2 about 400. A declared diagnostic read stratum 2 only. It fitted the shipped unstratified logit MSM on samples of that size from the law given $V = 2$. That fit under-reports as well, 0.896 against the stratified fit's 0.867 on fresh draws, and both are calibrated at four times the size, 0.997 and 1.006 ([`tests/diagnostics/x8_logit_small_stratum/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_logit_small_stratum)). No diagnostic reads stratum 1, whose interval misses the floor by 0.003. The stratified fit equals the subset fit exactly under fixed nuisances (`tests/unit/test_stratified_msm_exact.py`), so no defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then both cells stay published red under `reporting` |
 | `X8-identity-small-stratum` | the `interval_calibration/identity_v2_a__correctly_specified` cell and the paired `msm[W][V=2]` row of `canonical-stratified-msm-identity` | reading `finite-sample, smallest stratum`. Stratum 2 holds about 400 of the 2,000 rows. The calibration cell's SE-ratio interval is 0.926 to 1.004 against a floor of 0.93, and on the primary draws the same coefficient reads 0.983 in `cleverly` and 0.985 in R `tmle3`. The paired row is inconclusive on its calibration leg alone: the upper limit is 0.0523 against a margin of 0.05, at a resolution of 0.0476. The two estimates differ by 6e-6 on average with the same spread, and R reports a standard error 2.2% above its own spread, consistent with the declared nuisance difference: R fits a Gaussian `Lrnr_glm` inside each subset ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). No defect was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then both stay published red under `reporting` |
 | `X8-drtmle-one-sided-bias` | the four `double_robustness/*__treatment_correct` cells of `canonical-stratified-drtmle`: the marginal ATE and each stratum ATE | reading `shared` in strata 0 and 1 and `mixed` in stratum 2, in the vocabulary of `RM18-one-sided-bias` ([`tests/diagnostics/x8_drtmle_treatment_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_drtmle_treatment_correct)). The refit reproduces the committed estimates exactly. On each stratum's rows, the shipped unstratified `DRTMLE` and R `drtmle` 1.1.2, handed the same initial arrays, carry a positive bias too. In stratum 2 the package's bias, 0.0237, exceeds R's, 0.0157: the paired difference is 0.0080 with a standard error of 0.0018. The unstratified fit on the stratum's rows matches the package there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the strata. In stratum 1 the stratified and subset fits differ by 0.0057 (standard error 0.0013). The stratified marginal is the mixture of the stratum estimates, so it inherits their bias: 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69) and 0.43 at n = 8,000 (0.25 to 0.61). The intervals overlap, so contraction faster than the spread is not established. No defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when `RM18-one-sided-bias` closes with a correction that also covers the stratified fit. Until then the four cells stay published red under `reporting` |
@@ -585,39 +589,6 @@ Acceptance:
 - a test that an experimental fit carries its label through the summary, the tables, and a
   save-and-load round trip, and withholds an interval that has no computable plug-in curve;
 - a test that each support row matches the status that the fit reports.
-
-### X39. Longitudinal evidence over three to five decisions
-
-Every registered end-of-study longitudinal study uses two treatment nodes. The ordinary and
-cross-fitted categorical studies use complete outcomes, and the known-policy study uses one
-two-node, three-level law. This row adds laws with three to five decisions, with
-censoring and realistic support loss, for `LTMLE` and `SDR`.
-
-The studies reproduce the existing binary and categorical targets, exercise a nonzero targeting
-update, and include leakage and covariance controls for the paired policy contrasts. Each page
-states the conditions for consistency apart from the conditions for valid intervals.
-
-Use R `ltmle` for the overlapping ordinary regimen and MSM cases, and `lmtp` for the `SDR` cases.
-The cross-fit studies pin `lmtp` at `f04a2b4`, which fits the fluctuation on training rows.
-Upstream `9996b04` fits it on validation rows. Neither runs the pooled update, so label the
-cross-fitted `LTMLE` comparison as a different estimator of a shared target. Audit `9996b04` as a
-second comparator option.
-
-Acceptance: a registered study for each estimator, with the controls above and a pre-queue design
-review.
-
-Status. The code ships as experimental. It adds the opt-in refit bootstrap for `LTMLE` and `SDR`
-(`n_bootstrap`, `bootstrap_interval="bca"`, and the studentized bootstrap sup-t band with
-`simultaneous=True`), `result.diagnostics.influence()` and `SparseInfluenceWarning`. Every new
-support kind (`bootstrap_bca`, `bootstrap_band`) has no support row, so each prints
-`experimental`.
-
-The long-horizon Python studies over three to five decisions are pending, as a
-follow-up pull request. That request is to run the declared studies, move the support rows into
-the package, and close this row. No coverage result for the new options exists in this repository.
-The R comparators named above are deferred to
-[X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
-evidence only. Do not remove this row until the studies land.
 
 ### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
 
@@ -1230,8 +1201,8 @@ cross-axis block; a registered study for each interval claim.
 
 ### X59. Long-horizon comparator parity for `LTMLE` and `SDR`
 
-The X39 studies over three to five decisions carry property evidence only. No comparator ran. This
-row adds the comparator readings that X39 deferred.
+The three long-horizon studies over three to five decisions carry property evidence only. No
+comparator ran. This row adds the comparator readings that those studies deferred.
 
 Use R `ltmle` 1.3-0 for the ordinary regimen and MSM scenarios of `long-horizon-ltmle`. Use R
 `lmtp` for `long-horizon-categorical-ltmle` and `long-horizon-sdr`. The shipped cross-fit studies
@@ -1243,7 +1214,7 @@ The design needs a K-node `ltmle` runner, two `9996b04` adapters and an image, p
 chunked sample hand-off, and an R budget. Three points stay open: the source of the parity
 tolerance, the memory gate, and the order of the two phases.
 
-Acceptance: each X39 study record moves its `pending_reference` to `reference` and clears
+Acceptance: each long-horizon study record moves its `pending_reference` to `reference` and clears
 `pending_reason`, the stub runners give way to the real runners, and each study is regenerated
 with its reference. The parity gates and the margins rows are declared before the run, after a
 pre-queue design review.
