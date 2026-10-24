@@ -13,6 +13,8 @@ import functools
 from dataclasses import replace
 from typing import Any
 
+import numpy as np
+import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_linear_ate
@@ -64,15 +66,16 @@ def drtmle() -> ScoreCheck:
 
 
 @functools.cache
+def declared_fit() -> Any:
+    """A fit under a declared stopping rule."""
+    learners = _learners(stopping="scaled_var", targeting="one_step", step_size=0.01)
+    return TMLE(**learners).fit(_frame(), outcome="Y", treatment="A").single()
+
+
+@functools.cache
 def declared() -> ScoreCheck:
     """A fit under a declared stopping rule, whose estimate rows are held to nothing."""
-    learners = _learners(stopping="scaled_var", targeting="one_step", step_size=0.01)
-    return (
-        TMLE(**learners)
-        .fit(_frame(), outcome="Y", treatment="A")
-        .single()
-        .diagnostics.score_equations()
-    )
+    return declared_fit().diagnostics.score_equations()
 
 
 @functools.cache
@@ -114,6 +117,55 @@ def rule_unmet() -> ScoreCheck:
     return replace(check, rows=tuple(rows))
 
 
+@functools.cache
+def _missing() -> Any:
+    """A randomized trial whose outcome is recorded for some rows only, fitted with the
+    doubly robust missing-outcome construction."""
+    rng = np.random.default_rng(13)
+    n = 300
+    w1, w2 = rng.normal(size=n), rng.normal(size=n)
+    a = rng.binomial(1, 0.5, size=n).astype(float)
+    recorded = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.4 + 0.4 * a + 0.3 * w1)))).astype(float)
+    y = 0.8 + 1.1 * a + 0.4 * w1 - 0.2 * w2 + rng.normal(scale=0.6, size=n)
+    y[recorded == 0.0] = np.nan
+    frame = pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Delta": recorded, "Y": y})
+    learners = _learners(
+        estimands=["ate"],
+        randomized=True,
+        missingness_learner=LogisticRegression(max_iter=1000),
+        reduced_outcome_learner=LinearRegression(),
+        reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        simultaneous=False,
+    )
+    fit = DRTMLE(**learners).fit(
+        frame, outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+    )
+    return fit.single()
+
+
+def missing_outcome() -> ScoreCheck:
+    """A fit with a partly recorded outcome, whose corrections include the recording one."""
+    return _missing().diagnostics.score_equations()
+
+
+@functools.cache
+def declared_drtmle_fit() -> Any:
+    """A doubly robust fit under a declared rule."""
+    learners = _learners(estimands=["ate"], stopping="scaled_var")
+    return DRTMLE(**learners).fit(_frame(), outcome="Y", treatment="A").single()
+
+
+def declared_drtmle() -> ScoreCheck:
+    """A doubly robust fit under a declared rule: its outcome corrections restate what the
+    rule judges, and its treatment equations keep the default allowed error."""
+    return declared_drtmle_fit().diagnostics.score_equations()
+
+
+def none() -> ScoreCheck:
+    """A check with no equations, which a check built by hand can be."""
+    return replace(tmle(), rows=())
+
+
 def labelled() -> ScoreCheck:
     """A fit that reports no interval, so its check verifies the equations only."""
     return replace(tmle(), inference="estimated_mechanism_plugin")
@@ -132,7 +184,9 @@ def corrections_cross_fitted() -> CorrectionCheck:
 def corrections_splits() -> CorrectionCheck:
     """The corrections of two splits, which print a split column."""
     check = corrections()
-    second = tuple(replace(row, draw=1, reported=2 * row.reported) for row in check.rows)
+    second = tuple(
+        replace(row, draw=1, stored=2 * row.stored, reported=2 * row.reported) for row in check.rows
+    )
     return replace(check, rows=(*check.rows, *second))
 
 
@@ -145,7 +199,7 @@ def splits() -> ScoreCheck:
             if row.kind != "influence curve":
                 rows.append(replace(row, name=f"{row.name}[draw {draw}]"))
     estimates = [row for row in check.rows if row.kind == "influence curve"]
-    return replace(check, rows=(*rows, *estimates))
+    return replace(check, rows=(*rows, *estimates), corrections=corrections_splits())
 
 
 def corrections_partial() -> CorrectionCheck:
@@ -166,6 +220,14 @@ def corrections_failed() -> CorrectionCheck:
     rows[0] = replace(rows[0], reported=5 * check.threshold, stored=5 * check.threshold)
     rows[1] = replace(rows[1], stored=rows[1].reported + 10 * check.identity_threshold)
     return replace(check, rows=tuple(rows))
+
+
+def corrections_missing_capped() -> CorrectionCheck:
+    """A partly recorded outcome whose recording model sits at its cap, at the start and at
+    the end."""
+    check = _missing().diagnostics.corrections()
+    rows = tuple(replace(row, observation_margin=0.0, observation_clipped=3) for row in check.rows)
+    return replace(check, rows=rows)
 
 
 def corrections_none() -> CorrectionCheck:
@@ -189,6 +251,9 @@ FIXTURES = {
     "score_failed": _equations(failed),
     "score_rule_unmet": _equations(rule_unmet),
     "score_labelled": _equations(labelled),
+    "score_none": _equations(none),
+    "score_missing_outcome": _equations(missing_outcome),
+    "score_declared_drtmle": _equations(declared_drtmle),
     "score_splits": _equations(splits),
     "corrections_in_sample": _corrections(corrections),
     "corrections_cross_fitted": _corrections(corrections_cross_fitted),
@@ -196,5 +261,6 @@ FIXTURES = {
     "corrections_partial": _corrections(corrections_partial),
     "corrections_capped": _corrections(corrections_capped),
     "corrections_failed": _corrections(corrections_failed),
+    "corrections_missing_capped": _corrections(corrections_missing_capped),
     "corrections_none": _corrections(corrections_none),
 }

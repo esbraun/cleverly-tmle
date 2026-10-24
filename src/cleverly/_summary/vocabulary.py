@@ -1077,6 +1077,7 @@ T3_EQUATION_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "dr_curve": "note",
         "held_to_nothing": "note",
         "correction_rows": "note",
+        "default_bar": "note",
         "correction_scale": "note",
         "theorem_in_sample": "note",
         "theorem_cross_fitted": "note",
@@ -1106,11 +1107,15 @@ T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "correction_rows": (
             "In the corrections table, a size row holds the mean of a DR-TMLE correction to "
             "its allowed error, and an identity row checks that the value the correction "
-            "step solved equals the value in the standard error's curve."
+            "step solved equals the value the standard error uses."
+        ),
+        "default_bar": (
+            "The declared rule judges only the equations it stopped; {names} {verb} held to "
+            "the default allowed error, {allowed}."
         ),
         "correction_scale": (
             "{scale}A correction is allowed an error of {threshold}, and a solved value and "
-            "its value in the curve must agree to within {identity}."
+            "the value the standard error uses must agree to within {identity}."
         ),
         "theorem_in_sample": (
             "No cap binds, so this in-sample fit is the estimator the DR-TMLE theorem "
@@ -1118,8 +1123,7 @@ T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "theorem_cross_fitted": (
             "No cap binds, so this fit uses the theorem's construction, but the theorem does "
-            "not cover out-of-fold predictions when the reduced regression selects its form "
-            "from the data."
+            "not cover cross-fitted (out-of-fold) predictions."
         ),
         "cap_active": (
             "A cap is active ({which}). Simulation studies support such fits, but the "
@@ -1178,7 +1182,10 @@ STEP_FAILURES: Final[Mapping[str, str]] = MappingProxyType(
         "line_search_exhausted": "no step size reduced the error",
         "singular_hessian": "the step's curvature matrix was singular",
         "bounds_pinned": "most predictions sat at their bounds",
-        "stalled": "it stopped making progress",
+        "separation_suspected": (
+            "its step size grew without limit, the sign of treatment groups that the "
+            "covariates separate almost perfectly"
+        ),
         "bound_excludes_data": "the outcome bound excludes some of the data",
     }
 )
@@ -1219,6 +1226,7 @@ EQUATION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
             "The correction step did not meet its declared stopping rule on {names}, so the "
             "{spread} may be off by more than the rule allows."
         ),
+        "none": "This fit reports no estimating equations.",
         "failed_identity": (
             "Two computations of the same expression disagree ({names}), so the {spread} "
             "does not describe this estimate."
@@ -1246,11 +1254,15 @@ CORRECTION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
             "Every correction is a negligible mean of the same expression the correction "
             "step solved."
         ),
+        "passed_partial": (
+            "Every correction this fit solves is a negligible mean of the same expression "
+            "the correction step solved; the others are described only."
+        ),
         "none": "This fit reports no corrections.",
         "identity": (
-            "{count} identity {checks} failed: a solved value and its value in the curve "
-            "differ. That is a defect in cleverly, not in your data, and the standard error "
-            "does not describe this estimate."
+            "{count} identity {checks} failed: a solved value and the value the standard "
+            "error uses differ. That is a defect in cleverly, not in your data, and the "
+            "standard error does not describe this estimate."
         ),
         "correction": (
             "{count} {corrections} above the allowed error at the fit's final state, so the "

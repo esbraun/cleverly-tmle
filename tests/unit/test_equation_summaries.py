@@ -22,7 +22,12 @@ from cleverly._summary import SummaryTable, _render, vocabulary
 from cleverly.validation._score_summary import equation_words
 
 from .summary_fixtures import equations
-from .summary_fixtures._check_fidelity import read_corrections, read_equations, sci_close
+from .summary_fixtures._check_fidelity import (
+    read_corrections,
+    read_equations,
+    sci_close,
+    text_tables,
+)
 
 CHECKS = dict(equations.FIXTURES)
 SCORES = sorted(name for name in CHECKS if name.startswith("score_"))
@@ -104,14 +109,23 @@ def test_the_numbers_in_the_notes_equal_the_check() -> None:
     good, total = row.folds_converged
     assert f"{total - good:,} of {total} folds" in text
 
-    declared = _check("score_declared")
-    worst = max(
-        (row for row in declared.rows if math.isfinite(row.residual_se)),
-        key=lambda row: row.residual_se,
-    )
-    text = declared.summary().note("stopping_rule").text
-    assert f"{worst.residual_se:.3g} standard errors of bias (on {worst.name})" in text
-    assert f"{math.floor(worst.coverage_bound * 10000) / 100:.2f}%" in text
+
+@pytest.mark.parametrize("fit", [equations.declared_fit, equations.declared_drtmle_fit])
+def test_the_rule_note_is_the_estimate_summarys_note(fit: Any) -> None:
+    """One remainder, one note: the check states it as the estimate summary does, down to a
+    remainder below the smallest printed one (the DR-TMLE fit's)."""
+    result = fit()
+    note = result.summary().note("stopping_rule").text
+    assert result.diagnostics.score_equations().summary().note("stopping_rule").text == note
+
+
+def test_a_rule_remainder_below_the_smallest_printed_one_says_so() -> None:
+    check = _check("score_declared_drtmle")
+    worst = max(row.residual_se for row in check.rows if math.isfinite(row.residual_se))
+    assert worst < 0.001
+    text = check.summary().note("stopping_rule").text
+    assert "less than 0.001 standard errors" in text
+    assert "95.00%" not in text
 
 
 def test_the_details_give_each_step_its_error_before_and_after() -> None:
@@ -144,6 +158,8 @@ def test_the_correction_details_give_each_split_its_margins() -> None:
         ("mean (D*_g)[1]", "outcome means (treatment correction, arm 1)"),
         ("mean (D*_Q)[0] identity[draw 0]", "outcome means (outcome correction, arm 0, split 1)"),
         ("mean (D*_M)[treated]", "outcome means (recording correction, arm treated)"),
+        ("mean (D*_Y)[1]", "outcome means (outcome correction, arm 1)"),
+        ("mean (D*_A)[0]", "outcome means (treatment correction, arm 0)"),
     ],
 )
 def test_equation_names_read_in_plain_words(name: str, words: str) -> None:
@@ -203,13 +219,13 @@ def test_the_row_swap_reaches_every_check_family() -> None:
     assert len(SWAPPABLE) >= len(CHECKS) // 2, SWAPPABLE
 
 
-@pytest.mark.parametrize("name", sorted(set(CHECKS) - {"corrections_none"}))
+@pytest.mark.parametrize("name", sorted(set(CHECKS) - {"corrections_none", "score_none"}))
 def test_a_renderer_that_swaps_two_number_columns_fails_the_reader(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     check = _check(name)
     original = _render._table_lines
-    pairs = {("error", "allowed"), ("in curve", "cap bias")}
+    pairs = {("error", "allowed"), ("in SE", "cap bias")}
 
     def swapped(table: SummaryTable, width: int) -> Any:
         for left, right in pairs:
@@ -228,6 +244,87 @@ def test_a_renderer_that_swaps_two_number_columns_fails_the_reader(
         _reader(name)(check, str(check.summary()))
 
 
+#: The fixtures with a printed error far from zero, which a zeroed error must fail.
+NONZERO = sorted(
+    name
+    for name in CHECKS
+    if any(
+        label in ("error", "in SE") and cell.value and abs(cell.value) > 1e-9
+        for table in _check(name).summary().tables
+        for row in table.rows
+        for label, cell in zip(table.columns, row, strict=True)
+    )
+)
+
+
+@pytest.mark.parametrize("name", NONZERO)
+def test_a_renderer_that_prints_every_error_as_zero_fails_the_reader(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    check = _check(name)
+    original = _render._table_lines
+
+    def zeroed(table: SummaryTable, width: int) -> Any:
+        columns = [i for i, label in enumerate(table.columns) if label in ("error", "in SE")]
+        rows = tuple(
+            tuple(
+                dataclasses.replace(cell, text="0.000e+00") if i in columns else cell
+                for i, cell in enumerate(row)
+            )
+            for row in table.rows
+        )
+        return original(dataclasses.replace(table, rows=rows), width)
+
+    monkeypatch.setattr(_render, "_table_lines", zeroed)
+    with pytest.raises(AssertionError):
+        _reader(name)(check, str(check.summary()))
+
+
+def test_the_zeroed_error_reaches_both_check_families() -> None:
+    assert set(NONZERO) & set(SCORES) and set(NONZERO) & set(CORRECTIONS), NONZERO
+
+
+def test_a_renderer_that_renames_a_correction_fails_the_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = _render._table_lines
+
+    def renamed(table: SummaryTable, width: int) -> Any:
+        if table.columns[0] == "correction" and table.rows:
+            first, *rest = table.rows
+            cell = first[0]
+            other = "outcome" if cell.text != "outcome" else "treatment"
+            first = (dataclasses.replace(cell, text=other), *first[1:])
+            table = dataclasses.replace(table, rows=(first, *rest))
+        return original(table, width)
+
+    monkeypatch.setattr(_render, "_table_lines", renamed)
+    for name in ("score_drtmle", "corrections_in_sample"):
+        check = _check(name)
+        with pytest.raises(AssertionError):
+            _reader(name)(check, str(check.summary()))
+
+
+def test_an_arm_label_with_a_bracket_prints_whole() -> None:
+    check = _check("score_drtmle")
+    labels = {row.label: f"{row.label}]x" for row in check.corrections.rows}
+    corrections = dataclasses.replace(
+        check.corrections,
+        rows=tuple(
+            dataclasses.replace(row, label=labels[row.label]) for row in check.corrections.rows
+        ),
+    )
+    names = {}
+    for old, new in zip(check.corrections.rows, corrections.rows, strict=True):
+        names[old.name] = new.name
+        names[f"{old.name} identity"] = f"{new.name} identity"
+    rows = tuple(dataclasses.replace(row, name=names.get(row.name, row.name)) for row in check.rows)
+    summary = dataclasses.replace(check, rows=rows, corrections=corrections).summary()
+    arms = {cell.text for cell in summary.tables[1].column("arm")}
+    assert arms == set(labels.values())
+    assert "D*" not in summary
+
+
 def test_the_reader_fails_a_table_it_does_not_know() -> None:
     check = _check("score_tmle")
     text = str(check.summary()).replace(vocabulary.ESTIMATE_EQUATIONS_TITLE, "Other numbers")
@@ -235,9 +332,25 @@ def test_the_reader_fails_a_table_it_does_not_know() -> None:
         read_equations(check, text)
 
 
-def test_a_wrapped_row_name_is_read_back_whole() -> None:
-    """The reader joins a row name the renderer wrapped, so a long name stays checked."""
-    check = _check("score_splits")
-    text = str(check.summary())
-    assert re.search(r"^split \d\)$", text, re.M), "no row name wrapped in this fixture"
-    read_equations(check, text)
+def test_a_wrapped_row_is_read_back_whole() -> None:
+    """The reader joins a row name that wrapped at the margin and a last column of words
+    that wrapped indented, so a long cell stays checked."""
+    text = "\n".join(
+        [
+            "Title",
+            "=" * 20,
+            "name        value  result",
+            "-" * 20,
+            "a long row  1.000  no pass or",
+            "            fail",
+            "another     2.000  passed",
+            "row name",
+            "=" * 20,
+        ]
+    )
+    (_, labels, rows), *_ = text_tables(text)
+    assert labels == ["name", "value", "result"]
+    assert rows == [
+        ["a long row", "1.000", "no pass or fail"],
+        ["another row name", "2.000", "passed"],
+    ]

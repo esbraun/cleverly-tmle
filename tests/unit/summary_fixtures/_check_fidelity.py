@@ -270,8 +270,11 @@ def sci_close(shown: str, value: float | None, reference: float = float("nan")) 
         return abs(number) <= float(shown[1:])
     mantissa, _, exponent = shown.partition("e")
     printed = float(shown)
-    if printed == 0.0 and math.isfinite(reference) and reference > 0:
-        return abs(number) < reference * 1e-5 or abs(number) <= 0.5 * 10 ** -_decimals(mantissa)
+    if printed == 0.0:
+        # A printed zero is a residue far below the bar, or an exact zero; nothing larger.
+        if math.isfinite(reference) and reference > 0:
+            return abs(number) < reference * 1e-5
+        return number == 0.0
     unit = 10 ** (int(exponent or 0) - _decimals(mantissa))
     return abs(printed - number) <= 0.5 * unit * (1 + 1e-9)
 
@@ -291,6 +294,36 @@ def _read_number_cells(cells: list[str], record: dict[str, Any]) -> None:
     assert result == _result_word(bool(record["passed"]), threshold), (cells, record)
 
 
+#: What each correction and each row kind is called in print, written out here rather than
+#: read from the vocabulary, so a wrong entry there fails the reader.
+_CORRECTION_WORDS = {
+    "D*_Q": "outcome",
+    "D*_Y": "outcome",
+    "D*_g": "treatment",
+    "D*_A": "treatment",
+    "D*_M": "recording",
+}
+_CHECK_WORDS = {"correction": "size", "identity": "identity", "diagnostic": "described"}
+_GROUP_WORDS = {"mean": "outcome means"}
+_PART_WORDS = {
+    "mechanism": "treatment model",
+    "reduced": "reduced regression",
+    "strata": "strata",
+}
+
+
+def _read_step_label(shown: str, name: str) -> None:
+    """A step row's label names its group and its part in plain words."""
+    stem = re.sub(r"\[draw \d+\]$", "", name)
+    match = re.fullmatch(r"(\S+)(?: \((\w+)\))?", stem)
+    assert match is not None, name
+    group, part = match[1], match[2]
+    expected = _GROUP_WORDS.get(group, group)
+    if part is not None:
+        expected += f" ({_PART_WORDS[part]})"
+    assert shown == expected, (shown, name)
+
+
 def read_equations(check: Any, text: str) -> None:
     """Assert that every number an equation-check summary prints equals the check's.
 
@@ -306,9 +339,8 @@ def read_equations(check: Any, text: str) -> None:
         dict(zip(frame.columns, values, strict=True)) for values in frame.itertuples(index=False)
     ]
     facts = header_values(text)
-    assert (
-        facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS["passed" if check.passed else "failed"]
-    )
+    result = "descriptive" if not records else ("passed" if check.passed else "failed")
+    assert facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS[result]
     assert int(facts[vocabulary.EQUATIONS].replace(",", "")) == len(records)
     assert int(facts[vocabulary.ROWS].replace(",", "")) == check.n
     allowed = facts[vocabulary.ALLOWED_ERROR]
@@ -328,29 +360,38 @@ def read_equations(check: Any, text: str) -> None:
         ],
     }
     tables = text_tables(text)
+    if not records:
+        assert [(labels, rows) for _, labels, rows in tables] == [
+            (["equations"], [["none reported"]])
+        ], tables
+        return
     assert [title for title, _, _ in tables] == [
         title for title, rows in expected.items() if rows
     ], tables
     for title, labels, rows in tables:
         wanted = expected[title]
         assert len(rows) == len(wanted), (title, rows)
+        splits = ["split"] if "split" in labels else []
         lead = {
-            vocabulary.STEP_EQUATIONS_TITLE: ["equation"],
+            vocabulary.STEP_EQUATIONS_TITLE: ["equation", *splits],
             vocabulary.ESTIMATE_EQUATIONS_TITLE: ["estimate"],
-        }.get(title)
-        if lead is None:
-            splits = "split" in labels
-            lead = ["correction", "arm", *(["split"] if splits else []), "check"]
+        }.get(title, ["correction", "arm", *splits, "check"])
         assert labels == [*lead, "error", "allowed", "ratio", "result"], labels
         for row, record in zip(rows, wanted, strict=True):
+            name = str(record["name"])
+            draw = re.search(r"\[draw (\d+)\]$", name)
+            if "split" in labels:
+                assert draw is not None and int(row[lead.index("split")]) == int(draw[1]) + 1
             if title == vocabulary.ESTIMATE_EQUATIONS_TITLE:
-                assert row[0] == record["name"], (row, record)
-            if title == vocabulary.CORRECTIONS_TITLE:
-                arm = re.search(r"\)\[([^\]]+)\]", str(record["name"]))
-                assert arm is not None and row[1] == arm.group(1), (row, record)
-                draw = re.search(r"\[draw (\d+)\]", str(record["name"]))
-                if "split" in labels:
-                    assert draw is not None and int(row[2]) == int(draw.group(1)) + 1, row
+                assert row[0] == name, (row, record)
+            elif title == vocabulary.STEP_EQUATIONS_TITLE:
+                _read_step_label(row[0], name)
+            else:
+                part = re.search(r"\((D\*_\w)\)\[(.+?)\]( identity)?(\[draw \d+\])?$", name)
+                assert part is not None, name
+                assert row[0] == _CORRECTION_WORDS[part[1]], (row, record)
+                assert row[1] == part[2], (row, record)
+                assert row[lead.index("check")] == _CHECK_WORDS[str(record["kind"])], row
             _read_number_cells(row[len(lead) :], record)
 
 
@@ -386,10 +427,11 @@ def read_corrections(check: Any, text: str) -> None:
     splits = "split" in labels
     assert splits == (len({record["draw"] for record in records}) > 1)
     lead = ["correction", "arm", *(["split"] if splits else [])]
-    assert labels == [*lead, "solved", "in curve", "difference", "cap bias"], labels
+    assert labels == [*lead, "solved", "in SE", "difference", "cap bias"], labels
     assert len(rows) == len(records), rows
     identity = check.identity_threshold
     for row, record in zip(rows, records, strict=True):
+        assert row[0] == _CORRECTION_WORDS[str(record["equation"])], (row, record)
         assert row[1] == str(record["arm"]), (row, record)
         if splits:
             assert int(row[2]) == int(record["draw"]) + 1, (row, record)

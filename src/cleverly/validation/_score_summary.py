@@ -24,6 +24,7 @@ from .._summary import (
     short_repr,
     vocabulary,
 )
+from ..fluctuation._score import wald_coverage_bound
 from ..inference.influence import spread_name
 from ..utils.text import format_negligible, format_within
 
@@ -62,6 +63,18 @@ def _finite(value: float) -> float | None:
     return float(value) if math.isfinite(float(value)) else None
 
 
+def _words(group: str, part: str | None, arm: str | None, draw: int | None) -> str:
+    words = vocabulary.EQUATION_GROUPS.get(group, group)
+    qualifiers = []
+    if part is not None:
+        qualifiers.append(vocabulary.EQUATION_PARTS.get(part, part))
+    if arm is not None:
+        qualifiers.append(f"arm {arm}")
+    if draw is not None:
+        qualifiers.append(f"split {draw + 1}")
+    return f"{words} ({', '.join(qualifiers)})" if qualifiers else words
+
+
 def equation_words(name: str) -> str:
     """A row name of the equation check in plain words.
 
@@ -80,19 +93,38 @@ def equation_words(name: str) -> str:
     if match is None:
         return name
     group, part, arm, draw = match.group("group", "part", "arm", "draw")
-    words = vocabulary.EQUATION_GROUPS.get(group, group)
-    qualifiers = []
-    if part is not None:
-        qualifiers.append(vocabulary.EQUATION_PARTS.get(part, part))
-    if arm is not None:
-        qualifiers.append(f"arm {arm}")
-    if draw is not None:
-        qualifiers.append(f"split {int(draw) + 1}")
-    return f"{words} ({', '.join(qualifiers)})" if qualifiers else words
+    return _words(group, part, arm, None if draw is None else int(draw))
 
 
-def _row_words(row: ScoreCheckRow) -> str:
+def _correction_parts(check: ScoreCheck) -> dict[str, tuple[str, str, int | None]]:
+    """Each correction row's parts, read from the corrections it was built from.
+
+    Read from the records rather than parsed from the name, so an arm label holding a
+    bracket still prints whole.
+    """
+    parts: dict[str, tuple[str, str, int | None]] = {}
+    if check.corrections is None:
+        return parts
+    for row in check.corrections.rows:
+        for suffix, draw in (("", None), (f"[draw {row.draw}]", row.draw)):
+            for name in (f"{row.name}{suffix}", f"{row.name} identity{suffix}"):
+                parts[name] = (row.equation, row.label, draw)
+    return parts
+
+
+def _step_parts(name: str) -> tuple[str, int | None]:
+    """A step row's name without its split, and the split."""
+    match = re.match(r"^(?P<stem>.*)\[draw (?P<draw>\d+)\]$", name)
+    if match is None:
+        return name, None
+    return match.group("stem"), int(match.group("draw"))
+
+
+def _row_words(row: ScoreCheckRow, parts: dict[str, tuple[str, str, int | None]]) -> str:
     """Targeted groups and recomputed corrections are renamed; estimand aliases are not."""
+    if row.name in parts:
+        equation, label, draw = parts[row.name]
+        return _words("mean", equation, label, draw)
     if row.kind in ("fluctuation", "correction", "identity") or row.method == "recomputed":
         return equation_words(row.name)
     return row.name
@@ -128,44 +160,58 @@ def _is_correction(row: ScoreCheckRow) -> bool:
     return row.kind in ("correction", "identity") or row.method == "recomputed"
 
 
-def _correction_cells(row: ScoreCheckRow, splits: bool) -> tuple[Cell, ...]:
-    match = _ROW_NAME.match(row.name)
-    part, arm, draw = match.group("part", "arm", "draw") if match else (None, None, None)
-    # A row built by hand may name no correction; it prints as its plain name.
-    words = (
-        vocabulary.EQUATION_PARTS.get(part, part).removesuffix(" correction")
-        if part is not None
-        else equation_words(row.name)
-    )
+def _correction_cells(
+    row: ScoreCheckRow, splits: bool, parts: dict[str, tuple[str, str, int | None]]
+) -> tuple[Cell, ...]:
+    arm: str | None
+    if row.name in parts:
+        equation, arm, draw = parts[row.name]
+        words = vocabulary.EQUATION_PARTS.get(equation, equation).removesuffix(" correction")
+    else:
+        # A row built by hand names no recorded correction, so its name is read instead.
+        match = _ROW_NAME.match(row.name)
+        part, arm, split = match.group("part", "arm", "draw") if match else (None, None, None)
+        draw = None if split is None else int(split)
+        words = (
+            vocabulary.EQUATION_PARTS.get(part, part).removesuffix(" correction")
+            if part is not None
+            else equation_words(_step_parts(row.name)[0])
+        )
     cells = [Cell(row.name, words), Cell(arm, arm or vocabulary.MISSING)]
     if splits:
-        cells.append(
-            Cell(
-                None if draw is None else int(draw),
-                vocabulary.MISSING if draw is None else f"{int(draw) + 1}",
-            )
-        )
+        cells.append(Cell(draw, vocabulary.MISSING if draw is None else f"{draw + 1}"))
     cells.append(Cell(row.kind, vocabulary.CORRECTION_ROW_KINDS[row.kind]))
     return (*cells, *_number_cells(row))
 
 
+def _step_cells(row: ScoreCheckRow, splits: bool) -> tuple[Cell, ...]:
+    stem, draw = _step_parts(row.name)
+    cells = [Cell(row.name, equation_words(stem))]
+    if splits:
+        cells.append(Cell(draw, vocabulary.MISSING if draw is None else f"{draw + 1}"))
+    return (*cells, *_number_cells(row))
+
+
 def _score_tables(check: ScoreCheck) -> list[SummaryTable]:
+    parts = _correction_parts(check)
     steps = [row for row in check.rows if row.kind == "fluctuation"]
     corrections = [row for row in check.rows if _is_correction(row)]
     estimates = [row for row in check.rows if row.kind != "fluctuation" and not _is_correction(row)]
     tables = []
     if steps:
+        splits = any(_step_parts(row.name)[1] is not None for row in steps)
         tables.append(
             SummaryTable(
-                columns=("equation", *_NUMBER_COLUMNS),
-                rows=tuple(
-                    (Cell(row.name, equation_words(row.name)), *_number_cells(row)) for row in steps
-                ),
+                columns=("equation", *(("split",) if splits else ()), *_NUMBER_COLUMNS),
+                rows=tuple(_step_cells(row, splits) for row in steps),
                 title=vocabulary.STEP_EQUATIONS_TITLE,
             )
         )
     if corrections:
-        splits = any("[draw " in row.name for row in corrections)
+        splits = any(
+            (parts[row.name][2] if row.name in parts else _step_parts(row.name)[1]) is not None
+            for row in corrections
+        )
         tables.append(
             SummaryTable(
                 columns=(
@@ -175,9 +221,13 @@ def _score_tables(check: ScoreCheck) -> list[SummaryTable]:
                     "check",
                     *_NUMBER_COLUMNS,
                 ),
-                rows=tuple(_correction_cells(row, splits) for row in corrections),
+                rows=tuple(_correction_cells(row, splits, parts) for row in corrections),
                 title=vocabulary.CORRECTIONS_TITLE,
             )
+        )
+    if not check.rows:
+        tables.append(
+            SummaryTable(columns=("equations",), rows=((Cell("none reported", "none reported"),),))
         )
     if estimates:
         tables.append(
@@ -191,6 +241,9 @@ def _score_tables(check: ScoreCheck) -> list[SummaryTable]:
 
 
 def _score_reading(check: ScoreCheck) -> str:
+    if not check.rows:
+        return vocabulary.EQUATION_READINGS["none"]
+    parts = _correction_parts(check)
     spread = _spread(check)
     failures = check.failures
     if not failures:
@@ -201,14 +254,14 @@ def _score_reading(check: ScoreCheck) -> str:
     if identity:
         sentences.append(
             vocabulary.EQUATION_READINGS["failed_identity"].format(
-                names=_joined([_row_words(row) for row in identity]), spread=spread
+                names=_joined([_row_words(row, parts) for row in identity]), spread=spread
             )
         )
     ruled = check.rule_failures
     if ruled:
         sentences.append(
             vocabulary.EQUATION_READINGS["failed_rule"].format(
-                names=_joined([_row_words(row) for row in ruled]), spread=spread
+                names=_joined([_row_words(row, parts) for row in ruled]), spread=spread
             )
         )
     others = [row for row in failures if row not in ruled and row not in identity]
@@ -219,22 +272,31 @@ def _score_reading(check: ScoreCheck) -> str:
                 total=f"{len(check.rows):,}",
                 verb="was" if len(others) == 1 else "were",
                 its="its" if len(others) == 1 else "their",
-                names=_joined([_row_words(row) for row in others]),
+                names=_joined([_row_words(row, parts) for row in others]),
                 spread=spread,
             )
         )
     return " ".join(sentences)
 
 
+def _coverage_floor(residual: float, alpha: float) -> float:
+    """The coverage a Wald interval keeps at ``residual``, as the estimate summary states it.
+
+    A remainder below the smallest one printed is read at that ceiling, and the bound is
+    rounded down, because it is a lower bound.
+    """
+    shown = max(residual, _SMALLEST_REMAINDER)
+    return math.floor(wald_coverage_bound(shown, alpha) * 10000) / 10000
+
+
 def _stopping_note(check: ScoreCheck) -> Note | None:
+    """The estimate summary's ``stopping_rule`` note, from the same remainders."""
     if not check.declared:
         return None
     rows = [row for row in check.rows if math.isfinite(row.residual_se)]
-    if not rows:
+    if not rows or is_labelled(check.inference):
         return note("stopping_rule", vocabulary.NOTE_TEXTS["stopping_rule_plain"])
     worst = max(rows, key=lambda row: row.residual_se)
-    # A lower bound, so it is rounded down, as the estimate summary rounds it.
-    bound = math.floor(worst.coverage_bound * 10000) / 100
     b = worst.residual_se
     return note(
         "stopping_rule",
@@ -242,14 +304,37 @@ def _stopping_note(check: ScoreCheck) -> Note | None:
             b=f"less than {_SMALLEST_REMAINDER:g}" if b < _SMALLEST_REMAINDER else f"{b:.3g}",
             name=worst.name,
             level=f"{(1.0 - check.alpha_sig) * 100:g}%",
-            bound=f"{bound:.2f}%",
+            bound=f"{_coverage_floor(b, check.alpha_sig) * 100:.2f}%",
         ),
     )
 
 
-def _stopped(row: ScoreCheckRow) -> list[str]:
+def _default_bar_note(
+    check: ScoreCheck, parts: dict[str, tuple[str, str, int | None]]
+) -> Note | None:
+    """Under a declared rule, the rows that rule does not judge and the bar they keep."""
+    if not check.declared:
+        return None
+    kept = [
+        _row_words(row, parts)
+        for row in check.rows
+        if row.stopping == "relative" and math.isfinite(row.threshold) and row.kind != "identity"
+    ]
+    if not kept:
+        return None
+    return note(
+        "default_bar",
+        vocabulary.NOTE_TEXTS["default_bar"].format(
+            names=_joined(kept),
+            verb="is" if len(kept) == 1 else "are",
+            allowed=vocabulary.ALLOWED_RELATIVE.format(tolerance=check.tolerance),
+        ),
+    )
+
+
+def _stopped(row: ScoreCheckRow, parts: dict[str, tuple[str, str, int | None]]) -> list[str]:
     """The sentences of the ``row_not_converged`` note for one row."""
-    name = _row_words(row)
+    name = _row_words(row, parts)
     sentences = []
     if row.failure and row.kind == "fluctuation":
         reason = vocabulary.STEP_FAILURES.get(row.failure, row.failure.replace("_", " "))
@@ -267,14 +352,14 @@ def _stopped(row: ScoreCheckRow) -> list[str]:
     return sentences
 
 
-def _held_note(check: ScoreCheck) -> Note | None:
+def _held_note(check: ScoreCheck, parts: dict[str, tuple[str, str, int | None]]) -> Note | None:
     """Why each recomputed diagnostic row is held to nothing, grouped by reason."""
     unsolved: list[str] = []
     ruled: list[str] = []
     for row in check.rows:
         if row.kind != "diagnostic" or row.method != "recomputed":
             continue
-        (ruled if "stopping rule" in row.failure else unsolved).append(_row_words(row))
+        (ruled if "stopping rule" in row.failure else unsolved).append(_row_words(row, parts))
     reasons = []
     if unsolved:
         reasons.append(
@@ -296,10 +381,14 @@ def _held_note(check: ScoreCheck) -> Note | None:
 
 
 def _score_notes(check: ScoreCheck) -> list[Note]:
+    parts = _correction_parts(check)
     notes: list[Note] = []
     stopping = _stopping_note(check)
     if stopping is not None:
         notes.append(stopping)
+    default = _default_bar_note(check, parts)
+    if default is not None:
+        notes.append(default)
     identity = check.identity_failures
     if identity:
         notes.append(
@@ -311,7 +400,7 @@ def _score_notes(check: ScoreCheck) -> list[Note]:
                 ),
             )
         )
-    sentences = [sentence for row in check.rows for sentence in _stopped(row)]
+    sentences = [sentence for row in check.rows for sentence in _stopped(row, parts)]
     if sentences:
         notes.append(
             note(
@@ -328,16 +417,17 @@ def _score_notes(check: ScoreCheck) -> list[Note]:
         notes.append(note("dr_curve", vocabulary.NOTE_TEXTS["dr_curve"]))
     if any(_is_correction(row) for row in check.rows):
         notes.append(note("correction_rows", vocabulary.NOTE_TEXTS["correction_rows"]))
-    held = _held_note(check)
+    held = _held_note(check, parts)
     if held is not None:
         notes.append(held)
     return notes
 
 
 def _score_details(check: ScoreCheck) -> SummarySection:
+    parts = _correction_parts(check)
     lines = []
     for row in check.rows:
-        name = _row_words(row)
+        name = _row_words(row, parts)
         if math.isfinite(row.score_initial):
             steps = f"{row.n_iter:,} step{'s' * (row.n_iter != 1)}"
             before = format_negligible(abs(row.score_initial), row.threshold, digits=3)
@@ -352,9 +442,12 @@ def _score_details(check: ScoreCheck) -> SummarySection:
                 if math.isfinite(row.rule_bound_se)
                 else ""
             )
+            # A lower bound, so rounded down.
+            coverage = math.floor(row.coverage_bound * 10000) / 10000
             lines.append(
                 f"{name}: the remaining error is worth {row.residual_se:.3g} standard errors, "
-                f"and a Wald interval keeps at least {row.coverage_bound:.4f} coverage{bound}."
+                f"and an interval of the form estimate +/- z x SE keeps at least "
+                f"{coverage:.4f} coverage{bound}."
             )
     if not lines:
         lines.append(
@@ -374,6 +467,12 @@ def _check_result(passed: bool) -> str:
     return vocabulary.CHECK_RESULTS["passed" if passed else "failed"]
 
 
+def _score_result(check: ScoreCheck) -> str:
+    if not check.rows:
+        return vocabulary.CHECK_RESULTS["descriptive"]
+    return _check_result(check.passed)
+
+
 def score_summary(check: ScoreCheck, detail: str) -> Summary:
     """The summary of an equation check.
 
@@ -390,7 +489,7 @@ def score_summary(check: ScoreCheck, detail: str) -> Summary:
         The summary.
     """
     header = [
-        (vocabulary.RESULT, _check_result(check.passed)),
+        (vocabulary.RESULT, _score_result(check)),
         (vocabulary.EQUATIONS, f"{len(check.rows):,}"),
         (vocabulary.ROWS, f"{check.n:,}"),
         (vocabulary.ALLOWED_ERROR, _allowed(check)),
@@ -417,14 +516,14 @@ def score_repr(check: ScoreCheck) -> str:
     Returns
     -------
     str
-        For example ``ScoreCheck(passed, 8 equations, worst ratio 0.00)``.
+        For example ``ScoreCheck(passed, 8 equations, worst ratio=0.00e+00)``.
     """
     ratios = [row.ratio for row in check.rows if math.isfinite(row.ratio)]
     worst = max(ratios) if ratios else float("nan")
     return short_repr(
         "ScoreCheck",
         [
-            ("", _check_result(check.passed)),
+            ("", _score_result(check)),
             ("", f"{len(check.rows)} equation{'s' * (len(check.rows) != 1)}"),
             ("worst ratio", format_negligible(worst, 1.0, digits=2)),
         ],
@@ -470,7 +569,7 @@ def _correction_table(check: CorrectionCheck) -> SummaryTable:
         "arm",
         *(("split",) if splits else ()),
         "solved",
-        "in curve",
+        "in SE",
         "difference",
         "cap bias",
     )
@@ -482,7 +581,8 @@ def _correction_reading(check: CorrectionCheck) -> str:
         return vocabulary.CORRECTION_READINGS["none"]
     identity, correction = check.identity_failures(), check.correction_failures()
     if not identity and not correction:
-        return vocabulary.CORRECTION_READINGS["passed"]
+        partial = any(not row.solved for row in check.rows)
+        return vocabulary.CORRECTION_READINGS["passed_partial" if partial else "passed"]
     sentences = []
     if identity:
         sentences.append(
