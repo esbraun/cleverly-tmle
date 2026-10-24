@@ -75,7 +75,7 @@ LIMIT_OWNERS = frozenset(
         "X26-refusal-limited",
         "adaptive-iptw-finite-sample",
         "adaptive-iptw-composite-l3",
-        "X39-finite-sample",
+        "X39-below-tail-size",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -1515,7 +1515,8 @@ _X26: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] =
 )
 
 #: X39 (``long-horizon-sdr``). The one red row is a reporting Wald truth row of the three-level
-#: switch regimen at n = 72,000, below the tail size of its quantity. The owner reads a
+#: switch regimen at n = 72,000, below the tail size of its quantity. No interval is gated there:
+#: the gated BCa row of the quantity is in ``sdr_categorical_k5_static``. The owner reads a
 #: finite-sample effect and no defect, so the decision is a stated limit with the measured number.
 _X39: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
     (
@@ -1525,7 +1526,9 @@ _X39: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] =
         "G46.sdr.sdr_categorical_k5",
         ("wald",),
         LIMIT,
-        "X39-finite-sample: bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624",
+        "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
+        "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
+        "bias -0.0015 to 0.0038, SE ratio 0.9624",
         "",
     ),
 )

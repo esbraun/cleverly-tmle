@@ -2092,6 +2092,7 @@ def long_row(
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
     learners: Mapping[str, type] | None = None,
+    kind_families: Mapping[Kind, Iterable[str]] | None = None,
 ) -> SupportRow:
     """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
 
@@ -2147,6 +2148,9 @@ def long_row(
         The stated limits of the row.
     learners : mapping of str to type or None, default None
         The exact learner class per nuisance role, where the study fixes one.
+    kind_families : mapping of str to iterable of str or None, default None
+        The target families that a listed kind covers. A kind with no entry covers every family
+        of the row.
 
     Returns
     -------
@@ -2180,7 +2184,18 @@ def long_row(
             *_x33_options(node_bounds=node_bounds, hazard_pooling=hazard_pooling),
         ),
     )
-    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), learners, tuple(limits))
+    return SupportRow(
+        row_id,
+        key,
+        kinds,
+        tuple(evidence),
+        tuple(cells),
+        learners,
+        tuple(limits),
+        kind_families=tuple(
+            (kind, frozenset(covered)) for kind, covered in (kind_families or {}).items()
+        ),
+    )
 
 
 def _long_rows() -> tuple[SupportRow, ...]:
@@ -3495,13 +3510,67 @@ _LH_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", 
 _LH_BOOT_BAND: Final[frozenset[Kind]] = frozenset(
     {"point", "wald", "bootstrap_bca", "bootstrap_band"}
 )
-_LH_WALD_NOTE: Final[str] = (
-    "The Wald interval is gated for a quantity only where n is at least twice its n_kappa. "
-    "Below that, the BCa interval at B = 199 is gated instead, and the BCa row of a "
-    "Wald-gated quantity reports."
+#: The scenario sizes at which the study gates the Wald and the BCa interval of each row that
+#: reads the Wald note: ``tests/unit/test_long_horizon_support.py`` derives both from
+#: ``tests/long_horizon_design.py``.
+_LH_GATED_N: Final[Mapping[str, tuple[tuple[int, ...], tuple[int, ...]]]] = {
+    "binary_k3": ((4_000,), (4_000,)),
+    "binary_k4": ((16_000,), (16_000,)),
+    "binary_k5": ((76_000,), (76_000,)),
+    "categorical_k3": ((28_000,), (28_000,)),
+    "categorical_k4": ((128_000,), (108_000, 124_000, 128_000)),
+    "categorical_k5": ((116_000,), (64_000, 72_000, 96_000, 116_000, 124_000)),
+    "sdr_binary_k3": ((4_000,), (4_000,)),
+    "sdr_binary_k4": ((16_000,), (16_000,)),
+    "sdr_binary_k5": ((76_000,), (76_000,)),
+    "sdr_categorical_k5": (
+        (44_000, 116_000),
+        (44_000, 64_000, 72_000, 76_000, 96_000, 116_000, 124_000),
+    ),
+}
+#: The rows whose gated BCa quantities all use static or dynamic plans, so that the row licenses
+#: the BCa interval for those plans only.
+_LH_STATIC_BCA_ROWS: Final[frozenset[str]] = frozenset(
+    {
+        "binary_k3",
+        "binary_k4",
+        "categorical_k3",
+        "categorical_k4",
+        "sdr_binary_k3",
+        "sdr_binary_k4",
+    }
 )
+_LH_STATIC_BCA_FAMILIES: Final[frozenset[str]] = frozenset({"end_of_study", "regimens", "static"})
+
+
+def _lh_sizes(sizes: Sequence[int]) -> str:
+    """Scenario sizes as a list, such as ``n = 4,000 and 16,000``."""
+    text = [f"{n:,}" for n in sizes]
+    return text[0] if len(text) == 1 else f"{', '.join(text[:-1])} and {text[-1]}"
+
+
+def _lh_note(wald: Sequence[int], bca: Sequence[int], *, static_bca: bool) -> str:
+    """The stated limit of a long-horizon row that reads a Wald interval and a BCa interval."""
+    note = (
+        "The Wald interval is gated for a quantity only where n is at least twice its n_kappa. "
+        f"The study gates it at n = {_lh_sizes(wald)}. "
+        "Where the Wald interval is not gated, the BCa interval at B = 199 is gated instead, "
+        f"at n = {_lh_sizes(bca)}, and the BCa row of a Wald-gated quantity reports. "
+        "The row grain checks neither n nor the quantity. "
+        "A fit at another n or on another quantity reads as this row."
+    )
+    if static_bca:
+        note += (
+            " The study gates BCa on plans without a known stochastic node only, "
+            "so the row licenses BCa for those plans."
+        )
+    return note
+
+
 _LH_SWITCH_LIMIT: Final[str] = (
-    "X39-finite-sample: bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624"
+    "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
+    "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
+    "bias -0.0015 to 0.0038, SE ratio 0.9624"
 )
 _LH_CROSSFIT_NOTE: Final[str] = (
     "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
@@ -3532,8 +3601,10 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
     Every row licenses ``point``. It licenses ``wald`` when the study gates a Wald row of a
     member scenario, or an ``interval_calibration`` cell of the row's setting. It licenses
     ``bootstrap_bca`` when the study gates a BCa row of a member scenario. The study gates BCa
-    only where the Wald row is not gated (n below twice n_kappa), so BCa stays experimental on
-    every quantity that the study does not gate it on. The cross-fitted rows and every SDR row
+    only where the Wald row is not gated (n below twice n_kappa). The six rows whose gated BCa
+    rows all use plans without a known stochastic node license BCa for those plans only
+    (``kind_families``). The row grain checks neither n nor the quantity, so each row states
+    its gated n and that limit in its first note. The cross-fitted rows and every SDR row
     license no bootstrap band: the cross-fitted bootstrap is experimental (X20), and the SDR
     bootstrap band is experimental. A row licenses ``band`` when the study gates the Wald-curve
     band of its setting (``binary_k5``) and ``bootstrap_band`` when it gates the studentized
@@ -3559,9 +3630,9 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
         ],
         ...,
     ] = (
-        ("binary_k3", tmle2, 3, 1, False, False, _LH_BCA, True, ("binary_k3",), (_LH_WALD_NOTE,)),
-        ("binary_k4", tmle2, 4, 1, False, False, _LH_BCA, True, ("binary_k4",), (_LH_WALD_NOTE,)),
-        ("binary_k5", tmle2, 5, 1, False, False, _LH_BAND, True, ("binary_k5",), (_LH_WALD_NOTE,)),
+        ("binary_k3", tmle2, 3, 1, False, False, _LH_BCA, True, ("binary_k3",), ()),
+        ("binary_k4", tmle2, 4, 1, False, False, _LH_BCA, True, ("binary_k4",), ()),
+        ("binary_k5", tmle2, 5, 1, False, False, _LH_BAND, True, ("binary_k5",), ()),
         (
             "binary_k5_msm",
             tmle2,
@@ -3584,7 +3655,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
             _LH_BCA,
             True,
             ("categorical_k3",),
-            (_LH_WALD_NOTE,),
+            (),
         ),
         (
             "categorical_k4",
@@ -3596,7 +3667,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
             _LH_BCA,
             True,
             ("categorical_k4", "categorical_k4_high", "categorical_k4_static"),
-            (_LH_WALD_NOTE,),
+            (),
         ),
         (
             "categorical_k5",
@@ -3614,7 +3685,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
                 "categorical_k5_switch",
                 "categorical_k5_high",
             ),
-            (_LH_WALD_NOTE,),
+            (),
         ),
         (
             "categorical_k5_crossfit",
@@ -3638,7 +3709,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
             _LH_BCA,
             True,
             ("sdr_binary_k3",),
-            (_LH_WALD_NOTE,),
+            (),
         ),
         (
             "sdr_binary_k4",
@@ -3650,7 +3721,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
             _LH_BCA,
             True,
             ("sdr_binary_k4",),
-            (_LH_WALD_NOTE,),
+            (),
         ),
         (
             "sdr_binary_k5",
@@ -3662,7 +3733,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
             _LH_BCA,
             True,
             ("sdr_binary_k5",),
-            (_LH_WALD_NOTE,),
+            (),
         ),
         (
             "sdr_categorical_k5",
@@ -3683,7 +3754,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
                 "sdr_policy_k5_mix",
                 "sdr_policy_k5_taper",
             ),
-            (_LH_WALD_NOTE, _LH_SWITCH_LIMIT, _LH_SDR_BAND_NOTE),
+            (_LH_SWITCH_LIMIT, _LH_SDR_BAND_NOTE),
         ),
         (
             "sdr_categorical_k5_crossfit",
@@ -3756,6 +3827,9 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
         arms,
     ), nodes, folds, msm, learned, kinds, stochastic, cells, limits in declared:
         roles = "C" if learned else "AC"
+        if name in _LH_GATED_N:
+            wald, bca = _LH_GATED_N[name]
+            limits = (_lh_note(wald, bca, static_bca=name in _LH_STATIC_BCA_ROWS), *limits)
         rows.append(
             long_row(
                 f"G46.{engine}.{name}",
@@ -3769,6 +3843,11 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
                 kinds=kinds,
                 cells=cells,
                 limits=limits,
+                kind_families=(
+                    {"bootstrap_bca": _LH_STATIC_BCA_FAMILIES}
+                    if name in _LH_STATIC_BCA_ROWS
+                    else None
+                ),
             )
         )
     return tuple(rows)

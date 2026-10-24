@@ -10,16 +10,23 @@ a member scenario or an ``interval_calibration`` cell of the row's setting. It l
 ``bootstrap_bca`` when the study gates a BCa row of a member scenario. The design gates BCa only
 where the Wald row is not (``n < 2 n_kappa``). A row licenses ``band`` when the study gates the
 Wald-curve band of its setting, and ``bootstrap_band`` when it gates the studentized band.
+
+**Families.**  A kind covers the plan families of the quantities the study gates it on.  A plan
+with a known stochastic node is ``stochastic`` and every other plan is ``static``
+(:data:`cleverly._support.REGIMEN_KINDS`).  The row grain checks neither n nor the quantity, so
+the first note of a row states the sizes at which the study gates each interval.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import pytest
 
 from cleverly._support import Kind, SupportRow, registered_rows
 from cleverly._support_rows import LONGITUDINAL_ROWS
+from tests import discrete_law_longitudinal_horizon as law_
 from tests import long_horizon_design as D
 from tests.studies import long_horizon_primary as primary
 from tests.studies.evidence.registry import registered
@@ -86,6 +93,35 @@ def licensed_kinds(row: SupportRow) -> frozenset[Kind]:
     ):
         kinds.add("bootstrap_band" if s.study in D.BOOT_BAND_STUDIES else "band")
     return frozenset(kinds)
+
+
+def plan_family(quantity: D.Quantity) -> str:
+    """``stochastic`` when a plan of the quantity has a known stochastic node, else ``static``."""
+    return "stochastic" if any(plan in law_.POLICY_PLANS for plan in quantity.plans) else "static"
+
+
+def gated_rows(row: SupportRow, interval: str) -> list[D.Row]:
+    """The primary rows whose gating scenario belongs to ``row`` and gates ``interval`` on them."""
+    s = setting(row)
+    members = {scenario for _, scenario in LONG_HORIZON_MEMBERS[row.id]}
+    found = []
+    for primary_row in D.primary_rows():
+        gating = D.gating(primary_row)
+        if (
+            gating is not None
+            and gating.name in members
+            and primary_row.study == s.study
+            and interval in D.interval_of(primary_row)
+        ):
+            found.append(primary_row)
+    return found
+
+
+def licensed_families(row: SupportRow, kind: Kind) -> frozenset[str]:
+    """The target families the committed gates license for ``kind`` on ``row``."""
+    interval = {"bootstrap_bca": "bca", "wald": "wald"}[kind]
+    plans = {plan_family(primary_row.quantity) for primary_row in gated_rows(row, interval)}
+    return frozenset(row.key.family - {"static", "stochastic"}) | plans
 
 
 def _id(case: RowCase) -> str:
@@ -157,3 +193,58 @@ def test_the_rows_are_in_the_package_table_and_their_studies_are_registered() ->
     assert {row.id for row in ROWS} <= table
     slugs = {record.slug for record in registered()}
     assert {row.evidence[0] for row in ROWS} <= slugs
+
+
+def test_bootstrap_bca_covers_the_plan_families_of_the_quantities_the_study_gates_it_on() -> None:
+    """A row that gates BCa on static plans only does not license BCa for a stochastic plan."""
+    restricted = set()
+    for row in ROWS:
+        if "bootstrap_bca" not in row.kinds:
+            continue
+        covered = dict(row.kind_families).get("bootstrap_bca", row.key.family)
+        assert covered == licensed_families(row, "bootstrap_bca"), row.id
+        if "stochastic" not in covered and "stochastic" in row.key.family:
+            restricted.add(row.id)
+            assert not row.licenses("bootstrap_bca", row.key.family), row.id
+            assert row.licenses("bootstrap_bca", covered), row.id
+        else:
+            assert row.licenses("bootstrap_bca", row.key.family), row.id
+    # The witness: six rows hold a stochastic plan in their key and gate BCa on static plans only.
+    assert restricted == {
+        "G46.tmle.binary_k3",
+        "G46.tmle.binary_k4",
+        "G46.tmle.categorical_k3",
+        "G46.tmle.categorical_k4",
+        "G46.sdr.sdr_binary_k3",
+        "G46.sdr.sdr_binary_k4",
+    }
+
+
+def test_no_other_kind_restricts_its_families() -> None:
+    for row in ROWS:
+        assert {kind for kind, _ in row.kind_families} <= {"bootstrap_bca"}, row.id
+
+
+def test_the_first_note_states_the_sizes_at_which_the_study_gates_each_interval() -> None:
+    pattern = re.compile(r"\d{1,3}(?:,\d{3})+")
+    stated = set()
+    for row in ROWS:
+        note = row.limits[0]
+        if not note.startswith("The Wald interval is gated for a quantity only"):
+            # The cross-fitted, MSM, learned and calibration-only rows state their own limit.
+            continue
+        stated.add(row.id)
+        wald = {D.gating(g).n for g in gated_rows(row, "wald")}
+        bca = {D.gating(g).n for g in gated_rows(row, "bca")}
+        sentences = note.split(". ")
+        assert {int(n.replace(",", "")) for n in pattern.findall(sentences[1])} == wald, row.id
+        assert {int(n.replace(",", "")) for n in pattern.findall(sentences[2])} == bca, row.id
+        assert "neither n nor the quantity" in note, row.id
+    # Every row with a Wald or a BCa gate states its sizes.
+    gated = {
+        row.id
+        for row in ROWS
+        if not (setting(row).folds > 1 or setting(row).msm)
+        and (gated_rows(row, "wald") or gated_rows(row, "bca"))
+    }
+    assert stated == gated
