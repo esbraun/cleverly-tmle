@@ -149,6 +149,8 @@ def _authored(result: Any, summary: Summary, key: str | None = None) -> str:
         pieces.extend([table.title or "", *table.columns])
         pieces.extend(cell.text for row in table.rows for cell in row)
     messages = [record.message for record in getattr(result, "fit_warnings", ())]
+    if key is not None:
+        messages.extend(FIXTURES[key].quotes(result))
     for item in summary.notes:
         text = item.text
         for message in messages:
@@ -525,7 +527,8 @@ def test_the_header_counts_equal_the_data(key: str) -> None:
     An object without data, such as a check, prints counts its fidelity reader checks.
     """
     result = _fitted(key)
-    if getattr(result, "data", None) is None:
+    data = getattr(result, "data", None)
+    if data is None or getattr(data, "treatment", None) is None:
         assert FIXTURES[key].fidelity is not None, key
         return
     _check_header_counts(result, _summary(key))
@@ -535,7 +538,7 @@ def test_every_fitted_result_reaches_the_header_count_check() -> None:
     """Witness: the data guard above never skips a fitted result."""
     results = [key for key in KEYS if key.startswith("point_tmle:")]
     assert results
-    assert all(getattr(_fitted(key), "data", None) is not None for key in results)
+    assert all(getattr(_fitted(key).data, "treatment", None) is not None for key in results)
 
 
 def test_a_header_that_misreports_the_rows_fails(monkeypatch: pytest.MonkeyPatch) -> None:

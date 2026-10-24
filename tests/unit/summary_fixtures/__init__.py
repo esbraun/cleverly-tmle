@@ -39,18 +39,42 @@ class Case:
         ``fidelity(obj, text)`` parses ``text`` (the short summary) and asserts that every
         printed number equals the value read independently from ``obj``. Required for an
         object without an estimates table.
+    quoted : tuple of str or callable
+        Messages the summary quotes as the user saw them, such as data warnings, whose
+        wording belongs to the code that raised them, so the house-style check reads the
+        summary's own text around them. A callable takes the object. A fitted result's
+        own ``fit_warnings`` are always treated this way.
     """
 
     build: Callable[[], Any]
     names: tuple[str, ...] = ()
     fidelity: Callable[[Any, str], None] | None = None
+    quoted: tuple[str, ...] | Callable[[Any], tuple[str, ...]] = ()
+
+    def quotes(self, obj: Any) -> tuple[str, ...]:
+        """The quoted messages for ``obj``.
+
+        Parameters
+        ----------
+        obj : Any
+            The built object.
+
+        Returns
+        -------
+        tuple of str
+            The messages.
+        """
+        return tuple(self.quoted(obj)) if callable(self.quoted) else self.quoted
 
     def __call__(self) -> Any:
         return self.build()
 
 
 def collect() -> dict[str, Case]:
-    """Every fixture of every module in this package, keyed ``module:name``.
+    """Every fixture of every public module in this package, keyed ``module:name``.
+
+    A module whose name starts with ``_`` holds helpers, such as fidelity readers, and is
+    not collected.
 
     Returns
     -------
@@ -65,6 +89,8 @@ def collect() -> dict[str, Case]:
     """
     fixtures: dict[str, Case] = {}
     for info in pkgutil.iter_modules(__path__):
+        if info.name.startswith("_"):
+            continue
         module = importlib.import_module(f"{__name__}.{info.name}")
         found = getattr(module, "FIXTURES", None)
         assert found, f"{module.__name__} exports no FIXTURES"
