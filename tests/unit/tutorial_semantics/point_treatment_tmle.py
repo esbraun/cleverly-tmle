@@ -463,7 +463,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert bounds.confounding_strength < at_rv.confounding_strength
     # "Both limits exclude zero on this draw".
     assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
-    assert "the sign of the effect survives" in bounds.summary()
+    assert dict(bounds.summary().header)["Conclusion"] == "range excludes 0"
     # "the bias bound would be about 5% larger" with the law's nu^2: the bias scale is
     # proportional to sqrt(nu^2).
     assert 1.03 < np.sqrt(moments["nu2"] / elements.nu2) < 1.07
