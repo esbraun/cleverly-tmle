@@ -47,6 +47,8 @@ UNPRINTED_DECIMALS = {
     f"estimate of it, 100 draws: {_PROBE}/summary.log",
     "0.0029": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
     "-0.0060": f"bias of the wrong-model LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
+    "1.96": "the two-sided 95% normal quantile, the usual Wald multiplier; asserted in "
+    "_check_deployment_and_benchmark",
     "0.64": "0.01 / 0.25**3, the product of three consent probabilities below which the cumulative "
     "probability of a shipping follower falls under the cap of 0.01, recomputed in _check_cap",
 }
@@ -723,7 +725,7 @@ def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     assert (benchmark["move_in_se"].abs() < 1.0).all()
     assert set(namespace["static"]) == {"none", "discount", "shipping"}
     reduced_settings = namespace["reduced_fit"].summary(detail="full").section("Settings").lines
-    assert any(line.startswith("Declared known, with no learner") for line in reduced_settings)
+    assert any(line.startswith("Declared known (no learner fits them") for line in reduced_settings)
 
 
 def _check_probe_logs() -> None:

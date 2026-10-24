@@ -875,7 +875,7 @@ class TestTheLongitudinalSummary:
         if not result.converged:
             assert summary.note("score_unsolved").text == vocabulary.NOTE_TEXTS[
                 "score_unsolved_longitudinal"
-            ].format(draw="")
+            ].format(draw="", what="interval")
 
     def test_the_default_summary_has_no_rule_line(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)
