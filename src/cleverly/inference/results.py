@@ -556,16 +556,22 @@ class RepeatSpread(dict[str, float]):
             (dict(self), self.n_repeats, self.std_errors, self.inferential, self.scales),
         )
 
-    def to_frame(self) -> Any:
+    def to_frame(self, backend: str | None = None) -> Any:
         """One row per estimand: the spread, the standard error it is read against, and
         their ratio.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
 
         Returns
         -------
         dataframe
             The columns ``estimand``, ``spread``, ``std_err`` (``None`` for an estimate that
-            supplies no inference), ``plugin_std_err``, ``ratio`` and ``scale``, in the
-            default dataframe backend.
+            supplies no inference), ``plugin_std_err``, ``ratio`` and ``scale``, in
+            ``backend``.
         """
         from ..utils.frames import frame_from_dict
 
@@ -585,7 +591,8 @@ class RepeatSpread(dict[str, float]):
                     for name in names
                 ],
                 "scale": [self.scales[name] for name in names],
-            }
+            },
+            backend=backend,
         )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
