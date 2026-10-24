@@ -224,7 +224,10 @@ def test_t_a4_the_support_report_after_a_passing_check(ratio: str) -> None:
         assert isinstance(report.unsupported, int)
     else:
         assert report.unsupported is None
-    assert "outside declared support" in report.summary()
+    facts = report.summary().facts
+    assert facts["Rows sent outside the declared support"] == "0"
+    zero = f"{report.unsupported:,}" if ratio == "density" else "not measured"
+    assert facts["Rows sent to zero density"] == zero
     undeclared = _fit(law.point_frame(), ratio).single().diagnostics.support()["inside"]
     assert undeclared.outside_declared_support is None
 

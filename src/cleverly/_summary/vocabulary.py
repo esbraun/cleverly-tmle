@@ -1546,6 +1546,254 @@ REGIME_SUPPORT_TITLE: Final = "Overlap of each regime"
 POLICY_SUPPORT_TITLE: Final = "Overlap of policy {name}"
 TILT_SUPPORT_TITLE: Final = "Overlap of tilt {name}"
 
+#: The structural nested mean summary (X89 T2): the Question, the row meanings and the
+#: blip-feature table.
+STRUCTURAL_QUESTION: Final = "effect of each treatment time on {Y} under the blip model"
+STRUCTURAL_QUESTION_PLANS: Final = (
+    "effect of each treatment time on {Y} under the blip model, and the plan means it implies"
+)
+STRUCTURAL_LEVEL: Final = "{A} = {level} instead of {ref}"
+STRUCTURAL_DOSE: Final = "one more unit of {A}"
+STRUCTURAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "blip": (
+            "coefficient of {feature} in the effect on {Y} of {change} at time {t}, with later "
+            "treatments at their reference"
+        ),
+        "intercept": (
+            "effect on {Y} of {change} at time {t}, with later treatments at their reference, "
+            "for a unit whose other blip features are zero"
+        ),
+        "reference": "mean {Y} if every unit had the reference level of every treatment",
+        "level": "mean {Y} if every unit followed plan {d}, read from the blip model",
+        "contrast": (
+            "mean {Y} under plan {d} minus that mean under plan {r}, read from the blip model"
+        ),
+    }
+)
+BLIP_TITLE: Final = "Blip features at each time point"
+TIME: Final = "time"
+BLIP_TREATMENT: Final = "treatment"
+BLIP_LEVELS: Final = "levels"
+BLIP_FEATURES: Final = "features"
+STRUCTURAL_FAMILY: Final = "Outcome regressions: {family}."
+FAMILY_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"binomial": "logistic, for a 0-or-1 outcome", "gaussian": "linear, for a continuous outcome"}
+)
+STRUCTURAL_EIGENVALUE: Final = (
+    "Smallest standardized eigenvalue of the estimating equation's derivative: {value}. Near "
+    "zero, the treatment varies little given the history, or the blip features are nearly "
+    "collinear given it, so the coefficients are weakly identified."
+)
+STRUCTURAL_EXTREME: Final = (
+    "Largest share of rows with an estimated treatment probability within {margin} of 0 or 1, "
+    "over the time points: {share}."
+)
+STRUCTURAL_RESTRICTION: Final = (
+    "the effect of each treatment time, with later treatments at their reference, is linear "
+    "in the declared blip features"
+)
+STRUCTURAL_CONSTRUCTION: Final = (
+    "G-estimation: at each time point, from the last to the first, the blip coefficients solve "
+    "an estimating equation that pairs the outcome, with later blips removed, against the "
+    "treatment minus its predicted value."
+)
+
+#: The overlap reports of regimes, policies and tilts.
+REGIME_ROW_TITLE: Final = "Overlap of regime {name}"
+SUPPORT_REGIMES: Final = "Regimes"
+SUPPORT_NO_REGIMES: Final = "The fit declares no regimes, so there is no overlap to report."
+SUPPORT_WORST: Final = "Least supported"
+SUPPORT_REGIME_TABLE: Final = "How much the data support each regime"
+SUPPORT_REGIME_ONE_TABLE: Final = "How much the data support the regime"
+SUPPORT_POLICY_TABLE: Final = "How much the data support the policy"
+SUPPORT_TILT_TABLE: Final = "How much the data support the tilt"
+SUPPORT_SPLIT: Final = " (score load from split {split} of {repeats})"
+SUPPORT_REGIME: Final = "regime"
+SUPPORT_MIN_G: Final = "min probability"
+SUPPORT_MAX_RATIO: Final = "max ratio"
+SUPPORT_RATIO_ESS: Final = "effective n"
+SUPPORT_LOAD_EFFECTIVE: Final = "score load"
+SUPPORT_UNSUPPORTED: Final = "unsupported"
+SUPPORT_TWO_MECHANISMS: Final = (
+    "min probability is the smallest estimated probability of an arm the regime assigns, max "
+    "ratio the largest weight ratio, and effective n the effective sample size of those ratios. "
+    "All three read the estimated treatment model before any limit, which is what the data "
+    "support. unsupported counts the rows given an arm whose estimated probability is exactly zero."
+)
+SUPPORT_REGIME_DETAIL: Final = (
+    "{name}: weight ratio quantiles {quantiles}; probability of the assigned arm {tails}."
+)
+SUPPORT_MOVED: Final = "Rows moved"
+SUPPORT_UNSUPPORTED_ROWS: Final = "Rows sent to zero density"
+SUPPORT_NOT_MEASURED: Final = "not measured"
+SUPPORT_OUTSIDE: Final = "Rows sent outside the declared support"
+SUPPORT_MECHANISM_NOTE: Final = (
+    "The weight is the density ratio divided by the probability of staying under observation "
+    "after its bound, and by the intermediate's density when the fit holds one; the smallest "
+    "other factor is their smallest product."
+)
+SUPPORT_CAPPED: Final = "Rows held by the cap"
+SUPPORT_MIN_DENSITY: Final = "Smallest density at an observed dose"
+SUPPORT_NO_DENSITY: Final = "not measured: the classifier fits no density"
+SUPPORT_MIN_MECHANISM: Final = "Smallest other factor dividing the weight"
+SUPPORT_RATIO: Final = "density ratio"
+SUPPORT_WEIGHT: Final = "weight"
+SUPPORT_QUANTILE: Final = "{q} quantile"
+SUPPORT_LARGEST: Final = "largest"
+SUPPORT_ESS_ROW: Final = "effective size"
+SUPPORT_SHARE_OF_ROWS: Final = "effective share"
+SUPPORT_MEAN_RATIO: Final = "mean ratio"
+SUPPORT_FOLD_MEAN: Final = "mean ratio, fold {fold}"
+SUPPORT_MEAN_RATIO_READING: Final = (
+    "The mean ratio's expected value under the true density equals the probability that the "
+    "policy's dose stays inside the support of the observed doses given the covariates, which is "
+    "one when the policy keeps that support; an upper cap alone does not ensure this for a "
+    "negative shift or a gap in the support. In a sample the mean also moves with sampling and "
+    "with error in the density model, so a mean near one does not prove that the support holds "
+    "or that the effect is identified."
+)
+SUPPORT_ATOMS: Final = "Mean fitted probability of each declared atom: {masses}."
+SUPPORT_NO_ZERO_CHECK: Final = (
+    "The classifier fits no density, so the report cannot count rows sent to a dose of zero "
+    "density."
+)
+SUPPORT_FACTORS: Final = "Odds factors"
+SUPPORT_BOUND: Final = "Tilt weight bound"
+SUPPORT_NO_FACTOR: Final = "none (the natural course)"
+SUPPORT_TILT_READING: Final = (
+    "An odds tilt keeps the tilt part of each weight inside the bound for any treatment "
+    "model, so it needs no treatment probability away from 0 or 1. When outcomes are missing, "
+    "the probability of staying under observation still divides the weight and needs "
+    "positivity; the largest weight and the effective size do not include it. min "
+    "probability is shown for comparison with a fit that sets each unit's treatment."
+)
+
+#: The parametric g-formula simulation report.
+YES: Final = "yes"
+NO: Final = "no"
+GFORMULA_DRAWS: Final = "Draws per unit (estimate)"
+GFORMULA_DERIVATIVE_DRAWS: Final = "Draws per unit (derivatives)"
+GFORMULA_MODELS: Final = "Models"
+GFORMULA_PARAMETRIC: Final = "All models parametric"
+GFORMULA_MODELS_TITLE: Final = "The models the simulation draws from"
+GFORMULA_MODEL: Final = "model"
+GFORMULA_ROLE: Final = "role"
+GFORMULA_RESPONSE: Final = "response"
+GFORMULA_LEARNER: Final = "learner"
+GFORMULA_READ: Final = "in estimate"
+GFORMULA_CONSTANT: Final = "constant"
+#: Short learner names for the models table, which has six columns.
+GFORMULA_LEARNERS: Final[Mapping[str, str]] = MappingProxyType(
+    {"GLM": "GLM", "LogisticRegression": "logistic", "LinearRegression": "linear"}
+)
+GFORMULA_ROLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "covariate": "covariate",
+        "outcome": "outcome",
+        "hazard": "event hazard",
+        "treatment": "natural treatment",
+    }
+)
+GFORMULA_RESPONSES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "binary": "0 or 1",
+        "multi": "categories",
+        "normal": "normal",
+        "mean": "mean",
+    }
+)
+GFORMULA_SHARE_TITLE: Final = "Share of each row's variance from the simulation"
+GFORMULA_SHARE: Final = "share"
+GFORMULA_SUPPORT_TITLE: Final = "Support of each set dose"
+GFORMULA_COLUMN: Final = "treatment"
+GFORMULA_DOSE: Final = "dose"
+GFORMULA_RULE_DOSE: Final = "set by a rule"
+GFORMULA_OFF: Final = "histories > {z} SD off"
+GFORMULA_WINDOW: Final = "observed within {z} SD"
+GFORMULA_READ_MODELS: Final = (
+    "The simulation draws each unit's covariates and outcome forward in time from these "
+    "models, under each plan. in estimate says whether the estimate draws from the model: a "
+    "set dose replaces the treatment model, which is then fitted but not used."
+)
+GFORMULA_READ_SHARE: Final = (
+    "share is the part of each row's variance that comes from simulating a finite number of "
+    "draws per unit rather than from the data; a larger n_draws lowers it."
+)
+GFORMULA_READ_SUPPORT: Final = (
+    "For each set dose, the first share counts simulated histories whose fitted mean dose lies "
+    "more than {z} fitted standard deviations from the dose, and the second the observed doses "
+    "within {z} standard deviations of it. A large first share or a small second one says the "
+    "dose lies outside what the data show, so the estimate rests on the models' extrapolation."
+)
+
+#: The structural model check summary.
+CHECK_QUESTION: Final = "do the model's plan contrasts agree with LTMLE on the same rows?"
+CHECK_CONTRASTS: Final = "Contrasts"
+CHECK_SPLITS_LABEL: Final = "Fold splits"
+CHECK_TEST: Final = "Test"
+CHECK_TEST_F: Final = "scaled joint Wald statistic against F({df}, {df2})"
+CHECK_TEST_CHI2: Final = "joint Wald statistic against chi-squared({df})"
+CHECK_TABLE_TITLE: Final = "The model's contrasts against LTMLE"
+CHECK_STRUCTURAL: Final = "structural"
+CHECK_LTMLE: Final = "LTMLE"
+CHECK_DIFFERENCE: Final = "difference"
+CHECK_SPREAD: Final = "std. error"
+CHECK_JOINT_TITLE: Final = "Joint test"
+CHECK_STATISTIC: Final = "statistic"
+CHECK_CONTRASTS_COLUMN: Final = "contrasts"
+CHECK_COVARIANCE_DF: Final = "covariance df"
+CHECK_PVALUE: Final = "p-value"
+CHECK_READING: Final = (
+    "A small p-value says the model fails for these contrasts; a large one does not confirm "
+    "the model."
+)
+CHECK_NO_TEST: Final = "No test: {reason}"
+CHECK_HOW_TO_READ: Final[tuple[str, ...]] = (
+    "The check fits LTMLE on the same rows, weights, clusters and folds and compares each plan "
+    "contrast with the one the structural model implies. When the model holds, each "
+    "difference has mean zero. The two estimates share most of their error, so the test reads "
+    "the standard error of the difference, not that of either estimate.",
+    "covariance df is the effective degrees of freedom of the estimated covariance. The test "
+    "scales the Wald statistic and reads it against an F reference whose second degrees of "
+    "freedom come from it, which allows for a covariance estimated with error. A small value "
+    "says a few rows or clusters carry most of the variance, or few fold splits were averaged.",
+)
+
+#: The small summaries of an MSM fit's working-model record and an SNMM's positivity record.
+MSM_FIT_TITLE: Final = "Working-model coefficients"
+MSM_TABLE: Final = "Coefficient of each term"
+MSM_TERM: Final = "term"
+MSM_COEFFICIENT: Final = "coefficient"
+MSM_LINK: Final = "Link"
+MSM_LINK_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"identity": "the mean", "log": "the log of the mean", "logit": "the log odds"}
+)
+MSM_CELLS: Final = "Plan and time cells"
+MSM_CONVERGED: Final = "Converged"
+MSM_CAUSE_LABEL: Final = "Cause"
+MSM_FIT_READING: Final = "The result's summary() gives each coefficient with its interval."
+MSM_HOW_TO_READ: Final = (
+    "The coefficients project the plan means at every plan and time onto the working model, "
+    "which is linear in {scale}. They summarize those means, so they keep their meaning when "
+    "the working model is wrong."
+)
+DIAGNOSTICS_TITLE: Final = "Positivity of the structural fit"
+DIAGNOSTICS_TABLE: Final = "What each time point measured"
+DIAGNOSTICS_NODE: Final = "treatment time"
+DIAGNOSTICS_TIME: Final = "time {time}"
+DIAGNOSTICS_EIGENVALUE: Final = "smallest eigenvalue"
+DIAGNOSTICS_EXTREME: Final = "near 0 or 1"
+DIAGNOSTICS_CONSTANT: Final = "Fits with a one-class fold"
+DIAGNOSTICS_READING: Final = (
+    "smallest eigenvalue is the smallest standardized eigenvalue of the estimating "
+    "equation's derivative at that time: near zero, the treatment varies little given the "
+    "history, or the blip features are nearly collinear given it, so the coefficients are "
+    "weakly identified. near 0 or 1 is the share of rows whose estimated treatment "
+    "probability lies within the positivity margin of 0 or 1; a "
+    "dose has none."
+)
+
 #: What one row of a longitudinal table estimates, keyed by the name's prefix and the
 #: outcome kind. ``{Y}`` is the outcome (with ``{at}`` its time, empty at the end of study),
 #: ``{d}`` the plan, ``{r}`` the reference plan, ``{t}`` the time and ``{cause}`` the cause.
@@ -1700,6 +1948,72 @@ SUPPORT_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
         "unsupported": "rows without support",
     }
 )
+
+EVERY_ROW: Final = "every row"
+SECTION_HOW_TO_READ: Final = "How to read"
+
+#: The notes of the structural, g-formula and overlap summaries (X89 T2).
+T2_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "structural_model": "note",
+        "check_splits": "note",
+        "draw_order": "note",
+        "simulation_share": "note",
+        "unsupported_rows": "warning",
+        "score_load": "note",
+        "score_load_rows": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_NOTE_CODES})
+
+T2_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "check_experimental": "cleverly marks this check experimental. {reason}",
+        "check_splits": (
+            "Each number is the mean over {k} fold splits, the first of them the fit's own."
+        ),
+        "draw_order": (
+            "The order in which the covariates of one time point are drawn defines the "
+            "models, so at most one order is correctly specified in general."
+        ),
+        "score_load": (
+            "Score load reads the limited treatment model the fit used, while the ratios and "
+            "their effective size read the estimated model before any limit. It counts the "
+            "rows that effectively carry the estimating equation, of the rows the equation "
+            "reads, so it is not the effective size of the ratios."
+        ),
+        "score_load_rows": (
+            "Score load counts the rows that effectively carry the estimating equation, of the "
+            "rows the equation reads, so it is not the effective size of the ratios."
+        ),
+        "simulation_share": (
+            "The simulation contributes up to {share} of the variance ({name}); a larger "
+            "n_draws lowers it."
+        ),
+        "structural_check": "result.check_model() compares the plan contrasts with LTMLE.",
+        "structural_covariate_feature": (
+            "A blip feature reads a covariate measured after baseline, so the fit reports the "
+            "blips and the reference mean but no plan means or contrasts."
+        ),
+        "structural_model": (
+            "The intervals hold under the linear structural nested mean model with the blip "
+            "features declared at each time point. A blip that depends on an undeclared "
+            "earlier treatment or covariate makes the coefficients, and the plan means read "
+            "from them, biased."
+        ),
+        "unsupported_density": (
+            "{name} moves {count} rows to a dose where the estimated density is exactly zero. "
+            "This flags the density model; it does not prove that the effect is unidentified."
+        ),
+        "unsupported_rows": (
+            "Rows given an arm whose estimated probability is exactly zero: {counts}. The data "
+            "give no support there. If the true probability is zero, the effect is not "
+            "identified for those rows."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T2_NOTE_TEXTS})
+
 
 # ----------------------------------------------------------------- point-estimate objects (T1)
 
