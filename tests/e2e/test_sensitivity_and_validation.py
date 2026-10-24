@@ -1474,7 +1474,9 @@ class TestRefutation:
     def test_the_results_tabulate(self, refutation) -> None:
         frame = nw.from_native(refutation.to_frame(), eager_only=True)
         assert len(frame) == 3
-        assert "VERDICT" in refutation.summary()
+        summary = refutation.summary()
+        assert [row[0].value for row in summary.tables[0].rows] == frame["test"].to_list()
+        assert summary.reading
 
     def test_a_negative_control_outcome_shows_no_effect(self) -> None:
         frame, _ = make_linear_ate(n=700, seed=84)

@@ -2462,7 +2462,9 @@ checks that the workflow returns it.
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
 ships seven operations. Six test the implementation. The negative-control outcome tests a design,
 and the paragraph below states its boundary. Each operation prints a statistic against a stated
-reference. It prints `passed` only where the evidence registry covers the fit.
+reference. It prints `passed` or `failed` only where the evidence registry covers the fit, and
+`no pass or fail` otherwise. `summary()` gives one row per test, the statistic behind each
+reading, and one note per test with its purpose, its conditions and its rung in words.
 
 | refuter | what it does | statistic and reference | what it tests |
 | --- | --- | --- | --- |
@@ -3050,8 +3052,8 @@ A rule prints a verdict only when evidence backs it. `VERDICT_EVIDENCE` in
 [`validation/_interpretation.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_interpretation.py)
 holds that evidence as frozen `VerdictEvidence` rows. Each row names an instrument, a rule, a
 rung, the theory behind it, and a `CalibrationScope`. A fit outside the scope of every row gets the
-numbers and `passed=None`. The report prints the configuration that the nearest row covers,
-and every axis on which the fit differs from it. The nearest row differs on the fewest axes. On a
+numbers and `passed=None`. `summary(detail="full")` prints the main axes that the nearest row
+covers, and every axis on which the fit differs from it. The nearest row differs on the fewest axes. On a
 tie, the first row in `VERDICT_EVIDENCE` order wins.
 
 | rung | what backs the reading |

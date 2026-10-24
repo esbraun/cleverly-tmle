@@ -822,19 +822,239 @@ INTERNAL_TERMS: Final[tuple[str, ...]] = (
 
 # ----------------------------------------------------------------- checks (T3)
 
-#: Plain evidence words for each refutation rung (X89 plan 6.6). A verdict needs L2 or
-#: above (``validation/refute.py``).
-EVIDENCE_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+#: Header labels of the check and refutation summaries.
+RESULT: Final = "Result"
+ESTIMATE_TESTED: Final = "Estimate tested"
+TESTS_RUN: Final = "Tests run"
+REPEATS_PER_TEST: Final = "Repeats per test"
+HEADER_LABELS = HEADER_LABELS | {RESULT, ESTIMATE_TESTED, TESTS_RUN, REPEATS_PER_TEST}
+
+#: The notes of a refutation report: one per test, a warning when that test failed.
+T3_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
-        "L0": "description only, no pass or fail",
-        "L1": (
-            "compared with a stated reference; how often it fails a correct fit is not "
-            "measured, so no pass or fail"
-        ),
-        "L2": "pass or fail from an exact reference or a simulation study of this kind of fit",
-        "L3": "as L2, with an external package's result beside it",
+        "test_placebo": "note",
+        "test_random_common_cause": "note",
+        "test_subset": "note",
+        "test_negative_control_outcome": "note",
+        "test_dummy_outcome": "note",
+        "test_simulated_outcome": "note",
+        "test_bootstrap_measurement_error": "note",
+        "test_bootstrap_stability": "note",
+        "test_plasmode": "note",
+        "test_future_treatment": "note",
+        "refit_failures": "warning",
+        "refit_spread_diagnostic": "warning",
+        "ratio_scale": "note",
     }
 )
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_NOTE_CODES})
+
+T3_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "refutation_test": (
+            "{name}: {purpose}{conditions} For this kind of fit the test {evidence}."
+        ),
+        "refit_failures": (
+            "{failed} of {total} repeats of the {name} test failed and are left out of its "
+            'row; report.draws_frame("{test}") lists why.'
+        ),
+        "refit_spread_diagnostic": (
+            "The refits of {names} have no valid standard error, only a plug-in diagnostic, "
+            "so their statistics read the {label}."
+        ),
+        "ratio_scale": "For a ratio, {parts}.",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_NOTE_TEXTS})
+
+#: What a check found, in the words every check summary prints for it: in the ``Result``
+#: header fact and in a table's ``result`` column. The keys are what the code decides.
+CHECK_RESULTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": "passed",
+        "failed": "failed",
+        "descriptive": "no pass or fail",
+        "warning": "needs attention",
+    }
+)
+
+#: Plain evidence words for each refutation evidence level (X89 plan 6.6), as a verb phrase
+#: that completes "For this kind of fit the test ...". A pass or fail needs the third or
+#: fourth level (``validation/refute.py``).
+EVIDENCE_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "L0": "gives a description only, with no pass or fail",
+        "L1": (
+            "compares the refits with a stated reference, but how often it fails a correct "
+            "fit is not measured, so it gives no pass or fail"
+        ),
+        "L2": (
+            "gives a pass or fail backed by an exact reference or by a simulation study of "
+            "this kind of fit"
+        ),
+        "L3": (
+            "gives a pass or fail backed the same way, with an external package's result beside it"
+        ),
+        "withheld": "is studied, but gives no pass or fail here because {reason}",
+        "studied": "is studied, but gives no pass or fail on this report",
+        "not_run": "gives no pass or fail, because no refit ran",
+    }
+)
+
+#: Each refutation test by what it does, for the ``test`` column.
+REFUTATION_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "placebo": "shuffled treatment",
+        "random_common_cause": "added noise column",
+        "subset": "random subsamples",
+        "negative_control_outcome": "negative-control outcome",
+        "dummy_outcome": "noise outcome",
+        "simulated_outcome": "simulated outcome",
+        "bootstrap_measurement_error": "measurement error",
+        "bootstrap_stability": "bootstrap stability",
+        "plasmode": "plasmode outcome",
+        "future_treatment": "future treatment",
+    }
+)
+
+#: What cleverly does in each refutation test, the lead of that test's note. ``{null}`` is
+#: the value the test expects with no effect, read from the test itself.
+REFUTATION_PURPOSES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "placebo": (
+            "cleverly replaces the treatment with a shuffled or independently drawn copy, so "
+            "the treatment has no effect and the estimate should be about {null}."
+        ),
+        "random_common_cause": (
+            "cleverly adds a column of pure noise to the adjustment set, so the estimate "
+            "should barely move."
+        ),
+        "subset": (
+            "cleverly refits on random subsamples of the rows. If the standard error is "
+            "right, the refits spread about as much as the expected SD."
+        ),
+        "negative_control_outcome": (
+            "cleverly refits with the control outcome you gave, which you assume the "
+            "treatment cannot affect, so the estimate should be about {null}."
+        ),
+        "dummy_outcome": (
+            "cleverly replaces the outcome with random noise unrelated to the treatment and "
+            "the covariates, so the true effect is known, and checks {readings} against it."
+        ),
+        "simulated_outcome": (
+            "cleverly replaces the outcome with one simulated from the process you declared, "
+            "with a known effect, and checks {readings} against it."
+        ),
+        "plasmode": (
+            "cleverly resamples your covariates, draws treatment from a frozen treatment "
+            "model and the outcome from the process you declared, with a known effect, and "
+            "checks {readings} against it."
+        ),
+        "bootstrap_measurement_error": (
+            "cleverly resamples the rows, adds the measurement error you declared to "
+            "{variables}, and refits."
+        ),
+        "bootstrap_stability": (
+            "cleverly resamples units, keeping their folds, and refits, to show how far the "
+            "estimate moves."
+        ),
+        "placebo_not_run": (
+            "cleverly would replace the treatment with a shuffled copy, but runs no refit here."
+        ),
+        "future_treatment": (
+            "cleverly estimates the effect of a later treatment on a control you measured "
+            "before it, which the later treatment cannot cause, so the estimate should be "
+            "about {null}."
+        ),
+    }
+)
+
+#: Plain names of a refutation statistic, keyed by the test's ``statistic_name`` or the
+#: label of one of its extra numbers.
+STATISTIC_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "t": "t of the refits against {null}",
+        "z": "z of the estimate against {null}",
+        "scatter ratio rho": "spread ratio (refit SD / expected SD)",
+        "paired shift in standard errors": "shift, in std. errors",
+        "paired shift in plug-in standard errors": "shift, in plug-in SEs (diagnostic)",
+        "mean reported SE over SD of the draws": "mean std. error / refit SD",
+        "mean plug-in SE over SD of the draws": "mean plug-in SE (diagnostic) / refit SD",
+        "spread of the paired differences (SE units)": "SD of the shifts, in std. errors",
+        "spread across seeds with no noise column (SE units)": (
+            "SD across seeds without noise, in std. errors"
+        ),
+        "shift against the original fit": "shift from the original fit",
+        "standardized bias": "standardized bias",
+        "bias": "std. bias",
+        "se_ratio": "SE ratio",
+        "coverage": "coverage",
+    }
+)
+
+#: The reading sentence of a refutation report, by its result.
+REFUTATION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": "Every test that gives a pass or fail passed.",
+        "failed": (
+            "{names} failed. A failure points to the kind of defect the test is built to "
+            "find, but a correct fit also fails by chance, at about the rate its evidence "
+            "measured or its exact reference sets; the note for each test says what it "
+            "can show."
+        ),
+        "descriptive_all": (
+            "No test failed, and none of the {n} tests gives a pass or fail for this kind of fit, "
+            "so compare each mean with the expected column."
+        ),
+        "descriptive_one": (
+            "The test gives no pass or fail for this kind of fit, so compare its mean with "
+            "the expected column."
+        ),
+        "descriptive_both": (
+            "No test failed, and neither test gives a pass or fail for this kind of fit, so "
+            "compare each mean with the expected column."
+        ),
+        "descriptive_some": (
+            "No test failed. {k} of the {n} tests {verb} no pass or fail for this kind of "
+            "fit, so compare their means with the expected column."
+        ),
+    }
+)
+
+#: The outcome processes a generated-outcome test can declare, in plain words, keyed by the
+#: process's ``name``.
+PROCESS_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "gaussian_independent_noise": "Gaussian noise unrelated to the data",
+        "gaussian_adjustment_dependent": "a Gaussian outcome built from your covariates",
+        "bernoulli_adjustment_dependent": "a binary outcome built from your covariates",
+        "bounded_beta_adjustment_dependent": "a bounded outcome built from your covariates",
+        "logistic_hazard": "event times from a logistic hazard",
+        "multinomial_hazard": "competing event times from a multinomial hazard",
+    }
+)
+
+#: What a generated-outcome test reads, by reading name, for its note.
+READING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"bias": "the bias", "se_ratio": "the std. error", "coverage": "the coverage"}
+)
+
+#: The two parts of the ``ratio_scale`` note, each naming the tests it applies to.
+RATIO_GEOMETRIC: Final = "the mean of the {names} is the geometric mean of the refits"
+RATIO_LOG: Final = "the SD of the {names} is on the log scale"
+
+#: How a resampling test drew its rows, by the report's ``resampling``.
+REFIT_RESAMPLING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"iid": "rows resampled one at a time", "cluster": "whole clusters resampled"}
+)
+
+#: Section titles of a refutation report's full detail.
+SECTION_COMPARED: Final = "What each test was compared with"
+SECTION_DRAWS: Final = "Repeats"
+REFUTATION_TITLE: Final = "Refutation tests"
+STATISTICS_TITLE: Final = "Test statistics"
+READINGS_TITLE: Final = "Readings against their allowed bands"
+
 
 # ----------------------------------------------------------------- study setup (T5)
 

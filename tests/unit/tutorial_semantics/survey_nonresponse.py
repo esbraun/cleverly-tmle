@@ -17,6 +17,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import CapabilityError, CrossFitting
+from cleverly._summary import vocabulary
 from cleverly.datasets import missing_outcome_bounded_dgp, navigation_protocol
 from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
@@ -335,11 +336,12 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
-    report = str(refutation.summary())
-    # The report names the nearest registered row, a TMLE row with GLM nuisances, and the learner
-    # on which this fit differs.  Nonzero witness: the first registered row is a longitudinal one.
-    assert "Covered: methods ['TMLE']" in report and "LTMLE" not in report
-    assert "This fit differs on learner HistGradientBoostingRegressor" in report
+    report = " ".join(refutation.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines)
+    # The full summary names the nearest registered row, a TMLE row with GLM nuisances, and the
+    # learner on which this fit differs.  Nonzero witness: the first registered row is a
+    # longitudinal one.
+    assert "The nearest fits studied: method TMLE," in report and "LTMLE" not in report
+    assert "Where this fit differs, it has a learner outside those studied" in report
     # "The verdict column reads descriptive".
     assert set(refutation.to_frame()["verdict"]) == {"descriptive"}
     # The placebo reading: "+0.0009203 ... spread 0.006121 ... t +0.6724 (p = 0.509) ... 0.9123".
