@@ -154,7 +154,16 @@ class TestTheDerivedKind:
 
     def test_no_row_lists_a_kind_that_is_never_checked(self) -> None:
         listed = {kind for row in ROWS.values() for kind in row.kinds}
-        assert listed <= {"point", "wald", "wald_t", "band", "bootstrap", "derived"}
+        assert listed <= {
+            "point",
+            "wald",
+            "wald_t",
+            "band",
+            "bootstrap",
+            "derived",
+            "bootstrap_bca",
+            "bootstrap_band",
+        }
 
 
 class TestTheBootstrapFamilyScope:

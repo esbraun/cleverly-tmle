@@ -1,0 +1,229 @@
+{
+  "schema_version": 2,
+  "study": "long-horizon longitudinal TMLE",
+  "slug": "long-horizon-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-long-horizon-ltmle",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "7c656fc15d76a85cc3bfb129e45f86f1472a296c",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 3000,
+    "n": 4000,
+    "scenario_n": {
+      "binary_k3": 4000,
+      "binary_k4": 16000,
+      "binary_k5": 76000,
+      "binary_k5_msm": 96000
+    },
+    "seed": 20263901,
+    "resampling_seed": 2026390101,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-long-horizon-ltmle": 0.01,
+      "ltmle": 0.01
+    },
+    "scenarios": {
+      "binary_k3": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ey_regimen[never]__bca",
+        "ey_regimen[always]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[switch]__bca",
+        "ate_regimen[always vs never]__bca",
+        "ate_regimen[respond vs never]__bca",
+        "ate_regimen[switch vs never]__bca"
+      ],
+      "binary_k4": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ey_regimen[never]__bca",
+        "ey_regimen[always]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[switch]__bca",
+        "ate_regimen[always vs never]__bca",
+        "ate_regimen[respond vs never]__bca",
+        "ate_regimen[switch vs never]__bca"
+      ],
+      "binary_k5": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ey_regimen[coinlast]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]",
+        "ate_regimen[coinlast vs never]",
+        "ate_regimen[coin vs coinlast]",
+        "ey_regimen[never]__bca",
+        "ey_regimen[always]__bca",
+        "ey_regimen[respond]__bca",
+        "ey_regimen[switch]__bca",
+        "ey_regimen[coin]__bca",
+        "ey_regimen[coinlast]__bca",
+        "ate_regimen[always vs never]__bca",
+        "ate_regimen[respond vs never]__bca",
+        "ate_regimen[switch vs never]__bca",
+        "ate_regimen[coin vs never]__bca",
+        "ate_regimen[coinlast vs never]__bca",
+        "ate_regimen[coin vs coinlast]__bca"
+      ],
+      "binary_k5_msm": [
+        "msm_regimen[(intercept)]",
+        "msm_regimen[duration]"
+      ]
+    },
+    "estimator": "LTMLE",
+    "n_folds": {
+      "binary_k3": 1,
+      "binary_k4": 1,
+      "binary_k5": 1,
+      "binary_k5_msm": 1
+    },
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "outcome_learner": "QuasiBinomialGLM",
+    "pseudo_learner": "QuasiBinomialGLM",
+    "mechanism": "the law's, passed as probability columns",
+    "laws": {
+      "binary_k3": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "binary_k4": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "binary_k5": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "binary_k5_msm": [
+        1.0,
+        0.1,
+        3.5
+      ]
+    },
+    "plans": {
+      "binary_k3": [
+        "never",
+        "always",
+        "respond",
+        "switch"
+      ],
+      "binary_k4": [
+        "never",
+        "always",
+        "respond",
+        "switch"
+      ],
+      "binary_k5": [
+        "never",
+        "always",
+        "respond",
+        "switch",
+        "coin",
+        "coinlast"
+      ],
+      "binary_k5_msm": [
+        "dur0",
+        "dur1",
+        "dur2",
+        "dur3",
+        "dur4",
+        "dur5"
+      ]
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_long_horizon_ltmle.py": "ebe7468fdd5b46169be5b57159502c29d997e84218aa05ee0af6d6ffab07a6b1",
+    "tests/studies/long_horizon_ltmle_properties.py": "a09cf952b3d19b1a5ab9d06f367f42f4c820081dff1852714a02ff832ef8e065",
+    "tests/studies/long_horizon_properties.py": "f31a318747ce2c4f3a31656e752ee6591c7226842fe35a8b22e9ed6dea5af086",
+    "tests/studies/canonical_long_horizon_categorical_ltmle.py": "83111fcbec79ddddfefbdecab710f324e39d6f0701aadbd86ea5c8b53c9b3bf5",
+    "tests/studies/canonical_long_horizon_sdr.py": "16040ca2c7da0066f093357b91f30913685a3060088c6cd6312a3b8bcf67fa55",
+    "tests/long_horizon_design.py": "c5d09242636b55ce2e3dfeb626d99298c052a2f00074f11a2bea4ac5d85e5045",
+    "tests/long_horizon_sampling_sd.py": "71a9147f120d752fc6513975372555a892743f5621a56b5febc4e7979271c7ee",
+    "tests/studies/long_horizon_primary.py": "e7a1a327cba324d67ed19d455726ad2aa5099403f4599816732ec16cef405e36",
+    "tests/studies/long_horizon_common.py": "32769d292315d96a6d8f5703941d7ad751056738e21da696e2c8596f1173f55c",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/discrete_law_longitudinal_horizon.py": "71e40519f054a82ae0fbbe57f1d28a9a3b1cc1c30fab31c421e26c725450415c",
+    "tests/longitudinal_horizon_plans.py": "2650b254ad14ff780e70d6b89bf5509639925fdb3d235e93fb83df234c089dab",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "62e1d269538363d18634a962ed48d2ef41dd5754d5ba476cba6653b03ca00474",
+    "summary.csv": "d3d04fcb9c001772188f00c66890fe40dc5bf13a01d116a5bedd9696ebdcd802",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "4b05ed99e89ab95b8d924b03d4ec52b6b408f41b398d546a2b91182a3ede92f6",
+    "property-replicates.parquet": "0e53795c4908eb0ffe2b50041b0fa4ef82ec9ba29db9aa1cd0e0d4a7400a0bfa",
+    "properties.csv": "4f6fc046c18d227f602a9849d44ab282bd8953f5b0eedb52d6bbdf1cb1a28bc2"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "ltmle",
+    "reason": "X59: R ltmle 1.3-0 comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence",
+    "metadata": {},
+    "declared_sources_sha256": {
+      "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+      "tests/canonical/long_horizon_ltmle/run_study.R": "473d8cc5fef39fef2c5f55047f28d6c689a7e647a3a751eb5d74aa410351cf67",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}
