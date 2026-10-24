@@ -6,7 +6,9 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
+
+from ._summary import Detail, check_detail
 
 __all__ = ["StudyProtocol"]
 
@@ -202,40 +204,35 @@ class StudyProtocol:  # numpydoc ignore=PR02
         )
 
 
-#: How much of the protocol record a summary prints: the whole record, or its first line,
-#: which carries the schema and the fingerprint.
-ProtocolDetail = Literal["full", "fingerprint"]
-
-
 def protocol_summary_lines(
-    record: StudyProtocol | None, protocol: ProtocolDetail = "full"
+    record: StudyProtocol | None, detail: Detail = "short"
 ) -> tuple[str, ...]:
     """Return the protocol lines of an identification or result summary.
 
-    The one-line form keeps the fingerprint of the canonical record, and
-    ``record.summary_lines()`` prints the whole record again.
+    A short summary prints no protocol line. A full summary prints the record's fields,
+    without the schema and fingerprint line: the fingerprint identifies the record for a
+    program, and a reader of the analysis reads the fields.
 
     Parameters
     ----------
     record : StudyProtocol or None
         The study's protocol record. ``None`` records that no protocol was supplied.
-    protocol : {"full", "fingerprint"}
-        ``"full"`` prints every field. ``"fingerprint"`` prints only the line with the
-        schema and the fingerprint. The summaries pass their own ``protocol`` keyword.
+    detail : {"short", "full"}
+        The summary's ``detail=`` argument.
 
     Returns
     -------
     tuple of str
-        The protocol lines, or ``("causal study protocol: absent",)`` without a record.
+        No line at short detail. At full detail, the record's fields, or
+        ``("causal study protocol: absent",)`` without a record.
 
     Raises
     ------
     ValueError
-        If ``protocol`` is neither ``"full"`` nor ``"fingerprint"``.
+        If ``detail`` is neither ``"short"`` nor ``"full"``.
     """
-    if protocol not in ("full", "fingerprint"):
-        raise ValueError(f"protocol must be 'full' or 'fingerprint'; got {protocol!r}")
+    if check_detail(detail) == "short":
+        return ()
     if record is None:
         return ("causal study protocol: absent",)
-    lines = record.summary_lines()
-    return lines if protocol == "full" else lines[:1]
+    return record.summary_lines()[1:]

@@ -998,6 +998,10 @@ mar-tmle,targeting_necessity,bias equivalent,bias
 mar-tmle,targeting_necessity,least displacement over labels,control_concentrated
 mar-tmle,type_i_error,coverage floor,coverage/0.5
 mar-tmle,type_i_error,rejection ceiling,rejection/0.1
+marginal-bound-limit-coverage,interval_calibration,coverage in calibration band,shift/0.7
+marginal-bound-limit-coverage,interval_calibration,se ratio above band,se_low
+marginal-bound-limit-coverage,interval_calibration,se ratio in calibration band,affine
+marginal-bound-limit-coverage,interval_calibration,wrong-gamma coverage below band,pair_collapse
 mtp-boundaries,atom_necessity,bias discriminated,pair_collapse
 mtp-boundaries,atom_necessity,bias equivalent,bias
 mtp-boundaries,atom_necessity,least displacement over labels,control_concentrated
@@ -1563,7 +1567,7 @@ evalue-limit-coverage,interval_calibration,se ratio above band,se_low
 evalue-limit-coverage,interval_calibration,se ratio in calibration band,se/0.05
 ovb-limit-coverage,interval_calibration,coverage in calibration band,bias
 ovb-limit-coverage,interval_calibration,se ratio above band,se_low
-ovb-limit-coverage,interval_calibration,se ratio in calibration band,affine
+ovb-limit-coverage,interval_calibration,se ratio in calibration band,se/0.05
 ovb-limit-coverage,response_mask_necessity,bias discriminated,pair_collapse
 ovb-limit-coverage,response_mask_necessity,bias equivalent,bias
 ovb-limit-coverage,response_mask_necessity,least displacement over labels,control_concentrated
