@@ -1923,15 +1923,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
     #: runs again on a changed container.  ``None`` on a result built by hand.
     estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
+    #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
+    #: still names them.
+    fit_warnings: tuple[FitWarning, ...] = field(default=(), kw_only=True)
     #: One complete single-draw fit per draw of the cross-fitting split.
     repeats: tuple[LongitudinalRepeat, ...] = field(kw_only=True)
     #: The studentized bootstrap sup-t band over the estimates that supply inference, when
     #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
     #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.
     bootstrap_band: BootstrapBand | None = None
-    #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
-    #: still names them.
-    fit_warnings: tuple[FitWarning, ...] = field(default=(), kw_only=True)
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
     #: :attr:`fitted_method`.
