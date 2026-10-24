@@ -30,6 +30,7 @@ from .._summary import (
     short_repr,
     vocabulary,
 )
+from .._summary._cells import number_cell
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .bootstrap import BootstrapResult
@@ -224,7 +225,7 @@ def wald_summary(test: WaldTest, detail: Detail) -> Summary:
         (
             (
                 Cell(test.name, test.name),
-                Cell(float(test.statistic), number_text(test.statistic, 3)),
+                number_cell(test.statistic, 3),
                 Cell(float(test.pvalue), pvalue_text(test.pvalue)),
             ),
         ),
@@ -298,17 +299,17 @@ def _replicate_table(rows: Sequence[tuple[str, Any]]) -> SummaryTable:
     decimals = decimals_for(sds)
     cells = []
     for (name, _), values, sd in zip(rows, finite.values(), sds, strict=True):
-        mean = sum(values) / len(values) if values else float("nan")
-        smallest = min(values) if values else float("nan")
-        largest = max(values) if values else float("nan")
+        mean = sum(values) / len(values) if values else math.nan
+        smallest = min(values) if values else math.nan
+        largest = max(values) if values else math.nan
         cells.append(
             (
                 Cell(name, name),
                 Cell(len(values), count_text(len(values))),
-                Cell(mean, number_text(mean, decimals)),
-                Cell(sd, number_text(sd, decimals)),
-                Cell(smallest, number_text(smallest, decimals)),
-                Cell(largest, number_text(largest, decimals)),
+                number_cell(mean, decimals),
+                number_cell(sd, decimals),
+                number_cell(smallest, decimals),
+                number_cell(largest, decimals),
             )
         )
     words = vocabulary.REPLICATE_COLUMNS
@@ -320,7 +321,7 @@ def _replicate_table(rows: Sequence[tuple[str, Any]]) -> SummaryTable:
 
 def _sd(values: Sequence[float]) -> float:
     if len(values) < 2:
-        return float("nan")
+        return math.nan
     mean = sum(values) / len(values)
     return math.sqrt(sum((value - mean) ** 2 for value in values) / (len(values) - 1))
 
@@ -433,9 +434,9 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
         (
             (
                 Cell(vocabulary.REPLICATES_ROW, vocabulary.REPLICATES_ROW),
-                Cell(float(summary.std_error), number_text(summary.std_error, decimals)),
-                Cell(float(low), number_text(low, decimals)),
-                Cell(float(high), number_text(high, decimals)),
+                number_cell(summary.std_error, decimals),
+                number_cell(low, decimals),
+                number_cell(high, decimals),
             ),
         ),
     )
@@ -549,8 +550,8 @@ def bands_summary(bands: SimultaneousBands, detail: Detail) -> Summary:
     rows = tuple(
         (
             Cell(name, name),
-            Cell(float(low), number_text(low, decimals)),
-            Cell(float(high), number_text(high, decimals)),
+            number_cell(low, decimals),
+            number_cell(high, decimals),
         )
         for name, (low, high) in bands.bands.items()
     )
@@ -633,25 +634,27 @@ def spread_summary(spread: RepeatSpread, detail: Detail) -> Summary:
     names = list(spread)
     every = all(spread.inferential[name] for name in names)
     none = not any(spread.inferential[name] for name in names)
-    se_label = (
-        vocabulary.SPREAD_LABELS["plugin_std_err"] if none else vocabulary.SPREAD_LABELS["std_err"]
-    )
+    se_label = vocabulary.SPREAD_PLUGIN_SE if none else vocabulary.SPREAD_LABELS["std_err"]
     ratio_label = vocabulary.SPREAD_RATIO_PLUGIN if none else vocabulary.SPREAD_RATIO
     compared = {
-        name: spread.std_errors[name] if (none or spread.inferential[name]) else float("nan")
+        name: spread.std_errors[name] if (none or spread.inferential[name]) else math.nan
         for name in names
     }
     decimals = decimals_for([*spread.values(), *compared.values()])
     rows = []
     for name in names:
         value, against = spread[name], compared[name]
-        ratio = value / against if math.isfinite(against) and against > 0 else float("nan")
+        ratio = (
+            value / against
+            if math.isfinite(value) and math.isfinite(against) and against > 0
+            else math.nan
+        )
         rows.append(
             (
                 Cell(name, name),
-                Cell(float(value), number_text(value, decimals)),
-                Cell(float(against), number_text(against, decimals)),
-                Cell(ratio, number_text(ratio, 2)),
+                number_cell(value, decimals),
+                number_cell(against, decimals),
+                number_cell(ratio, 2),
                 Cell(spread.scales[name], spread.scales[name]),
             )
         )

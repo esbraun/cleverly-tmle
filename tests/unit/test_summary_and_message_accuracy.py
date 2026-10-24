@@ -737,7 +737,8 @@ def _method_lines(result: Any) -> tuple[str, ...]:
 
 
 def _reduction_line(reduction: str) -> str:
-    return f"The extra equations come from {vocabulary.REDUCTION_WORDS[reduction]}."
+    words = vocabulary.REDUCTION_WORDS[reduction]
+    return f"The extra equations come from the regressions in the table ({words})."
 
 
 class TestTheDRTMLESummaryNamesItsGuardAndReduction:
@@ -746,9 +747,7 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
     def test_the_default_guard(self) -> None:
         result = sweep.fit_drtmle()
         summary = result.summary()
-        assert (
-            summary.facts[vocabulary.GUARD] == "a wrong outcome model and a wrong treatment model"
-        )
+        assert summary.facts[vocabulary.GUARD] == "wrong outcome model, wrong treatment model"
         assert summary.note("guard_scope").text == " ".join(
             vocabulary.GUARD_SENTENCES[guard] for guard in ("Q", "g")
         )
@@ -757,7 +756,7 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
     def test_a_one_equation_guard(self) -> None:
         result = _guarded(("Q",))
         summary = result.summary()
-        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model"
+        assert summary.facts[vocabulary.GUARD] == "wrong outcome model"
         assert summary.note("guard_scope").text == vocabulary.GUARD_SENTENCES["Q"]
         assert _reduction_line("univariate") in _method_lines(result)
 

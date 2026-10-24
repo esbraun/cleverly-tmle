@@ -19,6 +19,7 @@ from .._summary import (
     short_repr,
     vocabulary,
 )
+from .._summary._cells import number_cell
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .super_learner import SuperLearnerDiagnostics
@@ -50,7 +51,7 @@ def diagnostics_summary(diagnostics: SuperLearnerDiagnostics, detail: Detail) ->
     rows = tuple(
         (
             Cell(name, name),
-            Cell(risk, number_text(risk, decimals)),
+            number_cell(risk, decimals),
             Cell(float(weight), number_text(float(weight), 3)),
         )
         for name, risk, weight in zip(diagnostics.names, risks, diagnostics.weights, strict=True)
@@ -60,13 +61,9 @@ def diagnostics_summary(diagnostics: SuperLearnerDiagnostics, detail: Detail) ->
         (vocabulary.LOSS, _loss(diagnostics)),
         (vocabulary.CANDIDATES, count_text(len(diagnostics.names))),
         (vocabulary.BEST, diagnostics.best),
-        (
-            vocabulary.ENSEMBLE_RISK,
-            f"{number_text(diagnostics.ensemble_cv_risk, decimals)} (on the folds that chose "
-            "the weights)",
-        ),
+        (vocabulary.ENSEMBLE_RISK, number_text(diagnostics.ensemble_cv_risk, decimals)),
     ]
-    notes: list[Note] = []
+    notes: list[Note] = [note("ensemble_risk", vocabulary.NOTE_TEXTS["ensemble_risk"])]
     if diagnostics.failed:
         notes.append(
             note(
@@ -82,9 +79,8 @@ def diagnostics_summary(diagnostics: SuperLearnerDiagnostics, detail: Detail) ->
             SummarySection(
                 vocabulary.SECTION_SETTINGS,
                 (
-                    "Each candidate's risk is scored on held-out folds. The ensemble's "
-                    "weights are fitted to those same held-out predictions, so its risk is "
-                    "optimistic beside the candidates' risks.",
+                    f"The risks are the {_loss(diagnostics)} of each candidate's held-out "
+                    "predictions, and the weights are non-negative and sum to one.",
                 ),
             )
         )

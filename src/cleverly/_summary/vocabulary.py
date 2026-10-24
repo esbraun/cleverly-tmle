@@ -802,8 +802,8 @@ LOSS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 #: What each DR-TMLE guard protects against, keyed by the guard name.
 GUARD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "Q": "a wrong outcome model",
-        "g": "a wrong treatment model",
+        "Q": "wrong outcome model",
+        "g": "wrong treatment model",
     }
 )
 
@@ -848,9 +848,9 @@ SEARCH_POOL: Final = "The search drew only from {names}, as the design declares.
 #: The extra regressions of each DR-TMLE construction, keyed by ``reduction``.
 REDUCTION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "univariate": "three one-dimensional regressions",
-        "bivariate": "two regressions, one of them two-dimensional",
-        "missing_outcome": "five regressions for missing outcomes",
+        "univariate": "three one-dimensional",
+        "bivariate": "two, one of them two-dimensional",
+        "missing_outcome": "five, for missing outcomes",
     }
 )
 
@@ -881,6 +881,7 @@ REPLICATE_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
 SPREAD_DIAGNOSTIC: Final = "spread (diagnostic)"
 SPREAD_RATIO: Final = "spread / SE"
 SPREAD_RATIO_PLUGIN: Final = "spread / plug-in SE"
+SPREAD_PLUGIN_SE: Final = "plug-in SE"
 FOLD_AVERAGED: Final = "fold-averaged"
 WHOLE_SAMPLE: Final = "whole-sample"
 FOLD_SD: Final = "fold SD"
@@ -916,6 +917,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "multiple_testing": "note",
         "separate_fits": "note",
         "learners_failed": "warning",
+        "ensemble_risk": "note",
         "fit_cautions": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
@@ -1008,6 +1010,11 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "of one effect."
         ),
         "learners_failed": "These candidates failed to fit and were left out: {names}.",
+        "ensemble_risk": (
+            "Each candidate's CV risk is scored on held-out folds. The ensemble's weights "
+            "were chosen on those same held-out predictions, so its CV risk is optimistic "
+            "beside the candidates' risks."
+        ),
         "fit_cautions": (
             "The fits of {names} carry warnings that change how to read their rows; print "
             "each with result.fits[name].summary()."

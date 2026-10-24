@@ -34,6 +34,7 @@ from .._summary import (
     short_repr,
     vocabulary,
 )
+from .._summary._cells import number_cell
 from .._summary._estimates import estimates_table, plain_support_reason
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -280,8 +281,8 @@ def selection_summary(selection: CTMLESelection, detail: Detail) -> Summary:
             (
                 Cell(index, str(index + 1)),
                 Cell(model, model),
-                Cell(train, number_text(train, decimals)),
-                Cell(cv, number_text(cv, decimals)),
+                number_cell(train, decimals),
+                number_cell(cv, decimals),
                 Cell(mark, mark),
             )
         )
@@ -433,12 +434,23 @@ def _stacked_lines(fit: CTMLEOutcomeAdaptiveFit) -> list[str]:
 
 def _oat_design(fit: CTMLEOutcomeAdaptiveFit) -> str:
     if fit.design == "per_arm":
-        return "one model per arm, each on the outcome model's prediction for its arm"
-    return "one model on the outcome model's predictions for every arm"
+        return "one per arm, on outcome predictions"
+    return "one, on every arm's outcome prediction"
+
+
+def _oat_sentence(fit: CTMLEOutcomeAdaptiveFit) -> str:
+    if fit.design == "per_arm":
+        return (
+            "The treatment model is one model per arm, each fitted on the outcome model's "
+            "prediction for its arm."
+        )
+    return (
+        "The treatment model is one model fitted on the outcome model's predictions for every arm."
+    )
 
 
 def _oat_facts(fit: CTMLEOutcomeAdaptiveFit, data: Any) -> MethodFacts:
-    details = [f"The treatment model is {_oat_design(fit)}."]
+    details = [_oat_sentence(fit)]
     if len(fit.factors) > 1:
         details.append(
             "Each arm's model has "
@@ -484,10 +496,7 @@ def oat_summary(fit: CTMLEOutcomeAdaptiveFit, detail: Detail) -> Summary:
     tables = [
         SummaryTable(
             ("arm", column),
-            tuple(
-                (Cell(arm, arm), Cell(value, number_text(value, decimals)))
-                for arm, value in risks.items()
-            ),
+            tuple((Cell(arm, arm), number_cell(value, decimals)) for arm, value in risks.items()),
             kind="other",
         )
     ]
@@ -613,8 +622,8 @@ def derivative_summary(fit: CTMLEDerivativeFit, detail: Detail) -> Summary:
             tuple(
                 (
                     Cell(k, f"arm {k}"),
-                    Cell(b, number_text(b, decimals)),
-                    Cell(a, number_text(a, decimals)),
+                    number_cell(b, decimals),
+                    number_cell(a, decimals),
                 )
                 for k, (b, a) in enumerate(zip(before, after, strict=True))
             ),
@@ -686,7 +695,7 @@ def derivative_repr(fit: CTMLEDerivativeFit) -> str:
 def _guard_text(fit: ReducedFit) -> str:
     if not fit.guard:
         return "nothing (no extra equations)"
-    return " and ".join(vocabulary.GUARD_WORDS.get(g, g) for g in fit.guard)
+    return ", ".join(vocabulary.GUARD_WORDS.get(g, g) for g in fit.guard)
 
 
 def _guard_note(fit: ReducedFit) -> Note:
@@ -699,7 +708,7 @@ def _reduced_lines(fit: ReducedFit, sources: Sequence[str] | None) -> list[str]:
     if not fit.guard:
         return []
     words = vocabulary.REDUCTION_WORDS.get(fit.reduction, fit.reduction)
-    lines = [f"The extra equations come from {words}."]
+    lines = [f"The extra equations come from the regressions in the table ({words})."]
     if fit.missing_data == "composite":
         lines.append(
             "Missing treatments and missing outcomes enter through one combined indicator "
@@ -725,7 +734,7 @@ def _best(diagnostics: Any) -> tuple[str, float]:
     names = list(diagnostics.names)
     if diagnostics.best in names:
         return diagnostics.best, float(diagnostics.cv_risk[names.index(diagnostics.best)])
-    return str(diagnostics.best), float("nan")
+    return str(diagnostics.best), math.nan
 
 
 def reduced_summary(fit: ReducedFit, detail: Detail) -> Summary:
@@ -748,16 +757,16 @@ def reduced_summary(fit: ReducedFit, detail: Detail) -> Summary:
     rows = []
     for key, entries in fit.diagnostics.items():
         name = vocabulary.REDUCED_REGRESSIONS.get(key, key)
-        best, risk = _best(entries[0]) if entries else ("", float("nan"))
+        best, risk = _best(entries[0]) if entries else ("", math.nan)
         rows.append(
             (
                 Cell(key, name),
                 Cell(best, best or "not a super learner"),
-                Cell(risk, number_text(risk, 4) if math.isfinite(risk) else ""),
+                number_cell(risk, 4),
             )
         )
     if not rows:
-        rows.append((Cell("none", "none"), Cell("", ""), Cell(float("nan"), "")))
+        rows.append((Cell("none", "none"), Cell("", ""), Cell(None, "")))
     table = SummaryTable(
         ("regression", vocabulary.BEST.lower(), vocabulary.CV_RISK),
         tuple(rows),
@@ -872,12 +881,12 @@ def iptw_summary(fit: AdaptiveIPTWFit, detail: Detail) -> Summary:
     rows = []
     for name in names:
         first = float(fit.untargeted[name])
-        final = float(adjusted[name][0]) if name in adjusted else float("nan")
+        final = float(adjusted[name][0]) if name in adjusted else math.nan
         rows.append(
             (
                 Cell(name, f"arm {name}"),
-                Cell(first, number_text(first, decimals)),
-                Cell(final, number_text(final, decimals)),
+                number_cell(first, decimals),
+                number_cell(final, decimals),
             )
         )
     tables = [
@@ -976,17 +985,17 @@ def cv_summary(report: CVTargeting, detail: Detail) -> Summary:
     spread_rows = []
     for name in names:
         folds = report.fold_estimates.get(name, ())
-        sd = float(np.std(folds, ddof=1)) if len(folds) > 1 else float("nan")
+        sd = float(np.std(folds, ddof=1)) if len(folds) > 1 else math.nan
         averaged = float(report.fold_evaluated[name].psi)
         whole = float(report.pooled[name].psi)
         whole_se = float(report.pooled[name].plugin_std_error)
         rows.append(
             (
                 Cell(name, name),
-                Cell(averaged, number_text(averaged, decimals)),
-                Cell(errors[name], number_text(errors[name], decimals)),
-                Cell(whole, number_text(whole, decimals)),
-                Cell(whole_se, number_text(whole_se, decimals)),
+                number_cell(averaged, decimals),
+                number_cell(errors[name], decimals),
+                number_cell(whole, decimals),
+                number_cell(whole_se, decimals),
             )
         )
         if folds:
@@ -994,7 +1003,7 @@ def cv_summary(report: CVTargeting, detail: Detail) -> Summary:
             spread_rows.append(
                 (
                     Cell(name, name),
-                    Cell(sd, number_text(sd, decimals)),
+                    number_cell(sd, decimals),
                     Cell(
                         (low, high),
                         f"[{number_text(low, decimals)}, {number_text(high, decimals)}]",
