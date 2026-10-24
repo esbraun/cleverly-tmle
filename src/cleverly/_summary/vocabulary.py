@@ -628,6 +628,9 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "estimate to {null}{alignment}; weaker ones, with both strengths below {rv}, "
             "could not."
         ),
+        "verdict_rv_at_null": (
+            "The estimate already equals {null}, so the robustness value is zero."
+        ),
         "verdict_rv_unreached": (
             "No left-out variables with equal strengths below one could move the estimate to "
             "{null}{alignment}."
@@ -636,6 +639,11 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The {limit} robustness value (RVa) is the same strength for the {level} "
             "one-sided limit nearest {null}: below it, that limit stays on its side of "
             "{null}."
+        ),
+        "rv_limit_plugin": (
+            "The plug-in limit robustness value is the same strength for the plug-in limit "
+            "nearest {null}, a diagnostic and not a confidence limit: below it, that limit "
+            "stays on its side of {null}."
         ),
         "assumption_robustness": (
             "The robustness value is the strength that left-out variables would need, with "
@@ -670,6 +678,11 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "An unmeasured confounder would need a risk ratio of {point} with both the "
             "treatment and the outcome, beyond the measured covariates, to explain away the "
             "estimate; {limit_sentence}"
+        ),
+        "verdict_evalue_per_arm": (
+            "An unmeasured confounder would need a risk ratio of {point} in each of four "
+            "associations, with the treatment and with the outcome in each of the two arms, "
+            "beyond the measured covariates, to explain away the estimate; {limit_sentence}"
         ),
         "evalue_limit_reached": "{limit} to move the interval to the null.",
         "evalue_limit_covers": "the interval already includes the null.",
@@ -722,17 +735,25 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "marginal_interval": (
             "In large samples the interval contains the true range with probability at "
-            "least {level}."
+            "least {level}, if either the treatment model or the outcome-quantile model is "
+            "right."
         ),
         "assumption_tilt": (
             "gamma is how far the average outcome of units whose outcome is missing differs "
             "from that of recorded units with the same treatment and covariates, on the "
             "log-odds scale of the outcome rescaled to run from zero to one{arm_clause}. A "
             "gamma of zero is the main analysis, which assumes outcomes are missing at "
-            "random, and a positive "
-            "gamma means the missing outcomes were higher. At every gamma the interval "
-            "reuses the main analysis's standard error and treats gamma as known, so it "
-            "describes sampling error at that gamma, not doubt about gamma."
+            "random. {direction}"
+        ),
+        "tilt_direction": "A positive gamma means the missing outcomes were higher.",
+        "tilt_direction_arms": (
+            "Where gamma times an arm's factor is positive, that arm's missing outcomes were "
+            "higher; a factor of zero leaves the arm at missing at random."
+        ),
+        "tilt_interval": (
+            "Where an interval is printed off a gamma of zero, it reuses the main analysis's "
+            "standard error and treats gamma as known, so it describes sampling error at "
+            "that gamma, not doubt about gamma."
         ),
         "assumption_surface": (
             "Each cell adds a simulated common cause of {moved} and the outcome, refits the "
@@ -787,7 +808,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "association_defined": (
             "An association column is the correlation, on these data, between the simulated "
-            "cause and the treatment{intermediate} the cell produced."
+            "cause and the treatment{intermediate} the cell produced{stratum}."
         ),
         "incremental_reading": (
             "Each cell refits the treatment model, and the shift in treatment odds reads "
@@ -869,6 +890,10 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "bound_truncated": (
             "The converted lower limit, {value}, lies below zero, outside the risk-ratio "
             "scale, so the table shows zero."
+        ),
+        "bound_truncated_upper": (
+            "The converted lower limit, {value}, lies below zero, outside the risk-ratio "
+            "scale. The limit nearest the null is the upper one, which this does not touch."
         ),
         "tilt_diagnostic": (
             "For {names} the spread off a gamma of zero is the main analysis's spread around the "

@@ -4718,13 +4718,17 @@ def test_summary_and_successful_cells_report_a_retained_failure(
     assert all(cell.estimate is not None for cell in surface.successful_cells)
     assert surface.cells[2] not in surface.successful_cells
 
-    assert "failed" in text
-    assert "RuntimeError" in text
-    failure_row = next(line for line in lines if "failed" in line)
-    assert "RuntimeError" in failure_row
-    assert "0.1" in failure_row
+    movement = text.table("Movement")
+    failed_rows = [row for row in movement.rows if row[-2].text == "failed"]
+    (failure_row,) = failed_rows
+    assert failure_row[-1].text == "RuntimeError"
+    assert failure_row[1].value == surface.cells[2].treatment_strength
+    printed = [line for line in lines if "RuntimeError" in line]
+    assert len(printed) == 1 and "failed" in printed[0] and "0.1" in printed[0]
     # The successful rows carry a signed movement and no failure marker.
-    assert sum("failed" in line for line in lines) == 1
+    successes = [row for row in movement.rows if row[-2].text != "failed"]
+    assert len(successes) == 3
+    assert all(row[-1].text.startswith(("+", "-")) for row in successes)
     estimate = gaussian_result["ate"].psi
     (shown,) = [value for label, value in text.header if label == "Estimate"]
     shown = shown.removeprefix("ate = ")

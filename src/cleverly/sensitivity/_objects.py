@@ -174,7 +174,7 @@ class _Rows:
         return dict(self.rows)[name]
 
     def __getitem__(self, key: Any) -> Any:
-        """Index the frame :meth:`to_frame` returns, as the old frame return allowed."""
+        """Index the frame :meth:`to_frame` returns, such as ``tilt["psi"]``."""
         return self.to_frame()[key]
 
     def __len__(self) -> int:

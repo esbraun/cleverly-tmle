@@ -448,8 +448,11 @@ def test_weighted_repeated_population_surface_cache_and_persistence() -> None:
     assert set(surface.calibration_frame()["calibration_population"]) == {"full_fitted_population"}
     summary = surface.summary(detail="full")
     (population,) = [value for label, value in summary.header if label == "Population"]
-    assert population == f"units with treatment {surface.conditioning_arm}"
+    assert population == "units with treatment 1"
+    assert surface.conditioning_arm == 1
     assert "population_moves" in summary.note_codes
+    reading = summary.note("association_reading").text
+    assert "the cell produced, within the selected baseline stratum." in reading
     settings = summary.section("Settings").lines
     assert "Baseline stratum: V = small." in settings
     assert settings[0].endswith("the associations are measured on the selected baseline stratum.")

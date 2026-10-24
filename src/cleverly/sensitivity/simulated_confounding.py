@@ -440,16 +440,20 @@ class SimulatedConfoundingResult:
             One ``label: value`` line for each population field, in a fixed order.
         """
         return (
+            f"target population: {self.population}",
+            f"conditioning arm: {self.conditioning_arm!r}",
+            f"baseline stratum: {self.stratum!r}",
+            f"strata columns: {self.strata_names!r}",
+            f"association population: {self.association_population}",
+            f"calibration population: {self.calibration_population}",
+            f"refit population: {self.refit_population}",
+            *self._population_conditions(),
+        )
+
+    def _population_conditions(self) -> tuple[str, ...]:
+        """The lines of :meth:`population_lines` that only some surfaces print."""
+        return (
             (
-                f"target population: {self.population}",
-                f"conditioning arm: {self.conditioning_arm!r}",
-                f"baseline stratum: {self.stratum!r}",
-                f"strata columns: {self.strata_names!r}",
-                f"association population: {self.association_population}",
-                f"calibration population: {self.calibration_population}",
-                f"refit population: {self.refit_population}",
-            )
-            + (
                 (
                     "incremental reading: every cell refits the treatment mechanism, and the odds "
                     "tilt reads that refitted mechanism, so a cell moves the intervention with "
@@ -713,7 +717,10 @@ class SimulatedConfoundingResult:
         return tuple(lines)
 
     def _reading_guard(self) -> tuple[str, ...]:
-        """Return the lines that say which cells carry a confounding path."""
+        """Return the lines that say which cells carry a confounding path.
+
+        A rebuilt ATT or ATC population is the summary's own note, so it is not here.
+        """
         if self.treatment_family == "longitudinal":
             return (
                 "Each node's association reports what its perturbation achieved on these "
@@ -740,23 +747,11 @@ class SimulatedConfoundingResult:
                 else "",
                 "An association near zero says the swap moved the estimate by "
                 "misclassification between the two arms and not by confounding.",
-                *(
-                    (
-                        "The estimate can also move because each cell rebuilds its ATT or "
-                        "ATC population from the swapped treatment.",
-                    )
-                    if self.population == "perturbed_treatment_group"
-                    else ()
-                ),
             )
         if self.treatment_family == "binary":
             if self.population == "perturbed_treatment_group":
                 return (
                     "An association near zero says the treatment axis opened no confounding path.",
-                    "The estimate can still move, because each cell rebuilds its ATT or "
-                    "ATC population from the perturbed treatment.",
-                    "Read target_population_fraction beside the movement. It reports the "
-                    "share of the selected baseline population this cell conditions on.",
                 )
             return (
                 "An association near zero says the treatment axis moved the estimate by "

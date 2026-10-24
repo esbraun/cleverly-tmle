@@ -145,8 +145,17 @@ def test_the_summary_names_the_bias_scale_and_the_robustness_value_by_definition
     )
     assert "maximal bias" not in summary
     assert "BOTH" not in summary
-    assert "the same value for cf_y" in bound.summary().note("sensitivity_assumption").text
+    report = robustness_value(exact_fit)
+    assert "the same value for cf_y" in report.summary().note("sensitivity_assumption").text
     assert "cf_d is the share of" not in summary
-    assert f"cf_y = cf_d = {bound.robustness_value:.1%}" in summary
+    assert (
+        "cf_d the share of the average squared weight"
+        in summary.note("sensitivity_assumption").text
+    )
+    # The robustness value row holds the equal strength cf_y = cf_d.
+    (estimate_row, *_) = summary.table("Robustness value").rows
+    assert estimate_row[0].text == "estimate"
+    assert estimate_row[1].value == pytest.approx(bound.robustness_value)
+    assert report["rv"] == pytest.approx(bound.robustness_value)
     strong = omitted_variable_bounds(exact_fit, cf_y=0.9, cf_d=0.9)
     assert strong.bias > strong.max_bias

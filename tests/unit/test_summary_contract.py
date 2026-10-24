@@ -164,7 +164,13 @@ def _authored(result: Any, summary: Summary, key: str | None = None) -> str:
     return text
 
 
-_ROADMAP_ID = re.compile(r"(?<![\w])(?:X|F|RM|G|T|S|B|L)\d+[a-z]?(?![\w])|(?<![\w])BP\d*(?![\w])")
+#: An id such as X58 or a rung such as L2. An L1 or L2 penalty is the scikit-learn term, and
+#: stays.
+_ROADMAP_ID = re.compile(
+    r"(?<![\w])(?:X|F|RM|G|T|S|B)\d+[a-z]?(?![\w])"
+    r"|(?<![\w])L\d+[a-z]?(?![\w])(?! (?:penalty|or elastic-net))"
+    r"|(?<![\w])BP\d*(?![\w])"
+)
 _HEX = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{12,}(?![0-9a-fA-F])")
 _VERSION = re.compile(r"(?<![\w.])\d+\.\d+\.\d+(?![\w.])")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
@@ -594,6 +600,12 @@ def test_roadmap_pointers_leave_and_a_column_named_like_an_id_stays() -> None:
         "No stacked interval: it needs W"
     )
     assert without_roadmap("column X1 is constant") == "column X1 is constant"
+
+
+def test_a_penalty_name_is_not_a_rung() -> None:
+    assert not _ROADMAP_ID.search("a fixed L2 penalty, or an L1 or elastic-net penalty")
+    assert _ROADMAP_ID.search("the reading prints at L2.")
+    assert _ROADMAP_ID.search("see X58 penalty")
 
 
 def test_a_long_column_name_in_the_header_is_never_broken() -> None:

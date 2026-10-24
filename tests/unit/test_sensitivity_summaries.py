@@ -22,6 +22,7 @@ from cleverly._assessment_cache import _cache_key
 from cleverly._summary import Summary, _render, vocabulary
 from cleverly.sensitivity import MissingnessTilt, RobustnessValue, SensitivityContour
 from cleverly.sensitivity.simulated_confounding import SEPARATION_METHOD
+from cleverly.validation._interpretation import Resolution
 from cleverly.validation.simulation import ReplicationFailure
 from tests.unit.summary_fixtures import _sensitivity_readers as read
 from tests.unit.summary_fixtures import collect
@@ -165,13 +166,17 @@ def test_a_diagnostic_status_marks_the_limits() -> None:
     assert item.kind == "warning"
     assert summary.table("other").columns[-1] == vocabulary.SPREAD_LABELS["plugin_interval"]
     assert summary.table("Robustness value").rows[1][0].text == "plug-in limit (diagnostic)"
+    assert summary.note("rv_limit").text == TEXTS["rv_limit_plugin"].format(null="0")
+    plain = built("bounds").summary().note("rv_limit").text
+    assert plain == TEXTS["rv_limit"].format(limit="95% limit", level="95%", null="0")
     assert "no_inference_sensitivity" not in built("bounds").summary().note_codes
 
 
 def test_a_clipped_benchmark_drops_the_pointer() -> None:
     record = built("benchmark")
     assert TEXTS["benchmark_pointer"] in record.summary().note("sensitivity_assumption").text
-    clipped = dataclasses.replace(record, gain_d=1.5, cf_d=1.0)
+    clipped = dataclasses.replace(record, nu2_long=2.5 * record.nu2_short, cf_d=1.0)
+    assert clipped.gain_d == pytest.approx(1.5)
     summary = clipped.summary()
     assert TEXTS["benchmark_pointer"] not in summary.note("sensitivity_assumption").text
     assert summary.note("strength_clipped").text == TEXTS["strength_clipped_d"].format(gain="1.5")
@@ -182,6 +187,15 @@ def test_a_truncated_ratio_bound_says_so() -> None:
     item = value.summary().note("bound_truncated")
     assert item.text == TEXTS["bound_truncated"].format(value="-0.125")
     assert "bound_truncated" not in built("evalue_converted").summary().note_codes
+    # Below one the table shows the upper limit, which the truncation leaves alone.
+    below = dataclasses.replace(value, risk_ratio=1.0 / value.risk_ratio)
+    item = below.summary().note("bound_truncated")
+    assert item.text == TEXTS["bound_truncated_upper"].format(value="-0.125")
+
+
+def test_an_estimate_at_the_null_reads_zero() -> None:
+    bounds = dataclasses.replace(built("bounds"), robustness_value=0.0)
+    assert bounds.summary().reading == TEXTS["verdict_rv_at_null"].format(null="0")
 
 
 def test_the_evalue_conversion_prints_plain_and_formal() -> None:
@@ -214,7 +228,8 @@ def test_the_marginal_coverage_sentence_needs_a_licence() -> None:
     assert bounds.limit_descriptive
     text = bounds.summary().note("sensitivity_assumption").text
     assert TEXTS["marginal_interval"].format(level="95%") not in text
-    licensed = dataclasses.replace(bounds, limit_reading=None)
+    reading = Resolution(rung="L1", licensed=True, sentence="A covering study.")
+    licensed = dataclasses.replace(bounds, limit_reading=reading)
     assert not licensed.limit_descriptive
     text = licensed.summary().note("sensitivity_assumption").text
     assert text.endswith(TEXTS["marginal_interval"].format(level="95%"))
@@ -223,10 +238,34 @@ def test_the_marginal_coverage_sentence_needs_a_licence() -> None:
 def test_the_tilt_states_the_reused_standard_error() -> None:
     tilt = built("tilt")
     text = tilt.summary().note("sensitivity_assumption").text
-    assert text == TEXTS["assumption_tilt"].format(arm_clause="")
+    direction = TEXTS["tilt_direction"] + " " + TEXTS["tilt_interval"]
+    assert text == TEXTS["assumption_tilt"].format(arm_clause="", direction=direction)
     assert "reuses the main analysis's standard error" in text
-    ratio = built("tilt_ratio").summary().note("tilt_diagnostic").text
-    assert ratio == TEXTS["tilt_diagnostic"].format(names="rr", scale=", on the log scale")
+    ratio = built("tilt_ratio").summary()
+    assert ratio.note("tilt_diagnostic").text == TEXTS["tilt_diagnostic"].format(
+        names="rr", scale=", on the log scale"
+    )
+    # The difference keeps its interval off a gamma of zero, so the sentence stays.
+    assert TEXTS["tilt_interval"] in ratio.note("sensitivity_assumption").text
+    # Mutation: no estimand of a withheld fit prints an interval, so the sentence goes.
+    withheld = built("tilt_withheld").summary().note("sensitivity_assumption").text
+    assert TEXTS["tilt_interval"] not in withheld
+    assert withheld.endswith(TEXTS["tilt_direction"])
+
+
+def test_an_arm_factor_turns_the_tilt_direction() -> None:
+    from tests.unit.summary_fixtures.sensitivity import _missing
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tilt = _missing().sensitivity.missingness(gamma=(0.0, 1.0), arm_gamma={0: 0.0, 1: -1.0})
+    text = tilt.summary().note("sensitivity_assumption").text
+    assert TEXTS["tilt_direction_arms"] in text
+    assert TEXTS["tilt_direction"] not in text
+    # A negative factor moves that arm's missing outcomes down at a positive gamma.
+    frame = tilt.to_frame()
+    ey1 = frame[(frame["estimand"] == "ey1")].set_index("gamma")["psi"]
+    assert ey1[1.0] < ey1[0.0]
 
 
 def test_each_surface_condition_prints_when_it_holds() -> None:
@@ -387,7 +426,7 @@ def test_the_tilt_stays_a_tilt_through_the_cache_and_the_report() -> None:
         warnings.simplefilter("ignore")
         first = result.sensitivity.missingness()
         second = result.sensitivity.missingness()
-        report = result.assess().report("missingness")
+        report = result.sensitivity.run_all(include_retargets=True).report("missingness")
     assert isinstance(first, MissingnessTilt) and isinstance(second, MissingnessTilt)
     assert first == second
     assert isinstance(report, MissingnessTilt)
@@ -419,3 +458,9 @@ def test_the_tipping_gamma_stays_a_number() -> None:
         value = _missing().sensitivity.tipping_gamma()
     assert value is None or isinstance(value, float)
     assert value is None or np.isfinite(value)
+
+
+def test_a_full_population_surface_names_no_stratum() -> None:
+    reading = built("surface").summary().note("association_reading").text
+    assert "within the selected baseline stratum" not in reading
+    assert TEXTS["association_defined"].format(intermediate="", stratum="") in reading

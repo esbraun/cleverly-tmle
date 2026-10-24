@@ -277,10 +277,11 @@ def assert_refusal(
     assert summary.note("limits_withheld").text == template.format(
         alternative=without_roadmap(alternative)
     )
-    assert (
-        f"Why the limits are withheld: {without_roadmap(stored.text)}"
-        in summary.section("Settings").lines
-    )
+    # The summary prints the refusal without its pointer into the roadmap.
+    reason_text = without_roadmap(stored.text).replace(" docs/roadmap.md F26 tracks this stop.", "")
+    settings = summary.section("Settings").lines
+    assert f"Why the limits are withheld: {reason_text}" in settings
+    assert not any("roadmap" in line or "F26" in line for line in settings)
 
 
 # ------------------------------------------------------------------ the learner clauses

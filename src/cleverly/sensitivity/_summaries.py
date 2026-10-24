@@ -92,6 +92,8 @@ _CONTOUR_ROWS = 6
 _CONTOUR_COLUMNS = 5
 
 #: A default object repr's address, which no summary prints.
+#: A sentence that points into the roadmap, such as "docs/roadmap.md F26 tracks this stop."
+_ROADMAP_CITE = re.compile(r"\s*[^.]*docs/roadmap\.md[^.]*\.")
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
 
@@ -272,7 +274,7 @@ def _nu2_setting(nu2_estimator: str, correction: float | None, mechanism: str | 
 
 def _formal(text: str) -> str:
     """A stored formal sentence, without roadmap pointers or object addresses."""
-    return _ADDRESS.sub("", without_roadmap(text))
+    return _ADDRESS.sub("", _ROADMAP_CITE.sub("", without_roadmap(text))).strip()
 
 
 # ----------------------------------------------------------------- SensitivityBounds
@@ -282,9 +284,18 @@ def _rv_verdict(rv: float | None, null: float, rho: float) -> str:
     alignment = _alignment_clause(rho)
     if rv is None:
         return TEXTS["verdict_rv_unreached"].format(null=_null(null), alignment=alignment)
+    if rv == 0.0:
+        return TEXTS["verdict_rv_at_null"].format(null=_null(null))
     return TEXTS["verdict_rv_reached"].format(
         rv=_strength(rv), null=_null(null), alignment=alignment
     )
+
+
+def _rv_limit_text(inferential: bool, limit: str, level: str, null: float) -> str:
+    """What the limit robustness value means: a confidence limit's, or a diagnostic's."""
+    if not inferential:
+        return TEXTS["rv_limit_plugin"].format(null=_null(null))
+    return TEXTS["rv_limit"].format(limit=limit, level=level, null=_null(null))
 
 
 def _rv_cell(value: float | None) -> Cell:
@@ -355,7 +366,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
         notes.append(
             note(
                 "rv_limit",
-                TEXTS["rv_limit"].format(limit=rv_rows[1][0].text, level=level, null=_null(null)),
+                _rv_limit_text(inferential, rv_rows[1][0].text, level, null),
             )
         )
     alignment = _alignment_note(bounds.rho)
@@ -469,7 +480,7 @@ def robustness_summary(value: RobustnessValue, detail: Detail) -> Summary:
         notes.append(
             note(
                 "rv_limit",
-                TEXTS["rv_limit"].format(limit=rows[1][0].text, level=level, null=_null(null)),
+                _rv_limit_text(inferential, rows[1][0].text, level, null),
             )
         )
     alignment = _alignment_note(value.rho)
@@ -850,7 +861,9 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
         if value.limit > 1.0
         else TEXTS["evalue_limit_covers"]
     )
-    key = "assumption_evalue" if value.bias_factor == "single" else "assumption_evalue_per_arm"
+    single = value.bias_factor == "single"
+    key = "assumption_evalue" if single else "assumption_evalue_per_arm"
+    verdict_key = "verdict_evalue" if single else "verdict_evalue_per_arm"
     notes = [note("sensitivity_assumption", TEXTS[key])]
     for kind, _ in value.note_parts:
         if kind in _EVALUE_PARTS:
@@ -860,7 +873,9 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
         notes.append(
             note(
                 "bound_truncated",
-                TEXTS["bound_truncated"].format(value=f"{value.truncated_bound:.3g}"),
+                TEXTS[
+                    "bound_truncated" if value.risk_ratio >= 1.0 else "bound_truncated_upper"
+                ].format(value=f"{value.truncated_bound:.3g}"),
             )
         )
     if value.support.label == "experimental":
@@ -888,13 +903,7 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
         sections = [
             SummarySection(
                 V.SECTION_ASSUMPTIONS,
-                (
-                    "E-value = RR + sqrt(RR (RR - 1)) for a risk ratio RR >= 1 (its inverse "
-                    "below 1): the smallest equal strength, on the risk-ratio scale, of the "
-                    "confounder's association with the treatment and with the outcome that "
-                    "could move RR to 1 (VanderWeele and Ding, 2017).",
-                    *formal,
-                ),
+                (_EVALUE_FORMULA if single else _EVALUE_PER_ARM_FORMULA, *formal),
             ),
             SummarySection(V.SECTION_SETTINGS, tuple(settings)),
         ]
@@ -904,11 +913,24 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
         header_split=1,
         tables=tables,
         notes=notes,
-        reading=TEXTS["verdict_evalue"].format(
+        reading=TEXTS[verdict_key].format(
             point=number_text(value.point, 2), limit_sentence=limit_sentence
         ),
         sections=sections,
     )
+
+
+_EVALUE_FORMULA = (
+    "E-value = RR + sqrt(RR (RR - 1)) for a risk ratio RR >= 1 (its inverse below 1): the "
+    "smallest equal strength, on the risk-ratio scale, of the confounder's association with "
+    "the treatment and with the outcome that could move RR to 1 (VanderWeele and Ding, 2017)."
+)
+_EVALUE_PER_ARM_FORMULA = (
+    "E-value = sqrt(RR) + sqrt(sqrt(RR) (sqrt(RR) - 1)) for a risk ratio RR >= 1 (its inverse "
+    "below 1): the bias is a product of one bounding factor per arm (Ding and VanderWeele, "
+    "2016; Smith, Mathur and VanderWeele, 2021), and with four equal strengths E the product "
+    "is BF(E, E)^2, so the E-value inverts the square root of RR."
+)
 
 
 def evalue_repr(value: EValue) -> str:
@@ -1147,7 +1169,13 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
         if tilt.arm_gamma is None
         else ", multiplied for each arm by its declared factor (" + direction + ")"
     )
-    notes = [note("sensitivity_assumption", TEXTS["assumption_tilt"].format(arm_clause=arm_clause))]
+    direction_text = TEXTS["tilt_direction" if tilt.arm_gamma is None else "tilt_direction_arms"]
+    moved = any(float(gamma) != 0.0 for gamma in payload["gamma"])
+    reused = moved and any(name not in diagnostic and name not in withheld for name in names)
+    if reused:
+        direction_text += " " + TEXTS["tilt_interval"]
+    assumption = TEXTS["assumption_tilt"].format(arm_clause=arm_clause, direction=direction_text)
+    notes = [note("sensitivity_assumption", assumption)]
     if withheld:
         first = statuses[withheld[0]]
         notes.append(_status_note(first, _names(withheld), V.SPREAD_LABELS["plugin_std_err"]))
@@ -1269,14 +1297,11 @@ def _surface_caveats(result: SimulatedConfoundingResult) -> list[Note]:
 
 
 def _association_guard(result: SimulatedConfoundingResult) -> str:
-    """The reading lines of the association columns, less those the population note says."""
-    lines = [
-        line
-        for line in result._reading_guard()
-        if line and "ATT or ATC population" not in line and "target_population_fraction" not in line
-    ]
+    """The reading lines of the association columns."""
+    lines = [line for line in result._reading_guard() if line]
     intermediate = " or intermediate" if result.intermediate_name is not None else ""
-    defined = TEXTS["association_defined"].format(intermediate=intermediate)
+    stratum = "" if result.stratum is None else ", within the selected baseline stratum"
+    defined = TEXTS["association_defined"].format(intermediate=intermediate, stratum=stratum)
     return " ".join([defined, *lines])
 
 
@@ -1449,7 +1474,7 @@ def _population_facts(result: SimulatedConfoundingResult) -> list[str]:
         facts.append(
             f"Each estimate is the median over {result.n_repeats} random splits into folds."
         )
-    for line in result.population_lines()[7:]:
+    for line in result._population_conditions():
         facts.append(line[:1].upper() + line[1:] + ("" if line.endswith(".") else "."))
     return facts
 

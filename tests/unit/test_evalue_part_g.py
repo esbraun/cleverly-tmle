@@ -31,6 +31,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, PointTreatment, RegimeMean, RiskRatio, TimeToEvent
+from cleverly._summary import number_text
 from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_point_survival, make_shift_dose
@@ -254,7 +255,14 @@ class TestAControlledDirectEffect:
             summary.note("sensitivity_assumption").text == NOTE_TEXTS["assumption_evalue_per_arm"]
         )
         assert summary.note("per_arm_conditions").text == NOTE_TEXTS["per_arm_conditions"]
-        assert _PER_ARM_CONDITIONS in report.summary(detail="full").section("Assumptions").lines
+        assumptions = report.summary(detail="full").section("Assumptions").lines
+        assert _PER_ARM_CONDITIONS in assumptions
+        # The reading names four associations, and the formula inverts the square root.
+        point = number_text(report.point, 2)
+        assert summary.reading.startswith(
+            NOTE_TEXTS["verdict_evalue_per_arm"].split("{point}")[0] + point + " in each of four"
+        )
+        assert assumptions[0].startswith("E-value = sqrt(RR) + ")
 
     def test_the_limit_keeps_its_side_of_the_null(self, cde_fits: dict[str, Any]) -> None:
         report = evalue_module.evalue(cde_fits["ratio"][0.0])
