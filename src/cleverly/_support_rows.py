@@ -3500,6 +3500,9 @@ _LH_WALD_NOTE: Final[str] = (
     "Below that, the BCa interval at B = 199 is gated instead, and the BCa row of a "
     "Wald-gated quantity reports."
 )
+_LH_SWITCH_LIMIT: Final[str] = (
+    "X39-finite-sample: bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624"
+)
 _LH_CROSSFIT_NOTE: Final[str] = (
     "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
     "ratio of 1.17 to 1.33 here (X20), and six of the Wald rows lose their gate below twice "
@@ -3680,7 +3683,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
                 "sdr_policy_k5_mix",
                 "sdr_policy_k5_taper",
             ),
-            (_LH_WALD_NOTE, _LH_SDR_BAND_NOTE),
+            (_LH_WALD_NOTE, _LH_SWITCH_LIMIT, _LH_SDR_BAND_NOTE),
         ),
         (
             "sdr_categorical_k5_crossfit",

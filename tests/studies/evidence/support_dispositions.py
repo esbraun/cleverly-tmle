@@ -75,6 +75,7 @@ LIMIT_OWNERS = frozenset(
         "X26-refusal-limited",
         "adaptive-iptw-finite-sample",
         "adaptive-iptw-composite-l3",
+        "X39-finite-sample",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -1513,6 +1514,22 @@ _X26: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] =
     ),
 )
 
+#: X39 (``long-horizon-sdr``). The one red row is a reporting Wald truth row of the three-level
+#: switch regimen at n = 72,000, below the tail size of its quantity. The owner reads a
+#: finite-sample effect and no defect, so the decision is a stated limit with the measured number.
+_X39: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    (
+        "long-horizon-sdr",
+        "truth",
+        "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+        "G46.sdr.sdr_categorical_k5",
+        ("wald",),
+        LIMIT,
+        "X39-finite-sample: bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624",
+        "",
+    ),
+)
+
 #: The red cells of ``adaptive-iptw`` (X21). The three flexible-learner cells are experimental. A
 #: gradient-boosting mechanism is outside the configuration of the row: the key reads the learner
 #: family, so a boosted fit matches no row and no shortfall labels the row (``NO_SHORTFALL``). The
@@ -1660,6 +1677,7 @@ DISPOSITIONS: Mapping[RedKey, Disposition] = {
         *_X40_BOUNDARIES,
         *_X26,
         *_ADAPTIVE_IPTW,
+        *_X39,
     )
 }
 
