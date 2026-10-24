@@ -192,8 +192,8 @@ def test_natural_course_round_trip_retains_score_and_capability_contract(
         assert restored.sensitivity.capability(operation).available
     # The restored fit tilts its natural-course mean exactly as the original does.
     pd.testing.assert_frame_equal(
-        restored.sensitivity.missingness(gamma=[0.0, 1.0]),
-        natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0]),
+        restored.sensitivity.missingness(gamma=[0.0, 1.0]).to_frame(),
+        natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0]).to_frame(),
     )
 
 

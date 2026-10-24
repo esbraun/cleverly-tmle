@@ -2786,7 +2786,7 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         # one reading sentence.
         "no_inference_sensitivity": (
             "No confidence statement for {names}. {reason} The {label} is a diagnostic, "
-            "not a confidence limit."
+            "and it claims no coverage."
         ),
         "assumption_bounds": (
             "The range is the estimate moved down and up by the largest bias that variables "
@@ -2818,7 +2818,7 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "rv_limit_plugin": (
             "The plug-in limit robustness value is the same strength for the plug-in limit "
-            "nearest {null}, a diagnostic and not a confidence limit: below it, that limit "
+            "nearest {null}, a diagnostic that claims no coverage: below it, that limit "
             "stays on its side of {null}."
         ),
         "assumption_robustness": (

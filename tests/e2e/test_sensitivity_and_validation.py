@@ -967,7 +967,9 @@ class TestOmittedVariableBias:
         assert benchmark(seeded, ["W1"], estimand="ate", random_state=0).random_state == 0
 
     def test_the_contour_grid_is_monotone(self, good_overlap) -> None:
-        grid = nw.from_native(good_overlap.sensitivity.contour("ate", grid_size=5), eager_only=True)
+        grid = nw.from_native(
+            good_overlap.sensitivity.contour("ate", grid_size=5).to_frame(), eager_only=True
+        )
         assert len(grid) == 25
         # The lower bound falls as either sensitivity parameter grows.
         at_origin = [
@@ -1103,7 +1105,8 @@ class TestMissingnessTilt:
 
     def test_no_tilt_reproduces_the_reported_estimate(self, missing_fit) -> None:
         curve = nw.from_native(
-            missing_fit.sensitivity.missingness([0.0], estimands=["ate"]), eager_only=True
+            missing_fit.sensitivity.missingness([0.0], estimands=["ate"]).to_frame(),
+            eager_only=True,
         )
         # gamma = 0 is the MAR analysis, so the curve must pass exactly through the
         # reported point estimate. Anything else means the tilt is mis-parameterised.
@@ -1112,7 +1115,9 @@ class TestMissingnessTilt:
 
     def test_the_tilt_moves_the_estimate_monotonically(self, missing_fit) -> None:
         curve = nw.from_native(
-            missing_fit.sensitivity.missingness([-1.0, -0.5, 0.0, 0.5, 1.0], estimands=["ey1"]),
+            missing_fit.sensitivity.missingness(
+                [-1.0, -0.5, 0.0, 0.5, 1.0], estimands=["ey1"]
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -1292,7 +1297,7 @@ class TestTheTiltUnderObservationWeights:
         self, weighted_missing_fit, name: str
     ) -> None:
         curve = nw.from_native(
-            weighted_missing_fit.sensitivity.missingness([self.GAMMA], estimands=[name]),
+            weighted_missing_fit.sensitivity.missingness([self.GAMMA], estimands=[name]).to_frame(),
             eager_only=True,
         )
         expected = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=True)
@@ -1318,7 +1323,7 @@ class TestTheTiltUnderObservationWeights:
         """``gamma = 0`` is the MAR analysis of the *weighted* fit, not of the sample."""
         for name in ("ey1", "ate", "att", "atc"):
             curve = nw.from_native(
-                weighted_missing_fit.sensitivity.missingness([0.0], estimands=[name]),
+                weighted_missing_fit.sensitivity.missingness([0.0], estimands=[name]).to_frame(),
                 eager_only=True,
             )
             assert float(curve["psi"][0]) == pytest.approx(

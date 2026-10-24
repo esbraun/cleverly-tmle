@@ -627,7 +627,7 @@ class TestTheBootstrapIsADiagnosticBelowTen:
 class TestTheConsumersReadTheReference:
     def test_the_missingness_tilt_interval(self) -> None:
         result = _missing(12, estimands=("ey0", "ey1", "ate"))
-        frame = missingness_tilt(result, [0.0], estimands=["ate"])
+        frame = missingness_tilt(result, [0.0], estimands=["ate"]).to_frame()
         row = frame.iloc[0]
         critical = float(stats.t.ppf(0.975, 10))
         assert row["ci_lower"] == pytest.approx(row["psi"] - critical * row["std_err"], rel=1e-12)
