@@ -47,26 +47,10 @@ CENSORING_MODEL: Final = "Censoring model"
 #: The censoring indicators of a longitudinal fit, and what every plan does with them.
 CENSORING: Final = "Censoring"
 ANALYSIS: Final = "Analysis"
-#: The study-setup and simulation summaries (X89 T5).
+#: Shared with the study-setup summaries (X89 T5).
 DESIGN: Final = "Design"
 TREATMENT: Final = "Treatment"
-BASELINE: Final = "Baseline"
-FOLLOWED: Final = "Observed to the end"
-EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
-CENSORED_BEFORE_END: Final = "Censored before the end"
 STRATA: Final = "Strata"
-HELD_FIXED: Final = "Held fixed"
-PROTOCOL: Final = "Study protocol"
-ANSWERED_BY: Final = "Answered by"
-METHODS_FIT: Final = "Methods that fit"
-POPULATION: Final = "Population"
-TIME_ZERO: Final = "Time zero"
-INTERFERENCE_UNIT: Final = "Interference unit"
-REPLICATIONS: Final = "Replications"
-ROWS_PER_REPLICATION: Final = "Rows per replication"
-INTERVAL_LEVEL: Final = "Interval level"
-TOTAL_TIME: Final = "Total time"
-ACCOUNTED: Final = "Accounted for"
 #: The longitudinal and structural summaries (X89 T2).
 COVARIATE_MODELS: Final = "Covariate models"
 CONTRASTS: Final = "Contrasts"
@@ -113,23 +97,7 @@ HEADER_LABELS: frozenset[str] = frozenset(
         ANALYSIS,
         DESIGN,
         TREATMENT,
-        BASELINE,
-        FOLLOWED,
-        EFFECTIVE_SAMPLE_SIZE,
-        CENSORED_BEFORE_END,
         STRATA,
-        HELD_FIXED,
-        PROTOCOL,
-        ANSWERED_BY,
-        METHODS_FIT,
-        POPULATION,
-        TIME_ZERO,
-        INTERFERENCE_UNIT,
-        REPLICATIONS,
-        ROWS_PER_REPLICATION,
-        INTERVAL_LEVEL,
-        TOTAL_TIME,
-        ACCOUNTED,
         COVARIATE_MODELS,
         CONTRASTS,
         FOLD_SPLITS,
@@ -424,18 +392,6 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "fit_warning_parameter_space": "warning",
         "fit_warning_data": "warning",
         "fit_warning_other": "warning",
-        # The study-setup and simulation summaries (X89 T5).
-        "further_conditions": "note",
-        "checkable": "note",
-        "model_restriction": "note",
-        "several_readings": "note",
-        "unbound_effect": "warning",
-        "no_method": "warning",
-        "other_methods": "note",
-        "failed_replications": "warning",
-        "measures_diagnostic": "warning",
-        "mixed_statuses": "note",
-        "worker_time": "note",
         # The longitudinal, structural and support summaries (X89 T2).
         "bootstrap_bands": "note",
         "model_based_interval": "note",
@@ -651,56 +607,6 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "fit_warning": "During the fit cleverly warned: {messages}",
         "fit_warning_more": (
             "It also gave {count} more warnings of this kind; result.fit_warnings lists them."
-        ),
-        # The study-setup and simulation summaries (X89 T5).
-        "other_methods": (
-            "The methods table lists the methods that fit. {count} other {methods} "
-            "cannot estimate this question; the full summary says why."
-        ),
-        "further_conditions": (
-            "The full summary states {count} further {conditions} the answer rests on."
-        ),
-        "checkable": (
-            "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
-            "after a fit, result.diagnostics.support() shows where the fitted treatment model "
-            "gives units little chance of a compared treatment. That check reads a fitted "
-            "model, so a clean result does not prove overlap."
-        ),
-        "model_restriction": (
-            "The design restricts the model of the data; the full summary states how. The "
-            "question is unchanged, and the interval of a fit is claimed only under the "
-            "restriction."
-        ),
-        "several_readings": (
-            "The answer has {count} causal readings, each resting on its own condition; the "
-            "full summary states each."
-        ),
-        "unbound_effect": (
-            "This question is not bound to data, so it cannot be estimated, and the methods "
-            "table is worked out from the question without the study's design."
-        ),
-        "no_method": "No method fits this question; the full summary says why each does not.",
-        "data_warning": "When cleverly read the data it warned: {messages}",
-        "failed_replications": (
-            "Replications that raised an error: {count} of {total}. Every column leaves "
-            "them out, and the full summary lists the errors."
-        ),
-        "measures_diagnostic": (
-            "One or more estimates supply no interval{some}, so mean SE, SE ratio, coverage "
-            "and rejected describe the {noun} and not a confidence interval."
-        ),
-        "mixed_statuses": (
-            "The replicates took more than one inference status, named as in the inference "
-            "column of to_frame(): {clauses}."
-        ),
-        "worker_time": (
-            "The parallel workers' times are each worker's own elapsed time, added across "
-            "workers, so they can pass the time the fit waited and are not added to the "
-            "table above."
-        ),
-        "spread_scale_simulation": (
-            "For {names}, mean SE and SE ratio are on the log scale; truth, bias and MC SD "
-            "are on the ratio scale."
         ),
         # The longitudinal, structural and support summaries (X89 T2).
         "in_sample_flexible_longitudinal": (
@@ -1061,6 +967,115 @@ READINGS_TITLE: Final = "Readings against their allowed bands"
 
 
 # ----------------------------------------------------------------- study setup (T5)
+
+#: The header labels of the study-setup and simulation summaries.
+BASELINE: Final = "Baseline"
+FOLLOWED: Final = "Observed to the end"
+EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
+CENSORED_BEFORE_END: Final = "Censored before the end"
+HELD_FIXED: Final = "Held fixed"
+PROTOCOL: Final = "Study protocol"
+ANSWERED_BY: Final = "Answered by"
+METHODS_FIT: Final = "Methods that fit"
+POPULATION: Final = "Population"
+TIME_ZERO: Final = "Time zero"
+INTERFERENCE_UNIT: Final = "Interference unit"
+REPLICATIONS: Final = "Replications"
+ROWS_PER_REPLICATION: Final = "Rows per replication"
+INTERVAL_LEVEL: Final = "Interval level"
+TOTAL_TIME: Final = "Total time"
+ACCOUNTED: Final = "Accounted for"
+HEADER_LABELS = HEADER_LABELS | {
+    BASELINE,
+    FOLLOWED,
+    EFFECTIVE_SAMPLE_SIZE,
+    CENSORED_BEFORE_END,
+    HELD_FIXED,
+    PROTOCOL,
+    ANSWERED_BY,
+    METHODS_FIT,
+    POPULATION,
+    TIME_ZERO,
+    INTERFERENCE_UNIT,
+    REPLICATIONS,
+    ROWS_PER_REPLICATION,
+    INTERVAL_LEVEL,
+    TOTAL_TIME,
+    ACCOUNTED,
+}
+
+#: The study-setup and simulation summaries' note codes and texts.
+T5_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "further_conditions": "note",
+        "checkable": "note",
+        "model_restriction": "note",
+        "several_readings": "note",
+        "unbound_effect": "warning",
+        "no_method": "warning",
+        "other_methods": "note",
+        "failed_replications": "warning",
+        "measures_diagnostic": "warning",
+        "mixed_statuses": "note",
+        "worker_time": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T5_NOTE_CODES})
+
+T5_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "other_methods": (
+            "The methods table lists the methods that fit. {count} other {methods} "
+            "cannot estimate this question; the full summary says why."
+        ),
+        "further_conditions": (
+            "The full summary states {count} further {conditions} the answer rests on."
+        ),
+        "checkable": (
+            "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
+            "after a fit, result.diagnostics.support() shows where the fitted treatment model "
+            "gives units little chance of a compared treatment. That check reads a fitted "
+            "model, so a clean result does not prove overlap."
+        ),
+        "model_restriction": (
+            "The design restricts the model of the data; the full summary states how. The "
+            "question is unchanged, and the interval of a fit is claimed only under the "
+            "restriction."
+        ),
+        "several_readings": (
+            "The answer has {count} causal readings, each resting on its own condition; the "
+            "full summary states each."
+        ),
+        "unbound_effect": (
+            "This question is not bound to data, so it cannot be estimated, and the methods "
+            "table is worked out from the question without the study's design."
+        ),
+        "no_method": "No method fits this question; the full summary says why each does not.",
+        "data_warning": "When cleverly read the data it warned: {messages}",
+        "failed_replications": (
+            "Replications that raised an error: {count} of {total}. Every column leaves "
+            "them out, and the full summary lists the errors."
+        ),
+        "measures_diagnostic": (
+            "One or more estimates supply no interval{some}, so mean SE, SE ratio, coverage "
+            "and rejected describe the {noun} and not a confidence interval."
+        ),
+        "mixed_statuses": (
+            "The replicates took more than one inference status, named as in the inference "
+            "column of to_frame(): {clauses}."
+        ),
+        "worker_time": (
+            "The parallel workers' times are each worker's own elapsed time, added across "
+            "workers, so they can pass the time the fit waited and are not added to the "
+            "table above."
+        ),
+        "spread_scale_simulation": (
+            "For {names}, mean SE and SE ratio are on the log scale; truth, bias and MC SD "
+            "are on the ratio scale."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T5_NOTE_TEXTS})
 
 #: The Design fact, keyed by the design class's name. ``{T}`` is the number of time points.
 DESIGN_WORDS: Final[Mapping[str, str]] = MappingProxyType(
