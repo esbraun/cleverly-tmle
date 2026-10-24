@@ -2151,10 +2151,11 @@ def _report(
         for model in book.models
     )
     reliance = (
-        "A fixed or rule-set dose of a continuous treatment has no estimate without a model "
-        "of the covariates and the outcome. The estimate and its interval hold inside the "
-        "fitted parametric models, which are extrapolated to the dose at every time point. "
-        "The interval does not cover a wrong model."
+        "The mean under a fixed or rule-set dose of a continuous treatment has no estimate "
+        "with a standard root-n interval unless the covariates and the outcome are modelled, "
+        "because without a model it is not a smooth function of the data's law. The estimate "
+        "and its interval hold inside the fitted parametric models, which are extrapolated to "
+        "the dose at every time point. The interval does not cover a wrong model."
         if set_doses
         else None
     )

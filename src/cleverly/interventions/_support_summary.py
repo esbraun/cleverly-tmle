@@ -119,16 +119,18 @@ def support_report_summary(report: SupportReport, detail: Detail) -> Summary:
     notes: list[Note] = []
     if any(loads):
         notes.append(note("score_load", vocabulary.NOTE_TEXTS["score_load"]))
-    for name, item in report.regimes.items():
-        if item.unsupported > 0:
-            notes.append(
-                note(
-                    "unsupported_rows",
-                    vocabulary.NOTE_TEXTS["unsupported_rows"].format(
-                        name=name, count=count_text(item.unsupported)
-                    ),
-                )
+    unsupported = [
+        f"{name} {count_text(item.unsupported)}"
+        for name, item in report.regimes.items()
+        if item.unsupported > 0
+    ]
+    if unsupported:
+        notes.append(
+            note(
+                "unsupported_rows",
+                vocabulary.NOTE_TEXTS["unsupported_rows"].format(counts=", ".join(unsupported)),
             )
+        )
     sections: list[SummarySection] = []
     if detail == "full":
         lines = [vocabulary.SUPPORT_TWO_MECHANISMS]
@@ -145,6 +147,7 @@ def support_report_summary(report: SupportReport, detail: Detail) -> Summary:
             )
         sections.append(_how_to_read(lines))
     return Summary.build(
+        reading=None if report.regimes else vocabulary.SUPPORT_NO_REGIMES,
         title=vocabulary.REGIME_SUPPORT_TITLE,
         header=header,
         tables=[table],
@@ -259,6 +262,16 @@ def policy_support_summary(row: PolicySupport, detail: Detail) -> Summary:
             vocabulary.SUPPORT_NO_DENSITY if row.min_density is None else _number(row.min_density),
         )
     )
+    header.append(
+        (
+            vocabulary.SUPPORT_UNSUPPORTED_ROWS,
+            vocabulary.SUPPORT_NOT_MEASURED
+            if row.unsupported is None
+            else count_text(row.unsupported),
+        )
+    )
+    if row.outside_declared_support is not None:
+        header.append((vocabulary.SUPPORT_OUTSIDE, count_text(row.outside_declared_support)))
     if weight:
         header.append((vocabulary.SUPPORT_MIN_MECHANISM, _number(row.min_mechanism)))
     label = vocabulary.SUPPORT_WEIGHT if weight else vocabulary.SUPPORT_RATIO
@@ -300,7 +313,7 @@ def policy_support_summary(row: PolicySupport, detail: Detail) -> Summary:
     ]
     notes: list[Note] = []
     if row.score_load is not None:
-        notes.append(note("score_load", vocabulary.NOTE_TEXTS["score_load"]))
+        notes.append(note("score_load_rows", vocabulary.NOTE_TEXTS["score_load_rows"]))
     if row.unsupported:
         notes.append(
             note(
@@ -313,6 +326,8 @@ def policy_support_summary(row: PolicySupport, detail: Detail) -> Summary:
     sections: list[SummarySection] = []
     if detail == "full":
         lines = [vocabulary.SUPPORT_MEAN_RATIO_READING]
+        if weight:
+            lines.append(vocabulary.SUPPORT_MECHANISM_NOTE)
         if row.atom_mass:
             masses = ", ".join(f"{atom:g}: {mass:.3g}" for atom, mass in row.atom_mass.items())
             lines.append(vocabulary.SUPPORT_ATOMS.format(masses=masses))
@@ -398,7 +413,7 @@ def tilt_support_summary(row: IncrementalSupport, detail: Detail) -> Summary:
     )
     notes: list[Note] = []
     if row.score_load is not None:
-        notes.append(note("score_load", vocabulary.NOTE_TEXTS["score_load"]))
+        notes.append(note("score_load_rows", vocabulary.NOTE_TEXTS["score_load_rows"]))
     sections: list[SummarySection] = []
     if detail == "full":
         sections.append(_how_to_read([vocabulary.SUPPORT_TILT_READING]))

@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 from cleverly import load
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.data.weighting import (
     REPORTED_DRAW,
@@ -164,6 +165,13 @@ SCORE_LOAD_NOTE = (
     "effective size read the estimated model before any limit. It counts the rows that "
     "effectively carry the estimating equation, of the rows the equation reads, so it is not "
     "the effective size of the ratios."
+)
+
+#: The score-load note of a policy or a tilt. Neither truncates its ratio, so the note keeps
+#: only what the score column counts and that it is not the effective size of the ratios.
+SCORE_LOAD_ROWS_NOTE = (
+    "Score load counts the rows that effectively carry the estimating equation, of the rows "
+    "the equation reads, so it is not the effective size of the ratios."
 )
 
 
@@ -785,6 +793,7 @@ def test_the_regime_table_says_a_missing_score_load_is_unavailable(
 
     (table,) = summary.tables
     assert [row[4].value for row in table.rows] == [None] * len(report.regimes)
+    assert [row[4].text for row in table.rows] == [vocabulary.MISSING] * len(report.regimes)
     assert "score_load" not in summary.note_codes
     assert "split" not in table.title
     assert list(frame["score_equation"]) == [None] * len(report.regimes)
@@ -811,10 +820,11 @@ def test_the_shift_and_tilt_summaries_carry_the_fitted_score_fragment(
             and cell.text == f"{reported['effective']:,.1f} of {reported['n_targeted']:,.0f}"
             for cell in cells
         )
-        assert summary.note("score_load").text == SCORE_LOAD_NOTE
+        assert summary.note("score_load_rows").text == SCORE_LOAD_ROWS_NOTE
+        assert "score_load" not in summary.note_codes
         assert "split" not in summary.tables[0].title
         missing = dataclasses.replace(row, score_load=None).summary()
-        assert "score_load" not in missing.note_codes
+        assert "score_load_rows" not in missing.note_codes
 
 
 def test_the_combined_row_reports_load_without_grading_or_pooling_it(

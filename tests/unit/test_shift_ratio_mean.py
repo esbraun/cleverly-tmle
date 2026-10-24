@@ -142,3 +142,5 @@ def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
     assert "which is one when the policy keeps that support" in reading
     assert "moves with sampling and with error in the density model" in reading
     assert "does not prove that the support holds or that the effect is identified" in reading
+    # The expected value under the true density is a probability, not always one.
+    assert "equals one under the true density" not in reading

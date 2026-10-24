@@ -118,6 +118,9 @@ def read_support_report(report: Any, text: str) -> None:
     check_rows(text, [rows])
     assert _fact(text, "Rows") == f"{report.n:,}"
     assert _fact(text, "Regimes") == str(len(report.regimes))
+    if report.regimes:
+        least = min(report.regimes, key=lambda name: report.regimes[name].min_support_propensity)
+        assert _fact(text, "Least supported") == least
 
 
 def read_regime_support(item: Any, text: str) -> None:
@@ -154,6 +157,13 @@ def read_policy_support(row: Any, text: str) -> None:
     ]
     check_rows(text, [rows])
     assert _fact(text, "Rows moved") == f"{row.moved_fraction:.1%}"
+    if row.capped_fraction is not None:
+        assert _fact(text, "Rows held by the cap") == f"{row.capped_fraction:.1%}"
+    zero = "not measured" if row.unsupported is None else f"{row.unsupported:,}"
+    assert _fact(text, "Rows sent to zero density") == zero
+    if row.min_mechanism is not None:
+        shown = _fact(text, "Smallest other factor dividing the weight")
+        assert np.isclose(float(shown), row.min_mechanism, rtol=5e-3)
     if row.min_density is not None:
         assert np.isclose(
             float(_fact(text, "Smallest density at an observed dose")), row.min_density, rtol=5e-3
@@ -235,8 +245,8 @@ def read_gformula_report(report: Any, text: str) -> None:
         for model in report.models
     ]
     tables = _tables(text)
-    # The model names are written from the key; compare everything after the name.
-    for cells, (_, values) in zip(tables[0], models, strict=True):
+    for cells, (_, values), model in zip(tables[0], models, report.models, strict=True):
+        assert cells[0] == _model_name(model.key, model.label), (cells[0], model.key)
         assert len(cells) - 1 == len(values), cells
         for shown, value in zip(cells[1:], values, strict=True):
             _check_cell(shown, value, ("models", cells[0], shown))
@@ -272,6 +282,23 @@ def read_gformula_report(report: Any, text: str) -> None:
                     _check_cell(shown, value, (number, label, shown))
     assert len(tables) == 1 + len(rest)
     assert _fact(text, "Models") == str(len(report.models))
+
+
+def _model_name(key: str, label: str) -> str:
+    """The printed name of a model: the column and its time point, read off the key.
+
+    Keys are ``covariate:<time>:<column>``, ``treatment:<time>``, ``hazard:<time>`` and
+    ``outcome``; the column of a treatment or the outcome is the quoted name in its label.
+    """
+    parts = key.split(":")
+    quoted = re.findall(r"'([^']*)'", label)
+    if parts[0] == "covariate":
+        return f"{parts[2]} at time {parts[1]}"
+    if parts[0] == "hazard":
+        return f"event at time {parts[1]}"
+    if parts[0] == "treatment":
+        return f"{quoted[0] if quoted else 'treatment'} at time {parts[1]}"
+    return quoted[0] if quoted else key
 
 
 def read_msm_fit(fit: Any, text: str) -> None:

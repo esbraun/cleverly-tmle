@@ -78,7 +78,14 @@ def test_a_regime_with_unsupported_rows_warns_and_a_supported_one_does_not() -> 
     regimes = dict(report.regimes)
     regimes["screen"] = dataclasses.replace(regimes["screen"], unsupported=3)
     witness = dataclasses.replace(report, regimes=regimes).summary()
-    assert witness.note("unsupported_rows").text.startswith("screen gives 3 rows an arm")
+    assert witness.note("unsupported_rows").text.startswith(
+        "Rows given an arm whose estimated probability is exactly zero: screen 3."
+    )
+    # A structural zero hits every regime that assigns the arm: one note names them all.
+    regimes["none"] = dataclasses.replace(regimes["none"], unsupported=4)
+    both = dataclasses.replace(report, regimes=regimes).summary()
+    assert both.note_codes.count("unsupported_rows") == 1
+    assert "zero: none 4, screen 3." in both.note("unsupported_rows").text
 
 
 def test_a_row_without_a_score_load_drops_the_score_note() -> None:
@@ -200,3 +207,58 @@ def test_the_positivity_record_marks_a_dose_without_an_extreme_share() -> None:
     (table,) = dose.summary().tables
     assert table.rows[0][2].text == vocabulary.MISSING
     assert np.isnan(table.rows[0][2].value)
+
+
+def test_every_row_replaces_the_list_only_when_it_names_every_row_of_a_long_table() -> None:
+    from cleverly._summary._estimates import estimates_table
+
+    experimental = fixtures.snmm_in_sample().estimates
+    supported = fixtures.snmm().estimates
+    names = list(experimental)
+    assert len(names) > 3
+
+    def text(rows: dict) -> str:  # type: ignore[type-arg]
+        _, notes = estimates_table(rows, level=0.95)
+        return next(item.text for item in notes if item.code == "experimental")
+
+    assert "marks every row experimental" in text(dict(experimental))
+    short = {name: experimental[name] for name in names[:3]}
+    assert f"marks {', '.join(names[:3])} experimental" in text(short)
+    other = next(name for name in supported if name not in names[:4])
+    mixed = {**{name: experimental[name] for name in names[:4]}, other: supported[other]}
+    assert "every row" not in text(mixed)
+    assert f"marks {', '.join(names[:4])} experimental" in text(mixed)
+
+
+def test_the_split_title_reads_the_draw_the_load_records() -> None:
+    row = fixtures.regime_row()
+    assert row.score_load is not None
+    load = {**row.score_load, "n_repeats": 3, "reported_repeat": 2}
+    (table,) = dataclasses.replace(row, score_load=load).summary().tables
+    assert table.title.endswith("(score load from split 2 of 3)")
+
+
+def test_the_split_note_needs_several_splits_and_the_label_needs_an_experimental_check() -> None:
+    check = fixtures.check()
+    assert "check_splits" in check.summary().note_codes
+    assert "experimental" in check.summary().note_codes
+    one = dataclasses.replace(check, n_splits=1).summary()
+    assert "check_splits" not in one.note_codes
+    supported = next(iter(fixtures.snmm().estimates.values())).support
+    assert supported.label != vocabulary.EXPERIMENTAL
+    assert "experimental" not in dataclasses.replace(check, support=supported).summary().note_codes
+
+
+def test_a_policy_states_its_zero_density_rows_and_its_declared_support() -> None:
+    row = fixtures.policy_row()
+    assert row.unsupported == 0 and row.outside_declared_support is None
+    facts = row.summary().facts
+    assert facts["Rows sent to zero density"] == "0"
+    assert "Rows sent outside the declared support" not in facts
+    assert "unsupported_rows" not in row.summary().note_codes
+    unchecked = dataclasses.replace(row, unsupported=None).summary().facts
+    assert unchecked["Rows sent to zero density"] == "not measured"
+    declared = dataclasses.replace(row, outside_declared_support=7).summary().facts
+    assert declared["Rows sent outside the declared support"] == "7"
+    sent = dataclasses.replace(row, unsupported=5).summary()
+    assert sent.note("unsupported_rows").text.startswith("up moves 5 rows to a dose")
