@@ -541,6 +541,38 @@ def _folds_fact(result: LongitudinalResult) -> str:
     return "no" if folds <= 1 else f"{folds} folds"
 
 
+def population_facts(data: Any) -> list[tuple[str, str]]:
+    """The Clusters and Weights header facts of a longitudinal container, when it has them.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data.
+
+    Returns
+    -------
+    list of tuple of str
+        ``(label, fact)`` pairs.
+    """
+    facts: list[tuple[str, str]] = []
+    if data.cluster is not None:
+        clusters = count_text(int(np.unique(data.cluster).size)) + positive_mass_clause(
+            data.cluster, data.weights if data.is_weighted else None
+        )
+        facts.append((vocabulary.CLUSTERS, clusters))
+    if data.is_weighted:
+        report = data.weight_report()
+        kind = ", estimated" if report.estimated else ""
+        facts.append(
+            (
+                vocabulary.WEIGHTS,
+                f"{report.name or 'weights'}{kind}; effective sample size "
+                f"{report.effective_n:,.0f}",
+            )
+        )
+    return facts
+
+
 def _header(result: LongitudinalResult) -> tuple[list[tuple[str, str]], int]:
     """The header facts and how many of them go in the left column."""
     data = result.data
@@ -561,21 +593,7 @@ def _header(result: LongitudinalResult) -> tuple[list[tuple[str, str]], int]:
             )
         )
     left.append((vocabulary.METHOD, _method(result)))
-    if data.cluster is not None:
-        clusters = count_text(int(np.unique(data.cluster).size)) + positive_mass_clause(
-            data.cluster, data.weights if data.is_weighted else None
-        )
-        left.append((vocabulary.CLUSTERS, clusters))
-    if data.is_weighted:
-        report = data.weight_report()
-        kind = ", estimated" if report.estimated else ""
-        left.append(
-            (
-                vocabulary.WEIGHTS,
-                f"{report.name or 'weights'}{kind}; effective sample size "
-                f"{report.effective_n:,.0f}",
-            )
-        )
+    left.extend(population_facts(data))
     right: list[tuple[str, str]] = [
         (vocabulary.UNITS if data.panel is not None else vocabulary.ROWS, count_text(result.n)),
         (vocabulary.TIME_POINTS, _time_points(result)),

@@ -382,6 +382,8 @@ NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "working_model": "note",
         "isotonic_moves": "note",
         "model_reliance": "note",
+        "structural_model": "note",
+        "check_splits": "note",
     }
 )
 
@@ -658,6 +660,21 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "where the true curve strictly increases."
         ),
         "model_reliance": "{statement}",
+        "structural_model": (
+            "The intervals hold under the linear structural nested mean model with the blip "
+            "features declared at each time point. A blip that depends on an undeclared "
+            "earlier treatment or covariate makes the coefficients, and the plan means read "
+            "from them, biased."
+        ),
+        "structural_covariate_feature": (
+            "A blip feature reads a covariate measured after baseline, so the fit reports the "
+            "blips and the reference mean but no plan means or contrasts."
+        ),
+        "structural_check": "result.check_model() compares the plan contrasts with LTMLE.",
+        "check_experimental": "cleverly marks this check experimental. {reason}",
+        "check_splits": (
+            "Each number is the mean over {k} fold splits, the first of them the fit's own."
+        ),
     }
 )
 
@@ -775,6 +792,82 @@ SIMULATION_TITLE: Final = "Simulation report (parametric g-formula)"
 REGIME_SUPPORT_TITLE: Final = "Overlap of each regime"
 POLICY_SUPPORT_TITLE: Final = "Overlap of policy {name}"
 TILT_SUPPORT_TITLE: Final = "Overlap of tilt {name}"
+
+#: The structural nested mean summary (X89 T2): the Question, the row meanings and the
+#: blip-feature table.
+STRUCTURAL_QUESTION: Final = "effect of each treatment time on {Y} under the blip model"
+STRUCTURAL_QUESTION_PLANS: Final = (
+    "effect of each treatment time on {Y} under the blip model, and the plan means it implies"
+)
+STRUCTURAL_LEVEL: Final = "{A} = {level} instead of {ref}"
+STRUCTURAL_DOSE: Final = "one more unit of {A}"
+STRUCTURAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "blip": (
+            "coefficient of {feature} in the effect on {Y} of {change} at time {t}, with later "
+            "treatments at their reference"
+        ),
+        "intercept": (
+            "effect on {Y} of {change} at time {t}, with later treatments at their reference, "
+            "for a unit whose other blip features are zero"
+        ),
+        "reference": "mean {Y} if every unit had the reference level of every treatment",
+        "level": "mean {Y} if every unit followed plan {d}, read from the blip model",
+        "contrast": (
+            "mean {Y} under plan {d} minus that mean under plan {r}, read from the blip model"
+        ),
+    }
+)
+BLIP_TITLE: Final = "Blip features at each time point"
+TIME: Final = "time"
+BLIP_TREATMENT: Final = "treatment"
+BLIP_LEVELS: Final = "levels"
+BLIP_FEATURES: Final = "features"
+STRUCTURAL_FAMILY: Final = "Outcome regressions: {family}."
+FAMILY_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"binomial": "logistic, for a 0-or-1 outcome", "gaussian": "linear, for a continuous outcome"}
+)
+STRUCTURAL_EIGENVALUE: Final = (
+    "Smallest standardized eigenvalue of the estimating equation's derivative: {value}. Near "
+    "zero, the treatment varies little given the history, or the blip features are nearly "
+    "collinear given it, so the coefficients are weakly identified."
+)
+STRUCTURAL_EXTREME: Final = (
+    "Largest share of rows with an estimated treatment probability within {margin} of 0 or 1, "
+    "over the time points: {share}."
+)
+STRUCTURAL_RESTRICTION: Final = (
+    "the effect of each treatment time, with later treatments at their reference, is linear "
+    "in the declared blip features"
+)
+STRUCTURAL_CONSTRUCTION: Final = (
+    "G-estimation: at each time point, from the last to the first, the blip coefficients solve "
+    "an estimating equation that pairs the outcome, with later blips removed, against the "
+    "treatment minus its predicted value."
+)
+
+#: The structural model check summary.
+CHECK_QUESTION: Final = "do the model's plan contrasts agree with LTMLE on the same rows?"
+CHECK_CONTRASTS: Final = "Contrasts"
+CHECK_SPLITS_LABEL: Final = "Fold splits"
+CHECK_TEST: Final = "Test"
+CHECK_TEST_F: Final = "joint Wald statistic, F reference with {df} and {df2} degrees of freedom"
+CHECK_TEST_CHI2: Final = "joint Wald statistic, chi-squared reference with {df} degrees of freedom"
+CHECK_TABLE_TITLE: Final = "The model's contrasts against LTMLE"
+CHECK_STRUCTURAL: Final = "structural"
+CHECK_LTMLE: Final = "LTMLE"
+CHECK_DIFFERENCE: Final = "difference"
+CHECK_SPREAD: Final = "std. error of difference"
+CHECK_JOINT_TITLE: Final = "Joint test"
+CHECK_STATISTIC: Final = "statistic"
+CHECK_CONTRASTS_COLUMN: Final = "contrasts"
+CHECK_COVARIANCE_DF: Final = "covariance df"
+CHECK_PVALUE: Final = "p-value"
+CHECK_READING: Final = (
+    "A small p-value says the model fails for these contrasts; a large one does not confirm "
+    "the model."
+)
+CHECK_NO_TEST: Final = "No test: {reason}"
 
 #: What one row of a longitudinal table estimates, keyed by the name's prefix and the
 #: outcome kind. ``{Y}`` is the outcome (with ``{at}`` its time, empty at the end of study),

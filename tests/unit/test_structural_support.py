@@ -34,6 +34,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly
 from cleverly import _support
+from cleverly._summary import vocabulary
+from cleverly._summary._estimates import plain_support_reason
 from cleverly._support import UNCLASSIFIED, SupportRow, structural_key
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.learners import GLM
@@ -142,17 +144,23 @@ class TestAnUncoveredFitReadsExperimental:
         assert all(str(reason).startswith(NO_STUDY) for reason in frame["support_reason"])
 
     def test_the_summary_prints_the_column_and_one_note_per_reason(self, uncovered: Any) -> None:
-        text = uncovered.summary()
-        header = next(line for line in text.splitlines() if line.startswith("parameter"))
-        assert header.split()[-1] == "support"
-        notes = [line for line in text.splitlines() if line.startswith("experimental:")]
-        assert len(notes) == 1
-        assert NO_STUDY in notes[0]
+        summary = uncovered.summary(detail="full")
+        assert summary.table("estimates").columns[-1] == vocabulary.SUPPORT
+        assert summary.note_codes.count("experimental") == 1
+        reasons = [
+            line
+            for line in summary.section(vocabulary.SECTION_SETTINGS).lines
+            if line.startswith("Why the rows are experimental:")
+        ]
+        assert len(reasons) == 1
+        reason = uncovered["ey_regimen[always]"].support.reason
+        assert plain_support_reason(reason) in reasons[0]
 
     def test_the_bands_and_a_contrast_carry_the_label(self, uncovered: Any) -> None:
         assert uncovered.simultaneous is not None
         assert uncovered.simultaneous.support.label == "experimental"
-        assert "pointwise) [experimental]:" in uncovered.summary()
+        bands = uncovered.summary().note("simultaneous_bands").text
+        assert vocabulary.NOTE_TEXTS["bands_experimental"] in bands
         derived = uncovered.contrast(
             lambda psi: psi[0] - psi[1],
             ["ey_regimen[always]", "ey_regimen[never]"],
@@ -274,10 +282,7 @@ class TestARowCoversTheKey:
             lambda psi: psi[0] - psi[1], ["ey_regimen[always]", "ey_regimen[never]"]
         )
         assert derived.support.label == "supported"
-        check_header = next(
-            line for line in covered.summary().splitlines() if line.startswith("parameter")
-        )
-        assert "support" not in check_header
+        assert vocabulary.SUPPORT not in covered.summary().table("estimates").columns
 
     def test_a_row_that_differs_on_one_axis_leaves_the_fit_experimental(
         self, result: Any, monkeypatch: pytest.MonkeyPatch
@@ -361,7 +366,8 @@ class TestTheModelCheckCarriesTheLabel:
         check = result.check_model(q_bounds=BOUNDS)
         assert check.support.label == "experimental"
         assert NO_STUDY in check.support.reason
-        assert f"experimental: {check.support.reason}" in check.summary()
+        text = check.summary().note("experimental").text
+        assert plain_support_reason(check.support.reason) in text
 
     def test_a_check_on_a_few_cluster_fit_runs_under_the_label(self) -> None:
         few = fit(_simulated(clusters=8), id="id", simultaneous=False)
