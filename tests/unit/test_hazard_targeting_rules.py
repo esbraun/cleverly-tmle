@@ -279,8 +279,9 @@ def test_the_thresholds_are_the_hand_computation_from_the_influence_curves(
 
 
 def test_the_summary_prints_the_residual_line_of_a_declared_rule() -> None:
-    text = _fit(ArmOnly(), stopping="scaled_var").summary()
-    assert "stopping rule scaled_var" in text
+    summary = _fit(ArmOnly(), stopping="scaled_var").summary()
+    assert "Under the declared stopping rule" in summary.note("stopping_rule").text
+    assert "stopping_rule" not in _fit(ArmOnly()).summary().note_codes
 
 
 # ---------------------------------------------------------------------- iterate=

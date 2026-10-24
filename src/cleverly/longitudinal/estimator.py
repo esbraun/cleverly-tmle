@@ -74,10 +74,7 @@ from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     CONSTANT_NODE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
-    NO_SIMULTANEOUS_BANDS,
-    NO_T_REFERENCE_BANDS,
     PARAMETER_STATUSES,
-    T_REFERENCE_NOTE,
     TRIMMED_RATIO_STATUS,
     InferenceStatus,
     is_labelled,
@@ -107,7 +104,6 @@ from .._typing import (
 )
 from .._warnings import FitWarning, records_fit
 from .._warnings import warn as _warn
-from ..data.weighting import REPORTED_DRAW
 from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
     CapabilityError,
@@ -127,8 +123,6 @@ from ..fluctuation._score import (
     check_iterate,
     check_step_bound,
     check_stopping_rule,
-    residual_line,
-    rule_failure_line,
 )
 from ..inference.bootstrap import (
     BootstrapBand,
@@ -142,22 +136,16 @@ from ..inference.bootstrap import (
 from ..inference.cluster import (
     cluster_inference_status,
     cluster_reference_df,
-    fewest_clusters,
     influence_covariance,
-    positive_mass_clause,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
-    bootstrap_line,
     has_t_reference,
     make_estimate,
     median_estimates,
-    reference_label,
     spread_name,
-    support_column,
-    support_notes,
     with_precedent_status,
 )
 from ..inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
@@ -181,7 +169,6 @@ from ..inference.results import (
     select_estimates,
     smooth_contrast,
     sole_estimate,
-    split_noise_lines,
     with_derived_bootstrap,
 )
 from ..inference.sparse import influence_report, warn_sparse_influence
@@ -189,7 +176,7 @@ from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from .._summary import Detail
+from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
 from ..learners.crossfit import (
@@ -218,7 +205,6 @@ from ..methods import (
     sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
-from ..protocol import protocol_summary_lines
 from ..provenance import Provenance, fingerprint_array, fold_fingerprint
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
@@ -229,7 +215,6 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
-from ..utils.text import format_draw, format_pvalue, format_table
 from .baselines import (
     IPW_NORMALIZATIONS,
     fit_gcomp_cell,
@@ -273,12 +258,10 @@ from .msm import (
 from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
 from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
-    DynamicRegimen,
     Plan,
     RegimenSpec,
     attach_policy_numerators,
     declares_tuned,
-    describe_plan,
     refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
@@ -676,16 +659,6 @@ def _warn_parameter_space(
         stacklevel=3,
     )
 
-
-#: The summary title of each estimator.
-_ESTIMATOR_TITLE: dict[str, str] = {
-    "tmle": "TMLE",
-    "sdr": "SDR",
-    "ipsi": "IPSI",
-    "gcomp": "g-computation",
-    "ipw": "IPW",
-    "parametric_gformula": "parametric g-formula",
-}
 
 #: The estimators that fit no targeting step and read parametric nuisances for an interval.
 _BASELINES: frozenset[str] = frozenset({"gcomp", "ipw", "parametric_gformula"})
@@ -1489,219 +1462,6 @@ class LongitudinalConfig:
 
     #: The support key the fit was classified under, read before any learner ran.
     support_key: SupportKey | None = None
-
-    def describe(self, *, contrast: bool) -> list[str]:
-        """Return the settings lines of :meth:`LongitudinalResult.summary`.
-
-        Parameters
-        ----------
-        contrast : bool
-            Whether the report holds a contrast, which the reference line describes. A
-            report of regime means prints no reference line.
-
-        Returns
-        -------
-        list of str
-            One line per setting.
-        """
-        plans = ", ".join(
-            f"{regimen.label}=({describe_plan(regimen)})" for regimen in self.regimens
-        )
-        lines = [
-            f"time points: {self.n_times}",
-            f"outcome family: {self.family}",
-            f"regimens: {plans}",
-        ]
-        if self.estimator == "sdr":
-            lines.insert(
-                0,
-                "estimator: sequentially doubly robust (Diaz, Williams, Hoffman and Schenck "
-                "2023, Section 5.3), no fluctuation",
-            )
-        if self.estimator == "ipsi":
-            lines.insert(
-                0,
-                "estimator: Kennedy (2019) Algorithm 1, the mean of the influence function "
-                "at the fitted nuisances (Kim, Kennedy and Naimi 2021, Algorithm 1, under "
-                "censoring), no fluctuation",
-            )
-        if self.estimator == "gcomp":
-            lines.insert(
-                0,
-                "estimator: sequential g-computation, the iterated conditional expectation "
-                "plug-in (Bang and Robins 2005, Section 4), no fluctuation; an interval "
-                "assumes every outcome GLM is correctly specified",
-            )
-        if self.estimator == "parametric_gformula":
-            lines.insert(
-                0,
-                "estimator: parametric g-formula, forward simulation of the fitted covariate, "
-                "outcome and hazard laws (Robins 1986; McGrath et al. 2020), no fluctuation; "
-                "an interval assumes every model is correctly specified",
-            )
-        if self.estimator == "ipw":
-            form = (
-                "Hajek (normalized by the weight sum)"
-                if self.normalization == "hajek"
-                else "Horvitz-Thompson (normalized by n)"
-            )
-            lines.insert(
-                0,
-                f"estimator: inverse probability weighting, {form}; an interval assumes "
-                "every treatment and censoring GLM is correctly specified",
-            )
-        if self.held_treatment is not None:
-            lines.insert(
-                1,
-                f"treatment: one baseline decision {self.held_treatment!r}, held over "
-                f"{self.n_times} node(s)",
-            )
-        if self.time_grid is not None:
-            lines.insert(1, f"time grid: {', '.join(f'{g:g}' for g in self.time_grid)}")
-        if self.panel is not None:
-            lines.insert(1, self.panel)
-        if self.outcome_kind != "end_of_study":
-            lines.insert(
-                1,
-                (
-                    f"outcome: repeated, a non-absorbing outcome at {', '.join(self.outcome_names)}"
-                    if self.outcome_kind == "repeated"
-                    else f"outcome: survival, event indicator at {', '.join(self.outcome_names)}"
-                ),
-            )
-            reported = ", ".join(str(horizon) for horizon in self.horizons)
-            lines.insert(2, f"horizons reported: t = {reported}")
-            if self.causes:
-                lines[1] = (
-                    "outcome: competing risks, absorbing causes "
-                    f"{', '.join(self.causes)} at {', '.join(self.outcome_names)}"
-                )
-                lines.insert(3, f"causes reported: {', '.join(self.causes)}")
-        dynamic = {
-            regimen.label
-            for regimen in self.regimens
-            if isinstance(regimen, DynamicRegimen)
-            and (regimen.has_rule or regimen.has_policy or not regimen.has_tilt)
-        }
-        if any(
-            isinstance(regimen, DynamicRegimen) and regimen.has_tilt for regimen in self.regimens
-        ):
-            lines.append(
-                "  an 'o' node is an odds tilt: each unit draws its arm from "
-                "q_t = delta*pi_t/(delta*pi_t + 1 - pi_t), with pi_t the treatment mechanism "
-                "(Kennedy 2019, Equation (1)); every unit at risk is in the plan"
-            )
-        if dynamic:
-            # Worth a line rather than leaving "d" to be guessed at, because it changes
-            # how the follower counts below should be read: a static regimen's followers
-            # are whoever happened to receive that sequence, and a rule's are whoever the
-            # rule would have treated -- a set this sample determines.
-            # A repeated outcome's earlier nodes open the later blocks, so they are in H_t.
-            history = (
-                "L_1, ..., L_t, with Y_{t-1} first in each block L_t, t > 1"
-                if self.outcome_kind == "repeated"
-                else "L_1, ..., L_t"
-            )
-            lines.append(
-                f"  a 'd' is a rule d_t(H_t) read off [W, {history}]; its followers "
-                "are a covariate-dependent set, so the counts below describe this sample"
-            )
-            # Only for the regimens that have a rule in them, and only when one does:
-            # printing a digest of a plan the line above already spells out in full would
-            # add noise to every static report to say nothing.
-            for label, digest in self.plan_fingerprints:
-                if label in dynamic:
-                    lines.append(f"  assigned arms, {label}: {digest}")
-        policies = [
-            regimen.label
-            for regimen in self.regimens
-            if isinstance(regimen, DynamicRegimen) and regimen.has_policy
-        ]
-        if policies:
-            lines.append(
-                "  a 'q' is a known policy q_t(a | H_t) read off [W, L_1, ..., L_t] and the "
-                "earlier treatments; each unit draws its arm there, and the plan's units are "
-                "those whose observed arm the policy can draw"
-            )
-        for label, nodes in self.policy_point_mass_nodes:
-            listed = ", ".join(str(node) for node in nodes)
-            lines.append(
-                f"  policy {label}: one-hot at node(s) {listed}, so resolved as the rule it equals"
-            )
-        if self.msm_terms is not None:
-            # A working model has no reference regimen -- what the intercept is against is
-            # whatever the design makes it -- so the working model stands where that line
-            # would, rather than beside a field that names nothing.
-            lines.append(
-                f"working model: {len(self.msm_terms)} term(s) "
-                f"{', '.join(self.msm_terms)}, link={self.msm_link}"
-            )
-        elif contrast:
-            # A report of means holds no contrast for the reference to describe. The field
-            # stays set, because a replay of the result reads it.
-            lines.append(f"reference: {self.reference}")
-        lines += [
-            # A single fold is not cross-fitting, and printing "1 fold(s)" reads as
-            # though it were: the nuisances are then fitted on the rows they predict
-            # for, which the reported variance does not account for.
-            "cross-fitting: none; nuisances fitted in sample"
-            if self.n_folds <= 1
-            else f"cross-fitting: {self.n_folds} fold(s)"
-            + (f", median over {self.repeats} draws" if self.repeats > 1 else ""),
-            # Both factors enter the product before its prefix is bounded, as in ltmle's
-            # CalcCumG.  Saying "mechanism at every node" used to conceal the order.
-            f"g_bounds: fixed [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on each "
-            + (
-                "partial path treatment-and-censoring probability"
-                if self.estimator == "sdr"
-                else "cumulative censoring and non-tilt treatment probability; the tilt "
-                "factor is unbounded"
-                if self.estimator == "ipsi"
-                else "cumulative treatment-and-censoring probability"
-            )
-            + (
-                " (package default, an R ltmle-compatible heuristic; "
-                "inspect the truncation diagnostics)"
-                if self.g_bounds == DEFAULT_LTMLE_G_BOUNDS
-                else ""
-            ),
-        ]
-        if len(self.outcome_names) > 1:
-            lines.append(f"survival model: {self.survival_model}")
-            lines.append(
-                f"targeting: {self.targeting}"
-                + (f", step size {self.step_size:g}" if self.targeting == "one_step" else "")
-            )
-            lines.append(
-                "isotonic projection: "
-                + ("each curve's levels and band limits" if self.isotonic else "none")
-            )
-        if self.known_factors:
-            lines.append(
-                f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
-                "truncation bound moved a declared value"
-            )
-        if self.node_bounds:
-            lines.append(
-                "node_bounds: "
-                + "; ".join(
-                    f"{'' if cause is None else f'{cause} '}t={time:g} in [{lower:g}, {upper:g}]"
-                    for cause, time, lower, upper in self.node_bounds
-                )
-                + (
-                    " (bounded cause-specific hazards at the named nodes, on the hazard scale)"
-                    if self.survival_model == "hazard"
-                    else " (bounded logistic fluctuation at the named nodes)"
-                )
-            )
-        if self.q_bounds is not None:
-            lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
-        lines.append(f"confidence level: {(1 - self.alpha_sig) * 100:g}%")
-        if self.random_state is not None:
-            lines.append(f"random_state: {self.random_state}")
-        elif self.multiplier_seed is not None:
-            lines.append(f"multiplier seed: {self.multiplier_seed} (drawn, random_state=None)")
-        return lines
 
 
 @dataclass(frozen=True)
@@ -3284,260 +3044,31 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ]
         return self.data.frame_like(payload)
 
-    def summary(self, *, detail: Detail = "short") -> str:
-        """A printable report: the estimates, then the settings, then the leverage.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the fit, laid out like a statsmodels summary.
+
+        The header names the question, the data and the models; the tables give each
+        estimate with its standard error, interval and p-value, what each row estimates,
+        and what each plan assigns and how many units followed it; numbered notes say what
+        changes how to read a number on this fit only.
 
         Parameters
         ----------
         detail : {"short", "full"}, default "short"
-            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
-            protocol record, or that the fit had none.
+            ``"short"`` prints the analysis. ``"full"`` adds the assumptions behind a
+            causal reading, the settings that bounded the fit, the method's own details and
+            the study description.
 
         Returns
         -------
-        str
-            A printable report: the estimates, the settings, then the leverage.
+        Summary
+            A ``str`` whose value is the printed text. Its ``header``, ``tables``,
+            ``notes`` and ``sections`` hold the same content as data, and ``as_html()``
+            renders it for a notebook.
         """
-        level = f"{(1 - self.config.alpha_sig) * 100:g}%"
-        # The fit status decides the columns.  On a fit that supplies inference, a parameter
-        # with its own status (a constant-node risk) is starred below, row by row.
-        status = self.inference_status
-        record = None if supplies_inference(status) else status_record(status)
-        t_reference = has_t_reference(self.estimates)
-        rows = []
-        marked: dict[str, Any] = {}
-        support_cells = support_column(self.estimates)
-        if record is not None:
-            # The whole interval column is refused, so it is not printed with a dash under
-            # it: a heading would still tell a reader an interval belongs there.
-            for name, estimate in self.estimates.items():
-                rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
-            headers = ["parameter", "estimate", record.summary_label]
-            if support_cells is not None:
-                headers.append("support")
-                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-            table = format_table(headers, rows)
-        else:
-            for name, estimate in self.estimates.items():
-                if not estimate.supplies_inference:
-                    # A parameter with its own status, such as a constant-node risk: the
-                    # plug-in spread is marked, and no interval or p-value is printed.
-                    marked[estimate.inference] = status_record(estimate.inference)
-                    rows.append(
-                        [
-                            name,
-                            f"{estimate.psi:.4f}",
-                            f"{estimate.plugin_std_error:.4f}*",
-                            "not reported",
-                            "not reported",
-                            *([""] if t_reference else []),
-                        ]
-                    )
-                    continue
-                low, high = estimate.ci
-                rows.append(
-                    [
-                        name,
-                        f"{estimate.psi:.4f}",
-                        f"{estimate.std_error:.4f}",
-                        f"[{low:.4f}, {high:.4f}]",
-                        format_pvalue(estimate.pvalue),
-                        *([reference_label(estimate)] if t_reference else []),
-                    ]
-                )
-            headers = [
-                "parameter",
-                "estimate",
-                "std. error",
-                f"{level} CI",
-                "p-value",
-                *(["df"] if t_reference else []),
-            ]
-            if support_cells is not None:
-                headers.append("support")
-                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-            table = format_table(headers, rows)
-        # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
-        contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
-        facts = list(self.config.describe(contrast=contrast))
-        if self.simulation is not None:
-            facts.extend(self.simulation.describe())
-        if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines(detail=detail))
-        else:
-            facts.extend(protocol_summary_lines(None, detail))
-        if self.data.cluster is not None:
-            # The count the status reads, when it differs from the count of labels: a
-            # cluster with zero weight mass contributes nothing to any estimate.
-            count = f"{self.data.n_clusters}" + positive_mass_clause(
-                self.data.cluster, self.data.weights if self.data.is_weighted else None
-            )
-            facts.append(f"clusters = {count} ({self.data.cluster_name}, cluster-robust variance)")
-        if self.data.is_weighted:
-            report = self.data.weight_report()
-            facts.append(
-                f"observation weights ({report.name or 'weights'}, "
-                + ("estimated" if report.estimated else "fixed")
-                + f"): effective n = {report.effective_n:.1f}, "
-                f"design effect = {report.design_effect:.2f}"
-            )
-            facts.append(
-                "estimand: the parameter in the weight-tilted population dP_w = w dP / E[w]; "
-                "see result.data.weight_report()"
-            )
-        facts.extend(self.provenance.describe())
-        lines = [
-            f"Longitudinal {_ESTIMATOR_TITLE.get(self.config.estimator, 'TMLE')} "
-            f"({self.data.n_times} time points, n = {self.n})",
-            "",
-            table,
-            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
-            # The refusal's own reason, as ``TMLEResult.summary`` prints it.
-            *(["", record.summary_note()] if record is not None else []),
-            *(
-                line
-                for marked_record in marked.values()
-                for line in (
-                    "",
-                    "* "
-                    + marked_record.reason
-                    + f" A starred spread above is the {marked_record.summary_label}, a "
-                    "diagnostic and not a standard error.",
-                )
-            ),
-            *(
-                [
-                    "",
-                    T_REFERENCE_NOTE.format(
-                        clusters=fewest_clusters(
-                            self.data.cluster,
-                            weights=self.data.weights if self.data.is_weighted else None,
-                        ),
-                        stratum="",
-                    ),
-                ]
-                if t_reference and self.data.cluster is not None
-                else []
-            ),
-            *(
-                split_noise_lines(self.estimates, self.repeat_spread(), self.n_repeats, status)
-                if self.n_repeats > 1
-                else []
-            ),
-            "",
-            *(f"  {line}" for line in facts),
-        ]
-        if self.n_repeats > 1:
-            # The leverage below reads one fitted recursion, so it says which.
-            lines.append(
-                f"  leverage of {format_draw(REPORTED_DRAW, self.n_repeats)} "
-                "(every draw is in result.repeats):"
-            )
-        # One line per regimen, from the fit that runs to the last node: "throughout"
-        # means through the study, and a horizon-k fit stops at k, where the same
-        # sentence would be false.  Per-horizon leverage is what diagnostics() is for.
-        # A competing-risks fit holds one fit per regimen per cause.  The followers and the
-        # weights come from the regimen's treatment and censoring mechanism, which every
-        # cause shares, so the causes give one line; a cause is named only where its
-        # line differs from another cause's.
-        deepest = max(fit.horizon for fit in self.fits.values())
-        followers: dict[str, list[tuple[str | None, str]]] = {}
-        for fit in self.fits.values():
-            if fit.horizon != deepest:
-                continue
-            truncated, truncated_time = self._max_truncated(fit)
-            # An odds tilt keeps every unit at risk, so the count is of units observed.
-            kept = (
-                "stayed under observation throughout"
-                if isinstance(fit.regimen, DynamicRegimen) and fit.regimen.has_tilt
-                else "followed it throughout"
-            )
-            if fit.simulation is not None:
-                kept = "followed it throughout in the data, which the simulation does not need"
-            followers.setdefault(fit.regimen.label, []).append(
-                (
-                    fit.cause,
-                    f"{int(fit.scored_nodes[-1].trained_on.sum())} of "
-                    f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
-                    f"effective n {fit.effective_n:.0f}; max truncated share "
-                    f"{truncated:.1%} at t={truncated_time}",
-                )
-            )
-        for label, entries in followers.items():
-            if len({text for _, text in entries}) == 1:
-                lines.append(f"  {label}: {entries[0][1]}")
-                continue
-            lines.extend(f"  {label} ({cause}): {text}" for cause, text in entries)
-        lines.extend(f"  {line}" for line in self._targeting_lines())
-        if (
-            self.simultaneous is None
-            and self.n_repeats > 1
-            and self.config.isotonic
-            and len(self.estimates) > 1
-        ):
-            lines.append("")
-            lines.append(f"  {NO_ISOTONIC_REPEAT_BANDS}")
-        elif self.simultaneous is None and record is not None and len(self.estimates) > 1:
-            # Stated rather than left blank, as on a point-treatment fit: the bands are on
-            # by default, so a reader would otherwise have to guess why none are here.
-            lines.append("")
-            lines.append(f"  {NO_SIMULTANEOUS_BANDS}")
-        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
-            lines.append("")
-            lines.append(f"  {NO_T_REFERENCE_BANDS}")
-        if self.simultaneous is not None:
-            lines.append("")
-            lines.append(
-                f"  simultaneous {level} bands (multiplier bootstrap, critical value "
-                f"{self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
-                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
-            )
-            for name, (low, high) in self.simultaneous.bands.items():
-                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
-        if self.bootstrap is not None:
-            lines.append("")
-            lines.append(
-                f"  full-refit bootstrap ({self.bootstrap.resampling} resampling, "
-                f"{self.bootstrap.n_requested - self.bootstrap.n_failed} usable replicates, "
-                f"{self.bootstrap.n_failed} failed):"
-            )
-            for name, estimate in self.estimates.items():
-                if estimate.bootstrap is not None:
-                    lines.append(f"    {name}  {bootstrap_line(estimate)}")
-        if self.bootstrap_band is not None:
-            band = self.bootstrap_band
-            lines.append("")
-            marker = " [experimental]" if band.support.label == "experimental" else ""
-            lines.append(
-                f"  studentized bootstrap sup-t bands ({level}, critical value "
-                f"{band.critical_value:.3f}, {band.n_replicates} replicates){marker}:"
-            )
-            for name, (low, high) in band.bands.items():
-                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
-        rule = self._declared_rule()
-        if rule != "relative":
-            # Under a declared stopping rule the largest score residual in standard errors,
-            # beside the coverage a Wald interval keeps at it.
-            residual = residual_line(self.estimates, rule, self.config.alpha_sig)
-            if residual:
-                lines.append("")
-                lines.append(f"  {residual}")
-        if not self.converged:
-            suffix = " in at least one draw" if self.n_repeats > 1 else ""
-            if rule == "relative":
-                lines.append(
-                    "  warning: at least one node's targeting step did not converge" + suffix
-                )
-            else:
-                missed = self._rule_misses()
-                failure = (
-                    "; ".join(missed) + ". See res.fits"
-                    if missed
-                    else "at least one node's targeting step did not converge. See res.fits"
-                )
-                lines.append(f"  {rule_failure_line(rule, failure)}{suffix}")
-        return "\n".join(lines)
+        from ._summary import longitudinal_summary
+
+        return longitudinal_summary(self, check_detail(detail))
 
     def _declared_rule(self) -> str:
         """The stopping rule the fit declared, ``"relative"`` when it declared none."""
@@ -3549,76 +3080,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     return step.fluctuation.stopping
         return "relative"
 
-    def _rule_misses(self) -> list[str]:
-        """Each node whose largest score over its threshold is above one, once per solve.
+    def __repr__(self) -> str:
+        from ._summary import longitudinal_repr
 
-        A working model solves one stacked fluctuation per node for every cell it holds, so
-        the cells share the solve and it is named once.
-        """
-        seen: set[int] = set()
-        missed: list[str] = []
-        for key, fit in self.fits.items():
-            record = fit.hazard
-            if (
-                record is not None
-                and id(record) not in seen
-                and record.rule_ratio is not None
-                and record.rule_ratio > 1.0
-            ):
-                seen.add(id(record))
-                where = "every horizon" if record.algorithm == "one_step" else f"t={fit.horizon}"
-                missed.append(
-                    f"the hazard targeting of {where} is {record.rule_ratio:.3g} times its "
-                    "threshold"
-                )
-            for step in fit.steps:
-                fluctuation = step.fluctuation
-                if (
-                    fluctuation is None
-                    or id(fluctuation) in seen
-                    or fluctuation.rule_ratio is None
-                    or fluctuation.rule_ratio <= 1.0
-                ):
-                    continue
-                seen.add(id(fluctuation))
-                missed.append(
-                    f"{key} at t={step.time} is {fluctuation.rule_ratio:.3g} times its threshold"
-                )
-        return missed
+        return longitudinal_repr(self)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"LongitudinalResult({', '.join(self.estimates)})"
-
-    def _targeting_lines(self) -> list[str]:
-        """What the hazard targeting and the isotonic projection did, one line each."""
-        lines: list[str] = []
-        records = {id(fit.hazard): fit.hazard for fit in self.fits.values() if fit.hazard}
-        if records:
-            converged = all(record.converged for record in records.values())
-            largest = max(record.relative_score for record in records.values())
-            verdict = "converged" if converged else "not converged"
-            first = next(iter(records.values()))
-            if first.algorithm == "one_step":
-                lines.append(
-                    f"hazard targeting: one step over {len(first.targets)} parameter(s), "
-                    f"{first.n_iter} step(s), largest relative score {largest:.2g}, {verdict}"
-                )
-            else:
-                steps = max(record.n_iter for record in records.values())
-                lines.append(
-                    f"hazard targeting: per horizon over {len(records)} horizon(s), at most "
-                    f"{steps} iteration(s), largest relative score {largest:.2g}, {verdict}"
-                )
-            if first.share_clipped:
-                node, cause, share = max(first.share_clipped, key=lambda item: item[2])
-                lines.append(
-                    f"hazard node bounds: largest clipped share of initial hazards "
-                    f"{100 * share:.1f}% (node {node}, cause {cause + 1}); "
-                    f"{len(first.bound_excludes_data)} cell(s) excluded by a bound"
-                )
-        if self.config.isotonic:
-            lines.append(f"isotonic projection moved {len(self.isotonic_moves)} level(s)")
-        return lines
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:

@@ -154,7 +154,8 @@ the copies. This estimate is valid at `n_draws = 1`.
 The result reports the share of each curve's variance that the simulation contributes:
 $\sum_i (w_i / \bar w)^2 \sigma_i^2 / m$ divided by $\sum_i \mathrm{IF}_i^2$. A cluster sum
 replaces the unit in the denominator. A contrast reads the difference of the two regimens' copies.
-`result.simulation.monte_carlo_share` holds the shares, and `summary()` prints the largest.
+`result.simulation.monte_carlo_share` holds the shares, and `summary(detail="full")` prints the
+largest under Settings.
 The fit warns with `MonteCarloWarning` above 10%. Raise `n_draws` to lower the share.
 
 ### Why the argument holds

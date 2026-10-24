@@ -237,7 +237,7 @@ class TestFewClustersShowALabelledLongitudinalInterval:
             result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1, simultaneous=True)
         assert not caught
         assert result.simultaneous is None
-        assert NO_T_REFERENCE_BANDS in result.summary()
+        assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
 
     def test_the_nuisance_item_and_the_assessment_carry_the_note(self) -> None:
         assert_assessment_note(fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1), FEW)
@@ -255,9 +255,9 @@ class TestFewClustersShowALabelledLongitudinalInterval:
         # The witness that the labels alone would keep the interval.
         assert result.data.n_clusters == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         assert_shows_interval(result, FEW, MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
-        assert (
-            f"positive weight mass in {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1}"
-            in result.summary()
+        assert dict(result.summary().header)["Clusters"] == (
+            f"{MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, positive weight mass in "
+            f"{MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1}"
         )
 
     def test_the_study_workflow_reads_a_t_reference(self) -> None:
@@ -289,7 +289,7 @@ class TestFewClustersShowALabelledLongitudinalInterval:
         assert_keeps_inference(result)
         assert {estimate.reference_df for estimate in result.estimates.values()} == {37}
         assert result.simultaneous is None
-        assert NO_T_REFERENCE_BANDS in result.summary()
+        assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
 
 
 class TestTwentyClustersKeepTheLongitudinalInterval:
@@ -311,14 +311,14 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
         result = fit_end_of_study(FEW_CLUSTER_THRESHOLD, simultaneous=True)
         assert result.simultaneous is not None
         assert {e.reference_df for e in result.estimates.values()} == {None}
-        assert NO_SIMULTANEOUS_BANDS not in result.summary()
-        assert NO_T_REFERENCE_BANDS not in result.summary()
+        assert NO_SIMULTANEOUS_BANDS not in str(result.summary(detail="full"))
+        assert NO_T_REFERENCE_BANDS not in str(result.summary(detail="full"))
 
     def test_a_t_reference_skips_the_default_band(self) -> None:
         result = fit_end_of_study(FEW_CLUSTER_THRESHOLD - 1, simultaneous=True)
         assert_keeps_inference(result)
         assert result.simultaneous is None
-        assert NO_T_REFERENCE_BANDS in result.summary()
+        assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
         assert {e.reference_df for e in result.estimates.values()} == {37}
 
     def test_the_cluster_count_moves_no_point_estimate(

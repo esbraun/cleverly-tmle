@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import math
+import re
 import textwrap
 from typing import TYPE_CHECKING, Any
 
@@ -217,6 +218,35 @@ def _longest_word(value: str) -> int:
     return max((len(word) for word in value.split()), default=0)
 
 
+def _name_pieces(name: str) -> list[str]:
+    """A row name cut where it may wrap: at its spaces and after each ``[``.
+
+    A time label such as ``@ t=2`` stays whole.
+    """
+    return [piece for piece in re.split(r"(\s+)(?!t=)|(?<=\[)", name) if piece]
+
+
+def _wrap_name(name: str, width: int) -> list[str]:
+    """A row name wrapped to ``width`` at its spaces and after each ``[``."""
+    lines: list[str] = []
+    current = ""
+    space = False
+    for piece in _name_pieces(name):
+        if piece.isspace():
+            space = True
+            continue
+        candidate = current + (" " if space and current else "") + piece
+        if current and len(candidate) > width:
+            lines.append(current)
+            current = piece
+        else:
+            current = candidate
+        space = False
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
 def _room(fact: tuple[str, str], column: tuple[tuple[str, str], ...], width: int) -> int:
     """The characters a fact's value has in its half of the header."""
     labels = [label for label, _ in column] or [fact[0]]
@@ -255,7 +285,9 @@ def _is_text_column(table: SummaryTable, index: int) -> bool:
 def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]:
     """The lines above the ``-`` rule (title and labels) and the row lines below it.
 
-    Numbers never wrap. A last column of words wraps to keep the table within ``width``.
+    Numbers never wrap. A last column of words wraps to keep the table within ``width``,
+    and so does a first column of row names when the table still passes it, at the
+    spaces of a long name such as ``ate_regimen[always vs never]`` and after its ``[``.
     """
     texts = [[cell.text for cell in row] for row in table.rows]
     count = len(table.columns)
@@ -267,7 +299,7 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
     last = count - 1
     wraps = last > 0 and text_columns[last]
 
-    def fitted(gap: int, minimum: int) -> list[int]:
+    def fitted(gap: int, minimum: int, floor: int) -> list[int]:
         # Number columns get a statsmodels-like minimum, so a table of short numbers reads.
         widths_ = [
             width_ if index == 0 or text_columns[index] else max(width_, minimum)
@@ -275,15 +307,25 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
         ]
         if wraps:
             room = width - sum(widths_[:last]) - gap * last
-            widths_[last] = min(widths_[last], max(room, 20))
+            widths_[last] = min(widths_[last], max(room, floor))
         return widths_
 
     # Narrow a table that would pass the width: first drop the number minimum, then close
-    # the gap. A table that still passes it prints wider, and the rules widen with it.
-    for gap, minimum in ((_COLUMN_GAP, 8), (_COLUMN_GAP, 0), (_COLUMN_GAP - 1, 0)):
-        widths = fitted(gap, minimum)
+    # the gap, then let a last column of words wrap narrower. A table that still passes it
+    # wraps its row names, and one that passes it after that prints wider, and the rules
+    # widen with it.
+    steps = ((_COLUMN_GAP, 8, 20), (_COLUMN_GAP, 0, 20), (_COLUMN_GAP - 1, 0, 20))
+    for gap, minimum, floor in (*steps, (_COLUMN_GAP - 1, 0, 12)):
+        widths = fitted(gap, minimum, floor)
         if sum(widths) + gap * last <= width:
             break
+    wrapped: set[int] = {last} if wraps else set()
+    if last > 0 and sum(widths) + gap * last > width:
+        words = max((len(piece) for row in texts for piece in _name_pieces(row[0])), default=0)
+        room = width - sum(widths[1:]) - gap * last
+        if words < widths[0] and room < widths[0]:
+            widths[0] = max(room, words, len(table.columns[0]))
+            wrapped.add(0)
 
     def line(cells: list[str]) -> str:
         out = [f"{cells[0]:<{widths[0]}}"]
@@ -293,13 +335,21 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
 
     body: list[str] = []
     for row in texts:
-        if wraps and len(row[last]) > widths[last]:
-            chunks = _wrap(row[last], widths[last]) or [""]
-            body.append(line([*row[:last], chunks[0]]))
-            blank = [""] * last
-            body.extend(line([*blank, chunk]) for chunk in chunks[1:])
-        else:
-            body.append(line(row))
+        chunks = [
+            [cell]
+            if index not in wrapped or len(cell) <= widths[index]
+            else _wrap_name(cell, widths[index])
+            if index == 0
+            else (_wrap(cell, widths[index]) or [""])
+            for index, cell in enumerate(row)
+        ]
+        depth = max(len(column) for column in chunks)
+        for depth_index in range(depth):
+            body.append(
+                line(
+                    [column[depth_index] if depth_index < len(column) else "" for column in chunks]
+                )
+            )
     head = [table.title] if table.title else []
     return [*head, line(list(table.columns))], body
 

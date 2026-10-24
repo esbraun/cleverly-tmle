@@ -628,7 +628,13 @@ def test_the_record_names_each_declared_factor() -> None:
     frame = law.smart_frame(censoring=True)
     result = _ltmle().fit(frame, **_columns(True), **_mappings(True))
     assert result.config.known_factors == ("A1", "C1", "A2", "C2")
-    assert "known factors (declared, no learner): A1, C1, A2, C2" in result.summary()
+    settings = result.summary(detail="full").section("Settings").lines
+    assert (
+        "Declared known (no learner fits them, and no limit moves a declared value itself): A1, C1, A2, C2."
+        in settings
+    )
+    header = dict(result.summary().header)
+    assert header["Treatment model"] == header["Censoring model"] == "known (declared)"
     estimated = _ltmle(
         treatment_learner=SmartMechanism(), censoring_learner=LogisticRegression()
     ).fit(frame, **_columns(True))

@@ -537,7 +537,11 @@ def test_ltmle_on_the_adapted_panel_equals_the_wide_fit() -> None:
     pd.testing.assert_frame_equal(left, right, rtol=1e-12)
     for name, curve in adapted.influence_curves.items():
         np.testing.assert_allclose(curve, wide.influence_curves[name], rtol=1e-12, atol=1e-14)
-    assert "long panel: unit column 'customer', decision times 10, 20, 30" in str(adapted.summary())
+    assert any(
+        line.startswith("Long panel: unit column 'customer', decision times 10, 20, 30")
+        for line in adapted.summary(detail="full").section("Settings").lines
+    )
+    assert dict(adapted.summary().header)["Units"] == f"{adapted.n:,}"
 
 
 def test_sdr_on_the_adapted_panel_equals_the_wide_fit() -> None:
@@ -637,7 +641,7 @@ np.savez(
     },
     density=regimens[2].policy_density(result.data, 1),
 )
-print(json.dumps(str(result.summary()).splitlines()))
+print(json.dumps(str(result.summary(detail="full")).splitlines()))
 """
 
 _LOAD = """
@@ -683,7 +687,7 @@ def test_policies_defined_in_main_survive_a_save_in_a_fresh_interpreter(tmp_path
     artifact = str(tmp_path / "panel.joblib")
     saved = _run(_SAVE, artifact, "cloudpickle", cwd=root)
     assert saved.returncode == 0, saved.stderr
-    assert "long panel: unit column 'customer'" in saved.stdout
+    assert "Long panel: unit column 'customer'" in saved.stdout
     loaded = _run(_LOAD, artifact, cwd=root)
     assert loaded.returncode == 0, loaded.stderr
     assert loaded.stdout.strip().endswith("restored")
