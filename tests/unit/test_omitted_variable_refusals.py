@@ -41,6 +41,8 @@ from sklearn.linear_model import LinearRegression
 
 from cleverly import CausalStudy, NaturalCourseMean, PointTreatment
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary._estimates import without_roadmap
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import (
     make_binary_outcome,
@@ -833,7 +835,9 @@ class TestTheIntermediateRepresenterReadsTheLevel:
         assert np.all(elements.riesz_representer[level] != 0.0)
         assert np.isfinite(elements.nu2) and elements.nu2 > 0
         summary = omitted_variable_bounds(intermediate_fit, "ate").summary()
-        assert "the intermediate mechanism" in summary
+        assert summary.note("joint_strength").text == NOTE_TEXTS["joint_strength"].format(
+            mechanisms="the intermediate variable"
+        )
 
 
 class TestTheResponseRepresenterCarriesTheIndicator:
@@ -1006,11 +1010,17 @@ class TestThePluginLimitsRefuse:
     def test_the_summary_says_why(self, exact_fit: Any) -> None:
         plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
         robust = omitted_variable_bounds(exact_fit, "att").summary()
-        assert "F26" in plugin and "plug-in nu^2" in plugin
-        assert "This fit does not qualify: " in plugin
-        assert "one-sided CIs" not in plugin and "RVa  =" not in plugin
-        assert "robustness value RV   =" in plugin
-        assert "one-sided CIs" in robust and "RVa  =" in robust and "F26" not in robust
+        assert plugin.note("limits_withheld").kind == "warning"
+        assert "limits_withheld" not in robust.note_codes
+        # The plug-in table has no limits column and no limit robustness value; the doubly
+        # robust one has both.
+        assert plugin.table("other").columns == ("", "estimate", "range")
+        assert robust.table("other").columns[-1] == "95% one-sided limits"
+        assert [row[0].text for row in plugin.table("Robustness value").rows] == ["estimate"]
+        assert [row[0].text for row in robust.table("Robustness value").rows] == [
+            "estimate",
+            "95% limit",
+        ]
 
     def test_the_robustness_value_reports_no_limit_value(self, exact_fit: Any) -> None:
         plugin = robustness_value(exact_fit, "att", nu2_estimator="plugin")
@@ -1043,10 +1053,12 @@ class TestThePluginLimitsRefuse:
 
     def test_the_summary_uses_the_refusal_text(self, exact_fit: Any) -> None:
         """The summary line carries the accessors' own reason, not a second wording of it."""
-        plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
-        stored = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").limit_refusal
+        plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin")
+        stored = plugin.limit_refusal
         assert stored is not None
-        assert plugin.endswith(f"under {stored.text}")
+        settings = plugin.summary(detail="full").section("Settings").lines
+        assert f"Why the limits are withheld: {without_roadmap(stored.text)}" in settings
+        assert stored.alternative in plugin.summary().note("limits_withheld").text
 
     def test_the_elements_carry_no_curve(self, exact_fit: Any) -> None:
         plugin = sensitivity_elements(exact_fit, "att", nu2_estimator="plugin")

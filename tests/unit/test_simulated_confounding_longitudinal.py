@@ -460,9 +460,12 @@ def test_the_frame_and_summary_carry_one_column_per_node(fitted: Any) -> None:
         assert f"treatment_strength[{name}]" in columns
         assert f"induced_treatment_association[{name}]" in columns
     assert [cell.treatment_strength for cell in surface.cells] == [(0.0, 0.0), (0.0, 0.1)]
-    text = surface.summary()
-    assert "treatment strength (A1, A2)" in text
-    assert "path through the earlier perturbed nodes" in text
+    summary = surface.summary()
+    columns = summary.table("Movement").columns
+    assert "treatment strength (A1)" in columns and "treatment strength (A2)" in columns
+    assert summary.table("Associations").columns[1:3] == ("treatment (A1)", "treatment (A2)")
+    assert "path through the earlier perturbed nodes" in summary.note("association_reading").text
+    assert "each treatment node" in summary.note("sensitivity_assumption").text
 
 
 def test_the_assessment_row_is_available_and_asks_for_the_estimand(fitted: Any) -> None:

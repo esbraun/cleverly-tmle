@@ -507,7 +507,7 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert len(surface.cells) == 2
     assert surface.n_repeats == result.n_repeats == 3
     assert surface.repeat_aggregation == "coordinatewise_median"
-    assert "cross-fitting: 3 draws, aggregation=coordinatewise_median" in surface.summary()
+    assert ("Repeated splits", "3, median") in surface.summary().header
 
     # The un-monkeypatched path. The anchor is the original fit itself, so it carries the
     # fitted point estimate rather than a refit of unchanged data.
@@ -800,7 +800,10 @@ def test_constant_declared_weights_preserve_unweighted_surface_arithmetic() -> N
     assert plain_surface.target_measure == "unweighted"
     assert fixed_surface.target_measure == "fixed_empirical_tilt"
     assert not fixed_surface.weight_report.is_weighted
-    assert "target measure: fixed_empirical_tilt" in fixed_surface.summary()
+    settings = fixed_surface.summary(detail="full").section("Settings").lines
+    assert any(line.startswith("Each cell uses the fixed observation weights") for line in settings)
+    plain_settings = plain_surface.summary(detail="full").section("Settings").lines
+    assert not any("observation weights" in line for line in plain_settings)
 
 
 def test_fixed_weight_surface_is_invariant_to_a_common_weight_scale() -> None:
@@ -2504,7 +2507,7 @@ def test_each_ratio_runs_a_real_log_movement_surface(
     assert surface.original_estimate == result[target].psi
     assert surface.movement_scale == "log_ratio"
     assert set(surface.to_frame()["movement_scale"]) == {"log_ratio"}
-    assert "movement (log ratio)" in surface.summary()
+    assert ("Movement", "difference in log ratio") in surface.summary().header
     assert surface.cells[0].estimate == result[target].psi
     assert surface.cells[0].displacement == 0.0
     assert any(abs(cell.displacement or 0.0) > 0.01 for cell in surface.cells[1:])
@@ -2796,7 +2799,7 @@ def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
     assert surface.cells[0].displacement == 0.0
     assert any(abs(cell.displacement or 0.0) > 1e-4 for cell in surface.cells[1:])
     assert "adds signed strength" in surface.treatment_law
-    summary = surface.summary()
+    summary = surface.summary().note("association_reading").text
     assert "what the continuous linear perturbation achieved" in summary
     # The reading guard. A zero outcome strength leaves the latent vector out of the
     # outcome, so that column carries no confounding path whatever its association.
@@ -4234,7 +4237,7 @@ def test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit(
 
     # The symmetric reading guard. The level shift does not cancel in a mean, so the
     # summary has to say that the zero treatment-strength column is an artifact.
-    summary = surface.summary()
+    summary = surface.summary().note("association_reading").text
     assert "A cell whose treatment strength is zero also has no confounding path" in summary
     assert "A policy mean keeps that level shift, and a contrast removes most of it" in summary
 
@@ -4267,10 +4270,10 @@ def test_the_reading_guard_follows_the_outcome_family_of_the_fit(
         grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         random_state=7,
     )
-    summary = surface.summary()
+    summary = surface.summary().note("association_reading").text
 
     assert surface.outcome_family == family
-    assert surface.outcome_law in summary
+    assert surface.outcome_law in surface.summary(detail="full").section("Assumptions").lines
     assert "A cell whose treatment strength is zero also has no confounding path" in summary
     if family == "gaussian":
         assert "subtracts signed strength" in surface.outcome_law
@@ -4715,17 +4718,26 @@ def test_summary_and_successful_cells_report_a_retained_failure(
     assert all(cell.estimate is not None for cell in surface.successful_cells)
     assert surface.cells[2] not in surface.successful_cells
 
-    assert "failed" in text
-    assert "RuntimeError" in text
-    failure_row = next(line for line in lines if "failed" in line)
-    assert "RuntimeError" in failure_row
-    assert "0.1" in failure_row
+    movement = text.table("Movement")
+    failed_rows = [row for row in movement.rows if row[-2].text == "failed"]
+    (failure_row,) = failed_rows
+    assert failure_row[-1].text == "RuntimeError"
+    assert failure_row[1].value == surface.cells[2].treatment_strength
+    printed = [line for line in lines if "RuntimeError" in line]
+    assert len(printed) == 1 and "failed" in printed[0] and "0.1" in printed[0]
     # The successful rows carry a signed movement and no failure marker.
-    assert sum("failed" in line for line in lines) == 1
-    assert f"original estimate: {gaussian_result['ate'].psi:.5g}" in text
-    assert f"root={surface.root_seed}" in text
-    assert f"latent={surface.latent_seed}" in text
-    assert f"refit={surface.refit_seed}" in text
+    successes = [row for row in movement.rows if row[-2].text != "failed"]
+    assert len(successes) == 3
+    assert all(row[-1].text.startswith(("+", "-")) for row in successes)
+    estimate = gaussian_result["ate"].psi
+    (shown,) = [value for label, value in text.header if label == "Estimate"]
+    shown = shown.removeprefix("ate = ")
+    assert abs(float(shown) - estimate) <= 0.5 * 10 ** -len(shown.split(".")[1])
+    assert text.note("cells_failed").kind == "warning"
+    # Seeds are library internals: no summary prints them, at either detail.
+    full = str(surface.summary(detail="full"))
+    for seed in (surface.root_seed, surface.latent_seed, surface.refit_seed):
+        assert f"seed {seed}" not in full and f"={seed}" not in full
     assert "+" in "".join(line for line in lines if "failed" not in line and "0.2" in line)
 
 
@@ -4788,7 +4800,7 @@ def test_result_contract_has_no_inferential_or_verdict_fields(gaussian_result: A
         "robustness_value",
     ):
         assert not hasattr(surface, prohibited)
-    assert "qualitative" in surface.summary()
+    assert "qualitative" in surface.summary().note("sensitivity_assumption").text
 
 
 def _treated_fraction_fit(fraction: float, *, n: int = 800, seed: int = 5) -> Any:
@@ -4969,13 +4981,16 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
     ]
     assert frame["induced_treatment_association"][2] == pytest.approx(0.4489, abs=5e-4)
 
-    assert "induced association" in text
+    associations = text.table("Associations")
+    assert associations.columns == ("cell", "treatment")
+    assert [row[1].value for row in associations.rows] == [
+        cell.induced_treatment_association for cell in surface.cells
+    ]
+    assert associations.rows[2][1].text == "+0.449"
     assert surface.movement_scale == "estimate_difference"
-    assert "movement (estimate difference)" in text
-    assert "+0.4489" in text
-    assert all(f"{cell.induced_treatment_association:+.4f}" in text for cell in surface.cells)
-    assert "misclassification and not by confounding" in text
-    assert "qualitative" in text
+    assert ("Movement", "difference in estimate") in text.header
+    assert "misclassification and not by confounding" in text.note("association_reading").text
+    assert "qualitative" in text.note("sensitivity_assumption").text
 
 
 def test_a_risk_ratio_tilt_fit_is_refused_before_any_draw() -> None:

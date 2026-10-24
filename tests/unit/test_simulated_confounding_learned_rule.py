@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from cleverly import CausalStudy, LearnedRuleValue, PointTreatment
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions.learned import FrozenLearnedRule, freeze_learned_rule
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
@@ -139,9 +140,10 @@ def test_a_replay_without_the_frozen_rule_or_folds_fails_the_cell_check(
 
 
 def test_the_summary_states_the_fixed_rule_reading() -> None:
-    text = _surface().summary()
-    assert "learned-rule reading" in text
-    assert "not of the learned-rule procedure" in text
+    summary = _surface().summary()
+    assert summary.note("learned_rule_reading").text == NOTE_TEXTS["learned_rule_reading"]
+    settings = _surface().summary(detail="full").section("Settings").lines
+    assert any("not of the learned-rule procedure" in line for line in settings)
 
 
 def test_inconsistent_fold_metadata_is_refused() -> None:

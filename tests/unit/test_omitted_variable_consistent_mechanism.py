@@ -132,7 +132,8 @@ class TestTheDRTMLEPointBound:
         bound = _bound(drtmle_pair[1])
         assert bound.assumption is not None
         assert "primary treatment mechanism" in bound.assumption
-        assert bound.assumption in bound.summary()
+        assert bound.assumption in bound.summary(detail="full").section("Assumptions").lines
+        assert "consistent_mechanism" in bound.summary().note_codes
         assert bound.to_dict()["assumption"] == bound.assumption
 
     def test_the_point_robustness_value_moves_the_bound_to_the_null(
@@ -516,7 +517,8 @@ class TestTheFacadeLiftsItsRow:
         through = collaborative.sensitivity.contour(
             "ate", grid_size=3, assume_consistent_mechanism=True
         )
-        assert through.equals(expected)
+        assert through.to_frame().equals(expected.to_frame())
+        assert through == expected
 
     def test_a_fit_that_selects_nothing_keeps_its_redirection(self) -> None:
         frame, _ = make_instrument(n=600, seed=44)

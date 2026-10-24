@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ._objects import MissingnessTilt, RobustnessValue, SensitivityContour
 from .evalue import EValue, evalue, evalue_from_rr
 from .marginal import (
     MarginalSensitivityBounds,
@@ -37,9 +38,12 @@ __all__ = [
     "EValue",
     "MarginalSensitivityBounds",
     "MarginalSensitivityRow",
+    "MissingnessTilt",
     "ObservedConfounderCalibration",
     "PositivityReport",
+    "RobustnessValue",
     "SensitivityBounds",
+    "SensitivityContour",
     "SensitivityElements",
     "SimulatedConfoundingCell",
     "SimulatedConfoundingResult",
