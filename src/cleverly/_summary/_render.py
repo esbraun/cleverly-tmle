@@ -214,10 +214,8 @@ def _longest_word(value: str) -> int:
 
 def _room(fact: tuple[str, str], column: tuple[tuple[str, str], ...], width: int) -> int:
     """The characters a fact's value has in its half of the header."""
-    if column:
-        own = max(len(label) for label, _ in column) + 3
-    else:
-        own = len(fact[0]) + 3
+    labels = [label for label, _ in column] or [fact[0]]
+    own = max(len(label) for label in labels) + 3
     return max(8, width - own)
 
 
