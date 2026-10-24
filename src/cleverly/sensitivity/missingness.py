@@ -90,6 +90,7 @@ from ..msm import solve_projection
 from ..targets.base import arm_alias, parameter_name
 from ..targets.population_intervention import NATURAL_COURSE_TARGET
 from ..utils.bounds import expit, logit
+from ._objects import MissingnessTilt
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -438,7 +439,8 @@ def missingness_tilt(
 ) -> Any:
     """Estimate under a range of departures from missingness-at-random.
 
-    Returns a tidy frame with one row per ``(gamma, estimand)``, and one
+    Returns an object whose ``to_frame()`` is a tidy frame with one row per
+    ``(gamma, estimand)``, and one
     ``gamma[<level>]`` column per arm giving the tilt that arm received -- equal to
     ``gamma`` throughout unless ``arm_gamma=`` says otherwise.  Only defined for a fit
     that supplied ``delta``; without missing outcomes there is nothing to tilt.
@@ -494,10 +496,52 @@ def missingness_tilt(
 
     Returns
     -------
-    dataframe
-        One row per ``(gamma, estimand)``, with one ``gamma[<level>]`` column per
-        arm giving the tilt that arm received.
+    MissingnessTilt
+        The tilt, whose ``to_frame()`` has one row per ``(gamma, estimand)``, with one
+        ``gamma[<level>]`` column per arm giving the tilt that arm received, and whose
+        ``summary()`` prints one table per estimand.
     """
+    payload = _tilt_payload(result, gamma, estimands, arm_gamma)
+    data = result.data
+    names = tuple(dict.fromkeys(payload["estimand"]))
+    declared = (
+        None
+        if arm_gamma is None
+        else tuple(
+            (data.arm_label(code), float(value))
+            for code, value in _tilt_direction(data, arm_gamma).items()
+        )
+    )
+    return MissingnessTilt.build(
+        payload,
+        backend=data.backend,
+        outcome=str(data.outcome_name),
+        n_missing=int(np.sum(~np.asarray(data.observed, dtype=bool))),
+        n=int(data.n),
+        arm_gamma=declared,
+        level=1.0 - float(result.config.alpha_sig),
+        statuses=tuple((name, str(result[name].inference)) for name in names),
+    )
+
+
+def _tilt_frame(
+    result: TMLEResult,
+    gamma: Sequence[float] | None = None,
+    *,
+    estimands: Sequence[str] | None = None,
+    arm_gamma: Mapping[Any, float] | None = None,
+) -> Any:
+    """The rows of :func:`missingness_tilt` as a frame, for the tipping search."""
+    return result.data.frame_like(_tilt_payload(result, gamma, estimands, arm_gamma))
+
+
+def _tilt_payload(
+    result: TMLEResult,
+    gamma: Sequence[float] | None,
+    estimands: Sequence[str] | None,
+    arm_gamma: Mapping[Any, float] | None,
+) -> dict[str, list[Any]]:
+    """The columns of :func:`missingness_tilt`, after its refusals."""
     refusal = fit_wide_tilt_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
@@ -593,8 +637,7 @@ def missingness_tilt(
     for row in rows:
         columns.update(dict.fromkeys(row))
     nan = float("nan")
-    payload = {key: [row.get(key, nan) for row in rows] for key in columns}
-    return data.frame_like(payload)
+    return {key: [row.get(key, nan) for row in rows] for key in columns}
 
 
 def _plugin_spread(
@@ -1004,7 +1047,7 @@ def tipping_gamma(
         )
 
     def row_at(value: float) -> Any:
-        frame = missingness_tilt(result, [value], estimands=[estimand], arm_gamma=arm_gamma)
+        frame = _tilt_frame(result, [value], estimands=[estimand], arm_gamma=arm_gamma)
         return nw.from_native(frame, eager_only=True)
 
     baseline_row = row_at(0.0)
@@ -1039,7 +1082,7 @@ def tipping_gamma(
         if transition_lower < transition_upper:
             probe_parts.append(np.linspace(transition_lower, transition_upper, 1025))
     probes = np.unique(np.concatenate(probe_parts))
-    probe_frame = missingness_tilt(
+    probe_frame = _tilt_frame(
         result,
         tuple(float(value) for value in probes),
         estimands=[estimand],

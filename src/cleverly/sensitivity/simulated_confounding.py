@@ -23,11 +23,11 @@ from sklearn.preprocessing import StandardScaler
 from ..data.causal_data import arm_share
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
-from ..utils.text import format_table
 from ..validation.simulation import ReplicationFailure
 from ._simulated_confounding_request import _validate_request, _ValidatedRequest
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
     from ..data import WeightReport
     from ..estimators.base import TMLEResult
 
@@ -206,7 +206,7 @@ class SimulatedConfoundingCell:
     induced_outcome_association: float | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class SimulatedConfoundingResult:
     r"""Store a qualitative simulated-confounding stress surface.
 
@@ -639,100 +639,31 @@ class SimulatedConfoundingResult:
         }
         return emit_frame(payload, backend=self.backend)
 
-    def summary(self) -> str:
-        """Return a qualitative text summary without an inferential verdict.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the population and refit settings.
 
         Returns
         -------
-        str
-            Original estimate, seeds, perturbation laws, cell movements, and the
-            induced treatment association of each cell.
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
         """
-        rows = []
-        for cell in self.cells:
-            reported = _format_values(cell.induced_treatment_association, "+.4f")
-            fraction = cell.target_population_fraction
-            population_fraction = "n/a" if fraction is None else f"{fraction:.4f}"
-            strength = _format_values(cell.treatment_strength, ".4g")
-            if cell.failure is None:
-                rows.append(
-                    [
-                        strength,
-                        f"{cell.outcome_strength:.4g}",
-                        f"{cell.estimate:.5g}",
-                        f"{cell.displacement:+.5g}",
-                        reported,
-                        population_fraction,
-                    ]
-                )
-            else:
-                rows.append(
-                    [
-                        strength,
-                        f"{cell.outcome_strength:.4g}",
-                        "failed",
-                        cell.failure.error_type,
-                        reported,
-                        population_fraction,
-                    ]
-                )
-        headers = [
-            "treatment strength"
-            + (f" ({', '.join(self.treatment_components)})" if self.treatment_components else ""),
-            "outcome strength",
-            "estimate",
-            f"movement ({self.movement_scale.replace('_', ' ')})",
-            "induced association",
-            "population fraction",
-        ]
-        if self.intermediate_name is not None:
-            headers[1:1] = ["intermediate strength"]
-            headers.append("intermediate association")
-            for row, cell in zip(rows, self.cells, strict=True):
-                row[1:1] = [_format_values(cell.intermediate_strength, ".4g")]
-                row.append(_format_values(cell.induced_intermediate_association, "+.4f"))
-        if self.bounded_outcome_law is not None:
-            headers.append("outcome association")
-            for row, cell in zip(rows, self.cells, strict=True):
-                row.append(_format_values(cell.induced_outcome_association, "+.4f"))
-        # ``inference.influence.median_estimates`` returns its input unchanged for a single
-        # draw, so a one-draw report must not name an aggregation rule that never ran.
-        crossfit = (
-            f"cross-fitting: {self.n_repeats} draws, aggregation={self.repeat_aggregation}"
-            if self.n_repeats > 1
-            else "cross-fitting: 1 draw, no repeat aggregation"
-        )
-        return "\n".join(
-            [
-                f"Simulated common-cause stress surface for {self.estimand!r}",
-                f"original estimate: {self.original_estimate:.5g}",
-                (
-                    f"seeds: root={self.root_seed}, latent={self.latent_seed}, "
-                    f"refit={self.refit_seed}"
-                ),
-                crossfit,
-                f"target measure: {self.target_measure}",
-                *self.population_lines(),
-                self.treatment_law,
-                self.outcome_law,
-                *self._calibration_lines(),
-                "",
-                format_table(headers, rows),
-                "",
-                "The induced association is the correlation between the latent vector and the "
-                "treatment of the cell within the selected baseline population.",
-                *(
-                    (
-                        "ATT and ATC membership follows each cell's perturbed treatment. "
-                        "Movement includes this change of population.",
-                    )
-                    if self.population == "perturbed_treatment_group"
-                    else ()
-                ),
-                *self._reading_guard(),
-                "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
-            ]
-        )
+        from ._summaries import surface_summary
+
+        return surface_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summaries import surface_repr
+
+        return surface_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def _calibration_lines(self) -> tuple[str, ...]:
         """Name the calibration rows without a finite strength, and the sign conventions."""
@@ -823,9 +754,6 @@ class SimulatedConfoundingResult:
             f"A cell whose treatment strength is zero also has no confounding path. {outcome_axis}",
         )
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
-
 
 def _outcome_law_text(bounded_outcome_law: str | None, family: str) -> str:
     """The human-readable outcome law of a surface."""
@@ -849,15 +777,6 @@ def _outcome_law_text(bounded_outcome_law: str | None, family: str) -> str:
 def _component(value: Any, index: int) -> Any:
     """One component's entry of a per-component cell value, or ``None`` when absent."""
     return None if value is None else value[index]
-
-
-def _format_values(value: Any, spec: str) -> str:
-    """A cell value for the summary table: one number, or one per component."""
-    if value is None:
-        return "n/a"
-    if isinstance(value, tuple):
-        return "(" + ", ".join("n/a" if v is None else format(v, spec) for v in value) + ")"
-    return format(value, spec)
 
 
 def _pair_labels(data: Any, request: _ValidatedRequest) -> Any:

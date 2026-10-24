@@ -141,16 +141,17 @@ from ..interventions.learned import LEARNED_RULE_BOUND_REFUSAL
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
-from ..utils.text import format_table
 from ._mechanism_stack import (
     MechanismRefusal,
     configuration_refusal,
     correction_refusal,
     plugin_mechanism_term,
 )
+from ._objects import RobustnessValue, SensitivityContour
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_parameter
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
     from ..data.causal_data import CausalData
     from ..estimators._nuisance import NuisanceEstimates, RepeatFit
     from ..estimators.base import TMLEResult
@@ -599,7 +600,7 @@ def fit_wide_bound_refusal(result: Any) -> Refusal | None:
     return None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class SensitivityElements:
     r"""The ingredients of the bias bound for one estimand.
 
@@ -662,6 +663,32 @@ class SensitivityElements:
     plugin_mechanism: str | None = None
     nu2_correction: float | None = None
     features: tuple[str, ...] = ()
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the formal assumptions, the settings and the definitions.
+
+        Returns
+        -------
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
+        """
+        from ._summaries import elements_summary
+
+        return elements_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summaries import elements_repr
+
+        return elements_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def sensitivity_elements(
@@ -1271,30 +1298,6 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
     return tuple(name for name in _FEATURE_MECHANISMS if present[name])
 
 
-def joint_strength_sentence(features: tuple[str, ...]) -> str | None:
-    """The sentence that says which mechanisms ``cf_d`` measures a joint strength over.
-
-    Parameters
-    ----------
-    features : tuple of str
-        The features of :func:`bound_features`.
-
-    Returns
-    -------
-    str or None
-        The sentence, or ``None`` when the representer reads the treatment mechanism alone.
-    """
-    nouns = [noun for name in features if (noun := _FEATURE_MECHANISMS[name]) is not None]
-    if not nouns:
-        return None
-    named = (
-        f"the {nouns[0]} mechanism"
-        if len(nouns) == 1
-        else f"the {', '.join(nouns[:-1])} and {nouns[-1]} mechanisms"
-    )
-    return f"cf_d measures a joint strength over the treatment mechanism and {named}."
-
-
 def _limit_reading(
     result: TMLEResult, estimand: str, features: tuple[str, ...]
 ) -> Resolution | None:
@@ -1899,7 +1902,7 @@ def _accepts_stored_limit_names(init: Callable[_P, None]) -> Callable[_P, None]:
     return wrapper
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, init=False, repr=False)
 class SensitivityBounds:
     """Bias-adjusted bounds under an assumed confounder strength.
 
@@ -2222,93 +2225,31 @@ class SensitivityBounds:
             }
         return row
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the formal assumptions, the settings and the definitions.
 
         Returns
         -------
-        str
-            A printable report, one line per reported quantity.
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
         """
-        conclusion = (
-            "the sign of the effect survives"
-            if (self.lower - self.null_hypothesis) * (self.upper - self.null_hypothesis) > 0
-            else "the effect could be explained away"
-        )
-        header = [
-            f"Omitted-variable sensitivity for {self.estimand!r}",
-            "-" * 44,
-            f"estimate {self.psi:.5g}; bias scale sqrt(sigma^2 nu^2) = {self.max_bias:.5g}",
-            f"assumed confounding: cf_y = {self.cf_y:.3g}, cf_d = {self.cf_d:.3g}, "
-            f"rho = {self.rho:.3g}"
-            f" -> bias <= {self.bias:.5g}",
-        ]
-        joint = joint_strength_sentence(self.features)
-        if joint is not None:
-            header.append(joint)
-        if self.assumption is not None:
-            header.append(self.assumption)
-        if self.plugin_mechanism is not None and self.nu2_correction is not None:
-            source = (
-                "the declared known mechanism"
-                if self.plugin_mechanism == "known"
-                else "the score of the fitted LogisticRegression mechanism, stacked"
-            )
-            header.append(
-                f"plug-in nu^2, second-order corrected by {self.nu2_correction:.5g}; "
-                f"its standard error carries {source}"
-            )
-        elif self.nu2_estimator == "plugin":
-            header.append("plug-in nu^2, uncorrected")
-        if self.robustness_value is None:
-            rv_line = f"robustness value RV   = unavailable: {_UNREACHABLE_RV}."
-        else:
-            rv_line = (
-                f"robustness value RV   = {self.robustness_value:.4f}: a confounder with "
-                f"cf_y = cf_d = {self.robustness_value:.1%} (the share of the residual outcome "
-                "variation it explains, and the share of the Riesz representer's second moment "
-                f"only it adds) would move the estimate to {self.null_hypothesis:g}."
-            )
-        reason = self._limit_reason()
-        if reason is not None:
-            return "\n".join(
-                [
-                    *header,
-                    f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}] ({conclusion})",
-                    "",
-                    rv_line,
-                    f"no one-sided limits or RVa under {reason}",
-                ]
-            )
-        status = self.inference
-        lower = self.plugin_interval_lower
-        upper = self.plugin_interval_upper
-        rv_interval = self.robustness_value_plugin_interval
-        rva_line = (
-            f"robustness value RVa  = unavailable: {_UNREACHABLE_RV}."
-            if rv_interval is None
-            else f"robustness value RVa  = {rv_interval:.4f}: the same, for the "
-            f"{self.level:.0%} {spread_name('confidence bound', status)}."
-        )
-        return "\n".join(
-            [
-                *header,
-                f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}]",
-                f"with {self.level:.0%} {spread_name('one-sided CIs', status)}: "
-                f"[{lower:.5g}, {upper:.5g}] ({conclusion})",
-                "",
-                rv_line,
-                rva_line,
-                *(
-                    []
-                    if self.limit_reading is None
-                    else ["", f"confidence limits: {self.limit_reading.sentence}"]
-                ),
-            ]
-        )
+        from ._summaries import bounds_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return bounds_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summaries import bounds_repr
+
+        return bounds_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
@@ -2682,7 +2623,7 @@ def _median_point_root(
     return equal_share(float(optimize.brentq(gap, 0.0, high)))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class BenchmarkResult:
     """Confounder strengths calibrated against covariates that *were* observed.
 
@@ -2806,56 +2747,39 @@ class BenchmarkResult:
             values["features"] = "+".join(self.features)
         return values
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the formal assumptions, the settings and the definitions.
 
         Returns
         -------
-        str
-            A printable report, one line per reported quantity.
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
         """
-        return "\n".join(
-            [
-                f"Benchmark for {self.estimand!r} against {list(self.covariates)}",
-                "-" * 48,
-                format_table(
-                    ["quantity", "with covariates", "without"],
-                    [
-                        ["estimate", f"{self.psi_long:.5g}", f"{self.psi_short:.5g}"],
-                        ["sigma^2", f"{self.sigma2_long:.5g}", f"{self.sigma2_short:.5g}"],
-                        ["nu^2", f"{self.nu2_long:.5g}", f"{self.nu2_short:.5g}"],
-                    ],
-                ),
-                "",
-                f"implied cf_y = {self.cf_y:.4f}, cf_d = {self.cf_d:.4f}, rho = {self.rho:.4f}",
-                *self._joint_lines(),
-                *self._clip_lines(),
-                f"the estimate moved by {self.delta_psi:+.5g} when these covariates were dropped",
-            ]
-        )
+        from ._summaries import benchmark_summary
 
-    def _joint_lines(self) -> list[str]:
-        """The joint-strength sentence, on a fit whose representer carries a second mechanism."""
-        joint = joint_strength_sentence(self.features)
-        return [] if joint is None else [joint]
+        return benchmark_summary(self, detail)
 
-    def _clip_lines(self) -> list[str]:
-        """One line for each gain that the record clips at 1."""
-        lines = []
-        if self.gain_y > 1.0:
-            lines.append(
-                f"cf_y is the gain {self.gain_y:.4g} clipped at 1: a confounder this strong "
-                "explains all remaining outcome variation"
-            )
-        if self.gain_d >= 1.0:
-            lines.append(
-                f"cf_d is the gain {self.gain_d:.4g} clipped at 1: the bound is unbounded "
-                "for a confounder this strong"
-            )
-        return lines
+    def __repr__(self) -> str:
+        from ._summaries import benchmark_repr
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return benchmark_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def _cache_token(self) -> dict[str, Any]:
+        """The content an assessment cache key reads when this record is an argument.
+
+        ``omitted_confounding(benchmark=record)`` is cached by its arguments, and the repr is
+        a rounded one-line summary that two benchmarks can share.
+        """
+        return {name: getattr(self, name) for name in self.__dataclass_fields__}
 
 
 def _benchmark_covariates(data: Any) -> tuple[str, ...]:
@@ -3143,7 +3067,7 @@ def robustness_value(
     nu2_estimator: str = "auto",
     assume_consistent_mechanism: bool = False,
     mechanism_learner: Any = None,
-) -> dict[str, Any]:
+) -> RobustnessValue:
     """The confounding strength that would explain the effect away.
 
     Returns ``{"rv": ..., "rva": ...}``: the value of ``cf_y = cf_d`` at which the point
@@ -3186,8 +3110,8 @@ def robustness_value(
 
     Returns
     -------
-    dict of str to Any
-        The strength that moves the point estimate to the null, the one that moves the
+    RobustnessValue
+        A ``dict``: the strength that moves the point estimate to the null, the one that moves the
         confidence limit there, and ``max_bias``. A threshold is ``None`` when unreachable.
         At a non-inferential status, also the
         status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``, and
@@ -3223,6 +3147,13 @@ def robustness_value(
     if elements.nu2_estimator != "doubly_robust":
         values["nu2_estimator"] = elements.nu2_estimator
         values["nu2_correction"] = elements.nu2_correction
+    context = {
+        "estimand": estimand,
+        "psi": float(estimate.psi),
+        "rho": rho,
+        "level": level,
+        "null_hypothesis": null_hypothesis,
+    }
     if elements.psi_max_bias is None:
         refusal = elements.limit_refusal
         values |= {
@@ -3232,12 +3163,12 @@ def robustness_value(
                 refusal.text if refusal is not None else _ZERO_BIAS_LIMITS_REFUSAL + "."
             ),
         }
-        return values
+        return RobustnessValue(values, **context)
     values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
     reading = _limit_reading(result, estimand, elements.features)
     if reading is not None:
         values |= {"limit_licensed": reading.licensed, "limit_sentence": reading.sentence}
-    return values
+    return RobustnessValue(values, **context)
 
 
 def contour_data(
@@ -3254,8 +3185,9 @@ def contour_data(
 ) -> Any:
     """A ``cf_d`` x ``cf_y`` grid of bias-adjusted bounds, for a contour plot.
 
-    Returned as a long-format frame (``cf_d``, ``cf_y``, ``value``) rather than a plot, so
-    it can be rendered with whatever plotting stack the caller already uses.
+    Returned as an object whose ``to_frame()`` is a long-format frame (``cf_d``, ``cf_y``,
+    ``value``) rather than a plot, so it can be rendered with whatever plotting stack the
+    caller already uses, and whose ``summary()`` prints part of the grid.
 
     Parameters
     ----------
@@ -3282,9 +3214,9 @@ def contour_data(
 
     Returns
     -------
-    DataFrame
-        One row per grid cell, in the frame library the fit was given, with columns
-        ``cf_d``, ``cf_y``, and ``value``.
+    SensitivityContour
+        The grid, whose ``to_frame()`` has one row per grid cell, in the frame library the
+        fit was given, with columns ``cf_d``, ``cf_y``, and ``value``.
 
     Raises
     ------
@@ -3318,4 +3250,11 @@ def contour_data(
             rows_d.append(float(cf_d))
             rows_y.append(float(cf_y))
             values.append(_edge(draws, sign * strength))
-    return result.data.frame_like({"cf_d": rows_d, "cf_y": rows_y, "value": values})
+    return SensitivityContour.build(
+        {"cf_d": rows_d, "cf_y": rows_y, "value": values},
+        backend=result.data.backend,
+        estimand=estimand,
+        psi=float(result[estimand].psi),
+        bound=bound,
+        rho=rho,
+    )

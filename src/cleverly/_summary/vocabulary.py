@@ -44,6 +44,27 @@ HORIZON: Final = "Horizon"
 CENSORING_MODEL: Final = "Censoring model"
 ANALYSIS: Final = "Analysis"
 
+#: The sensitivity analyses (X89 T4).
+ESTIMATE_ANALYSED: Final = "Estimate"
+OUTCOME_STRENGTH: Final = "Outcome-side strength"
+TREATMENT_STRENGTH: Final = "Treatment-side strength"
+ALIGNMENT: Final = "Alignment"
+LARGEST_SHIFT: Final = "Largest shift"
+CONCLUSION: Final = "Conclusion"
+BENCHMARK_COVARIATES: Final = "Benchmark covariates"
+IMPLIED_STRENGTHS: Final = "Implied strengths"
+IMPLIED_ALIGNMENT: Final = "Implied alignment"
+GRID: Final = "Grid"
+SCALE: Final = "Scale"
+BREAKDOWN: Final = "Breakdown Gamma"
+BREAKDOWN_INTERVAL: Final = "Breakdown Gamma, interval"
+MISSING_OUTCOMES: Final = "Missing outcomes"
+DIRECTION: Final = "Direction"
+MOVEMENT: Final = "Movement"
+CELLS: Final = "Cells"
+POPULATION: Final = "Population"
+REPEATED_SPLITS: Final = "Repeated splits"
+
 #: Every header label above, so a test can check a summary uses only shared labels.
 HEADER_LABELS: Final[frozenset[str]] = frozenset(
     {
@@ -67,6 +88,25 @@ HEADER_LABELS: Final[frozenset[str]] = frozenset(
         HORIZON,
         CENSORING_MODEL,
         ANALYSIS,
+        ESTIMATE_ANALYSED,
+        OUTCOME_STRENGTH,
+        TREATMENT_STRENGTH,
+        ALIGNMENT,
+        LARGEST_SHIFT,
+        CONCLUSION,
+        BENCHMARK_COVARIATES,
+        IMPLIED_STRENGTHS,
+        IMPLIED_ALIGNMENT,
+        GRID,
+        SCALE,
+        BREAKDOWN,
+        BREAKDOWN_INTERVAL,
+        MISSING_OUTCOMES,
+        DIRECTION,
+        MOVEMENT,
+        CELLS,
+        POPULATION,
+        REPEATED_SPLITS,
     }
 )
 
@@ -333,6 +373,21 @@ NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "fit_warning_parameter_space": "warning",
         "fit_warning_data": "warning",
         "fit_warning_other": "warning",
+        # The sensitivity analyses (X89 T4).
+        "sensitivity_assumption": "note",
+        "limits_withheld": "warning",
+        "limits_descriptive": "warning",
+        "joint_strength": "note",
+        "consistent_mechanism": "note",
+        "strength_clipped": "note",
+        "grid_thinned": "note",
+        "approximate_scale": "note",
+        "bound_truncated": "note",
+        "tilt_diagnostic": "note",
+        "association_reading": "note",
+        "population_moves": "note",
+        "cells_failed": "warning",
+        "calibration_nan": "note",
     }
 )
 
@@ -542,8 +597,147 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "fit_warning_more": (
             "It also gave {count} more warnings of this kind; result.fit_warnings lists them."
         ),
+        # The sensitivity analyses (X89 T4). ``assumption_<analysis>`` texts are the
+        # ``sensitivity_assumption`` note of each analysis.
+        "assumption_bounds": (
+            "The range is the estimate moved down and up by the largest bias that the "
+            "variables the adjustment left out could cause, taken together, if they had the "
+            "stated strengths. cf_y is the share of the outcome variation left after "
+            "adjustment that they would explain, cf_d the share of the average squared "
+            "weight that only they would add, and rho how far their two effects line up "
+            "(1 is the worst case). {rv_sentence}"
+        ),
+        "assumption_bounds_limits": (
+            "Each one-sided limit adds the sampling error of its end of the range at the "
+            "{level} level."
+        ),
+        "rv_reached": (
+            "A robustness value of {rv} means left-out variables with both strengths at {rv} "
+            "would move the estimate to {null} at the stated alignment, and the bound says "
+            "weaker ones, with both strengths below {rv}, could not."
+        ),
+        "rv_unreached": (
+            "Left-out variables with equal strengths below 1 would not move the estimate to "
+            "{null} at the stated alignment."
+        ),
+        "rv_limit_reached": (
+            "The {limit} robustness value is the same strength for the {level} one-sided "
+            "limit nearest {null}."
+        ),
+        "assumption_robustness": (
+            "The robustness value is the strength that left-out variables would need, with "
+            "the same value for cf_y (the share of the outcome variation left after "
+            "adjustment that they would explain) and cf_d (the share of the average squared "
+            "weight that only they would add), to move the estimate to {null}. "
+            "{rv_sentence}"
+        ),
+        "assumption_elements": (
+            "The bias scale is the square root of the product of the first two rows. "
+            "Left-out variables with strengths cf_y and cf_d and alignment rho shift the "
+            "estimate by at most that scale times |rho| sqrt(cf_y cf_d / (1 - cf_d))."
+        ),
+        "assumption_benchmark": (
+            "These are the strengths that left-out variables would have if leaving them out "
+            "hurt the fit as much as leaving out {covariates} does. Leaving those out moved "
+            "the estimate by {delta}. Pass this record as benchmark= to "
+            "result.sensitivity.omitted_confounding() for the range at these strengths."
+        ),
+        "assumption_contour": (
+            "Each cell is the {bound} end of the range for {estimand} when the variables the "
+            "adjustment left out have the outcome-side strength of its row (cf_y) and the "
+            "treatment-side strength of its column (cf_d), at alignment {rho}."
+        ),
+        "assumption_evalue": (
+            "If its associations with the treatment and with the outcome had equal strength, "
+            "an unmeasured confounder would need a risk ratio of {point} with each, beyond "
+            "the measured covariates, to explain away the estimate; {limit_sentence} "
+            "Unequal strengths can trade off: one association may be below the E-value if "
+            "the other is above it."
+        ),
+        "assumption_evalue_per_arm": (
+            "The estimate holds the intermediate fixed, so its bias is a product of one "
+            "bounding factor per arm. If all four risk-ratio associations, two per arm, had "
+            "equal strength, an unmeasured confounder would need {point} with each, beyond "
+            "the measured covariates, to explain away the estimate; {limit_sentence} "
+            "Unequal strengths can trade off."
+        ),
+        "evalue_limit_reached": "{limit} to move the interval to the null.",
+        "evalue_limit_covers": "the interval already includes the null.",
+        "assumption_marginal": (
+            "Gamma = 1 is no unmeasured confounding. At a larger Gamma, an unmeasured "
+            "confounder may change each unit's odds of treatment, given the covariates, by "
+            "up to a factor Gamma in either direction, with no limit on its link to the "
+            "outcome; the range holds every value of {estimand} that allows. The interval "
+            "covers the whole range with {level} probability."
+        ),
+        "assumption_tilt": (
+            "gamma moves the outcome of the units whose outcome is missing away from that of "
+            "recorded units with the same treatment and covariates, on the log-odds scale of "
+            "the outcome rescaled to [0, 1]. gamma = 0 is the main analysis, which assumes "
+            "outcomes are missing at random; a positive gamma means the missing outcomes "
+            "were higher. The intervals treat gamma as known: they describe sampling error "
+            "at that gamma, not doubt about gamma. result.sensitivity.tipping_gamma() finds "
+            "the gamma at which an estimate reaches its null."
+        ),
+        "assumption_surface": (
+            "Each cell adds a simulated common cause that moves the treatment with the "
+            "cell's treatment strength and the outcome with its outcome strength, refits, "
+            "and reports how far the estimate moved. The surface is qualitative: it is not a "
+            "bound and carries no interval. {laws}"
+        ),
+        "limits_withheld_plugin": (
+            "No one-sided limits or limit robustness value: the plug-in estimate of the "
+            "average squared weight (nu2_estimator='plugin') has a standard error only for "
+            "a declared known treatment model or a logistic regression one. "
+            "nu2_estimator='doubly_robust' gives limits."
+        ),
+        "limits_withheld_zero": (
+            "No one-sided limits or limit robustness value: the bias scale is zero on this "
+            "fit, and a zero scale has no standard error."
+        ),
+        "limits_descriptive": (
+            "No validation study measures how often the {what} covers for this kind of "
+            "fit, so read it as descriptive."
+        ),
+        "joint_strength": (
+            "Here the treatment-side strength measures how much the left-out variables add "
+            "to the weights of the treatment and of {mechanisms} together."
+        ),
+        "strength_clipped_y": (
+            "Leaving out {covariates} raised the outcome variation left by a factor above "
+            "two (gain {gain}), so cf_y is 1: left-out variables this strong would explain "
+            "all of the outcome variation left after adjustment."
+        ),
+        "strength_clipped_d": (
+            "The treatment-side gain is {gain}, at least 1, so cf_d is 1, where the bound "
+            "has no finite value."
+        ),
+        "grid_thinned": (
+            "The table shows {rows} of the {size} cf_y values and {columns} of the {size} "
+            "cf_d values; to_frame() holds every cell."
+        ),
+        "bound_truncated": (
+            "The converted lower limit, {value}, lies below 0, outside the risk-ratio "
+            "scale, so the table shows 0."
+        ),
+        "tilt_diagnostic": (
+            "For {names} the spread off gamma = 0 is the main analysis's spread around the "
+            "moved estimate, a diagnostic: no interval is claimed there."
+        ),
+        "population_moves": (
+            "Each cell rebuilds the population of units with {arm_phrase} from its own "
+            "treatment, so part of a movement can be a change of population; the population "
+            "share column shows the share of units in that group."
+        ),
+        "cells_failed": (
+            "{failed} of {total} cells failed, so their movement is missing. "
+            "result.failures gives each error."
+        ),
     }
 )
+
+#: Symbols a short sensitivity summary leaves to ``detail="full"`` (X89 plan 8.1 row T4).
+SHORT_DETAIL_SYMBOLS: Final[tuple[str, ...]] = ("sigma^2", "nu^2", "Riesz", "rung")
 
 # ----------------------------------------------------------------- full detail
 

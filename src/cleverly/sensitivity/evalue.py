@@ -80,6 +80,7 @@ from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
     from ..estimators.base import TMLEResult
     from ..inference.influence import ParameterEstimate
     from ..validation._interpretation import Resolution
@@ -206,7 +207,7 @@ def _evalue_for_limit(limit: float, *, above_null: bool) -> float:
     return 1.0 if limit >= 1.0 else evalue_from_rr(limit)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class EValue:
     """E-values for a point estimate and the confidence limit nearest the null.
 
@@ -248,6 +249,8 @@ class EValue:
         What the registry licenses for the confidence-limit E-value of a configuration that
         X82 part G added. ``None`` on the branches whose intervals carry registered
         coverage evidence.
+    level : float
+        The coverage level of :attr:`risk_ratio_ci`, which the summary names.
     """
 
     estimand: str
@@ -263,6 +266,7 @@ class EValue:
     support: Support = UNCLASSIFIED
     bias_factor: Literal["single", "per_arm_product"] = "single"
     limit_reading: Resolution | None = None
+    level: float = 0.95
 
     @property
     def limit_descriptive(self) -> bool:
@@ -275,49 +279,6 @@ class EValue:
             license.
         """
         return self.limit_reading is not None and not self.limit_reading.licensed
-
-    def summary(self) -> str:
-        """Return a printable summary.
-
-        Returns
-        -------
-        str
-            A printable report, one line per reported quantity.
-        """
-        marker = " [experimental]" if self.support.label == "experimental" else ""
-        lines = [
-            f"E-value for {self.estimand!r} ({self.scale} scale){marker}",
-            "-" * 40,
-            f"risk ratio {self.risk_ratio:.4g} "
-            f"[{self.risk_ratio_ci[0]:.4g}, {self.risk_ratio_ci[1]:.4g}]"
-            + (" (approximate conversion)" if self.approximate else ""),
-            f"E-value, point estimate     : {self.point:.4f}",
-            f"E-value, confidence limit   : {self.limit:.4f}",
-            "",
-            (
-                f"If its two risk-ratio associations had equal strength, an unmeasured "
-                f"confounder would need {self.point:.2f} with both treatment and outcome, "
-                f"beyond the measured covariates, to explain away the point estimate; "
-                if self.bias_factor == "single"
-                else f"If its four risk-ratio associations, two per arm, had equal strength, "
-                f"an unmeasured confounder would need {self.point:.2f} with each of them, "
-                f"beyond the measured covariates, to explain away the point estimate; "
-            )
-            + (
-                f"{self.limit:.2f} to move the interval to the null."
-                if self.limit > 1.0
-                else "the interval already includes the null."
-            ),
-            "Unequal strengths can trade off: one association may be below the E-value "
-            "if the other is above it.",
-        ]
-        if self.limit_reading is not None:
-            lines.extend(["", f"confidence limit: {self.limit_reading.sentence}"])
-        if self.note:
-            lines.extend(["", self.note])
-        if self.support.label == "experimental":
-            lines.extend(["", f"experimental: {self.support.reason}"])
-        return "\n".join(lines)
 
     def to_dict(self) -> dict[str, float | str | bool | None]:
         """Return a JSON-compatible representation.
@@ -350,8 +311,31 @@ class EValue:
             "limit_sentence": None if self.limit_reading is None else self.limit_reading.sentence,
         }
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the assumptions and the settings.
+
+        Returns
+        -------
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
+        """
+        from ._summaries import evalue_summary
+
+        return evalue_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summaries import evalue_repr
+
+        return evalue_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 class _EValueRefusal(CapabilityError):
@@ -1026,6 +1010,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         support=support,
         bias_factor="per_arm_product" if per_arm else "single",
         limit_reading=_limit_reading(result, selection),
+        level=1.0 - float(result.config.alpha_sig),
     )
 
 
