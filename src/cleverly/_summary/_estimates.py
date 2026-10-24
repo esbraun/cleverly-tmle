@@ -62,6 +62,30 @@ def reason_kind(reason: str) -> str:
 _ID = re.compile(r"\b(?:[A-Z]{1,2}\d+[a-z]?(?:\.[A-Za-z_]+)*)\b")
 
 
+#: A sentence that points at a roadmap item, and a roadmap id in parentheses.
+_ROADMAP_SENTENCE = re.compile(r"\s*\b[A-Z]{1,2}\d+[a-z]? in docs/roadmap\.md\b[^.]*\.")
+_ROADMAP_PAREN = re.compile(r"\s*\(\s*[A-Z]{1,2}\d+[a-z]?\s*\)")
+
+
+def without_roadmap(text: str) -> str:
+    """Library prose with its roadmap pointers taken out.
+
+    Only a sentence of the form ``"X58 in docs/roadmap.md ..."`` and an id in parentheses
+    go; a bare name such as a column called ``X1`` stays as written.
+
+    Parameters
+    ----------
+    text : str
+        A warning message or a method's description.
+
+    Returns
+    -------
+    str
+        The text without the pointers.
+    """
+    return _ROADMAP_PAREN.sub("", _ROADMAP_SENTENCE.sub("", text)).strip()
+
+
 def plain_support_reason(reason: str) -> str:
     """A support reason with the library's row and roadmap ids taken out.
 
@@ -80,7 +104,9 @@ def plain_support_reason(reason: str) -> str:
         axes = [vocabulary.SUPPORT_AXES.get(axis, axis) for axis in match[1].split(", ")]
         return f"The nearest validated kind of fit differs in {', '.join(axes)}."
 
-    text = re.sub(r"Nearest row: \S+(?: \([^)]*\))?, differing on ([^.]*)\.", nearest, reason)
+    text = re.sub(
+        r"Nearest row: \S+(?: \([^)]*\))?, differing on ([^.]*)\.", nearest, without_roadmap(reason)
+    )
     text = text.replace("covers this configuration", "covers this kind of fit")
     text = re.sub(r"\bRow \S+ licenses", "The validation study licenses", text)
     text = text.replace("registered study", "validation study")

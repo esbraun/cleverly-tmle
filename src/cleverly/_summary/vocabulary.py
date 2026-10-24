@@ -477,7 +477,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "weighted_population": (
             "The estimate describes the population that the observation weights represent, "
-            "not the sample as drawn."
+            "not the sample as drawn. result.data.weight_report() describes the weights."
         ),
         "t_reference": (
             "A row based on fewer than {threshold} clusters with positive weight mass, in "
@@ -495,9 +495,9 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "computed before it is turned back to the scale of the estimate."
         ),
         "repeated_splits": (
-            "Each row is the median over {repeats} random splits into folds, and its std. "
-            "error includes the spread between splits. Rows are combined one at a time, so "
-            "a difference of two rows need not equal a third."
+            "Each row is the median over {repeats} random splits into folds, and its "
+            "{spread} includes the spread between splits. Rows are combined one at a time, "
+            "so a difference of two rows need not equal a third."
         ),
         "simultaneous_bands": (
             "The bands cover all {count} rows at once with {level} probability; use them "
@@ -593,6 +593,7 @@ INTERNAL_TERMS: Final[tuple[str, ...]] = (
     "submodel",
     "Levy",
     "run_id",
+    "docs/roadmap.md",
 )
 
 # ----------------------------------------------------------------- checks (T3)

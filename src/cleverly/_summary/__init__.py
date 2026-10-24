@@ -185,9 +185,7 @@ class SummaryTable:
             One list per label, the row-label column (``"row"``) first.
         """
         columns = [label or "row" for label in self.columns]
-        return {
-            name: [row[index].value for row in self.rows] for index, name in enumerate(columns)
-        }
+        return {name: [row[index].value for row in self.rows] for index, name in enumerate(columns)}
 
 
 @dataclass(frozen=True)

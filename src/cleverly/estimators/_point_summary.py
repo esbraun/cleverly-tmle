@@ -41,7 +41,7 @@ from .._summary import (
     share_text,
     vocabulary,
 )
-from .._summary._estimates import estimates_table, plain_support_reason
+from .._summary._estimates import estimates_table, plain_support_reason, without_roadmap
 from .._summary._learners import is_parametric, learner_name
 from ..data.treatment_covariates import (
     adaptive_iptw_restriction_line,
@@ -158,7 +158,11 @@ def base_summary_facts(result: TMLEResult) -> SummaryFacts:
         outcome_model=outcome_model,
         treatment_model=treatment_model,
         header=tuple(header),
-        sections=(SummarySection(vocabulary.SECTION_METHOD, tuple(details)),) if details else (),
+        sections=(
+            (SummarySection(vocabulary.SECTION_METHOD, tuple(map(without_roadmap, details))),)
+            if details
+            else ()
+        ),
         question=vocabulary.LEARNED_RULE_QUESTION if learned is not None else None,
     )
 
@@ -273,6 +277,7 @@ def _covariates(result: TMLEResult) -> str | None:
 
 def _treatment_fact(result: TMLEResult) -> tuple[str, str]:
     data = result.data
+    weighted = vocabulary.WEIGHTED if data.is_weighted else ""
     if data.treatment_kind == "vector":
         columns = data._component_columns()
         parts: list[str] = []
@@ -287,12 +292,12 @@ def _treatment_fact(result: TMLEResult) -> tuple[str, str]:
             else:
                 dose = np.asarray(values, dtype=float)
                 parts.append(f"{name}: range [{dose.min():.3g}, {dose.max():.3g}]")
-        return vocabulary.ARM_SHARES, "; ".join(parts)
+        return vocabulary.ARM_SHARES + weighted, "; ".join(parts)
     if data.is_continuous_treatment:
         dose = np.asarray(data.treatment, dtype=float)
         mean = float(np.average(dose, weights=data.weights))
-        return vocabulary.DOSE, f"mean {mean:.4g}, range [{dose.min():.3g}, {dose.max():.3g}]"
-    weighted = vocabulary.WEIGHTED if data.is_weighted else ""
+        fact = f"mean {mean:.4g}, range [{dose.min():.3g}, {dose.max():.3g}]"
+        return vocabulary.DOSE + weighted, fact
     if data.is_binary_treatment and _zero_one_arms(data):
         return vocabulary.TREATED_SHARE + weighted, share_text(data.treated_fraction)
     shares = ", ".join(
@@ -628,7 +633,9 @@ _GROUP_WORDS = {
 }
 
 
-def _fit_notes(result: TMLEResult, facts: SummaryFacts, clipping: _Clipping) -> list[Note]:
+def _fit_notes(
+    result: TMLEResult, facts: SummaryFacts, clipping: _Clipping, spread: str
+) -> list[Note]:
     notes: list[Note] = []
     config = result.config
     specs = _learner_specs(result)
@@ -653,7 +660,9 @@ def _fit_notes(result: TMLEResult, facts: SummaryFacts, clipping: _Clipping) -> 
         notes.append(
             note(
                 "repeated_splits",
-                vocabulary.NOTE_TEXTS["repeated_splits"].format(repeats=result.n_repeats),
+                vocabulary.NOTE_TEXTS["repeated_splits"].format(
+                    repeats=result.n_repeats, spread=spread
+                ),
             )
         )
     if config.cross_fit and config.crossfit.n_folds != config.n_folds:
@@ -773,7 +782,7 @@ _MOST_MESSAGES = 3
 
 def _warning_notes(records: Sequence[Any]) -> list[Note]:
     """One note per recorded warning category, each distinct message once, in first-seen
-    order. The messages are quoted as the user saw them."""
+    order. The messages are quoted as the user saw them, without roadmap pointers."""
     grouped: dict[str, list[Any]] = {}
     for record in records:
         code = vocabulary.WARNING_NOTE_CODES.get(record.category, "fit_warning_other")
@@ -781,7 +790,7 @@ def _warning_notes(records: Sequence[Any]) -> list[Note]:
     notes = []
     for code, held in grouped.items():
         quoted = [
-            record.message
+            without_roadmap(record.message)
             + ("" if record.count == 1 else vocabulary.REPEATS.format(count=record.count))
             for record in held[:_MOST_MESSAGES]
         ]
@@ -1076,7 +1085,8 @@ def point_summary(result: TMLEResult, facts: SummaryFacts, detail: Detail) -> Su
             tables.append(boot_table)
             notes.extend(boot_notes)
     clipping = _clipping(result)
-    notes.extend(_fit_notes(result, facts, clipping))
+    # The spread column's label, which names a diagnostic when no row has an interval.
+    notes.extend(_fit_notes(result, facts, clipping, table.columns[2]))
     sections: list[SummarySection] = []
     if detail == "full":
         sections.append(_assumptions(result))

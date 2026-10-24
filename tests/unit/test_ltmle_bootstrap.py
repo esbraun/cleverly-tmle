@@ -37,6 +37,12 @@ COLUMNS: dict[str, Any] = {
 }
 
 
+def _interval_column(result: Any) -> str:
+    """The interval column of the summary's bootstrap table."""
+    (table,) = [t for t in result.summary().tables if (t.title or "").startswith("Bootstrap")]
+    return table.columns[-1]
+
+
 def _estimator(**settings: Any) -> LTMLE:
     base: dict[str, Any] = {
         "n_folds": 1,
@@ -374,17 +380,18 @@ class TestReporting:
 
         supported = fit()
         assert supported["ate"].bootstrap.support.label == "supported"
-        assert "percentile CI" in supported.summary()
-        assert "[experimental]" not in supported.summary()
+        assert _interval_column(supported) == "percentile 95% CI"
+        assert "bootstrap_experimental" not in supported.summary().note_codes
         cross_fitted = fit(True)
         assert cross_fitted["ate"].bootstrap.support.label == "experimental"
         assert cross_fitted["ate"].bootstrap.diagnostic is False
-        assert "percentile CI" in cross_fitted.summary()
+        assert _interval_column(cross_fitted) == "percentile 95% CI"
+        assert "bootstrap_experimental" in cross_fitted.summary().note_codes
         assert "bootstrap_ci_lower" in cross_fitted["ate"].to_dict()
         without_bootstrap_kind(monkeypatch)
         demoted = fit()
         assert demoted["ate"].bootstrap.support.label == "experimental"
-        assert "[experimental]" in demoted.summary()
+        assert "bootstrap_experimental" in demoted.summary().note_codes
 
     @pytest.mark.parametrize(
         "configuration",
@@ -438,13 +445,13 @@ class TestReporting:
         row = result["ate"].to_dict()
         if estimator is CTMLE:
             assert result["ate"].bootstrap.diagnostic is True
-            assert "percentile range" in result.summary()
+            assert _interval_column(result) == "percentile range (diagnostic)"
             assert "bootstrap_sd" in row
             assert "bootstrap_ci_lower" not in row
         else:
             assert result["ate"].bootstrap.diagnostic is False
             assert result["ate"].bootstrap.support.label == "experimental"
-            assert "percentile CI" in result.summary()
+            assert _interval_column(result) == "percentile 95% CI"
             assert "bootstrap_ci_lower" in row
 
 

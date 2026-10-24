@@ -139,7 +139,8 @@ def check(namespace: dict[str, Any]) -> None:
     ordinary, oat = tmle["ate"], collaborative["ate"]
     assert ordinary.inference == "influence_curve"
     assert oat.inference == "influence_curve"
-    assert "Its intervals read the stacked parametric curve" in collaborative.summary()
+    details = " ".join(collaborative.summary(detail="full").section("Method details").lines)
+    assert "Its intervals read the stacked parametric curve" in details
     assert not namespace["in_sample"].enabled
     # "The interval contains the true 0.1186 on this draw", for each fit.
     assert covers(ordinary, truth["ate"])

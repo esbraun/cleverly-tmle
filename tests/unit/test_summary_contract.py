@@ -23,7 +23,12 @@ import pytest
 
 from cleverly._inference_status import STATUS_RECORDS
 from cleverly._summary import Cell, Summary, SummaryTable, _render, vocabulary
-from cleverly._summary._estimates import _ID, estimates_table, plain_support_reason
+from cleverly._summary._estimates import (
+    _ID,
+    estimates_table,
+    plain_support_reason,
+    without_roadmap,
+)
 from tests.unit.summary_fixtures import collect
 
 FIXTURES = collect()
@@ -531,3 +536,12 @@ def test_a_declared_rule_without_an_interval_states_the_rule_plainly() -> None:
     assert summary.note("stopping_rule").text == vocabulary.NOTE_TEXTS["stopping_rule_plain"]
     bounded = _summary("point_tmle:declared_rule").note("stopping_rule").text
     assert bounded != vocabulary.NOTE_TEXTS["stopping_rule_plain"]
+
+
+def test_roadmap_pointers_leave_and_a_column_named_like_an_id_stays() -> None:
+    text = "The point estimate stands. X58 in docs/roadmap.md describes the stack."
+    assert without_roadmap(text) == "The point estimate stands."
+    assert without_roadmap("No stacked interval (X58): it needs W") == (
+        "No stacked interval: it needs W"
+    )
+    assert without_roadmap("column X1 is constant") == "column X1 is constant"

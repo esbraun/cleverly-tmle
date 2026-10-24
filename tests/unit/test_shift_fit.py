@@ -22,6 +22,7 @@ import sklearn.linear_model
 
 import tests.conftest as conftest
 import tests.discrete_law_shift_cde as shift_law
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.datasets import GENERATORS, make_shift_dose
 from cleverly.estimators import TMLE
@@ -519,10 +520,10 @@ class TestAWeightedShiftFit:
         weighted_mean = float(np.average(dose, weights=tilted.data.weights))
         unweighted_mean = float(np.mean(dose))
         assert f"{weighted_mean:.4g}" != f"{unweighted_mean:.4g}"
-        summary = tilted.summary()
-        assert f"dose: mean {weighted_mean:.4g}," in summary
-        assert f"dose: mean {unweighted_mean:.4g}," not in summary
-        assert f"range [{dose.min():.3g}, {dose.max():.3g}]" in summary
+        header = dict(tilted.summary().header)
+        assert header[vocabulary.DOSE + vocabulary.WEIGHTED] == (
+            f"mean {weighted_mean:.4g}, range [{dose.min():.3g}, {dose.max():.3g}]"
+        )
 
 
 class TestTheDiagnosticsMatchTheAxis:
