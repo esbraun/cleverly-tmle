@@ -78,9 +78,8 @@ Each public object keeps one responsibility:
 | typed method | learners, cross-fitting, targeting, inference, and runtime settings | the causal question or identification argument |
 
 `CausalStudy` stamps the optional protocol onto the identified effect and each fitted result. A
-summary states `causal study protocol: absent` when the study has no protocol record. A summary
-prints the whole record by default, and `summary(protocol="fingerprint")` prints only its
-fingerprint line.
+summary prints the analysis by default. `summary(detail="full")` also prints the protocol's
+fields, or `causal study protocol: absent` when the study has no protocol record.
 
 ## 3. Choose a typed estimand
 

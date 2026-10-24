@@ -249,9 +249,9 @@ def test_complete_protocol_and_digest_survive_result_round_trip(
     assert restored.identified_effect.protocol == result.identified_effect.protocol
     assert restored.provenance.protocol_fingerprint == result.provenance.protocol_fingerprint
     assert restored.identified_effect.protocol is restored.identified_effect._study.protocol
-    for line in restored.identified_effect.protocol.summary_lines():
-        assert line in restored.identified_effect.summary()
-        assert line in restored.summary()
+    for line in restored.identified_effect.protocol.summary_lines()[1:]:
+        assert line in restored.identified_effect.summary(detail="full")
+        assert line in restored.summary(detail="full")
 
 
 @pytest.mark.parametrize("fixture_name", ["protocol_point_result", "protocol_longitudinal_result"])
@@ -260,4 +260,6 @@ def test_result_without_identification_metadata_reports_protocol_absence(
 ) -> None:
     result = request.getfixturevalue(fixture_name)
 
-    assert "causal study protocol: absent" in replace(result, identified_effect=None).summary()
+    assert "causal study protocol: absent" in replace(result, identified_effect=None).summary(
+        detail="full"
+    )

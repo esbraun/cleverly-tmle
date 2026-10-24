@@ -188,6 +188,7 @@ from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
+from .._summary import Detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
 from ..learners.crossfit import (
@@ -216,7 +217,7 @@ from ..methods import (
     sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
-from ..protocol import ProtocolDetail, protocol_summary_lines
+from ..protocol import protocol_summary_lines
 from ..provenance import Provenance, fingerprint_array, fold_fingerprint
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
@@ -3276,14 +3277,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ]
         return self.data.frame_like(payload)
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+    def summary(self, *, detail: Detail = "short") -> str:
         """A printable report: the estimates, then the settings, then the leverage.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` prints every field of the study protocol record. ``"fingerprint"``
-            prints only its schema and fingerprint, for a reader who has the record already.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
 
         Returns
         -------
@@ -3355,9 +3356,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if self.simulation is not None:
             facts.extend(self.simulation.describe())
         if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines(protocol=protocol))
+            facts.extend(self.identified_effect.summary_lines(detail=detail))
         else:
-            facts.extend(protocol_summary_lines(None, protocol))
+            facts.extend(protocol_summary_lines(None, detail))
         if self.data.cluster is not None:
             # The count the status reads, when it differs from the count of labels: a
             # cluster with zero weight mass contributes nothing to any estimate.
@@ -3525,12 +3526,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 )
             else:
                 missed = self._rule_misses()
-                detail = (
+                failure = (
                     "; ".join(missed) + ". See res.fits"
                     if missed
                     else "at least one node's targeting step did not converge. See res.fits"
                 )
-                lines.append(f"  {rule_failure_line(rule, detail)}{suffix}")
+                lines.append(f"  {rule_failure_line(rule, failure)}{suffix}")
         return "\n".join(lines)
 
     def _declared_rule(self) -> str:

@@ -154,15 +154,16 @@ def check_stored() -> None:
     assert smoking > non_smoking and with_it > without_it
     crude = _number(association, r"crude difference: (\S+) g,")
 
-    # Protocol: printed in its own step, and carried by the identified effect and the fit.
+    # Protocol: printed in its own step only.
     protocol_text = stored_output(NOTEBOOK, "protocol")
     match = re.search(r"causal study protocol: schema \d+; ([0-9a-f]{16})", protocol_text)
     assert match, "the protocol step no longer prints its fingerprint"
     fingerprint = match.group(1)
     identify_text = stored_output(NOTEBOOK, "identify")
     fit_text = stored_output(NOTEBOOK, "att-fit")
+    # The short summaries print the analysis and leave the record to the protocol step.
     for text in (identify_text, fit_text):
-        assert f"causal study protocol: schema 1; {fingerprint}" in text
+        assert "causal study protocol" not in text and fingerprint not in text
         assert "assumption rationale:" not in text
     intercurrent = "intercurrent-event handling: ['Fetal death of a twin: the cohort conditions on"
     assert intercurrent in protocol_text
