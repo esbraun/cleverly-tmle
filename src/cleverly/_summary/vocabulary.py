@@ -49,6 +49,8 @@ TREATMENT: Final = "Treatment"
 BASELINE: Final = "Baseline"
 CENSORING: Final = "Censoring"
 FOLLOWED: Final = "Observed to the end"
+EFFECTIVE_N: Final = "Effective sample size"
+CENSORED_BEFORE_END: Final = "Censored before the end"
 STRATA: Final = "Strata"
 HELD_FIXED: Final = "Held fixed"
 PROTOCOL: Final = "Study protocol"
@@ -91,6 +93,8 @@ HEADER_LABELS: Final[frozenset[str]] = frozenset(
         BASELINE,
         CENSORING,
         FOLLOWED,
+        EFFECTIVE_N,
+        CENSORED_BEFORE_END,
         STRATA,
         HELD_FIXED,
         PROTOCOL,
@@ -604,15 +608,13 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "cannot estimate this question; the full summary says why."
         ),
         "further_conditions": (
-            "The answer also rests on {count} further {conditions} on the declared "
-            "intervention, missing data or model; the full summary states {them}."
+            "The full summary states {count} further {conditions} the answer rests on."
         ),
         "checkable": (
-            "None of these conditions can be confirmed from the data. Overlap (marked "
-            "partly) can be probed: after a fit, result.diagnostics.support() shows where "
-            "the estimated treatment probabilities come close to zero or one, which means some "
-            "units had little chance of a compared treatment. That check reads a fitted "
-            "model, and a clean result does not show that overlap holds."
+            "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
+            "after a fit, result.diagnostics.support() shows where the fitted treatment model "
+            "gives units little chance of a compared treatment. That check reads a fitted "
+            "model, so a clean result does not prove overlap."
         ),
         "model_restriction": (
             "The design restricts the model of the data; the full summary states how. The "
@@ -638,8 +640,8 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "and rejected describe the {noun} and not a confidence interval."
         ),
         "mixed_statuses": (
-            "The replicates took more than one inference status: {statuses}. Each column "
-            "of a listed estimand reads {what}."
+            "The replicates took more than one inference status, named as in the inference "
+            "column of to_frame(): {clauses}."
         ),
         "worker_time": (
             "The parallel workers' times are each worker's own elapsed time, added across "
@@ -730,7 +732,7 @@ DESIGN_WORDS: Final[Mapping[str, str]] = MappingProxyType(
         "PointTreatment": "one treatment decision",
         "LongitudinalTreatment": "treatment at {T} times",
         "TimeToEvent": "time to an event, {T} time points",
-        "LongPanel": "one row per unit and time, {T} times",
+        "LongPanel": "{T} times, long rows read as one row per unit",
     }
 )
 
@@ -741,6 +743,10 @@ ANSWERED_BY_WORDS: Final[Mapping[bool, str]] = MappingProxyType(
         True: "adjusting for history",
     }
 )
+#: The Outcome fact of a time-to-event design.
+EVENT_OUTCOME: Final = "{event} (event code), timed by {time}"
+#: The Answered by fact of a randomized design that adjusts for nothing.
+ANSWERED_BY_RANDOMIZED: Final = "randomized assignment"
 #: The Adjusted for fact of a randomized design that adjusts for nothing.
 RANDOMIZED_NO_ADJUSTMENT: Final = "none (randomized, as declared)"
 #: The title of each setup summary.
@@ -753,6 +759,9 @@ PHASES_TITLE: Final = "Time by phase"
 #: Table titles.
 ROLES_TITLE: Final = "Columns by role"
 CONDITIONS_TITLE: Final = "Conditions the answer rests on"
+ARMS_TITLE: Final = "Share of rows by treatment level"
+#: The share column of that table, marked weighted on weighted data.
+SHARE_COLUMN: Final = "share"
 HISTORY_TITLE: Final = "What each treatment time adjusts for"
 METHODS_TABLE_TITLE: Final = "Methods"
 STRATEGIES_TITLE: Final = "Treatment strategies"
@@ -768,9 +777,9 @@ SECTION_COLUMNS: Final = "Reading the columns"
 #: The lead of a question's Assumptions section, with the terms of art the short table's
 #: plain names stand for.
 CONDITIONS_LEAD: Final = (
-    "The answer equals {functional} when these hold (the short table's well-defined "
-    "treatment, hidden confounding and overlap are the conditions called consistency, "
-    "exchangeability and positivity):"
+    "The answer equals {functional} when the statements below hold. The short table calls "
+    "consistency well-defined treatment, exchangeability no hidden confounding, and "
+    "positivity overlap."
 )
 
 #: One condition's plain words: the name the short table prints, its sentence, and
@@ -780,10 +789,9 @@ Checkable = Literal["no", "partly"]
 #: The plain words for the identification statements that recur, matched on the start of
 #: the statement in this order, most specific first. Each value is ``(name, sentence,
 #: checkable)``; ``{A}``, ``{Y}`` and ``{Z}`` are the treatment, outcome and held variable.
-#: A statement no entry matches prints only in the full summary, verbatim: those are
-#: conditions on a declared intervention, on missing data, or on a model, whose wording is
-#: the statistician's. ``test_setup_summaries`` pins which entry each registered statement
-#: reaches.
+#: A statement no entry matches prints only in the full summary, verbatim, such as the
+#: definedness of a ratio, a known policy or a model restriction. ``test_setup_summaries``
+#: pins which entry each statement of a broad set of questions reaches.
 CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
     (
         "consistency: each observed history",
@@ -847,6 +855,26 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
             "At each time, among units with the same recorded history, which treatment a "
             "unit got and whether it stays in follow-up are unrelated to the outcomes it "
             "would have had.",
+            "no",
+        ),
+    ),
+    (
+        "sequential exchangeability in the form the chosen interpretation names",
+        (
+            "no hidden confounding at each time",
+            "At each time, among units with the same recorded history, the dose a unit got "
+            "is unrelated to the outcomes it would have had, in the strong or the standard "
+            "form that each causal reading names.",
+            "no",
+        ),
+    ),
+    (
+        "dropout is missing at random given the recorded history",
+        (
+            "follow-up loss at random",
+            "At each time, among units with the same recorded history, whether a unit stays "
+            "in follow-up is unrelated to its later outcomes, and each unit still at risk had "
+            "some chance of staying.",
             "no",
         ),
     ),
@@ -998,28 +1026,112 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
     ),
 )
 
+#: The plain words that replace an entry of :data:`CONDITION_WORDS` when the design has a
+#: feature: ``"held"`` a held intermediate, ``"randomized"`` a randomized assignment with no
+#: adjustment, ``"uncensored"`` a longitudinal design without censoring.
+CONDITION_VARIANTS: Final[Mapping[str, tuple[tuple[str, tuple[str, str, Checkable]], ...]]] = (
+    MappingProxyType(
+        {
+            "held": (
+                (
+                    "missingness at random for",
+                    (
+                        "outcome missing at random",
+                        "Among units with the same treatment, {Z} and adjusted-for values, "
+                        "whether {Y} was recorded is unrelated to its value.",
+                        "no",
+                    ),
+                ),
+            ),
+            "randomized": (
+                (
+                    "no unmeasured confounding:",
+                    (
+                        "no hidden confounding",
+                        "Which treatment a unit got is unrelated to the outcomes it would "
+                        "have had, as in a randomized trial. The design declares this, and "
+                        "the data cannot show it.",
+                        "no",
+                    ),
+                ),
+                (
+                    "positivity: ",
+                    (
+                        "overlap",
+                        "Every unit had some chance of each compared level of {A}, as a "
+                        "randomized assignment gives.",
+                        "partly",
+                    ),
+                ),
+            ),
+            "uncensored": (
+                (
+                    "sequential exchangeability given the recorded history",
+                    (
+                        "no hidden confounding at each time",
+                        "At each time, among units with the same recorded history, which "
+                        "treatment a unit got is unrelated to the outcomes it would have had.",
+                        "no",
+                    ),
+                ),
+                (
+                    "sequential positivity for treatment and remaining under observation",
+                    (
+                        "overlap at each time",
+                        "At each time, units with every history that following the compared "
+                        "regimens can produce had some chance of the treatment a regimen "
+                        "assigns.",
+                        "partly",
+                    ),
+                ),
+                (
+                    "positivity: the dose a policy assigns",
+                    (
+                        "overlap at each time",
+                        "At each time, units with every recorded history had some chance of "
+                        "the dose the policy assigns wherever they had a chance of their "
+                        "observed dose.",
+                        "partly",
+                    ),
+                ),
+            ),
+        }
+    )
+)
+
 #: The words a question's held intermediate adds to the well-defined-treatment sentence.
 HELD_CLAUSE: Final = " and the value of {Z} it was held at"
 
 
 #: The reading of a simulation study.
 SIMULATION_PASS: Final = (
-    "Coverage is not below {level} and the bias is not distinguishable from zero, beyond "
-    "Monte Carlo error."
+    "Coverage is not below {level} by more than Monte Carlo error, and the bias is within "
+    "Monte Carlo error of zero."
 )
 SIMULATION_DIAGNOSTIC_PASS: Final = (
-    "The bias is not distinguishable from zero beyond Monte Carlo error. The coverage column "
-    "measures a {noun}, so it certifies no confidence interval."
+    "The bias is within Monte Carlo error of zero. The coverage column measures a {noun}, so "
+    "it certifies no confidence interval."
 )
 SIMULATION_UNDERCOVERAGE: Final = (
     "{name}: coverage {coverage} is below the nominal {level} by more than Monte Carlo error"
 )
+SIMULATION_SMALL_UNDERCOVERAGE: Final = (
+    "{name}: coverage {coverage} is below the nominal {level} by more than Monte Carlo error, "
+    "though by no more than {floor} percentage points"
+)
+#: One estimand's clause of the mixed-statuses note.
+MIXED_STATUS_CLAUSE: Final = "{name} took {statuses}, and each of its columns reads {what}"
 SIMULATION_SE_SMALL: Final = "; the {spread} is {factor}x too small"
+SIMULATION_SE_ZERO: Final = "; every reported standard error is zero"
 SIMULATION_SE_RIGHT: Final = (
-    "; the standard error looks right, so the shortfall points to bias or a skewed sampling "
-    "distribution"
+    "; the standard error is not too small, so the shortfall points to bias or a skewed "
+    "sampling distribution"
 )
 SIMULATION_BIAS: Final = "{name}: bias {bias} is {count} Monte Carlo standard errors from zero"
+SIMULATION_SMALL_BIAS: Final = (
+    "{name}: bias {bias} is {count} Monte Carlo standard errors from zero, though no more "
+    "than {floor} of the larger of 1 and the absolute truth"
+)
 SIMULATION_EXPERIMENTAL: Final = (
     "At least one replicate's estimate of {names} has no validation study behind its kind of "
     "fit, so cleverly marks it experimental."

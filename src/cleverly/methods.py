@@ -341,7 +341,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
     >>> [record.name for record in methods if record.available]
     ['tmle']
     >>> methods.summary().facts["Methods that fit"]
-    'tmle'
+    '1 of 1'
     """
 
     question: str | None

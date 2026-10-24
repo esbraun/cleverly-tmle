@@ -83,6 +83,11 @@ def check(namespace: dict[str, Any]) -> None:
         assert str(level) in positivity
     # The models a fit needs are a program's record; the summary prints no internal name.
     assert "nuisance" not in summary.lower()
+    # The full summary states the multi-arm positivity statement verbatim.
+    lines = effect.summary(detail="full").section("Assumptions").lines
+    (stated,) = [line for line in lines if line.startswith("- positivity")]
+    for level in levels:
+        assert repr(level) in stated or str(level) in stated
     assert "P(A = 1 | W)" not in summary
     assert "both counterfactual means" not in summary
 

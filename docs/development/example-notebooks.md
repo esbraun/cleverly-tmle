@@ -311,7 +311,7 @@ Use the shared helpers in `tests/unit/tutorial_semantics/__init__.py`. Do not de
 | helper | what it checks |
 | --- | --- |
 | `covers(estimate, value)` | the estimate's interval, or a `(low, high)` pair, contains the value |
-| `assert_protocol_recorded(NOTEBOOK, "<cell id>", protocol, *results)` | the cell prints the protocol fingerprint, and each result carries it |
+| `assert_protocol_recorded(NOTEBOOK, "<cell id>", protocol, *results)` | the cell prints the protocol's fingerprint or every one of its fields, and each result carries the fingerprint |
 | `changed_fields(protocol, base)` | the set of fields in which `protocol` differs from the protocol it was derived from. Assert the exact set the reading names |
 
 Do not loosen a tolerance to make a relation pass. A relation that moves under a supported change is

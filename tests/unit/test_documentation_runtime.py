@@ -958,8 +958,20 @@ def test_the_shared_callback_helpers_refuse_what_they_must(tmp_path: Path) -> No
     )
     carried = SimpleNamespace(provenance=SimpleNamespace(protocol_fingerprint=program.fingerprint))
     assert assert_protocol_recorded(notebook, "protocol", program, carried) == program.fingerprint
-    with pytest.raises(AssertionError, match="does not print the protocol fingerprint"):
+    with pytest.raises(AssertionError, match="prints neither the protocol fingerprint"):
         assert_protocol_recorded(notebook, "protocol", moved)
+    # A cell that prints every field passes without the fingerprint, and one that drops a
+    # field fails.
+    fields = "\\n".join(moved.summary_lines()).replace('"', '\\"')
+    printed = tmp_path / "fields.ipynb"
+    printed.write_text(
+        '{"cells": [{"cell_type": "code", "id": "protocol", "source": "", "outputs": '
+        f'[{{"output_type": "stream", "name": "stdout", "text": "{fields}"}}]}}]}}',
+        encoding="utf-8",
+    )
+    assert assert_protocol_recorded(printed, "protocol", moved) == moved.fingerprint
+    with pytest.raises(AssertionError, match=r"nor .Ward."):
+        assert_protocol_recorded(printed, "protocol", replace(moved, interference_unit="Ward"))
     stale = SimpleNamespace(provenance=SimpleNamespace(protocol_fingerprint=moved.fingerprint))
     with pytest.raises(AssertionError):
         assert_protocol_recorded(notebook, "protocol", program, carried, stale)

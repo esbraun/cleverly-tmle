@@ -19,6 +19,7 @@ from cleverly._summary import vocabulary
 __all__ = [
     "header_value",
     "printed_numbers",
+    "question_statements",
     "read_methods",
     "read_phases",
     "read_protocol",
@@ -113,33 +114,123 @@ def _data_names(data: Any) -> set[str]:
     return {str(name) for name in names if name}
 
 
+def _roles(text: str) -> dict[str, list[str]]:
+    """The Columns by role table: each role with the columns it lists."""
+    return {
+        row[0]: [name.strip() for name in row[1].split(",")]
+        for row in table_rows(text, vocabulary.ROLES_TITLE)
+    }
+
+
+def _declared(design: Any, field: str) -> list[str]:
+    value = getattr(design, field, None)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [str(item) for item in value.values()]
+    return [str(item) for item in value]
+
+
+def _check_roles(study: Any, text: str) -> None:
+    """Each role lists the columns the design or the validated data gives it."""
+    from cleverly.data.validate import RANDOMIZED_INTERCEPT
+
+    roles = _roles(text)
+    design, data = study.design, study.data
+    kind = type(design).__name__
+    if kind in ("LongPanel", "TimeToEvent"):
+        expected = {
+            "unit": _declared(design, "unit"),
+            "time": _declared(design, "time"),
+            "outcome": _declared(design, "outcome") if kind == "LongPanel" else [],
+            "event": _declared(design, "event"),
+            "treatment": _declared(design, "treatment"),
+            "baseline": _declared(design, "baseline"),
+            "measured over time": _declared(design, "time_varying"),
+            "censoring": _declared(design, "censoring"),
+        }
+    elif hasattr(data, "n_times") and not hasattr(data, "covariate_names"):
+        expected = {
+            "outcome": [data.outcome_name],
+            "treatment": list(data.treatment_names),
+            "baseline": list(data.baseline_names),
+            "censoring": list(data.censoring_names or ()),
+        }
+        for node, names in zip(data.treatment_names, data.time_varying_names, strict=False):
+            expected[f"measured before {node}"] = list(names)
+    else:
+        sources = data.indicator_sources or {}
+        kept = [sources.get(name, name) for name in data.covariate_names]
+        expected = {
+            "outcome": [data.outcome_name],
+            "treatment": [data.treatment_name],
+            "adjusted for": list(dict.fromkeys(n for n in kept if n != RANDOMIZED_INTERCEPT)),
+            "weights": [data.weights_name] if data.is_weighted else [],
+            "clusters": [data.cluster_name] if getattr(data, "cluster", None) is not None else [],
+        }
+    for role, names in expected.items():
+        assert roles.get(role, []) == names, (role, roles.get(role), names)
+
+
 def read_study(study: Any, text: str) -> None:
-    """The header counts of a study equal its data, and no other number prints."""
+    """The header counts and the role table of a study equal its design and data, and no
+    other number prints."""
     data = study.data
     expected: list[float] = [data.n]
-    assert header_value(text, vocabulary.ROWS) == f"{data.n:,}"
+    rows = header_value(text, vocabulary.ROWS)
+    assert rows is not None and rows.split()[0] == f"{data.n:,}", rows
+    _check_roles(study, text)
+    if data.is_weighted:
+        report = data.weight_report()
+        shown = header_value(text, vocabulary.EFFECTIVE_N)
+        assert shown is not None and _close(shown, report.effective_n), shown
+        expected.append(report.effective_n)
     if hasattr(data, "n_times") and not hasattr(data, "covariate_names"):
         assert header_value(text, vocabulary.TIME_POINTS) == str(data.n_times)
         expected.append(data.n_times)
         expected.extend(range(1, data.n_times + 1))
-        if data.censoring_names:
+        if data.event is not None and data.repeated is None:
+            times, codes = data.to_time_to_event()
+            end = data.time_grid[-1] if data.time_grid else data.n_times
+            share = float(np.mean((codes == 0) & (times < end)))
+            shown = header_value(text, vocabulary.CENSORED_BEFORE_END)
+            assert shown is not None and _close(shown, share), (shown, share)
+            expected.append(share)
+        elif data.censoring_names:
             share = float(np.mean(data.uncensored_through(data.n_times)))
             followed = header_value(text, vocabulary.FOLLOWED)
             assert followed is not None and _close(followed, share), (followed, share)
             expected.append(share)
     else:
         treatment = np.asarray(data.treatment, dtype=float)
-        share = header_value(text, vocabulary.TREATED_SHARE)
+        recorded = np.isfinite(treatment)
+        weights = np.asarray(data.weights, dtype=float)
+        share = header_value(
+            text, vocabulary.TREATED_SHARE + (vocabulary.WEIGHTED if data.is_weighted else "")
+        )
         if data.is_continuous_treatment:
             assert share is None
-            dose = header_value(text, vocabulary.DOSE)
-            assert dose is not None and dose.startswith("mean ")
-            expected.extend([float(np.mean(treatment)), treatment.min(), treatment.max()])
-            assert _close(dose.split()[1].rstrip(","), float(np.mean(treatment))), dose
+            dose = header_value(
+                text, vocabulary.DOSE + (vocabulary.WEIGHTED if data.is_weighted else "")
+            )
+            mean = float(np.average(treatment[recorded], weights=weights[recorded]))
+            assert dose is not None and _close(dose.split()[1].rstrip(","), mean), dose
+            expected.extend([mean, treatment[recorded].min(), treatment[recorded].max()])
+        elif share is not None:
+            treated = float(np.average(treatment[recorded] == 1, weights=weights[recorded]))
+            assert _close(share, treated), (share, treated)
+            expected.append(treated)
         else:
-            assert share is not None and _close(share, float(np.mean(treatment))), share
-            expected.append(float(np.mean(treatment)))
-            expected.extend(float(level) for level in data.treatment_levels)
+            arms = {row[0]: row[1] for row in table_rows(text, vocabulary.ARMS_TITLE)}
+            for code in data.arm_codes:
+                level = str(data.arm_label(code))
+                kept = treatment[recorded] == code
+                value = float(np.average(kept, weights=weights[recorded]))
+                assert _close(arms[level], value), (level, arms, value)
+                expected.append(value)
+        expected.extend(float(level) for level in data.treatment_levels if _numeric(level))
         cluster = getattr(data, "cluster", None)
         if cluster is not None:
             count = int(np.unique(cluster).size)
@@ -147,8 +238,15 @@ def read_study(study: Any, text: str) -> None:
             expected.append(count)
         if data.has_missing_outcome:
             expected.append(int(np.sum(data.observed)))
-    # A data warning is quoted as cleverly raised it; its numbers belong to the warning.
     _check_accounted(text, _data_names(data), [*expected, *_note_numbers(text)])
+
+
+def _numeric(value: Any) -> bool:
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def _note_numbers(text: str) -> list[float]:
@@ -162,20 +260,45 @@ def _note_numbers(text: str) -> list[float]:
 def _methods_check(text: str, records: Any, *, fitting_only: bool) -> None:
     rows = table_rows(text, vocabulary.METHODS_TABLE_TITLE)
     shown = [record for record in records if record.available or not fitting_only]
+    with_fits = not (fitting_only and shown)
     if fitting_only and not shown:
         shown = list(records)
     assert [row[0] for row in rows] == [record.name for record in shown]
     for row, record in zip(rows, shown, strict=True):
-        assert row[1] == ("yes" if record.available else "no"), (row, record)
+        assert len(row) == (3 if with_fits else 2), row
+        if with_fits:
+            assert row[1] == ("yes" if record.available else "no"), (row, record)
+
+
+def question_statements(effect: Any) -> list[str]:
+    """The statements a question rests on, read off its identification record: every
+    assumption, less the missing-outcome and held-intermediate caveats of a design that
+    declares neither."""
+    from cleverly.targets.builtin import INTERMEDIATE_CAVEAT_PREFIX, MISSINGNESS_CAVEAT_PREFIX
+
+    functional = effect.functional
+    dropped = []
+    if functional.missingness is None:
+        dropped.append(MISSINGNESS_CAVEAT_PREFIX)
+    if functional.intermediate is None:
+        dropped.append(INTERMEDIATE_CAVEAT_PREFIX)
+    return [
+        item
+        for item in effect.identification.assumptions
+        if not any(item.startswith(prefix) for prefix in dropped)
+    ]
 
 
 def read_question(effect: Any, text: str) -> None:
-    """The row count, the methods table and the counted notes equal the question's own."""
-    from cleverly._summary._setup import conditions, question_text
+    """The header, the conditions count, the methods table and the counted notes equal the
+    question's identification record, its methods and its data."""
+    from cleverly.data.validate import RANDOMIZED_INTERCEPT
 
     study = effect._study
+    functional = effect.functional
     expected: list[float] = []
-    names: set[str] = set()
+    names: set[str] = {str(functional.outcome), *(str(name) for name in functional.adjustment)}
+    answered = header_value(text, vocabulary.ANSWERED_BY)
     if study is not None:
         data = study.data
         assert header_value(text, vocabulary.ROWS) == f"{data.n:,}"
@@ -184,11 +307,24 @@ def read_question(effect: Any, text: str) -> None:
         if getattr(data, "has_missing_outcome", False):
             expected.append(int(np.sum(data.observed)))
         for level in getattr(data, "treatment_levels", None) or ():
-            expected.extend(float(item) for item in np.ravel(level))
+            expected.extend(float(item) for item in np.ravel(level) if _numeric(item))
+        if hasattr(data, "covariate_names"):
+            sources = data.indicator_sources or {}
+            kept = [sources.get(name, name) for name in data.covariate_names]
+            kept = list(dict.fromkeys(name for name in kept if name != RANDOMIZED_INTERCEPT))
+            randomized = getattr(study.design, "randomized", False) and not kept
+            shown = header_value(text, vocabulary.ADJUSTED_FOR)
+            if kept:
+                assert shown is not None and shown.split(",")[0] == kept[0], (shown, kept)
+            assert answered == (
+                vocabulary.ANSWERED_BY_RANDOMIZED
+                if randomized
+                else vocabulary.ANSWERED_BY_WORDS[False]
+            ), answered
+        else:
+            assert answered == vocabulary.ANSWERED_BY_WORDS[True], answered
     else:
         assert header_value(text, vocabulary.ROWS) is None
-    functional = effect.functional
-    names |= {str(functional.outcome), *(str(name) for name in functional.adjustment)}
     records = tuple(effect.available_methods())
     _methods_check(text, records, fitting_only=True)
     unfit = sum(not record.available for record in records)
@@ -196,25 +332,32 @@ def read_question(effect: Any, text: str) -> None:
     if 0 < unfit < len(records):
         assert f" {unfit} other method" in notes, (unfit, notes)
         expected.append(unfit)
-    rows, others = conditions(effect)
-    match = re.search(r"rests on (\d+) further condition", notes)
-    assert (match is not None) == bool(others)
-    if match:
-        assert int(match.group(1)) == len(others), (match.group(0), others)
-        expected.append(len(others))
-    if rows:
-        assert len(table_rows(text, vocabulary.CONDITIONS_TITLE)) == len(rows)
+    # Every statement is either a row of the short table or counted as a further one.
+    statements = question_statements(effect)
+    printed = (
+        table_rows(text, vocabulary.CONDITIONS_TITLE)
+        if vocabulary.CONDITIONS_TITLE in text.splitlines()
+        else []
+    )
+    for row in printed:
+        assert row[1] in ("no", "partly"), row
+    match = re.search(r"states (\d+) further condition", notes)
+    further = int(match.group(1)) if match else 0
+    assert len(printed) + further == len(statements), (len(printed), further, statements)
+    expected.append(further)
     readings = len(effect.identification.interpretations)
     if readings:
         assert f"has {readings} causal readings" in notes
         expected.append(readings)
-    # The question and the conditions table are words: a contrast level, a held value or
-    # a dose in them is part of the question as declared, not a measured number.
+    # The question's own words: a contrast level, a held value or a dose it declares.
     expected.extend(
-        float(value.replace(",", "")) for value in _NUMBER.findall(question_text(effect))
+        float(value.rstrip(",").replace(",", ""))
+        for value in _NUMBER.findall(repr(effect.estimand))
     )
     _check_accounted(
-        _without_table(text, vocabulary.CONDITIONS_TITLE), names, [*expected, *_note_numbers(text)]
+        _without_table(text, vocabulary.CONDITIONS_TITLE),
+        names,
+        [*expected, *_note_numbers(text)],
     )
 
 
@@ -254,6 +397,7 @@ def read_protocol(protocol: Any, text: str) -> None:
     assert [row[1] for row in rows] == list(protocol.eligibility)
     strategies = table_rows(text, vocabulary.STRATEGIES_TITLE)
     assert [row[0] for row in strategies] == list(protocol.treatment_strategies)
+    assert [row[1] for row in strategies] == list(protocol.treatment_versions)
     authored = [
         protocol.target_population,
         protocol.time_zero,
@@ -283,7 +427,10 @@ def read_simulation(result: Any, text: str) -> None:
     assert header_value(text, vocabulary.INTERVAL_LEVEL) == f"{level}%"
     rows = {row[0]: row[1:] for row in table_rows(text, None)}
     assert sorted(rows) == sorted(result.summaries)
+    from cleverly._summary._setup import BIAS_FLOOR, COVERAGE_FLOOR
+
     expected: list[float] = [result.n, result.n_replicates, failed, level]
+    expected += [100 * COVERAGE_FLOOR, 100 * BIAS_FLOOR]
     for name, summary in result.summaries.items():
         values = [
             summary.truth,
@@ -299,6 +446,8 @@ def read_simulation(result: Any, text: str) -> None:
         expected.extend(values)
         if summary.se_ratio > 0:
             expected.append(1 / summary.se_ratio)
+        if summary.bias_se > 0:
+            expected.append(abs(summary.bias) / summary.bias_se)
         expected.extend(count for _, count in summary.status_counts)
     _check_accounted(text, result.summaries, [*expected, *_note_numbers(text)])
 

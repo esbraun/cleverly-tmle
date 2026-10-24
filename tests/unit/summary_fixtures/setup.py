@@ -22,12 +22,21 @@ from cleverly import (
     CausalStudy,
     ControlledDirectEffect,
     LongitudinalTreatment,
+    LongPanel,
     ModifiedTreatmentPolicy,
     PointTreatment,
     RegimeMean,
     StudyProtocol,
+    TimeToEvent,
 )
-from cleverly.datasets import make_clustered, make_linear_ate, make_longitudinal
+from cleverly.datasets import (
+    make_clustered,
+    make_linear_ate,
+    make_longitudinal,
+    make_multi_arm,
+    make_point_survival,
+    make_sequential_offers,
+)
 from cleverly.interventions import Shift
 from cleverly.utils.phases import PhaseProfile
 from cleverly.validation import EstimandSummary, ReplicationFailure, StudyResult
@@ -152,6 +161,52 @@ def longitudinal_study() -> CausalStudy:
             baseline=("age", "sex"),
             time_varying=((), ("blood_pressure",)),
             censoring=("C1", "C2"),
+        ),
+    )
+
+
+@functools.cache
+def survival_study() -> CausalStudy:
+    """A time-to-event design, whose header counts the units censored before the end."""
+    frame = make_point_survival(n=300, seed=3, n_times=4)[0]
+    return CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+
+
+@functools.cache
+def long_panel_study() -> CausalStudy:
+    """A long panel with logged treatment probabilities, read as one row per customer."""
+    panel = make_sequential_offers(200, seed=2)[0]
+    return CausalStudy(
+        panel,
+        design=LongPanel(
+            unit="customer",
+            time="week",
+            treatment="offer",
+            baseline=["tenure"],
+            time_varying=["engaged"],
+            censoring="consent",
+            outcome="full_price",
+            treatment_probabilities={
+                "none": "p_none",
+                "discount": "p_discount",
+                "shipping": "p_shipping",
+            },
+        ),
+    )
+
+
+@functools.cache
+def weighted_multi_arm_study() -> CausalStudy:
+    """Three arms and sampling weights, so the header prints weighted arm shares."""
+    frame = make_multi_arm(n=180, seed=17)[0]
+    frame = frame.assign(sample_weight=np.random.default_rng(5).uniform(0.5, 2.0, len(frame)))
+    return CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"), weights="sample_weight"
         ),
     )
 
@@ -355,6 +410,28 @@ def simulation_diagnostic() -> StudyResult:
     )
 
 
+@functools.cache
+def simulation_small_deviation() -> StudyResult:
+    """Ten thousand replicates whose coverage and bias miss by less than the floors but by
+    more than Monte Carlo error, so the reading names both as small."""
+    rng = np.random.default_rng(11)
+    count = 10_000
+    estimates = 0.5 + 0.01 + rng.normal(scale=0.05, size=count)
+    covered = (np.arange(count) % 1000 >= 65).astype(float)
+    return _study_result(
+        {
+            "ate": simulation_record(
+                n_replicates=count,
+                estimates=estimates,
+                std_errors=np.full(count, 0.05),
+                covered=covered,
+                rejected=np.ones(count),
+            )
+        },
+        n_replicates=count,
+    )
+
+
 # ----------------------------------------------------------------- phase timings
 
 
@@ -376,7 +453,7 @@ def phase_profile() -> PhaseProfile:
 def _quoted_warnings(obj: Any) -> tuple[str, ...]:
     study = getattr(obj, "_study", obj)
     data = getattr(study, "data", None)
-    return tuple(str(record.message) for record in getattr(data, "warnings", ()) or ())
+    return tuple(str(record.message) for record in getattr(data, "validation_warnings", ()) or ())
 
 
 FIXTURES = {
@@ -393,6 +470,15 @@ FIXTURES = {
         names=("Y", "A1", "A2", "C1", "C2", "age", "sex", "blood_pressure"),
         fidelity=read_study,
     ),
+    "survival_study": Case(
+        survival_study, names=("time", "event", "A", "W1", "W2"), fidelity=read_study
+    ),
+    "long_panel_study": Case(
+        long_panel_study,
+        names=("customer", "week", "offer", "tenure", "engaged", "consent", "full_price"),
+        fidelity=read_study,
+    ),
+    "weighted_multi_arm_study": Case(weighted_multi_arm_study, fidelity=read_study),
     "markup_study": Case(markup_study, fidelity=read_study),
     "ate_effect": Case(ate_effect, names=("Y", "A", *POINT_ADJUSTMENT), fidelity=read_question),
     "att_effect": Case(att_effect, names=("Y", "A", *POINT_ADJUSTMENT), fidelity=read_question),
@@ -425,6 +511,9 @@ FIXTURES = {
         names=("ate",),
         fidelity=read_simulation,
         quoted=("singular matrix",),
+    ),
+    "simulation_small_deviation": Case(
+        simulation_small_deviation, names=("ate",), fidelity=read_simulation
     ),
     "simulation_diagnostic": Case(simulation_diagnostic, names=("ate",), fidelity=read_simulation),
     "phase_profile": Case(phase_profile, names=("outer", "inner", "fit"), fidelity=read_phases),

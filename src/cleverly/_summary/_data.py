@@ -178,10 +178,14 @@ def clusters_fact(data: Any) -> str | None:
     return f"{count} ({name})" if name else count
 
 
-def weights_fact(data: Any) -> str | None:
-    """The Weights fact: the column, whether estimated, and the effective sample size."""
+def weights_facts(data: Any) -> list[tuple[str, str]]:
+    """The Weights fact, the column and whether it is estimated, and the effective sample
+    size of the weights; empty without weights."""
     if not getattr(data, "is_weighted", False):
-        return None
+        return []
     report = data.weight_report()
-    kind = ", estimated" if report.estimated else ""
-    return f"{report.name or 'weights'}{kind}; effective sample size {report.effective_n:,.0f}"
+    kind = " (estimated)" if report.estimated else ""
+    return [
+        (vocabulary.WEIGHTS, f"{report.name or 'weights'}{kind}"),
+        (vocabulary.EFFECTIVE_N, f"{report.effective_n:,.0f}"),
+    ]

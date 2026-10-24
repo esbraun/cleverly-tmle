@@ -201,7 +201,7 @@ _IPSI_ID = Identification(
         "existing, not an oversight in the list",
         "the intervention is a functional of the observed-data law: q_delta is built "
         "out of g, so the influence function carries a term for the pathwise derivative "
-        "through it and the estimator fluctuates the mechanism as well as Qbar",
+        "through it and the estimator updates the fitted treatment mechanism as well as Qbar",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -316,7 +316,7 @@ _RR_TILT_ID = Identification(
         "risk ratio is below one, and g(0 | w) > 0 where it is above one",
         "the tilt draws a two-point randomizer of known law, independent of everything else, "
         "so the policy does not depend on the observed-data law (Hoffman et al. 2024, "
-        "Example 8): its g enters the clever covariate as a nuisance and not the estimand",
+        "Example 8): its g enters only the estimator's update covariate, not the estimand",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(

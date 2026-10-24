@@ -25,6 +25,7 @@ from cleverly.learners.crossfit import SplitPlan
 from cleverly.methods import MethodAvailability
 from tests.unit.summary_fixtures import _setup_readers as readers
 from tests.unit.summary_fixtures import setup
+from tests.unit.summary_fixtures._setup_questions import QUESTIONS
 
 # ----------------------------------------------------------------- the notes
 
@@ -98,10 +99,9 @@ def test_the_question_lists_the_methods_that_fit_and_counts_the_rest() -> None:
 
 def test_one_further_condition_reads_in_the_singular() -> None:
     text = setup.att_effect().summary().note("further_conditions").text
-    assert "on 1 further condition on" in text
-    assert text.endswith("states it.")
+    assert text == "The full summary states 1 further condition the answer rests on."
     plural = setup.mtp_effect().summary().note("further_conditions").text
-    assert "further conditions on" in plural
+    assert "2 further conditions the answer" in plural
 
 
 def test_an_unbound_question_warns_and_prints_no_rows() -> None:
@@ -125,54 +125,326 @@ def test_a_dropped_column_is_quoted_and_left_out_of_the_adjustment() -> None:
 # ----------------------------------------------------------------- the conditions
 
 
-#: Each question fixture's conditions table, in order: the plain name of each statement.
-CONDITIONS = {
-    "ate_effect": [
-        "well-defined treatment",
-        "no interference",
-        "no hidden confounding",
-        "overlap",
-    ],
-    "direct_effect": [
-        "well-defined treatment",
-        "no interference",
-        "no hidden confounding",
-        "no hidden confounding of Z",
-        "overlap",
-        "overlap for Z",
-        "outcome missing at random",
-        "overlap for recorded outcomes",
-    ],
-    "regime_effect": [
-        "well-defined treatment",
-        "no interference",
-        "no hidden confounding at each time",
-        "overlap at each time",
-    ],
+#: Each question's short conditions table, in order: the plain name, the checkable mark,
+#: and the closing words of the sentence, which tell the entries apart; then how many
+#: statements print only in the full summary.
+PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
+    "ate": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of each compared level of A."),
+        ),
+        0,
+    ),
+    "att": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "had some chance of the reference level."),
+        ),
+        1,
+    ),
+    "atc": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "had some chance of each compared level."),
+        ),
+        1,
+    ),
+    "mean": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of the evaluated level of A."),
+        ),
+        0,
+    ),
+    "natural_course": (
+        (),
+        2,
+    ),
+    "incremental": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+        ),
+        2,
+    ),
+    "risk_ratio": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of each compared level of A."),
+        ),
+        1,
+    ),
+    "odds_ratio": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of each compared level of A."),
+        ),
+        1,
+    ),
+    "par": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of the reference level of A."),
+        ),
+        1,
+    ),
+    "paf": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of the reference level of A."),
+        ),
+        2,
+    ),
+    "multi_arm_ate": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of each compared level of A."),
+        ),
+        0,
+    ),
+    "multi_arm_att": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "had some chance of the reference level."),
+        ),
+        1,
+    ),
+    "multi_arm_atc": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "had some chance of each compared level."),
+        ),
+        1,
+    ),
+    "dose_policy": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "had some chance of its observed dose."),
+        ),
+        2,
+    ),
+    "missing_ate": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of each compared level of A."),
+            ("outcome missing at random", "no", "was recorded is unrelated to its value."),
+            ("overlap for recorded outcomes", "partly", "had some chance of a recorded Y."),
+        ),
+        0,
+    ),
+    "missing_natural_course": (
+        (
+            ("outcome missing at random", "no", "was recorded is unrelated to its value."),
+            ("overlap for recorded outcomes", "partly", "had some chance of a recorded Y."),
+        ),
+        1,
+    ),
+    "direct_effect": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("no hidden confounding of Z", "no", "to the outcomes they would have had."),
+            ("overlap", "partly", "chance of each compared level of A."),
+            ("overlap for Z", "partly", "of the value Z is held at."),
+            ("outcome missing at random", "no", "was recorded is unrelated to its value."),
+            ("overlap for recorded outcomes", "partly", "had some chance of a recorded Y."),
+        ),
+        1,
+    ),
+    "randomized_ate": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "this, and the data cannot show it."),
+            ("overlap", "partly", "of A, as a randomized assignment gives."),
+        ),
+        0,
+    ),
+    "uncensored_regime": (
+        (
+            ("well-defined treatment", "no", "the same treatment has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding at each time", "no", "to the outcomes it would have had."),
+            ("overlap at each time", "partly", "chance of the treatment a regimen assigns."),
+        ),
+        0,
+    ),
+    "regime": (
+        (
+            ("well-defined treatment", "no", "the same treatment has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding at each time", "no", "to the outcomes it would have had."),
+            ("overlap at each time", "partly", "regimen assigns and of staying in follow-up."),
+        ),
+        0,
+    ),
+    "regime_incremental": (
+        (
+            ("well-defined treatment", "no", "the same treatment has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding at each time", "no", "to the outcomes it would have had."),
+            ("follow-up loss at random", "no", "at risk had some chance of staying."),
+        ),
+        1,
+    ),
+    "regime_policy": (
+        (
+            ("well-defined treatment", "no", "the same treatment has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            (
+                "no hidden confounding at each time",
+                "no",
+                "standard form that each causal reading names.",
+            ),
+            ("overlap at each time", "partly", "had a chance of their observed dose."),
+        ),
+        1,
+    ),
 }
 
 
-@pytest.mark.parametrize("name", sorted(CONDITIONS))
+def _condition_rows(effect: Any) -> tuple[tuple[str, str, str], ...]:
+    summary = effect.summary()
+    tables = [table for table in summary.tables if table.title == vocabulary.CONDITIONS_TITLE]
+    if not tables:
+        return ()
+    return tuple(
+        (row[0].text, row[1].text, " ".join(row[2].text.split()[-7:])) for row in tables[0].rows
+    )
+
+
+def _further(effect: Any) -> int:
+    summary = effect.summary()
+    if "further_conditions" not in summary.note_codes:
+        return 0
+    return int(re.search(r"states (\d+) further", summary.note("further_conditions").text)[1])
+
+
+def test_the_pins_cover_every_question() -> None:
+    assert set(PINS) == set(QUESTIONS)
+
+
+@pytest.mark.parametrize("name", sorted(PINS))
 def test_every_statement_reaches_the_condition_it_names(name: str) -> None:
-    summary = setup.FIXTURES[name]().summary()
-    table = summary.tables[0]
-    assert table.title == vocabulary.CONDITIONS_TITLE
-    assert [row[0].text for row in table.rows] == CONDITIONS[name]
+    effect = QUESTIONS[name]()
+    rows, further = PINS[name]
+    assert _condition_rows(effect) == rows
+    assert _further(effect) == further
+    statements = readers.question_statements(effect)
+    assert len(rows) + further == len(statements)
+
+
+def test_every_entry_of_the_condition_words_is_reached() -> None:
+    """A witness for the pins: each entry and each variant names a statement some pinned
+    question makes, except the entries no shipped question reaches yet."""
+    statements = [
+        item for build in QUESTIONS.values() for item in readers.question_statements(build())
+    ]
+    entries = [start for start, _ in vocabulary.CONDITION_WORDS]
+    entries += [
+        start for variants in vocabulary.CONDITION_VARIANTS.values() for start, _ in variants
+    ]
+    unreached = {
+        start for start in entries if not any(item.startswith(start) for item in statements)
+    }
+    assert unreached <= UNREACHED, unreached - UNREACHED
+
+
+#: Entries for statements none of the pinned questions makes: a vector treatment, a tilt,
+#: a learned rule and a product of response and treatment overlap.
+UNREACHED = {
+    "positivity for the evaluated doses:",
+    "positivity for the evaluated treatment values:",
+    "positivity *for the regime*",
+    "positivity for the treated arm wherever the tilt keeps it",
+    "product positivity at the reference arm",
+}
+
+
+def test_swapped_condition_sentences_fail_the_pins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deliberate mutation: two entries trade sentences, and the pins see it."""
+    words = list(vocabulary.CONDITION_WORDS)
+    index = {start: i for i, (start, _) in enumerate(words)}
+    first, second = index["positivity: "], index["no unmeasured confounding:"]
+    (s1, (n1, t1, c1)), (s2, (n2, t2, c2)) = words[first], words[second]
+    words[first], words[second] = (s1, (n1, t2, c1)), (s2, (n2, t1, c2))
+    monkeypatch.setattr(vocabulary, "CONDITION_WORDS", tuple(words))
+    effect = QUESTIONS["ate"].__wrapped__()
+    assert _condition_rows(effect) != PINS["ate"][0]
 
 
 def test_a_mapping_that_misnames_a_condition_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deliberate mutation: swapping the names of two conditions fails the pin above."""
     original = _setup.condition_words
 
-    def swapped(statement: str) -> Any:
-        found = original(statement)
+    def swapped(statement: str, features: frozenset[str] = frozenset()) -> Any:
+        found = original(statement, features)
         if found is not None and found[0] == "overlap":
             return ("no interference", *found[1:])
         return found
 
     monkeypatch.setattr(_setup, "condition_words", swapped)
-    summary = setup.ate_effect.__wrapped__().summary()
-    assert [row[0].text for row in summary.tables[0].rows] != CONDITIONS["ate_effect"]
+    assert _condition_rows(QUESTIONS["ate"].__wrapped__()) != PINS["ate"][0]
+
+
+def test_a_dropped_condition_fails_the_question_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deliberate mutation: a builder that loses a statement fails the count the reader
+    takes from the identification record."""
+    effect = setup.ate_effect()
+    readers.read_question(effect, str(effect.summary()))
+    original = _setup.conditions
+
+    def dropped(question: Any) -> Any:
+        rows, others = original(question)
+        return rows[:-1], others
+
+    monkeypatch.setattr(_setup, "conditions", dropped)
+    with pytest.raises(AssertionError):
+        readers.read_question(effect, str(effect.summary()))
+
+
+def test_the_full_summary_states_every_statement_verbatim() -> None:
+    for name in ("ate", "direct_effect", "regime_policy", "dose_policy"):
+        effect = QUESTIONS[name]()
+        identification = effect.identification
+        lines = effect.summary(detail="full").section(vocabulary.SECTION_ASSUMPTIONS).lines
+        expected = [f"- {item}" for item in readers.question_statements(effect)]
+        expected += [
+            f"- {item.label}: {item.meaning} (needs {'; '.join(item.assumptions)})"
+            for item in identification.interpretations
+        ]
+        expected += [f"- model restriction: {item}" for item in identification.model_restrictions]
+        assert list(lines[1:]) == expected, name
+        assert effect.functional.expression in lines[0]
 
 
 # ----------------------------------------------------------------- the readers fail on a misprint
@@ -379,3 +651,157 @@ def test_a_method_that_does_not_fit_names_its_reason_code() -> None:
     record = next(record for record in setup.ate_methods() if not record.available)
     code = record.refusal.reason.value
     assert repr(record) == f"MethodAvailability({record.name}, does not fit: {code})"
+
+
+# ----------------------------------------------------------------- review follow-ups
+
+
+def test_a_small_detectable_deviation_is_named_not_passed() -> None:
+    """A witness: a shortfall and a bias beyond Monte Carlo error but under the floors."""
+    result = setup.simulation_small_deviation()
+    summary = result.summaries["ate"]
+    assert 0.95 - summary.coverage > 3 * summary.coverage_se
+    assert abs(summary.bias) > 3 * summary.bias_se
+    reading = result.verdict()
+    assert reading != vocabulary.SIMULATION_PASS.format(level="95%")
+    assert "though by no more than 2 percentage points" in reading
+    assert "though no more than 2% of the larger of 1 and the absolute truth" in reading
+
+
+def test_a_passing_study_says_so() -> None:
+    assert setup.simulation_passing().verdict() == vocabulary.SIMULATION_PASS.format(level="95%")
+
+
+def test_each_mixed_estimand_reads_its_own_statuses() -> None:
+    """``ate`` mixes two statuses that both report an interval; ``ey1`` mixes in one that
+    reports none. The note gives each its own reading."""
+    study = setup._study_result(
+        {
+            "ate": setup.simulation_record(
+                inference="few_cluster_plugin",
+                status_counts=(("few_cluster_plugin", 2), ("influence_curve", 2)),
+            ),
+            "ey1": setup.simulation_record(
+                estimand="ey1",
+                inference="no_cluster_variance_plugin",
+                status_counts=(("no_cluster_variance_plugin", 3), ("influence_curve", 1)),
+            ),
+        }
+    )
+    text = " ".join(study.summary().note("mixed_statuses").text.split())
+    assert "ate took few_cluster_plugin in 2, influence_curve in 2, and each of its columns " in (
+        text
+    )
+    assert (
+        "ate took few_cluster_plugin in 2, influence_curve in 2, and each of its columns reads the interval each replicate reported"
+        in text
+    )
+    assert (
+        "ey1 took no_cluster_variance_plugin in 3, influence_curve in 1, and each of its columns reads the no-cluster-variance plug-in diagnostic"
+        in text
+    )
+
+
+def test_an_event_time_counts_only_censored_units_as_lost() -> None:
+    """A unit after its event is fully observed, so the censored share is below the share
+    that is no longer at risk."""
+    study = setup.survival_study()
+    data = study.data
+    times, codes = data.to_time_to_event()
+    censored = float(np.mean((codes == 0) & (times < data.time_grid[-1])))
+    header = dict(study.summary().header)
+    assert header[vocabulary.CENSORED_BEFORE_END] == f"{censored:.3f}"
+    assert vocabulary.FOLLOWED not in header
+    left = 1 - float(np.mean(data.uncensored_through(data.n_times)))
+    assert censored < left - 0.1
+
+
+def test_a_reshaped_design_names_the_columns_the_caller_declared() -> None:
+    roles = {row[0].text: row[1].text for row in setup.long_panel_study().summary().tables[0].rows}
+    assert roles["treatment"] == "offer"
+    assert roles["measured over time"] == "engaged"
+    assert not any("@" in value for value in roles.values())
+    survival = {row[0].text: row[1].text for row in setup.survival_study().summary().tables[0].rows}
+    assert survival == {"time": "time", "event": "event", "treatment": "A", "baseline": "W1, W2"}
+
+
+def test_a_column_in_the_wrong_role_fails_the_study_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    study = setup.point_study()
+    readers.read_study(study, str(study.summary()))
+    original = _setup.study_roles
+
+    def moved(question: Any) -> Any:
+        roles = dict(original(question))
+        roles["adjusted for"] = roles["adjusted for"][1:]
+        roles["treatment"] = (*roles["treatment"], original(question)[2][1][0])
+        return list(roles.items())
+
+    monkeypatch.setattr(_setup, "study_roles", moved)
+    with pytest.raises(AssertionError):
+        readers.read_study(study, str(study.summary()))
+
+
+def test_swapped_protocol_versions_fail_the_protocol_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = setup.protocol()
+    readers.read_protocol(protocol, str(protocol.summary()))
+    swapped = replace(protocol, treatment_versions=tuple(reversed(protocol.treatment_versions)))
+    with pytest.raises(AssertionError):
+        readers.read_protocol(protocol, str(swapped.summary()))
+
+
+def test_a_randomized_question_is_answered_by_the_randomization() -> None:
+    effect = QUESTIONS["randomized_ate"]()
+    header = dict(effect.summary().header)
+    assert header[vocabulary.ANSWERED_BY] == vocabulary.ANSWERED_BY_RANDOMIZED
+    assert header[vocabulary.ADJUSTED_FOR] == vocabulary.RANDOMIZED_NO_ADJUSTMENT
+    readers.read_question(effect, str(effect.summary()))
+
+
+def test_an_adaptive_iptw_fit_leaves_the_restriction_to_its_own_lines() -> None:
+    effect = setup.restricted_effect()
+    (restriction,) = effect.identification.model_restrictions
+    lines = effect._assumption_lines()
+    assert lines[-1] == f"- model restriction: {restriction}"
+    without = effect._assumption_lines("adaptive_iptw")
+    assert without == lines[:-1]
+
+
+def test_the_longitudinal_result_lines_keep_their_order_until_that_summary_moves() -> None:
+    """``LongitudinalResult.summary`` still reads these lines: the restriction follows the
+    assumptions, each reading has its own line, and an unknown detail is refused."""
+    effect = setup.markov_effect()
+    lines = effect._result_summary_lines()
+    kinds = [line.split(":")[0] for line in lines]
+    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
+    readings = QUESTIONS["regime_policy"]()._result_summary_lines()
+    assert sum(line.startswith("interpretation ") for line in readings) == 2
+    with pytest.raises(ValueError, match="detail must be 'short' or 'full'"):
+        effect._result_summary_lines(detail="fingerprint")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: (
+            __import__("tests.unit.summary_fixtures.point_tmle", fromlist=["single_ate"])
+            .single_ate()
+            .provenance
+        ),
+        lambda: setup.point_study().data,
+        lambda: setup.longitudinal_study().data,
+        setup.ate_effect,
+    ],
+    ids=["provenance", "causal_data", "longitudinal_data", "identified_effect"],
+)
+def test_a_record_repr_is_one_quiet_line(build: Any) -> None:
+    obj = build()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        text = repr(obj)
+    assert "\n" not in text
+    assert len(text) <= 100
+    assert text.startswith(type(obj).__name__ + "(")

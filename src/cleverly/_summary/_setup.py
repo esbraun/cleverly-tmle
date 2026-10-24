@@ -10,8 +10,10 @@ result summary shares. Each builder reads only the object's own fields.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from . import (
     Cell,
@@ -35,7 +37,7 @@ from ._data import (
     rows_fact,
     share_fact,
     treatment_fact,
-    weights_fact,
+    weights_facts,
 )
 from ._estimates import without_roadmap
 
@@ -115,11 +117,33 @@ def _censoring_fact(data: Any) -> str | None:
     return listed(names)
 
 
-def _followed_fact(data: Any) -> str | None:
-    """The share of rows still observed at the last time, when the design censors."""
+def _followed_fact(data: Any) -> tuple[str, str] | None:
+    """The share of units still observed at the last time when the design censors, or, for
+    an event time, the share censored before the end: a unit after its event is fully
+    observed, so it does not count as lost."""
+    if getattr(data, "event", None) is not None and getattr(data, "repeated", None) is None:
+        times, codes = data.to_time_to_event()
+        end = data.time_grid[-1] if data.time_grid else float(data.n_times)
+        censored = (np.asarray(codes) == 0) & (np.asarray(times, dtype=float) < end)
+        return vocabulary.CENSORED_BEFORE_END, share_text(float(np.mean(censored)))
     if not tuple(getattr(data, "censoring_names", ()) or ()):
         return None
-    return share_text(float(data.uncensored_through(data.n_times).mean()))
+    return vocabulary.FOLLOWED, share_text(float(data.uncensored_through(data.n_times).mean()))
+
+
+def _declared(design: Any, field: str) -> tuple[str, ...]:
+    """The columns a design field names, flattened, in the order the caller gave them."""
+    value = getattr(design, field, None)
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Mapping):
+        return tuple(str(item) for item in value.values())
+    names: list[str] = []
+    for item in value:
+        names.extend((item,) if isinstance(item, str) else (str(part) for part in item))
+    return tuple(dict.fromkeys(names))
 
 
 def protocol_lines(protocol: StudyProtocol) -> tuple[str, ...]:
@@ -167,10 +191,10 @@ def _point_header(design: Any, data: Any) -> tuple[list[tuple[str, str]], int]:
         left.append((vocabulary.HELD_FIXED, str(intermediate)))
     share = share_fact(data)
     right: list[tuple[str, str]] = [(vocabulary.ROWS, rows_fact(data))]
-    # A dose range or a list of arm shares is too long for the right column.
+    # A dose range is too long for the right column, and arm shares print as a table.
     if share[0].startswith(vocabulary.TREATED_SHARE):
         right.append(share)
-    else:
+    elif arm_table(data) is None:
         left.append(share)
     if getattr(data, "known_treatment", None) is not None:
         right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
@@ -180,22 +204,30 @@ def _point_header(design: Any, data: Any) -> tuple[list[tuple[str, str]], int]:
     strata = tuple(getattr(data, "strata_names", ()) or ())
     if strata:
         right.append((vocabulary.STRATA, listed(strata)))
-    weights = weights_fact(data)
-    if weights is not None:
-        right.append((vocabulary.WEIGHTS, weights))
+    right.extend(weights_facts(data))
     return [*left, *right], len(left)
 
 
 def _longitudinal_header(design: Any, data: Any) -> tuple[list[tuple[str, str]], int]:
+    # A long panel and an event time are reshaped into derived node columns, so the
+    # header names the columns the caller declared.
+    reshaped = type(design).__name__ in ("LongPanel", "TimeToEvent")
+    if type(design).__name__ == "TimeToEvent":
+        outcome = vocabulary.EVENT_OUTCOME.format(event=design.event, time=design.time)
+    else:
+        outcome = _longitudinal_outcome(data)
+    treatment = _declared(design, "treatment") if reshaped else tuple(data.treatment_names)
     left: list[tuple[str, str]] = [
         (vocabulary.DESIGN, _design_word(design, data)),
-        (vocabulary.OUTCOME, _longitudinal_outcome(data)),
-        (vocabulary.TREATMENT, listed(data.treatment_names)),
+        (vocabulary.OUTCOME, outcome),
+        (vocabulary.TREATMENT, listed(treatment)),
     ]
     baseline = tuple(data.baseline_names)
     if baseline:
         left.append((vocabulary.BASELINE, listed(baseline)))
-    censoring = _censoring_fact(data)
+    censoring = (
+        listed(_declared(design, "censoring")) or None if reshaped else _censoring_fact(data)
+    )
     if censoring is not None:
         left.append((vocabulary.CENSORING, censoring))
     right: list[tuple[str, str]] = [
@@ -204,13 +236,13 @@ def _longitudinal_header(design: Any, data: Any) -> tuple[list[tuple[str, str]],
     ]
     followed = _followed_fact(data)
     if followed is not None:
-        right.append((vocabulary.FOLLOWED, followed))
+        right.append(followed)
+    if getattr(data, "known_mechanisms", None) is not None:
+        right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
     clusters = clusters_fact(data)
     if clusters is not None:
         right.append((vocabulary.CLUSTERS, clusters))
-    weights = weights_fact(data)
-    if weights is not None:
-        right.append((vocabulary.WEIGHTS, weights))
+    right.extend(weights_facts(data))
     return [*left, *right], len(left)
 
 
@@ -236,6 +268,22 @@ def study_roles(study: CausalStudy) -> list[tuple[str, tuple[str, ...]]]:
         ``(role, columns)`` pairs; a role with no column is left out.
     """
     data: Any = study.data
+    design = study.design
+    kind = type(design).__name__
+    if kind in ("LongPanel", "TimeToEvent"):
+        declared = [
+            ("unit", _declared(design, "unit")),
+            ("time", _declared(design, "time")),
+            ("outcome", _declared(design, "outcome") if kind == "LongPanel" else ()),
+            ("event", _declared(design, "event")),
+            ("treatment", _declared(design, "treatment")),
+            ("baseline", _declared(design, "baseline")),
+            ("measured over time", _declared(design, "time_varying")),
+            ("censoring", _declared(design, "censoring")),
+            ("clusters", _declared(design, "cluster")),
+            ("weights", _declared(design, "weights")),
+        ]
+        return [(role, names) for role, names in declared if names]
     if _is_longitudinal(data):
         roles: list[tuple[str, tuple[str, ...]]] = [
             ("outcome", tuple(getattr(data, "event_names", ()) or ()) or (data.outcome_name,)),
@@ -248,7 +296,6 @@ def study_roles(study: CausalStudy) -> list[tuple[str, tuple[str, ...]]]:
         roles.append(("clusters", _named(getattr(data, "cluster_name", None))))
         roles.append(("weights", _named(getattr(data, "weights_name", None))))
         return [(role, names) for role, names in roles if names]
-    design = study.design
     roles = [
         ("outcome", (data.outcome_name,)),
         ("treatment", tuple(data.component_names) or (data.treatment_name,)),
@@ -301,14 +348,31 @@ def study_summary(study: CausalStudy, detail: Detail) -> Summary:
     )
     notes = warning_notes(getattr(study.data, "validation_warnings", ()))
     sections = [_protocol_section(study.protocol)] if detail == "full" else []
+    arms = None if _is_longitudinal(study.data) else arm_table(study.data)
     return Summary.build(
         title=vocabulary.STUDY_TITLE,
         header=header,
         header_split=split,
-        tables=[roles],
+        tables=[roles] if arms is None else [roles, arms],
         notes=notes,
         sections=sections,
     )
+
+
+def arm_table(data: Any) -> SummaryTable | None:
+    """The share of rows at each treatment level, for an arm-coded treatment other than a
+    0/1 one, whose treated share the header prints. ``None`` otherwise."""
+    if data.treatment_kind == "vector" or data.is_continuous_treatment:
+        return None
+    label, _ = share_fact(data)
+    if label.startswith(vocabulary.TREATED_SHARE):
+        return None
+    column = vocabulary.SHARE_COLUMN + (vocabulary.WEIGHTED if data.is_weighted else "")
+    rows = tuple(
+        (Cell(data.arm_label(arm), str(data.arm_label(arm))), Cell(share, share_text(share)))
+        for arm, share in zip(data.arm_codes, data.arm_fractions, strict=True)
+    )
+    return SummaryTable(("level", column), rows, title=vocabulary.ARMS_TITLE)
 
 
 def study_repr(study: CausalStudy) -> str:
@@ -316,8 +380,13 @@ def study_repr(study: CausalStudy) -> str:
     from . import short_repr
 
     data: Any = study.data
-    facts: list[tuple[str, Any]] = [("", _design_word(study.design, data)), ("n", data.n)]
-    if _is_longitudinal(data):
+    design = study.design
+    facts: list[tuple[str, Any]] = [("", _design_word(design, data)), ("n", data.n)]
+    if type(design).__name__ in ("LongPanel", "TimeToEvent"):
+        outcome = _declared(design, "outcome") or _declared(design, "event")
+        facts.append(("outcome", ", ".join(outcome)))
+        facts.append(("treatment", ", ".join(_declared(design, "treatment"))))
+    elif _is_longitudinal(data):
         facts.append(("outcome", data.outcome_name))
         facts.append(("treatments", len(data.treatment_names)))
     else:
@@ -330,13 +399,18 @@ def study_repr(study: CausalStudy) -> str:
 # ----------------------------------------------------------------- the question
 
 
-def condition_words(statement: str) -> tuple[str, str, str] | None:
+def condition_words(
+    statement: str, features: frozenset[str] = frozenset()
+) -> tuple[str, str, str] | None:
     """The plain name, sentence and checkable mark of an identification statement.
 
     Parameters
     ----------
     statement : str
         One statement of an identification record.
+    features : frozenset of str
+        The design's features that change the words, keys of
+        :data:`~cleverly._summary.vocabulary.CONDITION_VARIANTS`.
 
     Returns
     -------
@@ -345,10 +419,52 @@ def condition_words(statement: str) -> tuple[str, str, str] | None:
         placeholders unfilled, or ``None`` when no entry of
         :data:`~cleverly._summary.vocabulary.CONDITION_WORDS` matches.
     """
+    for feature in sorted(features):
+        for start, words in vocabulary.CONDITION_VARIANTS.get(feature, ()):
+            if statement.startswith(start):
+                return words
     for start, words in vocabulary.CONDITION_WORDS:
         if statement.startswith(start):
             return words
     return None
+
+
+def design_features(effect: IdentifiedEffect) -> frozenset[str]:
+    """The design features that change a question's condition words.
+
+    Parameters
+    ----------
+    effect : IdentifiedEffect
+        The identified question.
+
+    Returns
+    -------
+    frozenset of str
+        Keys of :data:`~cleverly._summary.vocabulary.CONDITION_VARIANTS`.
+    """
+    functional = effect.functional
+    study = effect._study
+    data = getattr(study, "data", None)
+    features = set()
+    if functional.intermediate is not None:
+        features.add("held")
+    if _randomized_without_adjustment(effect):
+        features.add("randomized")
+    if (
+        functional.longitudinal
+        and data is not None
+        and not tuple(getattr(data, "censoring_names", ()) or ())
+    ):
+        features.add("uncensored")
+    return frozenset(features)
+
+
+def _randomized_without_adjustment(effect: IdentifiedEffect) -> bool:
+    study = effect._study
+    if study is None or not getattr(study.design, "randomized", False):
+        return False
+    data = study.data
+    return not _is_longitudinal(data) and not covariate_sources(data)
 
 
 def _fill(text: str, effect: IdentifiedEffect) -> str:
@@ -387,8 +503,9 @@ def conditions(effect: IdentifiedEffect) -> tuple[list[tuple[str, str, str, str]
     """
     rows: list[tuple[str, str, str, str]] = []
     others: list[str] = []
+    features = design_features(effect)
     for statement in _statements(effect):
-        words = condition_words(statement)
+        words = condition_words(statement, features)
         if words is None:
             others.append(statement)
             continue
@@ -455,23 +572,21 @@ def methods_fact(records: Sequence[MethodAvailability]) -> str:
     return f"{count_text(fitting)} of {count_text(len(records))}"
 
 
-def methods_table(records: Sequence[MethodAvailability]) -> SummaryTable:
-    """The Methods table: each method's name, whether it fits, and its plain name."""
-    return SummaryTable(
-        ("method", "fits", "name"),
-        tuple(
-            (
-                Cell(record.name, record.name),
-                Cell(record.available, "yes" if record.available else "no"),
-                Cell(
-                    vocabulary.METHOD_NAMES.get(record.name, record.name),
-                    vocabulary.METHOD_NAMES.get(record.name, record.name),
-                ),
-            )
-            for record in records
-        ),
-        title=vocabulary.METHODS_TABLE_TITLE,
-    )
+def methods_table(records: Sequence[MethodAvailability], *, fits: bool = True) -> SummaryTable:
+    """The Methods table: each method's name, whether it fits, and its plain name.
+
+    ``fits=False`` leaves out the fits column, for a table of only the methods that fit.
+    """
+    rows = []
+    for record in records:
+        plain = vocabulary.METHOD_NAMES.get(record.name, record.name)
+        cells = [Cell(record.name, record.name)]
+        if fits:
+            cells.append(Cell(record.available, "yes" if record.available else "no"))
+        cells.append(Cell(plain, plain))
+        rows.append(tuple(cells))
+    columns = ("method", "fits", "name") if fits else ("method", "name")
+    return SummaryTable(columns, tuple(rows), title=vocabulary.METHODS_TABLE_TITLE)
 
 
 def unavailable_section(records: Sequence[MethodAvailability]) -> SummarySection:
@@ -542,9 +657,12 @@ def _question_header(effect: IdentifiedEffect) -> tuple[list[tuple[str, str]], i
     right: list[tuple[str, str]] = []
     if data is not None:
         right.append((vocabulary.ROWS, count_text(data.n)))
-    right.append(
-        (vocabulary.ANSWERED_BY, vocabulary.ANSWERED_BY_WORDS[bool(functional.longitudinal)])
+    answered = (
+        vocabulary.ANSWERED_BY_RANDOMIZED
+        if _randomized_without_adjustment(effect)
+        else vocabulary.ANSWERED_BY_WORDS[bool(functional.longitudinal)]
     )
+    right.append((vocabulary.ANSWERED_BY, answered))
     return [*left, *right], len(left)
 
 
@@ -589,7 +707,6 @@ def question_summary(effect: IdentifiedEffect, detail: Detail) -> Summary:
                 texts["further_conditions"].format(
                     count=len(others),
                     conditions="condition" if len(others) == 1 else "conditions",
-                    them="it" if len(others) == 1 else "them",
                 ),
             )
         )
@@ -642,7 +759,7 @@ def question_summary(effect: IdentifiedEffect, detail: Detail) -> Summary:
                 ),
             )
         )
-    tables.append(methods_table(fitting or records))
+    tables.append(methods_table(fitting or records, fits=not fitting))
     return Summary.build(
         title=vocabulary.QUESTION_TITLE.format(name=effect.estimand.name),
         header=header,
@@ -782,8 +899,20 @@ def _signed(value: float, decimals: int) -> str:
     return text if text.startswith("-") or float(text) == 0.0 else f"+{text}"
 
 
+#: A coverage shortfall at most this large, though beyond Monte Carlo error, reads as small.
+COVERAGE_FLOOR = 0.02
+#: A bias at most this share of max(1, |truth|), though beyond Monte Carlo error, reads as
+#: small.
+BIAS_FLOOR = 0.02
+
+
 def simulation_reading(result: StudyResult) -> str:
     """The reading of a simulation study: whether coverage and bias look right.
+
+    A coverage shortfall or a bias beyond three Monte Carlo standard errors is named for
+    its estimand. One within the floors, :data:`COVERAGE_FLOOR` points of coverage or
+    :data:`BIAS_FLOOR` of ``max(1, |truth|)``, is named as small rather than left out, so
+    the reading says the study passed only when nothing exceeds Monte Carlo error.
 
     Parameters
     ----------
@@ -799,29 +928,47 @@ def simulation_reading(result: StudyResult) -> str:
 
     level = 1.0 - result.alpha
     level_text = f"{level:.0%}"
+    floor = f"{100 * COVERAGE_FLOOR:.0f}"
     sentences: list[str] = []
     for summary in result.summaries.values():
         shortfall = level - summary.coverage
-        if shortfall > 3.0 * summary.coverage_se and shortfall > 0.02:
-            sentence = vocabulary.SIMULATION_UNDERCOVERAGE.format(
-                name=summary.estimand, coverage=f"{summary.coverage:.3f}", level=level_text
-            )
-            if summary.se_ratio < 0.95:
-                sentence += vocabulary.SIMULATION_SE_SMALL.format(
-                    spread=spread_name("reported standard error", summary.inference),
-                    factor=f"{1 / summary.se_ratio:.2f}",
+        # A shortfall beyond Monte Carlo error is reported however small it is; one under
+        # the floor is named as small, so the reading never calls it zero.
+        if shortfall > 3.0 * summary.coverage_se:
+            coverage = f"{summary.coverage:.3f}"
+            if shortfall <= COVERAGE_FLOOR:
+                sentences.append(
+                    vocabulary.SIMULATION_SMALL_UNDERCOVERAGE.format(
+                        name=summary.estimand, coverage=coverage, level=level_text, floor=floor
+                    )
+                    + "."
                 )
             else:
-                sentence += vocabulary.SIMULATION_SE_RIGHT
-            sentences.append(sentence + ".")
-        if abs(summary.bias) > 3.0 * summary.bias_se and abs(summary.bias) > 0.02 * max(
-            1.0, abs(summary.truth)
-        ):
+                sentence = vocabulary.SIMULATION_UNDERCOVERAGE.format(
+                    name=summary.estimand, coverage=coverage, level=level_text
+                )
+                if summary.se_ratio <= 0.0:
+                    sentence += vocabulary.SIMULATION_SE_ZERO
+                elif summary.se_ratio < 0.95:
+                    sentence += vocabulary.SIMULATION_SE_SMALL.format(
+                        spread=spread_name("reported standard error", summary.inference),
+                        factor=f"{1 / summary.se_ratio:.2f}",
+                    )
+                else:
+                    sentence += vocabulary.SIMULATION_SE_RIGHT
+                sentences.append(sentence + ".")
+        if summary.bias_se > 0.0 and abs(summary.bias) > 3.0 * summary.bias_se:
+            template = (
+                vocabulary.SIMULATION_BIAS
+                if abs(summary.bias) > BIAS_FLOOR * max(1.0, abs(summary.truth))
+                else vocabulary.SIMULATION_SMALL_BIAS
+            )
             sentences.append(
-                vocabulary.SIMULATION_BIAS.format(
+                template.format(
                     name=summary.estimand,
                     bias=f"{summary.bias:+.4f}",
                     count=f"{abs(summary.bias) / summary.bias_se:.1f}",
+                    floor=f"{BIAS_FLOOR:.0%}",
                 )
                 + "."
             )
@@ -876,22 +1023,23 @@ def _simulation_notes(result: StudyResult) -> list[Note]:
         )
     mixed = [summary for summary in summaries if summary.status_counts]
     if mixed:
-        statuses = "; ".join(f"{summary.estimand} ({summary.mixed_statuses})" for summary in mixed)
-        diagnostic = [
-            summary
-            for summary in mixed
-            if any(not supplies_inference(status) for status, _ in summary.status_counts)
-        ]
-        what = (
-            "the "
-            + _diagnostic_noun(
-                status for summary in diagnostic for status, _ in summary.status_counts
+        clauses = []
+        for summary in mixed:
+            # Each estimand reads its own statuses: a diagnostic one reads the plug-in
+            # diagnostic, and one whose statuses all supply an interval reads that interval.
+            statuses = [status for status, _ in summary.status_counts]
+            what = (
+                "the interval each replicate reported"
+                if all(supplies_inference(status) for status in statuses)
+                else "the " + _diagnostic_noun(statuses)
             )
-            if diagnostic
-            else "the interval each replicate reported"
-        )
+            clauses.append(
+                vocabulary.MIXED_STATUS_CLAUSE.format(
+                    name=summary.estimand, statuses=summary.mixed_statuses, what=what
+                )
+            )
         notes.append(
-            note("mixed_statuses", texts["mixed_statuses"].format(statuses=statuses, what=what))
+            note("mixed_statuses", texts["mixed_statuses"].format(clauses="; ".join(clauses)))
         )
     ratios = [summary.estimand for summary in summaries if summary.inference_estimates is not None]
     if ratios:

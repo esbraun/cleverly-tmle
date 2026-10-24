@@ -590,7 +590,9 @@ class StudyResult:
         """Reading of the study, naming the specific failure mode where there is one.
 
         It checks undercoverage beyond three Monte Carlo standard errors and bias beyond
-        three bias standard errors, and nothing else.
+        three bias standard errors, and nothing else. A detectable shortfall of at most two
+        points of coverage, or a detectable bias of at most 2% of ``max(1, |truth|)``, is
+        named as small.
 
         Returns
         -------

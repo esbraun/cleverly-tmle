@@ -2621,7 +2621,7 @@ class BackdoorMeanContrast:
             )
         return (
             f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
-            "with influence correction"
+            "corrected by its influence function"
         )
 
 
@@ -4467,7 +4467,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """Return identification facts for the longitudinal result summary.
 
         Kept for :meth:`~cleverly.LongitudinalResult.summary` until that summary is built
-        on the shared summary layer; every other summary reads :meth:`_assumption_lines`.
+        on the shared summary layer; a summary built on that layer reads
+        :meth:`_assumption_lines`.
 
         Parameters
         ----------

@@ -369,8 +369,11 @@ class TestAStudyWhoseReplicatesMixStatuses:
         assert summary_text.note("mixed_statuses").text == vocabulary.NOTE_TEXTS[
             "mixed_statuses"
         ].format(
-            statuses=f"ate (few_cluster_plugin in {few}, influence_curve in {8 - few})",
-            what="the interval each replicate reported",
+            clauses=vocabulary.MIXED_STATUS_CLAUSE.format(
+                name="ate",
+                statuses=f"few_cluster_plugin in {few}, influence_curve in {8 - few}",
+                what="the interval each replicate reported",
+            )
         )
         row = study.to_frame().iloc[0]
         assert row["inference"] == FEW
