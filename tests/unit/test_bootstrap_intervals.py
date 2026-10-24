@@ -286,9 +286,15 @@ def _g01_lists(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
 
 
 class TestSupport:
-    def test_no_row_lists_the_new_kinds(self) -> None:
-        for row in _support.registered_rows():
-            assert not {"bootstrap_bca", "bootstrap_band"} & set(row.kinds), row.id
+    def test_only_the_long_horizon_rows_list_the_new_kinds(self) -> None:
+        """The long-horizon studies (``G46``) gate the BCa interval and the bootstrap band."""
+        listing = {
+            row.id
+            for row in _support.registered_rows()
+            if {"bootstrap_bca", "bootstrap_band"} & set(row.kinds)
+        }
+        assert listing
+        assert all(row_id.startswith("G46.") for row_id in listing), sorted(listing)
 
     def test_the_bca_interval_of_a_supported_fit_is_experimental(self) -> None:
         percentile = _canonical(n_bootstrap=3)
