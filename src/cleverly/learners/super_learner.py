@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from scipy import optimize
@@ -35,6 +35,9 @@ from ..utils.parallel import map_parallel
 from ._fitting import Task, as_target, clone_learner, fit_learner, infer_task, predict_mean
 from .crossfit import Folds, make_folds
 from .library import _resolve_library
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 __all__ = ["MetaLearner", "SuperLearner", "SuperLearnerDiagnostics", "resolve_learner"]
 
@@ -90,6 +93,32 @@ class SuperLearnerDiagnostics:
             "cv_risk": self.cv_risk.tolist(),
             "weight": self.weights.tolist(),
         }
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the ensemble, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._ensemble_summary import diagnostics_summary
+
+        return diagnostics_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._ensemble_summary import diagnostics_repr
+
+        return diagnostics_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 class SuperLearner(BaseEstimator):

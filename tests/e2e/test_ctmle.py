@@ -487,9 +487,7 @@ class TestDownstreamMachineryStillWorks:
         else:
             # The default outcome learner is outside the stacked interval of X58.
             assert refusal is not None and "outcome_learner" in refusal
-            assert (
-                oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval (X58): {refusal}"
-            )
+            assert oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval: {refusal}"
         assert sentence in diagnostics.summary()
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 
@@ -500,7 +498,12 @@ class TestDownstreamMachineryStillWorks:
         assert "placebo" in {test.name for test in refutation.tests}
 
     def test_the_summary_prints(self, fit) -> None:
-        assert dict(fit.summary().header)["Method"] == "collaborative TMLE (C-TMLE)"
+        selection = fit.extra["ctmle"]
+        assert selection.strategy == "greedy"
+        assert (
+            dict(fit.summary().header)["Method"]
+            == "collaborative TMLE (C-TMLE), adding covariates one at a time"
+        )
 
     def test_to_frame_returns_the_callers_backend(self, fit) -> None:
         frame = fit.to_frame()
@@ -1096,7 +1099,11 @@ class TestTheSelectorPathsPublishNoInference:
         # The full summary names the selector, so a reader does not have to go to the
         # nuisance report to learn which mechanism the refusal is about.
         details = result.summary(detail="full").section("Method details").lines
-        assert result.extra["ctmle"].describe() in details
+        selection = result.extra["ctmle"]
+        assert details[0].startswith(
+            f"The search built {len(selection.path)} candidate treatment models "
+            f"({vocabulary.CTMLE_SEARCHES[selection.strategy]})."
+        )
 
     def test_the_assessment_carries_the_same_sentence(self) -> None:
         result = self._fit("greedy")

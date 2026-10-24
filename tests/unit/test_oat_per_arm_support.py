@@ -428,17 +428,19 @@ def _fit_warning() -> Any:
 
 class TestTheSummary:
     def test_an_admitted_fit_states_what_its_interval_covers(self, admitted_fit: Any) -> None:
-        text = _method_text(admitted_fit)
-        assert (
-            "stacked parametric curve of ParametricOutcome(features='arm_interactions', "
-            "arm_columns=1)" in text
-        )
+        text = admitted_fit.summary().note("stacked_interval").text
+        assert "the declared parametric outcome and treatment models" in text
+        assert "Each interval is pointwise" in text
         assert "covers the arm mean when the outcome model is correct" in text
-        assert "A simultaneous band is joint over the reported estimates" in text
+        # This fit asks for no band, so the Method details name none.
+        assert admitted_fit.simultaneous is None
+        assert "A simultaneous band covers" not in _method_text(admitted_fit)
 
     def test_a_refused_per_arm_fit_names_the_unmet_requirement(self) -> None:
-        text = _method_text(_fit(screen_treatment=True))
-        assert "stacked parametric curve" not in text
+        refused = _fit(screen_treatment=True)
+        text = _method_text(refused)
+        assert "stacked_interval" not in refused.summary().note_codes
+        assert "A simultaneous band covers" not in text
         assert "No stacked interval: the stacked interval needs screen_treatment" in text
 
 
@@ -450,6 +452,7 @@ class TestTheDefaultBand:
         assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
         assert result.simultaneous is not None
         assert set(result.simultaneous.bands) == set(ESTIMANDS)
+        assert "A simultaneous band covers the estimates" in _method_text(result)
 
     def test_a_single_ate_takes_the_default_inference(self) -> None:
         result = _fit(estimands=("ate",), simultaneous=True)

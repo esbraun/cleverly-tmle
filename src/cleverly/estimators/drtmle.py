@@ -148,7 +148,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from copy import copy
 from dataclasses import dataclass, field, replace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Preflight
@@ -188,6 +188,9 @@ from .targeting import (
     ReductionSpec,
 )
 from .tmle import TMLE
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 __all__ = ["DRTMLE", "ReducedFit"]
 
@@ -272,6 +275,32 @@ class ReducedFit:
         if self.missing_data == "composite":
             line += "; composite indicator Delta_A * Delta * 1{A = a}"
         return line
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the extra regressions, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._method_summary import reduced_summary
+
+        return reduced_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import reduced_repr
+
+        return reduced_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     @staticmethod
     def evaluation(result: Any) -> Any:
