@@ -947,7 +947,7 @@ def simulation_reading(result: StudyResult) -> str:
                 sentence = vocabulary.SIMULATION_UNDERCOVERAGE.format(
                     name=summary.estimand, coverage=coverage, level=level_text
                 )
-                if summary.se_ratio <= 0.0:
+                if summary.mean_std_error <= 0.0 or summary.se_ratio <= 0.0:
                     sentence += vocabulary.SIMULATION_SE_ZERO
                 elif summary.se_ratio < 0.95:
                     sentence += vocabulary.SIMULATION_SE_SMALL.format(
@@ -957,7 +957,16 @@ def simulation_reading(result: StudyResult) -> str:
                 else:
                     sentence += vocabulary.SIMULATION_SE_RIGHT
                 sentences.append(sentence + ".")
-        if summary.bias_se > 0.0 and abs(summary.bias) > 3.0 * summary.bias_se:
+        if summary.bias_se <= 0.0:
+            # Every replicate returned the same estimate, so any bias at all is detectable.
+            if summary.bias != 0.0:
+                sentences.append(
+                    vocabulary.SIMULATION_CONSTANT_BIAS.format(
+                        name=summary.estimand, bias=f"{summary.bias:+.4f}"
+                    )
+                    + "."
+                )
+        elif abs(summary.bias) > 3.0 * summary.bias_se:
             template = (
                 vocabulary.SIMULATION_BIAS
                 if abs(summary.bias) > BIAS_FLOOR * max(1.0, abs(summary.truth))
@@ -1099,7 +1108,8 @@ def simulation_summary(result: StudyResult, detail: Detail) -> Summary:
         for _, column, decimals in SIMULATION_COLUMNS:
             value = values[column]
             text = _signed(value, decimals) if column == "bias" else number_text(value, decimals)
-            cells.append(Cell(value, text))
+            # A missing number is stored as None, since a nan cell never compares equal.
+            cells.append(Cell(value if np.isfinite(value) else None, text))
         rows.append(tuple(cells))
     table = SummaryTable(("estimand", *(label for label, _, _ in SIMULATION_COLUMNS)), tuple(rows))
     sections: list[SummarySection] = []

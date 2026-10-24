@@ -1128,6 +1128,10 @@ SIMULATION_SE_RIGHT: Final = (
     "sampling distribution"
 )
 SIMULATION_BIAS: Final = "{name}: bias {bias} is {count} Monte Carlo standard errors from zero"
+SIMULATION_CONSTANT_BIAS: Final = (
+    "{name}: every replicate returned the same estimate, so its bias {bias} has no Monte Carlo "
+    "error"
+)
 SIMULATION_SMALL_BIAS: Final = (
     "{name}: bias {bias} is {count} Monte Carlo standard errors from zero, though no more "
     "than {floor} of the larger of 1 and the absolute truth"

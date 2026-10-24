@@ -432,6 +432,20 @@ def simulation_small_deviation() -> StudyResult:
     )
 
 
+@functools.cache
+def simulation_constant() -> StudyResult:
+    """Replicates that all return the same wrong estimate, so the Monte Carlo SD is zero."""
+    return _study_result(
+        {
+            "ate": simulation_record(
+                estimates=np.full(4, 1.0),
+                std_errors=np.full(4, 0.05),
+                covered=np.zeros(4),
+            )
+        }
+    )
+
+
 # ----------------------------------------------------------------- phase timings
 
 
@@ -515,6 +529,7 @@ FIXTURES = {
     "simulation_small_deviation": Case(
         simulation_small_deviation, names=("ate",), fidelity=read_simulation
     ),
+    "simulation_constant": Case(simulation_constant, names=("ate",), fidelity=read_simulation),
     "simulation_diagnostic": Case(simulation_diagnostic, names=("ate",), fidelity=read_simulation),
     "phase_profile": Case(phase_profile, names=("outer", "inner", "fit"), fidelity=read_phases),
 }

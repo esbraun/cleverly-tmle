@@ -668,6 +668,28 @@ def test_a_small_detectable_deviation_is_named_not_passed() -> None:
     assert "though no more than 2% of the larger of 1 and the absolute truth" in reading
 
 
+def test_a_constant_wrong_estimate_is_named_as_biased() -> None:
+    """A witness: every replicate returns 1.0 against a truth of 0.5, so the Monte Carlo SD
+    is zero and a ratio to it cannot decide whether the bias is detectable."""
+    result = setup.simulation_constant()
+    summary = result.summaries["ate"]
+    assert summary.bias_se == 0.0
+    assert summary.bias == pytest.approx(0.5)
+    reading = result.verdict()
+    assert "ate: every replicate returned the same estimate, so its bias +0.5000" in reading
+    assert "within Monte Carlo error of zero" not in reading
+
+
+def test_a_held_intermediate_names_it_in_the_missingness_condition() -> None:
+    """A witness for the held variant: its sentence names the intermediate, which the generic
+    sentence does not, and the pins compare only sentence tails."""
+    text = str(QUESTIONS["direct_effect"]().summary())
+    flat = " ".join(text.split())
+    assert "Among units with the same treatment, Z and adjusted-for values, whether Y" in flat
+    generic = str(QUESTIONS["missing_ate"]().summary())
+    assert "same treatment, Z and" not in " ".join(generic.split())
+
+
 def test_a_passing_study_says_so() -> None:
     assert setup.simulation_passing().verdict() == vocabulary.SIMULATION_PASS.format(level="95%")
 

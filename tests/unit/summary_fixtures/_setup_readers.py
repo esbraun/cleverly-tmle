@@ -442,9 +442,12 @@ def read_simulation(result: Any, text: str) -> None:
             summary.rejection_rate,
         ]
         for shown, value in zip(rows[name], values, strict=True):
+            if shown == "-":
+                assert not np.isfinite(value), (name, shown, value)
+                continue
             assert _close(shown, float(value)), (name, shown, value)
-        expected.extend(values)
-        if summary.se_ratio > 0:
+        expected.extend(value for value in values if np.isfinite(value))
+        if summary.se_ratio > 0 and np.isfinite(summary.se_ratio):
             expected.append(1 / summary.se_ratio)
         if summary.bias_se > 0:
             expected.append(abs(summary.bias) / summary.bias_se)
