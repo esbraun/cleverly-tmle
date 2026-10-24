@@ -34,7 +34,7 @@ audit and an active propensity bound each count as a failed replicate.
 **Cost.**  The sizing pilots' seconds per fit, on four busy cores: primary 3.8 (``tc3000``,
 taken for ``both_correct`` and the both-wrong control too) and 3.3 (``oc3000``), leak pair 5.3
 for both fits at n = 1,000, ``benkeser_order`` 4.2, ``bivariate`` 3.3, ``bivariate_oc`` 3.0,
-``k5`` 1.8, ``spline_reduced`` 17.9, multi-arm 1.6, stratified 11.8.  At the declared budgets
+``k5`` 1.8, ``spline_qr`` 4.9 (a three-replicate timing; the declared spline cell measured 17.9), multi-arm 1.6, stratified 11.8.  At the declared budgets
 that is about 59 CPU-hours: 18.3 primary, 6.5 leak, 14.0 spline, 10.5 stratified, and 10 for
 the other cells.
 
@@ -50,7 +50,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import SplineTransformer
 
@@ -89,11 +89,18 @@ FAILURE_BOUND = 0.01
 FOLDWISE = "foldwise"
 POOLED = "pooled"
 
-#: The flexible reduced learners of the ``spline_reduced`` cell (review F10): a cubic
-#: B-spline basis of the scalar reduced design with :data:`SPLINE_KNOTS` knots, under least
-#: squares for the reduced outcome regression and a near-unpenalized logistic fit for the
-#: reduced mechanism.  The fit predicts in sample at the slab's training rows, which is the
-#: second-order gap F10 names, and the basis has more freedom than the canonical GLM.
+#: The flexible reduced learner of the ``spline_qr`` cell (review F10): a cubic B-spline basis
+#: of the scalar reduced design with :data:`SPLINE_KNOTS` knots, under least squares, for the
+#: reduced outcome regression ``Q_r`` only.  ``g_{r,1}`` and ``g_{r,2}`` keep the canonical
+#: GLMs.  The fit predicts in sample at the slab's training rows, which is the second-order gap
+#: F10 names, and the basis has more freedom than the canonical GLM.
+#:
+#: **Why ``Q_r`` only.**  Under ``treatment_correct`` the theory asks for a flexible ``Q_r``.
+#: The declared run fitted the spline on ``g_{r,2}`` too, through the ``Q_r`` learner slot,
+#: and its red bias row sat in ``g_{r,2}``: the main-effects outcome GLM leaves
+#: ``Q̄_n(a, W)`` near constant, so a flexible ``g_{r,2}`` fits noise (X83).  ``g_{r,2}`` now
+#: has its own slot, ``reduced_mechanism_residual_learner``, and this cell leaves it on the
+#: canonical least squares, which is R ``drtmle``'s ``glm_gr``.
 #:
 #: **Why not capped boosting**, the plan's example.  On two pilot draws at n = 3,000,
 #: ``HistGradientBoosting`` with 10 iterations of depth 2 reached the 100-round alternation
@@ -103,7 +110,6 @@ POOLED = "pooled"
 #: the cap and not the fold-wise slab.  The spline basis is smooth and converged on the pilot.
 #: :data:`REDUCED_LEARNER_LIMIT` states the finding as a limit of the evidence.
 SPLINE_KNOTS = 5
-SPLINE_LOGISTIC_C = 1e4
 #: The limit the piecewise-constant pilot fits set, published in :data:`CONFIGURATION`.
 REDUCED_LEARNER_LIMIT = (
     "Piecewise-constant reduced learners (HistGradientBoosting with 10 iterations of depth 2, "
@@ -130,8 +136,9 @@ class Fit:
     n_folds : int
         The outer folds.  The sample's fold vector is drawn at this count.
     reduced : str
-        ``"glm"`` (the canonical Gaussian and binomial GLMs) or ``"spline"`` (the
-        :data:`SPLINE_KNOTS` basis).
+        ``"glm"`` (the canonical Gaussian and binomial GLMs) or ``"spline_qr"`` (the
+        :data:`SPLINE_KNOTS` basis on ``Q_r``, the canonical GLMs on ``g_{r,1}`` and
+        ``g_{r,2}``).
     """
 
     reduced_crossfit: str = FOLDWISE
@@ -145,16 +152,19 @@ class Fit:
 PRIMARY_FIT = Fit()
 
 
-def _reduced_learners(fit: Fit) -> tuple[Any, Any]:
+def _reduced_learners(fit: Fit) -> tuple[Any, Any, Any]:
+    """The ``Q_r``, ``g_{r,1}`` and ``g_{r,2}`` learners of one configuration.
+
+    ``g_{r,2}`` takes least squares in both.  The paper law's outcome learner is a classifier,
+    so the unset slot would be refused, and least squares is R ``drtmle``'s ``glm_gr``.
+    """
     if fit.reduced == "glm":
-        return LinearRegression(), canonical.ColumnLogistic()
-    if fit.reduced == "spline":
+        return LinearRegression(), canonical.ColumnLogistic(), LinearRegression()
+    if fit.reduced == "spline_qr":
         return (
             make_pipeline(SplineTransformer(n_knots=SPLINE_KNOTS, degree=3), LinearRegression()),
-            make_pipeline(
-                SplineTransformer(n_knots=SPLINE_KNOTS, degree=3),
-                LogisticRegression(C=SPLINE_LOGISTIC_C, max_iter=2000),
-            ),
+            canonical.ColumnLogistic(),
+            LinearRegression(),
         )
     raise ValueError(f"unknown reduced learner {fit.reduced!r}")
 
@@ -177,13 +187,14 @@ def estimator(assignment: np.ndarray, scenario: str, fit: Fit = PRIMARY_FIT) -> 
         The unfitted estimator.
     """
     outcome, treatment = canonical._learners(scenario)
-    reduced_outcome, reduced_treatment = _reduced_learners(fit)
+    reduced_outcome, reduced_treatment, reduced_mechanism_residual = _reduced_learners(fit)
     return canonical.FixedFoldDRTMLE(
         assignment,
         outcome_learner=outcome,
         treatment_learner=treatment,
         reduced_outcome_learner=reduced_outcome,
         reduced_treatment_learner=reduced_treatment,
+        reduced_mechanism_residual_learner=reduced_mechanism_residual,
         cross_fit=True,
         n_folds=fit.n_folds,
         stratify_folds=canonical.STRATIFY_FOLDS,
@@ -283,7 +294,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         "ate__bivariate",
         "ate__bivariate_oc",
         "ate__k5",
-        "ate__spline_reduced",
+        "ate__spline_qr",
         "ate__both_wrong",
         "marginal_ate__stratified",
         "v0_ate__stratified",
@@ -358,9 +369,10 @@ CONFIGURATION: dict[str, Any] = {
     "nuisance_models": dict(canonical.CONFIGURATION["nuisance_models"]),
     "comparator": "none: Python property evidence, no comparator",
     "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
-    "spline_reduced_learners": (
-        f"cubic B-spline basis with {SPLINE_KNOTS} knots; least squares for the reduced "
-        f"outcome regression, logistic with C = {SPLINE_LOGISTIC_C:g} for the reduced mechanism"
+    "spline_qr_learners": (
+        f"cubic B-spline basis with {SPLINE_KNOTS} knots under least squares for the reduced "
+        "outcome regression Q_r; the canonical logistic g_r1 and least-squares g_r2 "
+        "(reduced_mechanism_residual_learner)"
     ),
     "reduced_learner_limit": REDUCED_LEARNER_LIMIT,
 }

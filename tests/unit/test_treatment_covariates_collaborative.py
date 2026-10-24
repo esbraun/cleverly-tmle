@@ -564,6 +564,7 @@ def drtmle(**overrides: Any) -> DRTMLE:
         "outcome_learner": SpyRegressor("q"),
         "treatment_learner": SpyClassifier("g"),
         "reduced_outcome_learner": SpyRegressor("rq"),
+        "reduced_mechanism_residual_learner": SpyRegressor("rq"),
         "reduced_treatment_learner": SpyClassifier("rg"),
         "cross_fit": False,
         "estimands": ("ate",),

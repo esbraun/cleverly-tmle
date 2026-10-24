@@ -501,6 +501,7 @@ def fit_drtmle(frame: pd.DataFrame, **settings: Any) -> Any:
         "outcome_learner": outcome_learner(),
         "treatment_learner": treatment_learner(),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": treatment_learner(),
         "n_folds": 4,
         "cross_fit": True,

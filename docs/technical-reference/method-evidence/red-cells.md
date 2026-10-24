@@ -135,7 +135,7 @@ The test fails on four states.
 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) | 3 | adaptive-propensity IPTW |
 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
-| total | 208 | 37 studies |
+| total | 209 | 38 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -254,6 +254,7 @@ same text as the "measured" column of its study page.
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/pd_s__untargeted` | control | the family's joint clause | bias 0.0380 to 0.0424, margin 0.0043 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/rm_d__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0010, margin 0.0048 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/rm_d__untargeted` | control | the family's joint clause | bias -0.0244 to -0.0211, margin 0.0046 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [DR-TMLE with fold-wise reduced regressions](dr-tmle-foldwise.md) | property | `double_robustness/ate__spline_reduced` | positive | its own rule | bias 0.0036 to 0.0055, margin 0.0048, SE ratio 0.9865 | **none** |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/hajek_x_contrast__main_terms` | control | its own rule | bias 0.1306 to 0.1344, margin 0.0175, coverage 0.5072 to 0.5348, SE ratio 0.9970 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ht_x_contrast__main_terms` | control | its own rule | bias 0.1637 to 0.1682, margin 0.0208, coverage 0.4709 to 0.4984, SE ratio 0.9988 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ice_x_contrast__main_terms` | control | its own rule | bias 0.1075 to 0.1111, margin 0.0162, coverage 0.5952 to 0.6221, SE ratio 1.0002 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |

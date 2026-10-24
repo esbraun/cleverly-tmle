@@ -138,6 +138,7 @@ def drtmle_fit() -> Any:
             outcome_learner=OracleOutcome(law.DiscreteLaw()),
             treatment_learner=OracleTreatment(PinnedMechanism(WRONG_MECHANISM)),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LinearRegression(),
             estimands=("ate",),
             cross_fit=False,

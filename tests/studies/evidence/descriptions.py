@@ -3810,8 +3810,9 @@ for (_family, _arm, _base), _words in {
         "only the treatment mechanism is correct, n = 3,000, five folds",
         _FOLDWISE_POSITIVE,
     ),
-    ("double_robustness", "ate", "spline_reduced"): (
-        "only the treatment mechanism is correct, n = 3,000, cubic-spline reduced regressions; "
+    ("double_robustness", "ate", "spline_qr"): (
+        "only the treatment mechanism is correct, n = 3,000, a cubic-spline reduced outcome "
+        "regression Q_r with the canonical GLMs for g_r1 and g_r2; "
         "piecewise-constant reduced learners (capped boosting, k-NN) reached max_outer = 100 "
         "under both constructions on the pilot, so the study covers smooth reduced learners only",
         _FOLDWISE_POSITIVE,

@@ -104,7 +104,12 @@ def spies(**extra: Any) -> dict[str, Any]:
 
 def drtmle_spies(**extra: Any) -> dict[str, Any]:
     """:func:`spies` with ``NeverFit`` reduced learners too."""
-    return spies(reduced_outcome_learner=NeverFit(), reduced_treatment_learner=NeverFit(), **extra)
+    return spies(
+        reduced_outcome_learner=NeverFit(),
+        reduced_treatment_learner=NeverFit(),
+        reduced_mechanism_residual_learner=NeverFit(),
+        **extra,
+    )
 
 
 def fit(estimator: TMLE, frame: pd.DataFrame, **columns: Any) -> Any:
@@ -685,6 +690,7 @@ def _never(**settings: Any) -> dict[str, Any]:
 def _never_drtmle(**settings: Any) -> DRTMLE:
     return DRTMLE(
         reduced_outcome_learner=NeverFit(),
+        reduced_mechanism_residual_learner=NeverFit(),
         reduced_treatment_learner=NeverFit(),
         **_never(**settings),
     )

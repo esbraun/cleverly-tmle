@@ -206,6 +206,7 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
             n_folds=folds,
             estimands=("ate",),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=ColumnLogistic(),
             # The canonical DR-TMLE study's bounds: the reduced treatment regression is
             # fitted, not exact, and 1e-9 let one curve entry reach 4.7e5.

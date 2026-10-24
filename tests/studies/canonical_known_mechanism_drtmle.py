@@ -182,6 +182,7 @@ def fit_cleverly(
             outcome_learner=OutcomeGLM(outcome, arms),
             treatment_learner=DeclaredOnly(),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             cross_fit=False,
             estimands=ESTIMANDS if arms == 2 else ("ey", "ate"),

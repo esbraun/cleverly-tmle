@@ -12,7 +12,7 @@ cell                                       role       n      R         configura
 ``double_robustness/ate__bivariate``       positive   3,000  4,000     ``reduction="bivariate"``        0.110 +/- 0.035 P
 ``double_robustness/ate__bivariate_oc``    positive   3,000  1,600     the same, ``outcome_correct``    0.030 +/- 0.050
 ``double_robustness/ate__k5``              positive   3,000  2,000     ``n_folds=5``                    0.084 +/- 0.034 P
-``double_robustness/ate__spline_reduced``  positive   3,000  2,800     spline reduced learners          0.097 +/- 0.034 P
+``double_robustness/ate__spline_qr``       positive   3,000  2,800     spline ``Q_r`` learner           0.097 +/- 0.034 P
 ``double_robustness/ate__both_wrong``      control    3,000  400       ``both_wrong``                   12.6 (registered)
 ``double_robustness/multi_arm_drtmle__``   positive   2,000  3,600     the multi-arm law                0.069 +/- 0.050
 ``treatment_correct``
@@ -259,8 +259,9 @@ PILOTS: Mapping[str, Pilot] = {
     "bivariate": Pilot(f"{_PILOT_A}, cell bivariate", 400, ("ate",), (0.1427,), _ONE),
     "bivariate_oc": Pilot(f"{_PILOT_A}, cell bivariate_oc", 400, ("ate",), (0.0298,), _ONE),
     "k5": Pilot(f"{_PILOT_A}, cell k5", 400, ("ate",), (0.0702,), _ONE),
-    "spline_reduced": Pilot(
-        f"{_PILOT_A}, cell adaptive_reduced (the spline cell's former name)",
+    "spline_qr": Pilot(
+        f"{_PILOT_A}, cell adaptive_reduced, which fitted the spline on Q_r, g_r1 and g_r2; "
+        "spline_qr has no pilot of its own yet",
         400,
         ("ate",),
         (0.1042,),
@@ -291,7 +292,7 @@ PILOTS: Mapping[str, Pilot] = {
 
 #: The arms of the ``treatment_correct`` regime at n = 3,000: the primary ATE and the four
 #: one-setting variants.  The first row of each pilot is the arm.
-REGIME = ("primary/treatment_correct", "benkeser_order", "bivariate", "k5", "spline_reduced")
+REGIME = ("primary/treatment_correct", "benkeser_order", "bivariate", "k5", "spline_qr")
 
 #: The leak pilot's ``sd(pooled error) / sd(foldwise error)``, which turns the two rows'
 #: standardized biases into the paired displacement: ``|ratio * b_pooled - b_foldwise|``.  The
@@ -327,7 +328,7 @@ UNITS: Mapping[str, tuple[tuple[str, ...], int]] = {
             "bivariate",
             "bivariate_oc",
             "k5",
-            "spline_reduced",
+            "spline_qr",
             "both_wrong",
             "multi_arm",
             "stratified",
@@ -537,7 +538,7 @@ BUDGETS: Mapping[str, int] = {
     "bivariate": 4_000,
     "bivariate_oc": 1_600,
     "k5": 2_000,
-    "spline_reduced": 2_800,
+    "spline_qr": 2_800,
     "both_wrong": 400,
     "multi_arm": 3_600,
     "stratified": 3_200,
@@ -629,7 +630,7 @@ GROUPS: Mapping[str, Group] = {
     "bivariate": _variant("bivariate", SCENARIO, Fit(reduction="bivariate")),
     "bivariate_oc": _variant("bivariate_oc", "outcome_correct", Fit(reduction="bivariate")),
     "k5": _variant("k5", SCENARIO, Fit(n_folds=5)),
-    "spline_reduced": _variant("spline_reduced", SCENARIO, Fit(reduced="spline")),
+    "spline_qr": _variant("spline_qr", SCENARIO, Fit(reduced="spline_qr")),
     "both_wrong": _variant("both_wrong", "both_wrong", Fit(), role="control"),
     "stratified": Group(
         "stratified",

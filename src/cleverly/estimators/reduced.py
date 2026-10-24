@@ -17,8 +17,9 @@ estimator reaches this yet"*, which was true for one commit and has not been sin
 
 **These three are the only nuisances a learner fits in the validation study**, whose two
 primaries are injected analytic sequences -- and their consistency is the theorem premise
-that study did not establish.  ``reduced_outcome_learner=`` and
-``reduced_treatment_learner=`` are therefore not a tuning detail.  Under
+that study did not establish.  ``reduced_outcome_learner=``,
+``reduced_treatment_learner=`` and ``reduced_mechanism_residual_learner=`` are therefore not
+a tuning detail.  Under
 ``docs/technical-reference/dr-tmle/``, ``nuisance-conditions.md`` states the conditions
 they have to meet, and ``validation-programme.md`` records that the reference study for
 the reduced
@@ -127,10 +128,18 @@ ReducedFamily = Literal["qr", "gr1", "gr2"]
 
 @dataclass(frozen=True)
 class ReducedFamilySpec:
-    """Declarative learner and sampling contract for one reduced regression."""
+    """Declarative learner and sampling contract for one reduced regression.
+
+    ``learner`` names the slot that fits the family.  ``"outcome"`` is the outcome-side
+    regression :math:`Q_r`, ``"treatment"`` the probability :math:`g_{r,1}`, and
+    ``"mechanism_residual"`` the signed mechanism residual :math:`g_{r,2}`.  :math:`g_{r,2}`
+    is a treatment-side regression with a regression task, so it has a slot of its own: R
+    ``drtmle`` fits it with its ``gr`` learner, beside :math:`g_{r,1}`, and never with the
+    :math:`Q_r` learner.
+    """
 
     name: ReducedFamily
-    learner: Literal["outcome", "treatment"]
+    learner: Literal["outcome", "treatment", "mechanism_residual"]
     task: Task
     clip: tuple[float, float] | None
     observed_arm_only: bool = False
@@ -139,7 +148,7 @@ class ReducedFamilySpec:
 REDUCED_FAMILY_SPECS: tuple[ReducedFamilySpec, ...] = (
     ReducedFamilySpec("qr", "outcome", "regression", None, observed_arm_only=True),
     ReducedFamilySpec("gr1", "treatment", "classification", (0.0, 1.0)),
-    ReducedFamilySpec("gr2", "outcome", "regression", None),
+    ReducedFamilySpec("gr2", "mechanism_residual", "regression", None),
 )
 
 
@@ -315,6 +324,7 @@ def fit_missing_outcome_reduced(
     *,
     regression_learner: Learner,
     classification_learner: Learner,
+    mechanism_residual_learner: Learner,
     g_bounds: tuple[float, float],
     missingness_bound: float,
     n_jobs: int = 1,
@@ -326,6 +336,10 @@ def fit_missing_outcome_reduced(
     event ``A=a, Delta=1`` proves an algebraic identity for two correction terms but
     does not fit the five functions or solve the three mechanism-side scores the
     published theorem assumes.
+
+    ``regression_learner`` fits the outcome residual ``e``, ``classification_learner`` the
+    probabilities ``gamma_a`` and ``gamma_m``, and ``mechanism_residual_learner`` the signed
+    mechanism residuals ``r_a`` and ``r_m``, as :func:`fit_reduced` routes :math:`g_{r,2}`.
     """
     if nuisance.missingness is None:
         raise ValueError("missing-outcome reductions need a fitted observation mechanism")
@@ -375,7 +389,7 @@ def fit_missing_outcome_reduced(
             ),
             (
                 "r_a",
-                regression_learner,
+                mechanism_residual_learner,
                 "regression",
                 q_a,
                 (indicator - g_a[:, j]) / g_a[:, j],
@@ -384,7 +398,7 @@ def fit_missing_outcome_reduced(
             ),
             (
                 "r_m",
-                regression_learner,
+                mechanism_residual_learner,
                 "regression",
                 q_a,
                 (observed.astype(float) - g_m[:, j]) / joint,
@@ -431,6 +445,7 @@ def fit_reduced(
     *,
     regression_learner: Learner,
     classification_learner: Learner,
+    mechanism_residual_learner: Learner,
     g_bounds: tuple[float, float],
     reduction: str = "univariate",
     crossfit: str = "pooled",
@@ -456,11 +471,15 @@ def fit_reduced(
         derived arrays *inside* :func:`~cleverly.estimators._nuisance.fit_nuisances` for
         that same invariant; this is built outside, because it belongs to one variant
         rather than to every fit.
-    regression_learner, classification_learner:
+    regression_learner, classification_learner, mechanism_residual_learner:
         Already resolved, as :func:`~cleverly.estimators._nuisance.fit_nuisances` takes
-        them.  Two rather than one because the tasks differ and an estimator is one or
-        the other: :math:`g_{r,1}` is a conditional probability and the other two are
-        conditional means of a signed quantity.
+        them.  ``regression_learner`` fits :math:`Q_r`, ``classification_learner`` fits
+        :math:`g_{r,1}` (or the bivariate :math:`g_r`), and ``mechanism_residual_learner``
+        fits :math:`g_{r,2}`.  :math:`g_{r,1}` is a conditional probability and the other two
+        are conditional means of a signed quantity.  :math:`g_{r,2}` is a treatment-side
+        regression, so it does not share :math:`Q_r`'s learner: R ``drtmle`` fits it with the
+        ``gr`` learner.  The bivariate construction does not use
+        ``mechanism_residual_learner``.
     g_bounds:
         The truncation :math:`g_{r,2}`'s target divides by -- see below.
     crossfit:
@@ -702,7 +721,11 @@ def fit_reduced(
         )
         for spec in specs:
             name = spec.name
-            learner = regression_learner if spec.learner == "outcome" else classification_learner
+            learner = {
+                "outcome": regression_learner,
+                "treatment": classification_learner,
+                "mechanism_residual": mechanism_residual_learner,
+            }[spec.learner]
             design, target = production[name]
             fit_mask = (
                 (indicator == 1.0) & np.asarray(data.observed, dtype=bool)

@@ -425,6 +425,7 @@ def fit(frame: pd.DataFrame, name: str) -> Any:
         "reduction": "univariate",
         "outcome_learner": outcome_learner(setting, n),
         "reduced_outcome_learner": CubicLeastSquares(),
+        "reduced_mechanism_residual_learner": CubicLeastSquares(),
         "reduced_treatment_learner": CubicLogistic(),
         "cross_fit": setting.cross_fit,
         # Read only by the cross-fitted cells; in sample both settings run one path.

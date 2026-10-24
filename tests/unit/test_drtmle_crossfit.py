@@ -119,6 +119,7 @@ def source_cv_fit() -> Any:
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
             reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=FOLDS,
             learner_folds=2,
@@ -182,6 +183,7 @@ def _fitted(inner: InnerDesigns | None, *, folds: Any) -> ReducedSet:
         base if inner is None else replace(base, inner=inner),
         regression_learner=CellMeans(),
         classification_learner=CellMeans(),
+        mechanism_residual_learner=CellMeans(),
         g_bounds=INERT,
         crossfit="pooled" if inner is None else "foldwise",
     )
@@ -502,6 +504,7 @@ class TestTheInnerDesignsLeaveTwoFoldsOut:
                 replace(base, inner=mismatched),
                 regression_learner=CellMeans(),
                 classification_learner=CellMeans(),
+                mechanism_residual_learner=CellMeans(),
                 g_bounds=INERT,
                 crossfit="foldwise",
             )
@@ -530,6 +533,7 @@ def _fit(**overrides: Any) -> Any:
         "outcome_learner": OracleOutcome(dgp),
         "treatment_learner": OracleTreatment(dgp),
         "reduced_outcome_learner": CellMeans(),
+        "reduced_mechanism_residual_learner": CellMeans(),
         "reduced_treatment_learner": CellMeans(),
         "estimands": ("ey1", "ey0", "ate"),
         "g_bounds": INERT,
@@ -747,6 +751,7 @@ def _witness_fit(
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
                 reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 estimands=("ey1", "ey0"),
                 g_bounds=INERT,
@@ -897,6 +902,7 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
     def pair(self) -> dict[str, Any]:
         return _learning_pair(
             reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
             reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         )
 
@@ -930,6 +936,7 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
             reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             estimands=("ate",),
             cross_fit=True,
@@ -1010,7 +1017,9 @@ class TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1:
     @pytest.fixture(scope="class")
     def pair(self) -> dict[str, Any]:
         return _learning_pair(
-            reduced_outcome_learner=CellMeans(), reduced_treatment_learner=CellMeans()
+            reduced_outcome_learner=CellMeans(),
+            reduced_treatment_learner=CellMeans(),
+            reduced_mechanism_residual_learner=CellMeans(),
         )
 
     def test_gr1_does_not_move_and_that_is_the_partition(self, pair: dict[str, Any]) -> None:
@@ -1100,6 +1109,7 @@ class TestReorderingTheRowsReordersTheAnswer:
             _permuted(base, inner, order, shuffled_folds),
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT,
             crossfit=crossfit,
         )
@@ -1262,6 +1272,7 @@ class TestEachSlabHoldsTheProductionStateAtItsOwnFold:
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
                 reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 **settings,
             )
@@ -1280,6 +1291,7 @@ class TestEachSlabHoldsTheProductionStateAtItsOwnFold:
                 outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
                 reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
                 simultaneous=False,
@@ -1355,6 +1367,7 @@ class TestThreeArms:
                 outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
                 reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=FOLDS,
                 learner_folds=2,
@@ -1430,6 +1443,7 @@ class TestAScreenedMechanismIsScreenedInEverySlab:
                 outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
                 reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=FOLDS,
                 simultaneous=False,
@@ -1494,6 +1508,7 @@ class TestAnAlternationThatRunsOutOfRoundsIsAFailure:
                         ),
                         treatment_learner=OracleTreatment(ExactPropensity()),
                         reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+                        reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
                         reduced_treatment_learner=sklearn.linear_model.LogisticRegression(
                             max_iter=1000
                         ),

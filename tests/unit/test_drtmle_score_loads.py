@@ -47,6 +47,7 @@ def _estimator(**settings: object) -> DRTMLE:
         "outcome_learner": sklearn.linear_model.LinearRegression(),
         "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+        "reduced_mechanism_residual_learner": sklearn.linear_model.LinearRegression(),
         "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "q_bounds": (0.0, 1.0),
         "simultaneous": False,

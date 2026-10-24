@@ -234,9 +234,13 @@ At n = 2,000 the pooled ATE interval covers 0.915 of `treatment_correct` draws, 
 interval covers 0.950. The pooled-minus-in-sample bias falls from +0.326 SD to +0.156 SD between
 n = 2,000 and 8,000. Standardized bias falls like `n^(−1/2)` when the bias falls like `1/n`, so
 the leak is second order. It is large at the sample sizes of the registered studies. The probe
-output is not a committed artifact. The registered `drtmle-foldwise` study
-(`tests/studies/drtmle_foldwise.py`) repeats the pooled and foldwise fits on the
-`canonical-drtmle` draws.
+output is not a committed artifact.
+
+The registered
+[`drtmle-foldwise` study](../method-evidence/dr-tmle-foldwise.md) fits each draw of its leak pair
+twice, pooled and foldwise, on the `canonical-drtmle` law. Under `treatment_correct` at n = 1,000 and
+4,400 replications, its ATE bias is +0.400 SD pooled and +0.156 SD foldwise. The paired
+displacement is 0.266 SD, against a declared floor of 0.10.
 
 ### The argument for the foldwise construction
 

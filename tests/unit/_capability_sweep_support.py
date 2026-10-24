@@ -522,6 +522,7 @@ def _missing_drtmle(frame: Any) -> Any:
         **linear_in_sample(
             missingness_learner=LogisticRegression(max_iter=1000),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         ),
         randomized=True,
@@ -584,6 +585,7 @@ def _composite_drtmle(**settings: Any) -> DRTMLE:
         **linear_in_sample(
             missingness_learner=LogisticRegression(max_iter=1000),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         ),
         max_outer=10,

@@ -152,6 +152,8 @@ from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
+from sklearn.base import is_classifier
+
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Preflight
 from ..data.causal_data import CausalData
@@ -443,13 +445,28 @@ class DRTMLE(TMLE):
         ``random_common_cause`` refutation, runs without the companion.  The companion is
         inert, so the refit reports the estimate it would report with one.  This fit keeps
         its own ``evaluation``.
-    reduced_outcome_learner, reduced_treatment_learner:
-        Learners for the reduced-dimension regressions, defaulting to the specifications the
-        primary nuisances use.  Two rather than one because the tasks differ:
-        :math:`g_{r,1}` is a conditional probability and the other two are conditional means
-        of a signed quantity.  **A learner *instance* built for classification cannot serve**
-        :math:`Q_r`, whose target is an outcome residual -- if ``outcome_learner=`` is an
-        object rather than a name, name a regression learner here.
+    reduced_outcome_learner, reduced_treatment_learner, reduced_mechanism_residual_learner:
+        Learners for the reduced-dimension regressions, one slot per regression.
+        ``reduced_outcome_learner`` fits :math:`Q_r`, the outcome residual on :math:`\hat g`.
+        ``reduced_treatment_learner`` fits the probability :math:`g_{r,1}` (and the bivariate
+        :math:`g_r`).  ``reduced_mechanism_residual_learner`` fits :math:`g_{r,2}`, the
+        regression of :math:`(1_a - \hat g)/\hat g` on :math:`\hat{\bar Q}`; on the
+        randomized missing-outcome route it fits ``r_a`` and ``r_m``, and there
+        ``reduced_outcome_learner`` fits ``e``.  The bivariate reduction does not use it.
+
+        Each ``None`` resolves to the specification the primary nuisance on the same side
+        uses: ``outcome_learner`` for both regression slots, ``treatment_learner`` for the
+        probability.  The two regression slots resolve independently, so
+        ``reduced_outcome_learner=`` alone leaves :math:`g_{r,2}` on that default.  This is
+        R ``drtmle``'s routing, which fits both reduced propensities with its ``gr`` learner
+        (``glm_gr``, ``SL_gr``) and only :math:`Q_r` with its ``Qr`` learner.  It also
+        matters: a flexible :math:`Q_r` learner is what the treatment-correct regime asks
+        for, and the same learner on :math:`g_{r,2}` fits noise when :math:`\hat{\bar Q}`
+        is near constant (X83 measured about +0.2 SD of ATE bias that does not shrink
+        with ``n``).  **A classifier cannot serve** :math:`Q_r` or :math:`g_{r,2}`, whose
+        targets are signed.  A guarded fit refuses one in either regression slot before any
+        learner fits.  On a binary outcome ``outcome_learner=`` is often a classifier, so pass
+        a regressor to both regression slots.
     randomized:
         Declare that treatment was randomized for a fit with ``delta=``, at any number of
         arms, which selects Díaz & van der Laan (2017)'s construction.  The treatment learner
@@ -581,6 +598,7 @@ class DRTMLE(TMLE):
         reduction: str = "univariate",
         reduced_outcome_learner: Any = None,
         reduced_treatment_learner: Any = None,
+        reduced_mechanism_residual_learner: Any = None,
         reduced_crossfit: str = "foldwise",
         update_order: ReductionOrder = "drtmle",
         evaluation: Any = None,
@@ -590,12 +608,14 @@ class DRTMLE(TMLE):
     ) -> None:
         _validate_learner(reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(reduced_treatment_learner, "reduced_treatment_learner")
+        _validate_learner(reduced_mechanism_residual_learner, "reduced_mechanism_residual_learner")
         super().__init__(**kwargs)
         self.max_outer = int(max_outer)
         self.guard = tuple(guard)
         self.reduction = reduction
         self.reduced_outcome_learner = reduced_outcome_learner
         self.reduced_treatment_learner = reduced_treatment_learner
+        self.reduced_mechanism_residual_learner = reduced_mechanism_residual_learner
         self.reduced_crossfit = reduced_crossfit
         self.update_order = update_order
         self.evaluation = evaluation
@@ -1162,6 +1182,12 @@ class DRTMLE(TMLE):
             task="classification",
             fallback=self.treatment_learner,
         )
+        # Not the Q_r learner: g_{r,2} is treatment-side, and R drtmle fits it with `gr`.
+        mechanism_residual = self._resolve_learner(
+            self.reduced_mechanism_residual_learner,
+            task="regression",
+            fallback=self.outcome_learner,
+        )
         if (
             not data.composite_view
             and missing_data_route(self, data) == "randomized_missing_outcome"
@@ -1171,6 +1197,7 @@ class DRTMLE(TMLE):
                 nuisance,
                 regression_learner=regression,
                 classification_learner=classification,
+                mechanism_residual_learner=mechanism_residual,
                 g_bounds=g_bounds,
                 missingness_bound=(
                     self.nuisance_bound if missingness_bound is None else missingness_bound
@@ -1183,6 +1210,7 @@ class DRTMLE(TMLE):
             nuisance,
             regression_learner=regression,
             classification_learner=classification,
+            mechanism_residual_learner=mechanism_residual,
             g_bounds=g_bounds,
             reduction=self.reduction,
             crossfit="foldwise" if self._foldwise() else "pooled",
@@ -1342,3 +1370,55 @@ class DRTMLE(TMLE):
                 ),
                 roadmap="F5",
             )
+        if self.guard:
+            self._refuse_classifier_regression_slots(route)
+
+    def _refuse_classifier_regression_slots(self, route: str) -> None:
+        """Refuse a classifier that would fit a signed reduced regression, before any learner.
+
+        A ``None`` regression slot resolves to ``outcome_learner``. A binary outcome often
+        has a classifier there, and a classifier cannot fit :math:`Q_r` or :math:`g_{r,2}`.
+        """
+        slots = [("reduced_outcome_learner", self.reduced_outcome_learner, "Q_r")]
+        if route == "randomized_missing_outcome":
+            slots.append(
+                (
+                    "reduced_mechanism_residual_learner",
+                    self.reduced_mechanism_residual_learner,
+                    "r_a and r_m",
+                )
+            )
+        elif self.reduction == "univariate":
+            slots.append(
+                (
+                    "reduced_mechanism_residual_learner",
+                    self.reduced_mechanism_residual_learner,
+                    "g_{r,2}",
+                )
+            )
+        for name, learner, regression in slots:
+            resolved = self.outcome_learner if learner is None else learner
+            if not _is_classifier(resolved):
+                continue
+            source = f"{name}=None takes outcome_learner=, which" if learner is None else f"{name}="
+            raise CapabilityError(
+                f"{source} is a classifier. The reduced regression {regression} has a "
+                "signed target, so it needs a regressor.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    f"Pass a regressor as {name}=, such as LinearRegression(). The two "
+                    "regression slots resolve independently."
+                ),
+            )
+
+
+def _is_classifier(learner: Any) -> bool:
+    """Whether an explicitly passed learner predicts classes."""
+    if learner is None:
+        return False
+    if getattr(learner, "task", None) == "classification":
+        return True
+    try:
+        return bool(is_classifier(learner))
+    except Exception:  # pragma: no cover - a learner that sklearn cannot inspect
+        return False

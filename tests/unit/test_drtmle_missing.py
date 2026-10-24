@@ -113,6 +113,7 @@ def _estimator(**settings: object) -> DRTMLE:
         "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+        "reduced_mechanism_residual_learner": sklearn.linear_model.LinearRegression(),
         "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "simultaneous": False,
         "random_state": 0,
@@ -374,6 +375,7 @@ def test_known_probabilities_bypass_the_treatment_learner() -> None:
         treatment_learner=_FailIfFit(),
         missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+        reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
         reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         estimands=("ate",),
         simultaneous=False,
@@ -1073,6 +1075,7 @@ def _missing_treatment_fit(frame: pd.DataFrame, **roles: str) -> None:
         simultaneous=False,
         **never_fit_learners(),
         reduced_outcome_learner=NeverFit(),
+        reduced_mechanism_residual_learner=NeverFit(),
         reduced_treatment_learner=NeverFit(),
     ).fit(frame, outcome="Y", treatment="A", covariates=["W1"], **roles)
 

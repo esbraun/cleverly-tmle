@@ -968,11 +968,22 @@ def _d_cases() -> tuple[RowCase, ...]:
     )
     add(
         _case(
-            "D07.estimated_g_stacked",
+            "D11",
             "drtmle-one-wrong",
             "q_wrong_g_glm_cf",
             _ST + "drtmle_one_wrong.py:452",
             _drtmle(**stacked),
+            {},
+            ATE,
+        )
+    )
+    add(
+        _case(
+            "D11",
+            "drtmle-foldwise",
+            "treatment_correct",
+            _ST + "drtmle_foldwise.py:186",
+            _drtmle(cross_fit=True, n_folds=10),
             {},
             ATE,
         )

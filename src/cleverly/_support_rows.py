@@ -817,8 +817,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
 
 #: The limit line of a stacked DR-TMLE row whose evidence ran the pooled reduced regressions.
 LEAK = (
-    "Pooled reduced regressions: R drtmle cvFolds parity. X83 measured the fold leak "
-    "against the foldwise default."
+    "Pooled reduced regressions: R drtmle cvFolds parity. The drtmle-foldwise study (X83) "
+    "measured the fold leak on shared draws at n = 1,000: ATE bias 0.400 SD pooled against "
+    "0.156 SD foldwise, a paired displacement of 0.266 SD. Row D11 covers the binary "
+    "unstratified foldwise default."
 )
 
 
@@ -995,8 +997,25 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             cells=["three_arm_mar_outcome_and_treatment"],
         ),
+        # X83: the default cross-fitted fit, foldwise reduced regressions on the
+        # canonical-drtmle law. Its key is the key of D07.estimated_g_stacked, so the two merge.
+        point_row(
+            "D11",
+            ["drtmle-foldwise"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
+            cells=["both_correct", "outcome_correct", "treatment_correct"],
+        ),
     ]
-    return _merged(rows, {"D06.qg": ["D06.qg", "D07.known_g"]})
+    return _merged(
+        rows,
+        {
+            "D06.qg": ["D06.qg", "D07.known_g"],
+            "D11": ["D11", "D07.estimated_g_stacked"],
+        },
+    )
 
 
 def _c_rows() -> tuple[SupportRow, ...]:

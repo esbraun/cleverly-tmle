@@ -1367,6 +1367,7 @@ def drtmle_settings() -> dict[str, Any]:
         "outcome_learner": LogisticRegression(max_iter=500),
         "treatment_learner": LogisticRegression(max_iter=500),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(C=1e6, max_iter=500),
         "cross_fit": True,
         "n_folds": OUTER_FOLDS,

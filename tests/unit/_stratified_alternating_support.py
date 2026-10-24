@@ -178,6 +178,7 @@ def drtmle_settings(**overrides: Any) -> dict[str, Any]:
     """:func:`settings` with linear reduced regressions for ``DRTMLE``."""
     return settings(
         reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
         reduced_treatment_learner=logistic(),
         **overrides,
     )

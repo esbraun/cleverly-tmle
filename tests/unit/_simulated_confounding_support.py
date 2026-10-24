@@ -318,6 +318,7 @@ def _fit_attributable(
             # Two folds, so the pooled construction: foldwise needs three.
             reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
     if method in _STRATEGY_OVERRIDES:

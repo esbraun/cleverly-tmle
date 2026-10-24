@@ -72,6 +72,7 @@ def refit_closure(data, counter: list[NuisanceEstimates] | None = None):
             current,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
             families=families,
             companion=current.companion,

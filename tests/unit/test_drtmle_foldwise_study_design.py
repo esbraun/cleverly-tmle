@@ -157,7 +157,7 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
         "bivariate": (0.1427,),
         "bivariate_oc": (0.0298,),
         "k5": (0.0702,),
-        "spline_reduced": (0.1042,),
+        "spline_qr": (0.1042,),
         "multi_arm": (0.0691,),
         "stratified": (0.0965, 0.0916, 0.0354, 0.0261),
         "both_wrong": (12.6089,),
@@ -219,7 +219,7 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
         "bivariate": 4_000,
         "bivariate_oc": 1_600,
         "k5": 2_000,
-        "spline_reduced": 2_800,
+        "spline_qr": 2_800,
         "both_wrong": 400,
         "multi_arm": 3_600,
         "stratified": 3_200,
@@ -333,7 +333,7 @@ def test_each_variant_changes_one_setting_of_the_primary_fit() -> None:
         "bivariate": ("treatment_correct", {"reduction": "bivariate"}),
         "bivariate_oc": ("outcome_correct", {"reduction": "bivariate"}),
         "k5": ("treatment_correct", {"n_folds": 5}),
-        "spline_reduced": ("treatment_correct", {"reduced": "spline"}),
+        "spline_qr": ("treatment_correct", {"reduced": "spline_qr"}),
     }
     for name, (scenario, fields) in changed.items():
         group = properties.GROUPS[name]

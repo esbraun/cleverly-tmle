@@ -113,6 +113,7 @@ def fitted(
         nuisances(g_hat, q_hat, folds=folds),
         regression_learner=CellMeans(),
         classification_learner=CellMeans(),
+        mechanism_residual_learner=CellMeans(),
         g_bounds=g_bounds,
         reduction=reduction,
     )
@@ -190,6 +191,7 @@ class TestTheResidualIsOnTheScaledOutcome:
             nuisance,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
         )
         np.testing.assert_allclose(reduced.qr, fitted(WRONG_G, WRONG_Q).qr, atol=1e-12, rtol=0)
@@ -210,6 +212,7 @@ class TestTheResidualIsOnTheScaledOutcome:
             nuisance,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
         )
         plain = fitted(WRONG_G, WRONG_Q)
@@ -304,6 +307,7 @@ class TestTheClipIsPerRegression:
             nuisances(WRONG_G, WRONG_Q),
             regression_learner=OutOfRange(),
             classification_learner=OutOfRange(),
+            mechanism_residual_learner=OutOfRange(),
             g_bounds=INERT_BOUNDS,
         )
         assert reduced.gr1.max() == 1.0, "gr1 must be clipped into [0, 1]"
@@ -457,6 +461,7 @@ class TestTheRefusals:
                 nuisances(WRONG_G, WRONG_Q),
                 regression_learner=CellMeans(),
                 classification_learner=CellMeans(),
+                mechanism_residual_learner=CellMeans(),
                 g_bounds=INERT_BOUNDS,
                 reduction="trivariate",
             )
@@ -487,6 +492,7 @@ class TestTheRefusals:
             wider,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
         )
         assert reduced.arms == data.arm_codes
@@ -504,6 +510,7 @@ class TestTheRefusals:
             wider,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
             reduction="bivariate",
         )
@@ -536,6 +543,7 @@ class TestFamilySelection:
             current,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
             families=("qr",),
         )
@@ -564,6 +572,7 @@ class TestFamilySelection:
             current,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
             families=("gr1", "gr2"),
         )
@@ -580,6 +589,7 @@ class TestFamilySelection:
                 replace(nuisances(WRONG_G, WRONG_Q), reduced=fitted(WRONG_G, WRONG_Q)),
                 regression_learner=CellMeans(),
                 classification_learner=CellMeans(),
+                mechanism_residual_learner=CellMeans(),
                 g_bounds=INERT_BOUNDS,
                 families=families,
             )
@@ -591,6 +601,7 @@ class TestFamilySelection:
                 nuisances(WRONG_G, WRONG_Q),
                 regression_learner=CellMeans(),
                 classification_learner=CellMeans(),
+                mechanism_residual_learner=CellMeans(),
                 g_bounds=INERT_BOUNDS,
                 families=("qr",),
             )

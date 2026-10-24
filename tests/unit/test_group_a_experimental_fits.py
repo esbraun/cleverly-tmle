@@ -437,6 +437,7 @@ def learners(site: Site) -> dict[str, Any]:
     }
     if site.kind == "drtmle":
         roles["reduced_outcome_learner"] = LinearRegression()
+        roles["reduced_mechanism_residual_learner"] = LinearRegression()
         roles["reduced_treatment_learner"] = LinearRegression()
     return roles
 

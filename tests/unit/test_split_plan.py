@@ -1122,6 +1122,7 @@ def test_reduced_dimension_correction_reuses_a_supplied_plan_exactly() -> None:
         frame,
         kind=DRTMLEMethod,
         reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
         reduced_treatment_learner=LinearRegression(),
     )
 

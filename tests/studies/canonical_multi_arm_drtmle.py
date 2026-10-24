@@ -251,6 +251,7 @@ def fit_cleverly(
             outcome_learner=LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs"),
             treatment_learner=LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs"),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs"),
             cross_fit=True,
             n_folds=N_FOLDS,
