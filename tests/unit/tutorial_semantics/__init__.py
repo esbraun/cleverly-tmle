@@ -159,16 +159,35 @@ def covers(interval: Any, value: float) -> bool:
 
 
 def assert_protocol_recorded(path: Path, cell_id: str, protocol: Any, *results: Any) -> str:
-    """Assert that a stored output prints the protocol fingerprint and each result carries it.
+    """Assert that a stored output prints the protocol, by its fingerprint or by every field,
+    and that each result carries the protocol's fingerprint.
 
-    The protocol step of every tutorial prints ``protocol.summary_lines()``, and each result fitted
-    from that study stores the fingerprint in its provenance.  Returns the fingerprint, so a
-    callback can look for it in a later output.
+    The protocol step of every tutorial prints ``protocol.summary_lines()``, whose fields the
+    check reads as text, and a later step that declares a record may print its fingerprint
+    instead. Each result fitted from that study stores the fingerprint in its provenance.  Returns the fingerprint, so
+    a callback can look for it in a later output.
     """
     fingerprint: str = protocol.fingerprint
-    assert fingerprint in stored_output(path, cell_id), (
-        f"{path.name}: cell {cell_id!r} does not print the protocol fingerprint {fingerprint}"
-    )
+    printed = stored_output(path, cell_id)
+    fields = [
+        protocol.target_population,
+        protocol.time_zero,
+        protocol.outcome,
+        protocol.horizon,
+        protocol.interference_unit,
+        *protocol.eligibility,
+        *protocol.treatment_strategies,
+        *protocol.treatment_versions,
+        *protocol.intercurrent_event_handling,
+        *protocol.assumption_rationale,
+    ]
+    # A later step that declares a record prints its fingerprint and the fields it changed.
+    if fingerprint not in printed:
+        for text in fields:
+            assert text in printed, (
+                f"{path.name}: cell {cell_id!r} prints neither the protocol fingerprint "
+                f"{fingerprint} nor {text!r}"
+            )
     for result in results:
         assert result.provenance.protocol_fingerprint == fingerprint
     return fingerprint

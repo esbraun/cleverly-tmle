@@ -79,7 +79,7 @@ Each public object keeps one responsibility:
 
 `CausalStudy` stamps the optional protocol onto the identified effect and each fitted result. A
 summary prints the analysis by default. `summary(detail="full")` also prints the protocol's
-fields, or `causal study protocol: absent` when the study has no protocol record.
+fields, or says that no study protocol was recorded.
 
 ## 3. Choose a typed estimand
 
@@ -97,11 +97,15 @@ horizon, and cause metadata intact.
 
 ```python
 effect = study.identify(question)
-print(effect.functional)
-print(effect.identification.assumptions)
-print(effect.identification.required_nuisances)
-print(effect.available_methods())
+print(effect.summary())
+print(effect.available_methods().summary())
 ```
+
+The question's summary lists the conditions the answer rests on, such as no hidden confounding
+and overlap. It says whether the data can probe each one, and it names the estimation methods
+that fit. The methods summary lists every method, with yes or no. Pass `detail="full"` to
+`summary()` to see each condition in its formal wording and why a method does not fit. A program
+reads the same statements from `effect.identification`.
 
 The identified effect is the boundary between scientific and computational choices. If a
 composition is well posed but unsupported, `cleverly` raises a capability error with the missing

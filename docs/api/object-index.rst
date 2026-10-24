@@ -67,6 +67,7 @@ categorized API tables.
    cleverly.Inference
    cleverly.Runtime
    cleverly.MethodAvailability
+   cleverly.MethodAvailabilities
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport

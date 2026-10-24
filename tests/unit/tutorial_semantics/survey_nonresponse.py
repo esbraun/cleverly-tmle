@@ -113,14 +113,14 @@ def check(namespace: dict[str, Any]) -> None:
     expression = effect.functional.expression
     assumptions = " ".join(effect.identification.assumptions).lower()
     nuisances = effect.identification.required_nuisances
-    summary = effect.summary()
+    summary = effect.summary(detail="full")
 
     assert "responded=1" in expression
     assert "missingness at random" in assumptions
     assert "response positivity" in assumptions
     assert "missingness_mechanism" in nuisances
     assert fitted.nuisance.missingness is not None
-    assert expression in summary
+    assert expression in summary.section("Assumptions").lines[0]
 
     # Step 6: a cross-fitted, stacked fit with boosted trees for Q, logistic g and pi, and the
     # known range of the score as q_bounds.

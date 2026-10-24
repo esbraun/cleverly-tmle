@@ -169,7 +169,9 @@ class TestCoverageStudy:
     def check(self, study: Any) -> None:
         assert study["ate"].support == "experimental"
         assert study.to_frame()["support"].tolist() == ["experimental"]
-        assert "ate: experimental" in study.summary()
+        assert (
+            "estimate of ate has no validation study" in study.summary().note("experimental").text
+        )
 
     def test_the_summary_and_frame_show_the_label(self) -> None:
         self.check(self.study())

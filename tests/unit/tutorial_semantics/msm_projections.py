@@ -75,13 +75,19 @@ def check(namespace: dict[str, Any]) -> None:
         for assumption in effect.identification.assumptions
         if "positivity" in assumption.lower()
     )
-    summary = effect.summary()
+    summary = str(effect.summary(detail="full"))
 
     assert len(levels) == 3, "the tutorial no longer witnesses multi-arm identification"
     assert fitted.nuisance.propensity.values.shape[1] == len(levels)
     for level in levels:
         assert str(level) in positivity
-    assert "treatment_mechanism" in summary
+    # The models a fit needs are a program's record; the summary prints no internal name.
+    assert "nuisance" not in summary.lower()
+    # The full summary states the multi-arm positivity statement verbatim.
+    lines = effect.summary(detail="full").section("Assumptions").lines
+    (stated,) = [line for line in lines if line.startswith("- positivity")]
+    for level in levels:
+        assert repr(level) in stated or str(level) in stated
     assert "P(A = 1 | W)" not in summary
     assert "both counterfactual means" not in summary
 

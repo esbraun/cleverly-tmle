@@ -201,7 +201,7 @@ _IPSI_ID = Identification(
         "existing, not an oversight in the list",
         "the intervention is a functional of the observed-data law: q_delta is built "
         "out of g, so the influence function carries a term for the pathwise derivative "
-        "through it and the estimator fluctuates the mechanism as well as Qbar",
+        "through it and the estimator updates the fitted treatment mechanism as well as Qbar",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -283,7 +283,7 @@ _POLICY_ID = Identification(
         "is not pathwise differentiable and is refused",
         "with delta=: missingness at random given (A, W), and positivity for it *at the "
         "assigned dose*: P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
-        "observed. The fluctuation updates Qbar as a function of the dose, so obtaining "
+        "observed. The final update of Qbar is a function of the dose, so obtaining "
         "Qbar*(d(A, W), W) reads the mechanism where the policy sends the unit",
         "with intermediate=: the same two statements for P(Z = z | A, W), plus that Delta "
         "is not caused by Z, the assumption missingness_design() states for an arm",
@@ -316,7 +316,7 @@ _RR_TILT_ID = Identification(
         "risk ratio is below one, and g(0 | w) > 0 where it is above one",
         "the tilt draws a two-point randomizer of known law, independent of everything else, "
         "so the policy does not depend on the observed-data law (Hoffman et al. 2024, "
-        "Example 8): its g enters the clever covariate as a nuisance and not the estimand",
+        "Example 8): its g enters only the estimator's update covariate, not the estimand",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(

@@ -2072,7 +2072,10 @@ class CausalData:
                 out[name] = column
         return out
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
+        """One line of at most 100 characters: the rows and the facts a fit reads first."""
+        from .._summary import short_repr
+
         parts = [
             f"n={self.n}",
             f"family={self.family!r}",
@@ -2097,7 +2100,7 @@ class CausalData:
             parts.append("treatment mechanism=known")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
-        return f"CausalData({', '.join(parts)})"
+        return short_repr("CausalData", [("", part) for part in parts])
 
 
 def _treatment_recorded(

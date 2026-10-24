@@ -310,7 +310,6 @@ def _check_design(namespace: dict[str, Any]) -> None:
         namespace["revenue_result"],
         namespace["rise_fit"],
     )
-    assert f"protocol: schema 1; {FINGERPRINT}" in stored_output(NOTEBOOK, "protocol")
     printed = stored_output(NOTEBOOK, "identify")
     for month, names in (
         (1, ("usage", "engaged_1")),
