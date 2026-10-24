@@ -13,6 +13,9 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements
+   cleverly.sensitivity.RobustnessValue
+   cleverly.sensitivity.SensitivityContour
+   cleverly.sensitivity.MissingnessTilt
    cleverly.sensitivity.BenchmarkResult
    cleverly.sensitivity.ConfounderStrengthGrid
    cleverly.sensitivity.ObservedConfounderCalibration

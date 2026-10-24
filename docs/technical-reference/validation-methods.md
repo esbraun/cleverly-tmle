@@ -1008,7 +1008,10 @@ indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsThe
 
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
-against what that covariate was worth. `contour()` returns the grid a contour plot needs.
+against what that covariate was worth. `contour()` returns the grid a contour plot needs, as a
+`SensitivityContour` whose `to_frame()` is the long frame of `cf_d`, `cf_y` and `value`.
+`robustness_value()` returns a `RobustnessValue`, a `dict` with the keys below and a printed
+`summary()`.
 
 `benchmark()` reports two gain statistics. The table defines them and the share that each
 stands for. Here "short" is the refit without the named covariates.
@@ -2384,7 +2387,9 @@ Every row except the first publishes its spread at $\gamma \neq 0$ under `plugin
 `plugin_interval_lower` and `plugin_interval_upper`. The reported influence curve is the
 missing-at-random curve, so this spread is a diagnostic and not an interval for the tilted
 parameter. At $\gamma = 0$ each row publishes the fit's own spread. A frame that mixes the two
-kinds carries both sets of columns, with NaN where a row has no value.
+kinds carries both sets of columns, with NaN where a row has no value. `missingness_tilt()`
+returns a `MissingnessTilt`, whose `to_frame()` gives that frame and whose `summary()` prints one
+table per estimand.
 
 The `ey_obs` row reads the natural-course fluctuation at the received arm, and the mechanism at
 that arm. It replaces the observed $\Delta Y$ by its regression $\pi \bar{Q}^*$. That form and

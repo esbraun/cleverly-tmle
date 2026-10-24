@@ -309,7 +309,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
         The summary.
     """
     check_detail(detail)
-    status = cast("InferenceStatus", bounds.inference)
+    status = bounds.inference
     null = bounds.null_hypothesis
     derived = bounds._limits_derived
     inferential = supplies_inference(status)
@@ -323,7 +323,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
         (V.LARGEST_SHIFT, number_text(bounds.bias, _decimals([bounds.psi, bounds.bias]))),
         (V.CONCLUSION, f"range {'excludes' if excludes else 'includes'} {_null(null)}"),
     ]
-    values = [bounds.psi, bounds.lower, bounds.upper]
+    values: list[Any] = [bounds.psi, bounds.lower, bounds.upper]
     if derived:
         values += [bounds._ci_lower, bounds._ci_upper]
     decimals = _decimals(values)
@@ -1346,7 +1346,9 @@ def surface_summary(result: SimulatedConfoundingResult, detail: Detail) -> Summa
         row.append(Cell(cell.outcome_strength, f"{float(cell.outcome_strength):g}"))
         if cell.failure is None:
             row.append(_number(cell.estimate, decimals))
-            row.append(Cell(cell.displacement, f"{float(cell.displacement):+.{decimals}f}"))
+            shift = cell.displacement
+            text = "-" if shift is None else f"{float(shift):+.{decimals}f}"
+            row.append(Cell(shift, text))
         else:
             row.append(Cell(None, "failed"))
             row.append(Cell(None, cell.failure.error_type))

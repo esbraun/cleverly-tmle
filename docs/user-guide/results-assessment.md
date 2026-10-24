@@ -653,7 +653,8 @@ print(plugin_bounds.summary())
 print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
 ```
 
-The summary names the mechanism whose score the standard error carries. A treatment learner
+`plugin_bounds.summary(detail="full")` names, under Settings, the mechanism whose score the
+standard error carries. A treatment learner
 outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
 `robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
 omits `rva`. The bounds and the rest of `robustness_value` stay available.
