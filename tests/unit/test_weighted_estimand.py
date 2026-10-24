@@ -287,7 +287,11 @@ class TestTheReport:
         assert report.effective_n == pytest.approx(expected)
         assert report.design_effect == pytest.approx(law.N / expected)
         assert report.scale == pytest.approx(float(w.mean()))
-        assert "weight-tilted population" in report.summary()
+        summary = report.summary()
+        assert summary.note_codes[:2] == ("weights_population", "weights_fixed")
+        estimand = report.summary(detail="full").section(vocabulary.WEIGHT_ESTIMAND).lines
+        assert "weight-tilted population" in estimand[0]
+        assert "weight-tilted population" not in summary
         assert (
             result.summary().note("weighted_population").text
             == (vocabulary.NOTE_TEXTS["weighted_population"])
