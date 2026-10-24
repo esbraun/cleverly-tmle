@@ -1052,7 +1052,7 @@ def _study(result: TMLEResult) -> SummarySection:
     record = getattr(effect, "protocol", None)
     if record is None:
         return SummarySection(vocabulary.SECTION_STUDY, (vocabulary.NO_PROTOCOL,))
-    return SummarySection(vocabulary.SECTION_STUDY, tuple(record.summary_lines()[1:]))
+    return SummarySection(vocabulary.SECTION_STUDY, tuple(record.summary_lines()))
 
 
 # ----------------------------------------------------------------- the summary

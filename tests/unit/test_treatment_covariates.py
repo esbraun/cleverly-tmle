@@ -24,6 +24,7 @@ import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
 from cleverly import ATE, CausalStudy, CounterfactualMean, PointTreatment
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.data.treatment_covariates import (
     RESTRICTION_TEMPLATE,
@@ -46,7 +47,7 @@ PINNED = (
     "observed-data model and does not change the estimand. The fit is consistent when the "
     "treatment mechanism fitted on {Wg} is consistent, which needs the restriction, or when "
     "the outcome regression is consistent. The interval needs the restriction and both "
-    "nuisances consistent at the usual product rate. When the restriction fails, the "
+    "fitted models consistent at the usual product rate. When the restriction fails, the "
     "remainder is first order in the outcome-regression error. To exclude instruments, omit "
     "them from adjustment= instead: the outcome regression and the treatment mechanism then "
     "both use {Wg}."
@@ -603,12 +604,11 @@ def study(**design: Any) -> CausalStudy:
 def test_a_restricted_design_records_the_text_and_prints_it_after_the_assumptions() -> None:
     effect = study(treatment_adjustment=("c2", "c3")).identify(ATE())
     assert effect.identification.model_restrictions == (pinned("{c2, c3}"),)
-    lines = effect.summary().splitlines()
-    start = lines.index("model restrictions:")
-    assert lines[start + 1] == "  - " + pinned("{c2, c3}")
-    assert lines.index("assumptions:") < start
-    facts = effect.summary_lines()
-    assert "model restrictions: " + pinned("{c2, c3}") in facts
+    summary = effect.summary(detail="full")
+    assert "model_restriction" in summary.note_codes
+    lines = summary.section(vocabulary.SECTION_ASSUMPTIONS).lines
+    assert lines[-1] == "- model restriction: " + pinned("{c2, c3}")
+    assert all(f"- {item}" in lines[:-1] for item in effect.identification.assumptions)
 
 
 def test_an_unrestricted_design_prints_no_restriction() -> None:

@@ -283,7 +283,7 @@ _POLICY_ID = Identification(
         "is not pathwise differentiable and is refused",
         "with delta=: missingness at random given (A, W), and positivity for it *at the "
         "assigned dose*: P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
-        "observed. The fluctuation updates Qbar as a function of the dose, so obtaining "
+        "observed. The final update of Qbar is a function of the dose, so obtaining "
         "Qbar*(d(A, W), W) reads the mechanism where the policy sends the unit",
         "with intermediate=: the same two statements for P(Z = z | A, W), plus that Delta "
         "is not caused by Z, the assumption missingness_design() states for an arm",

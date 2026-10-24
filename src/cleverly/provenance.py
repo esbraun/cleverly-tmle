@@ -219,6 +219,23 @@ class Provenance:
         """
         return cls(**payload)
 
+    def __repr__(self) -> str:
+        """One line: the rows, the package version and when the fit ran.
+
+        The record exists to hold the bookkeeping a summary leaves out, so its repr may
+        name it. :meth:`to_dict` gives every field.
+        """
+        from ._summary import short_repr
+
+        return short_repr(
+            "Provenance",
+            (
+                ("n", self.n),
+                ("", f"cleverly {self.cleverly_version}"),
+                ("created", self.created_utc),
+            ),
+        )
+
     def describe(self) -> list[str]:
         """Lines for :meth:`~cleverly.TMLEResult.summary`.
 

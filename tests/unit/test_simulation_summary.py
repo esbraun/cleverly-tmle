@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
 from cleverly.exceptions import (
@@ -362,14 +363,15 @@ class TestAStudyWhoseReplicatesMixStatuses:
         # Every replicate counts, whichever status it took.
         assert summary.n_replicates == len(records) == 8
         assert summary.coverage == np.mean([record.covered for record in records])
-        text = study.summary()
+        summary_text = study.summary()
         # Both statuses show an interval, so the study measures no diagnostic.
-        assert "supply no interval" not in text
-        assert (
-            f"ate: the replicates took more than one status (few_cluster_plugin in {few}, "
-            f"influence_curve in {8 - few}), and every column reads the interval each "
-            "replicate reported"
-        ) in text
+        assert "measures_diagnostic" not in summary_text.note_codes
+        assert summary_text.note("mixed_statuses").text == vocabulary.NOTE_TEXTS[
+            "mixed_statuses"
+        ].format(
+            statuses=f"ate (few_cluster_plugin in {few}, influence_curve in {8 - few})",
+            what="the interval each replicate reported",
+        )
         row = study.to_frame().iloc[0]
         assert row["inference"] == FEW
         assert row["mixed_statuses"] == summary.mixed_statuses
@@ -390,12 +392,12 @@ class TestAStudyWhoseReplicatesMixStatuses:
             alpha=0.05,
             label="mixed",
         )
-        text = study.summary()
-        assert "estimates supply no interval on some replicates" in text
+        summary_text = study.summary()
+        noun = STATUS_RECORDS["no_cluster_variance_plugin"].diagnostic_noun
         assert (
-            "every column reads them as the "
-            f"{STATUS_RECORDS['no_cluster_variance_plugin'].diagnostic_noun}"
-        ) in text
+            "supply no interval on some replicates" in summary_text.note("measures_diagnostic").text
+        )
+        assert summary_text.note("mixed_statuses").text.endswith(f"reads the {noun}.")
         assert "mean_std_error" not in study.to_frame().iloc[0].index
 
     def test_a_mix_read_as_inference_fails_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -425,8 +427,9 @@ class TestAStudyWhoseReplicatesMixStatuses:
             alpha=0.05,
             label="two diagnostics",
         )
-        text = study.summary()
-        assert "measuring a plug-in diagnostic" in text
-        assert "every column reads them as the plug-in diagnostic" in text
-        assert "on some replicates" not in text
-        assert "adaptive_baseline_plugin in 2, no_cluster_variance_plugin in 2" in text
+        summary_text = study.summary()
+        assert "describe the plug-in diagnostic" in summary_text.note("measures_diagnostic").text
+        mixed = summary_text.note("mixed_statuses").text
+        assert mixed.endswith("reads the plug-in diagnostic.")
+        assert "on some replicates" not in summary_text
+        assert "adaptive_baseline_plugin in 2, no_cluster_variance_plugin in 2" in mixed

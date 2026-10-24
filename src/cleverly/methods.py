@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from ._typing import (
     FluctuationKind,
@@ -24,6 +24,9 @@ from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 from .longitudinal.pooled_hazards import check_hazard_pooling
 from .longitudinal.ratio_trim import check_ratio_trim
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ._summary import Summary
 
 __all__ = [
     "ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL",
@@ -52,6 +55,7 @@ __all__ = [
     "IPSIMethod",
     "IPWMethod",
     "Inference",
+    "MethodAvailabilities",
     "MethodAvailability",
     "ModelSpec",
     "ParametricGFormulaMethod",
@@ -299,6 +303,119 @@ class MethodAvailability:
     def reason(self) -> str | None:
         """The text of :attr:`refusal`, or ``None`` when the method is available."""
         return None if self.refusal is None else self.refusal.message()
+
+    def __repr__(self) -> str:
+        from ._summary import short_repr
+
+        if self.available:
+            return short_repr("MethodAvailability", (("", self.name), ("", "fits")))
+        code = getattr(getattr(self.refusal, "reason", None), "value", None)
+        state = "does not fit" if code is None else f"does not fit: {code}"
+        return short_repr("MethodAvailability", (("", self.name), ("", state)))
+
+
+class MethodAvailabilities(tuple[MethodAvailability, ...]):
+    """The methods that can and cannot estimate one identified question.
+
+    A tuple of :class:`MethodAvailability`, one per method name, so iteration, indexing
+    and comparison with a tuple work as on any tuple; slicing and ``+`` give plain tuples.
+    :meth:`summary` prints them as a table and :meth:`to_frame` returns them as a
+    dataframe. :meth:`cleverly.IdentifiedEffect.available_methods` returns one.
+
+    Parameters
+    ----------
+    records : iterable of MethodAvailability
+        One record per method.
+    question : str or None, default=None
+        The question in plain words, which the summary prints. Equality ignores it.
+
+    See Also
+    --------
+    cleverly.IdentifiedEffect.available_methods : What returns this object.
+
+    Examples
+    --------
+    >>> from cleverly import MethodAvailability
+    >>> from cleverly.methods import MethodAvailabilities
+    >>> methods = MethodAvailabilities([MethodAvailability("tmle", True)])
+    >>> [record.name for record in methods if record.available]
+    ['tmle']
+    >>> methods.summary().facts["Methods that fit"]
+    'tmle'
+    """
+
+    question: str | None
+
+    def __new__(
+        cls, records: Iterable[MethodAvailability] = (), *, question: str | None = None
+    ) -> MethodAvailabilities:
+        made = super().__new__(cls, records)
+        made.question = question
+        return made
+
+    def __getnewargs_ex__(self) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        return (tuple(self),), {"question": self.question}
+
+    def summary(self, *, detail: Literal["short", "full"] = "short") -> Summary:
+        """Return the printed table of the methods.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds why each method that does not fit does not.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose text is the printed table; a notebook renders it as HTML.
+        """
+        from ._summary._setup import methods_summary
+
+        return methods_summary(self, self.question, detail)
+
+    def to_frame(self, backend: str | None = None) -> Any:
+        """Return one row per method.
+
+        Parameters
+        ----------
+        backend : {"pandas", "polars", "pyarrow"} or None, default=None
+            Dataframe backend to return. ``None`` uses pandas when installed, then the
+            first available backend.
+
+        Returns
+        -------
+        dataframe
+            Columns ``method``, ``available``, ``reason_code`` and ``reason``.
+        """
+        from .utils.frames import frame_from_dict
+
+        return frame_from_dict(
+            {
+                "method": [record.name for record in self],
+                "available": [record.available for record in self],
+                "reason_code": [
+                    None
+                    if record.refusal is None
+                    else getattr(record.refusal.reason, "value", str(record.refusal.reason))
+                    for record in self
+                ],
+                "reason": [record.reason for record in self],
+            },
+            backend=backend,
+        )
+
+    def __repr__(self) -> str:
+        from ._summary import short_repr
+
+        fitting = [record.name for record in self if record.available]
+        others = len(self) - len(fitting)
+        return short_repr(
+            "MethodAvailabilities",
+            (("fit", ", ".join(fitting) or "none"), ("", f"{others} do not")),
+        )
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)

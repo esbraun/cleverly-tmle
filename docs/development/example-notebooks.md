@@ -192,7 +192,7 @@ Print each protocol record once on the page, and read it in plain words as the s
 | --- | --- | --- |
 | the record of the protocol step | the protocol step, with `"\n".join(protocol.summary_lines())` | keep the default `summary()`, which prints no protocol line |
 | a record that a later step declares | the step that declares it, with `"\n".join(record.summary_lines())`, or with the fingerprint and the fields that it changed | keep the default |
-| no record | nothing to print. A summary with `detail="full"` states `causal study protocol: absent` | keep the default |
+| no record | nothing to print. A summary with `detail="full"` says that no study protocol was recorded | keep the default |
 
 Every protocol that a notebook derives with `dataclasses.replace` needs two records. The reading
 names the changed fields. The callback asserts the exact set with `changed_fields(protocol, base)`,

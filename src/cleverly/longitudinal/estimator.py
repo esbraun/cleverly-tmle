@@ -3363,7 +3363,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if self.simulation is not None:
             facts.extend(self.simulation.describe())
         if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines(detail=detail))
+            facts.extend(self.identified_effect._result_summary_lines(detail=detail))
         else:
             facts.extend(protocol_summary_lines(None, detail))
         if self.data.cluster is not None:

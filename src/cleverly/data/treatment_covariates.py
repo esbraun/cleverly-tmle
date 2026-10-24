@@ -48,7 +48,7 @@ RESTRICTION_TEMPLATE = (
     "observed-data model and does not change the estimand. The fit is consistent when the "
     "treatment mechanism fitted on {Wg} is consistent, which needs the restriction, or when "
     "the outcome regression is consistent. The interval needs the restriction and both "
-    "nuisances consistent at the usual product rate. When the restriction fails, the "
+    "fitted models consistent at the usual product rate. When the restriction fails, the "
     "remainder is first order in the outcome-regression error. To exclude instruments, omit "
     "them from adjustment= instead: the outcome regression and the treatment mechanism then "
     "both use {Wg}."

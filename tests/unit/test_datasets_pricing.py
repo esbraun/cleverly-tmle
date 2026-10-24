@@ -458,7 +458,8 @@ def test_the_plans_pass_the_identification_checks_of_the_design() -> None:
     effect = CausalStudy(frame, design=design, protocol=pricing_protocol()).identify(
         RegimeContrast(PRICE_PLANS, reference="natural_prices")
     )
-    assert effect.summary().count("strong sequential randomization") >= 1
+    lines = effect.summary(detail="full").section("Assumptions").lines
+    assert any("strong sequential randomization" in line for line in lines)
 
 
 # ---------------------------------------------------------------------------------- the protocol
