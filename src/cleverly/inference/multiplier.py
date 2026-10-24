@@ -220,14 +220,19 @@ class SimultaneousBands:
 
         return float(stats.norm.ppf(1.0 - self.alpha / 2.0))
 
-    def to_frame(self) -> Any:
+    def to_frame(self, backend: str | None = None) -> Any:
         """One row per estimand: the lower and upper limit of its band.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
 
         Returns
         -------
         dataframe
-            The columns ``estimand``, ``lower`` and ``upper``, in the default dataframe
-            backend.
+            The columns ``estimand``, ``lower`` and ``upper``, in ``backend``.
         """
         from ..utils.frames import frame_from_dict
 
@@ -236,7 +241,8 @@ class SimultaneousBands:
                 "estimand": list(self.bands),
                 "lower": [float(low) for low, _ in self.bands.values()],
                 "upper": [float(high) for _, high in self.bands.values()],
-            }
+            },
+            backend=backend,
         )
 
     def summary(self, *, detail: Detail = "short") -> Summary:

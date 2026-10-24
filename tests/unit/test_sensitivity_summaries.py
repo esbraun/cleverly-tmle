@@ -167,6 +167,10 @@ def test_a_diagnostic_status_marks_the_limits() -> None:
     assert summary.table("other").columns[-1] == vocabulary.SPREAD_LABELS["plugin_interval"]
     assert summary.table("Robustness value").rows[1][0].text == "plug-in limit (diagnostic)"
     assert summary.note("rv_limit").text == TEXTS["rv_limit_plugin"].format(null="0")
+    # A diagnostic spread makes no coverage claim, so the limits sentence goes.
+    limits = TEXTS["assumption_bounds_limits"].format(level="95%")
+    assert limits not in summary.note("sensitivity_assumption").text
+    assert limits in built("bounds").summary().note("sensitivity_assumption").text
     plain = built("bounds").summary().note("rv_limit").text
     assert plain == TEXTS["rv_limit"].format(limit="95% limit", level="95%", null="0")
     assert "no_inference_sensitivity" not in built("bounds").summary().note_codes

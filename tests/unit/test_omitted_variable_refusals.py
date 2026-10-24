@@ -1057,7 +1057,10 @@ class TestThePluginLimitsRefuse:
         stored = plugin.limit_refusal
         assert stored is not None
         settings = plugin.summary(detail="full").section("Settings").lines
-        assert f"Why the limits are withheld: {without_roadmap(stored.text)}" in settings
+        # The summary prints the refusal without its pointer into the roadmap.
+        reason = without_roadmap(stored.text).replace(" docs/roadmap.md F26 tracks this stop.", "")
+        assert f"Why the limits are withheld: {reason}" in settings
+        assert not any("roadmap" in line for line in settings)
         assert stored.alternative in plugin.summary().note("limits_withheld").text
 
     def test_the_elements_carry_no_curve(self, exact_fit: Any) -> None:

@@ -172,22 +172,28 @@ class BootstrapResult:
     resampling: str
     std_errors: dict[str, FloatArray] = field(default_factory=dict)
 
-    def to_frame(self) -> Any:
+    def to_frame(self, backend: str | None = None) -> Any:
         """One row per estimand: the usable replicates and their mean, SD and range.
 
         A description of the replicate estimates, not an interval: the fitted result says
         whether they give one.
 
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
+
         Returns
         -------
         dataframe
             The columns ``estimand``, ``n_replicates``, ``mean``, ``sd``, ``min`` and
-            ``max``, in the default dataframe backend.
+            ``max``, in ``backend``.
         """
         from ..utils.frames import frame_from_dict
         from ._summaries import replicate_rows
 
-        return frame_from_dict(replicate_rows(self))
+        return frame_from_dict(replicate_rows(self), backend=backend)
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the replicates, laid out like a statsmodels summary.
