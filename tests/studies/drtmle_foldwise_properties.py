@@ -8,11 +8,11 @@ cell                                       role       n      R         configura
 =========================================  =========  =====  ========  ===============================  ================
 ``fold_locality/ate__foldwise``            positive   1,000  4,400     ``treatment_correct``            0.140 +/- 0.022
 ``fold_locality/ate__pooled``              control    1,000  4,400     the same draw, ``"pooled"``      0.396 +/- 0.022
-``double_robustness/ate__benkeser_order``  positive   3,000  1,600     ``update_order="benkeser"``      0.072 +/- 0.035 P
-``double_robustness/ate__bivariate``       positive   3,000  4,000     ``reduction="bivariate"``        0.110 +/- 0.035 P
+``double_robustness/ate__benkeser_order``  positive   3,000  1,600     ``update_order="benkeser"``      0.058 +/- 0.042 P
+``double_robustness/ate__bivariate``       positive   3,000  4,000     ``reduction="bivariate"``        0.121 +/- 0.042 P
 ``double_robustness/ate__bivariate_oc``    positive   3,000  1,600     the same, ``outcome_correct``    0.030 +/- 0.050
-``double_robustness/ate__k5``              positive   3,000  2,000     ``n_folds=5``                    0.084 +/- 0.034 P
-``double_robustness/ate__spline_qr``       positive   3,000  2,800     spline ``Q_r`` learner           0.097 +/- 0.034 P
+``double_robustness/ate__k5``              positive   3,000  2,000     ``n_folds=5``                    0.078 +/- 0.041 P
+``double_robustness/ate__spline_qr``       positive   3,000  1,200 S   spline ``Q_r`` learner           0.031 +/- 0.035
 ``double_robustness/ate__both_wrong``      control    3,000  400       ``both_wrong``                   12.6 (registered)
 ``double_robustness/multi_arm_drtmle__``   positive   2,000  3,600     the multi-arm law                0.069 +/- 0.050
 ``treatment_correct``
@@ -22,13 +22,35 @@ cell                                       role       n      R         configura
 =========================================  =========  =====  ========  ===============================  ================
 
 The primary phase (:mod:`tests.studies.drtmle_foldwise`) is the tenth unit: three regimes at
-n = 3,000, R = 6,000.  Its planning values are ``treatment_correct`` ``ate`` 0.099 +/- 0.025 P,
-``ey0`` -0.044, ``ey1`` 0.091 (pilot ``tc3000``, 1,200 replications); ``outcome_correct`` 0.114,
+n = 3,000, R = 6,000.  Its planning values are ``treatment_correct`` ``ate`` 0.100 +/- 0.027 P,
+``ey0`` -0.045, ``ey1`` 0.092 (pilot ``tc3000``, 1,200 replications); ``outcome_correct`` 0.114,
 -0.090, 0.063 +/- 0.035 (pilot ``oc3000``, 800 replications); ``both_correct`` 0.066, -0.097,
 -0.003 +/- 0.035 (``canonical-drtmle`` pooled).  ``P`` marks a posterior of the pooled
-``treatment_correct`` regime (``tau`` bound 0.038, pooled mean 0.093).  Every unit reaches its
-share, so :data:`FALLBACK` is empty.  At these budgets the family-wise predictive pass is about
-0.963.
+``treatment_correct`` regime (``tau`` bound 0.061, pooled mean 0.089, four arms).  ``S`` marks
+the one cell sized after the declared run; every other budget is the one that run used
+(:data:`RUN_BUDGETS`).
+
+**The spline cell after the declared run.**  ``ate__spline_qr`` replaced
+``ate__spline_reduced`` after the first declared run (``67021895``) published that row red:
+standardized bias 0.239, its 99% interval crossing 0.25.  The diagnosis (plans repository,
+``reviews/x83/spline-diagnosis.md``) found the shift in ``g_{r,2}``, which the old cell fitted
+with the spline through the outcome-side learner slot; a spline on ``Q_r`` alone moved the
+estimate by ``+0.004 +/- 0.042`` SD.  The cell measured the wrong thing, so the red-cell rule
+applies: it is fixed and re-run under a fresh declaration, and no replication is added to the
+red row, which stays published.  The new cell fits the spline on ``Q_r``,
+``ColumnLogistic`` for ``g_{r,1}`` and ``LinearRegression`` for ``g_{r,2}``
+(``reduced_mechanism_residual_learner``).
+
+**A cell that changes a reduced learner is planned alone.**  The sizing posterior had pooled
+the spline cell into the ``treatment_correct`` regime, which shrank its pilot's 0.104 toward
+the regime mean.  A different reduced learner need not share the regime's remainder, and the
+red row showed it did not.  ``spline_qr`` is therefore planned from its own pilot alone
+(``pilot_e_spline_qr.csv``, 800 replications: 0.031, SE ratio 1.000, coverage 0.954) and is
+not an arm of :data:`REGIME`.  Re-fitting the regime without it raises the ``tau`` bound from
+0.038 to 0.061.  Under that planning the primary unit would size at 6,400 and ``bivariate``
+would reach only 0.990 of its share by 8,000; the family-wise predictive pass at the declared
+budgets is about 0.944.  Those units have run, and every row passed, so the finding changes
+no budget: adding replications after a verdict is what the red-row reading forbids.
 
 The paper-law cells fit one regime of the ``canonical-drtmle`` law each.  Under
 ``treatment_correct`` the outcome GLM omits ``W1 W2`` and the mechanism is correct; that is the
@@ -85,8 +107,8 @@ any reading.  No replication is ever added after a verdict.
 every gated row, with its source.  Each row's planning value is its standardized bias
 ``mean(error) / sd(error)``, with Monte Carlo SE ``1 / sqrt(R_pilot)``.  The rows one fit
 estimates are correlated, with the pilot's per-replication error correlation.  Separate pilots
-and rows planned from registered data are independent.  The five ``treatment_correct`` ATE arms
-at n = 3,000 (:data:`REGIME`) are arms of one regime: their mean and between-arm SD ``tau`` are
+and rows planned from registered data are independent.  The four ``treatment_correct`` ATE arms
+at n = 3,000 that keep the canonical reduced learners (:data:`REGIME`) are arms of one regime: their mean and between-arm SD ``tau`` are
 estimated together, ``tau`` at its one-sided 80% Q-profile upper bound, and each arm's planning
 value is its normal-normal posterior.  :func:`planning_draws` integrates over this planning
 uncertainty with :data:`PLANNING_DRAWS` joint draws from :data:`PLANNING_SEED`.  At each draw
@@ -101,7 +123,8 @@ above its floor whose predictive pass reaches the unit share ``0.95 ** (1 / len(
 **Fallback, declared before the run.**  A unit that no budget up to :data:`CEILING` sizes is
 listed in :data:`FALLBACK`.  Its remedy is a larger n for the failing positive arm, planned from
 a pilot at that n.  The margin is never widened.  :func:`assert_sized` refuses a run while
-:data:`FALLBACK` is not empty.  It is empty at the declared budgets.
+:data:`FALLBACK` is not empty.  After the declared run the rule sizes only the units in
+:data:`RESIZED`, and none of them is in the fallback.
 """
 
 from __future__ import annotations
@@ -260,11 +283,10 @@ PILOTS: Mapping[str, Pilot] = {
     "bivariate_oc": Pilot(f"{_PILOT_A}, cell bivariate_oc", 400, ("ate",), (0.0298,), _ONE),
     "k5": Pilot(f"{_PILOT_A}, cell k5", 400, ("ate",), (0.0702,), _ONE),
     "spline_qr": Pilot(
-        f"{_PILOT_A}, cell adaptive_reduced, which fitted the spline on Q_r, g_r1 and g_r2; "
-        "spline_qr has no pilot of its own yet",
-        400,
+        "x83 sizing pilot, reviews/x83/pilot5/pilot_e_spline_qr.csv r < 800, cell spline_qr",
+        800,
         ("ate",),
-        (0.1042,),
+        (0.0313,),
         _ONE,
     ),
     "multi_arm": Pilot(f"{_PILOT_A}, cell multi_arm", 400, ("ate",), (0.0691,), _ONE),
@@ -290,9 +312,11 @@ PILOTS: Mapping[str, Pilot] = {
     ),
 }
 
-#: The arms of the ``treatment_correct`` regime at n = 3,000: the primary ATE and the four
-#: one-setting variants.  The first row of each pilot is the arm.
-REGIME = ("primary/treatment_correct", "benkeser_order", "bivariate", "k5", "spline_qr")
+#: The arms of the ``treatment_correct`` regime at n = 3,000: the primary ATE and the three
+#: one-setting variants that keep the canonical reduced learners.  The first row of each pilot
+#: is the arm.  ``spline_qr`` changes a reduced learner, so it does not share the regime's bias
+#: and is planned from its own pilot alone.
+REGIME = ("primary/treatment_correct", "benkeser_order", "bivariate", "k5")
 
 #: The leak pilot's ``sd(pooled error) / sd(foldwise error)``, which turns the two rows'
 #: standardized biases into the paired displacement: ``|ratio * b_pooled - b_foldwise|``.  The
@@ -530,21 +554,30 @@ def family_pass(budgets: Mapping[str, int] | None = None) -> float:
     return float(passed.mean())
 
 
-#: The declared budgets, each the output of :func:`budget`.
-BUDGETS: Mapping[str, int] = {
+#: The commit of the first declared run.
+RUN_COMMIT = "67021895"
+#: The budgets that run used: the output of :func:`budget` under the planning declared before it.
+#: A unit that has run keeps its budget, because a verdict is never followed by more
+#: replications.
+RUN_BUDGETS: Mapping[str, int] = {
     "primary": 6_000,
     "fold_locality": 4_400,
     "benkeser_order": 1_600,
     "bivariate": 4_000,
     "bivariate_oc": 1_600,
     "k5": 2_000,
-    "spline_qr": 2_800,
     "both_wrong": 400,
     "multi_arm": 3_600,
     "stratified": 3_200,
 }
+#: The units declared after that run, each sized by :func:`budget` under the current planning.
+RESIZED: tuple[str, ...] = ("spline_qr",)
 
-#: The units no budget up to :data:`CEILING` sizes, each the output of :func:`budget`.
+#: The declared budgets: :data:`RUN_BUDGETS`, and the output of :func:`budget` for each unit of
+#: :data:`RESIZED`.
+BUDGETS: Mapping[str, int] = {**RUN_BUDGETS, "spline_qr": 1_200}
+
+#: The units of :data:`RESIZED` that no budget up to :data:`CEILING` sizes.
 FALLBACK: tuple[str, ...] = ()
 
 

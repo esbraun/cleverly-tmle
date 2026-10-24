@@ -157,7 +157,7 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
         "bivariate": (0.1427,),
         "bivariate_oc": (0.0298,),
         "k5": (0.0702,),
-        "spline_qr": (0.1042,),
+        "spline_qr": (0.0313,),
         "multi_arm": (0.0691,),
         "stratified": (0.0965, 0.0916, 0.0354, 0.0261),
         "both_wrong": (12.6089,),
@@ -170,6 +170,7 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
         "fold_locality": 2_000,
         "both_wrong": 800,
         "stratified": 800,
+        "spline_qr": 800,
     }
     for name, pilot in pilots.items():
         correlation = np.asarray(pilot.correlation)
@@ -189,9 +190,9 @@ def test_the_pilot_constants_are_the_declared_planning_summary() -> None:
 
 def test_the_regime_tau_is_its_q_profile_upper_bound() -> None:
     tau, mean, spread = properties.regime_tau()
-    assert tau == pytest.approx(0.03797, abs=1e-5)
-    assert mean == pytest.approx(0.09286, abs=1e-5)
-    assert spread == pytest.approx(0.02622, abs=1e-5)
+    assert tau == pytest.approx(0.06120, abs=1e-5)
+    assert mean == pytest.approx(0.08938, abs=1e-5)
+    assert spread == pytest.approx(0.03783, abs=1e-5)
     # The posterior of each regime arm moves toward the pooled mean.
     draws = properties.planning_draws()
     for name in properties.REGIME:
@@ -200,31 +201,35 @@ def test_the_regime_tau_is_its_q_profile_upper_bound() -> None:
         assert abs(planned - mean) < abs(observed - mean) + 0.002, name
 
 
-def test_every_budget_is_the_output_of_the_declared_rule() -> None:
+def test_every_budget_is_the_run_budget_or_the_output_of_the_declared_rule() -> None:
     assert set(properties.BUDGETS) == set(properties.UNITS)
     assert pytest.approx(0.95 ** (1 / len(properties.UNITS))) == properties.UNIT_TARGET
-    unsized = []
-    for unit, declared in properties.BUDGETS.items():
-        replicates, value, sized = properties.budget(unit)
-        assert declared == replicates, unit
-        assert declared % properties.STEP == 0
-        assert (value >= properties.UNIT_TARGET) == sized, unit
-        if not sized:
-            unsized.append(unit)
-    assert tuple(unsized) == properties.FALLBACK
-    assert properties.BUDGETS == {
+    assert properties.RUN_COMMIT == "67021895"
+    assert set(properties.RUN_BUDGETS) | set(properties.RESIZED) == set(properties.UNITS)
+    assert not set(properties.RUN_BUDGETS) & set(properties.RESIZED)
+    assert properties.RESIZED == ("spline_qr",)
+    assert properties.RUN_BUDGETS == {
         "primary": 6_000,
         "fold_locality": 4_400,
         "benkeser_order": 1_600,
         "bivariate": 4_000,
         "bivariate_oc": 1_600,
         "k5": 2_000,
-        "spline_qr": 2_800,
         "both_wrong": 400,
         "multi_arm": 3_600,
         "stratified": 3_200,
     }
-    assert properties.FALLBACK == ()
+    unsized = []
+    for unit in properties.RESIZED:
+        replicates, value, sized = properties.budget(unit)
+        assert properties.BUDGETS[unit] == replicates, unit
+        assert (value >= properties.UNIT_TARGET) == sized, unit
+        if not sized:
+            unsized.append(unit)
+    assert tuple(unsized) == properties.FALLBACK == ()
+    assert properties.BUDGETS == {**properties.RUN_BUDGETS, "spline_qr": 1_200}
+    for declared in properties.BUDGETS.values():
+        assert declared % properties.STEP == 0
     assert properties.BUDGETS["primary"] >= properties.PRIMARY_FLOOR
     assert set(properties.GROUPS) | {"primary", "multi_arm"} == set(properties.UNITS)
     for name, group in properties.GROUPS.items():
@@ -232,15 +237,30 @@ def test_every_budget_is_the_output_of_the_declared_rule() -> None:
         assert properties.UNITS[name][0] == (name,)
 
 
-def test_the_family_wise_predictive_pass_reaches_the_target(
+def test_a_cell_that_changes_a_reduced_learner_is_planned_alone() -> None:
+    assert "spline_qr" not in properties.REGIME
+    assert properties.REGIME == ("primary/treatment_correct", "benkeser_order", "bivariate", "k5")
+    draws = properties.planning_draws()
+    pilot = properties.PILOTS["spline_qr"]
+    assert pilot.replicates == 800
+    assert float(draws.bias["spline_qr"][:, 0].mean()) == pytest.approx(0.0313, abs=0.002)
+    assert float(draws.bias["spline_qr"][:, 0].std()) == pytest.approx(1 / np.sqrt(800), abs=0.002)
+    # The finding the post-run planning records: it would resize two units that have run.
+    assert properties.budget("primary")[0] == 6_400
+    assert properties.budget("bivariate")[2] is False
+
+
+def test_the_family_wise_predictive_pass_and_the_run_guard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     value = properties.family_pass()
-    assert value == pytest.approx(0.963, abs=0.003)
-    assert value >= properties.STUDY_TARGET
+    assert value == pytest.approx(0.944, abs=0.003)
+    assert properties.unit_pass("spline_qr", properties.BUDGETS["spline_qr"]) >= (
+        properties.UNIT_TARGET
+    )
     properties.assert_sized()
     # The guard is live: an open fallback refuses the run.
-    monkeypatch.setattr(properties, "FALLBACK", ("fold_locality",))
+    monkeypatch.setattr(properties, "FALLBACK", ("spline_qr",))
     with pytest.raises(RuntimeError, match="fallback"):
         properties.assert_sized()
 

@@ -34,9 +34,10 @@ audit and an active propensity bound each count as a failed replicate.
 **Cost.**  The sizing pilots' seconds per fit, on four busy cores: primary 3.8 (``tc3000``,
 taken for ``both_correct`` and the both-wrong control too) and 3.3 (``oc3000``), leak pair 5.3
 for both fits at n = 1,000, ``benkeser_order`` 4.2, ``bivariate`` 3.3, ``bivariate_oc`` 3.0,
-``k5`` 1.8, ``spline_qr`` 4.9 (a three-replicate timing; the declared spline cell measured 17.9), multi-arm 1.6, stratified 11.8.  At the declared budgets
-that is about 59 CPU-hours: 18.3 primary, 6.5 leak, 14.0 spline, 10.5 stratified, and 10 for
-the other cells.
+``k5`` 1.8, ``spline_qr`` 5.4 (its own pilot, 800 fits), multi-arm 1.6, stratified 11.8.  At
+the declared budgets that is about 47 CPU-hours: 18.3 primary, 6.5 leak, 10.5 stratified, 1.8
+``spline_qr`` and 10 for the other cells.  The fresh declaration of ``spline_qr`` alone costs
+about 1.8 CPU-hours.
 
 **Declared before any run:** the budgets and seeds of this module and of the property module,
 ``publication_policy="gated"``, and the reading the property module states.

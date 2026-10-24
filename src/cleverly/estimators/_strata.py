@@ -344,7 +344,7 @@ def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
                 f"{data.arm_label(arm)!r} in the sample, so the leave-two-out primary "
                 "regressions of reduced_crossfit='foldwise' cannot be fitted. "
                 + _POST_DRAW_REMEDY.format(
-                    remedy="fit with reduced_crossfit='pooled' or with more folds"
+                    remedy="fit with reduced_crossfit='pooled'"
                 )
             )
 

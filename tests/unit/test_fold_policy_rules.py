@@ -34,6 +34,7 @@ from cleverly.datasets import (
     make_nonlinear_bounded,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators import drtmle as drtmle_module
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
 from cleverly.interventions import Shift
 from cleverly.learners import SuperLearner, random_partition
@@ -1225,6 +1226,8 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
         from sklearn.dummy import DummyClassifier
 
         monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
+        # The leave-two-out preflight refuses the same draw first; disable it too.
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a: None)
         n, n_folds = 60, 6
         rng = np.random.default_rng(0)
         frame = pd.DataFrame(
