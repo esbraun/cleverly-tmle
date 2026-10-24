@@ -184,7 +184,7 @@ def read_study(study: Any, text: str) -> None:
     _check_roles(study, text)
     if data.is_weighted:
         report = data.weight_report()
-        shown = header_value(text, vocabulary.EFFECTIVE_N)
+        shown = header_value(text, vocabulary.EFFECTIVE_SAMPLE_SIZE)
         assert shown is not None and _close(shown, report.effective_n), shown
         expected.append(report.effective_n)
     if hasattr(data, "n_times") and not hasattr(data, "covariate_names"):

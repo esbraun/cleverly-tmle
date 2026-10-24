@@ -1127,7 +1127,7 @@ def simulation_summary(result: StudyResult, detail: Detail) -> Summary:
         )
         sections.append(_failures_section(result))
     return Summary.build(
-        title=vocabulary.SIMULATION_TITLE.format(label=result.label),
+        title=vocabulary.SIMULATION_STUDY_TITLE.format(label=result.label),
         header=header,
         header_split=2,
         tables=[table],

@@ -33,6 +33,7 @@ from cleverly import (
     SparseInfluenceWarning,
     TMLEMethod,
 )
+from cleverly._summary import vocabulary
 from cleverly.datasets import (
     PRICE_BANDS,
     PRICE_PLANS,
@@ -373,20 +374,23 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
     # ratios dependent on the platform.
     assert ratio_model.steps[2][1].tol == 1e-8 and ratio_model.steps[2][1].max_iter == 100_000
     summary = result.summary()
-    assert "cross-fitting: none; nuisances fitted in sample" in summary
-    assert "g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability" in (
-        summary
-    )
-    assert "max truncated share 0.0% at t=1" in summary
+    assert dict(summary.header)["Out-of-fold predictions"] == "no"
+    assert dict(summary.header)["Probability limits"] == "[0.01, 1]"
+    # The limits move no probability, so the summary prints no capped note.
+    assert "weights_capped" not in summary.note_codes
     # The summary prints the weight tail at one decimal. The stored output fixes the printed text,
     # and the fresh summary agrees with it within the rounding of that decimal.
     printed_tail = stored_output(NOTEBOOK, "ltmle")
+    plans_table = summary.table("What each plan assigns and who followed it to the end")
+    rows = {row[0].value: row for row in plans_table.rows}
     for plan, shown in (("price_up", 13.7), ("price_down", 31.2)):
-        head = f"{plan}: 10000 of 10000 units followed it throughout; max weight "
-        assert f"{head}{shown}," in printed_tail
-        fresh = re.search(re.escape(head) + r"(\d+\.\d)", summary)
-        assert fresh is not None and float(fresh.group(1)) == pytest.approx(shown, abs=0.11)
-    assert "critical value 2.221 vs 1.960" in summary and "[experimental]" in summary
+        assert rows[plan][1].value == 10000
+        assert re.search(rf"^{plan} +10,000 of 10,000 +{shown} ", printed_tail, re.MULTILINE)
+        assert rows[plan][2].value == pytest.approx(shown, abs=0.11)
+    assert result.simultaneous is not None
+    assert round(result.simultaneous.critical_value, 3) == 2.221
+    assert round(result.simultaneous.pointwise_critical_value, 3) == 1.960
+    assert "experimental" in summary.note("simultaneous_bands").text
 
     up, down = (result[_key(plan)] for plan in PLANS)
     # "The `price_up` contrast is -0.1025, with a standard error of 0.0065 and a 95% interval of
@@ -407,9 +411,9 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
         estimate = result[_key(plan)]
         assert estimate.support.label == "supported"
         assert estimate.support.reason == "Row G39.ltmle.tau3 covers this configuration."
-    printed = stored_output(NOTEBOOK, "ltmle")
-    for plan in PLANS:
-        assert f"{_key(plan)}: supported. Row G39.ltmle.tau3 covers this configuration." in printed
+    # A supported row prints no support column and no experimental note.
+    assert vocabulary.SUPPORT not in result.summary().table("estimates").columns
+    assert "experimental" not in result.summary().note_codes
 
 
 def _check_revenue_fit(namespace: dict[str, Any]) -> None:

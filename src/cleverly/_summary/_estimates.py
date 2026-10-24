@@ -64,7 +64,7 @@ _ID = re.compile(r"\b(?:[A-Z]{1,2}\d+[a-z]?(?:\.[A-Za-z_]+)*)\b")
 
 #: A sentence that points at a roadmap item, and a roadmap id in parentheses.
 _ROADMAP_SENTENCE = re.compile(r"\s*\b[A-Z]{1,2}\d+[a-z]? in docs/roadmap\.md\b[^.]*\.")
-_ROADMAP_PAREN = re.compile(r"\s*\(\s*[A-Z]{1,2}\d+[a-z]?\s*\)")
+_ROADMAP_PAREN = re.compile(r"\s*\(\s*(?:roadmap\s+)?[A-Z]{1,2}\d+[a-z]?(?:\s+part\s+[a-z])?\s*\)")
 
 
 def without_roadmap(text: str) -> str:

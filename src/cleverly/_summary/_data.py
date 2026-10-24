@@ -187,5 +187,5 @@ def weights_facts(data: Any) -> list[tuple[str, str]]:
     kind = " (estimated)" if report.estimated else ""
     return [
         (vocabulary.WEIGHTS, f"{report.name or 'weights'}{kind}"),
-        (vocabulary.EFFECTIVE_N, f"{report.effective_n:,.0f}"),
+        (vocabulary.EFFECTIVE_SAMPLE_SIZE, f"{report.effective_n:,.0f}"),
     ]
