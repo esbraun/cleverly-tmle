@@ -391,13 +391,15 @@ def check_frame_rows(check: StructuralModelCheck) -> dict[str, list[Any]]:
     }
 
 
-def check_summary(check: StructuralModelCheck) -> Summary:
+def check_summary(check: StructuralModelCheck, detail: Detail) -> Summary:
     """Build the summary of a structural model check.
 
     Parameters
     ----------
     check : StructuralModelCheck
         The check.
+    detail : {"short", "full"}
+        ``"full"`` adds how the check works and what its degrees of freedom mean.
 
     Returns
     -------
@@ -491,12 +493,19 @@ def check_summary(check: StructuralModelCheck) -> Summary:
         notes.append(
             note("check_splits", vocabulary.NOTE_TEXTS["check_splits"].format(k=check.n_splits))
         )
+    sections = (
+        [SummarySection(vocabulary.SECTION_HOW_TO_READ, vocabulary.CHECK_HOW_TO_READ)]
+        if detail == "full"
+        else []
+    )
     return Summary.build(
         title=vocabulary.CHECK_TITLE,
         header=header,
+        header_split=len(header),
         tables=tables,
         notes=notes,
         reading=reading,
+        sections=sections,
     )
 
 

@@ -241,6 +241,6 @@ def test_the_support_report_states_the_bound_and_the_realised_maximum() -> None:
     assert tilted.guaranteed == (pytest.approx(1 / 3), 3.0)
     assert tilted.max_ratio <= 3.0 + 1e-12
     summary = tilted.summary()
-    assert summary.facts["Bound on the tilt part of the weight"] == (
-        "[0.333, 3], whatever the treatment model"
-    )
+    assert summary.facts["Tilt weight bound"] == "[0.333, 3]"
+    full = tilted.summary(detail="full").section("How to read").lines[0]
+    assert "inside the bound for any treatment model" in full

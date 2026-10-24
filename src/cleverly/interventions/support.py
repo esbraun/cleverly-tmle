@@ -143,8 +143,13 @@ class RegimeSupport:
     score_load: _InterventionLoadRow | None = None
     score_load_omission: str | None = None
 
-    def summary(self) -> Summary:
+    def summary(self, *, detail: Detail = "short") -> Summary:
         """This regime's overlap, as one table.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how to read each column.
 
         Returns
         -------
@@ -153,12 +158,15 @@ class RegimeSupport:
         """
         from ._support_summary import regime_support_summary
 
-        return regime_support_summary(self)
+        return regime_support_summary(self, check_detail(detail))
 
     def __repr__(self) -> str:
         from ._support_summary import regime_support_repr
 
         return regime_support_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 #: Which score-load value each frame column reads, and what it carries when the row has no

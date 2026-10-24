@@ -120,6 +120,7 @@ P_VALUE: Final = "p-value"
 DF: Final = "df"
 SUPPORT: Final = "support"
 EXPERIMENTAL: Final = "experimental"
+EVERY_ROW: Final = "every row"
 MEANING: Final = "meaning"
 BAND: Final = "band"
 #: The suffix a row label takes when its estimate supplies no inference in a table whose
@@ -879,6 +880,7 @@ REGIME_ROW_TITLE: Final = "Overlap of regime {name}"
 SUPPORT_REGIMES: Final = "Regimes"
 SUPPORT_WORST: Final = "Least supported"
 SUPPORT_REGIME_TABLE: Final = "How much the data support each regime"
+SUPPORT_REGIME_ONE_TABLE: Final = "How much the data support the regime"
 SUPPORT_POLICY_TABLE: Final = "How much the data support the policy"
 SUPPORT_TILT_TABLE: Final = "How much the data support the tilt"
 SUPPORT_SPLIT: Final = " (score load from split {split} of {repeats})"
@@ -907,7 +909,7 @@ SUPPORT_WEIGHT: Final = "weight"
 SUPPORT_QUANTILE: Final = "{q} quantile"
 SUPPORT_LARGEST: Final = "largest"
 SUPPORT_ESS_ROW: Final = "effective size"
-SUPPORT_SHARE_OF_ROWS: Final = "share of rows"
+SUPPORT_SHARE_OF_ROWS: Final = "effective share"
 SUPPORT_MEAN_RATIO: Final = "mean ratio"
 SUPPORT_FOLD_MEAN: Final = "mean ratio, fold {fold}"
 SUPPORT_MEAN_RATIO_READING: Final = (
@@ -923,15 +925,14 @@ SUPPORT_NO_ZERO_CHECK: Final = (
     "The classifier fits no density, so the report cannot count rows sent to a dose of zero "
     "density."
 )
-SUPPORT_FACTORS: Final = "Factors"
-SUPPORT_BOUND: Final = "Bound on the tilt part of the weight"
-SUPPORT_BOUND_FACT: Final = "[{low}, {high}], whatever the treatment model"
-SUPPORT_MIN_G_HEADER: Final = "Smallest treatment probability"
+SUPPORT_FACTORS: Final = "Odds factors"
+SUPPORT_BOUND: Final = "Tilt weight bound"
+SUPPORT_NO_FACTOR: Final = "none (the natural course)"
 SUPPORT_TILT_READING: Final = (
-    "An odds tilt keeps the tilt part of each weight inside the bound, so it needs no "
-    "treatment probability away from 0 or 1; the probability of staying under observation "
-    "still divides the weight and needs positivity. The smallest treatment probability is "
-    "shown for comparison with a fit that sets each unit's treatment."
+    "An odds tilt keeps the tilt part of each weight inside the bound for any treatment "
+    "model, so it needs no treatment probability away from 0 or 1; the probability of "
+    "staying under observation still divides the weight and needs positivity. min "
+    "probability is shown for comparison with a fit that sets each unit's treatment."
 )
 
 #: The parametric g-formula simulation report.
@@ -974,8 +975,23 @@ GFORMULA_SUPPORT_TITLE: Final = "Support of each set dose"
 GFORMULA_COLUMN: Final = "treatment"
 GFORMULA_DOSE: Final = "dose"
 GFORMULA_RULE_DOSE: Final = "set by a rule"
-GFORMULA_OFF: Final = "simulated histories over {z} SD away"
-GFORMULA_WINDOW: Final = "observed doses in the window"
+GFORMULA_OFF: Final = "histories > {z} SD off"
+GFORMULA_WINDOW: Final = "observed within {z} SD"
+GFORMULA_READ_MODELS: Final = (
+    "The simulation draws each unit's covariates and outcome forward in time from these "
+    "models, under each plan. in estimate says whether the estimate draws from the model: a "
+    "set dose replaces the treatment model, which is then fitted but not used."
+)
+GFORMULA_READ_SHARE: Final = (
+    "share is the part of each row's variance that comes from simulating a finite number of "
+    "draws per unit rather than from the data; a larger n_draws lowers it."
+)
+GFORMULA_READ_SUPPORT: Final = (
+    "For each set dose, the first share counts simulated histories whose fitted mean dose lies "
+    "more than {z} fitted standard deviations from the dose, and the second the observed doses "
+    "within {z} standard deviations of it. A large first share or a small second one says the "
+    "dose lies outside what the data show, so the estimate rests on the models' extrapolation."
+)
 
 #: The structural model check summary.
 CHECK_QUESTION: Final = "do the model's plan contrasts agree with LTMLE on the same rows?"
@@ -999,6 +1015,48 @@ CHECK_READING: Final = (
     "the model."
 )
 CHECK_NO_TEST: Final = "No test: {reason}"
+CHECK_HOW_TO_READ: Final[tuple[str, ...]] = (
+    "The check fits LTMLE on the same rows, weights, clusters and folds and compares each plan "
+    "contrast with the one the structural model implies. When the model holds, each "
+    "difference has mean zero. The two contrasts nearly cancel, so the difference has a much "
+    "smaller spread than either estimate.",
+    "covariance df is the effective degrees of freedom of the estimated covariance. The test "
+    "reads an F reference with it, which allows for a covariance estimated with error; a small "
+    "value says a few rows carry most of the variance.",
+)
+
+#: The small summaries of an MSM fit's working-model record and an SNMM's positivity record.
+MSM_FIT_TITLE: Final = "Working-model coefficients"
+MSM_TABLE: Final = "Coefficient of each term"
+MSM_TERM: Final = "term"
+MSM_COEFFICIENT: Final = "coefficient"
+MSM_LINK: Final = "Link"
+MSM_LINK_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"identity": "the mean", "log": "the log of the mean", "logit": "the log odds"}
+)
+MSM_CELLS: Final = "Plan and time cells"
+MSM_CONVERGED: Final = "Converged"
+MSM_CAUSE_LABEL: Final = "Cause"
+MSM_FIT_READING: Final = "The result's summary() gives each coefficient with its interval."
+MSM_HOW_TO_READ: Final = (
+    "The coefficients project the plan means at every plan and time onto the working model, "
+    "which is linear in {scale}. They summarize those means, so they keep their meaning when "
+    "the working model is wrong."
+)
+DIAGNOSTICS_TITLE: Final = "Positivity of the structural fit"
+DIAGNOSTICS_TABLE: Final = "What each time point measured"
+DIAGNOSTICS_NODE: Final = "treatment time"
+DIAGNOSTICS_TIME: Final = "time {time}"
+DIAGNOSTICS_EIGENVALUE: Final = "smallest eigenvalue"
+DIAGNOSTICS_EXTREME: Final = "near 0 or 1"
+DIAGNOSTICS_CONSTANT: Final = "Fits with a one-class fold"
+DIAGNOSTICS_READING: Final = (
+    "smallest eigenvalue is the smallest standardized eigenvalue of the estimating "
+    "equation's derivative at that time: near zero, the treatment varies little given the "
+    "history and the coefficients are weakly identified. near 0 or 1 is the share of rows "
+    "whose estimated treatment probability lies within the positivity margin of 0 or 1; a "
+    "dose has none."
+)
 
 #: What one row of a longitudinal table estimates, keyed by the name's prefix and the
 #: outcome kind. ``{Y}`` is the outcome (with ``{at}`` its time, empty at the end of study),

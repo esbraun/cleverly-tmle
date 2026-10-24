@@ -274,7 +274,9 @@ def estimates_table(
         for name in generic:
             by_kind.setdefault(reason_kind(estimates[name].support.reason), []).append(name)
         for kind, names in by_kind.items():
-            sentences.append(vocabulary.EXPERIMENTAL_REASONS[kind].format(names=_names(names)))
+            # A long list that names every row says less than "every row".
+            listed = vocabulary.EVERY_ROW if len(names) == len(items) > 3 else _names(names)
+            sentences.append(vocabulary.EXPERIMENTAL_REASONS[kind].format(names=listed))
         with_interval = any(inferential[name] for name in experimental)
         sentences.append(
             vocabulary.NOTE_TEXTS["experimental"].format(

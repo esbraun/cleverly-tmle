@@ -61,7 +61,7 @@ from typing import Any, cast
 import numpy as np
 from scipy.special import ndtri
 
-from .._summary import Summary
+from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..exceptions import CapabilityError, DataError, RefusalReason
@@ -2003,8 +2003,13 @@ class GFormulaReport:
         shares = [value for value in self.monte_carlo_share.values() if np.isfinite(value)]
         return max(shares) if shares else float("nan")
 
-    def summary(self) -> Summary:
+    def summary(self, *, detail: Detail = "short") -> Summary:
         """The models, the simulation's share of the variance and the support of set doses.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how to read each table.
 
         Returns
         -------
@@ -2013,7 +2018,7 @@ class GFormulaReport:
         """
         from ._gformula_summary import gformula_report_summary
 
-        return gformula_report_summary(self)
+        return gformula_report_summary(self, check_detail(detail))
 
     def __repr__(self) -> str:
         from ._gformula_summary import gformula_report_repr
@@ -2146,7 +2151,7 @@ def _report(
         for model in book.models
     )
     reliance = (
-        "a fixed or rule-set dose of a continuous treatment has no estimate without a model "
+        "A fixed or rule-set dose of a continuous treatment has no estimate without a model "
         "of the covariates and the outcome. The estimate and its interval hold inside the "
         "fitted parametric models, which are extrapolated to the dose at every time point. "
         "The interval does not cover a wrong model."

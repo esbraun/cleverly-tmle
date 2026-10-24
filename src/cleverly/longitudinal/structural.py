@@ -1078,6 +1078,31 @@ class StructuralDiagnostics:
     n_constant_fits: int
     learner_diagnostics: tuple[Any, ...] = ()
 
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The smallest eigenvalue and the share of extreme probabilities at each time.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds what each column measures.
+
+        Returns
+        -------
+        Summary
+            The summary.
+        """
+        from ._record_summary import structural_diagnostics_summary
+
+        return structural_diagnostics_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._record_summary import structural_diagnostics_repr
+
+        return structural_diagnostics_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
 
 def _split_seeds(random_state: int | None, count: int) -> list[int]:
     """The seeds of the further fold splits of a model check.
@@ -1982,8 +2007,13 @@ class StructuralModelCheck:
         """Whether the check reports a statistic."""
         return self.reason is None
 
-    def summary(self) -> Summary:
+    def summary(self, *, detail: Detail = "short") -> Summary:
         """The two sets of contrasts, the joint test, and how to read it.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how the check works and what its degrees of freedom mean.
 
         Returns
         -------
@@ -1992,7 +2022,7 @@ class StructuralModelCheck:
         """
         from ._structural_summary import check_summary
 
-        return check_summary(self)
+        return check_summary(self, check_detail(detail))
 
     def __repr__(self) -> str:
         from ._structural_summary import check_repr

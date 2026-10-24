@@ -164,23 +164,25 @@ def support_report_repr(report: SupportReport) -> str:
     Returns
     -------
     str
-        For example ``SupportReport(regimes=2, least supported=never, min g=0.031)``.
+        For example ``SupportReport(regimes=2, least supported=never, min probability=0.031)``.
     """
     worst = report.worst
     facts: list[tuple[str, Any]] = [("regimes", len(report.regimes))]
     if worst is not None:
         facts.append(("least supported", worst.name))
-        facts.append(("min g", _number(worst.min_support_propensity)))
+        facts.append(("min probability", _number(worst.min_support_propensity)))
     return short_repr(type(report).__name__, facts)
 
 
-def regime_support_summary(item: RegimeSupport) -> Summary:
+def regime_support_summary(item: RegimeSupport, detail: Detail) -> Summary:
     """Build the one-table summary of one regime's overlap.
 
     Parameters
     ----------
     item : RegimeSupport
         The row.
+    detail : {"short", "full"}
+        ``"full"`` adds how to read each column.
 
     Returns
     -------
@@ -190,10 +192,18 @@ def regime_support_summary(item: RegimeSupport) -> Summary:
     table = SummaryTable(
         _regime_columns(),
         (_regime_row(item.name, item),),
-        title=vocabulary.SUPPORT_REGIME_TABLE + _load_title([item.score_load]),
+        title=vocabulary.SUPPORT_REGIME_ONE_TABLE + _load_title([item.score_load]),
         kind="other",
     )
-    return Summary.build(title=vocabulary.REGIME_ROW_TITLE.format(name=item.name), tables=[table])
+    notes = (
+        [] if item.score_load is None else [note("score_load", vocabulary.NOTE_TEXTS["score_load"])]
+    )
+    return Summary.build(
+        title=vocabulary.REGIME_ROW_TITLE.format(name=item.name),
+        tables=[table],
+        notes=notes,
+        sections=[_how_to_read([vocabulary.SUPPORT_TWO_MECHANISMS])] if detail == "full" else [],
+    )
 
 
 def regime_support_repr(item: RegimeSupport) -> str:
@@ -207,13 +217,13 @@ def regime_support_repr(item: RegimeSupport) -> str:
     Returns
     -------
     str
-        For example ``RegimeSupport(never, min g=0.031, effective n=345)``.
+        For example ``RegimeSupport(never, min probability=0.031, effective n=345)``.
     """
     return short_repr(
         type(item).__name__,
         [
             ("", item.name),
-            ("min g", _number(item.min_support_propensity)),
+            ("min probability", _number(item.min_support_propensity)),
             ("effective n", f"{item.effective_sample_size:,.0f}"),
         ],
     )
@@ -361,14 +371,10 @@ def tilt_support_summary(row: IncrementalSupport, detail: Detail) -> Summary:
         The summary.
     """
     low, high = row.guaranteed
-    factors = ", ".join(f"level {level}: {factor:g}" for level, factor in row.delta)
+    moved = [f"level {level} x{factor:g}" for level, factor in row.delta if factor != 1]
     header = [
-        (vocabulary.SUPPORT_FACTORS, factors),
-        (
-            vocabulary.SUPPORT_BOUND,
-            vocabulary.SUPPORT_BOUND_FACT.format(low=_number(low), high=_number(high)),
-        ),
-        (vocabulary.SUPPORT_MIN_G_HEADER, _number(row.min_propensity)),
+        (vocabulary.SUPPORT_FACTORS, ", ".join(moved) or vocabulary.SUPPORT_NO_FACTOR),
+        (vocabulary.SUPPORT_BOUND, f"[{_number(low)}, {_number(high)}]"),
     ]
     table = SummaryTable(
         (
@@ -376,6 +382,7 @@ def tilt_support_summary(row: IncrementalSupport, detail: Detail) -> Summary:
             vocabulary.SUPPORT_ESS_ROW,
             vocabulary.SUPPORT_SHARE_OF_ROWS,
             vocabulary.SUPPORT_LOAD_EFFECTIVE,
+            vocabulary.SUPPORT_MIN_G,
         ),
         (
             (
@@ -383,6 +390,7 @@ def tilt_support_summary(row: IncrementalSupport, detail: Detail) -> Summary:
                 Cell(row.effective_sample_size, f"{row.effective_sample_size:,.0f}"),
                 Cell(row.ess_ratio, f"{row.ess_ratio:.1%}"),
                 _load(row.score_load),
+                Cell(row.min_propensity, _number(row.min_propensity)),
             ),
         ),
         title=vocabulary.SUPPORT_TILT_TABLE + _load_title([row.score_load]),

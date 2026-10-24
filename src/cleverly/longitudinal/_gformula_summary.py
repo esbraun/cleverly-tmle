@@ -9,8 +9,10 @@ import numpy as np
 
 from .._summary import (
     Cell,
+    Detail,
     Note,
     Summary,
+    SummarySection,
     SummaryTable,
     count_text,
     note,
@@ -84,13 +86,15 @@ def _support_rows(report: GFormulaReport) -> tuple[tuple[Cell, ...], ...]:
     return tuple(rows)
 
 
-def gformula_report_summary(report: GFormulaReport) -> Summary:
+def gformula_report_summary(report: GFormulaReport, detail: Detail) -> Summary:
     """Build the summary of a parametric g-formula simulation report.
 
     Parameters
     ----------
     report : GFormulaReport
         The fit's simulation record.
+    detail : {"short", "full"}
+        ``"full"`` adds how to read each table.
 
     Returns
     -------
@@ -140,7 +144,7 @@ def gformula_report_summary(report: GFormulaReport) -> Summary:
                     vocabulary.GFORMULA_COLUMN,
                     vocabulary.GFORMULA_DOSE,
                     vocabulary.GFORMULA_OFF.format(z=f"{SUPPORT_Z:g}"),
-                    vocabulary.GFORMULA_WINDOW,
+                    vocabulary.GFORMULA_WINDOW.format(z=f"{SUPPORT_Z:g}"),
                 ),
                 support,
                 title=vocabulary.GFORMULA_SUPPORT_TITLE,
@@ -164,12 +168,21 @@ def gformula_report_summary(report: GFormulaReport) -> Summary:
         )
     if report.model_reliance is not None:
         notes.append(note("model_reliance", report.model_reliance))
+    sections = []
+    if detail == "full":
+        lines = [vocabulary.GFORMULA_READ_MODELS]
+        if shares:
+            lines.append(vocabulary.GFORMULA_READ_SHARE)
+        if support:
+            lines.append(vocabulary.GFORMULA_READ_SUPPORT.format(z=f"{SUPPORT_Z:g}"))
+        sections.append(SummarySection(vocabulary.SECTION_HOW_TO_READ, tuple(lines)))
     return Summary.build(
         title=vocabulary.SIMULATION_TITLE,
         header=header,
         header_split=2,
         tables=tables,
         notes=notes,
+        sections=sections,
     )
 
 
