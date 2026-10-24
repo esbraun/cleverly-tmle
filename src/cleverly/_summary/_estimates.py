@@ -193,7 +193,9 @@ def estimates_table(
                         (float(low), float(high)),
                         f"[{number_text(low, decimals)}, {number_text(high, decimals)}]",
                     ),
-                    Cell(float(estimate.pvalue), pvalue_text(estimate.pvalue)),
+                    # A transformed estimate whose default null has no value on its
+                    # scale has no default test, and prints none.
+                    Cell(float(pvalue := estimate._reported_pvalue()), pvalue_text(pvalue)),
                     *(
                         [
                             Cell(

@@ -167,17 +167,17 @@ class TestBCa:
         sample, estimate, draws = _skewed()
         acceleration = bca_acceleration(sample)
         result = BootstrapResult({"m": draws}, 199, 0, "iid")
-        summary = result.summary(
+        summary = result.interval(
             "m", ALPHA, interval="bca", estimate=estimate, acceleration=acceleration
         )
         assert summary.interval == "bca"
         assert summary.ci == pytest.approx(bca_interval(draws, estimate, acceleration, ALPHA)[:2])
         assert summary.acceleration == acceleration
-        percentile = result.summary("m", ALPHA)
+        percentile = result.interval("m", ALPHA)
         assert percentile.interval == "percentile"
         assert percentile.ci == pytest.approx(tuple(np.quantile(draws, [0.025, 0.975])))
         with pytest.raises(ValueError, match="estimate and acceleration"):
-            result.summary("m", ALPHA, interval="bca")
+            result.interval("m", ALPHA, interval="bca")
 
 
 # ------------------------------------------------------------------ T3: the sup-t band

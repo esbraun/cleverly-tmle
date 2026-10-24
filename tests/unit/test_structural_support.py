@@ -138,7 +138,7 @@ class TestAnUncoveredFitReadsExperimental:
             assert support is not UNCLASSIFIED
 
     def test_the_repr_and_the_frame_carry_the_label(self, uncovered: Any) -> None:
-        assert "[experimental]" in repr(uncovered["ey_regimen[always]"])
+        assert repr(uncovered["ey_regimen[always]"]).count(", experimental") == 1
         frame = uncovered.to_frame()
         assert set(frame["support"]) == {"experimental"}
         assert all(str(reason).startswith(NO_STUDY) for reason in frame["support_reason"])

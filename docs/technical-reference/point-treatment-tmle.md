@@ -1006,7 +1006,7 @@ when the outcome regression needs the columns and the treatment mechanism does n
 
 | composition | result |
 | --- | --- |
-| `DRTMLE` | the design prints the restriction. The summary adds a pinned line: "DRTMLE with treatment-mechanism covariates {Wg}: when the restriction fails, the treatment mechanism is inconsistent, and the mechanism-wrong rows of the one-wrong table in docs/technical-reference/dr-tmle/theorem.md decide the interval." See the [case table](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) |
+| `DRTMLE` | the design prints the restriction. The full summary adds a line under Method details: when treatment depends on other covariates too, the treatment model is wrong, and no result shows that the interval keeps its coverage. The mechanism-wrong rows of the [case table](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) decide the interval |
 | `CTMLE` | the pool, the ordering, the candidates and the lasso design read $W_g$. See [collaborative TMLE](collaborative-tmle.md#treatment-mechanism-covariates-and-the-candidate-pool) |
 | the omitted-variable bound | admitted on a plain `TMLE` fit, under the restriction. The fitted Riesz representer uses $g_n(W_g)$. See [the bound](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours) |
 | `with_extra_covariate`, used by the common-cause refutation | the new column joins $W_g$, so the refit keeps the restriction on the old columns |

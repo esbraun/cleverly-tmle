@@ -228,7 +228,8 @@ selector strategy to the declared subset $W_g$. The outcome regression keeps the
 | the outcome regression, the missingness mechanisms | the full set |
 
 `CTMLESelection.covariates` is the pool. `CTMLESelection.restricted_pool` is set only when the
-design declares a subset, and the summary then prints "collaborative candidate pool: {Wg}".
+design declares a subset. The search summary then reads the pool, marked "(declared)", under
+"Covariates searched", and the fit's full summary says the search drew only from it.
 
 A fit that selects nothing takes the status of the ordinary TMLE. These are a `"discrete"` fit with
 one candidate equal to the pool and a `"learners"` fit with an empty declared list. The test
