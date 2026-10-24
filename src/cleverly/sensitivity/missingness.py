@@ -521,6 +521,11 @@ def missingness_tilt(
         arm_gamma=declared,
         level=1.0 - float(result.config.alpha_sig),
         statuses=tuple((name, str(result[name].inference)) for name in names),
+        ratios=tuple(
+            name
+            for name, target in _tilt_targets(result).items()
+            if name in names and target.kind == "ratio"
+        ),
     )
 
 

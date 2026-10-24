@@ -20,6 +20,7 @@ from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
+from .._summary import short_repr
 from ..data.causal_data import arm_share
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -123,7 +124,7 @@ class ConfounderStrengthGrid:
         return tuple(tuple(point) for point in product(*axes))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ObservedConfounderCalibration:
     """Record one model-dependent observed-covariate calibration.
 
@@ -150,8 +151,14 @@ class ObservedConfounderCalibration:
     method: str
     component: str | None = None
 
+    def __repr__(self) -> str:
+        facts = [("", self.covariate), ("role", self.role), ("strength", f"{self.strength:.3g}")]
+        if self.component is not None:
+            facts.append(("component", self.component))
+        return short_repr("ObservedConfounderCalibration", facts)
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, repr=False)
 class SimulatedConfoundingCell:
     """Store one strength pair's estimate or structured failure.
 
@@ -204,6 +211,23 @@ class SimulatedConfoundingCell:
     intermediate_strength: float | None = None
     induced_intermediate_association: float | None = None
     induced_outcome_association: float | None = None
+
+    def __repr__(self) -> str:
+        strength = self.treatment_strength
+        treatment = (
+            ", ".join(f"{float(item):g}" for item in strength)
+            if isinstance(strength, tuple)
+            else f"{float(strength):g}"
+        )
+        facts: list[tuple[str, Any]] = [
+            ("treatment", treatment),
+            ("outcome", f"{float(self.outcome_strength):g}"),
+        ]
+        if self.failure is not None:
+            facts.append(("", f"failed ({self.failure.error_type})"))
+        elif self.displacement is not None:
+            facts.append(("movement", f"{float(self.displacement):+.4g}"))
+        return short_repr("SimulatedConfoundingCell", facts)
 
 
 @dataclass(frozen=True, repr=False)

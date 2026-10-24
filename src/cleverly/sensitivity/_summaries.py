@@ -5,6 +5,11 @@ says in plain words what the analysis assumes. Symbols (``sigma^2``, ``nu^2``, t
 representer) and the formal statements wait for ``detail="full"``. Every word another
 summary shares comes from :mod:`cleverly._summary.vocabulary`.
 
+Each summary carries one standing ``sensitivity_assumption`` note. That departs from the
+rule that a note fires only when its condition holds, as statsmodels prints its standard
+error assumption on every OLS fit: a sensitivity table cannot be read without knowing what
+its strengths mean, and each text is specific to its analysis.
+
 The builders read only fields the result already holds, so a summary computes nothing new
 and a notebook display raises no warning.
 """
@@ -12,6 +17,7 @@ and a notebook display raises no warning.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
@@ -35,6 +41,7 @@ from ..inference.influence import spread_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._inference_status import InferenceStatus
+    from ._mechanism_stack import MechanismRefusal
     from ._objects import MissingnessTilt, RobustnessValue, SensitivityContour
     from .evalue import EValue
     from .marginal import MarginalSensitivityBounds
@@ -52,9 +59,36 @@ _MECHANISM_NOUNS = {
     "intermediate": "the intermediate variable",
 }
 
+#: The plug-in refusals whose cause is the correction the standard error needs, not the
+#: learner (``_mechanism_stack``).
+_CORRECTION_KEYS = frozenset(
+    {
+        "corrected_nonpositive",
+        "correction_unstable",
+        "truncation_active",
+        "mismatch",
+        "missing_arm",
+        "score_not_zero",
+        "singular",
+    }
+)
+
+#: The note code and plain text of each part of an E-value's note (``EValue.note_parts``).
+#: A derived ratio carries no condition, so it prints only under the full settings.
+_EVALUE_PARTS = {
+    "conversion_or": ("approximate_scale", "evalue_conversion_or"),
+    "conversion_rd": ("approximate_scale", "evalue_conversion_rd"),
+    "conversion_smd": ("approximate_scale", "evalue_conversion_smd"),
+    "censoring": ("censoring_conditions", "censoring_conditions"),
+    "per_arm": ("per_arm_conditions", "per_arm_conditions"),
+}
+
 #: The most rows and columns a contour table prints.
 _CONTOUR_ROWS = 6
 _CONTOUR_COLUMNS = 5
+
+#: A default object repr's address, which no summary prints.
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
 
 # ----------------------------------------------------------------- numbers
@@ -88,6 +122,10 @@ def _interval(low: Any, high: Any, decimals: int) -> Cell:
     )
 
 
+def _label(text: str) -> Cell:
+    return Cell(text, text)
+
+
 def _strength(value: Any) -> str:
     """A strength, share or alignment at 3 decimals."""
     return number_text(value, 3)
@@ -101,9 +139,31 @@ def _null(value: float) -> str:
     return f"{value:g}"
 
 
+def _names(names: Sequence[Any]) -> str:
+    return ", ".join(str(name) for name in names)
+
+
+def _estimate_fact(estimand: str, psi: float) -> tuple[str, str]:
+    return (V.ESTIMATE_ANALYSED, f"{estimand} = {number_text(psi, _decimals([psi]))}")
+
+
+# ----------------------------------------------------------------- shared notes
+
+
 def _alignment(rho: float) -> str:
     text = f"{_strength(rho)} (rho)"
-    return text + " (worst case)" if abs(rho) == 1.0 else text
+    return text + ", worst case" if abs(rho) == 1.0 else text
+
+
+def _alignment_note(rho: float) -> Note | None:
+    """What a stated alignment below the worst case assumes."""
+    if abs(rho) == 1.0:
+        return None
+    return note("alignment_stated", TEXTS["alignment_stated"].format(rho=_strength(rho)))
+
+
+def _alignment_clause(rho: float) -> str:
+    return "" if abs(rho) == 1.0 else f" at alignment {_strength(rho)}"
 
 
 def _joint_note(features: Sequence[str]) -> Note | None:
@@ -121,6 +181,7 @@ def _joint_note(features: Sequence[str]) -> Note | None:
 
 
 def _status_note(status: str, names: str, label: str) -> Note:
+    """The shared note of a table with a diagnostic spread column."""
     record = status_record(status)
     return note(
         "no_inference",
@@ -128,9 +189,31 @@ def _status_note(status: str, names: str, label: str) -> Note:
     )
 
 
-def _limits_withheld(reason_is_plugin: bool) -> Note:
-    key = "limits_withheld_plugin" if reason_is_plugin else "limits_withheld_zero"
-    return note("limits_withheld", TEXTS[key])
+def _limit_status_note(status: str, names: str, label: str) -> Note:
+    """The note of a bound whose limits are a diagnostic at the estimate's status."""
+    record = status_record(status)
+    return note(
+        "no_inference_sensitivity",
+        TEXTS["no_inference_sensitivity"].format(
+            names=names, reason=record.plain_reason, label=label
+        ),
+    )
+
+
+def _limits_withheld(refusal: MechanismRefusal | None) -> Note:
+    """Why a bound has no one-sided limits, worded by the rule that withheld them."""
+    if refusal is None:
+        return note("limits_withheld", TEXTS["limits_withheld_zero"])
+    if refusal.key == "consistent_mechanism":
+        key = "limits_withheld_consistent"
+    elif refusal.key == "configuration":
+        key = "limits_withheld_configuration"
+    elif refusal.key in _CORRECTION_KEYS:
+        key = "limits_withheld_correction"
+    else:
+        key = "limits_withheld_learner"
+    alternative = without_roadmap(refusal.alternative) if refusal.alternative else ""
+    return note("limits_withheld", TEXTS[key].format(alternative=alternative).strip())
 
 
 def _descriptive(what: str) -> Note:
@@ -172,13 +255,21 @@ def _nu2_setting(nu2_estimator: str, correction: float | None) -> str:
     return "Estimate of nu^2: plug-in, uncorrected."
 
 
+def _formal(text: str) -> str:
+    """A stored formal sentence, without roadmap pointers or object addresses."""
+    return _ADDRESS.sub("", without_roadmap(text))
+
+
 # ----------------------------------------------------------------- SensitivityBounds
 
 
-def _rv_sentence(rv: float | None, null: float) -> str:
+def _rv_verdict(rv: float | None, null: float, rho: float) -> str:
+    alignment = _alignment_clause(rho)
     if rv is None:
-        return TEXTS["rv_unreached"].format(null=_null(null))
-    return TEXTS["rv_reached"].format(rv=_strength(rv), null=_null(null))
+        return TEXTS["verdict_rv_unreached"].format(null=_null(null), alignment=alignment)
+    return TEXTS["verdict_rv_reached"].format(
+        rv=_strength(rv), null=_null(null), alignment=alignment
+    )
 
 
 def _rv_cell(value: float | None) -> Cell:
@@ -205,27 +296,17 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
     check_detail(detail)
     status = cast("InferenceStatus", bounds.inference)
     null = bounds.null_hypothesis
-    reason = bounds._limit_reason()
-    derived = reason is None
+    derived = bounds._limits_derived
     inferential = supplies_inference(status)
     excludes = (bounds.lower - null) * (bounds.upper - null) > 0
     header = [
-        (
-            V.QUESTION,
-            f"how far left-out confounders of the stated strength could move {bounds.estimand}",
-        ),
-        (
-            V.ESTIMATE_ANALYSED,
-            f"{bounds.estimand} = {number_text(bounds.psi, _decimals([bounds.psi]))}",
-        ),
+        (V.QUESTION, f"how far left-out confounders could move {bounds.estimand}"),
+        _estimate_fact(bounds.estimand, bounds.psi),
+        (V.ALIGNMENT, _alignment(bounds.rho)),
         (V.OUTCOME_STRENGTH, f"{_strength(bounds.cf_y)} (cf_y)"),
         (V.TREATMENT_STRENGTH, f"{_strength(bounds.cf_d)} (cf_d)"),
-        (V.ALIGNMENT, _alignment(bounds.rho)),
         (V.LARGEST_SHIFT, number_text(bounds.bias, _decimals([bounds.psi, bounds.bias]))),
-        (
-            V.CONCLUSION,
-            f"the range {'excludes' if excludes else 'includes'} {_null(null)}",
-        ),
+        (V.CONCLUSION, f"range {'excludes' if excludes else 'includes'} {_null(null)}"),
     ]
     values = [bounds.psi, bounds.lower, bounds.upper]
     if derived:
@@ -233,7 +314,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
     decimals = _decimals(values)
     columns = ["", V.ESTIMATE, "range"]
     row = [
-        Cell(bounds.estimand, bounds.estimand),
+        _label(bounds.estimand),
         _number(bounds.psi, decimals),
         _interval(bounds.lower, bounds.upper, decimals),
     ]
@@ -245,47 +326,58 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
             columns.append(V.SPREAD_LABELS["plugin_interval"])
         row.append(_interval(bounds._ci_lower, bounds._ci_upper, decimals))
     tables = [SummaryTable(tuple(columns), (tuple(row),))]
-    rv_rows = [(Cell("estimate", "estimate"), _rv_cell(bounds.robustness_value))]
+    rv_rows = [(_label("estimate"), _rv_cell(bounds.robustness_value))]
     if derived:
         name = f"{level} limit" if inferential else "plug-in limit (diagnostic)"
-        rv_rows.append((Cell(name, name), _rv_cell(bounds._robustness_value_ci)))
+        rv_rows.append((_label(name), _rv_cell(bounds._robustness_value_ci)))
     tables.append(SummaryTable(("", "robustness value"), tuple(rv_rows), title="Robustness value"))
 
-    assumption = TEXTS["assumption_bounds"].format(
-        rv_sentence=_rv_sentence(bounds.robustness_value, null)
-    )
+    assumption = TEXTS["assumption_bounds"]
     if derived:
         assumption += " " + TEXTS["assumption_bounds_limits"].format(level=level)
     notes = [note("sensitivity_assumption", assumption)]
+    if derived:
+        notes.append(
+            note(
+                "rv_limit",
+                TEXTS["rv_limit"].format(limit=rv_rows[1][0].text, level=level, null=_null(null)),
+            )
+        )
+    alignment = _alignment_note(bounds.rho)
+    if alignment is not None:
+        notes.append(alignment)
     if derived and not inferential:
-        notes.append(_status_note(status, bounds.estimand, V.SPREAD_LABELS["plugin_interval"]))
+        notes.append(
+            _limit_status_note(status, bounds.estimand, V.SPREAD_LABELS["plugin_interval"])
+        )
     if not derived:
-        notes.append(_limits_withheld(bounds.limit_refusal is not None))
+        notes.append(_limits_withheld(bounds.limit_refusal))
     elif bounds.limit_descriptive:
         notes.append(_descriptive("one-sided limits"))
     joint = _joint_note(bounds.features)
     if joint is not None:
         notes.append(joint)
     if bounds.assumption is not None:
-        notes.append(note("consistent_mechanism", without_roadmap(bounds.assumption)))
+        notes.append(note("consistent_mechanism", TEXTS["consistent_mechanism"]))
 
     sections: list[SummarySection] = []
     if detail == "full":
         assumptions = [_BOUND_ASSUMPTION]
         if derived:
             assumptions.append(_LIMIT_ASSUMPTION)
+        if bounds.assumption is not None:
+            assumptions.append(_formal(bounds.assumption))
         settings = [
             f"Bias scale sqrt(sigma^2 nu^2): {bounds.max_bias:.4g}.",
             _nu2_setting(bounds.nu2_estimator, bounds.nu2_correction),
             f"Null value: {_null(null)}.",
             f"Confidence level of the limits: {level}.",
         ]
+        reason = bounds._limit_reason()
         if reason is not None:
-            settings.append(f"Why the limits are withheld: {without_roadmap(reason)}")
-        if bounds.limit_reading is not None:
-            settings.append(
-                f"Evidence for the limits: {without_roadmap(bounds.limit_reading.sentence)}"
-            )
+            settings.append(f"Why the limits are withheld: {_formal(reason)}")
+        if bounds.limit_reading is not None and derived:
+            settings.append(f"Evidence for the limits: {_formal(bounds.limit_reading.sentence)}")
         sections = [
             SummarySection(V.SECTION_ASSUMPTIONS, tuple(assumptions)),
             SummarySection(V.SECTION_SETTINGS, tuple(settings)),
@@ -294,8 +386,10 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
     return Summary.build(
         title="Bounds under omitted confounding",
         header=header,
+        header_split=3,
         tables=tables,
         notes=notes,
+        reading=_rv_verdict(bounds.robustness_value, null, bounds.rho),
         sections=sections,
     )
 
@@ -344,37 +438,32 @@ def robustness_summary(value: RobustnessValue, detail: Detail) -> Summary:
     limit_key = spread_name("rva", status)
     derived = "limit_refusal" not in value
     header = [
-        (
-            V.QUESTION,
-            f"how strong left-out confounders would need to be to move "
-            f"{value.estimand} to {_null(null)}",
-        ),
-        (
-            V.ESTIMATE_ANALYSED,
-            f"{value.estimand} = {number_text(value.psi, _decimals([value.psi]))}",
-        ),
+        (V.QUESTION, f"how strong left-out confounders must be to move {value.estimand}"),
+        _estimate_fact(value.estimand, value.psi),
         (V.ALIGNMENT, _alignment(value.rho)),
     ]
-    rows = [(Cell("estimate", "estimate"), _rv_cell(value["rv"]))]
+    rows = [(_label("estimate"), _rv_cell(value["rv"]))]
     if derived:
         name = f"{level} limit" if inferential else "plug-in limit (diagnostic)"
-        rows.append((Cell(name, name), _rv_cell(value[limit_key])))
+        rows.append((_label(name), _rv_cell(value[limit_key])))
     tables = [SummaryTable(("", "robustness value"), tuple(rows))]
-    sentence = _rv_sentence(value["rv"], null)
-    if derived:
-        sentence += " " + TEXTS["rv_limit_reached"].format(
-            limit=rows[1][0].text, level=level, null=_null(null)
-        )
     notes = [
-        note(
-            "sensitivity_assumption",
-            TEXTS["assumption_robustness"].format(null=_null(null), rv_sentence=sentence),
-        )
+        note("sensitivity_assumption", TEXTS["assumption_robustness"].format(null=_null(null)))
     ]
+    if derived:
+        notes.append(
+            note(
+                "rv_limit",
+                TEXTS["rv_limit"].format(limit=rows[1][0].text, level=level, null=_null(null)),
+            )
+        )
+    alignment = _alignment_note(value.rho)
+    if alignment is not None:
+        notes.append(alignment)
     if derived and not inferential:
-        notes.append(_status_note(status, value.estimand, "plug-in limit (diagnostic)"))
+        notes.append(_limit_status_note(status, value.estimand, V.SPREAD_LABELS[limit_key]))
     if not derived:
-        notes.append(_limits_withheld(str(value["limit_refusal"]).startswith("nu2_estimator")))
+        notes.append(_limits_withheld(value.refusal))
     elif value.get("limit_licensed") is False:
         notes.append(_descriptive("limit robustness value"))
     sections: list[SummarySection] = []
@@ -386,17 +475,23 @@ def robustness_summary(value: RobustnessValue, detail: Detail) -> Summary:
         ]
         if not derived:
             settings.append(
-                f"Why the limit value is withheld: {without_roadmap(str(value['limit_refusal']))}"
+                f"Why the limit value is withheld: {_formal(str(value['limit_refusal']))}"
             )
         if "limit_sentence" in value:
-            settings.append(f"Evidence for the limit: {without_roadmap(value['limit_sentence'])}")
+            settings.append(f"Evidence for the limit: {_formal(value['limit_sentence'])}")
         sections = [
             SummarySection(V.SECTION_ASSUMPTIONS, (_BOUND_ASSUMPTION,)),
             SummarySection(V.SECTION_SETTINGS, tuple(settings)),
             _definitions_bounds(),
         ]
     return Summary.build(
-        title="Robustness value", header=header, tables=tables, notes=notes, sections=sections
+        title="Robustness value",
+        header=header,
+        header_split=2,
+        tables=tables,
+        notes=notes,
+        reading=_rv_verdict(value["rv"], null, value.rho),
+        sections=sections,
     )
 
 
@@ -428,35 +523,19 @@ def elements_summary(elements: SensitivityElements, detail: Detail) -> Summary:
         The summary.
     """
     check_detail(detail)
-    header = [
-        (
-            V.QUESTION,
-            f"the scales that turn a confounder strength into a bias bound for {elements.estimand}",
-        ),
-    ]
-    values = [elements.sigma2, elements.nu2, elements.max_bias]
-    decimals = _decimals(values)
+    header = [(V.QUESTION, f"the scales of the bias bound for {elements.estimand}")]
+    decimals = _decimals([elements.sigma2, elements.nu2, elements.max_bias])
     rows = [
-        (
-            Cell(
-                "outcome variance left after adjustment", "outcome variance left after adjustment"
-            ),
-            _number(elements.sigma2, decimals),
-        ),
-        (Cell("average squared weight", "average squared weight"), _number(elements.nu2, decimals)),
-        (Cell("bias scale", "bias scale"), _number(elements.max_bias, decimals)),
+        (_label("outcome variance left after adjustment"), _number(elements.sigma2, decimals)),
+        (_label("average squared weight"), _number(elements.nu2, decimals)),
+        (_label("bias scale"), _number(elements.max_bias, decimals)),
     ]
     if elements.nu2_correction is not None:
-        rows.append(
-            (
-                Cell("plug-in correction", "plug-in correction"),
-                _number(elements.nu2_correction, decimals),
-            )
-        )
+        rows.append((_label("plug-in correction"), _number(elements.nu2_correction, decimals)))
     tables = [SummaryTable(("", "value"), tuple(rows))]
     notes = [note("sensitivity_assumption", TEXTS["assumption_elements"])]
     if elements.psi_max_bias is None:
-        notes.append(_limits_withheld(elements.limit_refusal is not None))
+        notes.append(_limits_withheld(elements.limit_refusal))
     joint = _joint_note(elements.features)
     if joint is not None:
         notes.append(joint)
@@ -464,15 +543,13 @@ def elements_summary(elements: SensitivityElements, detail: Detail) -> Summary:
     if detail == "full":
         settings = [_nu2_setting(elements.nu2_estimator, elements.nu2_correction)]
         if elements.limit_refusal is not None:
-            settings.append(
-                f"Why the limits are withheld: {without_roadmap(elements.limit_refusal.text)}"
-            )
+            settings.append(f"Why the limits are withheld: {_formal(elements.limit_refusal.text)}")
         sections = [
             SummarySection(
                 V.SECTION_ASSUMPTIONS,
                 (
-                    "The rows are sigma^2, nu^2 and sqrt(sigma^2 nu^2), each with an influence "
-                    "curve, so a bound built from them has one-sided limits.",
+                    "The rows are sigma^2, nu^2 and sqrt(sigma^2 nu^2). With influence "
+                    "curves for each, a bound built from them has one-sided limits.",
                     _BOUND_ASSUMPTION,
                 ),
             ),
@@ -504,10 +581,6 @@ def elements_repr(elements: SensitivityElements) -> str:
 # ----------------------------------------------------------------- BenchmarkResult
 
 
-def _names(names: Sequence[str]) -> str:
-    return ", ".join(str(name) for name in names)
-
-
 def benchmark_summary(record: BenchmarkResult, detail: Detail) -> Summary:
     """The summary of a benchmark against observed covariates.
 
@@ -527,31 +600,27 @@ def benchmark_summary(record: BenchmarkResult, detail: Detail) -> Summary:
     covariates = _names(record.covariates)
     decimals = _decimals([record.psi_long, record.psi_short])
     header = [
-        (
-            V.QUESTION,
-            f"how strong left-out confounders would be if they mattered as much as {covariates}",
-        ),
+        (V.QUESTION, f"how strong confounders like {covariates} would be"),
         (V.ESTIMATE_ANALYSED, f"{record.estimand} = {number_text(record.psi_long, decimals)}"),
         (V.BENCHMARK_COVARIATES, covariates),
-        (V.IMPLIED_STRENGTHS, f"{_strength(record.cf_y)} (cf_y), {_strength(record.cf_d)} (cf_d)"),
+        (V.OUTCOME_STRENGTH, f"{_strength(record.cf_y)} (cf_y)"),
+        (V.TREATMENT_STRENGTH, f"{_strength(record.cf_d)} (cf_d)"),
         (V.IMPLIED_ALIGNMENT, f"{_strength(record.rho)} (rho)"),
     ]
     scales = _decimals([record.sigma2_long, record.sigma2_short, record.nu2_long, record.nu2_short])
     rows = (
         (
-            Cell("estimate", "estimate"),
+            _label("estimate"),
             _number(record.psi_long, decimals),
             _number(record.psi_short, decimals),
         ),
         (
-            Cell(
-                "outcome variance left after adjustment", "outcome variance left after adjustment"
-            ),
+            _label("outcome variance left after adjustment"),
             _number(record.sigma2_long, scales),
             _number(record.sigma2_short, scales),
         ),
         (
-            Cell("average squared weight", "average squared weight"),
+            _label("average squared weight"),
             _number(record.nu2_long, scales),
             _number(record.nu2_short, scales),
         ),
@@ -561,21 +630,19 @@ def benchmark_summary(record: BenchmarkResult, detail: Detail) -> Summary:
             ("", "with", "without"), rows, title="With and without the benchmark covariates"
         )
     ]
-    notes = [
-        note(
-            "sensitivity_assumption",
-            TEXTS["assumption_benchmark"].format(
-                covariates=covariates,
-                delta=f"{record.delta_psi:+.{decimals}f}",
-            ),
-        )
-    ]
+    clipped_d = record.gain_d >= 1.0
+    assumption = TEXTS["assumption_benchmark"].format(
+        covariates=covariates, delta=f"{record.delta_psi:+.{decimals}f}"
+    )
+    if not clipped_d:
+        assumption += " " + TEXTS["benchmark_pointer"]
+    notes = [note("sensitivity_assumption", assumption)]
     clipped = []
     if record.gain_y > 1.0:
         clipped.append(
             TEXTS["strength_clipped_y"].format(covariates=covariates, gain=f"{record.gain_y:.3g}")
         )
-    if record.gain_d >= 1.0:
+    if clipped_d:
         clipped.append(TEXTS["strength_clipped_d"].format(gain=f"{record.gain_d:.3g}"))
     if clipped:
         notes.append(note("strength_clipped", " ".join(clipped)))
@@ -589,8 +656,8 @@ def benchmark_summary(record: BenchmarkResult, detail: Detail) -> Summary:
                 V.SECTION_ASSUMPTIONS,
                 (
                     "cf_y is the outcome gain (sigma^2_short / sigma^2_long - 1) and cf_d the "
-                    "weight gain (nu^2_long / nu^2_short - 1), each clipped to [0, 1]; the "
-                    "gains serve as the strengths themselves (Chernozhukov et al., Long story "
+                    "weight gain (nu^2_long / nu^2_short - 1), each clipped to [0, 1]. The "
+                    "gains are proxies for the strengths (Chernozhukov et al., Long story "
                     "short, Appendix E.5, Remark 8).",
                     "rho is the alignment those covariates imply. A value well below 1 says "
                     "the worst case rho = 1 is pessimistic for confounders like these.",
@@ -608,6 +675,7 @@ def benchmark_summary(record: BenchmarkResult, detail: Detail) -> Summary:
     return Summary.build(
         title="Benchmark against observed covariates",
         header=header,
+        header_split=2,
         tables=tables,
         notes=notes,
         sections=sections,
@@ -659,22 +727,13 @@ def contour_summary(contour: SensitivityContour, detail: Detail) -> Summary:
     d_values = sorted(set(cf_d))
     y_values = sorted(set(cf_y))
     cells = {(d, y): v for d, y, v in zip(cf_d, cf_y, value, strict=True)}
-    size = max(len(d_values), len(y_values))
     header = [
-        (
-            V.QUESTION,
-            f"the {contour.bound} end of the range for {contour.estimand} over a grid "
-            "of confounder strengths",
-        ),
-        (
-            V.ESTIMATE_ANALYSED,
-            f"{contour.estimand} = {number_text(contour.psi, _decimals([contour.psi]))}",
-        ),
+        (V.QUESTION, f"the {contour.bound} end of the range over strengths"),
+        _estimate_fact(contour.estimand, contour.psi),
         (V.ALIGNMENT, _alignment(contour.rho)),
         (
             V.GRID,
-            f"{len(y_values)} x {len(d_values)}, cf_y to {_strength(max(y_values))}, "
-            f"cf_d to {_strength(max(d_values))}",
+            f"cf_y to {_strength(max(y_values))}, cf_d to {_strength(max(d_values))}",
         ),
     ]
     rows_shown = [y_values[index] for index in _spread_indices(len(y_values), _CONTOUR_ROWS)]
@@ -699,7 +758,10 @@ def contour_summary(contour: SensitivityContour, detail: Detail) -> Summary:
             note(
                 "grid_thinned",
                 TEXTS["grid_thinned"].format(
-                    rows=len(rows_shown), columns=len(columns_shown), size=size
+                    rows=len(rows_shown),
+                    columns=len(columns_shown),
+                    y_size=len(y_values),
+                    d_size=len(d_values),
                 ),
             )
         )
@@ -707,11 +769,16 @@ def contour_summary(contour: SensitivityContour, detail: Detail) -> Summary:
     if detail == "full":
         sections = [
             SummarySection(V.SECTION_ASSUMPTIONS, (_BOUND_ASSUMPTION,)),
+            SummarySection(
+                V.SECTION_SETTINGS,
+                (f"Grid: {len(y_values)} cf_y values by {len(d_values)} cf_d values.",),
+            ),
             _definitions_bounds(),
         ]
     return Summary.build(
         title="Bias-adjusted bounds over a grid of strengths",
         header=header,
+        header_split=2,
         tables=tables,
         notes=notes,
         sections=sections,
@@ -747,13 +814,9 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
         The summary.
     """
     check_detail(detail)
-    scale = value.scale + (", converted to a risk ratio" if value.approximate else "")
+    scale = value.scale + (", converted" if value.approximate else "")
     header = [
-        (
-            V.QUESTION,
-            "how strongly an unmeasured confounder would need to be associated with "
-            f"both the treatment and the outcome to explain away {value.estimand}",
-        ),
+        (V.QUESTION, f"how strong a confounder would explain away {value.estimand}"),
         (V.ESTIMATE_ANALYSED, value.estimand),
         (V.SCALE, scale),
     ]
@@ -761,8 +824,8 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
     nearest = low if value.risk_ratio >= 1.0 else high
     limit_name = f"{_level(value.level)} limit nearest the null"
     rows = (
-        (Cell("estimate", "estimate"), _number(value.risk_ratio, 3), _number(value.point, 2)),
-        (Cell(limit_name, limit_name), _number(nearest, 3), _number(value.limit, 2)),
+        (_label("estimate"), _number(value.risk_ratio, 3), _number(value.point, 2)),
+        (_label(limit_name), _number(nearest, 3), _number(value.limit, 2)),
     )
     tables = [SummaryTable(("", "risk ratio", "E-value"), rows)]
     limit_sentence = (
@@ -771,17 +834,11 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
         else TEXTS["evalue_limit_covers"]
     )
     key = "assumption_evalue" if value.bias_factor == "single" else "assumption_evalue_per_arm"
-    notes = [
-        note(
-            "sensitivity_assumption",
-            TEXTS[key].format(point=number_text(value.point, 2), limit_sentence=limit_sentence),
-        )
-    ]
-    from .evalue import _PER_ARM_CONDITIONS
-
-    conversion = value.note.replace(_PER_ARM_CONDITIONS, "").strip()
-    if value.approximate and conversion:
-        notes.append(note("approximate_scale", without_roadmap(conversion)))
+    notes = [note("sensitivity_assumption", TEXTS[key])]
+    for kind, _ in value.note_parts:
+        if kind in _EVALUE_PARTS:
+            code, text_key = _EVALUE_PARTS[kind]
+            notes.append(note(code, TEXTS[text_key]))
     if value.truncated_bound is not None:
         notes.append(
             note(
@@ -799,14 +856,18 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
             f"Risk ratio {value.risk_ratio:.4g}, {_level(value.level)} interval "
             f"[{low:.4g}, {high:.4g}].",
         ]
-        if value.source_estimand is not None and value.source_estimand != value.estimand:
-            settings.append(f"Converted from the reported {value.source_estimand}.")
+        for kind, _ in value.note_parts:
+            if kind == "derived":
+                settings.append(
+                    TEXTS["evalue_derived"].format(
+                        name=value.estimand, source=value.source_estimand
+                    )
+                )
         if value.limit_reading is not None:
-            settings.append(
-                f"Evidence for the limit: {without_roadmap(value.limit_reading.sentence)}"
-            )
+            settings.append(f"Evidence for the limit: {_formal(value.limit_reading.sentence)}")
         if value.support.label == "experimental":
             settings.append(f"Why experimental: {plain_support_reason(value.support.reason)}")
+        formal = tuple(text for kind, text in value.note_parts if kind != "derived")
         sections = [
             SummarySection(
                 V.SECTION_ASSUMPTIONS,
@@ -815,13 +876,21 @@ def evalue_summary(value: EValue, detail: Detail) -> Summary:
                     "below 1): the smallest equal strength, on the risk-ratio scale, of the "
                     "confounder's association with the treatment and with the outcome that "
                     "could move RR to 1 (VanderWeele and Ding, 2017).",
-                    *((_PER_ARM_CONDITIONS,) if value.bias_factor == "per_arm_product" else ()),
+                    *formal,
                 ),
             ),
             SummarySection(V.SECTION_SETTINGS, tuple(settings)),
         ]
     return Summary.build(
-        title="E-value", header=header, tables=tables, notes=notes, sections=sections
+        title="E-value",
+        header=header,
+        header_split=1,
+        tables=tables,
+        notes=notes,
+        reading=TEXTS["verdict_evalue"].format(
+            point=number_text(value.point, 2), limit_sentence=limit_sentence
+        ),
+        sections=sections,
     )
 
 
@@ -840,6 +909,20 @@ def evalue_repr(value: EValue) -> str:
 # ----------------------------------------------------------------- MarginalSensitivityBounds
 
 
+def _breakdown_row(name: str, gamma: float | None, grid: Sequence[float]) -> tuple[Cell, ...]:
+    """The grid values around the first one whose range or interval includes the null.
+
+    The smallest such gamma lies above the last grid value that excludes the null and at
+    or below the first that includes it, so the row prints both.
+    """
+    if gamma is None:
+        last = max(grid, default=1.0)
+        return (_label(name), Cell(None, f"none up to {last:g}"), Cell(last, f"{last:g}"))
+    earlier = [value for value in grid if value < gamma]
+    before = Cell(max(earlier), f"{max(earlier):g}") if earlier else Cell(None, V.MISSING)
+    return (_label(name), Cell(gamma, f"{gamma:g}"), before)
+
+
 def marginal_summary(bounds: MarginalSensitivityBounds, detail: Detail) -> Summary:
     """The summary of marginal sensitivity model bounds.
 
@@ -856,21 +939,11 @@ def marginal_summary(bounds: MarginalSensitivityBounds, detail: Detail) -> Summa
         The summary.
     """
     check_detail(detail)
-    largest = max((row.gamma for row in bounds.rows), default=1.0)
+    grid = sorted(row.gamma for row in bounds.rows)
     header = [
-        (
-            V.QUESTION,
-            f"the range of {bounds.estimand} if an unmeasured confounder could change "
-            "each unit's odds of treatment by up to a factor Gamma",
-        ),
+        (V.QUESTION, f"the range of {bounds.estimand} as treatment odds may shift"),
         (V.OUTCOME, bounds.outcome_kind),
     ]
-    if bounds.null is not None:
-        for label, gamma in (
-            (V.BREAKDOWN, bounds.breakdown),
-            (V.BREAKDOWN_INTERVAL, bounds.limit_breakdown),
-        ):
-            header.append((label, f"none up to {largest:g}" if gamma is None else f"{gamma:g}"))
     decimals = _decimals(
         value
         for row in bounds.rows
@@ -886,18 +959,33 @@ def marginal_summary(bounds: MarginalSensitivityBounds, detail: Detail) -> Summa
         )
         for row in bounds.rows
     )
-    tables = [SummaryTable(("Gamma", "lower", "upper", f"{level} interval for the range"), rows)]
-    notes = [
-        note(
-            "sensitivity_assumption",
-            TEXTS["assumption_marginal"].format(estimand=bounds.estimand, level=level),
+    tables = [SummaryTable(("gamma", "lower", "upper", f"{level} interval for the range"), rows)]
+    if bounds.null is not None:
+        null = _null(bounds.null)
+        tables.append(
+            SummaryTable(
+                ("", f"first grid gamma that includes {null}", "last that excludes it"),
+                (
+                    _breakdown_row("range", bounds.breakdown, grid),
+                    _breakdown_row(f"{level} interval", bounds.limit_breakdown, grid),
+                ),
+                title=f"Where the range reaches {null}",
+            )
         )
-    ]
+    assumption = TEXTS["assumption_marginal"].format(estimand=bounds.estimand)
+    if not bounds.limit_descriptive:
+        assumption += " " + TEXTS["marginal_interval"].format(level=level)
+    notes = [note("sensitivity_assumption", assumption)]
     if bounds.limit_descriptive:
         notes.append(_descriptive("interval for the range"))
     sections: list[SummarySection] = []
     if detail == "full":
         settings = []
+        if bounds.null is not None:
+            settings.append(
+                f"Null value: {_null(bounds.null)}. The smallest gamma at which the range "
+                "or interval reaches it lies between the two grid values its row prints."
+            )
         if bounds.quantile_learner:
             settings.append(f"Quantile learners: {_names(bounds.quantile_learner)}.")
         if bounds.pseudo_outcome_learner:
@@ -905,15 +993,16 @@ def marginal_summary(bounds: MarginalSensitivityBounds, detail: Detail) -> Summa
         if bounds.scale == "log":
             settings.append("The standard errors of the ends are on the log scale.")
         if bounds.limit_reading is not None:
-            settings.append(
-                f"Evidence for the interval: {without_roadmap(bounds.limit_reading.sentence)}"
-            )
+            settings.append(f"Evidence for the interval: {_formal(bounds.limit_reading.sentence)}")
         sections = [
             SummarySection(
                 V.SECTION_ASSUMPTIONS,
                 (
                     "Marginal sensitivity model: the odds ratio between P(A = a | W, U) and "
-                    "P(A = a | W) lies in [1 / Gamma, Gamma] for every unit (Tan, 2006).",
+                    "P(A = a | W) lies in [1 / gamma, gamma] for every unit (Tan, 2006).",
+                    "The interval covers the identified set with asymptotic probability at "
+                    "least the level, by a union bound over its two ends, when either the "
+                    "treatment model or the outcome quantile model is consistent.",
                 ),
             ),
             SummarySection(
@@ -923,6 +1012,7 @@ def marginal_summary(bounds: MarginalSensitivityBounds, detail: Detail) -> Summa
     return Summary.build(
         title="Bounds under the marginal sensitivity model",
         header=header,
+        header_split=1,
         tables=tables,
         notes=notes,
         sections=sections,
@@ -934,13 +1024,24 @@ def marginal_repr(bounds: MarginalSensitivityBounds) -> str:
     gammas = [row.gamma for row in bounds.rows]
     facts: list[tuple[str, Any]] = [("", bounds.estimand)]
     if gammas:
-        facts.append(("", f"Gamma {min(gammas):g} to {max(gammas):g}"))
+        facts.append(("", f"gamma {min(gammas):g} to {max(gammas):g}"))
     if bounds.null is not None:
         facts.append(("breakdown", "none" if bounds.breakdown is None else f"{bounds.breakdown:g}"))
     return short_repr("MarginalSensitivityBounds", facts)
 
 
 # ----------------------------------------------------------------- MissingnessTilt
+
+
+def _value(payload: dict[str, tuple[Any, ...]], key: str, index: int) -> Any:
+    column = payload.get(key)
+    return None if column is None else column[index]
+
+
+def _spread_decimals(spreads: Iterable[Any]) -> int:
+    """Decimals that show two significant figures of the smallest spread, within 2 to 6."""
+    sizes = [abs(float(s)) for s in spreads if _finite(s) and float(s) > 0]
+    return max(2, min(6, 1 - math.floor(math.log10(min(sizes or [1e-2])))))
 
 
 def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
@@ -965,11 +1066,7 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
     else:
         direction = ", ".join(f"arm {arm} x {value:g}" for arm, value in tilt.arm_gamma)
     header = [
-        (
-            V.QUESTION,
-            f"how {_names(names)} would move if units with a missing outcome differed "
-            "from recorded units with the same treatment and covariates",
-        ),
+        (V.QUESTION, "how the estimates move if missing outcomes differ"),
         (V.MISSING_OUTCOMES, f"{count_text(tilt.n_missing)} of {count_text(tilt.n)}"),
         (V.DIRECTION, direction),
     ]
@@ -979,17 +1076,15 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
     tables = []
     diagnostic: list[str] = []
     withheld: list[str] = []
-    level = _level(tilt.level)
     for name in names:
         indices = [index for index in range(count) if payload["estimand"][index] == name]
-        status = statuses.get(name, "influence_curve")
+        status = cast("InferenceStatus", statuses.get(name, "influence_curve"))
         inferential = supplies_inference(status)
         if not inferential:
             withheld.append(name)
-        spread_key = spread_name("std_err", cast("InferenceStatus", status))
-        low_key = spread_name("ci_lower", cast("InferenceStatus", status))
-        high_key = spread_name("ci_upper", cast("InferenceStatus", status))
-        spreads = [_value(payload, spread_key, index) for index in indices]
+        spread_key = spread_name("std_err", status)
+        low_key = spread_name("ci_lower", status)
+        high_key = spread_name("ci_upper", status)
         rows_values = []
         moved_diagnostic = False
         for index in indices:
@@ -1004,25 +1099,7 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
             rows_values.append((index, spread, low, high))
         if moved_diagnostic:
             diagnostic.append(name)
-        decimals = max(
-            2,
-            min(
-                6,
-                1
-                - math.floor(
-                    math.log10(
-                        min(
-                            [
-                                abs(float(s))
-                                for _, s, _, _ in rows_values
-                                if _finite(s) and float(s) > 0
-                            ]
-                            or [1e-2]
-                        )
-                    )
-                ),
-            ),
-        )
+        decimals = _spread_decimals(spread for _, spread, _, _ in rows_values)
         spread_label = (
             V.SPREAD_LABELS[spread_key] if inferential else V.SPREAD_LABELS["plugin_std_err"]
         )
@@ -1032,10 +1109,9 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
         rows = []
         for index, spread, low, high in rows_values:
             gamma = float(payload["gamma"][index])
-            label = f"{gamma:g}"
-            if payload.get("is_mar", [False] * count)[index]:
-                label += " (missing at random)"
-            mark = moved_diagnostic and inferential and not bool(payload["is_mar"][index])
+            mar = bool(payload["is_mar"][index])
+            label = f"{gamma:g}" + (" (missing at random)" if mar else "")
+            mark = moved_diagnostic and inferential and not mar
             rows.append(
                 (
                     Cell(gamma, label + (V.NO_INFERENCE_MARK if mark else "")),
@@ -1044,29 +1120,45 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
                     _interval(low, high, decimals),
                 )
             )
-        del spreads
         tables.append(
             SummaryTable(
                 ("gamma", V.ESTIMATE, spread_label, interval_label), tuple(rows), title=name
             )
         )
-    notes = [note("sensitivity_assumption", TEXTS["assumption_tilt"])]
+    arm_clause = (
+        ""
+        if tilt.arm_gamma is None
+        else ", multiplied for each arm by its declared factor (" + direction + ")"
+    )
+    notes = [note("sensitivity_assumption", TEXTS["assumption_tilt"].format(arm_clause=arm_clause))]
     if withheld:
         first = statuses[withheld[0]]
         notes.append(_status_note(first, _names(withheld), V.SPREAD_LABELS["plugin_std_err"]))
     if diagnostic:
+        log = all(name in tilt.ratios for name in diagnostic)
+        some = any(name in tilt.ratios for name in diagnostic)
+        scale = (
+            ", on the log scale"
+            if log
+            else f", on the log scale for {_names([n for n in diagnostic if n in tilt.ratios])}"
+            if some
+            else ""
+        )
         notes.append(
-            note("tilt_diagnostic", TEXTS["tilt_diagnostic"].format(names=_names(diagnostic)))
+            note(
+                "tilt_diagnostic",
+                TEXTS["tilt_diagnostic"].format(names=_names(diagnostic), scale=scale),
+            )
         )
     sections: list[SummarySection] = []
     if detail == "full":
-        settings = [f"Interval level: {level}."]
+        settings = [
+            f"Interval level: {_level(tilt.level)}.",
+            "Off gamma = 0 each interval is centred on the tilted estimate and reuses the "
+            "standard error of the missing-at-random analysis, with no new correction step.",
+        ]
         if tilt.arm_gamma is not None:
-            settings.append(
-                "Each arm's tilt is its multiplier times gamma: "
-                + ", ".join(f"arm {arm} x {value:g}" for arm, value in tilt.arm_gamma)
-                + "."
-            )
+            settings.append(f"Each arm's tilt is its multiplier times gamma: {direction}.")
         sections = [
             SummarySection(
                 V.SECTION_ASSUMPTIONS,
@@ -1082,15 +1174,11 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
     return Summary.build(
         title="Sensitivity to outcomes missing not at random",
         header=header,
+        header_split=1,
         tables=tables,
         notes=notes,
         sections=sections,
     )
-
-
-def _value(payload: dict[str, tuple[Any, ...]], key: str, index: int) -> Any:
-    column = payload.get(key)
-    return None if column is None else column[index]
 
 
 def tilt_repr(tilt: MissingnessTilt) -> str:
@@ -1109,6 +1197,70 @@ def _values_text(value: Any, spec: str) -> str:
     if isinstance(value, tuple):
         return ", ".join(_values_text(item, spec) for item in value)
     return format(float(value), spec)
+
+
+def _surface_laws(result: SimulatedConfoundingResult) -> tuple[str, str]:
+    """What each cell moves, and the plain treatment and outcome laws."""
+    if result.intermediate_name is not None:
+        moved = "the intermediate"
+        treatment = TEXTS["law_intermediate"].format(name=result.intermediate_name)
+    elif result.treatment_family == "categorical" and result.arm_pair is not None:
+        moved = "the treatment"
+        pair = result.arm_pair
+        first, second = (pair[0], pair[1]) if len(pair) == 2 else (pair, "")
+        treatment = TEXTS["law_categorical"].format(a=first, b=second)
+    elif result.treatment_family == "vector":
+        moved = "each treatment component"
+        treatment = TEXTS["law_vector"]
+    elif result.treatment_family == "longitudinal":
+        moved = "each treatment node"
+        treatment = TEXTS["law_longitudinal"]
+    elif result.treatment_family == "binary":
+        moved = "the treatment"
+        treatment = TEXTS["law_binary"]
+    else:
+        moved = "the treatment"
+        treatment = TEXTS["law_continuous"]
+    if result.bounded_outcome_law == "logit":
+        outcome = TEXTS["law_outcome_logit"]
+    elif result.bounded_outcome_law == "normal_score":
+        outcome = TEXTS["law_outcome_normal_score"]
+    elif result.outcome_family == "gaussian":
+        outcome = TEXTS["law_outcome_gaussian"]
+    else:
+        outcome = TEXTS["law_outcome_binomial"]
+    return moved, f"{treatment} {outcome}"
+
+
+def _surface_caveats(result: SimulatedConfoundingResult) -> list[Note]:
+    """The conditions that change how a movement reads, each when it holds."""
+    notes = []
+    if result.estimand.startswith(("ey_ipsi[", "ate_ipsi[")):
+        notes.append(note("incremental_reading", TEXTS["incremental_reading"]))
+    if result.estimand.startswith("ey_learned_rule["):
+        notes.append(note("learned_rule_reading", TEXTS["learned_rule_reading"]))
+    if result.observation_reads is not None:
+        reads = _names(result.observation_reads) or "nothing"
+        notes.append(note("observation_reads", TEXTS["observation_reads"].format(reads=reads)))
+    if result.bounded_share is not None and result.bounded_share > 0.0:
+        notes.append(
+            note("bounded_rows", TEXTS["bounded_rows"].format(share=f"{result.bounded_share:.3f}"))
+        )
+    if result.refit_folds == "redrawn":
+        notes.append(note("redrawn_folds", TEXTS["redrawn_folds"]))
+    return notes
+
+
+def _association_guard(result: SimulatedConfoundingResult) -> str:
+    """The reading lines of the association columns, less those the population note says."""
+    lines = [
+        line
+        for line in result._reading_guard()
+        if line and "ATT or ATC population" not in line and "target_population_fraction" not in line
+    ]
+    intermediate = " or intermediate" if result.intermediate_name is not None else ""
+    defined = TEXTS["association_defined"].format(intermediate=intermediate)
+    return " ".join([defined, *lines])
 
 
 def surface_summary(result: SimulatedConfoundingResult, detail: Detail) -> Summary:
@@ -1133,54 +1285,43 @@ def surface_summary(result: SimulatedConfoundingResult, detail: Detail) -> Summa
         [result.original_estimate, *(cell.estimate for cell in result.successful_cells)]
     )
     header = [
-        (
-            V.QUESTION,
-            f"how {result.estimand} moves when the data are refit with a simulated "
-            "common cause of the treatment and the outcome",
-        ),
-        (
-            V.ESTIMATE_ANALYSED,
-            f"{result.estimand} = {number_text(result.original_estimate, decimals)}",
-        ),
+        (V.QUESTION, f"how {result.estimand} moves under a simulated confounder"),
+        _estimate_fact(result.estimand, result.original_estimate),
         (
             V.MOVEMENT,
-            "difference in the log ratio"
+            "difference in log ratio"
             if result.movement_scale == "log_ratio"
-            else "difference in the estimate",
+            else "difference in estimate",
         ),
         (V.CELLS, f"{total}, {failed} failed"),
     ]
     arm_phrase = None
     if result.population == "perturbed_treatment_group":
         arm_phrase = f"treatment {result.conditioning_arm}"
-        header.append((V.POPULATION, f"units with {arm_phrase} in each cell"))
+        header.append((V.POPULATION, f"units with {arm_phrase}"))
     if result.n_repeats > 1:
-        header.append((V.REPEATED_SPLITS, f"{result.n_repeats}, median of the splits"))
+        header.append((V.REPEATED_SPLITS, f"{result.n_repeats}, median"))
 
     components = result.treatment_components
-    columns: list[str] = []
-    if components:
-        columns += [f"treatment strength ({name})" for name in components]
-    else:
-        columns.append("treatment strength")
+    labels = [f"({name})" for name in components] if components else [""]
+    movement_columns = ["cell", *(f"treatment strength {label}".strip() for label in labels)]
     if result.intermediate_name is not None:
-        columns.append("intermediate strength")
-    columns += ["outcome strength", V.ESTIMATE, "movement"]
-    if components:
-        columns += [f"treatment association ({name})" for name in components]
-    else:
-        columns.append("treatment association")
+        movement_columns.append("intermediate strength")
+    movement_columns += ["outcome strength", V.ESTIMATE, "movement"]
+    association_columns = ["cell", *(f"treatment {label}".strip() for label in labels)]
     if result.intermediate_name is not None:
-        columns.append("intermediate association")
+        association_columns.append("intermediate")
     if result.bounded_outcome_law is not None:
-        columns.append("outcome association")
+        association_columns.append("outcome")
     if result.population == "perturbed_treatment_group":
-        columns.append("population share")
-    rows = []
-    for cell in result.cells:
+        association_columns.append("population share")
+    movement_rows = []
+    association_rows = []
+    for number, cell in enumerate(result.cells, start=1):
+        label = Cell(number, str(number))
         strengths = cell.treatment_strength
         strength_values = strengths if isinstance(strengths, tuple) else (strengths,)
-        row = [Cell(item, f"{float(item):g}") for item in strength_values]
+        row: list[Cell] = [label, *(Cell(item, f"{float(item):g}") for item in strength_values)]
         if result.intermediate_name is not None:
             row.append(
                 Cell(cell.intermediate_strength, _values_text(cell.intermediate_strength, "g"))
@@ -1191,39 +1332,43 @@ def surface_summary(result: SimulatedConfoundingResult, detail: Detail) -> Summa
             row.append(Cell(cell.displacement, f"{float(cell.displacement):+.{decimals}f}"))
         else:
             row.append(Cell(None, "failed"))
-            row.append(Cell(None, cell.failure.error_type))
+            row.append(Cell(None, V.MISSING))
+        movement_rows.append(tuple(row))
         association = cell.induced_treatment_association
-        association_values = (
-            association
-            if isinstance(association, tuple)
-            else (association,) * max(1, len(components))
-        )
-        if not components:
-            association_values = (association,)
-        row += [Cell(item, _values_text(item, "+.3f")) for item in association_values]
+        if isinstance(association, tuple):
+            values: tuple[Any, ...] = association
+        else:
+            values = (association,) * len(labels)
+        associations: list[Cell] = [
+            label,
+            *(Cell(item, _values_text(item, "+.3f")) for item in values),
+        ]
         if result.intermediate_name is not None:
             item = cell.induced_intermediate_association
-            row.append(Cell(item, _values_text(item, "+.3f")))
+            associations.append(Cell(item, _values_text(item, "+.3f")))
         if result.bounded_outcome_law is not None:
             item = cell.induced_outcome_association
-            row.append(Cell(item, _values_text(item, "+.3f")))
+            associations.append(Cell(item, _values_text(item, "+.3f")))
         if result.population == "perturbed_treatment_group":
             item = cell.target_population_fraction
-            row.append(Cell(item, _values_text(item, ".3f")))
-        rows.append(tuple(row))
-    tables = [SummaryTable(tuple(columns), tuple(rows))]
+            associations.append(Cell(item, _values_text(item, ".3f")))
+        association_rows.append(tuple(associations))
+    tables = [
+        SummaryTable(tuple(movement_columns), tuple(movement_rows), title="Movement"),
+        SummaryTable(tuple(association_columns), tuple(association_rows), title="Associations"),
+    ]
     if result.calibrations:
         calibration_columns = ["covariate", "role"]
         if components:
             calibration_columns.append("component")
         calibration_columns.append("strength")
         calibration_rows = []
-        for item in result.calibrations:
-            values = [Cell(item.covariate, item.covariate), Cell(item.role, item.role)]
+        for calibration in result.calibrations:
+            cells = [_label(calibration.covariate), _label(calibration.role)]
             if components:
-                values.append(Cell(item.component, item.component or V.MISSING))
-            values.append(_number(item.strength, 3))
-            calibration_rows.append(tuple(values))
+                cells.append(Cell(calibration.component, calibration.component or V.MISSING))
+            cells.append(_number(calibration.strength, 3))
+            calibration_rows.append(tuple(cells))
         tables.append(
             SummaryTable(
                 tuple(calibration_columns),
@@ -1231,26 +1376,37 @@ def surface_summary(result: SimulatedConfoundingResult, detail: Detail) -> Summa
                 title="Observed covariates on the same scale",
             )
         )
-    laws = " ".join(part for part in (result.treatment_law, result.outcome_law) if part)
-    notes = [note("sensitivity_assumption", TEXTS["assumption_surface"].format(laws=laws))]
-    guard = " ".join(line for line in result._reading_guard() if line)
-    if guard:
-        notes.append(note("association_reading", guard))
+    moved, laws = _surface_laws(result)
+    notes = [
+        note("sensitivity_assumption", TEXTS["assumption_surface"].format(moved=moved, laws=laws)),
+        note("association_reading", _association_guard(result)),
+    ]
     if arm_phrase is not None:
         notes.append(
             note("population_moves", TEXTS["population_moves"].format(arm_phrase=arm_phrase))
         )
+    notes += _surface_caveats(result)
     if failed:
         notes.append(note("cells_failed", TEXTS["cells_failed"].format(failed=failed, total=total)))
-    calibration = " ".join(result._calibration_lines())
-    if calibration:
-        notes.append(note("calibration_nan", calibration))
+    calibration_text = " ".join(
+        line[:1].upper() + line[1:] + ("" if line.endswith(".") else ".")
+        for line in result._calibration_lines()
+    )
+    if calibration_text:
+        notes.append(note("calibration_nan", calibration_text))
     sections: list[SummarySection] = []
     if detail == "full":
-        sections = [SummarySection(V.SECTION_SETTINGS, tuple(_population_facts(result)))]
+        sections = [
+            SummarySection(
+                V.SECTION_ASSUMPTIONS,
+                tuple(part for part in (result.treatment_law, result.outcome_law) if part),
+            ),
+            SummarySection(V.SECTION_SETTINGS, tuple(_population_facts(result))),
+        ]
     return Summary.build(
         title="Simulated confounding",
         header=header,
+        header_split=2,
         tables=tables,
         notes=notes,
         sections=sections,

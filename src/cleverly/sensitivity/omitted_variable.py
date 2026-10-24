@@ -3147,7 +3147,7 @@ def robustness_value(
     if elements.nu2_estimator != "doubly_robust":
         values["nu2_estimator"] = elements.nu2_estimator
         values["nu2_correction"] = elements.nu2_correction
-    context = {
+    context: dict[str, Any] = {
         "estimand": estimand,
         "psi": float(estimate.psi),
         "rho": rho,
@@ -3163,7 +3163,7 @@ def robustness_value(
                 refusal.text if refusal is not None else _ZERO_BIAS_LIMITS_REFUSAL + "."
             ),
         }
-        return RobustnessValue(values, **context)
+        return RobustnessValue(values, **context, refusal=refusal)
     values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
     reading = _limit_reading(result, estimand, elements.features)
     if reading is not None:

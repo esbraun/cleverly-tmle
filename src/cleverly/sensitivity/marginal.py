@@ -143,7 +143,7 @@ _BOUNDED_METHODS = frozenset({"tmle", "drtmle", "collaborative_tmle"})
 _SELECTION_STATUSES = frozenset({"working_mechanism_plugin", "generated_design_plugin"})
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class MarginalSensitivityRow:
     """The bounds at one value of the sensitivity parameter.
 
@@ -175,6 +175,18 @@ class MarginalSensitivityRow:
     upper_std_error: float
     lower_limit: float
     upper_limit: float
+
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "MarginalSensitivityRow",
+            [
+                ("gamma", f"{self.gamma:g}"),
+                ("", self.estimand),
+                ("", f"range [{self.lower:.4g}, {self.upper:.4g}]"),
+            ],
+        )
 
 
 @dataclass(frozen=True, repr=False)

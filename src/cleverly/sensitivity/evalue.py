@@ -232,7 +232,8 @@ class EValue:
     approximate : bool
         Whether reaching the risk-ratio scale needed an approximate conversion.
     note : str
-        Explanation of that conversion, when one was used.
+        Explanation of that conversion, when one was used, and the conditions the bound
+        adds. The text of :attr:`note_parts`, joined.
     source_estimand : str or None
         Reported source alias, which can differ from a derived output alias.
     truncated_bound : float or None
@@ -251,6 +252,11 @@ class EValue:
         coverage evidence.
     level : float
         The coverage level of :attr:`risk_ratio_ci`, which the summary names.
+    note_parts : tuple of tuple of str
+        :attr:`note` split into ``(kind, text)`` parts, so the summary can print each in
+        plain words. The kinds are ``"conversion_or"``, ``"conversion_rd"``,
+        ``"conversion_smd"``, ``"derived"``, ``"truncation"``, ``"censoring"`` and
+        ``"per_arm"``.
     """
 
     estimand: str
@@ -267,6 +273,7 @@ class EValue:
     bias_factor: Literal["single", "per_arm_product"] = "single"
     limit_reading: Resolution | None = None
     level: float = 0.95
+    note_parts: tuple[tuple[str, str], ...] = ()
 
     @property
     def limit_descriptive(self) -> bool:
@@ -868,6 +875,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
     reported_estimand = source
     truncated_bound: float | None = None
     support = estimate.support
+    parts: list[tuple[str, str]]
 
     if selection.branch == "time_to_event_rr":
         assert selection.versus is not None
@@ -876,24 +884,22 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         reported_estimand = ratio.name
         support = ratio.support
         rr, ci, approximate, scale = ratio.psi, ratio.ci, False, "risk ratio"
-        note = _TIME_TO_EVENT_CONDITIONS
+        parts = [("censoring", _TIME_TO_EVENT_CONDITIONS)]
     elif selection.branch == "reported_rr":
-        rr, ci, approximate, note, scale = (
-            estimate.psi,
-            (low, high),
-            False,
-            "",
-            "risk ratio",
-        )
+        rr, ci, approximate, scale = estimate.psi, (low, high), False, "risk ratio"
+        parts = []
     elif selection.branch == "reported_or":
         rr = float(np.sqrt(estimate.psi))
         ci = (float(np.sqrt(low)), float(np.sqrt(high)))
         approximate = True
         scale = "odds ratio"
-        note = (
-            "Converted with RR ~ sqrt(OR), an approximation for common outcomes. "
-            "It can lie above or below the risk ratio; prefer a directly estimated risk ratio."
-        )
+        parts = [
+            (
+                "conversion_or",
+                "Converted with RR ~ sqrt(OR), an approximation for common outcomes. It can "
+                "lie above or below the risk ratio; prefer a directly estimated risk ratio.",
+            )
+        ]
     elif selection.branch == "derived_rr":
         derived = _derived_risk_ratio(result, source)
         if not derived.supplies_inference:
@@ -905,10 +911,13 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         rr, ci, approximate, scale = derived.psi, derived.ci, False, "risk ratio"
         reported_estimand = derived.name
         support = combine_support([estimate.support, derived.support], kind="derived")
-        note = (
-            f"Derived {derived.name!r} from cached nuisances by retargeting the reported "
-            f"source contrast {source!r}; no nuisance model was refit."
-        )
+        parts = [
+            (
+                "derived",
+                f"Derived {derived.name!r} from cached nuisances by retargeting the reported "
+                f"source contrast {source!r}; no nuisance model was refit.",
+            )
+        ]
     elif selection.branch == "fixed_baseline_ate":
         baseline_name = _baseline_mean(result, source, arm_parameter_keys(result))
         assert baseline_name is not None
@@ -925,18 +934,21 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         truncated_bound = raw[0] if raw[0] < 0.0 else None
         ci = (0.0, raw[1]) if truncated_bound is not None else raw
         approximate, scale = True, "risk difference"
-        note = (
-            "Converted from a risk difference using the reported reference-arm risk. "
-            "The conversion holds that risk fixed and ignores its sampling error."
-        )
+        parts = [
+            (
+                "conversion_rd",
+                "Converted from a risk difference using the reported reference-arm risk. "
+                "The conversion holds that risk fixed and ignores its sampling error.",
+            )
+        ]
         if truncated_bound is not None:
-            note += (
-                " The difference interval reaches below the negative of that risk, so the "
+            truncation = (
+                "The difference interval reaches below the negative of that risk, so the "
                 f"converted lower bound {truncated_bound:.4g} lies outside the risk-ratio "
                 "parameter space. The report truncates it at 0, the smallest risk ratio "
                 "there is, and keeps the untruncated value in 'truncated_bound'. "
             )
-            note += (
+            truncation += (
                 "The point ratio is above the null and the lower bound is below it, so "
                 "the interval covers the null and the confidence-limit E-value is 1."
                 if rr >= 1.0
@@ -944,6 +956,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
                 "reads the upper bound, which the truncation does not touch. That "
                 "interval can still exclude the null."
             )
+            parts.append(("truncation", truncation))
     elif selection.branch == "gaussian_difference":
         rows = _stratum_rows(result, source)
         response = result.data.has_missing_outcome
@@ -970,12 +983,15 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
             if response
             else ("weighted " if weighted else "")
         )
-        note = (
-            f"Standardised by {plugin}sd(Y){within} = {sd:.4g}. "
-            "Chinn's log(OR) / 1.81 step maps the "
-            "standardised mean difference to an odds ratio. The subsequent common-outcome "
-            "square-root conversion and E-value calculation are additional approximations."
-        )
+        parts = [
+            (
+                "conversion_smd",
+                f"Standardised by {plugin}sd(Y){within} = {sd:.4g}. Chinn's log(OR) / 1.81 "
+                "step maps the standardised mean difference to an odds ratio. The subsequent "
+                "common-outcome square-root conversion and E-value calculation are "
+                "additional approximations.",
+            )
+        ]
     else:
         raise AssertionError(selection.branch)
     if selection.branch in ("reported_or", "fixed_baseline_ate", "gaussian_difference"):
@@ -990,7 +1006,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         # per arm. With equal strengths the product is BF(E, E)^2, so each E-value inverts
         # the square root, after the branch's own conversion to the risk-ratio scale. The
         # square root keeps a limit on its side of the null.
-        note = (note + " " if note else "") + _PER_ARM_CONDITIONS
+        parts.append(("per_arm", _PER_ARM_CONDITIONS))
         point = evalue_from_rr(float(np.sqrt(rr)))
         limit_value = _evalue_for_limit(float(np.sqrt(limit)), above_null=above_null)
     else:
@@ -1004,7 +1020,8 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         point=point,
         limit=limit_value,
         approximate=approximate,
-        note=note,
+        note=" ".join(text.strip() for _, text in parts),
+        note_parts=tuple(parts),
         source_estimand=source,
         truncated_bound=truncated_bound,
         support=support,

@@ -19,6 +19,7 @@ from ..utils.frames import emit_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
+    from ._mechanism_stack import MechanismRefusal
 
 __all__ = ["MissingnessTilt", "RobustnessValue", "SensitivityContour"]
 
@@ -56,15 +57,16 @@ class RobustnessValue(dict[str, Any]):
         The coverage level of the confidence limit the limit value reads.
     null_hypothesis : float
         The value the strengths are measured against.
+    refusal : MechanismRefusal or None
+        Why the limit value is withheld, when an estimator rule withholds it.
     """
-
-    __slots__ = ("estimand", "level", "null_hypothesis", "psi", "rho")
 
     estimand: str
     psi: float
     rho: float
     level: float
     null_hypothesis: float
+    refusal: MechanismRefusal | None
 
     def __init__(
         self,
@@ -75,6 +77,7 @@ class RobustnessValue(dict[str, Any]):
         rho: float,
         level: float,
         null_hypothesis: float,
+        refusal: MechanismRefusal | None = None,
     ) -> None:
         super().__init__(values)
         self.estimand = estimand
@@ -82,6 +85,7 @@ class RobustnessValue(dict[str, Any]):
         self.rho = float(rho)
         self.level = float(level)
         self.null_hypothesis = float(null_hypothesis)
+        self.refusal = refusal
 
     def __reduce__(self) -> tuple[Any, ...]:
         context = {
@@ -90,6 +94,7 @@ class RobustnessValue(dict[str, Any]):
             "rho": self.rho,
             "level": self.level,
             "null_hypothesis": self.null_hypothesis,
+            "refusal": self.refusal,
         }
         return (_rebuild_robustness, (dict(self), context))
 
@@ -292,6 +297,8 @@ class MissingnessTilt(_Rows):
         The coverage level of the intervals.
     statuses : tuple of tuple of str
         Each estimand's inference status, as ``(estimand, status)`` pairs.
+    ratios : tuple of str
+        The estimands on a ratio scale, whose spread is on the log scale.
     """
 
     outcome: str = ""
@@ -300,6 +307,7 @@ class MissingnessTilt(_Rows):
     arm_gamma: tuple[tuple[Any, float], ...] | None = None
     level: float = 0.95
     statuses: tuple[tuple[str, str], ...] = field(default=())
+    ratios: tuple[str, ...] = ()
 
     @classmethod
     def build(
@@ -313,6 +321,7 @@ class MissingnessTilt(_Rows):
         arm_gamma: tuple[tuple[Any, float], ...] | None,
         level: float,
         statuses: tuple[tuple[str, str], ...],
+        ratios: tuple[str, ...] = (),
     ) -> MissingnessTilt:
         """Build the tilt from its columns and the fit facts its summary prints.
 
@@ -334,6 +343,8 @@ class MissingnessTilt(_Rows):
             The coverage level of the intervals.
         statuses : tuple of tuple of str
             Each estimand's inference status.
+        ratios : tuple of str
+            The estimands on a ratio scale.
 
         Returns
         -------
@@ -349,6 +360,7 @@ class MissingnessTilt(_Rows):
             arm_gamma,
             float(level),
             statuses,
+            ratios,
         )
 
     @property
