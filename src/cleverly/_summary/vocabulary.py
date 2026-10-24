@@ -827,6 +827,24 @@ GUARD_SENTENCES: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+#: The Method details line of a DR-TMLE fit whose design restricts the treatment model to
+#: ``{names}``: when the restriction fails, the treatment model is wrong, and the
+#: mechanism-wrong rows of the one-wrong table of the DR-TMLE theorem page decide the interval.
+DRTMLE_RESTRICTED: Final = (
+    "The treatment model reads only {names}, as the design declares. If treatment depends "
+    "on other covariates too, the treatment model is wrong, and no result shows that the "
+    "interval keeps its coverage."
+)
+#: The Method details lines of an Adaptive IPTW fit whose design restricts the treatment
+#: model. It fits no outcome model, so it is consistent only when the omitted covariates
+#: confound nothing beyond ``{names}``.
+IPTW_RESTRICTED: Final = "The treatment model reads only {names}, as the design declares."
+IPTW_RESTRICTED_OMITTED: Final = (
+    " The estimate is consistent only when {omitted} add no confounding beyond those."
+)
+#: The Method details line of a collaborative search drawn from a declared pool.
+SEARCH_POOL: Final = "The search drew only from {names}, as the design declares."
+
 #: The extra regressions of each DR-TMLE construction, keyed by ``reduction``.
 REDUCTION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {

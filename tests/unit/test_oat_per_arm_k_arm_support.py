@@ -388,14 +388,14 @@ class TestTheHeldSet:
 class TestTheWeights:
     def test_the_summary_states_the_weights(self) -> None:
         fixed = _fit(_weighted(), "wt", outcome_learner=ParametricOutcome())
-        text = _method_text(fixed)
+        text = fixed.summary().note("stacked_interval").text
         assert "with the data weights in every equation" in text
-        assert "which are declared estimated" not in text
+        assert "declared estimated" not in text
         estimated = _fit(
             _weighted(), "wt", outcome_learner=ParametricOutcome(), weights_estimated=True
         )
-        assert "The interval conditions on the weights, which are declared estimated" in (
-            _method_text(estimated)
+        assert "treats the weights as fixed although they are declared estimated" in (
+            estimated.summary().note("stacked_interval").text
         )
 
     def test_constant_weights_equal_the_unweighted_stack(self) -> None:

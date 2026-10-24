@@ -23,6 +23,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly.datasets import (
     make_binary_outcome,
     make_cde,
@@ -1257,11 +1258,13 @@ class TestReporting:
         )
 
     def test_the_summary_marks_the_chosen_candidate(self, selection) -> None:
-        text = selection.summary()
-        assert "Collaborative TMLE selection" in text
-        assert "strategy = greedy" in text
-        assert "squared-error" in text
-        assert text.count("<--") == 1
+        summary = selection.summary()
+        assert summary.heading == vocabulary.SEARCH_TITLE
+        assert summary.facts[vocabulary.SEARCH] == vocabulary.CTMLE_SEARCHES["greedy"]
+        assert "squared error" in summary.facts[vocabulary.CRITERION]
+        marks = [cell.text for cell in summary.table("other").column(vocabulary.CHOSEN.lower())]
+        assert marks.count(vocabulary.CHOSEN_MARK) == 1
+        assert marks.index(vocabulary.CHOSEN_MARK) == selection.selected
 
     def test_to_frame_has_one_row_per_candidate(self, selection, instrument_frame) -> None:
         frame = selection.to_frame()
@@ -1279,7 +1282,9 @@ class TestReporting:
         assert (selection.treatment_risk > 0.0).all()
 
     def test_the_intercept_candidate_is_labelled(self, selection) -> None:
-        assert "(intercept)" in selection.summary()
+        models = selection.summary().table("other").column(vocabulary.TREATMENT_MODEL_COLUMN)
+        assert models[0].text == "intercept only"
+        assert all(cell.text != "intercept only" for cell in models[1:])
 
     def test_the_footer_reports_only_the_quantity_the_selector_observed(self, selection) -> None:
         """The omitted candidates have different causal roles under the instrument law."""
@@ -1289,9 +1294,10 @@ class TestReporting:
         # test_the_right_outcome_model_makes_the_empty_propensity_optimal for why an
         # empty selection is the expected answer on this process.
         assert selection.dropped == ("W1", "W2", "W3")
-        footer = selection.summary().split("left out:", maxsplit=1)[1]
-        assert "targeted cross-validated penalized squared-error loss" in footer
-        assert "does not determine why a covariate was left out" in footer
+        footer = selection.summary().note("left_out").text
+        assert "leaves out W1, W2, W3." in footer
+        assert "cross-validated loss of the adjusted outcome predictions" in footer
+        assert "does not show why a covariate was left out" in footer
         assert "bias" not in footer
         assert "variance" not in footer
 

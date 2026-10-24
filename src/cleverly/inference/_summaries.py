@@ -178,10 +178,15 @@ def estimate_repr(estimate: ParameterEstimate) -> str:
     else:
         decimals = decimals_for([estimate.plugin_std_error])
         facts.append((estimate.name, f"{number_text(estimate.psi, decimals)} (no interval)"))
-    facts.append(("n", estimate.n))
-    if estimate.support.label == vocabulary.EXPERIMENTAL:
-        facts.append(("", vocabulary.EXPERIMENTAL))
-    return short_repr("ParameterEstimate", facts)
+    mark = (
+        [("", vocabulary.EXPERIMENTAL)] if estimate.support.label == vocabulary.EXPERIMENTAL else []
+    )
+    # A long name drops the row count, then the interval, before it can cut the mark.
+    for kept in ([*facts, *mark, ("n", estimate.n)], [*facts, *mark], [facts[0], *mark]):
+        text = short_repr("ParameterEstimate", kept)
+        if not text.endswith("...)"):
+            return text
+    return text
 
 
 # ----------------------------------------------------------------- a Wald test

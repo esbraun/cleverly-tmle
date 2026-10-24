@@ -215,10 +215,7 @@ def _selection_facts(selection: CTMLESelection, learner: str | None) -> MethodFa
         if text is not None:
             details.append(text)
     if selection.restricted_pool is not None:
-        details.append(
-            f"The search drew only from {_names_text(selection.restricted_pool)}, as the "
-            "design declares."
-        )
+        details.append(vocabulary.SEARCH_POOL.format(names=_names_text(selection.restricted_pool)))
     order = _risk_order_text(selection)
     return MethodFacts(
         method=_collaborative(_search_words(selection)),
@@ -409,6 +406,31 @@ def _stacked_note(fit: CTMLEOutcomeAdaptiveFit) -> Note | None:
     return None
 
 
+def _stacked_lines(fit: CTMLEOutcomeAdaptiveFit) -> list[str]:
+    """How the stacked interval of an admitted fit was built, or why there is none."""
+    if fit.stacked_refusal is not None:
+        reason = plain_support_reason(fit.stacked_refusal).rstrip(".")
+        return [vocabulary.NOTE_TEXTS["stacked_refused"].format(reason=reason) + "."]
+    if fit.stacked_interval is None:
+        return []
+    lines = []
+    if (fit.stacked_folds or 1) > 1:
+        lines.append(
+            f"The stacked equation is cross-fitted over {fit.stacked_folds} folds, with one "
+            "outcome model and one treatment model per fold."
+        )
+    if (fit.stacked_repeats or 1) > 1:
+        lines.append(
+            f"Each estimate is the median of {fit.stacked_repeats} cross-fitting repeats, "
+            "and its std. error allows for the spread across them."
+        )
+    lines.append(
+        "A simultaneous band covers the estimates that have an interval jointly, from the "
+        "same stacked equation."
+    )
+    return lines
+
+
 def _oat_design(fit: CTMLEOutcomeAdaptiveFit) -> str:
     if fit.design == "per_arm":
         return "one model per arm, each on the outcome model's prediction for its arm"
@@ -427,7 +449,7 @@ def _oat_facts(fit: CTMLEOutcomeAdaptiveFit, data: Any) -> MethodFacts:
         )
     if fit.strata:
         details.append(f"It is fitted inside each of {len(fit.strata)} baseline strata.")
-    # A refused stacked interval is already in the fit's no-interval warning.
+    details.extend(_stacked_lines(fit))
     stacked = _stacked_note(fit) if fit.stacked_interval is not None else None
     return MethodFacts(
         method=_collaborative(vocabulary.CTMLE_SEARCHES["oat"]),
@@ -685,10 +707,7 @@ def _reduced_lines(fit: ReducedFit, sources: Sequence[str] | None) -> list[str]:
         )
     if sources is not None:
         lines.append(
-            f"The treatment model reads only {_names_text(sources) or 'no covariates'}, as "
-            "the design declares. If treatment depends on other covariates too, the "
-            "treatment model is wrong, and no result shows that the interval keeps its "
-            "coverage."
+            vocabulary.DRTMLE_RESTRICTED.format(names=_names_text(sources) or "no covariates")
         )
     return lines
 
@@ -820,15 +839,9 @@ def _iptw_facts(
         details.append("The estimate is the weighted mean at the adjusted treatment model.")
     if sources is not None:
         omitted = [name for name in everything if name not in sources]
-        line = (
-            f"The treatment model reads only {_names_text(sources) or 'no covariates'}, as "
-            "the design declares."
-        )
+        line = vocabulary.IPTW_RESTRICTED.format(names=_names_text(sources) or "no covariates")
         if omitted:
-            line += (
-                f" The estimate is consistent only when {_names_text(omitted)} add no "
-                "confounding beyond those."
-            )
+            line += vocabulary.IPTW_RESTRICTED_OMITTED.format(omitted=_names_text(omitted))
         details.append(line)
     capped = _rounds_note(fit)
     return MethodFacts(details=tuple(details), notes=(capped,) if capped is not None else ())

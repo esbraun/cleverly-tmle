@@ -1096,7 +1096,11 @@ class TestTheSelectorPathsPublishNoInference:
         # The full summary names the selector, so a reader does not have to go to the
         # nuisance report to learn which mechanism the refusal is about.
         details = result.summary(detail="full").section("Method details").lines
-        assert result.extra["ctmle"].describe() in details
+        selection = result.extra["ctmle"]
+        assert details[0].startswith(
+            f"The search built {len(selection.path)} candidate treatment models "
+            f"({vocabulary.CTMLE_SEARCHES[selection.strategy]})."
+        )
 
     def test_the_assessment_carries_the_same_sentence(self) -> None:
         result = self._fit("greedy")

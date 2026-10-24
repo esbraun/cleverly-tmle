@@ -8,6 +8,7 @@ from typing import Literal
 import numpy as np
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.inference import Transform, make_estimate
 from cleverly.inference.bootstrap import BootstrapResult
 from cleverly.inference.results import (
@@ -154,7 +155,9 @@ def test_an_interior_transformed_estimate_can_be_displayed_without_a_default_tes
     estimate = smooth_contrast(
         {"ey": source}, _identity, ["ey"], n=4, transform=transform, gradient=_identity_gradient
     )
-    assert "p=nan" in repr(estimate)
+    (p_value,) = estimate.summary().table().column(vocabulary.P_VALUE)
+    assert np.isnan(p_value.value) and p_value.text == vocabulary.MISSING
+    assert "p-value" not in repr(estimate)
     assert np.isnan(estimate.to_dict()["p_value"])
     assert estimate.wald_test(null=0.4).pvalue == 1.0
     with pytest.raises(ValueError, match="default null 0"):
