@@ -1642,7 +1642,7 @@ class LongitudinalConfig:
             # A single fold is not cross-fitting, and printing "1 fold(s)" reads as
             # though it were: the nuisances are then fitted on the rows they predict
             # for, which the reported variance does not account for.
-            "cross-fitting: none -- nuisances fitted in sample"
+            "cross-fitting: none; nuisances fitted in sample"
             if self.n_folds <= 1
             else f"cross-fitting: {self.n_folds} fold(s)"
             + (f", median over {self.repeats} draws" if self.repeats > 1 else ""),
@@ -1658,7 +1658,8 @@ class LongitudinalConfig:
                 else "cumulative treatment-and-censoring probability"
             )
             + (
-                " (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)"
+                " (package default, an R ltmle-compatible heuristic; "
+                "inspect the truncation diagnostics)"
                 if self.g_bounds == DEFAULT_LTMLE_G_BOUNDS
                 else ""
             ),
@@ -4747,7 +4748,7 @@ class _SequentialEstimator:
         if not 0.0 < self.alpha_sig < 0.5:
             raise ValueError(
                 f"alpha_sig must lie in (0, 0.5); got {self.alpha_sig}. It is the "
-                "significance level of the reported intervals -- alpha= is the "
+                "significance level of the reported intervals; alpha= is the "
                 "probability shrink applied before the logit, and defaults to 0.9995"
             )
         self._validate_targeting()
@@ -4826,7 +4827,7 @@ class _SequentialEstimator:
             raise ValueError(
                 "msm= and reference= cannot be combined. reference= names the regimen "
                 "every contrast is taken against, and a working model reports "
-                "coefficients rather than contrasts -- which regimen is the baseline is "
+                "coefficients rather than contrasts; which regimen is the baseline is "
                 "decided by the design you gave msm=, and an intercept is whatever that "
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
@@ -7059,7 +7060,7 @@ class LTMLE(_SequentialEstimator):
         if not 0.5 < self.alpha < 1.0:
             raise ValueError(
                 f"alpha must lie in (0.5, 1); got {self.alpha}. Predicted probabilities "
-                "are bounded into [1 - alpha, alpha] -- alpha_sig= is the significance "
+                "are bounded into [1 - alpha, alpha]; alpha_sig= is the significance "
                 "level, and defaults to 0.05"
             )
         if self.max_iter < 1:

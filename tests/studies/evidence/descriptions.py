@@ -902,6 +902,15 @@ _SG_EVALUE_ROWS = {
 ARMS.update({f"{cell}_{row}": words for row, (cell, words) in _SG_OVB_ROWS.items()})
 ARMS.update(_SG_EVALUE_ROWS)
 
+#: The rows of the X82 SH limit coverage study, as arm labels; see the section at the end.
+_SH_ROWS = {
+    f"{cell}_ate_{end}": f"{end} end of the ATE bound under the marginal sensitivity model at "
+    "Gamma 1.5"
+    for cell in ("SH1", "SH2")
+    for end in ("lower", "upper")
+}
+ARMS.update(_SH_ROWS)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -5060,3 +5069,89 @@ def _refuter_point_cells() -> None:
 
 
 _refuter_point_cells()
+
+
+def _refuter_band_cells() -> None:
+    """The band-rank placebo study (X82 SJ): its point law and four cells."""
+    slug = "refuter-calibration-band"
+    STUDY_SCENARIOS[(slug, "point")] = (
+        "law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; "
+        "TMLE of a capped +0.5 shift at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-band"] = "`cleverly` fit that the band-rank placebo rule reads"
+    fits = {
+        "PJ1": "TMLE of a capped dose shift on law P",
+        "LJ1": "LTMLE of a dose shift at three nodes on the pricing-shaped law L",
+    }
+    size = "no more than 20 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    for cell, fit in fits.items():
+        for key, value in {
+            ("refuter_size", f"{cell}__placebo"): (
+                f"{fit}: the placebo t rule against the exact band-rank null",
+                size,
+            ),
+            ("refuter_power", f"{cell}__placebo_stale_rows"): (
+                f"{fit}: the placebo t rule, with a declared share of stale rows",
+                power,
+            ),
+        }.items():
+            if key in CELLS:
+                raise ValueError(f"{key} is already described")
+            CELLS[key] = value
+
+
+_refuter_band_cells()
+
+
+# ------------------------------------------------------------------ X82 SH limit coverage
+
+
+def _marginal_bound_cells() -> None:
+    """The marginal sensitivity bound limit study (X82 SH): two laws, two ends each.
+
+    Mirrored from ``tests.studies.marginal_bound_coverage``, which this module cannot
+    import; ``tests/unit/test_marginal_bound_limit_registry.py`` pins that every published
+    key resolves.
+    """
+    slug = "marginal-bound-limit-coverage"
+    IMPLEMENTATIONS["cleverly-msm-bound-limit"] = (
+        "`cleverly` marginal sensitivity bound limits (X82 part H)"
+    )
+    STUDY_SCENARIOS.update(
+        {
+            (slug, "SH1"): "Gaussian linear outcome, 20 covariates, logistic propensity; GLMs",
+            (slug, "SH2"): "logistic outcome, prevalence near 0.33, 20 covariates; GLMs",
+        }
+    )
+    ends = {
+        end: f"{end} end of the ATE bound under the marginal sensitivity model at Gamma 1.5"
+        for end in ("lower", "upper")
+    }
+    rows = {f"ate_{end}": words for end, words in ends.items()}
+    STUDY_ESTIMANDS.update({(slug, row): words for row, words in rows.items()})
+    labels = {f"{cell}_{row}" for cell in ("SH1", "SH2") for row in rows}
+    kinds = {
+        "correctly_specified": (
+            "every nuisance is correctly specified, and the row reads its reported standard error",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        "inflated_se_control": (
+            "the reported standard error is multiplied by 1.5",
+            "the SE-ratio interval must fall above the calibration band",
+        ),
+        "wrong_gamma_control": (
+            "the end at Gamma 1.25, read against the Gamma 1.5 truth",
+            "the coverage interval must fall below the calibration band",
+        ),
+    }
+    STUDY_ARM_CELLS.update(
+        {
+            (slug, "interval_calibration", label, kind): words
+            for label in labels
+            for kind, words in kinds.items()
+        }
+    )
+
+
+_marginal_bound_cells()

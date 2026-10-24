@@ -50,7 +50,11 @@ PRIMARY_N = 2_000
 #: 20262301 was ``canonical-composite-drtmle``'s seed, so the first run shared its resampling
 #: streams.  The study was rerun on fresh seeds and its results accepted as drawn.
 SEED = 20262321
-RESAMPLING_SEED = 20262322
+#: 20262322 was also ``marginal-bound-limit-coverage``'s resampling seed, declared first, so
+#: registering that study shared every resampling stream.  Only this entropy moved: the primary
+#: rows still draw from ``SEED``.  The property samples draw from this entropy, so the study was
+#: rerun and its results accepted as drawn.
+RESAMPLING_SEED = 20262325
 
 #: The two-sided 95% multiplier of each row's interval, and the bound's one-sided multiplier.
 TWO_SIDED = float(stats.norm.ppf(0.975))

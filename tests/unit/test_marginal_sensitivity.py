@@ -17,7 +17,7 @@ from scipy.optimize import linprog
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 
-from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Incremental
@@ -626,7 +626,7 @@ def test_invalid_arguments_raise(binary: Any) -> None:
     with pytest.raises(ValueError, match="at least 1"):
         marginal_sensitivity_bounds(binary, 0.5)
     with pytest.raises(ValueError, match="estimand"):
-        marginal_sensitivity_bounds(binary, 2.0, estimand="att")
+        marginal_sensitivity_bounds(binary, 2.0, estimand="ate[2 vs 0]")
     with pytest.raises(ValueError, match="level"):
         marginal_sensitivity_bounds(binary, 2.0, level=1.0)
 
@@ -647,10 +647,14 @@ def covering_row(rule: str) -> VerdictEvidence:
     )
 
 
-def test_every_limit_is_descriptive_on_the_shipped_registry(gaussian: Any, binary: Any) -> None:
-    assert not [
-        row for row in interpretation.VERDICT_EVIDENCE if row.instrument == MSM_BOUND_INSTRUMENT
-    ]
+def test_every_test_fit_is_descriptive_on_the_shipped_registry(gaussian: Any, binary: Any) -> None:
+    # The shipped SH rows need n >= 8,000 and five-fold cross-fitting; these fits have neither.
+    shipped = {
+        row.rule
+        for row in interpretation.VERDICT_EVIDENCE
+        if row.instrument == MSM_BOUND_INSTRUMENT
+    }
+    assert shipped == {"continuous", "binary"}
     for fit in (gaussian, binary):
         bounds = marginal_sensitivity_bounds(fit, 1.5)
         assert bounds.limit_descriptive
@@ -669,6 +673,23 @@ def test_a_registered_row_licenses_exactly_its_rule(
     )
     assert not marginal_sensitivity_bounds(binary, 1.5).limit_descriptive
     assert marginal_sensitivity_bounds(gaussian, 1.5).limit_descriptive
+
+
+def test_a_repeated_fit_reads_its_own_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Study SH measured one cross-fitting draw, so the median rule names a rule of its own.
+    fit = binary_fit(repeats=3, simultaneous=False)
+    monkeypatch.setattr(
+        interpretation,
+        "VERDICT_EVIDENCE",
+        (*interpretation.VERDICT_EVIDENCE, covering_row("binary")),
+    )
+    assert marginal_sensitivity_bounds(fit, 1.5, estimand="ey1").limit_descriptive
+    monkeypatch.setattr(
+        interpretation,
+        "VERDICT_EVIDENCE",
+        (*interpretation.VERDICT_EVIDENCE, covering_row("binary+repeats")),
+    )
+    assert not marginal_sensitivity_bounds(fit, 1.5, estimand="ey1").limit_descriptive
 
 
 def test_a_continuous_row_covers_the_default_learners_only(
@@ -709,31 +730,29 @@ def refused_with(result: Any, reason: str, owner: str | None) -> None:
         )
 
 
-def test_a_collaborative_fit_is_refused() -> None:
+def test_an_adaptive_iptw_fit_is_redirected() -> None:
+    from cleverly.estimators import AdaptiveIPTW
+
     fit = (
-        CTMLE(
-            outcome_learner=LogisticRegression(),
-            treatment_learner=LogisticRegression(),
-            random_state=0,
-            estimands=("ate", "ey1", "ey0"),
-        )
+        AdaptiveIPTW(treatment_learner=LogisticRegression(), random_state=0)
         .fit(binary_frame(), outcome="Y", treatment="A", covariates=["W1", "W2"])
         .single()
     )
-    refused_with(fit, "implementation_gap", "X82")
+    refused_with(fit, "api_redirection", None)
 
 
-def test_a_multi_arm_fit_is_refused() -> None:
-    frame = binary_frame()
-    rng = np.random.default_rng(2)
-    frame = frame.assign(A=rng.integers(0, 3, size=len(frame)))
-    fit = binary_fit(frame)
-    refused_with(fit, "implementation_gap", "X82")
+def test_a_natural_course_fit_is_refused() -> None:
+    # The missing-outcome natural-course target never fits the treatment mechanism.
+    from cleverly.datasets import make_missing_outcome_binary
+    from tests.conftest import linear_in_sample
 
-
-def test_a_weighted_fit_is_refused() -> None:
-    frame = gaussian_frame().assign(wt=np.linspace(0.5, 1.5, 400))
-    refused_with(gaussian_fit(frame, weights="wt"), "implementation_gap", "X82")
+    frame, _ = make_missing_outcome_binary(n=400, seed=4)
+    fit = (
+        TMLE(**linear_in_sample(estimands=("ey_obs",)))
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+    refused_with(fit, "different_estimand", None)
 
 
 def refusal_frame(n: int = 300, seed: int = 4) -> pd.DataFrame:
@@ -798,8 +817,6 @@ def _composition(kind: str) -> Any:
     [
         ("intermediate", "implementation_gap", "X87"),
         ("missing_treatment", "implementation_gap", "X87"),
-        ("missing_outcome", "implementation_gap", "X82"),
-        ("strata", "implementation_gap", "X82"),
         ("incremental", "different_estimand", None),
     ],
 )

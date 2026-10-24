@@ -76,9 +76,8 @@ UNPRINTED_DECIMALS = {
     "-0.0022": f"mean error of TMLE with linear Q and the booster's g: {_PROBE}/summary.log",
     "-0.0006": f"mean error of TMLE with the booster's Q and logistic g: {_PROBE}/summary.log",
     "-0.0218": f"mean error of TMLE with both nuisances linear: {_PROBE}/summary.log",
-    "0.05": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
-    "0.95": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
+    "0.0578": "the size of the largest printed move, -0.0578, at outcome strength 2.0",
     **dict.fromkeys(
         PROBE_LITERALS,
         f"a value of the Step 10 review probe logs, {_REFUTE_PROBE}/standard.log and generated.log",
@@ -139,7 +138,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert len(test.values) == 20
         assert test.original == estimate.psi
     assert refutation.passed is None
-    assert "This fit differs on method 'TMLE'" in tests["placebo"].scope_sentence
+    assert (
+        "This fit differs on learner HistGradientBoostingRegressor("
+        in tests["placebo"].scope_sentence
+    )
 
     # Placebo: the exact null is 0, and the mean placebo estimate sits far below the effect.
     placebo = tests["placebo"]
@@ -189,11 +191,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert generated["simulated_outcome"].declared_effect == pytest.approx(truth, abs=1e-10)
     # The plasmode truth is a sum over the same support points, with its own draws of A.
     assert generated["plasmode"].declared_effect == pytest.approx(truth, abs=1e-3)
-    _check_probe_logs()
 
 
-def _check_evalue_and_surface(namespace: dict[str, Any]) -> None:
-    """Step 11: the E-value and the stress surface read as the prose says."""
+def _check_evalue(namespace: dict[str, Any]) -> None:
+    """Step 11: the E-value reads as the prose says."""
     evalue = namespace["evalue"]
     estimate = namespace["estimate"]
     assert evalue.approximate
@@ -203,6 +204,48 @@ def _check_evalue_and_surface(namespace: dict[str, Any]) -> None:
     outcome = np.asarray(namespace["frame"]["transition_score"], dtype=float)
     assert 0.23 < outcome.std() < 0.24
     assert estimate.psi > 0.0
+
+
+def _check_odds_bounds(namespace: dict[str, Any]) -> None:
+    """The bounds on the odds of an offer read as the prose says."""
+    bounds = namespace["odds_bounds"]
+    treated = namespace["with_offer"].rows
+    untreated = namespace["without_offer"].rows
+    assert [row.gamma for row in bounds.rows] == [1.0, 2.0, 3.0, 4.0]
+    # "At gamma = 1 each range is a single value ... 0.167, matches the estimate".
+    for first in (bounds.rows[0], treated[0], untreated[0]):
+        assert first.lower == pytest.approx(first.upper, abs=1e-12)
+    assert bounds.rows[0].lower == pytest.approx(namespace["estimate"].psi, abs=5e-4)
+    # "The ranges then widen": each row nests the one before it.
+    for before, after in zip(bounds.rows, bounds.rows[1:], strict=False):
+        assert after.lower < before.lower and after.upper > before.upper
+    # "where that room comes from": the effect range is the difference of the group ranges,
+    # a nonzero witness that each end pairs the opposite ends of the two arms.
+    for row, one, zero in zip(bounds.rows, treated, untreated, strict=True):
+        assert row.lower == pytest.approx(one.lower - zero.upper, abs=1e-12)
+        assert row.upper == pytest.approx(one.upper - zero.lower, abs=1e-12)
+        assert row.upper - row.lower > (one.upper - one.lower) + 1e-12 or row.gamma == 1.0
+    # "if everyone were offered ... as low as 0.476": a bound on the mean under offering to
+    # all, which sits well below the offered group's observed mean, so it is not that mean.
+    frame = namespace["frame"]
+    offered = frame["transition_navigation"] == 1
+    assert treated[3].lower < float(frame["transition_score"][offered].mean()) - 0.05
+    # "stay above zero through gamma = 3 and fall to -0.0032 at gamma = 4".
+    assert bounds.rows[2].lower_limit > 0.0 > bounds.rows[3].lower_limit
+    assert bounds.limit_breakdown == 4.0
+    assert bounds.breakdown is None
+    # "no simulation study backs these limits for this fit. The study behind them used linear
+    # models and at least 8,000 patients, while this fit uses boosted models and 3,000".
+    assert bounds.limit_descriptive
+    sentence = bounds.limit_reading.sentence
+    assert "This fit differs on learner HistGradientBoostingRegressor(" in sentence
+    assert "n = 3000 (below 8000)" in sentence
+    assert "'LinearRegression()'" in sentence
+
+
+def _check_surface(namespace: dict[str, Any]) -> None:
+    """Step 11: the stress surface reads as the prose says."""
+    estimate = namespace["estimate"]
 
     cells = namespace["cells"].set_index(["treatment_strength", "outcome_strength"])
     anchor = cells.loc[(0.0, 0.0)]
@@ -344,12 +387,14 @@ def check(namespace: dict[str, Any]) -> None:
     # Nonzero witness: "the estimate moves to 0.1674" at the tightest bound.
     assert tight[0.2]["psi"] - namespace["estimate"].psi > 5e-4
 
-    # Step 10: the refutation step refits the Step 6 estimator on altered data.
-    _check_refutation(namespace)
+    # Step 10: the refutation readings quote committed probe logs.  The refits themselves are
+    # checked in check_refits.
+    _check_probe_logs()
 
     # Step 11: the default nu^2 estimator runs, so the robustness value carries its limit.
+    # The robustness value is derived from the fit, so the fast gate recomputes it here.
     result = namespace["result"]
-    robustness = namespace["robustness"]
+    robustness = result.sensitivity.robustness_value()
     assert "nu2_estimator" not in robustness
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
     elements = result.sensitivity.elements(estimand="ate")
@@ -364,6 +409,19 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
+    _check_evalue(namespace)
+    _check_odds_bounds(namespace)
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Steps 10 and 11: the refutation refits, the benchmark refits, and the stress surface."""
+    _check_refutation(namespace)
+    moments = _law_moments()
+    result = namespace["result"]
+    robustness = namespace["robustness"]
+    assert robustness == result.sensitivity.robustness_value()
+    elements = result.sensitivity.elements(estimand="ate")
+    at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.
     # The bound is finite at cf_y = 1 (RM47), so the clipped benchmark still calibrates one.
     strong = namespace["strong"]
@@ -381,6 +439,18 @@ def check(namespace: dict[str, Any]) -> None:
     # moves the bound further, which is the nonzero witness of that sentence.
     wider = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=2.0 * strong.cf_d, rho=1.0)
     assert wider.bias > strong_bounds.bias
+    # "would need a weight strength of about 0.24 to pull the lower limit to zero, more than three
+    # times that of any recorded characteristic": the bisection lands on the crossing, and the
+    # limit is positive just below it and negative just above it.
+    tipping = namespace["tipping_cf_d"]
+    assert round(tipping, 2) == 0.24
+    recorded = ("age", "medication_burden", "prior_utilization", "discharge_risk")
+    weight_strengths = [result.sensitivity.benchmark(covariates=(name,)).cf_d for name in recorded]
+    assert 3.0 * max(weight_strengths) < tipping < 4.0 * max(weight_strengths)
+    crossing = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping)
+    assert abs(crossing.ci_lower) < 1e-6
+    assert result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).ci_lower > 0.0
+    assert result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping + 0.01).ci_lower < 0.0
     # "Both lie below the robustness value", and the gains go to the bound unchanged, at rho = 1.
     benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
@@ -394,4 +464,4 @@ def check(namespace: dict[str, Any]) -> None:
     # "the bias bound would be about 5% larger" with the law's nu^2: the bias scale is
     # proportional to sqrt(nu^2).
     assert 1.03 < np.sqrt(moments["nu2"] / elements.nu2) < 1.07
-    _check_evalue_and_surface(namespace)
+    _check_surface(namespace)

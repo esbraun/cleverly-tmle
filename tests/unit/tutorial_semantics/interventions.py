@@ -15,7 +15,7 @@ import pytest
 
 from cleverly import CapabilityError
 from cleverly.datasets import navigation_protocol
-from cleverly.validation import GaussianAdjustmentOutcome, refute
+from cleverly.validation import BoundedAdjustmentOutcome, GaussianAdjustmentOutcome, refute
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     ROOT,
@@ -36,7 +36,6 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "5.6": f"the law's share of intensities below zero, 0.055784: {_PROBE}/truth.log",
     # The mean density ratio of the shown dose configuration, quad_rboost40.
     "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
     # The density comparison, same quadratic Q.
@@ -51,15 +50,19 @@ UNPRINTED_DECIMALS = {
         "cross-fitted +1.0 mean SE over empirical SD, exact density at 320 bins: "
         "reviews/notebook-review/probes/iv-n3/summary_ic.log, point-treatment-tmle.md"
     ),
-    "0.024137": f"the double-odds incremental contrast by Monte Carlo: {_PROBE}/truth.log",
     "+0.00011": f"incremental mean error, degree-2 logistic g: {_BINARY}",
     "+0.00066": f"incremental mean error, shallow booster: {_BINARY}",
     "0.00008": f"Monte Carlo SE of each incremental mean error: {_BINARY}",
     "0.93": f"median propensity calibration slope, degree-2 logistic g (0.929): {_BINARY}",
     "0.94": f"median propensity calibration slope, shallow booster (0.939): {_BINARY}",
-    "3.2": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
     "3.3": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
     "4.5": "the capacity of 5 minus the raise of 0.5, the threshold the cap acts on",
+    "6.1": "the size of the screen's printed movement of -6.1 standard errors (sensitivity)",
+    "6.4": "the size of the nudge's printed movement of -6.4 standard errors (sensitivity-other)",
+    "2.664e-06": (
+        "the fitted model's smallest offer probability, which the regime support "
+        "report holds (min_support_propensity of offer to all); check() asserts it"
+    ),
 }
 
 #: Where each probe or study decimal of ``UNPRINTED_DECIMALS`` lives: the committed file, a
@@ -128,15 +131,13 @@ def check_sources() -> None:
         values = [round(float(value), 2) for value in means.groups()]
         assert (min(values), max(values)) == (low, high), section
     truth = _read(f"{_PROBE}/truth.log")
-    assert re.search(r"ipsi x2 vs x1\s+0\.024137 ", truth)
-    assert re.search(r"P\(A < 0\)\s+0\.0557", truth)  # 5.6%
+    assert re.search(r"ipsi x2 vs x1\s+0\.024137 ", truth)  # the callback's truth check
     # The cross-fitted shift probe of the technical reference: 3.91 and 0.98.
     reference = _read("docs/technical-reference/point-treatment-tmle.md")
     assert re.search(r"default settings \| 40 \| cross-fitted \| 3\.91 \|", reference)
     assert re.search(r"exact law \| 320 \| cross-fitted \| 0\.98 \|", reference)
     # The Kennedy locators, and the threshold the cap acts on.
     kennedy = _read("docs/references.md")
-    assert "| Section 3.2, Assumptions 1 and 2, Theorem 1 |" in kennedy
     assert "| Section 3.3, Theorem 2," in kennedy
     assert 5.0 - 0.5 == 4.5
 
@@ -190,6 +191,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert "no fixed range" in dose_protocol.outcome
     assert not any("contact" in text for text in dose_protocol.treatment_versions)
     assert any("index" in text for text in dose_protocol.assumption_rationale)
+    # The score has no worst value, so death cannot be scored as the worst score.
+    assert "hypothetical strategy" in dose_protocol.intercurrent_event_handling[2]
     # "Offer to none reuses the program's version for usual support."
     assert namespace["regime_protocol"].treatment_versions[0] == program.treatment_versions[1]
     # Each axis has its own protocol, printed in its step and stamped on its result.
@@ -248,6 +251,7 @@ def check(namespace: dict[str, Any]) -> None:
     # off-plan: every on-plan ratio is at most max_ratio, so every on-plan g is at least
     # 1 / max_ratio, which is far above the smallest fitted g.
     smallest = rows["offer to all"].min_support_propensity
+    assert f"{smallest:.3e}" == "2.664e-06"  # the Details of the overlap reading
     assert smallest < TRUNCATION < 0.05
     assert smallest < 0.01 / rows["offer to all"].max_ratio
     # "The screen asks for offers where current practice already offers more often, and its
@@ -329,7 +333,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.85 <= (tilt.psi - double_odds) / tilt.std_error < 0.95
     incremental = namespace["incremental_assessment"]
     assert not incremental.attention
-    assert "nuisance fits look reasonable" in stored_output(NOTEBOOK, "incremental-fit")
+    stored = stored_output(NOTEBOOK, "incremental-fit")
+    assert "checks that need attention: none" in stored
+    # "The slope, 0.94 (standard error 0.05), is close to 1".
+    assert "treatment model calibration slope: 0.94 (standard error 0.05)" in stored
     # "The check marks both rows as solved, with each score below 0.01 of its threshold."
     score_rows = incremental.report("score_equations").rows
     assert {row.name for row in score_rows} >= {"ipsi", "ipsi (mechanism)"}
@@ -338,9 +345,22 @@ def check(namespace: dict[str, Any]) -> None:
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
 
+    # The grid has no outcome axis because the fit declares q_bounds: the outcome strength of
+    # such a fit is a coefficient on the logit scale of the score.
+    assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
+    _check_refutation_limits(namespace)
+    _check_generated_limits(namespace)
+    _check_bound_and_surfaces(namespace)
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """Steps 14 to 16: the refutation, the generated outcomes, and the stress surfaces."""
+    # The law that ``check`` rebuilds for its refusal is the notebook's own.
+    assert namespace["bounded"] == BoundedAdjustmentOutcome(effect=0.5)
     # The treatment-only stress surface: both cells return, and the flip moves the screen
     # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]
+    assert "bounded outcome law: logit on [0, 1]" in surface.summary()
     cells = sorted(surface.cells, key=lambda cell: cell.treatment_strength)
     assert [cell.treatment_strength for cell in cells] == [0.0, 0.1]
     assert all(cell.outcome_strength == 0.0 and cell.failure is None for cell in cells)
@@ -349,13 +369,15 @@ def check(namespace: dict[str, Any]) -> None:
     for cell in cells:
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
-    # The grid has no outcome axis because the fit declares q_bounds: the outcome strength of
-    # such a fit is a coefficient on the logit scale of the score.
-    assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
-    assert "bounded outcome law: logit on [0, 1]" in stored_output(NOTEBOOK, "sensitivity")
     _check_refutation(namespace)
     _check_generated(namespace)
-    _check_bound_and_surfaces(namespace)
+    _check_benchmarks(namespace)
+    # The nudge and raise surfaces: the flip moves each estimate down.
+    for key in ("nudge_surface", "raise_surface"):
+        flipped = max(namespace[key].cells, key=lambda cell: cell.treatment_strength)
+        zero = min(namespace[key].cells, key=lambda cell: cell.treatment_strength)
+        assert flipped.estimate < zero.estimate
+        assert flipped.outcome_strength == 0.0 and flipped.failure is None
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
@@ -370,6 +392,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         # "No check prints a verdict": no registry row covers a TMLE regime contrast.
         assert test.passed is None and test.rung == "L0" and len(test.values) == 20
     assert screen_report.passed is None
+    assert (
+        "This fit differs on estimand kind 'ate_regime[screen on risk vs offer to none]'"
+        in screen_report.summary()
+    )
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)
     assert round(float(values.mean()), 7) == 0.0009427
@@ -382,8 +408,13 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     reference = float(regimes[SCREEN].std_error * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
     assert round(float(np.std(subset, ddof=1)), 7) == 0.0026376
     assert round(reference, 7) == 0.0031383
+
+
+def _check_refutation_limits(namespace: dict[str, Any]) -> None:
+    """Step 14: the stored output, and the negative control that the page says it cannot run."""
+    regimes = namespace["regime_result"]
     stored = stored_output(NOTEBOOK, "refute-regimes")
-    assert "This fit differs on method 'TMLE'" in stored
+    assert stored.count("descriptive") == 2
     # The limit: `prior_utilization` is an adjustment column, so a control that equals it is
     # refused, and the frame holds no other pre-offer measure.
     frame = namespace["frame"]
@@ -429,9 +460,17 @@ def _check_generated(namespace: dict[str, Any]) -> None:
             )
             > 0.005
         )
-    assert "10 draws are below the calibrated minimum of 400" in stored_output(
-        NOTEBOOK, "generated"
+    # The bias reading is in standard deviations of the draws: (mean - truth) / sd.
+    screen = namespace["screen_generated"]["simulated_outcome"]
+    assert (
+        round((np.mean(screen.values) - screen.declared_effect) / np.std(screen.values, ddof=1), 3)
+        == 0.472
     )
+
+
+def _check_generated_limits(namespace: dict[str, Any]) -> None:
+    """Step 15: the stored output, and the refusals that the step table states."""
+    assert stored_output(NOTEBOOK, "generated").count("10 refits, verdict descriptive") == 3
     # The limits of the step table.
     regimes, incremental = namespace["regime_result"], namespace["incremental_result"]
     shift = namespace["shift_result"]
@@ -443,18 +482,12 @@ def _check_generated(namespace: dict[str, Any]) -> None:
             simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
             n_replicates=10,
         )
-    # The bias reading is in standard deviations of the draws: (mean - truth) / sd.
-    screen = namespace["screen_generated"]["simulated_outcome"]
-    assert (
-        round((np.mean(screen.values) - screen.declared_effect) / np.std(screen.values, ddof=1), 3)
-        == 0.472
-    )
     with pytest.raises(CapabilityError, match="no truth for an incremental tilt"):
         refute(
             incremental,
             estimand="ate_ipsi[double odds vs current odds]",
             tests=("simulated_outcome",),
-            simulated_outcome=namespace["bounded"],
+            simulated_outcome=BoundedAdjustmentOutcome(effect=0.5),
             n_replicates=10,
         )
     with pytest.raises(CapabilityError, match="no law of a continuous treatment"):
@@ -467,21 +500,53 @@ def _check_generated(namespace: dict[str, Any]) -> None:
         )
 
 
+def _check_benchmarks(namespace: dict[str, Any]) -> None:
+    """The bound: robustness values, benchmarks, and the tipping strength the reading compares."""
+    regimes = namespace["regime_result"]
+    for name, rv, rva in ((SCREEN, 0.3938, 0.3647), (OFFER_ALL, 0.4050, 0.3777)):
+        robustness = regimes.sensitivity.robustness_value(estimand=name)
+        assert round(robustness["rv"], 4) == rv and round(robustness["rva"], 4) == rva
+        assert robustness["limit_licensed"] is False
+        assert "No calibration covers this configuration" in robustness["limit_sentence"]
+    benchmarks = namespace["benchmarks"]
+    assert list(benchmarks) == ["prior_utilization", "medication_burden", "age"]
+    strongest, bound = benchmarks["prior_utilization"]
+    # "a confounder like it would leave the lower limit at 0.0439": a nonzero witness, the
+    # bound moves the estimate, but not to zero.
+    assert round(bound.ci_lower, 4) == 0.0439
+    assert 0.0 < bound.bias < regimes[SCREEN].psi
+    # prior_utilization is the strongest on both sides.
+    for record, _ in benchmarks.values():
+        assert record.cf_y <= strongest.cf_y and record.cf_d <= strongest.cf_d
+    # "an offer-side strength of only about 0.17 to pull the lower limit to zero, below
+    # prior_utilization's 0.206".
+    tipping = namespace["tipping_cf_d"]
+    assert round(tipping, 2) == 0.17 and tipping < strongest.cf_d
+    assert (
+        regimes.sensitivity.omitted_confounding(
+            estimand=SCREEN, cf_y=1.0, cf_d=tipping - 0.01
+        ).ci_lower
+        > 0
+    )
+    assert (
+        regimes.sensitivity.omitted_confounding(
+            estimand=SCREEN, cf_y=1.0, cf_d=tipping + 0.01
+        ).ci_lower
+        < 0
+    )
+    # The rule reads discharge_risk, so a benchmark cannot drop it.
+    with pytest.raises(CapabilityError):
+        regimes.sensitivity.benchmark(covariates=("discharge_risk",), estimand=SCREEN)
+
+
 def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
     """Step 16: the regime bound, its refusals, and the stress surfaces of the other two."""
     regimes = namespace["regime_result"]
     text = stored_output(NOTEBOOK, "bound")
-    for name, bias, bounds, rv, rva in (
-        (SCREEN, "0.006909", "[0.10782, 0.12163]", "0.3938", "0.3647"),
-        (OFFER_ALL, "0.0099309", "[0.16125, 0.18111]", "0.4050", "0.3777"),
-    ):
-        assert f"bias <= {bias}" in text and f"bias-adjusted bounds:  {bounds}" in text
-        assert f"RV   = {rv}" in text and f"RVa  = {rva}" in text
-        # A nonzero witness: the default strength moves the estimate, but not to zero.
-        assert 0.0 < float(bias) < regimes[name].psi
-        assert "cf_y = 0.03, cf_d = 0.03, rho = 1" in text
-    assert "No calibration covers this configuration" in text
-    assert "ate_regime[coin vs always]" in text
+    assert "robustness value, screen: 0.394 (0.365 at the 95% limit)" in text
+    assert "robustness value, offer to all: 0.405 (0.378 at the 95% limit)" in text
+    assert "every shift above assumes rho = 1" in text
+    assert "pulls the screen's lower limit to zero at cf_y = 1: 0.17" in text
     for call, reason in (
         (
             lambda: namespace["incremental_result"].sensitivity.omitted_confounding(
@@ -509,8 +574,3 @@ def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
     stored = stored_output(NOTEBOOK, "sensitivity-other")
     assert "nudge: movement -6.4 standard errors" in stored
     assert "raise: movement -0.9 standard errors" in stored
-    for key in ("nudge_surface", "raise_surface"):
-        flipped = max(namespace[key].cells, key=lambda cell: cell.treatment_strength)
-        zero = min(namespace[key].cells, key=lambda cell: cell.treatment_strength)
-        assert flipped.estimate < zero.estimate
-        assert flipped.outcome_strength == 0.0 and flipped.failure is None

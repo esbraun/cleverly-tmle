@@ -33,7 +33,8 @@ Each produces a row in ``tests/prose-report.md`` that needs a disposition.
     Removing a dash and writing ``Thus,`` moves the tell rather than the problem.
 
 ``empty-intensifier``
-    A word that adds no verifiable information, which ``CLAUDE.md`` asks to remove.
+    A word that adds no verifiable information, which ``docs/development/writing-for-readers.md``
+    asks to remove.
 
 ``paragraph-length``
     More than six sentences.
@@ -58,9 +59,11 @@ for.
 
 *Readability scores.*  Meaningless over a corpus of displayed formulae.
 
-*The STE vocabulary restriction.*  ``CLAUDE.md`` exempts statistical terms of art, and there are
-165 uses of them.  A dictionary check would report the documentation as mostly non-compliant and
-be right about nothing.
+*A vocabulary restriction.*  The data-scientist pages replace ``cleverly``'s own words with plain
+ones, and ``docs/development/writing-for-readers.md`` lists them.  The technical reference keeps
+its terms of art, and there are thousands of uses of them.  Whether a term is defined where it
+first appears is a reading judgment, so ``scripts/render_for_reader_review.py`` lists the first
+uses for a reviewer and this module does not flag them.
 
 *Noun-cluster depth.*  Not derivable without a parser, and a wrong answer here reads as a demand
 to reword something that is already clear.
@@ -68,13 +71,12 @@ to reword something that is already clear.
 Sentence length reports but does not gate
 -----------------------------------------
 
-Over 25 words, ``CLAUDE.md``'s limit for a description.  It stands at 350 across the tree once
-code, tables, citations and API listings are out of scope, and the long ones are enumerations
-rather than slop.  Three hundred and fifty rubber-stamped rows would bury the four rules that
-carry signal, and gating it would push an author to split an enumeration mechanically, which is
-the failure this module exists to prevent.  So it prints as a per-file summary and does not
-appear in the ledger.  The 25-word standard still stands in ``CLAUDE.md``; what deserves a
-reader's attention is not the same set as what touches the standard.
+Over 30 words, the point past which ``docs/development/writing-for-readers.md`` (rule R9) asks an
+author to look again.  The guide asks for varied sentence lengths rather than a hard limit,
+because a run of short one-idea sentences is itself a machine tell.  Gating the count would push
+an author to split an enumeration mechanically, which is the failure this module exists to
+prevent, and hundreds of rubber-stamped rows would bury the four rules that carry signal.  So it
+prints as a per-file summary and does not appear in the ledger.
 """
 
 from __future__ import annotations
@@ -111,8 +113,8 @@ LEDGER_COLUMNS = ("file", "rule", "id", "excerpt", "disposition")
 #: module docstring.
 GATING_RULES = ("clause-dash", "empty-transition", "empty-intensifier", "paragraph-length")
 
-#: ``CLAUDE.md``'s limit for a description.  Reported, never gated.
-SENTENCE_WORDS = 25
+#: The guide's "about 30 words" (rule R9).  Reported, never gated.
+SENTENCE_WORDS = 30
 
 #: ``CLAUDE.md``'s paragraph limit.
 PARAGRAPH_SENTENCES = 6
@@ -243,7 +245,7 @@ def prose_lines(text: str) -> list[tuple[int, str]]:
     Fenced blocks are dropped whole and inline spans are blanked in place rather than deleted,
     so a column still means something on the line the reader sees.  Code is exempt in all its
     forms because each is a real source of these characters: ``git diff main -- docs`` is a
-    command and ``--`` is how ``CLAUDE.md`` names the thing it bans.
+    command, and a rule names the thing it bans as ``--``.
     """
     out: list[tuple[int, str]] = []
     fenced = False

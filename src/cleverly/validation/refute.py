@@ -848,7 +848,7 @@ class RefutationResult:
             for reading in test.readings:
                 low, high = reading.band
                 lines.append(
-                    f"  {reading.name} = {reading.estimate:.4g}, 95% interval "
+                    f"  {_READING_LABELS[reading.name]} = {reading.estimate:.4g}, 95% interval "
                     f"[{reading.lower:.4g}, {reading.upper:.4g}], band [{low:g}, {high:g}]: "
                     + ("inside" if reading.inside else "outside")
                 )
@@ -3880,6 +3880,11 @@ def _read_configuration(result: Any, estimand: str) -> FitConfiguration | None:
         return None
 
 
+#: The printed name of each band reading. The bias reading is the bias over the standard
+#: deviation of the draws, so its label says so.
+_READING_LABELS = {"bias": "standardized bias", "se_ratio": "se_ratio", "coverage": "coverage"}
+
+
 def _band_sentence(sentence: str, inside: bool) -> str:
     """The registry sentence of a band reading, stated for the side of the band it fell on.
 
@@ -4063,6 +4068,12 @@ def _generated_outcome_test(
         if licensed_inside:
             passed = all(licensed_inside)
             rung = "L2"
+            # The caveat holds for every band reading, so it is stated once.
+            sentences.append(
+                "The plasmode resembles your data and does not estimate its truth."
+                if plasmode
+                else "Your own outcome law is not this one."
+            )
         elif not calibrated:
             rung = "L1"
             sentences.append(
@@ -4072,7 +4083,7 @@ def _generated_outcome_test(
         else:
             sentences.append(_interpretation.DESCRIPTIVE_SENTENCE)
         detail = "; ".join(
-            f"{reading.name} {reading.estimate:.4g} "
+            f"{_READING_LABELS[reading.name]} {reading.estimate:.4g} "
             f"[{reading.lower:.4g}, {reading.upper:.4g}] "
             f"{'inside' if reading.inside else 'outside'} "
             f"[{reading.band[0]:g}, {reading.band[1]:g}]"

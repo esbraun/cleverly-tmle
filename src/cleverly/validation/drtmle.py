@@ -609,11 +609,11 @@ class CorrectionCheck:
             # as a verdict would report a sound bound-active fit as broken.
             f"  contract: {self.contract}"
             + (
-                f" -- {', '.join(self.truncations_active)} active, so this fit is empirically "
+                f"; {', '.join(self.truncations_active)} active, so this fit is empirically "
                 "supported and outside Theorem 1 rather than "
                 "wrong; it is not a failure and the verdict below does not read it"
                 if self.truncations_active
-                else f" -- none of the {self._truncation_count} truncations is active, so "
+                else f"; none of the {self._truncation_count} truncations is active, so "
                 + (
                     "this fit uses Theorem 1's construction, but Theorem 1 does not cover "
                     "cross-fitting (condition (S) is open for a reduction that selects "
@@ -651,7 +651,7 @@ class CorrectionCheck:
         if identity:
             lines.append(
                 f"FAIL: {len(identity)} state identit{'y' if len(identity) == 1 else 'ies'} "
-                "not satisfied -- the score the targeting step recorded and the term the "
+                "not satisfied: the score the targeting step recorded and the term the "
                 "reported curve carries are not the same functional of the returned state. "
                 "That is a software defect, not a fit that failed "
                 "to converge, and the standard errors do not describe this estimate."

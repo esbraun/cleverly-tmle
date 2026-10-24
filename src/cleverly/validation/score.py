@@ -460,7 +460,7 @@ class ScoreCheck:
         failures = self.failures
         if not failures:
             return (
-                f"score check: PASS -- all {len(self.rows)} within tolerance "
+                f"score check: PASS; all {len(self.rows)} within tolerance "
                 f"(worst |score| {format_negligible(self._worst_ratio(), 1.0, digits=2)} "
                 "of its threshold)."
             )
@@ -470,7 +470,7 @@ class ScoreCheck:
         )
         return "\n".join(
             [
-                f"score check: FAIL -- {len(failures)} of {len(self.rows)} not solved.",
+                f"score check: FAIL; {len(failures)} of {len(self.rows)} not solved.",
                 f"  {named}",
                 *self._identity_lines(),
                 f"  The {spread_name('standard errors', self.inference)} above are read off "
@@ -497,7 +497,7 @@ class ScoreCheck:
             ]
             worst = format_negligible(max(ratios), 1.0, digits=2) if ratios else "0"
             return (
-                f"score check: PASS -- the {self.stopping} stopping rule was met "
+                f"score check: PASS; the {self.stopping} stopping rule was met "
                 f"(worst score {worst} of its threshold)."
             )
         lines = []
@@ -510,7 +510,7 @@ class ScoreCheck:
                 for row in others
             )
             lines.append(
-                f"score check: FAIL -- {len(others)} equation(s) held to the default bar "
+                f"score check: FAIL; {len(others)} equation(s) held to the default bar "
                 f"not solved: {named}"
             )
             lines.extend(self._identity_lines())
@@ -566,7 +566,7 @@ class ScoreCheck:
         """
         if not self.passed:
             verdict = (
-                "FAIL: the score equation was not solved -- the "
+                "FAIL: the score equation was not solved; the "
                 f"{spread_name('influence-curve standard errors', self.inference)} this fit "
                 "reports do not describe this estimate. See the module docstring for the "
                 "usual causes."
@@ -580,7 +580,7 @@ class ScoreCheck:
                 # is not the remedy.
                 verdict = "\n".join(
                     [
-                        "FAIL: a state identity does not hold -- the score the targeting "
+                        "FAIL: a state identity does not hold; the score the targeting "
                         "step recorded and the",
                         "term the reported curve carries are not the same functional of "
                         "the state this fit",
@@ -685,7 +685,7 @@ class ScoreCheck:
                 stopped = (
                     ""
                     if row.kind in ("correction", "identity", "diagnostic")
-                    else "targeting stopped -- "
+                    else "targeting stopped; "
                 )
                 notes.append(f"  {row.name}: {stopped}{row.failure}")
             if row.folds_converged is not None:
@@ -694,7 +694,7 @@ class ScoreCheck:
                     notes.append(f"  {row.name}: {total - good} of {total} folds did not converge")
             if np.isfinite(row.hessian_condition) and row.hessian_condition > 1e8:
                 notes.append(
-                    f"  {row.name}: Hessian condition {row.hessian_condition:.2e} -- epsilon is "
+                    f"  {row.name}: Hessian condition {row.hessian_condition:.2e}; epsilon is "
                     "barely identified, so a solved score may still be fragile"
                 )
         return ["", *notes] if notes else []
@@ -1230,7 +1230,7 @@ def _correction_rows(
                     "(reduced) row, so this restatement is held to nothing"
                     if by_rule
                     else "not among the equations this fit's guard= solves, so the reported "
-                    "curve does not subtract it -- held to nothing"
+                    "curve does not subtract it; held to nothing"
                 ),
             )
         )

@@ -517,8 +517,8 @@ class CalibrationScope:
         """
         return cls()
 
-    def mismatch(self, fit: FitConfiguration | None) -> str | None:
-        """Name the first axis on which ``fit`` lies outside this scope.
+    def mismatches(self, fit: FitConfiguration | None) -> list[str]:
+        """Name every axis on which ``fit`` lies outside this scope, in axis order.
 
         Parameters
         ----------
@@ -528,11 +528,12 @@ class CalibrationScope:
 
         Returns
         -------
-        str or None
-            The axis name and the fit's value, or ``None`` when the fit is covered.
+        list of str
+            The axis name and the fit's value for each axis, empty when the fit is covered.
         """
         if fit is None:
-            return None if self == CalibrationScope.unrestricted() else "an unreadable fit"
+            return [] if self == CalibrationScope.unrestricted() else ["an unreadable fit"]
+        found: list[str] = []
         pairs: tuple[tuple[str, frozenset[Any] | None, Any], ...] = (
             ("method", self.methods, fit.method),
             ("estimand kind", self.estimand_kinds, fit.estimand_kind),
@@ -548,29 +549,47 @@ class CalibrationScope:
         )
         for axis, covered, value in pairs:
             if covered is not None and value not in covered:
-                return f"{axis} {value!r}"
+                found.append(f"{axis} {value!r}")
         if self.learners is not None:
             for fingerprint in fit.learners:
                 if fingerprint not in self.learners:
-                    return f"learner {fingerprint}"
+                    found.append(f"learner {fingerprint}")
+                    break
         if fit.n < self.n_min:
-            return f"n = {fit.n} (below {self.n_min})"
+            found.append(f"n = {fit.n} (below {self.n_min})")
         if self.n_max is not None and fit.n > self.n_max:
-            return f"n = {fit.n} (above {self.n_max})"
+            found.append(f"n = {fit.n} (above {self.n_max})")
         if (
             self.covariates_per_row_max is not None
             and fit.covariates_per_row > self.covariates_per_row_max
         ):
-            return f"covariates per row {fit.covariates_per_row:.4g}"
+            found.append(f"covariates per row {fit.covariates_per_row:.4g}")
         if self.min_event_count_min is not None and (
             fit.min_event_count is None or fit.min_event_count < self.min_event_count_min
         ):
-            return f"minimum event count {fit.min_event_count}"
+            found.append(f"minimum event count {fit.min_event_count}")
         if fit.clusters is not None and (
             self.clusters_min is None or fit.clusters < self.clusters_min
         ):
-            return f"cluster count {fit.clusters}"
-        return None
+            found.append(f"cluster count {fit.clusters}")
+        return found
+
+    def mismatch(self, fit: FitConfiguration | None) -> str | None:
+        """Name the first axis on which ``fit`` lies outside this scope.
+
+        Parameters
+        ----------
+        fit : FitConfiguration or None
+            The configuration to test. ``None`` is a fit whose configuration could not be
+            read, which only an unrestricted scope covers.
+
+        Returns
+        -------
+        str or None
+            The axis name and the fit's value, or ``None`` when the fit is covered.
+        """
+        found = self.mismatches(fit)
+        return found[0] if found else None
 
     def covers(self, fit: FitConfiguration | None) -> bool:
         """Return whether ``fit`` lies inside this scope.
@@ -1022,6 +1041,96 @@ def _point_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The registered study that calibrated the band-rank placebo (X82 SJ).
+_BAND_STUDY = "refuter-calibration-band"
+
+#: Its declared thresholds, as the registry ``theory`` line states them (X82-J-plan.md rev 2,
+#: section 5, and the design review that set the size cutoff to 20).
+_BAND_MISCALIBRATION = (
+    "Checked against gross miscalibration only: 200 trials, pass at no more than 20 "
+    "rejections. True size 0.05 passes with probability 0.999, 0.07 with 0.958, 0.10 with "
+    "0.559, and 0.15 with 0.025. Power: 50 trials of the same configuration under a "
+    "stale-row placebo that keeps a declared share of recorded doses, pass at no fewer than "
+    "38 detections."
+)
+
+#: The calibrated cells of the SJ study: method, estimand kind, outcome family, learner
+#: fingerprints, node count, placebo draw, covariates per row, the smallest event count of the
+#: size cell, and the fit the sentence names. The estimand kind is the recorded parameter name,
+#: as for the SG policy rows, so the PJ1 row covers a policy named ``up``.
+_BAND_CELLS: Final[
+    dict[str, tuple[str, str, str, tuple[str, ...], int | None, str, float, int | None, str]]
+] = {
+    "PJ1": (
+        "TMLE",
+        "ate_policy[up vs natural course]",
+        "gaussian",
+        ("LinearRegression()", "QuadraticLogistic()"),
+        None,
+        "band_permute",
+        0.001,
+        None,
+        "TMLE of a capped +0.5 dose shift against the natural course on the study's law P, "
+        "an OLS outcome and a classifier density ratio",
+    ),
+    "LJ1": (
+        "LTMLE",
+        "ate_regimen",
+        "binomial",
+        ("GLM()", "GLM()", "QuadraticLogistic(law='panel')"),
+        3,
+        "band_markov",
+        0.002,
+        688,
+        "LTMLE of a +0.25 dose shift at each of three nodes on the study's pricing-shaped law "
+        "L, logistic GLM nuisances and a classifier density ratio",
+    ),
+}
+
+
+def _band_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the X82 SJ study's passing size and power cells license."""
+    rows: list[VerdictEvidence] = []
+    for cell, values in _BAND_CELLS.items():
+        method, kind, family, learners, nodes, draw, covariates, events, fit = values
+        rows.append(
+            VerdictEvidence(
+                instrument="placebo",
+                rule="t",
+                rung="L2",
+                theory="X82-J-plan.md rev 2, section 5. " + _BAND_MISCALIBRATION,
+                scope=CalibrationScope(
+                    methods=frozenset({method}),
+                    estimand_kinds=frozenset({kind}),
+                    outcome_families=frozenset({family}),
+                    treatment_kinds=frozenset({"continuous"}),
+                    learners=frozenset(learners),
+                    cross_fitting=frozenset({"folds=5"}),
+                    inference=frozenset({"influence_curve"}),
+                    known_mechanism=frozenset({False}),
+                    arms=frozenset({1}),
+                    replicates=frozenset({20}),
+                    nodes=frozenset({nodes}),
+                    placebo_draws=frozenset({draw}),
+                    n_min=2000,
+                    covariates_per_row_max=covariates,
+                    min_event_count_min=events,
+                ),
+                sentence=(
+                    f"Calibrated against gross miscalibration at n = 2,000 with a band-rank "
+                    f"placebo: {fit}, five-fold cross-fitting. A rule with true size 0.15 "
+                    "fails this check with probability above 0.97."
+                ),
+                study=(
+                    _BAND_STUDY,
+                    f"refuter_size/{cell}__placebo",
+                    f"refuter_power/{cell}__placebo_stale_rows",
+                ),
+            )
+        )
+    return tuple(rows)
+
+
 #: The saturated logistic learner of the X82 SG omitted-variable cells: a logistic regression on
 #: every pairwise product of its inputs, practically unpenalized.
 _SG_SATURATED = (
@@ -1200,6 +1309,82 @@ def _sg_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The theory line of every X82 SH coverage row.
+_SH_THEORY = (
+    "X82-H-plan.md rev 2.5, section 8. Measured, not proved: 2,000 replications at n = 8,000, "
+    "each row's 99% exact coverage limit above 0.90 and its bias inside 0.25 SD, and 6,800 "
+    "further draws per cell whose SE ratio and coverage intervals lie inside the calibration "
+    "bands."
+)
+
+#: The GLM fingerprint of ``marginal-bound-limit-coverage``.
+_SH_LOGISTIC = "LogisticRegression(C=1000000.0,max_iter=2000)"
+
+#: The ``msm_bound_limit`` cells of ``marginal-bound-limit-coverage``: rule, outcome family,
+#: nuisance learners, smallest event count, the law the sentence names, and the cell.  The
+#: SH2 event floor lies between the minimum and the 5th percentile of the smallest arm event
+#: count over the cell's 2,000 primary draws (827 / 863 / 884 at min / p1 / p5), so every
+#: licensed fit has an event count the coverage rows pooled.
+#: ``tests/unit/test_marginal_bound_limit_registry.py`` recomputes this floor.
+_SH_CELLS: Final[dict[str, tuple[str, str, tuple[str, ...], int | None, str]]] = {
+    "SH1": (
+        "continuous",
+        "gaussian",
+        ("LinearRegression()", _SH_LOGISTIC),
+        None,
+        "a Gaussian linear outcome with 20 covariates",
+    ),
+    "SH2": (
+        "binary",
+        "binomial",
+        (_SH_LOGISTIC,),
+        875,
+        "a logistic outcome with 20 covariates and prevalence near 0.33",
+    ),
+}
+
+
+def _sh_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the passing cells of the X82 SH coverage study license."""
+    return tuple(
+        VerdictEvidence(
+            instrument="msm_bound_limit",
+            rule=rule,
+            rung="L2",
+            theory=_SH_THEORY,
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}),
+                estimand_kinds=frozenset({"ate"}),
+                outcome_families=frozenset({family}),
+                treatment_kinds=frozenset({"discrete"}),
+                learners=frozenset(learners),
+                cross_fitting=frozenset({"folds=5"}),
+                inference=frozenset({"influence_curve"}),
+                known_mechanism=frozenset({False}),
+                arms=frozenset({2}),
+                nodes=frozenset({None}),
+                n_min=8000,
+                covariates_per_row_max=0.0025,
+                min_event_count_min=events,
+            ),
+            sentence=(
+                f"The 95% limits of each end of the ATE bound covered at the nominal level on "
+                f"{law} at Gamma = 1.5 and n = 8,000: five-fold cross-fitted TMLE, correctly "
+                "specified GLM nuisances, the default quantile and tail learners. Another law "
+                "or learner is not covered."
+            ),
+            study=(
+                "marginal-bound-limit-coverage",
+                *(
+                    f"interval_calibration/{cell}_ate_{end}__correctly_specified"
+                    for end in ("lower", "upper")
+                ),
+            ),
+        )
+        for cell, (rule, family, learners, events, law) in _SH_CELLS.items()
+    )
+
+
 #: The plasmode rows cover every fit, a clustered one included: the readings are exact
 #: whatever the cluster count, because whole clusters are the i.i.d. units of a draw.
 _PLASMODE_SCOPE = CalibrationScope(clusters_min=1)
@@ -1217,8 +1402,8 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         ),
         scope=CalibrationScope(nodes=frozenset({None})),
         sentence=(
-            "On the generated law named here, the bias lies inside its equivalence band. "
-            "Your own outcome law is not this one."
+            "On the generated law named here, the standardized bias (the bias over the standard "
+            "deviation of the draws) lies inside its equivalence band."
         ),
         exact=True,
     ),
@@ -1234,7 +1419,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=CalibrationScope(inference=frozenset({"influence_curve"}), nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the standard-error ratio lies inside its "
-            "equivalence band. Your own outcome law is not this one."
+            "equivalence band."
         ),
         exact=True,
     ),
@@ -1249,7 +1434,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=CalibrationScope(inference=frozenset({"influence_curve"}), nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the 95% interval coverage lies inside its "
-            "equivalence band. Your own outcome law is not this one."
+            "equivalence band."
         ),
         exact=True,
     ),
@@ -1265,8 +1450,8 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         ),
         scope=_PLASMODE_SCOPE,
         sentence=(
-            "On the plasmode law named here, the bias lies inside its equivalence band. "
-            "The plasmode resembles your data and does not estimate its truth."
+            "On the plasmode law named here, the standardized bias (the bias over the standard "
+            "deviation of the draws) lies inside its equivalence band."
         ),
         exact=True,
     ),
@@ -1281,7 +1466,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the standard-error ratio lies inside its "
-            "equivalence band. The plasmode resembles your data and does not estimate its truth."
+            "equivalence band."
         ),
         exact=True,
     ),
@@ -1296,13 +1481,15 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the 95% interval coverage lies inside its "
-            "equivalence band. The plasmode resembles your data and does not estimate its truth."
+            "equivalence band."
         ),
         exact=True,
     ),
     *_longitudinal_rows(),
     *_point_rows(),
+    *_band_rows(),
     *_sg_rows(),
+    *_sh_rows(),
 )
 
 
@@ -1350,8 +1537,10 @@ def resolve(
             evidence=nearest,
         )
     if candidates:
-        row = candidates[0]
-        mismatch = row.scope.mismatch(fit)
+        # The nearest row differs on the fewest axes; a tie keeps registry order.
+        row = min(candidates, key=lambda candidate: len(candidate.scope.mismatches(fit)))
+        found = row.scope.mismatches(fit)
+        mismatch = found[0] if len(found) == 1 else ", ".join(found[:-1]) + " and " + found[-1]
         return Resolution(
             rung="L0",
             licensed=False,

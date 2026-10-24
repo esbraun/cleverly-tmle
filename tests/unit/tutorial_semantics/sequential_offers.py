@@ -47,6 +47,8 @@ UNPRINTED_DECIMALS = {
     f"estimate of it, 100 draws: {_PROBE}/summary.log",
     "0.0029": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
     "-0.0060": f"bias of the wrong-model LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
+    "0.64": "0.01 / 0.25**3, the product of three consent probabilities below which the cumulative "
+    "probability of a shipping follower falls under the cap of 0.01, recomputed in _check_cap",
 }
 
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")
@@ -65,7 +67,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_blind(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
-    _check_refutation(namespace)
+    _check_refutation_limits(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
     _check_prose_phrases()
@@ -126,7 +128,7 @@ def _check_data(namespace: dict[str, Any]) -> None:
     assert rates["win_back"] - rates["discount"] >= 0.08
     assert round(truth[_key("win_back")], 4) == 0.0722
 
-    # Step 3: the three arrows. "After a discount, a share of 0.886 ... engaged in week 2".
+    # "Why a simple comparison misleads": the three arrows. "After a discount, a share of 0.886 ... engaged in week 2".
     moved = namespace["moved"].groupby("offer")["engaged_week2"].mean()
     assert moved.round(3).to_dict() == {"discount": 0.886, "none": 0.551, "shipping": 0.661}
     assert moved["discount"] > moved["shipping"] > moved["none"]
@@ -176,12 +178,12 @@ def _check_data(namespace: dict[str, Any]) -> None:
 
 
 def _check_graph(namespace: dict[str, Any]) -> None:
-    """The causal graph of the title cell names the arrows that the law and the data carry.
+    """The causal graph of the question cell names the arrows that the law and the data carry.
 
     Every witness is nonzero, so a law that drops an arrow fails the page.
     """
     notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
-    title = "".join(next(c for c in notebook["cells"] if c["id"] == "title")["source"])
+    title = "".join(next(c for c in notebook["cells"] if c["id"] == "plan")["source"])
     fence = title.split("```text")[1].split("```")[0]
     for node in ("W", "L_t", "A_t", "L_{t+1}", "L_4", "C_t", "D", "Y", "U"):
         assert node in fence, node
@@ -262,7 +264,7 @@ def _check_design(namespace: dict[str, Any]) -> None:
         namespace["blind_gcomp"],
         namespace["levels"],
     )
-    # "The three `history_names` lines list the columns that the design puts in the history."
+    # The design puts tenure and the engagement scores so far in the history of each week.
     printed = stored_output(NOTEBOOK, "identify")
     for week, names in (
         (1, ("tenure", "engaged@1")),
@@ -270,16 +272,15 @@ def _check_design(namespace: dict[str, Any]) -> None:
         (3, ("tenure", "engaged@1", "engaged@2", "engaged@3")),
     ):
         assert study.data.history_names(week) == names
-        assert f"history_names({week}): {names}" in printed
-    # "The `history at offer@3` line lists `engaged@1`, `engaged@2`, `engaged@3`, `offer@1`, and
-    # `offer@2`, with `tenure`." No history holds the week-4 engagement.
+    # "The `history at` lines list ... tenure, the engagement scores so far, and the earlier
+    # offers." No history holds the week-4 engagement.
     assert (
         "history at offer@3: ['tenure', 'engaged@1', 'engaged@2', 'engaged@3', "
         "'offer@1', 'offer@2']"
     ) in printed
     assert "history at offer@1: ['tenure', 'engaged@1']" in printed
     assert "engaged@4" not in printed
-    # The four printed assumptions are those of the table in the plan.
+    # The four printed assumptions are those that the identify reading explains.
     for assumption in (
         "consistency: each observed history equals the potential history",
         "no interference: one unit's potential history",
@@ -308,7 +309,7 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     result, truth = namespace["result"], namespace["truth"]
     keys = [_key(name) for name in CONTRASTS]
     assert list(result.estimates) == keys
-    # Step 6: every learner and the seed are explicit, and the nuisances are fitted in sample.
+    # The main fit: every learner and the seed are explicit, and the nuisances are fitted in sample.
     method = namespace["ltmle"]
     assert not method.cross_fitting.enabled
     assert method.runtime.random_state == 42 and method.runtime.n_jobs == 1
@@ -316,7 +317,7 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     summary = result.summary()
     assert "known factors (declared, no learner): offer@1, offer@2, offer@3" in summary
     assert "no truncation bound moved a declared value" in summary
-    assert "cross-fitting: none -- nuisances fitted in sample" in summary
+    assert "cross-fitting: none; nuisances fitted in sample" in summary
     assert "g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability" in (
         summary
     )
@@ -359,7 +360,7 @@ def _check_fits(namespace: dict[str, Any]) -> None:
 
 
 def _check_blind(namespace: dict[str, Any]) -> None:
-    """Step 7: LTMLE with exact offer probabilities under a wrong outcome model."""
+    """ "What the logged offer probabilities buy you": LTMLE with exact offer probabilities under a wrong outcome model."""
     result, truth = namespace["result"], namespace["truth"]
     blind_ltmle, blind_gcomp = namespace["blind_ltmle"], namespace["blind_gcomp"]
     table = namespace["blind_table"]
@@ -375,7 +376,7 @@ def _check_blind(namespace: dict[str, Any]) -> None:
     assert blind.censoring_learner is namespace["logistic"]
     assert blind.treatment_learner is None
     assert not namespace["ltmle"].cross_fitting.enabled
-    # Both blind fits use the same estimand and identification as the Step 6 fit.
+    # Both blind fits use the same estimand and identification as the main fit.
     assert blind_ltmle.provenance.protocol_fingerprint == result.provenance.protocol_fingerprint
     assert list(table.index) == list(CONTRASTS)
     # g-computation reports a point estimate only with these learners.
@@ -402,7 +403,7 @@ def _check_blind(namespace: dict[str, Any]) -> None:
         assert covers(blind_ltmle[key], truth[key])
     # A nonzero witness that the targeting step moves the blind plug-in: the blind LTMLE estimate
     # differs from the blind g-computation estimate by more than 0.02 for the win-back rule, and
-    # it differs from the Step 6 estimate.
+    # it differs from the main estimate.
     assert abs(table.loc["win_back", "blind_ltmle"] - table.loc["win_back", "blind_gcomp"]) > 0.02
     assert (table["blind_ltmle"] - table["ltmle"]).abs().max() > 0.01
     # "On this draw, the wrong-model LTMLE estimates sit nearer to the truth than the
@@ -466,7 +467,10 @@ def _check_paired(namespace: dict[str, Any]) -> None:
 
 def _check_diagnostics(namespace: dict[str, Any]) -> None:
     result = namespace["result"]
-    ran = namespace["ran"].set_index("check")["status"]
+    assert namespace["attention"] == ()
+    ledger = namespace["assessment"].to_frame()
+    ran = ledger[~ledger["status"].isin(["unavailable", "not_applicable", "deferred"])]
+    ran = ran.set_index("check")["status"]
     assert ran.to_dict() == {
         "score_equations": "passed",
         "support": "completed",
@@ -481,7 +485,7 @@ def _check_diagnostics(namespace: dict[str, Any]) -> None:
         "win_back": 1247,
         "win_back_ship": 956,
     }
-    # The rule-node witness. The hand count of Step 3 reads each rule at the engagement of its own
+    # The rule-node witness. The hand count of the simple comparison reads each rule at the engagement of its own
     # week, on the customers who stayed consenting to week 3. The fit follows the rule through its
     # own history nodes. The two counts agree for every policy. A rule that read the engagement of
     # the previous week follows a different set of customers, which the second count shows.
@@ -523,9 +527,9 @@ def _check_diagnostics(namespace: dict[str, Any]) -> None:
     assert round(float(truncated["share_truncated"].iloc[0]) * followed["shipping"]) == 1
     assert round(float(truncated["share_truncated"].iloc[0]), 3) == 0.002
     assert support["max_weight"].max() == pytest.approx(100.0)
-    assert round(namespace["kish_ratio"], 3) == 0.864
+    assert round(namespace["smallest_share"], 3) == 0.864
     np.testing.assert_allclose(
-        namespace["kish_ratio"], (support["effective_n"] / support["n_followed"]).min()
+        namespace["smallest_share"], (support["effective_n"] / support["n_followed"]).min()
     )
     assert result.diagnostics.support().to_frame().equals(support)
     _check_cap(namespace)
@@ -588,8 +592,8 @@ def _check_cap(namespace: dict[str, Any]) -> None:
     assert all(wide.iloc[fitted[0]][("engaged", week)] == 0 for week in (1, 2, 3))
 
 
-def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Step 10: the four refits of the win-back contrast, and the checks that the page states it skips."""
+def check_refits(namespace: dict[str, Any]) -> None:
+    """ "Try to break the result": the four refits of the win-back contrast."""
     result, refutation = namespace["result"], namespace["refutation"]
     estimand = _key("win_back")
     assert refutation.estimand == estimand
@@ -601,6 +605,9 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         assert test.passed is None and test.rung == "L0"
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     assert refutation.passed is None
+    # The only longitudinal calibration covers a survival fit, and the report says this fit differs
+    # on its outcome family.
+    assert "This fit differs on outcome family 'binomial'" in refutation.summary()
     # The placebo reading: "-0.0023826 ... spread 0.01815 ... t -0.5872 (p = 0.564) ... 1.15".
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)
@@ -627,9 +634,13 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     stability = tests["bootstrap_stability"]
     assert round(float(np.mean(stability.values)) - original, 8) == -5.321e-05
     assert round(float(np.std(stability.values, ddof=1)), 5) == 0.01597
-    # The stored output holds the sentence that names the outcome family as the difference.
-    assert "This fit differs on outcome family 'binomial'" in stored_output(NOTEBOOK, "refute")
 
+
+def _check_refutation_limits(namespace: dict[str, Any]) -> None:
+    """ "Try to break the result": the stored output, and the checks that the page states it skips."""
+    result = namespace["result"]
+    estimand = _key("win_back")
+    assert "descriptive" in stored_output(NOTEBOOK, "refute")
     # The skipped checks of the reading, each refused as the reading states.
     wide = namespace["panel"].pivot(index="customer", columns="week")
     tenure = wide[("tenure", 1)].to_numpy()
@@ -661,7 +672,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
 
 def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]
-    # Step 11: the synthetic deployment check.
+    # "A dry run on fresh simulated customers".
     pilot, pilot_outcome = namespace["pilot"], namespace["pilot_outcome"]
     assert len(pilot_outcome) == 10_000 and int((pilot["consent"] == 0).sum()) == 0
     # The pilot deploys the win-back rule: each week's offer is the rule's offer for that week's
@@ -684,7 +695,7 @@ def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     assert round(truth["ey_regimen[win_back]"], 3) == 0.600
     assert covers(fitted, truth["ey_regimen[win_back]"])
 
-    # Step 12: the benchmark refits the static policies without engagement and keeps the declared
+    # "What if customers who withdraw consent differ?": the benchmark refits the static policies without engagement and keeps the declared
     # offer probabilities.
     benchmark = namespace["benchmark"]
     assert list(benchmark.index) == ["discount", "shipping"]
@@ -804,20 +815,19 @@ def _check_prose_phrases() -> None:
     association = _prose("association-reading")
     assert (
         f"fell below the truth on {count_of(crude['win_back'], 'below the truth on')} of 100 draws, by "
-        f"{crude_win[0].lstrip('-')} on average. The Monte Carlo standard error was {crude_win[1]}."
+        f"{crude_win[0].lstrip('-')} on average. The simulation's own standard error (Monte Carlo "
+        f"standard error) was {crude_win[1]}."
     ) in association
     assert (
         f"mean bias of {crude_ship[0]} (Monte Carlo standard error {crude_ship[1]})" in association
     )
 
     reading = _prose("blind-outcome-reading")
-    assert (
-        f"fell below the truth by {gcomp_win[0].lstrip('-')} on average over 100 draws" in reading
-    )
+    assert f"fell below the truth by {gcomp_win[0].lstrip('-')} on average." in reading
     assert (
         f"The wrong-model LTMLE bias was {blind_win[0]}, and its interval covered the truth on "
         f"{count_of(blind_ltmle, 'coverage')} of 100 draws"
     ) in reading
 
-    interpret = _prose("interpret")
-    assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in interpret
+    paired = _prose("failure-mode-reading")
+    assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in paired
