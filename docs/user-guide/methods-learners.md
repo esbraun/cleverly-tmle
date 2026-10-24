@@ -88,10 +88,10 @@ derivative = effect.estimate(
     method=CollaborativeTMLEMethod(models=parametric, strategy="derivative", lambdas=(0.02, 0.01)),
     random_state=3,
 )
-print(derivative.extra["ctmle"].describe())
+print(derivative.extra["ctmle"].summary())
 ```
 
-The fit prints the penalty pair and the number of training sets. The default cross-fit has 10. The
+The summary prints the penalty pair of each training set. The default cross-fit has 10. The
 [C-TMLE0 section](../technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)
 lists the other two sources of the pair and the refusals.
 

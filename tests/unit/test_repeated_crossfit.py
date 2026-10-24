@@ -556,7 +556,8 @@ class TestRepeatedCanonicalCVTMLE:
         first = _per_draw_detail(canonical)[0]
         assert canonical.cv_targeting.fold_epsilon == first.fold_epsilon
         assert canonical.cv_targeting.fold_estimates == first.fold_estimates
-        assert "the fold columns describe the first" in canonical.cv_targeting.summary()
+        note = canonical.cv_targeting.summary().note("cv_first_split")
+        assert "the fold columns describe the first split only" in note.text
 
     def test_the_score_equation_is_still_solved(self, canonical: Any) -> None:
         check = score_check(canonical)

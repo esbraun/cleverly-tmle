@@ -287,7 +287,8 @@ def _guard(*names: str) -> dict[str, Any]:
 _PLUGIN_STUDY = "omitted-variable-bound-plugin-se"
 _PLUGIN_LIMIT = (
     "The cells calibrate the interval of the plug-in omitted-variable limits, for a treatment "
-    "mechanism that is a LogisticRegression or is declared known (X26). They do not calibrate "
+    # Roadmap: X26.
+    "mechanism that is a LogisticRegression or is declared known. They do not calibrate "
     "the Wald interval of the effect."
 )
 
@@ -488,7 +489,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="clustered",
             cells=["unequal_noninformative", "unequal_informative"],
-            limits=["The fold-evaluated cluster-covariate cell is red (F28)."],
+            # Roadmap: F28.
+            limits=["The fold-evaluated cluster-covariate cell is red."],
         ),
         "weighting",
         {"unweighted": "none", "cluster_average": "fixed"},
@@ -501,7 +503,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("fold_evaluated",),
             dependence="clustered",
             cells=["fold_evaluated_property"],
-            limits=["The cluster-covariate cell is red (F28)."],
+            # Roadmap: F28.
+            limits=["The cluster-covariate cell is red."],
         ),
         "weighting",
         {"fold_evaluated": "none"},
@@ -514,7 +517,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             dependence="t",
             kinds=_WALD_T,
             cells=["few_cluster_reference"],
-            limits=["The informative-size cells at 10 to 30 clusters include red cells (F28)."],
+            # Roadmap: F28.
+            limits=["The informative-size cells at 10 to 30 clusters include red cells."],
         ),
         "splitting",
         {
@@ -559,7 +563,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P10",),
             qualifiers=["strata"],
             cells=["stratified_l1_logit"],
-            limits=["The logit slope at the smallest stratum is red (X8)."],
+            # Roadmap: X8.
+            limits=["The logit slope at the smallest stratum is red."],
         ),
         "treatment",
         {"logit_binary": ("binary",), "dose_logit": ("continuous",)},
@@ -594,7 +599,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             outcome=CONTINUOUS,
             qualifiers=["strata"],
             cells=["stratified_msm_identity"],
-            limits=["One paired cell at the smallest stratum is red (X8)."],
+            # Roadmap: X8.
+            limits=["One paired cell at the smallest stratum is red."],
         )
     )
     rows.append(
@@ -623,7 +629,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             treatment=("continuous",),
             options={"ratio": "density"},
             cells=["continuous_modified_policy"],
-            limits=["One paired calibration leg is red (RM18)."],
+            # Roadmap: RM18.
+            limits=["One paired calibration leg is red."],
         )
     )
     rows.append(
@@ -652,7 +659,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P11",),
             splitting=("fold_evaluated",),
             cells=["non_exceptional", "misspecified_limit"],
-            limits=["The exceptional and weak-blip laws are red (F27)."],
+            # Roadmap: F27.
+            limits=["The exceptional and weak-blip laws are red."],
         )
     )
     rows.append(
@@ -819,7 +827,8 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             cells=["both_correct", "outcome_correct", "treatment_correct"],
-            limits=["The one-inconsistent-nuisance cells are red (RM18)."],
+            # Roadmap: RM18.
+            limits=["The one-inconsistent-nuisance cells are red."],
         ),
         point_row(
             "D02",
@@ -829,7 +838,8 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
-            limits=["The boundary and one-sided-bias cells are red (RM18)."],
+            # Roadmap: RM18.
+            limits=["The boundary and one-sided-bias cells are red."],
         ),
         point_row(
             "D03",
@@ -839,7 +849,8 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["strata"],
             cells=["stratified_both_correct"],
-            limits=["Two truth cells and the small-stratum cell are red (X8)."],
+            # Roadmap: X8.
+            limits=["Two truth cells and the small-stratum cell are red."],
         ),
         point_row(
             "D04",
@@ -987,7 +998,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 engine=_ctmle(strategy),
                 kinds=_POINT,
                 cells=[f"binary_{strategy}"],
-                limits=["The selector plug-in interval is withheld (F18)."],
+                # Roadmap: F18.
+                limits=["The selector plug-in interval is withheld."],
             )
         )
         rows.append(
@@ -999,7 +1011,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 treatment=("arms3",),
                 kinds=_POINT,
                 cells=[f"multi_arm_selector_{strategy}"],
-                limits=["The selector plug-in interval is withheld (F18)."],
+                # Roadmap: F18.
+                limits=["The selector plug-in interval is withheld."],
             )
         )
     shared = _ctmle("oat", "shared")
@@ -1031,7 +1044,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             kinds=_POINT,
             cells=["multi_arm_binary_oat"],
-            limits=["The generated-design interval is withheld (F19)."],
+            # Roadmap: F19.
+            limits=["The generated-design interval is withheld."],
         ),
         point_row(
             "C05.binary",
@@ -1460,20 +1474,24 @@ def _c_rows() -> tuple[SupportRow, ...]:
 SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ("T10.fold_evaluated", "wald"): (
         "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
-        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187 (F28)."
+        # Roadmap: F28.
+        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187."
     ),
     ("T11.fold_evaluated", "wald_t"): (
         "Row T11.fold_evaluated is red when cluster sizes are informative at 10 to 30 clusters: "
         "at 10 clusters bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180 and SE ratio "
-        "0.8297 to 0.8849 (F28)."
+        # Roadmap: F28.
+        "0.8297 to 0.8849."
     ),
     ("T16.logit_binary", "wald"): (
         "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
-        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+        # Roadmap: X8.
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387."
     ),
     ("T16.dose_logit", "wald"): (
         "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
-        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+        # Roadmap: X8.
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387."
     ),
     # X40: the owner chose this label for the four red price_down cells of the five-node price
     # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
@@ -2215,7 +2233,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             kinds=_LONG_DERIVED,
             cells=["interval_calibration", "simultaneous_coverage"],
-            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here (X20)."],
+            # Roadmap: X20.
+            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here."],
         ),
         long_row(
             "G03",
@@ -2246,7 +2265,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             dependence="clustered",
             kinds=_POINT,
             cells=["boot_ey_clustered"],
-            limits=["Only the full-refit bootstrap measures this configuration (X20)."],
+            # Roadmap: X20.
+            limits=["Only the full-refit bootstrap measures this configuration."],
         ),
         long_row(
             "G06",
@@ -2414,7 +2434,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=("2",) * 5,
             weighting="fixed",
             cells=["weighted_t5"],
-            limits=["The fixed-weight cell reads a finite-sample shortfall (X13)."],
+            # Roadmap: X13.
+            limits=["The fixed-weight cell reads a finite-sample shortfall."],
         ),
         long_row(
             "G16",
@@ -2445,7 +2466,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             kinds=_LONG_BAND,
             cells=["three_arm_t3"],
-            limits=["The three-arm cell reads a finite-sample shortfall (X13)."],
+            # Roadmap: X13.
+            limits=["The three-arm cell reads a finite-sample shortfall."],
         ),
         long_row(
             "G18.stochastic",
@@ -3458,7 +3480,8 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                "reference mean only. A static level or contrast is refused (X72).",
+                # Roadmap: X72.
+                "reference mean only. A static level or contrast is refused.",
             ),
         ),
         row("G42.weighted", _structural_cells("s2w"), weighting="fixed"),
@@ -3572,9 +3595,10 @@ _LH_SWITCH_LIMIT: Final[str] = (
     "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
     "bias -0.0015 to 0.0038, SE ratio 0.9624"
 )
+# Roadmap: X20.
 _LH_CROSSFIT_NOTE: Final[str] = (
     "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
-    "ratio of 1.17 to 1.33 here (X20), and six of the Wald rows lose their gate below twice "
+    "ratio of 1.17 to 1.33 here, and six of the Wald rows lose their gate below twice "
     "n_kappa."
 )
 _LH_MSM_NOTE: Final[str] = (
@@ -3903,7 +3927,8 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
-        "and licenses no configuration (F27)."
+        # Roadmap: F27.
+        "and licenses no configuration."
     ),
 }
 

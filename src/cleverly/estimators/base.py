@@ -18,8 +18,6 @@ import numpy as np
 from .._inference_status import (
     InferenceStatus,
     is_labelled,
-    status_record,
-    supplies_inference,
 )
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
@@ -49,6 +47,7 @@ from ..inference.influence import (
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
     RatioKind,
+    RepeatSpread,
     estimate_covariance,
     estimate_curves,
     ratio_contrast,
@@ -67,7 +66,6 @@ from ..targets import TARGETS, all_names, resolve_estimands
 from ..targets.base import arm_alias, parameter_name
 from ..utils.frames import emit_frame
 from ..utils.memos import without_memos
-from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, RepeatFit
 from .targeting import TargetingSpec
 
@@ -226,87 +224,6 @@ class TMLEConfig:
             if self.cv_evaluation
             else "fold-specific targeted TMLE"
         )
-
-    def describe(self, *, outcome_fit: bool = True) -> list[str]:
-        """Human-readable lines for :meth:`TMLEResult.summary`.
-
-        Parameters
-        ----------
-        outcome_fit : bool
-            ``False`` for an AdaptiveIPTW fit, which fits no outcome regression and no
-            outcome fluctuation, so the lines name neither.
-
-        Returns
-        -------
-        list of str
-            The lines, one fact each.
-        """
-        lines = [
-            f"outcome family: {self.family}; fluctuation: {self.fluctuation} ({self.targeting})"
-            if outcome_fit
-            else f"outcome family: {self.family}; no outcome regression is fitted",
-        ]
-        if self.cross_fit:
-            name = self.estimator_name if outcome_fit else "AdaptiveIPTW"
-            lines.append(
-                f"{name}: nuisances cross-fitted over {self.n_folds} folds; "
-                f"targeting: {self.targeting_scheme}"
-            )
-            if self.crossfit.repeated:
-                # Always shown when it applies, unlike the capped-folds line below: a
-                # repeated fit reports a different estimator from an ordinary one, and a
-                # reader who cannot tell them apart cannot compare two summaries.
-                lines.append(
-                    f"  (median over {self.crossfit.repeats} independent draws of the "
-                    "split; variance includes within-draw uncertainty and split dispersion)"
-                )
-        else:
-            name = self.estimator_name if outcome_fit else "AdaptiveIPTW"
-            lines.append(f"{name}: nuisances fitted in-sample (cross_fit=False)")
-        if self.cross_fit and self.crossfit.n_folds != self.n_folds:
-            # Only when they disagree, because agreeing is the ordinary case and a line
-            # that always appears is a line nobody reads. When they do disagree the
-            # warning that explained it was emitted at fit time and is long gone, so this
-            # is the only place a reader can find out that the split was capped.
-            lines.append(
-                f"  ({self.crossfit.n_folds} folds were declared; the split was capped "
-                f"at {self.n_folds} by the rarest stratum or the cluster count)"
-            )
-        # A policy fit on a dose reads a conditional density, not a propensity: nothing is
-        # truncated into g_bounds and reporting the bound would name a step that did not
-        # happen. What bounds a density ratio there is the cap the analyst declared,
-        # which is part of the estimand and so appears in the parameter names instead.
-        if not (self.parameter_axis == "policy" and self.continuous_treatment) and (
-            self.fits_treatment
-        ):
-            bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
-            if self.auto_bounds_n is not None:
-                # Named because it is a deliberate divergence from R's rule, and because a
-                # reader comparing two fits needs to know the bound moved with the weights.
-                bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
-            if outcome_fit and self.g_bounds_conditional != self.g_bounds:
-                bounds += (
-                    f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
-                    f"{self.g_bounds_conditional[1]:.4g}]"
-                )
-            lines.append(bounds)
-        if self.treatment_mechanism == "known":
-            lines.append(
-                "treatment mechanism: known (declared); no truncation bound moved a known value"
-            )
-        if self.bounded_mechanisms:
-            # The propensity is not the only denominator in the clever covariate, and a
-            # reader comparing two fits needs to see every bound that shaped the estimate
-            # -- not just the one with a familiar name.
-            named = " and ".join(self.bounded_mechanisms)
-            lines.append(f"{named} truncated to [{self.missingness_bound:.4g}, 1]")
-        if self.q_bounds is not None and outcome_fit:
-            lines.append(
-                f"outcome scaled from [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}] to [0, 1]"
-            )
-        if self.target_weights and outcome_fit:
-            lines.append("fluctuation in weighted form (target_weights=True)")
-        return lines
 
 
 @dataclass(frozen=True)
@@ -511,66 +428,31 @@ class CVTargeting:
         }
         return emit_frame(payload, data, backend=self.backend)
 
-    def summary(self) -> str:
-        """A printable report of the fold-level targeting."""
-        errors = self.plugin_std_error
-        status = self.inference
-        cv_label = spread_name("cv std_err", status)
-        rows = []
-        for name, values in self.fold_estimates.items():
-            spread = f"{np.std(values, ddof=1):.4g}" if len(values) > 1 else "n/a"
-            rows.append(
-                [
-                    name,
-                    f"{self.fold_evaluated[name].psi:.5g}",
-                    f"{errors[name]:.4g}",
-                    f"{self.pooled[name].psi:.5g}",
-                    f"{self.pooled[name].plugin_std_error:.4g}",
-                    spread,
-                    f"[{min(values):.5g}, {max(values):.5g}]",
-                ]
-            )
-        table = format_table(
-            [
-                "estimand",
-                "fold-evaluated",
-                cv_label,
-                "pooled",
-                spread_name("std_err", status),
-                "fold sd",
-                "fold range",
-            ],
-            rows,
-        )
-        header = [
-            f"Cross-validated targeting over {self.n_folds} folds "
-            f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
-            "fold-evaluated: evaluated inside each fold and averaged (original CV-TMLE).",
-            "pooled: this fit's updated validation predictions stitched and evaluated once.",
-        ]
-        if self.repeats > 1:
-            header.append(
-                f"both reports and the {cv_label} combine {self.repeats} draws by their "
-                "median and split dispersion; the fold columns describe the first."
-            )
-        if not supplies_inference(status):
-            # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
-            header.append(status_record(status).reason)
-        elif is_labelled(status):
-            header.append(f"experimental: {status_record(status).shown_reason}")
-        header.append("")
-        epsilon_lines = ["", "common fluctuation coefficients:"]
-        for group, eps in self.epsilon.items():
-            formatted = "(" + ", ".join(f"{e:.4g}" for e in eps) + ")"
-            epsilon_lines.append(f"  {group}: {formatted}")
-        if self.fold_epsilon:
-            epsilon_lines.append("fold-specific fluctuation coefficients:")
-        for group, per_fold in self.fold_epsilon.items():
-            formatted = ", ".join(
-                "(" + ", ".join(f"{e:.4g}" for e in eps) + ")" for eps in per_fold
-            )
-            epsilon_lines.append(f"  {group}: {formatted}")
-        return "\n".join([*header, table, *epsilon_lines])
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of both cross-validated reports, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._method_summary import cv_summary
+
+        return cv_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import cv_repr
+
+        return cv_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -779,7 +661,7 @@ class TMLEResult:
             ),
         )
 
-    def repeat_spread(self) -> dict[str, float]:
+    def repeat_spread(self) -> RepeatSpread:
         r"""Split spread of the estimate across the cross-fitting draws, per estimand.
 
         A *diagnostic*, and emphatically not a standard error.  It measures how much the
@@ -813,9 +695,10 @@ class TMLEResult:
 
         Returns
         -------
-        dict of str to float
+        RepeatSpread
             Standard deviation across the cross-fitting draws, per estimand, on the
-            inference scale of that estimand.
+            inference scale of that estimand: a ``dict`` whose ``summary()`` sets each
+            spread beside the standard error it is read against.
         """
         return shared_repeat_spread(self.estimates, [repeat.psi for repeat in self.repeats])
 
@@ -1518,7 +1401,7 @@ class TMLEResult:
         )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
-        """A printable report of the fit, laid out like a statsmodels summary.
+        """A printable report of the fit, like a statsmodels summary.
 
         The header names the question, the data and the models; the table gives each
         estimate with its standard error, interval and p-value; numbered notes say what
@@ -1660,37 +1543,34 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
         stacked = nw.concat([nw.from_native(frame, eager_only=True) for frame in frames])
         return stacked.to_native()
 
-    def summary(self, *, detail: Detail = "short") -> str:
-        """The results, headed by level -- or bare, when there is only one.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The results as one summary: a single result's own, or one table over the levels.
 
-        A single-entry set prints exactly what its result prints.  Heading it
-        ``--- None = ... ---`` would put the internal sentinel in front of every ordinary
-        fit's output.
+        A single-entry set prints exactly what its result prints. Several levels of the
+        intermediate variable print one estimates table with a row per estimand and level,
+        the facts the levels share, and each level's notes.
 
         Parameters
         ----------
         detail : {"short", "full"}, default "short"
-            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
-            protocol record, or that the fit had none.
+            ``"full"`` adds each result's sections.
 
         Returns
         -------
-        str
-            Each result's summary, headed by its level of the intermediate variable.
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
         """
-        if len(self.results) == 1 and self.levels[0] is None:
-            return self.single().summary(detail=detail)
-        blocks = []
-        for value in self.levels:
-            label = (
-                "no intermediate" if value is None else f"{self.intermediate_name} = {value:.0f}"
-            )
-            blocks.append(f"--- {label} ---")
-            blocks.append(self.results[value].summary(detail=detail))
-        return "\n\n".join(blocks)
+        from ._method_summary import result_set_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return result_set_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import result_set_repr
+
+        return result_set_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def _level_order(value: float | None) -> tuple[int, float]:

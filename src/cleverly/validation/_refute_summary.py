@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from .._inference_status import supplies_inference
 from .._summary import Cell, Note, Summary, SummarySection, SummaryTable, short_repr, vocabulary
+from .._summary._cells import number_cell
 from .._summary._estimates import without_roadmap
 from .._summary._render import decimals_for, number_text, pvalue_text
 from ..inference.influence import spread_name
@@ -114,11 +115,6 @@ def _test_note(test: RefutationTest) -> Note:
     return Note(f"test_{test.name}", text, "warning" if test.passed is False else "note")
 
 
-def _finite(value: float) -> float | None:
-    """A cell value: ``None`` for a missing number, so two equal tables compare equal."""
-    return value if math.isfinite(value) else None
-
-
 def _decimals(report: RefutationResult) -> int:
     spreads = [test.spread for test in report.tests if math.isfinite(test.spread)]
     return decimals_for(spreads)
@@ -128,8 +124,8 @@ def _tests_table(report: RefutationResult, decimals: int) -> SummaryTable:
     rows = tuple(
         (
             Cell(test.name, _name(test)),
-            Cell(_finite(test.mean), number_text(test.mean, decimals)),
-            Cell(_finite(test.spread), number_text(test.spread, decimals)),
+            number_cell(test.mean, decimals),
+            number_cell(test.spread, decimals),
             Cell(test.expectation, _expected(test)),
             Cell(test.verdict, _result(test)),
         )
@@ -152,7 +148,7 @@ def _statistics_table(report: RefutationResult) -> SummaryTable | None:
                 (
                     Cell(test.name, _name(test)),
                     Cell(test.statistic_name, _statistic_label(test, test.statistic_name)),
-                    Cell(test.statistic, number_text(test.statistic, 3)),
+                    number_cell(test.statistic, 3),
                     Cell(test.statistic_pvalue, pvalue_text(test.statistic_pvalue)),
                 )
             )
@@ -161,7 +157,7 @@ def _statistics_table(report: RefutationResult) -> SummaryTable | None:
                 (
                     Cell(test.name, _name(test)),
                     Cell(label, _statistic_label(test, label)),
-                    Cell(value, number_text(value, 3)),
+                    number_cell(value, 3),
                     Cell(None, vocabulary.MISSING),
                 )
             )
@@ -183,7 +179,7 @@ def _readings_table(report: RefutationResult) -> SummaryTable | None:
                 (
                     Cell(test.name, _name(test)),
                     Cell(reading.name, _statistic_label(test, reading.name)),
-                    Cell(reading.estimate, number_text(reading.estimate, 3)),
+                    number_cell(reading.estimate, 3),
                     Cell(
                         (reading.lower, reading.upper),
                         f"[{number_text(reading.lower, 3)}, {number_text(reading.upper, 3)}]",
@@ -290,7 +286,7 @@ def _sections(report: RefutationResult) -> list[SummarySection]:
         if variables:
             line += f"; error added to {', '.join(map(str, variables))}"
         if test.resampling is not None:
-            line += f"; {vocabulary.RESAMPLING_WORDS.get(test.resampling, test.resampling)}"
+            line += f"; {vocabulary.REFIT_RESAMPLING_WORDS.get(test.resampling, test.resampling)}"
         elif getattr(test.declaration, "name", None):
             name = test.declaration.name
             line += f"; outcome drawn as {vocabulary.PROCESS_NAMES.get(name, name)}"

@@ -668,10 +668,14 @@ class TestTheResultSet:
         with pytest.raises(KeyError, match="no single one to return"):
             two_levels.single()
 
-    def test_a_two_level_summary_is_headed_by_level(self, two_levels) -> None:
-        text = two_levels.summary()
-        assert "--- Z = 0 ---" in text
-        assert "--- Z = 1 ---" in text
+    def test_a_two_level_summary_has_a_row_per_level(self, two_levels) -> None:
+        summary = two_levels.summary()
+        labels = [cell.text for cell in summary.table().column("")]
+        names = list(two_levels[0.0].estimates)
+        assert labels == [f"{name} at Z = {z}" for z in ("0", "1") for name in names]
+        psi = [cell.value for cell in summary.table().column("estimate")]
+        assert psi == [two_levels[z].estimates[n].psi for z in (0.0, 1.0) for n in names]
+        assert "levels_separate" in summary.note_codes
 
     def test_a_two_level_frame_stacks_the_levels(self, two_levels) -> None:
         assert len(two_levels.to_frame()) == sum(
