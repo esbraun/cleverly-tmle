@@ -118,7 +118,11 @@ def estimate_summary(estimate: ParameterEstimate, detail: Detail) -> Summary:
     if detail == "full":
         level = level_text(estimate.alpha)
         null = 1 if estimate.scale == "ratio" else 0
-        lines = [f"The interval is at the {level} level; the p-value tests the null value {null}."]
+        if math.isfinite(estimate._reported_pvalue()):
+            test = f"the p-value tests the null value {null}"
+        else:
+            test = "this scale has no default test; wald_test(null=...) gives one"
+        lines = [f"The interval is at the {level} level; {test}."]
         summary = estimate.bootstrap
         if summary is not None:
             decimals = decimals_for([summary.std_error])
@@ -443,7 +447,7 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
     requested = summary.n_replicates + summary.n_failed
     header = [
         (vocabulary.INTERVAL, kind),
-        (vocabulary.REPLICATES, count_text(summary.n_replicates)),
+        (vocabulary.REPLICATES, count_text(requested)),
         (vocabulary.FAILED, count_text(summary.n_failed)),
     ]
     if diagnostic:
@@ -558,7 +562,7 @@ def bands_summary(bands: SimultaneousBands, detail: Detail) -> Summary:
     table = SummaryTable(("", vocabulary.LOWER, vocabulary.UPPER), rows)
     header = [
         (vocabulary.CRITICAL_VALUE, f"{bands.critical_value:.3f}"),
-        (vocabulary.ROWS, count_text(len(bands.bands))),
+        (vocabulary.ESTIMANDS_COVERED, count_text(len(bands.bands))),
         (vocabulary.MULTIPLIER_DRAWS, count_text(bands.n_replicates)),
         (vocabulary.MULTIPLIER_KIND, bands.kind),
     ]

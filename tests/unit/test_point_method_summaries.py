@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -144,3 +145,13 @@ def test_a_note_never_breaks_a_word_at_its_hyphen(word: str) -> None:
         lines = printed.splitlines()
         assert any(word in line for line in lines), (pad, printed)
         assert not any(line.rstrip().endswith(word.split("-")[0] + "-") for line in lines)
+
+
+def test_a_header_count_that_disagrees_with_the_object_fails() -> None:
+    """Control: the reader compares the header counts with the object, not the summary."""
+    bootstrap = _built("bootstrap")
+    text = str(bootstrap.summary())
+    read.read_bootstrap(bootstrap, text)
+    other = replace(bootstrap, n_failed=bootstrap.n_failed + 1)
+    with pytest.raises(AssertionError):
+        read.check_header(other, text, {"Failed": other.n_failed})

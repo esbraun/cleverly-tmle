@@ -747,7 +747,7 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
     def test_the_default_guard(self) -> None:
         result = sweep.fit_drtmle()
         summary = result.summary()
-        assert summary.facts[vocabulary.GUARD] == "wrong outcome model, wrong treatment model"
+        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model or a wrong treatment model"
         assert summary.note("guard_scope").text == " ".join(
             vocabulary.GUARD_SENTENCES[guard] for guard in ("Q", "g")
         )
@@ -756,7 +756,7 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
     def test_a_one_equation_guard(self) -> None:
         result = _guarded(("Q",))
         summary = result.summary()
-        assert summary.facts[vocabulary.GUARD] == "wrong outcome model"
+        assert summary.facts[vocabulary.GUARD] == "a wrong outcome model"
         assert summary.note("guard_scope").text == vocabulary.GUARD_SENTENCES["Q"]
         assert _reduction_line("univariate") in _method_lines(result)
 
@@ -764,7 +764,7 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
         summary = _guarded(()).summary()
         assert summary.note("ordinary_tmle").text == vocabulary.NOTE_TEXTS["ordinary_tmle"]
         assert "guard_scope" not in summary.note_codes
-        assert summary.facts[vocabulary.GUARD] == "nothing (no extra equations)"
+        assert summary.facts[vocabulary.GUARD] == "none"
 
     def test_the_bivariate_reduction(self) -> None:
         frame, _ = make_binary_outcome(n=160, seed=11)

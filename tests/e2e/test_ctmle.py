@@ -487,9 +487,7 @@ class TestDownstreamMachineryStillWorks:
         else:
             # The default outcome learner is outside the stacked interval of X58.
             assert refusal is not None and "outcome_learner" in refusal
-            assert (
-                oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval: {refusal}"
-            )
+            assert oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval: {refusal}"
         assert sentence in diagnostics.summary()
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 

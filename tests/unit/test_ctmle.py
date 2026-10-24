@@ -1296,7 +1296,7 @@ class TestReporting:
         assert selection.dropped == ("W1", "W2", "W3")
         footer = selection.summary().note("left_out").text
         assert "leaves out W1, W2, W3." in footer
-        assert "cross-validated loss of the adjusted outcome predictions" in footer
+        assert "cross-validated criterion of the adjusted outcome predictions" in footer
         assert "does not show why a covariate was left out" in footer
         assert "bias" not in footer
         assert "variance" not in footer

@@ -112,7 +112,7 @@ def method_facts(result: TMLEResult, treatment_learner: str | None) -> MethodFac
     if isinstance(record, CTMLESelection):
         return _selection_facts(record, treatment_learner)
     if isinstance(record, CTMLEOutcomeAdaptiveFit):
-        return _oat_facts(record, data)
+        return _oat_facts(record, data, banded=result.simultaneous is not None)
     if isinstance(record, CTMLEDerivativeFit):
         return _derivative_facts(record)
     reduced = result.extra.get("drtmle")
@@ -407,7 +407,7 @@ def _stacked_note(fit: CTMLEOutcomeAdaptiveFit) -> Note | None:
     return None
 
 
-def _stacked_lines(fit: CTMLEOutcomeAdaptiveFit) -> list[str]:
+def _stacked_lines(fit: CTMLEOutcomeAdaptiveFit, *, banded: bool = False) -> list[str]:
     """How the stacked interval of an admitted fit was built, or why there is none."""
     if fit.stacked_refusal is not None:
         reason = plain_support_reason(fit.stacked_refusal).rstrip(".")
@@ -425,10 +425,11 @@ def _stacked_lines(fit: CTMLEOutcomeAdaptiveFit) -> list[str]:
             f"Each estimate is the median of {fit.stacked_repeats} cross-fitting repeats, "
             "and its std. error allows for the spread across them."
         )
-    lines.append(
-        "A simultaneous band covers the estimates that have an interval jointly, from the "
-        "same stacked equation."
-    )
+    if banded:
+        lines.append(
+            "A simultaneous band covers the estimates that have an interval jointly, from "
+            "the same stacked equation."
+        )
     return lines
 
 
@@ -449,7 +450,7 @@ def _oat_sentence(fit: CTMLEOutcomeAdaptiveFit) -> str:
     )
 
 
-def _oat_facts(fit: CTMLEOutcomeAdaptiveFit, data: Any) -> MethodFacts:
+def _oat_facts(fit: CTMLEOutcomeAdaptiveFit, data: Any, *, banded: bool) -> MethodFacts:
     details = [_oat_sentence(fit)]
     if len(fit.factors) > 1:
         details.append(
@@ -461,7 +462,7 @@ def _oat_facts(fit: CTMLEOutcomeAdaptiveFit, data: Any) -> MethodFacts:
         )
     if fit.strata:
         details.append(f"It is fitted inside each of {len(fit.strata)} baseline strata.")
-    details.extend(_stacked_lines(fit))
+    details.extend(_stacked_lines(fit, banded=banded))
     stacked = _stacked_note(fit) if fit.stacked_interval is not None else None
     return MethodFacts(
         method=_collaborative(vocabulary.CTMLE_SEARCHES["oat"]),
@@ -598,6 +599,11 @@ def _derivative_facts(fit: CTMLEDerivativeFit) -> MethodFacts:
     )
 
 
+def _arm_label(fit: CTMLEDerivativeFit, k: int) -> str:
+    labels = fit.arm_labels
+    return labels[k] if len(labels) == len(fit.derivative_score_before) else f"arm {k + 1}"
+
+
 def derivative_summary(fit: CTMLEDerivativeFit, detail: Detail) -> Summary:
     """The summary of a derivative-form collaborative fit.
 
@@ -618,16 +624,16 @@ def derivative_summary(fit: CTMLEDerivativeFit, detail: Detail) -> Summary:
     decimals = max(3, decimals_for([abs(v) for v in before if math.isfinite(v)] or [1.0]))
     tables = [
         SummaryTable(
-            ("arm", "score before", "score after"),
+            ("arm", "before", "after"),
             tuple(
                 (
-                    Cell(k, f"arm {k}"),
+                    Cell(k, _arm_label(fit, k)),
                     number_cell(b, decimals),
                     number_cell(a, decimals),
                 )
                 for k, (b, a) in enumerate(zip(before, after, strict=True))
             ),
-            title="Partner equation score, before and after the adjustment",
+            title="Each arm's extra equation, before and after the adjustment (0 = solved)",
             kind="other",
         )
     ]
@@ -694,8 +700,8 @@ def derivative_repr(fit: CTMLEDerivativeFit) -> str:
 
 def _guard_text(fit: ReducedFit) -> str:
     if not fit.guard:
-        return "nothing (no extra equations)"
-    return ", ".join(vocabulary.GUARD_WORDS.get(g, g) for g in fit.guard)
+        return "none"
+    return " or ".join(vocabulary.GUARD_WORDS.get(g, g) for g in fit.guard)
 
 
 def _guard_note(fit: ReducedFit) -> Note:
@@ -756,7 +762,8 @@ def reduced_summary(fit: ReducedFit, detail: Detail) -> Summary:
     """
     rows = []
     for key, entries in fit.diagnostics.items():
-        name = vocabulary.REDUCED_REGRESSIONS.get(key, key)
+        label = f"{key}_bivariate" if key == "gr1" and fit.reduction == "bivariate" else key
+        name = vocabulary.REDUCED_REGRESSIONS.get(label, key)
         best, risk = _best(entries[0]) if entries else ("", math.nan)
         rows.append(
             (
@@ -767,9 +774,11 @@ def reduced_summary(fit: ReducedFit, detail: Detail) -> Summary:
         )
     if not rows:
         rows.append((Cell("none", "none"), Cell("", ""), Cell(None, "")))
+    several = any(len(entries) > 1 for entries in fit.diagnostics.values())
     table = SummaryTable(
         ("regression", vocabulary.BEST.lower(), vocabulary.CV_RISK),
         tuple(rows),
+        title="Best candidate of each regression's first arm and round" if several else None,
         kind="other",
     )
     low, high = fit.g_bounds
@@ -856,6 +865,11 @@ def _iptw_facts(
     return MethodFacts(details=tuple(details), notes=(capped,) if capped is not None else ())
 
 
+def _key_label(fit: AdaptiveIPTWFit, key: str) -> str:
+    """An arm's key reads "arm 1"; a regime or stratum key prints as recorded."""
+    return f"arm {key}" if fit.axis == "arm" and key in fit.arms else key
+
+
 def iptw_summary(fit: AdaptiveIPTWFit, detail: Detail) -> Summary:
     """The summary of an Adaptive IPTW weight adjustment.
 
@@ -884,7 +898,7 @@ def iptw_summary(fit: AdaptiveIPTWFit, detail: Detail) -> Summary:
         final = float(adjusted[name][0]) if name in adjusted else math.nan
         rows.append(
             (
-                Cell(name, f"arm {name}"),
+                Cell(name, _key_label(fit, name)),
                 number_cell(first, decimals),
                 number_cell(final, decimals),
             )
@@ -895,9 +909,9 @@ def iptw_summary(fit: AdaptiveIPTWFit, detail: Detail) -> Summary:
     if any(fit.bound_active.values()):
         tables.append(
             SummaryTable(
-                ("part", "rows at a probability limit"),
+                ("", "rows at a probability limit"),
                 tuple(
-                    (Cell(key, key), Cell(int(count), count_text(int(count))))
+                    (Cell(key, _key_label(fit, key)), Cell(int(count), count_text(int(count))))
                     for key, count in fit.bound_active.items()
                 ),
                 title="Rows whose adjusted treatment probability sits at a limit",
@@ -917,9 +931,10 @@ def iptw_summary(fit: AdaptiveIPTWFit, detail: Detail) -> Summary:
             "estimate uses the treatment model after the last round."
         ]
         if fit.constant_design:
+            labels = ", ".join(_key_label(fit, key) for key in fit.constant_design)
             lines.append(
-                "These problems had a constant design in a training set, so their extra "
-                f"regression was a weighted mean: {', '.join(fit.constant_design)}."
+                f"The extra regression of {labels} took one value in a training set, so it "
+                "was a weighted mean and no learner ran."
             )
         sections.append(SummarySection(vocabulary.SECTION_SETTINGS, tuple(lines)))
     return Summary.build(
@@ -942,7 +957,7 @@ def iptw_repr(fit: AdaptiveIPTWFit) -> str:
     Returns
     -------
     str
-        For example ``AdaptiveIPTWFit(form=targeted, rounds=4, stopped=score tolerance met)``.
+        For example ``AdaptiveIPTWFit(form=targeted, rounds=4, stopped=converged)``.
     """
     return short_repr(
         "AdaptiveIPTWFit",
@@ -1201,13 +1216,20 @@ def result_set_repr(result_set: TMLEResultSet) -> str:
     Returns
     -------
     str
-        ``TMLEResultSet(TMLEResult(...))`` for one entry, otherwise for example
+        ``TMLEResultSet(TMLEResult(...))`` for one entry when that fits in 100
+        characters, otherwise for example
         ``TMLEResultSet(levels=2, Z=[0, 1], method=TMLE)``.
     """
     levels = result_set.levels
-    if len(levels) == 1:
-        return f"TMLEResultSet({result_set.results[levels[0]]!r})"
     first = result_set.results[levels[0]]
+    if len(levels) == 1:
+        text = f"TMLEResultSet({first!r})"
+        if len(text) <= 100:
+            return text
+        return short_repr(
+            "TMLEResultSet",
+            [("levels", 1), ("method", vocabulary.method_short_name(first.fitted_method))],
+        )
     z_name = result_set.intermediate_name or "Z"
     return short_repr(
         "TMLEResultSet",

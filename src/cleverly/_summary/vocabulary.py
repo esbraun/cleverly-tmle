@@ -623,7 +623,8 @@ NULL_VALUE: Final = "Null value"
 SCALE: Final = "Scale"
 REFERENCE: Final = "Reference"
 RESAMPLING: Final = "Resampling"
-REPLICATES: Final = "Replicates"
+REPLICATES: Final = "Replicates asked for"
+ESTIMANDS_COVERED: Final = "Estimands"
 FAILED: Final = "Failed"
 INTERVAL: Final = "Interval"
 FOLDS: Final = "Folds"
@@ -637,7 +638,7 @@ ADJUSTMENT: Final = "Multiple testing"
 LOSS: Final = "Loss"
 BEST: Final = "Best candidate"
 ENSEMBLE_RISK: Final = "Ensemble CV risk"
-GUARD: Final = "Protects against"
+GUARD: Final = "Extra equations for"
 REDUCTION: Final = "Extra regressions"
 FORM: Final = "Form"
 ROUNDS: Final = "Rounds"
@@ -659,6 +660,7 @@ HEADER_LABELS = HEADER_LABELS | {
     REFERENCE,
     RESAMPLING,
     REPLICATES,
+    ESTIMANDS_COVERED,
     FAILED,
     INTERVAL,
     FOLDS,
@@ -729,7 +731,7 @@ IPTW_FORMS: Final[Mapping[str, str]] = MappingProxyType(
 )
 #: Why the Adaptive IPTW weight adjustment stopped, keyed by ``stop``.
 IPTW_STOPS: Final[Mapping[str, str]] = MappingProxyType(
-    {"tolerance": "score tolerance met", "cap": "round limit"}
+    {"tolerance": "converged", "cap": "round limit"}
 )
 #: The spread columns of a cross-validated report, keyed by its frame column.
 CV_SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
@@ -794,6 +796,7 @@ LOSS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
         "mse": "squared error",
         "squared_error": "squared error",
         "nll": "negative log-likelihood",
+        "neg_log_likelihood": "negative log-likelihood",
         "log_loss": "negative log-likelihood",
         "negative_log_likelihood": "negative log-likelihood",
     }
@@ -802,8 +805,8 @@ LOSS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 #: What each DR-TMLE guard protects against, keyed by the guard name.
 GUARD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "Q": "wrong outcome model",
-        "g": "wrong treatment model",
+        "Q": "a wrong outcome model",
+        "g": "a wrong treatment model",
     }
 )
 
@@ -816,9 +819,10 @@ GUARD_SENTENCES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "Q": (
             "The fit solved extra equations meant to keep the interval valid when the "
-            "outcome model is wrong. That protection is shown only when the treatment "
-            "probabilities are known or come from a correctly specified parametric model, "
-            "not for a flexible learner."
+            "outcome model is wrong. With the outcome model wrong, the interval is valid when "
+            "the treatment probabilities are known, conservative (wider than needed) when "
+            "they come from a correctly specified parametric model, and not established for "
+            "a flexible learner."
         ),
         "g": (
             "The fit solved the extra equations meant for a wrong treatment model. When the "
@@ -858,13 +862,14 @@ REDUCTION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 REDUCED_REGRESSIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "qr": "outcome error on treatment probability",
-        "gr1": "treatment on treatment probability",
+        "gr1": "treatment on outcome prediction",
+        "gr1_bivariate": "treatment on outcome and treatment predictions",
         "gr2": "weighted treatment error on outcome prediction",
-        "gamma_a": "treatment recorded, on reduced predictions",
-        "gamma_m": "outcome recorded, on reduced predictions",
-        "r_a": "treatment error on reduced predictions",
-        "r_m": "recording error on reduced predictions",
-        "e": "outcome error on reduced predictions",
+        "gamma_a": "treatment on outcome prediction",
+        "gamma_m": "outcome recorded on outcome prediction",
+        "r_a": "weighted treatment error on outcome prediction",
+        "r_m": "weighted recording error on outcome prediction",
+        "e": "outcome error on P(treated and recorded)",
     }
 )
 
@@ -930,7 +935,7 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "rounds_capped": (
             "The weight adjustment stopped at its round limit ({rounds}) before the "
-            "weighted score of every estimate met its tolerance, so an estimate may keep part "
+            "weights converged for every estimate, so an estimate may keep part "
             "of the bias the adjustment is meant to remove."
         ),
         "levels_separate": (
@@ -945,7 +950,7 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "bootstrap_failed": (
             "{failed} of {requested} replicates gave no usable estimate and are left out. If "
             "those were the resamples where a treatment group was rarest, the remaining "
-            "spread, and any interval from it, is too narrow."
+            "spread, and any interval from it, can be too narrow."
         ),
         "bootstrap_describes": (
             "These numbers describe the replicate estimates. The fitted result's summary "
@@ -977,8 +982,8 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "left_out": (
             "The chosen treatment model leaves out {names}. The search chose by the "
-            "cross-validated loss of the adjusted outcome predictions; it does not show why "
-            "a covariate was left out."
+            "cross-validated criterion of the adjusted outcome predictions; it does not show "
+            "why a covariate was left out."
         ),
         "search_stopped": (
             "The search stopped after candidate {stopped}: {patience} since the best one so "

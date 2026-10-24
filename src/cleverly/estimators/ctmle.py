@@ -1641,6 +1641,8 @@ class CTMLEDerivativeFit:
     treatment_risk : float
         The mean cross-validated deviance at the chosen penalty when the lasso source chose
         it, otherwise the weighted negative log likelihood of the mechanism's predictions.
+    arm_labels : tuple of str, default=()
+        The treatment level of each arm, in the order of the scores; empty when unknown.
     """
 
     strategy: CTMLEStrategy
@@ -1652,6 +1654,7 @@ class CTMLEDerivativeFit:
     derivative_score_before: FloatArray
     derivative_score_after: FloatArray
     treatment_risk: float
+    arm_labels: tuple[str, ...] = ()
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -3125,6 +3128,7 @@ default="greedy"
             derivative_score_before=update.score_before,
             derivative_score_after=update.score_after,
             treatment_risk=treatment_risk,
+            arm_labels=tuple(str(level) for level in data.treatment_levels),
         )
         # The fit record needs this solve.  ``targeting_outcome`` stays empty: the retarget
         # rebuilds the update at its own bounds, so a stored ``Q*`` would never be read.

@@ -116,6 +116,23 @@ def check_tables(text: str, expected: Sequence[Expected], *, every_row: bool = T
             assert printed == set(want), (number, set(want) - printed)
 
 
+def check_header(obj: Any, text: str, expected: Mapping[str, Any]) -> None:
+    """Assert each header fact holds the value read off the object, and prints.
+
+    The two header columns interleave on the page, so the printed check is that every
+    word of the value appears in the header block; the value itself is compared whole
+    against the summary's facts.
+    """
+    lines = text.splitlines()
+    rules = [i for i, line in enumerate(lines) if line and set(line) == {"="}]
+    words = set(" ".join(lines[rules[0] + 1 : rules[1]]).split())
+    facts = obj.summary().facts
+    for label, value in expected.items():
+        shown = f"{int(value):,}" if isinstance(value, int | np.integer) else str(value)
+        assert facts.get(label) == shown, (label, facts.get(label), shown)
+        assert set(shown.split()) <= words, (label, shown)
+
+
 # ----------------------------------------------------------------- per object
 
 
@@ -135,6 +152,7 @@ def estimate_values(estimate: Any, level: str = "95%") -> dict[str, Any]:
 
 def read_estimate(estimate: Any, text: str) -> None:
     check_tables(text, [{estimate.name: estimate_values(estimate)}])
+    check_header(estimate, text, {"Estimand": estimate.name, "Rows": estimate.n})
 
 
 def read_wald(test: Any, text: str) -> None:
@@ -149,6 +167,7 @@ def read_wald(test: Any, text: str) -> None:
             }
         ],
     )
+    check_header(test, text, {"Estimand": test.name, "Null value": f"{test.null:g}"})
 
 
 def _replicates(draws: Any) -> dict[str, Any]:
@@ -166,6 +185,11 @@ def _replicates(draws: Any) -> dict[str, Any]:
 
 def read_bootstrap(bootstrap: Any, text: str) -> None:
     check_tables(text, [{name: _replicates(draws) for name, draws in bootstrap.draws.items()}])
+    check_header(
+        bootstrap,
+        text,
+        {"Replicates asked for": bootstrap.n_requested, "Failed": bootstrap.n_failed},
+    )
 
 
 def read_bootstrap_interval(summary: Any, text: str) -> None:
@@ -186,6 +210,14 @@ def read_bootstrap_interval(summary: Any, text: str) -> None:
             }
         ],
     )
+    check_header(
+        summary,
+        text,
+        {
+            "Replicates asked for": summary.n_replicates + summary.n_failed,
+            "Failed": summary.n_failed,
+        },
+    )
 
 
 def read_bands(bands: Any, text: str) -> None:
@@ -197,6 +229,15 @@ def read_bands(bands: Any, text: str) -> None:
                 for name, (low, high) in bands.bands.items()
             }
         ],
+    )
+    check_header(
+        bands,
+        text,
+        {
+            "Critical value": f"{bands.critical_value:.3f}",
+            "Estimands": len(bands.bands),
+            "Multiplier draws": bands.n_replicates,
+        },
     )
 
 
@@ -215,6 +256,7 @@ def read_spread(spread: Any, text: str) -> None:
             vocabulary.SCALE.lower(): spread.scales[name],
         }
     check_tables(text, [want])
+    check_header(spread, text, {"Splits": spread.n_repeats})
 
 
 def read_selection(selection: Any, text: str) -> None:
@@ -242,6 +284,17 @@ def read_selection(selection: Any, text: str) -> None:
     printed = {cells[0] for cells in read_tables(text)[0][1]}
     assert str(selection.selected + 1) in printed
     assert {"1", str(len(selection.path))} <= printed
+    reported = selection.final if selection.final is not None else selection.selected
+    check_header(
+        selection,
+        text,
+        {
+            "Candidates": len(selection.path),
+            "Chosen": f"candidate {reported + 1} of {len(selection.path)}"
+            + (" (final step)" if selection.final is not None else ""),
+            "Estimand": selection.estimand,
+        },
+    )
 
 
 def read_oat(fit: Any, text: str) -> None:
@@ -270,11 +323,13 @@ def read_oat(fit: Any, text: str) -> None:
 
 
 def read_derivative(fit: Any, text: str) -> None:
+    labels = list(fit.arm_labels)
+    assert len(labels) == len(fit.derivative_score_before)
     tables: list[Expected] = [
         {
-            f"arm {k}": {"score before": before, "score after": after}
-            for k, (before, after) in enumerate(
-                zip(fit.derivative_score_before, fit.derivative_score_after, strict=True)
+            label: {"before": before, "after": after}
+            for label, before, after in zip(
+                labels, fit.derivative_score_before, fit.derivative_score_after, strict=True
             )
         }
     ]
@@ -285,7 +340,23 @@ def read_derivative(fit: Any, text: str) -> None:
                 for k, (mechanism, partner) in enumerate(fit.penalties)
             }
         )
+        check_header(fit, text, {"Training sets": len(fit.penalties)})
     check_tables(text, tables)
+
+
+#: What each DR-TMLE extra regression regresses on what, written from
+#: ``cleverly.estimators.reduced`` (``reduced_designs``, ``_roles`` and the missing-outcome
+#: roles), not from the summary's vocabulary.
+_REGRESSIONS = {
+    "qr": "outcome error on treatment probability",
+    "gr1": "treatment on outcome prediction",
+    "gr2": "weighted treatment error on outcome prediction",
+    "gamma_a": "treatment on outcome prediction",
+    "gamma_m": "outcome recorded on outcome prediction",
+    "r_a": "weighted treatment error on outcome prediction",
+    "r_m": "weighted recording error on outcome prediction",
+    "e": "outcome error on P(treated and recorded)",
+}
 
 
 def read_reduced(fit: Any, text: str) -> None:
@@ -297,20 +368,29 @@ def read_reduced(fit: Any, text: str) -> None:
             best: Any = first.best
         else:
             best, risk = "not a super learner", float("nan")
-        want[vocabulary.REDUCED_REGRESSIONS[key]] = {
+        label = _REGRESSIONS[key]
+        if key == "gr1" and fit.reduction == "bivariate":
+            label = "treatment on outcome and treatment predictions"
+        want[label] = {
             vocabulary.BEST.lower(): best,
             vocabulary.CV_RISK: None if not math.isfinite(risk) else risk,
         }
     if not want:
         want["none"] = {vocabulary.BEST.lower(): None, vocabulary.CV_RISK: None}
     check_tables(text, [want])
+    low, high = fit.g_bounds
+    check_header(fit, text, {"Probability limits": f"[{low:.4g}, {high:.4g}]"})
 
 
 def read_iptw(fit: Any, text: str) -> None:
     adjusted = fit.targeted if fit.form == "targeted" else fit.one_step
+
+    def label(key: str) -> str:
+        return f"arm {key}" if fit.axis == "arm" and key in fit.arms else key
+
     tables: list[Expected] = [
         {
-            f"arm {name}": {
+            label(name): {
                 "initial weighted mean": value,
                 "adjusted estimate": adjusted[name][0],
             }
@@ -319,9 +399,13 @@ def read_iptw(fit: Any, text: str) -> None:
     ]
     if any(fit.bound_active.values()):
         tables.append(
-            {key: {"rows at a probability limit": count} for key, count in fit.bound_active.items()}
+            {
+                label(key): {"rows at a probability limit": count}
+                for key, count in fit.bound_active.items()
+            }
         )
     check_tables(text, tables)
+    check_header(fit, text, {"Form": fit.form.replace("_", "-"), "Rounds": fit.rounds})
 
 
 def read_cv(report: Any, text: str) -> None:
@@ -345,9 +429,19 @@ def read_cv(report: Any, text: str) -> None:
             vocabulary.FOLD_RANGE: (min(draws), max(draws)),
         }
     check_tables(text, [main, folds])
+    check_header(report, text, {"Splits": report.repeats})
 
 
 def read_result_set(result_set: Any, text: str) -> None:
+    if len(result_set.levels) == 1:
+        # One result: the set prints that result's own summary, whose estimates table
+        # comes first; the key table below it holds words, not numbers.
+        (result,) = result_set.results.values()
+        assert text == str(result.summary())
+        estimates = result.estimates.items()
+        first = text.split(vocabulary.KEY_TITLE)[0]
+        check_tables(first, [{name: estimate_values(e) for name, e in estimates}])
+        return
     z = result_set.intermediate_name
     want = {
         f"{name} at {z} = {level:g}": estimate_values(estimate)
@@ -372,6 +466,17 @@ def read_importance(result: Any, text: str) -> None:
         values[vocabulary.ADJUSTED_P_VALUE] = PValue(entry.adjusted_pvalue)
         want[label] = values
     check_tables(text, [want])
+    check_header(
+        result,
+        text,
+        {
+            "Candidates": len(result.entries),
+            "Rows": len(result.fits[result.entries[0].candidate].data.outcome),
+        },
+    )
+
+
+_LOSSES = {"mse": "squared error", "neg_log_likelihood": "negative log-likelihood"}
 
 
 def read_ensemble(diagnostics: Any, text: str) -> None:
@@ -385,4 +490,13 @@ def read_ensemble(diagnostics: Any, text: str) -> None:
                 )
             }
         ],
+    )
+    check_header(
+        diagnostics,
+        text,
+        {
+            "Loss": _LOSSES[diagnostics.loss],
+            "Candidates": len(diagnostics.names),
+            "Best candidate": diagnostics.best,
+        },
     )

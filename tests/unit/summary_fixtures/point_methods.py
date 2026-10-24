@@ -21,7 +21,7 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.tree import DecisionTreeRegressor
 
-from cleverly.datasets import make_cde, make_linear_ate
+from cleverly.datasets import make_binary_outcome, make_cde, make_linear_ate, make_missing_outcome
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.iptw import AdaptiveIPTW
 from cleverly.inference.bootstrap import BootstrapResult
@@ -172,6 +172,24 @@ def reduced() -> Any:
 
 
 @functools.cache
+def reduced_bivariate() -> Any:
+    """The bivariate reduction, whose treatment regression also takes the probability."""
+    return _record(_fit(DRTMLE(**_learners(estimands=("ate",), reduction="bivariate"))), "drtmle")
+
+
+@functools.cache
+def reduced_missing() -> Any:
+    """A randomized trial with outcomes missing at random: five extra regressions per arm."""
+    frame = make_missing_outcome(n=300, seed=4)[0]
+    return _record(
+        DRTMLE(**_learners(estimands=("ate",)), randomized=True)
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single(),
+        "drtmle",
+    )
+
+
+@functools.cache
 def reduced_unguarded() -> Any:
     """``guard=()``: the reduced regressions are not fitted, so the fit is an ordinary TMLE."""
     return _record(_fit(DRTMLE(**_learners(estimands=("ate",), guard=()))), "drtmle")
@@ -214,6 +232,12 @@ def cv_report() -> Any:
 
 
 @functools.cache
+def result_set_one() -> Any:
+    """A fit without an intermediate variable: a set of one result."""
+    return AdaptiveIPTW(**_learners()).fit(_frame(), outcome="Y", treatment="A")
+
+
+@functools.cache
 def result_set() -> Any:
     """A controlled direct effect at two levels of the intermediate variable."""
     frame = make_cde(n=300, seed=3)[0]
@@ -232,8 +256,6 @@ def result_set() -> Any:
 @functools.cache
 def ratio() -> Any:
     """The risk ratio, whose null value is 1 on its own scale."""
-    from cleverly.datasets import make_binary_outcome
-
     frame = make_binary_outcome(n=300, seed=2)[0]
     return (
         TMLE(**_learners(outcome_learner=LogisticRegression(max_iter=1000), estimands=("rr",)))
@@ -260,7 +282,7 @@ def bootstrap() -> Any:
         draws={"ate": rng.normal(1.2, 0.2, size=48), "ey1": rng.normal(3.1, 0.15, size=48)},
         n_requested=50,
         n_failed=2,
-        resampling="rows",
+        resampling="iid",
     )
 
 
@@ -348,14 +370,30 @@ def importance() -> Any:
 
 @functools.cache
 def ensemble() -> Any:
-    """Literal diagnostics with one candidate that failed to fit."""
+    """A fitted classification super learner, scored by the negative log-likelihood."""
+    frame = _frame()
+    learner = SuperLearner(
+        library=[
+            LogisticRegression(max_iter=1000),
+            LogisticRegression(C=0.01, max_iter=1000),
+        ],
+        n_folds=3,
+        random_state=0,
+    )
+    learner.fit(frame[list(COVARIATES)].to_numpy(), frame["A"].to_numpy())
+    return learner.diagnostics_
+
+
+@functools.cache
+def ensemble_failed() -> Any:
+    """Literal regression diagnostics with one candidate that failed to fit."""
     return SuperLearnerDiagnostics(
         names=("lm", "tree"),
         cv_risk=np.array([0.91, 1.07]),
         weights=np.array([0.8, 0.2]),
         best="lm",
         ensemble_cv_risk=0.89,
-        loss="squared",
+        loss="mse",
         failed=("forest",),
     )
 
@@ -369,11 +407,14 @@ FIXTURES: dict[str, Case] = {
     "stacked": Case(stacked_record, fidelity=read.read_oat),
     "derivative": Case(derivative_record, fidelity=read.read_derivative),
     "reduced": Case(reduced, fidelity=read.read_reduced),
+    "reduced_bivariate": Case(reduced_bivariate, fidelity=read.read_reduced),
+    "reduced_missing": Case(reduced_missing, fidelity=read.read_reduced),
     "reduced_unguarded": Case(reduced_unguarded, fidelity=read.read_reduced),
     "iptw": Case(iptw_record, fidelity=read.read_iptw),
     "iptw_capped": Case(iptw_capped, fidelity=read.read_iptw),
     "cv_report": Case(cv_report, fidelity=read.read_cv),
     "result_set": Case(result_set, names=("Z",), fidelity=read.read_result_set),
+    "result_set_one": Case(result_set_one, fidelity=read.read_result_set),
     "estimate": Case(estimate, fidelity=read.read_estimate),
     "wald": Case(wald, fidelity=read.read_wald),
     "bootstrap": Case(bootstrap, fidelity=read.read_bootstrap),
@@ -383,7 +424,10 @@ FIXTURES: dict[str, Case] = {
     "spread_missing": Case(spread_missing, fidelity=read.read_spread),
     "spread_withheld": Case(spread_withheld, fidelity=read.read_spread),
     "importance": Case(importance, names=("X1", "X2", "W"), fidelity=read.read_importance),
-    "ensemble": Case(ensemble, names=("lm", "tree", "forest"), fidelity=read.read_ensemble),
+    "ensemble": Case(ensemble, fidelity=read.read_ensemble),
+    "ensemble_failed": Case(
+        ensemble_failed, names=("lm", "tree", "forest"), fidelity=read.read_ensemble
+    ),
 }
 
 #: Fitted results whose summaries print a method's record, for the note-witness test.
