@@ -373,7 +373,7 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
     # ratios dependent on the platform.
     assert ratio_model.steps[2][1].tol == 1e-8 and ratio_model.steps[2][1].max_iter == 100_000
     summary = result.summary()
-    assert "cross-fitting: none -- nuisances fitted in sample" in summary
+    assert "cross-fitting: none; nuisances fitted in sample" in summary
     assert "g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability" in (
         summary
     )

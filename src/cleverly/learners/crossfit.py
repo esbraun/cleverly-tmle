@@ -1508,7 +1508,7 @@ def refuse_scheme(kind: str) -> None:
     if kind == "blocked":
         raise CapabilityError(
             "blocked temporal folds are not implemented. A contiguous-in-time split is "
-            "perfectly expressible as a fold assignment -- what is missing is the "
+            "perfectly expressible as a fold assignment; what is missing is the "
             "ordering it would need. CausalData declares an outcome, a treatment, "
             "baseline covariates and a cluster, and no node carries a time index; id= "
             "is the independent sampling unit, not a row or time key. LongitudinalData "
@@ -1524,7 +1524,7 @@ def refuse_scheme(kind: str) -> None:
             "rolling-origin folds are not implemented, and not for want of a time index. "
             "Their training sets are nested prefixes: some rows are never held out and "
             "others fall in several evaluation windows, so there is no one fold that "
-            "holds out each row. Cross-fitting here rests on exactly that -- Folds is an "
+            "holds out each row. Cross-fitting here rests on exactly that: Folds is an "
             "assignment of one fold per row, and NuisanceEstimates stores one "
             "out-of-fold prediction per row because of it. A rolling origin needs a "
             "different storage contract, not a different splitter.",

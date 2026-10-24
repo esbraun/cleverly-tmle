@@ -2290,8 +2290,8 @@ class ControlledDirectEffect:
         # inside the provider rather than as a refusal naming what to pass instead.
         if not isinstance(self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio)):
             raise DataError(
-                "ControlledDirectEffect(contrast=...) takes a typed arm contrast -- "
-                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio() -- not {self.contrast!r}"
+                "ControlledDirectEffect(contrast=...) takes a typed arm contrast: "
+                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio(), not {self.contrast!r}"
             )
 
     @property
@@ -3548,7 +3548,7 @@ _LONGITUDINAL_MTP_IDENTIFICATION = Identification(
         "h_t wherever a_t does (Díaz et al. 2023, Assumption 1, which Williams & Díaz 2025 "
         "leave unchanged), and so does remaining under observation",
         "each policy is known and fixed before the fit, or its cap is a declared tuner with a "
-        "declared target (X40 part (e)), and on a continuous node it is piecewise smooth "
+        "declared target, and on a continuous node it is piecewise smooth "
         "invertible (Assumption 4); a policy reads the history and the unit's own treatment "
         "at its node, and its earlier treatment columns stand for the intervened values",
     ),

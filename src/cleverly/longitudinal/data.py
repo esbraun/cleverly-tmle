@@ -304,8 +304,8 @@ def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArra
     if values.ndim == 2:
         if values.shape != (n, n_times):
             raise DataError(
-                f"a per-unit assignment must be ({n}, {n_times}) -- a row per unit and a "
-                f"column per treatment node -- but got {values.shape}"
+                f"a per-unit assignment must be ({n}, {n_times}), a row per unit and a "
+                f"column per treatment node, but got {values.shape}"
             )
         return values
     raise DataError(
@@ -1783,7 +1783,7 @@ class LongitudinalData:
             repeated_values = np.asarray(repeated, dtype=float)
             if repeated_values.shape != (n, n_times):
                 raise DataError(
-                    f"a repeated outcome must be ({n}, {n_times}) -- rows by time points -- "
+                    f"a repeated outcome must be ({n}, {n_times}), rows by time points, "
                     f"but got {repeated_values.shape}"
                 )
             observed_by_node = np.column_stack(
@@ -1842,7 +1842,7 @@ class LongitudinalData:
         raw_treatment = np.asarray(treatment)
         if raw_treatment.shape != (n, n_times):
             raise DataError(
-                f"treatment must be ({n}, {n_times}) -- rows by treatment nodes -- "
+                f"treatment must be ({n}, {n_times}), rows by treatment nodes, "
                 f"but got {raw_treatment.shape}"
             )
         a = np.full((n, n_times), np.nan)
@@ -3767,7 +3767,7 @@ def _read_followup(
                 raise DataError(
                     f"censoring column {name!r} marks {int(returned.sum())} unit(s) as under "
                     "observation after they had already been censored. Censoring is assumed "
-                    "monotone -- a unit that leaves does not return -- and intermittent "
+                    "monotone (a unit that leaves does not return) and intermittent "
                     "observation identifies a different parameter, so this is refused rather "
                     "than read as a return to follow-up."
                 )
@@ -3819,8 +3819,8 @@ def _read_followup(
             if np.any(recovered):
                 raise DataError(
                     f"outcome column {name!r} marks {int(recovered.sum())} unit(s) as event-free "
-                    "after they had already had the event. The event is assumed absorbing -- a "
-                    "unit that has it leaves the risk set and does not return to it -- and a "
+                    "after they had already had the event. The event is assumed absorbing (a "
+                    "unit that has it leaves the risk set and does not return to it) and a "
                     "recurrent event identifies a different parameter, so this is refused "
                     "rather than read as a recovery."
                 )
@@ -3844,7 +3844,7 @@ def _read_followup(
                 both = [_cause_name(int(c)) for c in np.flatnonzero(fired[row])]
                 raise DataError(
                     f"{int(clash.sum())} unit(s) have more than one cause marked at time "
-                    f"{time + 1} -- the first has {both}. Competing causes are mutually "
+                    f"{time + 1}; the first has {both}. Competing causes are mutually "
                     "exclusive: a unit leaves the risk set through exactly one of them, so "
                     "at most one indicator is 1 at any node"
                 )
@@ -3879,7 +3879,7 @@ def _check_presence(
     if np.any(stray):
         raise DataError(
             f"{name!r} is recorded for {int(stray.sum())} unit(s) that had already left the "
-            "study -- censored, or, on a survival fit, having had the event. The estimator "
+            "study (censored, or, on a survival fit, having had the event). The estimator "
             "conditions on the observed history and would ignore those values, so they are "
             "refused rather than silently dropped: set the nodes after a unit leaves to "
             "missing."

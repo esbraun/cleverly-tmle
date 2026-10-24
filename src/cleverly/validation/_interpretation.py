@@ -1402,8 +1402,8 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         ),
         scope=CalibrationScope(nodes=frozenset({None})),
         sentence=(
-            "On the generated law named here, the bias lies inside its equivalence band. "
-            "Your own outcome law is not this one."
+            "On the generated law named here, the standardized bias (the bias over the standard "
+            "deviation of the draws) lies inside its equivalence band."
         ),
         exact=True,
     ),
@@ -1419,7 +1419,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=CalibrationScope(inference=frozenset({"influence_curve"}), nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the standard-error ratio lies inside its "
-            "equivalence band. Your own outcome law is not this one."
+            "equivalence band."
         ),
         exact=True,
     ),
@@ -1434,7 +1434,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=CalibrationScope(inference=frozenset({"influence_curve"}), nodes=frozenset({None})),
         sentence=(
             "On the generated law named here, the 95% interval coverage lies inside its "
-            "equivalence band. Your own outcome law is not this one."
+            "equivalence band."
         ),
         exact=True,
     ),
@@ -1450,8 +1450,8 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         ),
         scope=_PLASMODE_SCOPE,
         sentence=(
-            "On the plasmode law named here, the bias lies inside its equivalence band. "
-            "The plasmode resembles your data and does not estimate its truth."
+            "On the plasmode law named here, the standardized bias (the bias over the standard "
+            "deviation of the draws) lies inside its equivalence band."
         ),
         exact=True,
     ),
@@ -1466,7 +1466,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the standard-error ratio lies inside its "
-            "equivalence band. The plasmode resembles your data and does not estimate its truth."
+            "equivalence band."
         ),
         exact=True,
     ),
@@ -1481,7 +1481,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
         scope=replace(_PLASMODE_SCOPE, inference=frozenset({"influence_curve"})),
         sentence=(
             "On the plasmode law named here, the 95% interval coverage lies inside its "
-            "equivalence band. The plasmode resembles your data and does not estimate its truth."
+            "equivalence band."
         ),
         exact=True,
     ),
