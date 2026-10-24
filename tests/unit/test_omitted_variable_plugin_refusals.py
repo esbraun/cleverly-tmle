@@ -42,6 +42,8 @@ from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
 import cleverly
 from cleverly._inference_status import STATUS_RECORDS, supplies_inference
+from cleverly._summary._estimates import without_roadmap
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.datasets import make_linear_ate, make_nonlinear_ate
 from cleverly.estimators import TMLE
 from cleverly.estimators._mechanism_fit import MechanismFit, ScalerStep, describe_mechanism
@@ -215,6 +217,28 @@ def with_nuisance(result: Any, **changes: Any) -> Any:
     return replace(result, repeats=(replace(repeat, nuisance=replace(repeat.nuisance, **changes)),))
 
 
+#: The plain note each refusal key prints; a key not listed prints the fit-level text.
+WITHHELD_TEXTS = {
+    **dict.fromkeys(
+        (
+            "screened",
+            "cv_penalty",
+            "super_learner",
+            "other_learner",
+            "pipeline",
+            "pipeline_intercept",
+            "l1_penalty",
+            "liblinear",
+            "class_weight",
+        ),
+        "limits_withheld_learner",
+    ),
+    "configuration": "limits_withheld_configuration",
+    "corrected_nonpositive": "limits_withheld_correction",
+    "correction_unstable": "limits_withheld_correction",
+}
+
+
 def assert_refusal(
     bound: Any,
     *,
@@ -248,7 +272,15 @@ def assert_refusal(
         assert raised.roadmap == roadmap
     assert bound.to_dict()["limit_refusal"] == stored.text
     assert bound.to_dict()["nu2_estimator"] == "plugin"
-    assert stored.text in bound.summary()
+    summary = bound.summary(detail="full")
+    template = NOTE_TEXTS[WITHHELD_TEXTS.get(key, "limits_withheld_fit")]
+    assert summary.note("limits_withheld").text == template.format(
+        alternative=without_roadmap(alternative)
+    )
+    assert (
+        f"Why the limits are withheld: {without_roadmap(stored.text)}"
+        in summary.section("Settings").lines
+    )
 
 
 # ------------------------------------------------------------------ the learner clauses
@@ -488,10 +520,11 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
         assert "corrected variance" not in refusal.text
 
     def test_the_summary_names_the_stacked_mechanism(self) -> None:
-        summary = bound_of(fit_binary(LogisticRegression(max_iter=1000))).summary()
+        summary = bound_of(fit_binary(LogisticRegression(max_iter=1000))).summary(detail="full")
         assert (
-            "plug-in nu^2, second-order corrected by 0.021593; its standard error carries the "
-            "score of the fitted LogisticRegression mechanism, stacked" in summary
+            "Estimate of nu^2: plug-in, second-order corrected by 0.021593; its standard error "
+            "carries the score of the fitted LogisticRegression mechanism, stacked."
+            in summary.section("Settings").lines
         )
 
     def test_the_mappings_name_the_estimator_and_no_refusal(self) -> None:
@@ -724,7 +757,8 @@ class TestAKnownMechanismTruncatedByTheBounds:
         bound = bound_of(known_fit)
         assert bound.limit_refusal is None and bound.plugin_mechanism == "known"
         assert np.isfinite(bound.ci_lower)
-        assert "the declared known mechanism" in bound.summary()
+        settings = bound.summary(detail="full").section("Settings").lines
+        assert any(line.endswith("carries the declared known mechanism.") for line in settings)
         term = self.stack(known_fit, (0.0, 1.0))
         assert not isinstance(term, MechanismRefusal)
         assert term.values.shape == (known_fit.n,) and not np.any(term.values)

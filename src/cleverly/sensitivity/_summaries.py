@@ -59,19 +59,23 @@ _MECHANISM_NOUNS = {
     "intermediate": "the intermediate variable",
 }
 
-#: The plug-in refusals whose cause is the correction the standard error needs, not the
-#: learner (``_mechanism_stack``).
-_CORRECTION_KEYS = frozenset(
+#: The plug-in refusals that name a treatment learner the rule does not admit, and those
+#: whose cause is the second-order correction (``_mechanism_stack``). Every other key is a
+#: property of this fit's stored mechanism.
+_LEARNER_KEYS = frozenset(
     {
-        "corrected_nonpositive",
-        "correction_unstable",
-        "truncation_active",
-        "mismatch",
-        "missing_arm",
-        "score_not_zero",
-        "singular",
+        "screened",
+        "cv_penalty",
+        "super_learner",
+        "other_learner",
+        "pipeline",
+        "pipeline_intercept",
+        "l1_penalty",
+        "liblinear",
+        "class_weight",
     }
 )
+_CORRECTION_KEYS = frozenset({"corrected_nonpositive", "correction_unstable"})
 
 #: The note code and plain text of each part of an E-value's note (``EValue.note_parts``).
 #: A derived ratio carries no condition, so it prints only under the full settings.
@@ -210,8 +214,10 @@ def _limits_withheld(refusal: MechanismRefusal | None) -> Note:
         key = "limits_withheld_configuration"
     elif refusal.key in _CORRECTION_KEYS:
         key = "limits_withheld_correction"
-    else:
+    elif refusal.key in _LEARNER_KEYS:
         key = "limits_withheld_learner"
+    else:
+        key = "limits_withheld_fit"
     alternative = without_roadmap(refusal.alternative) if refusal.alternative else ""
     return note("limits_withheld", TEXTS[key].format(alternative=alternative).strip())
 
@@ -247,12 +253,20 @@ _LIMIT_ASSUMPTION = (
 )
 
 
-def _nu2_setting(nu2_estimator: str, correction: float | None) -> str:
+def _nu2_setting(nu2_estimator: str, correction: float | None, mechanism: str | None = None) -> str:
     if nu2_estimator == "doubly_robust":
         return "Estimate of nu^2: doubly robust."
-    if correction is not None:
-        return f"Estimate of nu^2: plug-in, second-order corrected by {correction:.4g}."
-    return "Estimate of nu^2: plug-in, uncorrected."
+    if correction is None:
+        return "Estimate of nu^2: plug-in, uncorrected."
+    text = f"Estimate of nu^2: plug-in, second-order corrected by {correction:.5g}"
+    if mechanism is None:
+        return text + "."
+    source = (
+        "the declared known mechanism"
+        if mechanism == "known"
+        else "the score of the fitted LogisticRegression mechanism, stacked"
+    )
+    return f"{text}; its standard error carries {source}."
 
 
 def _formal(text: str) -> str:
@@ -369,7 +383,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
             assumptions.append(_formal(bounds.assumption))
         settings = [
             f"Bias scale sqrt(sigma^2 nu^2): {bounds.max_bias:.4g}.",
-            _nu2_setting(bounds.nu2_estimator, bounds.nu2_correction),
+            _nu2_setting(bounds.nu2_estimator, bounds.nu2_correction, bounds.plugin_mechanism),
             f"Null value: {_null(null)}.",
             f"Confidence level of the limits: {level}.",
         ]
@@ -541,7 +555,9 @@ def elements_summary(elements: SensitivityElements, detail: Detail) -> Summary:
         notes.append(joint)
     sections: list[SummarySection] = []
     if detail == "full":
-        settings = [_nu2_setting(elements.nu2_estimator, elements.nu2_correction)]
+        settings = [
+            _nu2_setting(elements.nu2_estimator, elements.nu2_correction, elements.plugin_mechanism)
+        ]
         if elements.limit_refusal is not None:
             settings.append(f"Why the limits are withheld: {_formal(elements.limit_refusal.text)}")
         sections = [

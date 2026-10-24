@@ -727,8 +727,9 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "assumption_tilt": (
             "gamma is how far the average outcome of units whose outcome is missing differs "
             "from that of recorded units with the same treatment and covariates, on the "
-            "log-odds scale of the outcome rescaled to run from zero to one{arm_clause}. A gamma of zero is the "
-            "main analysis, which assumes outcomes are missing at random, and a positive "
+            "log-odds scale of the outcome rescaled to run from zero to one{arm_clause}. A "
+            "gamma of zero is the main analysis, which assumes outcomes are missing at "
+            "random, and a positive "
             "gamma means the missing outcomes were higher. At every gamma the interval "
             "reuses the main analysis's standard error and treats gamma as known, so it "
             "describes sampling error at that gamma, not doubt about gamma."
@@ -825,6 +826,11 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "average squared weight needs a correction before it "
             "has a standard error, and the correction does not hold on this fit. "
             "{alternative}"
+        ),
+        "limits_withheld_fit": (
+            "No one-sided limits or limit robustness value: the standard error of the "
+            "plug-in estimate of the average squared weight cannot be built from this "
+            "fit's stored treatment model. {alternative}"
         ),
         "limits_withheld_consistent": (
             "No one-sided limits or limit robustness value: with "
