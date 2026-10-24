@@ -386,8 +386,11 @@ def _header(
         right.append((vocabulary.OUTCOME_MODEL, facts.outcome_model))
     if facts.treatment_model is not None:
         right.append((vocabulary.TREATMENT_MODEL, facts.treatment_model))
-    # The limits of the means and the average effect; Settings gives every pair.
-    limits = [pair for pair, _, groups in clipping.pairs if "mean" in groups]
+    # The limits of the means and the average effect, or of the fit's one estimand group
+    # when it has no means; Settings gives every pair.
+    limits = [pair for pair, _, groups in clipping.pairs if "mean" in groups] or [
+        pair for pair, _, _ in clipping.pairs
+    ]
     if limits:
         low, high = limits[0]
         right.append((vocabulary.PROBABILITY_LIMITS, f"[{low:.4g}, {high:.4g}]"))
