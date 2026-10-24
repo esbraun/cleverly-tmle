@@ -132,6 +132,18 @@ class RedRow:
     measured: str
 
 
+#: Red truth rows that no gated list holds, each with the ``fails by`` text that says so. The
+#: row reads red on its legs, and it blocks nothing.  ``tests/unit/test_long_horizon_design.py``
+#: checks that none of these rows is in ``GATED_ROWS``.
+REPORTING_TRUTH_ROWS: Mapping[RedKey, str] = {
+    RedKey(
+        "long-horizon-sdr",
+        "truth",
+        "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+    ): "its truth legs; a reporting row, with n below the tail size",
+}
+
+
 def _keys(slug: str, kind: str, *keys: str) -> tuple[RedKey, ...]:
     return tuple(RedKey(slug, kind, key) for key in keys)
 
@@ -588,7 +600,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The Wald row of one quantity in a scenario below its exact-law tail size, so no gated list
     # holds it (``tests/long_horizon_design.py``).
-    "X39-finite-sample": (
+    "X39-below-tail-size": (
         *_keys(
             "long-horizon-sdr",
             "truth",
@@ -1009,11 +1021,18 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
             bool(getattr(row, leg, True))
             for leg in ("bias_equivalent", "coverage_valid", "se_calibrated")
         )
+        red_key = RedKey(record.slug, "truth", "/".join(key))
+        if red_key in REPORTING_TRUTH_ROWS:
+            fails_by = REPORTING_TRUTH_ROWS[red_key]
+        elif gate[0] or not own:
+            fails_by = "its truth gate"
+        else:
+            fails_by = f"failure accounting: {gate[1]}"
         out.append(
             RedRow(
-                RedKey(record.slug, "truth", "/".join(key)),
+                red_key,
                 str(row.implementation),
-                "its truth gate" if gate[0] or not own else f"failure accounting: {gate[1]}",
+                fails_by,
                 _truth_measured(row) + _failures_measured(accounting, "performance", key),
             )
         )

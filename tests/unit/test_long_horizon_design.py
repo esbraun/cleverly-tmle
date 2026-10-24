@@ -687,3 +687,23 @@ def test_the_declared_replicate_counts_are_the_pilot_merge_reading() -> None:
     ) == (6_000, 14_000, 8_000)
     assert (p1.BAND_REPLICATES, p2.BAND_REPLICATES) == (4_000, 2_000)
     assert (p1.BIAS_REPLICATES, p2.BIAS_REPLICATES, p3.BIAS_REPLICATES) == (2_000, 2_000, 2_000)
+
+
+def test_a_reporting_truth_row_of_the_red_cell_ledger_is_gated_by_no_list() -> None:
+    """The ledger names a row ``reporting`` only while no gated list holds the row."""
+    from tests.studies.evidence.red_cells import REPORTING_TRUTH_ROWS
+
+    tags = {
+        slug: tag
+        for tag, slug in {
+            "S1": "long-horizon-ltmle",
+            "S2": "long-horizon-categorical-ltmle",
+            "S3": "long-horizon-sdr",
+        }.items()
+    }
+    for key in REPORTING_TRUTH_ROWS:
+        assert key.kind == "truth"
+        _, scenario, estimand = key.key.split("/")
+        gated = {(name, quantity) for tag, name, quantity in D.GATED_ROWS if tag == tags[key.slug]}
+        assert (scenario, estimand) not in gated
+        assert (scenario, f"{estimand}__bca") not in gated

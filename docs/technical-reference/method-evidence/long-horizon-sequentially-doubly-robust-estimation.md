@@ -410,8 +410,8 @@ One primary truth row is red. It is a reporting row, and no gated list contains 
 
 The quantity gates in `sdr_categorical_k5_static`, as a BCa row, because $n$ = 124,000 there lies below
 $2 n_\kappa$ = 238,112 (`GATED_ROWS` of `tests/long_horizon_design.py`). The `__bca` row of the red
-scenario covers 0.9625 and passes. The Wald row of this quantity reports in the other scenarios. The
-ledger [red-cells.md](red-cells.md) lists the row under the owner `X39-finite-sample`.
+scenario covers 0.9625 and reports too, because the scenario gates neither interval of this quantity. The Wald row of this quantity reports in the other scenarios. The
+ledger [red-cells.md](red-cells.md) lists the row under the owner `X39-below-tail-size`.
 
 ## Measured values
 
@@ -470,7 +470,7 @@ the committed results and checked at the precision printed.
 | one law family with binary and three-level nodes | the laws are the $(B, s, c_0)$ family of `tests/discrete_law_longitudinal_horizon.py`. The study does not cover more than three arms, continuous covariates or a continuous outcome |
 | the comparator runs are pending | no external implementation checks these rows. Roadmap item X59 adds R `lmtp` |
 | the declared mechanism is exact | the law's probabilities enter as columns, so the study measures the regressions with the mechanism known. The `learned_mechanism` rows report two learned cases and gate nothing |
-| one reporting Wald row is red | `ey_regimen[switch]` in `sdr_categorical_k5_switch` covers 0.9133 at an $n$ below its tail size. The row reports, and its BCa row passes |
+| one reporting Wald row is red | `ey_regimen[switch]` in `sdr_categorical_k5_switch` covers 0.9133 at an $n$ below its tail size. Its Wald row and its BCa row both report |
 | the calibration count is below the 0.95 family pass probability | the owner chose 8,000 replications. The four low three-level arms read SE ratios of 0.954 to 0.972 in the pilot. A reader must treat the 99% interval of each calibration row as the evidence, not the count |
 | the Wald interval gates only at $n \ge 2 n_\kappa$ | below that size the Wald row reports and the BCa row gates. A reader who needs a valid interval at a smaller $n$ must read the BCa row |
 | the cross-fitted scenario reports Wald rows only | the cross-fitted bootstrap is experimental (X20). The cross-fitted rows gate through `interval_calibration` cells at $2 n_\kappa$ |
