@@ -64,7 +64,7 @@ _ID = re.compile(r"\b(?:[A-Z]{1,2}\d+[a-z]?(?:\.[A-Za-z_]+)*)\b")
 
 #: A sentence that points at a roadmap item, and a roadmap id in parentheses.
 _ROADMAP_SENTENCE = re.compile(r"\s*\b[A-Z]{1,2}\d+[a-z]? in docs/roadmap\.md\b[^.]*\.")
-_ROADMAP_PAREN = re.compile(r"\s*\(\s*[A-Z]{1,2}\d+[a-z]?\s*\)")
+_ROADMAP_PAREN = re.compile(r"\s*\(\s*(?:roadmap\s+)?[A-Z]{1,2}\d+[a-z]?(?:\s+part\s+[a-z])?\s*\)")
 
 
 def without_roadmap(text: str) -> str:
@@ -208,7 +208,14 @@ def estimates_table(
                     ),
                 )
             )
-    if experimental:
+    # When every row of several is experimental the column would repeat one word down the
+    # table; the note says it once instead, and the table keeps its width for long names.
+    every = len(items) > 1 and len(experimental) == len(items)
+
+    def listed(names: list[str]) -> str:
+        return vocabulary.EVERY_ROW if every and len(names) == len(items) else _names(names)
+
+    if experimental and not every:
         columns.append(vocabulary.SUPPORT)
         rows = [
             (
@@ -267,12 +274,15 @@ def estimates_table(
             else:
                 generic.append(name)
         for status, names in shown.items():
-            sentences.append(f"{_names(names)}: {status_record(status).plain_reason}")
+            named = listed(names)
+            if named == vocabulary.EVERY_ROW:
+                named = named.capitalize()
+            sentences.append(f"{named}: {status_record(status).plain_reason}")
         by_kind: dict[str, list[str]] = {}
         for name in generic:
             by_kind.setdefault(reason_kind(estimates[name].support.reason), []).append(name)
         for kind, names in by_kind.items():
-            sentences.append(vocabulary.EXPERIMENTAL_REASONS[kind].format(names=_names(names)))
+            sentences.append(vocabulary.EXPERIMENTAL_REASONS[kind].format(names=listed(names)))
         with_interval = any(inferential[name] for name in experimental)
         sentences.append(
             vocabulary.NOTE_TEXTS["experimental"].format(

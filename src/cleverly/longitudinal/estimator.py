@@ -74,10 +74,7 @@ from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     CONSTANT_NODE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
-    NO_SIMULTANEOUS_BANDS,
-    NO_T_REFERENCE_BANDS,
     PARAMETER_STATUSES,
-    T_REFERENCE_NOTE,
     TRIMMED_RATIO_STATUS,
     InferenceStatus,
     is_labelled,
@@ -107,7 +104,6 @@ from .._typing import (
 )
 from .._warnings import FitWarning, records_fit
 from .._warnings import warn as _warn
-from ..data.weighting import REPORTED_DRAW
 from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
     CapabilityError,
@@ -127,8 +123,6 @@ from ..fluctuation._score import (
     check_iterate,
     check_step_bound,
     check_stopping_rule,
-    residual_line,
-    rule_failure_line,
 )
 from ..inference.bootstrap import (
     BootstrapBand,
@@ -142,22 +136,16 @@ from ..inference.bootstrap import (
 from ..inference.cluster import (
     cluster_inference_status,
     cluster_reference_df,
-    fewest_clusters,
     influence_covariance,
-    positive_mass_clause,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
-    bootstrap_line,
     has_t_reference,
     make_estimate,
     median_estimates,
-    reference_label,
     spread_name,
-    support_column,
-    support_notes,
     with_precedent_status,
 )
 from ..inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
@@ -181,7 +169,6 @@ from ..inference.results import (
     select_estimates,
     smooth_contrast,
     sole_estimate,
-    split_noise_lines,
     with_derived_bootstrap,
 )
 from ..inference.sparse import influence_report, warn_sparse_influence
@@ -189,7 +176,7 @@ from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from .._summary import Detail
+from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
 from ..learners.crossfit import (
@@ -218,7 +205,6 @@ from ..methods import (
     sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
-from ..protocol import protocol_summary_lines
 from ..provenance import Provenance, fingerprint_array, fold_fingerprint
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
@@ -229,7 +215,6 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
-from ..utils.text import format_draw, format_pvalue, format_table
 from .baselines import (
     IPW_NORMALIZATIONS,
     fit_gcomp_cell,
@@ -3284,260 +3269,31 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ]
         return self.data.frame_like(payload)
 
-    def summary(self, *, detail: Detail = "short") -> str:
-        """A printable report: the estimates, then the settings, then the leverage.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the fit, laid out like a statsmodels summary.
+
+        The header names the question, the data and the models; the tables give each
+        estimate with its standard error, interval and p-value, what each row estimates,
+        and what each plan assigns and how many units followed it; numbered notes say what
+        changes how to read a number on this fit only.
 
         Parameters
         ----------
         detail : {"short", "full"}, default "short"
-            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
-            protocol record, or that the fit had none.
+            ``"short"`` prints the analysis. ``"full"`` adds the assumptions behind a
+            causal reading, the settings that bounded the fit, the method's own details and
+            the study description.
 
         Returns
         -------
-        str
-            A printable report: the estimates, the settings, then the leverage.
+        Summary
+            A ``str`` whose value is the printed text. Its ``header``, ``tables``,
+            ``notes`` and ``sections`` hold the same content as data, and ``as_html()``
+            renders it for a notebook.
         """
-        level = f"{(1 - self.config.alpha_sig) * 100:g}%"
-        # The fit status decides the columns.  On a fit that supplies inference, a parameter
-        # with its own status (a constant-node risk) is starred below, row by row.
-        status = self.inference_status
-        record = None if supplies_inference(status) else status_record(status)
-        t_reference = has_t_reference(self.estimates)
-        rows = []
-        marked: dict[str, Any] = {}
-        support_cells = support_column(self.estimates)
-        if record is not None:
-            # The whole interval column is refused, so it is not printed with a dash under
-            # it: a heading would still tell a reader an interval belongs there.
-            for name, estimate in self.estimates.items():
-                rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
-            headers = ["parameter", "estimate", record.summary_label]
-            if support_cells is not None:
-                headers.append("support")
-                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-            table = format_table(headers, rows)
-        else:
-            for name, estimate in self.estimates.items():
-                if not estimate.supplies_inference:
-                    # A parameter with its own status, such as a constant-node risk: the
-                    # plug-in spread is marked, and no interval or p-value is printed.
-                    marked[estimate.inference] = status_record(estimate.inference)
-                    rows.append(
-                        [
-                            name,
-                            f"{estimate.psi:.4f}",
-                            f"{estimate.plugin_std_error:.4f}*",
-                            "not reported",
-                            "not reported",
-                            *([""] if t_reference else []),
-                        ]
-                    )
-                    continue
-                low, high = estimate.ci
-                rows.append(
-                    [
-                        name,
-                        f"{estimate.psi:.4f}",
-                        f"{estimate.std_error:.4f}",
-                        f"[{low:.4f}, {high:.4f}]",
-                        format_pvalue(estimate.pvalue),
-                        *([reference_label(estimate)] if t_reference else []),
-                    ]
-                )
-            headers = [
-                "parameter",
-                "estimate",
-                "std. error",
-                f"{level} CI",
-                "p-value",
-                *(["df"] if t_reference else []),
-            ]
-            if support_cells is not None:
-                headers.append("support")
-                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-            table = format_table(headers, rows)
-        # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
-        contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
-        facts = list(self.config.describe(contrast=contrast))
-        if self.simulation is not None:
-            facts.extend(self.simulation.describe())
-        if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines(detail=detail))
-        else:
-            facts.extend(protocol_summary_lines(None, detail))
-        if self.data.cluster is not None:
-            # The count the status reads, when it differs from the count of labels: a
-            # cluster with zero weight mass contributes nothing to any estimate.
-            count = f"{self.data.n_clusters}" + positive_mass_clause(
-                self.data.cluster, self.data.weights if self.data.is_weighted else None
-            )
-            facts.append(f"clusters = {count} ({self.data.cluster_name}, cluster-robust variance)")
-        if self.data.is_weighted:
-            report = self.data.weight_report()
-            facts.append(
-                f"observation weights ({report.name or 'weights'}, "
-                + ("estimated" if report.estimated else "fixed")
-                + f"): effective n = {report.effective_n:.1f}, "
-                f"design effect = {report.design_effect:.2f}"
-            )
-            facts.append(
-                "estimand: the parameter in the weight-tilted population dP_w = w dP / E[w]; "
-                "see result.data.weight_report()"
-            )
-        facts.extend(self.provenance.describe())
-        lines = [
-            f"Longitudinal {_ESTIMATOR_TITLE.get(self.config.estimator, 'TMLE')} "
-            f"({self.data.n_times} time points, n = {self.n})",
-            "",
-            table,
-            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
-            # The refusal's own reason, as ``TMLEResult.summary`` prints it.
-            *(["", record.summary_note()] if record is not None else []),
-            *(
-                line
-                for marked_record in marked.values()
-                for line in (
-                    "",
-                    "* "
-                    + marked_record.reason
-                    + f" A starred spread above is the {marked_record.summary_label}, a "
-                    "diagnostic and not a standard error.",
-                )
-            ),
-            *(
-                [
-                    "",
-                    T_REFERENCE_NOTE.format(
-                        clusters=fewest_clusters(
-                            self.data.cluster,
-                            weights=self.data.weights if self.data.is_weighted else None,
-                        ),
-                        stratum="",
-                    ),
-                ]
-                if t_reference and self.data.cluster is not None
-                else []
-            ),
-            *(
-                split_noise_lines(self.estimates, self.repeat_spread(), self.n_repeats, status)
-                if self.n_repeats > 1
-                else []
-            ),
-            "",
-            *(f"  {line}" for line in facts),
-        ]
-        if self.n_repeats > 1:
-            # The leverage below reads one fitted recursion, so it says which.
-            lines.append(
-                f"  leverage of {format_draw(REPORTED_DRAW, self.n_repeats)} "
-                "(every draw is in result.repeats):"
-            )
-        # One line per regimen, from the fit that runs to the last node: "throughout"
-        # means through the study, and a horizon-k fit stops at k, where the same
-        # sentence would be false.  Per-horizon leverage is what diagnostics() is for.
-        # A competing-risks fit holds one fit per regimen per cause.  The followers and the
-        # weights come from the regimen's treatment and censoring mechanism, which every
-        # cause shares, so the causes give one line; a cause is named only where its
-        # line differs from another cause's.
-        deepest = max(fit.horizon for fit in self.fits.values())
-        followers: dict[str, list[tuple[str | None, str]]] = {}
-        for fit in self.fits.values():
-            if fit.horizon != deepest:
-                continue
-            truncated, truncated_time = self._max_truncated(fit)
-            # An odds tilt keeps every unit at risk, so the count is of units observed.
-            kept = (
-                "stayed under observation throughout"
-                if isinstance(fit.regimen, DynamicRegimen) and fit.regimen.has_tilt
-                else "followed it throughout"
-            )
-            if fit.simulation is not None:
-                kept = "followed it throughout in the data, which the simulation does not need"
-            followers.setdefault(fit.regimen.label, []).append(
-                (
-                    fit.cause,
-                    f"{int(fit.scored_nodes[-1].trained_on.sum())} of "
-                    f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
-                    f"effective n {fit.effective_n:.0f}; max truncated share "
-                    f"{truncated:.1%} at t={truncated_time}",
-                )
-            )
-        for label, entries in followers.items():
-            if len({text for _, text in entries}) == 1:
-                lines.append(f"  {label}: {entries[0][1]}")
-                continue
-            lines.extend(f"  {label} ({cause}): {text}" for cause, text in entries)
-        lines.extend(f"  {line}" for line in self._targeting_lines())
-        if (
-            self.simultaneous is None
-            and self.n_repeats > 1
-            and self.config.isotonic
-            and len(self.estimates) > 1
-        ):
-            lines.append("")
-            lines.append(f"  {NO_ISOTONIC_REPEAT_BANDS}")
-        elif self.simultaneous is None and record is not None and len(self.estimates) > 1:
-            # Stated rather than left blank, as on a point-treatment fit: the bands are on
-            # by default, so a reader would otherwise have to guess why none are here.
-            lines.append("")
-            lines.append(f"  {NO_SIMULTANEOUS_BANDS}")
-        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
-            lines.append("")
-            lines.append(f"  {NO_T_REFERENCE_BANDS}")
-        if self.simultaneous is not None:
-            lines.append("")
-            lines.append(
-                f"  simultaneous {level} bands (multiplier bootstrap, critical value "
-                f"{self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
-                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
-            )
-            for name, (low, high) in self.simultaneous.bands.items():
-                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
-        if self.bootstrap is not None:
-            lines.append("")
-            lines.append(
-                f"  full-refit bootstrap ({self.bootstrap.resampling} resampling, "
-                f"{self.bootstrap.n_requested - self.bootstrap.n_failed} usable replicates, "
-                f"{self.bootstrap.n_failed} failed):"
-            )
-            for name, estimate in self.estimates.items():
-                if estimate.bootstrap is not None:
-                    lines.append(f"    {name}  {bootstrap_line(estimate)}")
-        if self.bootstrap_band is not None:
-            band = self.bootstrap_band
-            lines.append("")
-            marker = " [experimental]" if band.support.label == "experimental" else ""
-            lines.append(
-                f"  studentized bootstrap sup-t bands ({level}, critical value "
-                f"{band.critical_value:.3f}, {band.n_replicates} replicates){marker}:"
-            )
-            for name, (low, high) in band.bands.items():
-                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
-        rule = self._declared_rule()
-        if rule != "relative":
-            # Under a declared stopping rule the largest score residual in standard errors,
-            # beside the coverage a Wald interval keeps at it.
-            residual = residual_line(self.estimates, rule, self.config.alpha_sig)
-            if residual:
-                lines.append("")
-                lines.append(f"  {residual}")
-        if not self.converged:
-            suffix = " in at least one draw" if self.n_repeats > 1 else ""
-            if rule == "relative":
-                lines.append(
-                    "  warning: at least one node's targeting step did not converge" + suffix
-                )
-            else:
-                missed = self._rule_misses()
-                failure = (
-                    "; ".join(missed) + ". See res.fits"
-                    if missed
-                    else "at least one node's targeting step did not converge. See res.fits"
-                )
-                lines.append(f"  {rule_failure_line(rule, failure)}{suffix}")
-        return "\n".join(lines)
+        from ._summary import longitudinal_summary
+
+        return longitudinal_summary(self, check_detail(detail))
 
     def _declared_rule(self) -> str:
         """The stopping rule the fit declared, ``"relative"`` when it declared none."""
@@ -3586,8 +3342,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 )
         return missed
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"LongitudinalResult({', '.join(self.estimates)})"
+    def __repr__(self) -> str:
+        from ._summary import longitudinal_repr
+
+        return longitudinal_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def _targeting_lines(self) -> list[str]:
         """What the hazard targeting and the isotonic projection did, one line each."""
