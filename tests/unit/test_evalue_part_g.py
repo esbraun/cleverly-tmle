@@ -31,6 +31,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, PointTreatment, RegimeMean, RiskRatio, TimeToEvent
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_point_survival, make_shift_dose
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, direct_effect
@@ -247,7 +248,13 @@ class TestAControlledDirectEffect:
         # Mutation: the single-factor inversion gives a larger number on every request.
         assert evalue_from_rr(rr) > report.point
         assert _PER_ARM_CONDITIONS in report.note
-        assert "four risk-ratio associations, two per arm" in report.summary()
+        assert ("per_arm", _PER_ARM_CONDITIONS) in report.note_parts
+        summary = report.summary()
+        assert (
+            summary.note("sensitivity_assumption").text == NOTE_TEXTS["assumption_evalue_per_arm"]
+        )
+        assert summary.note("per_arm_conditions").text == NOTE_TEXTS["per_arm_conditions"]
+        assert _PER_ARM_CONDITIONS in report.summary(detail="full").section("Assumptions").lines
 
     def test_the_limit_keeps_its_side_of_the_null(self, cde_fits: dict[str, Any]) -> None:
         report = evalue_module.evalue(cde_fits["ratio"][0.0])
@@ -649,6 +656,14 @@ class TestATimeToEventRiskRatio:
         assert report.point == pytest.approx(evalue_from_rr(ratio.psi), rel=1e-12)
         assert report.note == _TIME_TO_EVENT_CONDITIONS
         assert report.limit_descriptive
+        # The ratio is exact, so no conversion note fires, yet the censoring conditions
+        # the bound needs still print in plain words, and formally at full detail.
+        assert not report.approximate
+        summary = report.summary()
+        assert "approximate_scale" not in summary.note_codes
+        assert summary.note("censoring_conditions").text == NOTE_TEXTS["censoring_conditions"]
+        full = report.summary(detail="full").section("Assumptions").lines
+        assert _TIME_TO_EVENT_CONDITIONS in full
         # Nonzero witness for the order: the inverse ratio has the same E-value and
         # the reciprocal risk ratio.
         swapped = evalue_module.evalue(survival_fit, (DENOMINATOR, NUMERATOR))
@@ -731,6 +746,13 @@ def covering_row(rule: str) -> VerdictEvidence:
     )
 
 
+def _evidence(summary: Any) -> str:
+    """The limit's evidence sentence, as the full summary's settings print it."""
+    prefix = "Evidence for the limit: "
+    (line,) = [line for line in summary.section("Settings").lines if line.startswith(prefix)]
+    return line.removeprefix(prefix)
+
+
 class TestTheLimitReading:
     """Every part G confidence limit resolves through the registry, one rule each."""
 
@@ -745,7 +767,11 @@ class TestTheLimitReading:
             assert report.limit_reading.sentence.startswith(DESCRIPTIVE_SENTENCE), rule
             assert report.limit_descriptive, rule
             assert report.to_dict()["limit_licensed"] is False
-            assert f"confidence limit: {DESCRIPTIVE_SENTENCE}" in report.summary()
+            summary = report.summary(detail="full")
+            assert summary.note("limits_descriptive").text == NOTE_TEXTS[
+                "limits_descriptive"
+            ].format(what="E-value of the limit")
+            assert _evidence(summary).startswith(DESCRIPTIVE_SENTENCE), rule
 
     def test_a_registered_row_licenses_exactly_its_configuration(
         self,
@@ -761,7 +787,9 @@ class TestTheLimitReading:
             licensed = readings.pop(rule)
             assert licensed.limit_reading.licensed, rule
             assert not licensed.limit_descriptive
-            assert "confidence limit: covered by the test row" in licensed.summary()
+            summary = licensed.summary(detail="full")
+            assert "limits_descriptive" not in summary.note_codes
+            assert _evidence(summary) == "covered by the test row"
             assert all(report.limit_descriptive for report in readings.values()), rule
 
     def test_a_cde_stratum_reads_the_joined_rule(self) -> None:

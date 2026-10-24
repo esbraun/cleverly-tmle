@@ -617,7 +617,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "the adjustment left out could, at worst, cause at the stated strengths. cf_y is "
             "the share of the outcome variation left after adjustment that they would "
             "explain, cf_d the share of the average squared weight that only they would add, "
-            "and rho how far their two effects line up (1 is the worst case)."
+            "and rho how far their two effects line up (one is the worst case)."
         ),
         "assumption_bounds_limits": (
             "Each one-sided limit is a {level} confidence limit for its own end of the range: "
@@ -629,7 +629,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "could not."
         ),
         "verdict_rv_unreached": (
-            "No left-out variables with equal strengths below 1 could move the estimate to "
+            "No left-out variables with equal strengths below one could move the estimate to "
             "{null}{alignment}."
         ),
         "rv_limit": (
@@ -645,7 +645,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "alignment_stated": (
             "rho = {rho} assumes the two effects of the left-out variables only partly line "
-            "up; 1 is the worst case."
+            "up; one is the worst case."
         ),
         "assumption_elements": (
             "The bias scale is the square root of the product of the first two rows. A bound "
@@ -716,7 +716,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "gamma is the largest factor by which an unmeasured confounder may change a "
             "unit's odds of treatment, given the covariates, in either direction, with no "
             "limit on its link to the outcome. The range holds every value of {estimand} "
-            "that allows, if this confounder is all the adjustment missed. At gamma = 1, no "
+            "that allows, if this confounder is all the adjustment missed. At a gamma of one, no "
             "unmeasured confounding, the range shrinks to one value, the bound's own doubly "
             "robust estimate, close to the fit's."
         ),
@@ -727,7 +727,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "assumption_tilt": (
             "gamma is how far the average outcome of units whose outcome is missing differs "
             "from that of recorded units with the same treatment and covariates, on the "
-            "log-odds scale of the outcome rescaled to [0, 1]{arm_clause}. gamma = 0 is the "
+            "log-odds scale of the outcome rescaled to run from zero to one{arm_clause}. A gamma of zero is the "
             "main analysis, which assumes outcomes are missing at random, and a positive "
             "gamma means the missing outcomes were higher. At every gamma the interval "
             "reuses the main analysis's standard error and treats gamma as known, so it "
@@ -810,19 +810,19 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "limits_withheld_learner": (
             "No one-sided limits or limit robustness value: the plug-in estimate of the "
-            "average squared weight (nu2_estimator='plugin') has a standard error only for a "
+            "average squared weight has a standard error only for a "
             "declared known treatment model or a qualifying scikit-learn LogisticRegression, "
             "and this fit's treatment model does not qualify. {alternative}"
         ),
         "limits_withheld_configuration": (
             "No one-sided limits or limit robustness value: this bound's weight also reads "
             "a second model or a stratum share, and the standard error of the plug-in "
-            "estimate (nu2_estimator='plugin') covers the treatment model alone. "
+            "estimate covers the treatment model alone. "
             "{alternative}"
         ),
         "limits_withheld_correction": (
             "No one-sided limits or limit robustness value: the plug-in estimate of the "
-            "average squared weight (nu2_estimator='plugin') needs a correction before it "
+            "average squared weight needs a correction before it "
             "has a standard error, and the correction does not hold on this fit. "
             "{alternative}"
         ),
@@ -849,11 +849,11 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "strength_clipped_y": (
             "Leaving out {covariates} raised the outcome variation left by a factor above "
-            "two (gain {gain}), so cf_y is 1: left-out variables this strong would explain "
+            "two (gain {gain}), so cf_y is one: left-out variables this strong would explain "
             "all of the outcome variation left after adjustment."
         ),
         "strength_clipped_d": (
-            "The treatment-side gain is {gain}, at least 1, so cf_d is 1, where the bound "
+            "The treatment-side gain is {gain}, at least one, so cf_d is one, where the bound "
             "has no finite value."
         ),
         "grid_thinned": (
@@ -861,11 +861,11 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "{d_size} cf_d values; to_frame() holds every cell."
         ),
         "bound_truncated": (
-            "The converted lower limit, {value}, lies below 0, outside the risk-ratio "
-            "scale, so the table shows 0."
+            "The converted lower limit, {value}, lies below zero, outside the risk-ratio "
+            "scale, so the table shows zero."
         ),
         "tilt_diagnostic": (
-            "For {names} the spread off gamma = 0 is the main analysis's spread around the "
+            "For {names} the spread off a gamma of zero is the main analysis's spread around the "
             "moved estimate{scale}, a diagnostic: no interval is claimed there."
         ),
         "population_moves": (
