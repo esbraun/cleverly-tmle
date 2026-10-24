@@ -13,8 +13,8 @@ ids, and cache keys. They stay on the result for programs.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -24,6 +24,7 @@ from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
+    T_REFERENCE_STRATUM,
     supplies_inference,
 )
 from .._summary import (
@@ -212,6 +213,10 @@ def _target_name(result: TMLEResult, name: str) -> str | None:
 
 def _meaning(result: TMLEResult, name: str) -> str:
     """What one row estimates, in plain words."""
+    stratum = _stratum_row(result, name)
+    if stratum is not None:
+        base, label = stratum
+        return vocabulary.STRATUM_MEANING.format(meaning=_meaning(result, base), stratum=label)
     key = result.parameter_keys.get(name)
     target = _target_name(result, name)
     axis = getattr(key, "axis", "arm")
@@ -221,6 +226,16 @@ def _meaning(result: TMLEResult, name: str) -> str:
     if target in TARGETS and TARGETS[target].description:
         return TARGETS[target].description.split(",")[0]
     return name
+
+
+def _stratum_row(result: TMLEResult, name: str) -> tuple[str, str] | None:
+    """The base row name and stratum label of a per-stratum row such as ``ate[S='a']``."""
+    data = result.data
+    if data.strata is None or not name.endswith("]") or "[" not in name:
+        return None
+    base, _, label = name[:-1].partition("[")
+    labels = {data.stratum_label(code) for code in range(data.n_strata)}
+    return (base, label) if label in labels else None
 
 
 def _question(result: TMLEResult, facts: SummaryFacts) -> str:
@@ -309,9 +324,8 @@ def _folds_fact(result: TMLEResult) -> str:
     config = result.config
     if not config.cross_fit:
         return "no"
-    if result.n_repeats > 1:
-        return f"yes ({config.n_folds} folds, median of {result.n_repeats} splits)"
-    return f"yes ({config.n_folds} folds)"
+    # The repeated_splits note says how the repeats combine.
+    return f"{config.n_folds} folds"
 
 
 def _header(result: TMLEResult, facts: SummaryFacts) -> tuple[list[tuple[str, str]], int]:
@@ -335,15 +349,16 @@ def _header(result: TMLEResult, facts: SummaryFacts) -> tuple[list[tuple[str, st
             fewest = fewest_clusters(
                 data.cluster, data.strata, data.weights if data.is_weighted else None
             )
-            clusters += f" (fewest in one stratum {fewest})"
+            clusters += f"; fewest in a stratum: {fewest}"
         left.append((vocabulary.CLUSTERS, clusters))
     if data.is_weighted:
         report = data.weight_report()
-        kind = "estimated" if report.estimated else "fixed"
+        kind = ", estimated" if report.estimated else ""
         left.append(
             (
                 vocabulary.WEIGHTS,
-                f"{report.name or 'weights'}, {kind}; effective rows {report.effective_n:,.0f}",
+                f"{report.name or 'weights'}{kind}; effective sample size "
+                f"{report.effective_n:,.0f}",
             )
         )
     right: list[tuple[str, str]] = [
@@ -532,7 +547,7 @@ def _capped_note(result: TMLEResult, clipping: _Clipping) -> Note | None:
     for (low, high), count, groups in clipping.pairs:
         if not count:
             continue
-        reads = ", ".join(_GROUP_WORDS.get(group, group) for group in groups)
+        reads = _listed(_GROUP_WORDS.get(group, group) for group in groups)
         sentences.append(
             vocabulary.NOTE_TEXTS["weights_capped"].format(
                 low=f"{low:.3g}",
@@ -554,6 +569,12 @@ def _capped_note(result: TMLEResult, clipping: _Clipping) -> Note | None:
         return None
     sentences.append(vocabulary.NOTE_TEXTS["weights_capped_effect"])
     return note("weights_capped", " ".join(sentences))
+
+
+def _listed(words: Iterable[str]) -> str:
+    """``a``, ``a and b``, or ``a, b and c``."""
+    items = list(words)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 
 #: Plain names of the target groups a bound pair serves, for the weights note.
@@ -605,7 +626,16 @@ def _fit_notes(result: TMLEResult, facts: SummaryFacts, clipping: _Clipping) -> 
             )
         )
     notes.extend(_score_notes(result))
-    notes.extend(_warning_notes(result.fit_warnings))
+    # A note that states what a recorded warning says takes the warning's place, and is
+    # shown as a warning when the fit warned.
+    kept = list(result.fit_warnings)
+    for index, item in enumerate(notes):
+        phrases = vocabulary.RESTATED_WARNINGS.get(item.code, ())
+        restated = [r for r in kept if any(phrase in r.message for phrase in phrases)]
+        if restated:
+            kept = [r for r in kept if r not in restated]
+            notes[index] = replace(item, kind="warning")
+    notes.extend(_warning_notes(kept))
     notes.extend(facts.notes)
     return notes
 
@@ -722,10 +752,13 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
     lines: list[str] = []
     up_to = "up to " if result.n_repeats > 1 else ""
     for (low, high), count, groups in clipping.pairs:
-        reads = ", ".join(_GROUP_WORDS.get(group, group) for group in groups)
+        reads = _listed(_GROUP_WORDS.get(group, group) for group in groups)
+        reached = (
+            "no row" if not count else f"{up_to}{count_text(count)} row{'' if count == 1 else 's'}"
+        )
         lines.append(
             f"Estimated treatment probabilities limited to [{low:.4g}, {high:.4g}] for "
-            f"{reads}; {up_to}{count_text(count)} rows reached a limit."
+            f"{reads}; {reached} reached a limit."
         )
     if clipping.pairs and config.auto_bounds_n is not None:
         lines.append(
@@ -733,7 +766,7 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
             f"weights, {config.auto_bounds_n:,.0f}."
         )
     if clipping.not_retained:
-        reads = ", ".join(_GROUP_WORDS.get(group, group) for group in clipping.not_retained)
+        reads = _listed(_GROUP_WORDS.get(group, group) for group in clipping.not_retained)
         lines.append(
             f"For {reads} the fit changed the treatment model while it ran, and how many "
             "rows reached a limit was not kept."
@@ -752,7 +785,10 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
         low, high = config.q_bounds
         lines.append(f"Outcome predictions kept inside the outcome range [{low:.4g}, {high:.4g}].")
     if config.cross_fit:
-        lines.append(f"Folds asked for: {config.crossfit.n_folds}; used: {config.n_folds}.")
+        if config.crossfit.n_folds != config.n_folds:
+            lines.append(f"Folds asked for: {config.crossfit.n_folds}; used: {config.n_folds}.")
+        else:
+            lines.append(f"Folds: {config.n_folds}.")
     lines.extend(_band_settings(result))
     estimates = result.estimates
     if any(estimate.reference_df is not None for estimate in estimates.values()):
@@ -762,8 +798,12 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
                 clusters=fewest_clusters(
                     data.cluster, weights=data.weights if data.is_weighted else None
                 ),
-                fewest=fewest_clusters(
-                    data.cluster, data.strata, data.weights if data.is_weighted else None
+                stratum=""
+                if data.strata is None
+                else T_REFERENCE_STRATUM.format(
+                    fewest=fewest_clusters(
+                        data.cluster, data.strata, data.weights if data.is_weighted else None
+                    )
                 ),
             )
         )
@@ -831,7 +871,7 @@ def _cluster_fact(data: CausalData) -> str:
         stratum_count = fewest_clusters(
             cluster, data.strata, data.weights if data.is_weighted else None
         )
-        fact += f", fewest in one stratum {stratum_count}"
+        fact += f"; fewest in a stratum: {stratum_count}"
     return fact
 
 

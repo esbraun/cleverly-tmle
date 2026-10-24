@@ -232,29 +232,40 @@ def _table_lines(table: SummaryTable, width: int) -> tuple[list[str], list[str]]
     texts = [[cell.text for cell in row] for row in table.rows]
     count = len(table.columns)
     text_columns = [index > 0 and _is_text_column(table, index) for index in range(count)]
-    widths = [
+    natural = [
         max([len(label), *(len(row[index]) for row in texts)])
         for index, label in enumerate(table.columns)
     ]
-    # Number columns get a statsmodels-like minimum, so a table of short numbers still reads.
-    widths = [
-        width_ if index == 0 or text_columns[index] else max(width_, 8)
-        for index, width_ in enumerate(widths)
-    ]
     last = count - 1
-    if last > 0 and text_columns[last]:
-        room = width - sum(widths[:last]) - _COLUMN_GAP * last
-        widths[last] = max(min(widths[last], room), 20)
+    wraps = last > 0 and text_columns[last]
+
+    def fitted(gap: int, minimum: int) -> list[int]:
+        # Number columns get a statsmodels-like minimum, so a table of short numbers reads.
+        widths_ = [
+            width_ if index == 0 or text_columns[index] else max(width_, minimum)
+            for index, width_ in enumerate(natural)
+        ]
+        if wraps:
+            room = width - sum(widths_[:last]) - gap * last
+            widths_[last] = min(widths_[last], max(room, 20))
+        return widths_
+
+    # Narrow a table that would pass the width: first drop the number minimum, then close
+    # the gap. A table that still passes it prints wider, and the rules widen with it.
+    for gap, minimum in ((_COLUMN_GAP, 8), (_COLUMN_GAP, 0), (_COLUMN_GAP - 1, 0)):
+        widths = fitted(gap, minimum)
+        if sum(widths) + gap * last <= width:
+            break
 
     def line(cells: list[str]) -> str:
         out = [f"{cells[0]:<{widths[0]}}"]
         for index, (cell, width_) in enumerate(zip(cells[1:], widths[1:], strict=True), 1):
             out.append(f"{cell:<{width_}}" if text_columns[index] else f"{cell:>{width_}}")
-        return (" " * _COLUMN_GAP).join(out).rstrip()
+        return (" " * gap).join(out).rstrip()
 
     body: list[str] = []
     for row in texts:
-        if last > 0 and text_columns[last] and len(row[last]) > widths[last]:
+        if wraps and len(row[last]) > widths[last]:
             chunks = textwrap.wrap(row[last], widths[last]) or [""]
             body.append(line([*row[:last], chunks[0]]))
             blank = [""] * last
@@ -328,14 +339,18 @@ def render_html(parts: _Parts) -> str:
         out.append("<table>")
         if table.title:
             out.append(f"<caption>{esc(table.title)}</caption>")
+        align = [
+            "left" if index == 0 or _is_text_column(table, index) else "right"
+            for index in range(len(table.columns))
+        ]
         heads = "".join(
-            f'<th style="text-align:{"left" if index == 0 else "right"}">{esc(label)}</th>'
+            f'<th style="text-align:{align[index]}">{esc(label)}</th>'
             for index, label in enumerate(table.columns)
         )
         out.append(f"<thead><tr>{heads}</tr></thead><tbody>")
         for row in table.rows:
             row_cells = "".join(
-                f'<td style="text-align:{"left" if index == 0 else "right"}">{esc(cell.text)}</td>'
+                f'<td style="text-align:{align[index]}">{esc(cell.text)}</td>'
                 for index, cell in enumerate(row)
             )
             out.append(f"<tr>{row_cells}</tr>")

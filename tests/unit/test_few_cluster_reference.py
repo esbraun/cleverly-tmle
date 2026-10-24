@@ -29,6 +29,7 @@ from cleverly import variable_importance
 from cleverly._inference_status import (
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
+    T_REFERENCE_STRATUM,
 )
 from cleverly.datasets import (
     make_binary_outcome,
@@ -528,8 +529,11 @@ class TestTheSummaryNamesEachCount:
     def test_a_small_stratum_inside_a_large_fit(self) -> None:
         """44 clusters, 12 in one stratum: the note names both counts."""
         result = fit_strata(stratified(44, small=12))
-        text = result.summary()
-        assert T_REFERENCE_NOTE.format(clusters=44, fewest=12) in text
+        text = result.summary(detail="full")
+        assert (
+            T_REFERENCE_NOTE.format(clusters=44, stratum=T_REFERENCE_STRATUM.format(fewest=12))
+            in text
+        )
         assert NO_T_REFERENCE_BANDS in text
         assert "the fit reads 44 clusters with positive weight mass, fewer than" not in text
 

@@ -87,7 +87,7 @@ import copy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import numpy as np
 
@@ -298,6 +298,9 @@ from .targeting import (
     solve_with_stratified_projection,
     stratum_blocks,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import SummaryFacts
 
 __all__ = ["TMLE", "tmle"]
 
@@ -889,6 +892,19 @@ class TMLE:
             strata=data.strata,
             weights=data.weights if data.is_weighted else None,
         )
+
+    def _summary_facts(self, result: TMLEResult) -> SummaryFacts:
+        """The method facts :meth:`TMLEResult.summary` prints for a fit of this estimator.
+
+        A hook beside :meth:`_bootstrap_diagnostic`: a subclass that has its own title,
+        method line, notes or "Method details" overrides it and starts from
+        :func:`~cleverly.estimators._point_summary.base_summary_facts`, which this
+        default returns. The estimates table and its notes are not facts of the method, so
+        no override can change how an estimate's inference status prints.
+        """
+        from ._point_summary import base_summary_facts
+
+        return base_summary_facts(result)
 
     def _bootstrap_diagnostic(self, data: CausalData) -> bool:
         """Whether the fit declares its full-refit bootstrap interval a diagnostic.

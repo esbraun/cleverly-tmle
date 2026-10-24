@@ -98,18 +98,22 @@ MINIMUM_T_REFERENCE_CLUSTERS: Final[int] = 3
 MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
-#: ``{clusters}`` is the positive-mass cluster count of the fit.
+#: ``{clusters}`` is the positive-mass cluster count of the fit, and ``{stratum}`` is
+#: :data:`T_REFERENCE_STRATUM` on a fit with strata and empty otherwise.
 T_REFERENCE_NOTE: Final[str] = (
-    "An estimate that reads fewer than "
+    "An estimate based on fewer than "
     f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
-    "p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it "
-    "reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes "
-    "min(J - 2, J - V). The fit reads {clusters} such clusters, and the fewest in one "
-    "reported stratum is {fewest}. The df column gives each estimate's degrees of freedom, "
-    "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
-    "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
+    "p-value on a Student t reference with J - 2 degrees of freedom, where J is that cluster "
+    "count (Nugent et al. (2024), Section 2.2); an estimate averaged over V cross-fitting "
+    "folds takes min(J - 2, J - V). The fit has {clusters} such clusters{stratum}. The df "
+    "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
+    "reference. The validation evidence for few clusters uses parametric models for the "
+    "outcome and the treatment; Wang et al. (2024), Remark 3, caution against complex "
     "learners at about 20 clusters."
 )
+
+#: The clause :data:`T_REFERENCE_NOTE` adds on a fit with strata.
+T_REFERENCE_STRATUM: Final[str] = ", and the fewest in one reported stratum is {fewest}"
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale
 #: refusals of :class:`~cleverly.TMLE` say it, so the two name one fact in one wording.
@@ -119,15 +123,17 @@ HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows include
 #: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
 #: print it, and both estimators skip the default band on such a fit.
 NO_SIMULTANEOUS_BANDS: Final[str] = (
-    "no simultaneous bands: a band is a joint confidence statement, and this fit reports none."
+    "No simultaneous bands: a band is a joint confidence statement, and this fit reports no "
+    "confidence interval."
 )
 
 #: The line a result summary prints when a fit skips its default band because an estimate
 #: carries a Student t reference.
 NO_T_REFERENCE_BANDS: Final[str] = (
-    "no simultaneous bands: an estimate of this fit reads fewer than "
-    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and carries a t reference, "
-    "and no source gives a t-calibrated band, so the fit reports pointwise intervals only."
+    "No simultaneous bands: an estimate of this fit is based on fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and uses a t reference, and "
+    "no source gives a band calibrated to a t reference, so the fit reports one-at-a-time "
+    "intervals only."
 )
 
 

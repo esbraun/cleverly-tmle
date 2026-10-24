@@ -75,11 +75,13 @@ def plain_support_reason(reason: str) -> str:
     str
         The same facts in words a reader of the analysis can use.
     """
-    text = re.sub(
-        r"Nearest row: \S+(?: \([^)]*\))?, differing on ([^.]*)\.",
-        r"The nearest validated kind of fit differs on \1.",
-        reason,
-    )
+
+    def nearest(match: re.Match[str]) -> str:
+        axes = [vocabulary.SUPPORT_AXES.get(axis, axis) for axis in match[1].split(", ")]
+        return f"The nearest validated kind of fit differs in {', '.join(axes)}."
+
+    text = re.sub(r"Nearest row: \S+(?: \([^)]*\))?, differing on ([^.]*)\.", nearest, reason)
+    text = text.replace("covers this configuration", "covers this kind of fit")
     text = re.sub(r"\bRow \S+ licenses", "The validation study licenses", text)
     text = text.replace("registered study", "validation study")
     text = _ID.sub("", text)
@@ -245,7 +247,12 @@ def estimates_table(
             by_kind.setdefault(reason_kind(estimates[name].support.reason), []).append(name)
         for kind, names in by_kind.items():
             sentences.append(vocabulary.EXPERIMENTAL_REASONS[kind].format(names=_names(names)))
-        sentences.append(vocabulary.NOTE_TEXTS["experimental"])
+        with_interval = any(inferential[name] for name in experimental)
+        sentences.append(
+            vocabulary.NOTE_TEXTS["experimental"].format(
+                what="the interval" if with_interval else "them"
+            )
+        )
         notes.append(note("experimental", " ".join(sentences)))
     ratio = [
         name for name, estimate in items if estimate.scale == "ratio" and estimate.transform is None

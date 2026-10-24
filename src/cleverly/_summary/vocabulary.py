@@ -35,7 +35,7 @@ RECORDING_MODEL: Final = "Recording model"
 #: The model of the intermediate variable a controlled direct effect holds fixed.
 INTERMEDIATE_MODEL: Final = "Intermediate model"
 CLUSTERS: Final = "Clusters"
-WEIGHTS: Final = "Observation weights"
+WEIGHTS: Final = "Weights"
 #: Foreseen for the longitudinal and sensitivity summaries.
 TIME_POINTS: Final = "Time points"
 HORIZON: Final = "Horizon"
@@ -296,6 +296,8 @@ DIRECT_EFFECT_QUESTION: Final = "effect of {A} on {Y} with {Z} held at {z} for e
 LEARNED_RULE_QUESTION: Final = "value of a treatment rule learned from the data"
 #: The title of the key table.
 KEY_TITLE: Final = "What each row estimates"
+#: A per-stratum row: the row's meaning restricted to the units of one baseline stratum.
+STRATUM_MEANING: Final = "{meaning}, among units with {stratum}"
 
 # ----------------------------------------------------------------- notes
 
@@ -327,6 +329,34 @@ NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "fit_warning_parameter_space": "warning",
         "fit_warning_data": "warning",
         "fit_warning_other": "warning",
+    }
+)
+
+#: Plain names of the axes a support reason says the nearest validated fit differs on, keyed
+#: by the names in ``cleverly._support.KEY_AXES``.
+SUPPORT_AXES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "kind": "the kind of estimator",
+        "engine": "the estimation method",
+        "family": "the estimands",
+        "outcome": "the outcome type or its declared range",
+        "missing": "missing data",
+        "treatment": "the treatment type",
+        "weighting": "observation weights",
+        "splitting": "how the sample is split for the models",
+        "dependence": "clustering or the number of clusters",
+        "qualifiers": "strata or a known treatment mechanism",
+        "options": "estimator options",
+    }
+)
+
+#: Fit-time warnings a note already states, by that note's code: when the note prints, a
+#: recorded warning whose message holds one of these phrases is left out of the Warnings
+#: block, and the note prints among the warnings in its place.
+RESTATED_WARNINGS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "folds_reduced": ("reducing n_folds from",),
+        "weights_capped": ("treatment probability outside the truncation bounds",),
     }
 )
 
@@ -395,7 +425,7 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "{label}: {spreads}."
         ),
         "experimental": (
-            "The numbers are computed the same way; read the interval with more caution. "
+            "The numbers are computed as for a validated fit; read {what} with more caution. "
             "The full summary gives the reason."
         ),
         "in_sample_flexible": (
@@ -413,14 +443,15 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "weights_capped_effect": (
             "Each limit caps the weight of the rows it moves. That steadies the estimate, "
-            "and it can move the estimate if the true probabilities lie outside the limits."
+            "and it can move the estimate if the true probabilities lie outside the limits. "
+            "result.diagnostics.truncation_curve() shows the estimate under other limits."
         ),
         "weighted_population": (
             "The estimate describes the population that the observation weights represent, "
             "not the sample as drawn."
         ),
         "t_reference": (
-            "A row that reads fewer than {threshold} clusters with positive weight mass, in "
+            "A row based on fewer than {threshold} clusters with positive weight mass, in "
             "the fit or in its stratum, takes its interval and p-value from a t distribution "
             "with the degrees of freedom in the df column, which widens them; a row marked "
             "normal uses the normal distribution. The full summary gives the rule and its "

@@ -332,7 +332,7 @@ LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
 #: The line a summary prints when a repeated fit with ``isotonic=True`` builds no band.
 NO_ISOTONIC_REPEAT_BANDS = (
-    "no simultaneous bands: each draw projects its levels onto a non-decreasing curve, and no "
+    "No simultaneous bands: each draw projects its levels onto a non-decreasing curve, and no "
     "source gives the projection of the limits of a median band, so the fit reports pointwise "
     "intervals only."
 )
@@ -3409,13 +3409,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 [
                     "",
                     T_REFERENCE_NOTE.format(
-                        clusters=(
-                            positive_count := fewest_clusters(
-                                self.data.cluster,
-                                weights=self.data.weights if self.data.is_weighted else None,
-                            )
+                        clusters=fewest_clusters(
+                            self.data.cluster,
+                            weights=self.data.weights if self.data.is_weighted else None,
                         ),
-                        fewest=positive_count,
+                        stratum="",
                     ),
                 ]
                 if t_reference and self.data.cluster is not None
