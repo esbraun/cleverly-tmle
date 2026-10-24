@@ -547,7 +547,7 @@ class TestAFacadeReadsAnIteratorOnce:
         result.sensitivity.missingness(gamma for gamma in [1.0])
         second = result.sensitivity.missingness(gamma for gamma in [2.0, 3.0])
         listed = result.sensitivity.missingness([2.0, 3.0])
-        pd.testing.assert_frame_equal(second, listed)
+        pd.testing.assert_frame_equal(second.to_frame(), listed.to_frame())
         assert not any("generator" in key for key in result.assessment_cache)
 
 

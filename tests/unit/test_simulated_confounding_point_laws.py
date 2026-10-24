@@ -395,7 +395,8 @@ def test_a_clustered_surface_reads_the_latent_at_its_declared_level(
         assert np.ptp(implied[rows]) == pytest.approx(0.0, abs=1e-12)
     assert surface.latent_level == "cluster"
     assert surface.n_clusters == 40
-    assert "latent level: cluster over 40 clusters" in surface.summary()
+    settings = surface.summary(detail="full").section("Settings").lines
+    assert "Latent level: cluster over 40 clusters." in settings
 
 
 def test_a_clustered_fit_must_declare_its_latent_level() -> None:
@@ -629,7 +630,11 @@ def test_the_summary_counts_the_separated_calibrations() -> None:
     )
     rows = {row.role: row for row in surface.calibrations}
     assert np.isnan(rows["treatment"].strength)
-    assert "calibration: 1 of 2 strengths are nan" in surface.summary()
+    assert (
+        surface.summary()
+        .note("calibration_nan")
+        .text.startswith("Calibration: 1 of 2 strengths are nan")
+    )
 
 
 def test_an_indicator_is_refused_with_its_logical_covariate() -> None:

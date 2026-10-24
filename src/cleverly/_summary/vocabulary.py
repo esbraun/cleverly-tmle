@@ -644,8 +644,8 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "weight that only they would add), to move the estimate to {null}."
         ),
         "alignment_stated": (
-            "rho = {rho} assumes the two effects of the left-out variables only partly line "
-            "up; one is the worst case."
+            "rho = {rho} assumes the two effects of the left-out variables line up less "
+            "than in the worst case, where rho is one."
         ),
         "assumption_elements": (
             "The bias scale is the square root of the product of the first two rows. A bound "

@@ -115,15 +115,16 @@ def _decimals(values: Iterable[Any]) -> int:
 
 def _number(value: Any, decimals: int) -> Cell:
     if value is None or not _finite(value):
-        return Cell(None if value is None else float(value), number_text(value, decimals))
+        # A missing number is stored as None: nan never compares equal.
+        return Cell(None, number_text(value, decimals))
     return Cell(float(value), number_text(value, decimals))
 
 
 def _interval(low: Any, high: Any, decimals: int) -> Cell:
-    return Cell(
-        (float(low), float(high)),
-        f"[{number_text(low, decimals)}, {number_text(high, decimals)}]",
-    )
+    text = f"[{number_text(low, decimals)}, {number_text(high, decimals)}]"
+    if not (_finite(low) and _finite(high)):
+        return Cell(None, text)
+    return Cell((float(low), float(high)), text)
 
 
 def _label(text: str) -> Cell:
@@ -1126,7 +1127,7 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
         for index, spread, low, high in rows_values:
             gamma = float(payload["gamma"][index])
             mar = bool(payload["is_mar"][index])
-            label = f"{gamma:g}" + (" (missing at random)" if mar else "")
+            label = f"{gamma:g}"
             mark = moved_diagnostic and inferential and not mar
             rows.append(
                 (
@@ -1348,7 +1349,7 @@ def surface_summary(result: SimulatedConfoundingResult, detail: Detail) -> Summa
             row.append(Cell(cell.displacement, f"{float(cell.displacement):+.{decimals}f}"))
         else:
             row.append(Cell(None, "failed"))
-            row.append(Cell(None, V.MISSING))
+            row.append(Cell(None, cell.failure.error_type))
         movement_rows.append(tuple(row))
         association = cell.induced_treatment_association
         if isinstance(association, tuple):

@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity import omitted_variable_bounds, robustness_value, sensitivity_elements
 from tests.unit._exact_sensitivity_support import binary_oracle_fit
@@ -33,7 +34,9 @@ def test_zero_residual_variance_keeps_point_bounds_and_refuses_limits(exact_fit:
     assert bound.robustness_value is None
     assert bound._ci_lower is None and bound._ci_upper is None
     assert "limit_refusal" in bound.to_dict()
-    assert "no equal strength reaches the null" in bound.summary()
+    summary = bound.summary()
+    assert summary.reading == NOTE_TEXTS["verdict_rv_unreached"].format(null="0", alignment="")
+    assert summary.note("limits_withheld").text == NOTE_TEXTS["limits_withheld_zero"]
     for name in (
         "ci_lower",
         "ci_upper",
@@ -67,7 +70,9 @@ def test_zero_alignment_cannot_reach_an_outside_null(exact_fit: Any) -> None:
     assert bound.robustness_value_ci is None
     assert bound.to_dict()["robustness_value"] is None
     assert bound.to_dict()["robustness_value_ci"] is None
-    assert "unavailable: no equal strength reaches the null" in bound.summary()
+    assert bound.summary().reading == NOTE_TEXTS["verdict_rv_unreached"].format(
+        null="0", alignment=" at alignment 0.000"
+    )
     report = robustness_value(exact_fit, rho=0.0)
     assert report["rv"] is None and report["rva"] is None
     assessment = exact_fit.sensitivity.run_all(arguments={"robustness_value": {"rho": 0.0}})[
@@ -134,10 +139,14 @@ def test_the_summary_names_the_bias_scale_and_the_robustness_value_by_definition
     # equal strength cf_y = cf_d, and cf_d is not a share of treatment variation.
     bound = omitted_variable_bounds(exact_fit)
     assert bound.robustness_value is not None
-    summary = bound.summary()
-    assert "bias scale sqrt(sigma^2 nu^2)" in summary
+    summary = bound.summary(detail="full")
+    assert (
+        f"Bias scale sqrt(sigma^2 nu^2): {bound.max_bias:.4g}." in summary.section("Settings").lines
+    )
     assert "maximal bias" not in summary
     assert "BOTH" not in summary
+    assert "the same value for cf_y" in bound.summary().note("sensitivity_assumption").text
+    assert "cf_d is the share of" not in summary
     assert f"cf_y = cf_d = {bound.robustness_value:.1%}" in summary
     strong = omitted_variable_bounds(exact_fit, cf_y=0.9, cf_d=0.9)
     assert strong.bias > strong.max_bias
