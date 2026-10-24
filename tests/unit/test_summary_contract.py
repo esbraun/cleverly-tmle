@@ -18,6 +18,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from cleverly._inference_status import STATUS_RECORDS
@@ -462,3 +463,71 @@ def test_a_support_reason_loses_its_ids_and_names_its_axes() -> None:
         "differs in clustering or the number of clusters, strata or a known treatment "
         "mechanism."
     )
+
+
+# ----------------------------------------------------------------- header numbers and assumptions
+
+
+def _header_value(summary: Summary, label: str) -> str | None:
+    values = [value for name, value in summary.header if name == label]
+    return values[0] if values else None
+
+
+def _check_header_counts(result: Any, summary: Summary) -> None:
+    data = result.data
+    assert _header_value(summary, vocabulary.ROWS) == f"{data.n:,}"
+    share = _header_value(summary, vocabulary.TREATED_SHARE)
+    if share is not None and not data.is_weighted:
+        assert _close(share, float(np.mean(data.treatment)))
+
+
+@pytest.mark.parametrize("key", KEYS)
+def test_the_header_counts_equal_the_data(key: str) -> None:
+    """The row count and the treated share print the numbers of the fitted data."""
+    _check_header_counts(_fitted(key), _summary(key))
+
+
+def test_a_header_that_misreports_the_rows_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deliberate mutation: a header off by one row fails the check above."""
+    from cleverly.estimators import _point_summary
+
+    original = _point_summary._header
+
+    def shifted(*args: Any, **kwargs: Any) -> Any:
+        header, split = original(*args, **kwargs)
+        moved = [
+            (name, str(int(value.replace(",", "")) + 1) if name == vocabulary.ROWS else value)
+            for name, value in header
+        ]
+        return moved, split
+
+    monkeypatch.setattr(_point_summary, "_header", shifted)
+    result = _fitted("point_tmle:single_ate")
+    with pytest.raises(AssertionError):
+        _check_header_counts(result, result.summary())
+
+
+def _assumptions(key: str) -> list[str]:
+    return list(_summary(key, "full").section("Assumptions").lines)
+
+
+def test_missing_outcomes_add_their_assumptions() -> None:
+    lines = _assumptions("point_tmle:missing_outcome")
+    for text in vocabulary.MISSING_OUTCOME_ASSUMPTIONS:
+        assert f"- {text.format(Y='Y', A='A')}" in lines
+    for text in vocabulary.MISSING_OUTCOME_ASSUMPTIONS:
+        assert f"- {text.format(Y='Y', A='A')}" not in _assumptions("point_tmle:single_ate")
+
+
+def test_a_held_intermediate_adds_its_assumptions() -> None:
+    lines = _assumptions("point_tmle:direct_effect")
+    for text in vocabulary.INTERMEDIATE_ASSUMPTIONS:
+        assert f"- {text.format(Y='Y', A='A', Z='Z', z='0')}" in lines
+
+
+def test_a_declared_rule_without_an_interval_states_the_rule_plainly() -> None:
+    """With no interval there is no coverage bound to state, only the rule."""
+    summary = _summary("point_tmle:declared_rule_withheld")
+    assert summary.note("stopping_rule").text == vocabulary.NOTE_TEXTS["stopping_rule_plain"]
+    bounded = _summary("point_tmle:declared_rule").note("stopping_rule").text
+    assert bounded != vocabulary.NOTE_TEXTS["stopping_rule_plain"]

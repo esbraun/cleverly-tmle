@@ -293,13 +293,22 @@ def _treatment_fact(result: TMLEResult) -> tuple[str, str]:
         mean = float(np.average(dose, weights=data.weights))
         return vocabulary.DOSE, f"mean {mean:.4g}, range [{dose.min():.3g}, {dose.max():.3g}]"
     weighted = vocabulary.WEIGHTED if data.is_weighted else ""
-    if data.is_binary_treatment:
+    if data.is_binary_treatment and _zero_one_arms(data):
         return vocabulary.TREATED_SHARE + weighted, share_text(data.treated_fraction)
     shares = ", ".join(
         f"{data.arm_label(arm)}={share:.3f}"
         for arm, share in zip(data.arm_codes, data.arm_fractions, strict=True)
     )
     return vocabulary.ARM_SHARES + weighted, shares
+
+
+def _zero_one_arms(data: Any) -> bool:
+    """Whether the two arms are labelled 0 and 1, so "treated" names arm 1 unambiguously."""
+    levels = tuple(data.treatment_levels or ())
+    try:
+        return len(levels) == 2 and {float(level) for level in levels} == {0.0, 1.0}
+    except (TypeError, ValueError):
+        return False
 
 
 def _outcome_fact(result: TMLEResult) -> str:
@@ -344,13 +353,13 @@ def _header(result: TMLEResult, facts: SummaryFacts) -> tuple[list[tuple[str, st
         clusters = count_text(int(np.unique(data.cluster).size)) + positive_mass_clause(
             data.cluster, data.weights if data.is_weighted else None
         )
+        left.append((vocabulary.CLUSTERS, clusters))
         if data.has_strata:
             assert data.strata is not None
             fewest = fewest_clusters(
                 data.cluster, data.strata, data.weights if data.is_weighted else None
             )
-            clusters += f"; fewest in a stratum: {fewest}"
-        left.append((vocabulary.CLUSTERS, clusters))
+            left.append((vocabulary.FEWEST_IN_STRATUM, f"{fewest} clusters"))
     if data.is_weighted:
         report = data.weight_report()
         kind = ", estimated" if report.estimated else ""
@@ -553,6 +562,21 @@ def _clipping(result: TMLEResult) -> _Clipping:
     )
 
 
+def _mechanism_words(labels: Sequence[str]) -> str:
+    """Plain words for the bounded recording and intermediate probabilities."""
+    words = []
+    for label in labels:
+        if label.startswith("P(Delta_A"):
+            words.append("that the treatment is recorded")
+        elif label.startswith("P(Delta"):
+            words.append("that the outcome is recorded")
+        elif label.startswith("P(Z"):
+            words.append("of the intermediate value")
+        else:
+            words.append(label)
+    return _listed(dict.fromkeys(words))
+
+
 def _capped_note(result: TMLEResult, clipping: _Clipping) -> Note | None:
     """The note on rows whose weights a bound capped, or ``None`` when no bound moved one."""
     n = count_text(result.data.n)
@@ -576,6 +600,7 @@ def _capped_note(result: TMLEResult, clipping: _Clipping) -> Note | None:
     if clipping.missingness_share:
         sentences.append(
             vocabulary.NOTE_TEXTS["weights_capped_missingness"].format(
+                what=_mechanism_words(result.config.bounded_mechanisms),
                 bound=f"{result.config.missingness_bound:.3g}",
                 share=f"{clipping.missingness_share:.1%}",
             )
@@ -643,9 +668,24 @@ def _fit_notes(result: TMLEResult, facts: SummaryFacts, clipping: _Clipping) -> 
     notes.extend(_score_notes(result))
     # A note that states what a recorded warning says takes the warning's place, and is
     # shown as a warning when the fit warned.
+    config = result.config
+    low, high = config.g_bounds
+    context = {
+        "declared": config.crossfit.n_folds,
+        "used": config.n_folds,
+        "low": f"{low:.4g}",
+        "high": f"{high:.4g}",
+    }
+    # The positivity warning counts at the mean bounds, so only a note that prints that
+    # pair states it.
+    mean_pair = any("mean" in groups for _, _, groups in clipping.pairs)
     kept = list(result.fit_warnings)
     for index, item in enumerate(notes):
-        phrases = vocabulary.RESTATED_WARNINGS.get(item.code, ())
+        phrases = [
+            phrase.format(**context)
+            for phrase in vocabulary.RESTATED_WARNINGS.get(item.code, ())
+            if item.code != "weights_capped" or mean_pair or "{low}" not in phrase
+        ]
         restated = [r for r in kept if any(phrase in r.message for phrase in phrases)]
         if restated:
             kept = [r for r in kept if r not in restated]
@@ -657,27 +697,45 @@ def _fit_notes(result: TMLEResult, facts: SummaryFacts, clipping: _Clipping) -> 
 
 def _score_notes(result: TMLEResult) -> list[Note]:
     """The notes on how well the fit solved its estimating equation."""
+    from ..fluctuation._score import wald_coverage_bound
+
     verdict = result.score_verdict
     notes: list[Note] = []
-    rows = [row for row in verdict.rows if np.isfinite(row.residual_se)]
-    if verdict.declared and rows:
-        worst = max(rows, key=lambda row: row.residual_se)
-        level = 1.0 - verdict.alpha_sig
-        notes.append(
-            note(
-                "stopping_rule",
-                vocabulary.NOTE_TEXTS["stopping_rule"].format(
-                    b=f"{worst.residual_se:.3g}",
-                    name=worst.name,
-                    level=f"{level * 100:g}%",
-                    # A lower bound, so it is rounded down: 0.94996 is not "at least 95.0%".
-                    bound=f"{math.floor(worst.coverage_bound * 1000) / 10:.1f}%",
-                ),
+    if verdict.declared:
+        # The remainder in the standard error the interval itself uses, which can be
+        # cluster-robust, cross-validated or the median over splits.
+        remainders = {
+            name: abs(float(estimate.score)) / float(estimate.std_error)
+            for name, estimate in result.estimates.items()
+            if estimate.supplies_inference
+            and np.isfinite(estimate.score)
+            and float(estimate.std_error) > 0.0
+        }
+        if remainders:
+            name, b = max(remainders.items(), key=lambda item: item[1])
+            alpha = float(result.estimates[name].alpha)
+            # A lower bound, so it is rounded down; a remainder below 0.001 is stated as
+            # that ceiling and its coverage computed there.
+            shown = max(b, _SMALLEST_REMAINDER)
+            bound = math.floor(wald_coverage_bound(shown, alpha) * 10000) / 100
+            notes.append(
+                note(
+                    "stopping_rule",
+                    vocabulary.NOTE_TEXTS["stopping_rule"].format(
+                        b=f"less than {_SMALLEST_REMAINDER:g}"
+                        if b < _SMALLEST_REMAINDER
+                        else f"{b:.3g}",
+                        name=name,
+                        level=f"{(1.0 - alpha) * 100:g}%",
+                        bound=f"{bound:.2f}%",
+                    ),
+                )
             )
-        )
+        else:
+            notes.append(note("stopping_rule", vocabulary.NOTE_TEXTS["stopping_rule_plain"]))
     if not verdict.passed:
         failing = verdict.rule_failures if verdict.declared else verdict.failures
-        names = list(dict.fromkeys(row.name for row in failing)) or list(result.estimates)
+        named = list(dict.fromkeys(_score_row_words(result, row.name) for row in failing))
         spread = (
             "interval"
             if all(result.estimates[name].supplies_inference for name in result.estimates)
@@ -687,10 +745,26 @@ def _score_notes(result: TMLEResult) -> list[Note]:
         notes.append(
             note(
                 "score_unsolved",
-                vocabulary.NOTE_TEXTS[key].format(names=", ".join(names), spread=spread),
+                vocabulary.NOTE_TEXTS[key].format(
+                    names=_listed(named) if named else _listed(result.estimates), spread=spread
+                ),
             )
         )
     return notes
+
+
+#: The smallest stopping-rule remainder a note prints as a number.
+_SMALLEST_REMAINDER = 0.001
+
+
+def _score_row_words(result: TMLEResult, name: str) -> str:
+    """What a score-check row covers, in the words of the summary's rows."""
+    if name in result.estimates:
+        return name
+    group = name.split("[", 1)[0]
+    if group in _GROUP_WORDS:
+        return _GROUP_WORDS[group]
+    return vocabulary.SCORE_MODEL_ROW
 
 
 #: The most distinct messages one warning note quotes before it counts the rest.
@@ -751,7 +825,8 @@ def _assumptions(result: TMLEResult) -> SummarySection:
                 for item in TARGETS[target].identification.assumptions:
                     if item not in seen:
                         seen.append(item)
-        lines.extend(f"- {item}" for item in seen)
+        lines.extend(f"- {_with_arm_label(result, item)}" for item in seen)
+        lines.extend(f"- {item}" for item in _missing_data_assumptions(result))
     try:
         available = result.sensitivity.capability("omitted_confounding").available
     except (KeyError, AttributeError):
@@ -759,6 +834,33 @@ def _assumptions(result: TMLEResult) -> SummarySection:
     if available:
         lines.append(vocabulary.SENSITIVITY_POINTER)
     return SummarySection(vocabulary.SECTION_ASSUMPTIONS, tuple(lines))
+
+
+def _with_arm_label(result: TMLEResult, item: str) -> str:
+    """An assumption written for arms 0 and 1, with the fit's own label for arm 1."""
+    data = result.data
+    if not data.is_binary_treatment or _zero_one_arms(data):
+        return item
+    return item.replace("P(A = 1 | W)", f"P(A = {data.arm_label(data.arm_codes[1])} | W)")
+
+
+def _missing_data_assumptions(result: TMLEResult) -> list[str]:
+    """The conditions a fit with no study needs for its missing data and intermediate."""
+    data = result.data
+    names = {"Y": data.outcome_name, "A": data.treatment_name}
+    lines: list[str] = []
+    if data.has_missing_outcome:
+        lines.extend(text.format(**names) for text in vocabulary.MISSING_OUTCOME_ASSUMPTIONS)
+    if data.has_missing_treatment:
+        lines.extend(text.format(**names) for text in vocabulary.MISSING_TREATMENT_ASSUMPTIONS)
+    if result.intermediate_value is not None:
+        lines.extend(
+            text.format(
+                **names, Z=data.intermediate_name or "Z", z=f"{result.intermediate_value:g}"
+            )
+            for text in vocabulary.INTERMEDIATE_ASSUMPTIONS
+        )
+    return lines
 
 
 def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
@@ -775,10 +877,12 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
             f"Estimated treatment probabilities limited to [{low:.4g}, {high:.4g}] for "
             f"{reads}; {reached} reached a limit."
         )
-    if clipping.pairs and config.auto_bounds_n is not None:
+    if any("mean" in groups for _, _, groups in clipping.pairs) and (
+        config.auto_bounds_n is not None
+    ):
         lines.append(
-            "The limits come from the sample size, here the effective sample size of the "
-            f"weights, {config.auto_bounds_n:,.0f}."
+            "The limits for the means and the average effect come from the sample size, here "
+            f"the effective sample size of the weights, {config.auto_bounds_n:,.0f}."
         )
     if clipping.not_retained:
         reads = _listed(_GROUP_WORDS.get(group, group) for group in clipping.not_retained)
@@ -791,10 +895,9 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
     if config.treatment_mechanism == "known":
         lines.append("Treatment probabilities are the declared known values; no limit moved one.")
     if config.bounded_mechanisms:
-        named = " and ".join(config.bounded_mechanisms).replace("_", " ")
         lines.append(
-            f"{named.capitalize()} probabilities limited to at least "
-            f"{config.missingness_bound:.4g}."
+            f"Estimated probabilities {_mechanism_words(config.bounded_mechanisms)} raised to "
+            f"at least {config.missingness_bound:.4g}."
         )
     if config.q_bounds is not None and result.extra.get("adaptive_iptw") is None:
         low, high = config.q_bounds
@@ -907,13 +1010,16 @@ def _band_settings(result: TMLEResult) -> list[str]:
     estimates = result.estimates
     if result.simultaneous is not None or len(estimates) < 2:
         return []
+    if not bool(getattr(result.estimator, "simultaneous", True)):
+        # Bands were not asked for, so no reason why the fit has none applies.
+        return []
     t_reference = any(estimate.reference_df is not None for estimate in estimates.values())
     if not supplies_inference(result.inference_status):
         return [NO_SIMULTANEOUS_BANDS]
     if t_reference:
         return [NO_T_REFERENCE_BANDS]
     withheld = [name for name, estimate in estimates.items() if not estimate.supplies_inference]
-    if withheld and bool(getattr(result.estimator, "simultaneous", False)):
+    if withheld:
         return [
             "No simultaneous band: fewer than two rows have an interval. Left out: "
             + ", ".join(withheld)

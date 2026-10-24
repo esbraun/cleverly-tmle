@@ -35,6 +35,7 @@ RECORDING_MODEL: Final = "Recording model"
 #: The model of the intermediate variable a controlled direct effect holds fixed.
 INTERMEDIATE_MODEL: Final = "Intermediate model"
 CLUSTERS: Final = "Clusters"
+FEWEST_IN_STRATUM: Final = "Fewest in a stratum"
 WEIGHTS: Final = "Weights"
 #: Foreseen for the longitudinal and sensitivity summaries.
 TIME_POINTS: Final = "Time points"
@@ -58,6 +59,7 @@ HEADER_LABELS: Final[frozenset[str]] = frozenset(
         TREATMENT_MODEL,
         MISSINGNESS_MODEL,
         CLUSTERS,
+        FEWEST_IN_STRATUM,
         WEIGHTS,
         TIME_POINTS,
         HORIZON,
@@ -351,6 +353,9 @@ CROSS_FIT_EVALUATION: Final[Mapping[bool, str]] = MappingProxyType(
     }
 )
 
+#: What a score-check row that belongs to no reported row covers.
+SCORE_MODEL_ROW: Final = "the fitted models"
+
 #: Plain names of the axes a support reason says the nearest validated fit differs on, keyed
 #: by the names in ``cleverly._support.KEY_AXES``.
 SUPPORT_AXES: Final[Mapping[str, str]] = MappingProxyType(
@@ -371,11 +376,16 @@ SUPPORT_AXES: Final[Mapping[str, str]] = MappingProxyType(
 
 #: Fit-time warnings a note already states, by that note's code: when the note prints, a
 #: recorded warning whose message holds one of these phrases is left out of the Warnings
-#: block, and the note prints among the warnings in its place.
+#: block, and the note prints among the warnings in its place. The phrases are filled with
+#: the fit's folds (``declared``, ``used``) and mean treatment bounds (``low``, ``high``),
+#: so a warning about other folds or other bounds stays.
 RESTATED_WARNINGS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
-        "folds_reduced": ("reducing n_folds from",),
-        "weights_capped": ("treatment probability outside the truncation bounds",),
+        "folds_reduced": ("reducing n_folds from {declared} to", "to {used}: only"),
+        "weights_capped": (
+            "treatment probability outside the truncation bounds [{low}, {high}]",
+            "values fall below the nuisance bound",
+        ),
     }
 )
 
@@ -457,8 +467,8 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "{count} of {n} rows{split} ({reads})."
         ),
         "weights_capped_missingness": (
-            "cleverly raised {share} of the estimated probabilities of a recorded outcome to "
-            "{bound}."
+            "cleverly raised {share} of the estimated probabilities {what}, counted over "
+            "every arm, to {bound}."
         ),
         "weights_capped_effect": (
             "Each limit caps the weight of the rows it moves. That steadies the estimate, "
@@ -503,6 +513,10 @@ NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "may be off by more than the rule allows. result.diagnostics.score_equations() "
             "gives the numbers."
         ),
+        "stopping_rule_plain": (
+            "The fit stopped at its declared stopping rule, which leaves the estimating "
+            "equation solved up to the remainder the rule allows."
+        ),
         "stopping_rule": (
             "Under the declared stopping rule the estimating equation is solved up to a "
             "remainder worth {b} standard errors of bias (on {name}). If the standard error "
@@ -537,6 +551,23 @@ SECTION_METHOD: Final = "Method details"
 SECTION_STUDY: Final = "Study description"
 ASSUMPTIONS_LEAD: Final = "The estimate equals {functional} when these hold:"
 ASSUMPTIONS_LEAD_GENERIC: Final = "The estimate has its causal meaning when these hold:"
+#: The conditions a fit with no study adds for a partly recorded outcome.
+MISSING_OUTCOME_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "outcome missing at random: whether {Y} is recorded is independent of {Y} given {A} and W",
+    "recording positivity: P({Y} recorded | {A}, W) > 0 almost surely",
+)
+#: The conditions a fit with no study adds for a partly recorded treatment.
+MISSING_TREATMENT_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "treatment missing at random: the potential outcome is independent of whether {A} is "
+    "recorded given {A} and W",
+    "recording positivity: P({A} = a and {A} recorded | W) > 0 almost surely for every arm a",
+)
+#: The conditions a fit with no study adds when it holds an intermediate at one value.
+INTERMEDIATE_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "no unmeasured intermediate confounding: {Y}(a, {z}) is independent of {Z} given {A} and W",
+    "intermediate positivity: P({Z} = {z} | {A} = a, W) > 0 almost surely for every arm a "
+    "(for a continuous {Z}, a positive density at {z})",
+)
 SENSITIVITY_POINTER: Final = (
     "result.sensitivity.omitted_confounding() shows how strong an unmeasured cause would "
     "need to be to change the conclusion."
@@ -558,7 +589,7 @@ INTERNAL_TERMS: Final[tuple[str, ...]] = (
     "registry",
     "rung",
     "cache",
-    "targeting step",
+    "targeting",
     "submodel",
     "Levy",
     "run_id",

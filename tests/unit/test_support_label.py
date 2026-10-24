@@ -137,6 +137,11 @@ def assert_golden_summary(result: Any, name: str) -> None:
         low, high = interval.text.strip("[]").split(", ")
         assert agrees(low, shown["ci"][0])
         assert agrees(high, shown["ci"][1])
+        p_value = cells["p-value"].text
+        if shown["p"].startswith("<"):
+            assert p_value.startswith("<"), (row_name, p_value)
+        else:
+            assert agrees(p_value, shown["p"]), (row_name, p_value, shown["p"])
         if shown["df"] is None:
             assert "df" not in cells
         else:
@@ -148,7 +153,10 @@ def assert_golden_summary(result: Any, name: str) -> None:
     assert any(
         f"limited to [{conditional_bounds}] for the effect among" in line for line in settings
     )
-    assert (NO_T_REFERENCE_BANDS in settings) == golden["no_band"]
+    # The old text printed the no-band line whether or not bands were asked for; these fits
+    # ask for none, so the line now prints only where bands were asked for.
+    asked = bool(result.estimator.simultaneous)
+    assert (NO_T_REFERENCE_BANDS in settings) == (golden["no_band"] and asked)
 
 
 def assert_numbers_equal(actual: dict[str, Any], golden: dict[str, Any]) -> None:
@@ -209,6 +217,16 @@ class TestAGoldenCopy:
         assert "experimental" in summary.note_codes
         assert repr(estimate).removesuffix(" [experimental]") == golden["repr"]
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
+
+
+def test_a_few_cluster_fit_that_asks_for_bands_says_why_it_has_none() -> None:
+    """The positive witness of the no-band line the golden fits, which ask for no bands,
+    leave out."""
+    frame = make_clustered(n=80, cluster_size=4, seed=5)[0]
+    data = CausalData.from_frame(frame, outcome="Y", treatment="A", id="cluster")
+    result = TMLE(**{**linear_in_sample(), "simultaneous": True}).fit(data).single()
+    assert result.simultaneous is None
+    assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
 
 
 class TestTheLabelAtEverySurface:

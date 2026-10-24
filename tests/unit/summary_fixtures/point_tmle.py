@@ -16,7 +16,13 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.datasets import make_binary_outcome, make_clustered, make_linear_ate
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_cde,
+    make_clustered,
+    make_linear_ate,
+    make_missing_outcome,
+)
 from cleverly.estimators import CTMLE, TMLE
 
 __all__ = ["FIXTURES"]
@@ -236,6 +242,37 @@ def data_warning() -> Any:
     return TMLE(**_learners(estimands=("ate",))).fit(frame, outcome="Y", treatment="A").single()
 
 
+@functools.cache
+def missing_outcome() -> Any:
+    """Outcomes missing at random, so the assumptions name the missingness model."""
+    frame = make_missing_outcome(n=300, seed=4)[0]
+    return (
+        TMLE(**_learners(estimands=("ate",)))
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+
+
+@functools.cache
+def direct_effect() -> Any:
+    """A controlled direct effect with the intermediate variable held at zero."""
+    frame = make_cde(n=300, seed=3)[0]
+    fits = TMLE(**_learners(estimands=("ate",))).fit(
+        frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], intermediate="Z"
+    )
+    return fits[next(iter(fits.keys()))]
+
+
+@functools.cache
+def declared_rule_withheld() -> Any:
+    """A declared stopping rule on a fit that withholds its interval."""
+    return (
+        CTMLE(**_learners(estimands=("ate",), selection_folds=3, stopping="scaled_var"))
+        .fit(_frame(), outcome="Y", treatment="A")
+        .single()
+    )
+
+
 FIXTURES: dict[str, Callable[[], Any]] = {
     "canonical": canonical,
     "single_ate": single_ate,
@@ -254,4 +291,7 @@ FIXTURES: dict[str, Callable[[], Any]] = {
     "folds_reduced": folds_reduced,
     "declared_rule": declared_rule,
     "data_warning": data_warning,
+    "missing_outcome": missing_outcome,
+    "direct_effect": direct_effect,
+    "declared_rule_withheld": declared_rule_withheld,
 }
