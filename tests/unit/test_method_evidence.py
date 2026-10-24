@@ -1245,7 +1245,9 @@ class TestPublishedVerdicts:
         joint = published.loc[published["property"] == "simultaneous_coverage"]
         for row in joint.itertuples():
             expected = (
-                row.coverage_ci_upper < 1.0 - study.margins.alpha
+                True
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE
+                else row.coverage_ci_upper < 1.0 - study.margins.alpha
                 if row.role == "control"
                 else study.margins.calibration_coverage[0]
                 <= row.coverage_ci_lower
@@ -1326,6 +1328,7 @@ class TestPublishedVerdicts:
 
         targeting = published.loc[
             published["property"].isin({"targeting_necessity", "stratum_targeting_necessity"})
+            & ~published["property"].isin(list(study.bias_row_families))
         ]
         if not targeting.empty:
             # The displacement is a statement about the *pair* -- how far the fluctuation moved
@@ -1614,6 +1617,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         # X33's bound necessity: valid bounds keep the bias inside the margin, and bounds that
         # exclude the truth move it beyond the margin.
         "bound_necessity",
+        # X39: a positive's bias interval inside the margin, a control's outside it, each on
+        # its own stream.
+        "censoring_necessity",
     }
 )
 
@@ -1779,6 +1785,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # the same draws, each reported with no verdict.
         "reported_calibration",
         "unbounded_fit",
+        # X39's reporting rows: a support-loss pair and a learned mechanism, each published
+        # with its summary statistics and no verdict.
+        "support_loss",
+        "learned_mechanism",
     }
 )
 
@@ -3343,7 +3353,9 @@ class TestTheQuantityVocabulary:
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
-        if {"targeting_necessity", "stratum_targeting_necessity"} & set(study.property_cells):
+        if {"targeting_necessity", "stratum_targeting_necessity"} & (
+            set(study.property_cells) - study.bias_row_families
+        ):
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT

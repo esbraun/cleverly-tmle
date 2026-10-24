@@ -586,6 +586,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "sequential_double_robustness/both_correct__n_2000",
         ),
     ),
+    # The Wald row of one quantity in a scenario below its exact-law tail size, so no gated list
+    # holds it (``tests/long_horizon_design.py``).
+    "X39-finite-sample": (
+        *_keys(
+            "long-horizon-sdr",
+            "truth",
+            "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+        ),
+    ),
     "X16-plugin-variance": (
         *_keys(
             "canonical-ctmle-sequences",

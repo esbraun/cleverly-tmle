@@ -809,10 +809,14 @@ def simultaneous_coverage_verdicts(summary: pd.DataFrame, *, margins: Margins) -
     The band must hold its exact joint-coverage interval inside the two-sided calibration
     coverage band, the rule every calibrated pointwise cell answers to.  The pointwise
     control must establish joint coverage below the nominal rate, which is what shows the
-    band's wider critical value does work on these laws.
+    band's wider critical value does work on these laws.  A cell with the diagnostic role
+    reports its interval beside the band and declares no verdict.
     """
     joint = summary["property"] == "simultaneous_coverage"
     for index in summary.index[joint]:
+        if summary.loc[index, "role"] == DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = True
+            continue
         coverage = Interval(
             float(summary.loc[index, "coverage_ci_lower"]),
             float(summary.loc[index, "coverage_ci_upper"]),

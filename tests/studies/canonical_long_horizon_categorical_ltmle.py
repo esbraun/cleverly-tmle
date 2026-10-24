@@ -117,13 +117,17 @@ the diagnosed-defect route with a fresh declaration commit.
 
 from __future__ import annotations
 
+import pandas as pd
+
 from tests import discrete_law_longitudinal_horizon as law_
 from tests.discrete_law_longitudinal_horizon import Law
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, StudyRecord
+from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.long_horizon_common import G_BOUNDS
 from tests.studies.long_horizon_primary import Scenario, declared, run_primary
+from tests.studies.long_horizon_primary import draw_from_seed as _draw_from_seed
 
 #: The truth-row rule of the design picks R from 1,200, 2,000 and 3,000 (plans
 #: ``X39-pilot-merge-reading.md``, ``_x39/impl/truth_pooled.log``).
@@ -181,6 +185,142 @@ SCENARIOS = (
 SCENARIO_ESTIMANDS, SCENARIO_N = declared(SCENARIOS)
 PRIMARY_N = min(SCENARIO_N.values())
 
+#: Property family -> the cells the committed property summary must contain.
+#: Every bias family of the long-horizon studies reads its rows one at a time.
+BIAS_ROW_FAMILIES = frozenset(
+    {
+        "targeting_necessity",
+        "censoring_necessity",
+        "categorical_probability_necessity",
+        "rule_necessity",
+        "policy_necessity",
+        "sequential_double_robustness",
+    }
+)
+
+PROPERTY_CELLS = {
+    "categorical_probability_necessity": (
+        "third_arm__k5__assigned_probability",
+        "third_arm__k5__binary_complement",
+    ),
+    "censoring_necessity": (
+        "policy__k5__declared",
+        "policy__k5__ignored",
+    ),
+    "crossfit_overfitting": (
+        "policy_vs_ref__k5__cross_fitted",
+        "policy_vs_ref__k5__in_sample_control",
+    ),
+    "double_robustness": (
+        "respond_vs_ref__k5__both_correct",
+        "respond_vs_ref__k5__both_wrong",
+        "respond_vs_ref__k5__mechanism_correct",
+        "respond_vs_ref__k5__outcome_correct",
+    ),
+    "interval_calibration": (
+        "policy__k3__known_mechanism",
+        "policy__k3__noise_control",
+        "policy__k3__shrunken_se_control",
+        "policy__k4__known_mechanism",
+        "policy__k4__noise_control",
+        "policy__k4__shrunken_se_control",
+        "policy__k5__known_mechanism",
+        "policy__k5__noise_control",
+        "policy__k5__shrunken_se_control",
+        "policy_vs_policylast__k3__inflated_se_control",
+        "policy_vs_policylast__k3__known_mechanism",
+        "policy_vs_policylast__k3__noise_control",
+        "policy_vs_policylast__k3__shrunken_se_control",
+        "policy_vs_policylast__k4__inflated_se_control",
+        "policy_vs_policylast__k4__known_mechanism",
+        "policy_vs_policylast__k4__noise_control",
+        "policy_vs_policylast__k4__shrunken_se_control",
+        "policy_vs_policylast__k5__inflated_se_control",
+        "policy_vs_policylast__k5__known_mechanism",
+        "policy_vs_policylast__k5__noise_control",
+        "policy_vs_policylast__k5__shrunken_se_control",
+        "policy_vs_policylast__k5_crossfit__inflated_se_control",
+        "policy_vs_policylast__k5_crossfit__known_mechanism",
+        "policy_vs_policylast__k5_crossfit__noise_control",
+        "policy_vs_policylast__k5_crossfit__shrunken_se_control",
+        "policy_vs_ref__k3__known_mechanism",
+        "policy_vs_ref__k3__noise_control",
+        "policy_vs_ref__k3__shrunken_se_control",
+        "policy_vs_ref__k4__known_mechanism",
+        "policy_vs_ref__k4__noise_control",
+        "policy_vs_ref__k4__shrunken_se_control",
+        "policy_vs_ref__k5__known_mechanism",
+        "policy_vs_ref__k5__noise_control",
+        "policy_vs_ref__k5__shrunken_se_control",
+        "policy_vs_ref__k5_crossfit__known_mechanism",
+        "policy_vs_ref__k5_crossfit__noise_control",
+        "policy_vs_ref__k5_crossfit__shrunken_se_control",
+        "respond_vs_ref__k3__known_mechanism",
+        "respond_vs_ref__k3__noise_control",
+        "respond_vs_ref__k3__shrunken_se_control",
+        "respond_vs_ref__k4__known_mechanism",
+        "respond_vs_ref__k4__noise_control",
+        "respond_vs_ref__k4__shrunken_se_control",
+        "respond_vs_ref__k5__known_mechanism",
+        "respond_vs_ref__k5__noise_control",
+        "respond_vs_ref__k5__shrunken_se_control",
+        "static_contrast__k3__known_mechanism",
+        "static_contrast__k3__noise_control",
+        "static_contrast__k3__shrunken_se_control",
+        "static_contrast__k4__known_mechanism",
+        "static_contrast__k4__noise_control",
+        "static_contrast__k4__shrunken_se_control",
+        "static_contrast__k5__known_mechanism",
+        "static_contrast__k5__noise_control",
+        "static_contrast__k5__shrunken_se_control",
+    ),
+    "learned_mechanism": ("respond_vs_ref__k5__learned",),
+    "policy_necessity": (
+        "policy__k5__declared_policy",
+        "policy__k5__mix_node1_control",
+    ),
+    "root_n_and_efficiency": (
+        "respond_vs_ref__k4__n_12000",
+        "respond_vs_ref__k4__n_4000",
+        "respond_vs_ref__k4__n_48000",
+    ),
+    "root_n_rate": (
+        "respond_vs_ref__k4__empirical_sd",
+        "respond_vs_ref__k4__reported_se",
+    ),
+    "rule_necessity": (
+        "respond__k3__declared_rule",
+        "respond__k3__reversed_rule",
+    ),
+    "simultaneous_coverage": (
+        "k5__ic_band",
+        "k5__pointwise_joint_control",
+        "k5__simultaneous_band",
+    ),
+    "support_loss": (
+        "policy__k5__n4000__default_bounds",
+        "policy__k5__n4000__no_bounds",
+        "static__k5__n16000__no_bounds",
+        "static__k5__n4000__default_bounds",
+        "static__k5__n4000__no_bounds",
+        "static__k5__n64000__no_bounds",
+    ),
+    "targeting_necessity": (
+        "policy__k3__targeted",
+        "policy__k3__untargeted",
+        "policy__k4__targeted",
+        "policy__k4__untargeted",
+        "policy__k5__targeted",
+        "policy__k5__untargeted",
+        "respond__k3__targeted",
+        "respond__k3__untargeted",
+        "respond__k4__targeted",
+        "respond__k4__untargeted",
+        "respond__k5__targeted",
+        "respond__k5__untargeted",
+    ),
+}
+
 STUDY = StudyRecord(
     name="long-horizon categorical longitudinal TMLE",
     slug="long-horizon-categorical-ltmle",
@@ -199,8 +339,9 @@ STUDY = StudyRecord(
     pending_reason=(
         "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
     ),
+    # No comparison_overrides while the runs are pending. X59 declares
+    # "categorical_k5_crossfit:*": "different estimator" with the runs.
     comparison="matching implementation",
-    comparison_overrides={"categorical_k5_crossfit:*": "different estimator"},
     modules=(
         "tests/studies/canonical_long_horizon_categorical_ltmle.py",
         "tests/studies/long_horizon_categorical_ltmle_properties.py",
@@ -220,6 +361,9 @@ STUDY = StudyRecord(
     ),
     runner_module="tests.studies.canonical_long_horizon_categorical_ltmle",
     properties_module="tests.studies.long_horizon_categorical_ltmle_properties",
+    property_cells=PROPERTY_CELLS,
+    calibration_efficiency_ratio=False,
+    bias_row_families=BIAS_ROW_FAMILIES,
     publication_policy="reporting",
     failure_bound={"cleverly-long-horizon-categorical-ltmle": 0.01, "lmtp": 0.01},
 )
@@ -241,3 +385,13 @@ CONFIGURATION = {
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """The primary phase: every scenario at its declared size, or every one at an override ``n``."""
     return run_primary(STUDY, SCENARIOS, ESTIMATOR, replicates=replicates, n=n, n_jobs=n_jobs)
+
+
+def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """One sample of ``scenario`` from ``seed``, with the exact truth of every estimand."""
+    return _draw_from_seed(SCENARIOS, scenario, n, seed)
+
+
+def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Replication ``replicate`` of ``scenario``, from this study's own seed stream."""
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)

@@ -124,6 +124,9 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyCell
 from tests.studies.evidence.replication import fit_properties
 
+#: The factor of the shrunken-SE control, the one the study shares.
+SHRUNKEN_SE_FACTOR = shared.SHRUNKEN_SE_FACTOR
+
 TAG = "S2"
 
 #: The calibration pilot sets each study's calibration R (pilot merge at 67ac67df).

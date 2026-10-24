@@ -3861,6 +3861,8 @@ def estimand(key: str, *, outcome_kind: str = "absorbing", slug: str | None = No
     """
     if slug is not None and (slug, key) in STUDY_ESTIMANDS:
         return STUDY_ESTIMANDS[slug, key]
+    if slug in LONG_HORIZON_SLUGS:
+        return _long_horizon_estimand(key)
     stratum = _STRATUM.match(key)
     if stratum is not None:
         base = estimand(stratum.group("base"), outcome_kind=outcome_kind)
@@ -4009,6 +4011,8 @@ def cell(
     The arm prefix a longitudinal study puts on a cell name selects the plan rather than the
     configuration, so it is stripped and reported beside the shared description.
     """
+    if slug in LONG_HORIZON_SLUGS:
+        return _long_horizon_cell(family, key, role, slug)
     arm = _ARM.match(key)
     base = arm.group("cell") if arm else key
     term = _TERM.match(base)
@@ -5155,3 +5159,397 @@ def _marginal_bound_cells() -> None:
 
 
 _marginal_bound_cells()
+
+
+# ------------------------------------------------------------------------------ long horizon
+#: The three long-horizon studies (X39).  Their keys follow one grammar, so the description of
+#: an estimand and of a cell is composed from its parts instead of listed row by row.
+LONG_HORIZON_SLUGS = frozenset(
+    {"long-horizon-ltmle", "long-horizon-categorical-ltmle", "long-horizon-sdr"}
+)
+_LH_PLANS = {
+    "never": "never treat",
+    "always": "treat at every decision",
+    "low": "assign the lowest arm at every decision",
+    "high": "assign the highest arm at every decision",
+    "respond": (
+        "assign the highest arm where the covariate rule is on (W of at least 2 at the first "
+        "decision, L_t = 1 afterwards) and the lowest arm otherwise"
+    ),
+    "switch": "assign the highest arm at every decision but the last, and the lowest arm at the last",
+    "coin": "draw the arm at each decision from a known policy that reads the covariate",
+    "coinlast": (
+        "draw the arm from the known policy `coin` at every decision but the last, and assign "
+        "the lowest arm at the last"
+    ),
+    "mix": (
+        "draw the arm at each decision from a known policy that reads the covariate and the "
+        "previous arm"
+    ),
+    "mixlast": (
+        "draw the arm from the known policy `mix` at every decision but the last, and assign "
+        "the lowest arm at the last"
+    ),
+    "taper": (
+        "assign the highest arm at the first decision, then draw from the known policy `mix`"
+    ),
+}
+_LH_ESTIMAND = re.compile(
+    r"^(?P<name>ey_regimen|ate_regimen|msm_regimen)\[(?P<argument>.+?)\](?P<bca>__bca)?$"
+)
+_LH_BCA = ", read from the BCa interval of the refit bootstrap at B = 199"
+
+
+def _long_horizon_plan(label: str) -> str:
+    try:
+        return _LH_PLANS[label]
+    except KeyError:
+        raise Undescribed(f"no description for regimen {label!r}") from None
+
+
+def _long_horizon_estimand(key: str) -> str:
+    """The parameter of a long-horizon row, with the interval kind of a ``__bca`` row."""
+    match = _LH_ESTIMAND.match(key)
+    if match is None:
+        raise Undescribed(f"no description for estimand {key!r}")
+    name, argument = match.group("name"), match.group("argument")
+    if name == "msm_regimen":
+        try:
+            term = TERMS[argument]
+        except KeyError:
+            raise Undescribed(f"no description for MSM term {argument!r}") from None
+        words = f"working-model coefficient of treatment duration over the horizon: the {term}"
+    elif name == "ey_regimen":
+        words = f"counterfactual mean outcome under the plan: {_long_horizon_plan(argument)}"
+    else:
+        first, _, second = argument.partition(" vs ")
+        words = (
+            "difference in counterfactual mean outcome between the plans "
+            f'"{_long_horizon_plan(first)}" against "{_long_horizon_plan(second)}"'
+        )
+    return words + (_LH_BCA if match.group("bca") else "")
+
+
+_LH_TARGETS = {
+    "respond_vs_ref": (
+        "the contrast of the covariate rule `respond` against the reference plan of the lowest arm"
+    ),
+    "policy": "the mean under the known stochastic policy",
+    "policy_vs_ref": "the contrast of the known stochastic policy against the lowest-arm plan",
+    "policy_vs_policylast": (
+        "the paired contrast of the known stochastic policy against the same policy that "
+        "assigns the lowest arm at the last decision"
+    ),
+    "static_contrast": "the contrast of the highest-arm plan against the lowest-arm plan",
+    "msm_duration": "the duration coefficient of the working model (identity link, unit weights)",
+    "respond": "the mean under the covariate rule `respond`",
+    "static": "the mean under the static plan",
+}
+_LH_ARMS = {"binary": "two arms", "categorical": "three arms"}
+_LH_BIAS_POSITIVE = "bias interval inside the equivalence margin"
+_LH_BIAS_CONTROL = "bias interval must fall entirely outside the margin"
+_LH_REPORTED = "reported: bias, SE ratio and coverage, with no verdict"
+_LH_CALIBRATION = "SE ratio and coverage intervals both inside their calibration bands"
+_LH_FITS = re.compile(
+    r"^(?:(?P<arms>binary|categorical)_)?(?P<what>[a-z_]+?)__k(?P<K>\d)(?P<xf>_crossfit)?(?:__(?P<rest>.+))?$"
+)
+
+
+def _long_horizon_target(what: str) -> str:
+    try:
+        return _LH_TARGETS[what]
+    except KeyError:
+        raise Undescribed(f"no description for long-horizon target {what!r}") from None
+
+
+def _long_horizon_cell(family: str, key: str, role: str | None, slug: str) -> tuple[str, str]:
+    """What a long-horizon property cell configures, and what its verdict requires."""
+    undescribed = Undescribed(f"no description for cell {key!r} of {family!r}")
+    if family == "sequential_double_robustness":
+        patterns = {
+            "P_odd": "the mechanisms are correct at decisions 1, 3 and 5 and the outcome regressions at 2 and 4",
+            "P_even": "the mechanisms are correct at decisions 2 and 4 and the outcome regressions at 1, 3 and 5",
+        }
+        stem, _, size = key.partition("__")
+        if stem in patterns:
+            tested = f"five decisions, three arms, the mean under `respond`: {patterns[stem]}"
+            if size == "n4000":
+                return f"{tested}, at n = 4,000", _LH_REPORTED
+            if size == "":
+                return tested, _LH_BIAS_POSITIVE
+        if key == "odd_nodes_both_wrong_control":
+            return (
+                "pattern P_odd with the mechanism also wrong at decisions 1, 3 and 5, so no "
+                "decision has a correct nuisance",
+                _LH_BIAS_CONTROL,
+            )
+        if key == "ltmle_P_odd_control":
+            return (
+                "`LTMLE` on pattern P_odd, which is not sequentially doubly robust",
+                _LH_BIAS_CONTROL,
+            )
+        raise undescribed
+    if family == "simultaneous_coverage":
+        band = (
+            "the studentized bootstrap sup-t band at B = 199"
+            if slug == "long-horizon-categorical-ltmle"
+            else "the Wald-curve band of the influence curves"
+        )
+        if key == "k5__simultaneous_band":
+            return (
+                f"{band} over the six plans of the five-decision fit, read as one joint set",
+                "joint coverage interval inside the calibration coverage band",
+            )
+        if key == "k5__ic_band":
+            return (
+                "the Wald-curve band of the influence curves, from the same fit as the bootstrap band",
+                _LH_REPORTED,
+            )
+        if key == "k5__pointwise_joint_control":
+            return (
+                "the pointwise 95% intervals of the same fits, read as one joint set",
+                "joint coverage upper endpoint must fall below the nominal rate",
+            )
+        raise undescribed
+    match = _LH_FITS.match(key)
+    if match is None:
+        raise undescribed
+    what, K, rest = match.group("what"), int(match.group("K")), match.group("rest") or ""
+    crossfit = ", cross-fitted over five folds" if match.group("xf") else ""
+    arms = _LH_ARMS.get(match.group("arms") or "", "")
+    arms = f" with {arms}" if arms else ""
+    where = f"{K} decisions{arms}{crossfit}"
+    if family == "interval_calibration":
+        target = _long_horizon_target(what)
+        controls = {
+            "known_mechanism": (
+                f"{target} at {where}, with the declared mechanism passed as known probabilities",
+                _LH_CALIBRATION,
+            ),
+            "shrunken_se_control": (
+                f"{target} at {where}: the reported standard errors are multiplied by a "
+                "declared factor below one",
+                "the SE-ratio interval must fall below the calibration band",
+            ),
+            "noise_control": (
+                f"{target} at {where}: a declared scale of independent noise is added to each "
+                "estimate",
+                "the SE-ratio interval must fall below the calibration band",
+            ),
+            "inflated_se_control": (
+                f"{target} at {where}: the standard error comes from the two plan variances "
+                "alone, which is too wide for a paired contrast",
+                "the SE-ratio interval must fall above the calibration band",
+            ),
+        }
+        if rest not in controls:
+            raise undescribed
+        return controls[rest]
+    if family == "root_n_and_efficiency":
+        size = re.fullmatch(r"n_(\d+)", rest)
+        if size is None:
+            raise undescribed
+        tested = (
+            f"{_long_horizon_target(what)} at {where}: bias, coverage and SE calibration at "
+            f"n = {int(size.group(1)):,}"
+        )
+        if role == "control":
+            return tested, "coverage interval lies below nominal or clears the declared floor"
+        return (
+            tested,
+            "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+        )
+    if family == "root_n_rate":
+        rates = {
+            "empirical_sd": "log empirical spread of the estimates regressed on log n across three sizes",
+            "reported_se": "the same regression applied to the mean reported standard error",
+        }
+        if rest not in rates:
+            raise undescribed
+        return (
+            f"{_long_horizon_target(what)} at {where}: {rates[rest]}",
+            "slope interval inside the root-n band and excluding -1/4",
+        )
+    if family == "double_robustness":
+        arms_words = {
+            "both_correct": "both the outcome regression and the treatment mechanism are correctly specified",
+            "outcome_correct": "only the outcome regression is correctly specified",
+            "mechanism_correct": "only the treatment and censoring mechanisms are correctly specified",
+            "both_wrong": "both nuisances are misspecified",
+        }
+        if rest not in arms_words:
+            raise undescribed
+        required = _LH_BIAS_CONTROL if rest == "both_wrong" else _LH_BIAS_POSITIVE
+        return f"{_long_horizon_target(what)} at {where}: {arms_words[rest]}", required
+    if family == "targeting_necessity":
+        words = {
+            "targeted": "the estimator fluctuates a misspecified outcome regression, so targeting does all the adjusting",
+            "untargeted": "the identical fit with every fluctuation step removed",
+        }
+        if rest not in words:
+            raise undescribed
+        required = _LH_BIAS_CONTROL if rest == "untargeted" else _LH_BIAS_POSITIVE
+        return f"{_long_horizon_target(what)} at {where}: {words[rest]}", required
+    if family == "censoring_necessity":
+        words = {
+            "declared": "the censoring mechanism is the declared one",
+            "ignored": "the same fit sets the retention probability to one, so it ignores censoring",
+        }
+        if rest not in words:
+            raise undescribed
+        required = _LH_BIAS_CONTROL if rest == "ignored" else _LH_BIAS_POSITIVE
+        return f"{_long_horizon_target(what)} at {where}: {words[rest]}", required
+    if family == "categorical_probability_necessity":
+        words = {
+            "assigned_probability": "the clever covariate selects the assigned third arm's own probability",
+            "binary_complement": "the same fit replaces the third arm's probability with a binary complement",
+        }
+        if what != "third_arm" or rest not in words:
+            raise undescribed
+        required = _LH_BIAS_CONTROL if rest == "binary_complement" else _LH_BIAS_POSITIVE
+        return f"{words[rest]}, at {where}", required
+    if family == "rule_necessity":
+        words = {
+            "declared_rule": "the declared covariate rule assigns the highest arm where it is on",
+            "reversed_rule": "the same fit reverses the rule's two assignments",
+        }
+        if rest not in words:
+            raise undescribed
+        required = _LH_BIAS_CONTROL if rest == "reversed_rule" else _LH_BIAS_POSITIVE
+        return f"{_long_horizon_target(what)} at {where}: {words[rest]}", required
+    if family == "policy_necessity":
+        words = {
+            "declared_policy": "the recursion integrates over the declared policy at each decision",
+            "mix_reversed_control": "the same fit reverses the arm probabilities of the policy at every decision",
+            "mix_node1_control": "the same fit uses the policy of the first decision at every decision",
+        }
+        if rest not in words:
+            raise undescribed
+        required = _LH_BIAS_POSITIVE if rest == "declared_policy" else _LH_BIAS_CONTROL
+        return f"{_long_horizon_target(what)} at {where}: {words[rest]}", required
+    if family == "type_i_error":
+        if rest != "sharp_null":
+            raise undescribed
+        return (
+            f"{_long_horizon_target(what)} at {where}, on a law whose outcome does not read "
+            "any arm: the Wald test of the contrast",
+            "rejection interval below the type-I ceiling, and coverage above the floor",
+        )
+    if family == "power":
+        if rest != "alternative":
+            raise undescribed
+        return (
+            f"{_long_horizon_target(what)} at {where}: the same test on a law with a real effect",
+            "rejection lower bound clears the minimum power",
+        )
+    if family == "crossfit_overfitting":
+        words = {
+            "cross_fitted": (
+                "five-fold fit with fully grown outcome trees",
+                "SE ratio clears the overfitting floor and stays inside the sanity band",
+            ),
+            "in_sample_control": (
+                "the same flexible learner fitted in sample, with no cross-fitting",
+                "SE ratio must fall below the overfitting ceiling",
+            ),
+        }
+        if rest not in words:
+            raise undescribed
+        tested, required = words[rest]
+        return f"{_long_horizon_target(what)} at {where}: {tested}", required
+    if family == "support_loss":
+        size = re.fullmatch(r"n(\d+)__(default_bounds|no_bounds)", rest)
+        if size is None:
+            raise undescribed
+        bounds = (
+            "the default mechanism bounds of 0.01"
+            if size.group(2) == "default_bounds"
+            else "no mechanism bounds"
+        )
+        return (
+            f"{_long_horizon_target(what)} at {where}, n = {int(size.group(1)):,}, with {bounds}",
+            _LH_REPORTED,
+        )
+    if family == "learned_mechanism":
+        if rest != "learned":
+            raise undescribed
+        return (
+            f"{_long_horizon_target(what)} at {where}: the treatment mechanism is learned from "
+            "the data instead of declared",
+            _LH_REPORTED,
+        )
+    raise undescribed
+
+
+def _long_horizon_study_text() -> None:
+    """The implementation, scenario and property-family descriptions of the three studies."""
+    for slug, name in (
+        ("long-horizon-ltmle", "cleverly-long-horizon-ltmle"),
+        ("long-horizon-categorical-ltmle", "cleverly-long-horizon-categorical-ltmle"),
+        ("long-horizon-sdr", "cleverly-long-horizon-sdr"),
+    ):
+        estimator = "SDR" if slug.endswith("sdr") else "LTMLE"
+        IMPLEMENTATIONS[name] = (
+            f"`cleverly` `{estimator}` at three to five decisions, with the declared mechanism"
+        )
+    base = "law L_R (B = 1, s = 0.1, c0 = 3.5)"
+    scenarios = {
+        "long-horizon-ltmle": {
+            "binary_k3": f"three binary decisions on {base}",
+            "binary_k4": f"four binary decisions on {base}",
+            "binary_k5": f"five binary decisions on {base}",
+            "binary_k5_msm": (
+                f"five binary decisions on {base}, with the working model of treatment duration"
+            ),
+        },
+        "long-horizon-categorical-ltmle": {
+            "categorical_k3": f"three decisions with three arms on {base}",
+            "categorical_k4": f"four decisions with three arms on {base}",
+            "categorical_k4_high": "four decisions with three arms on law (B, s, c0) = (0.75, 0.1, 3.5)",
+            "categorical_k4_static": "four decisions with three arms on law (B, s, c0) = (1, 0, 4.5)",
+            "categorical_k5": f"five decisions with three arms on {base}",
+            "categorical_k5_crossfit": (
+                f"five decisions with three arms on {base}, cross-fitted over five folds"
+            ),
+            "categorical_k5_static": "five decisions with three arms on law (B, s, c0) = (0.5, 0.05, 3.5)",
+            "categorical_k5_switch": "five decisions with three arms on law (B, s, c0) = (0.5, 0.1, 3.5)",
+            "categorical_k5_high": "five decisions with three arms on law (B, s, c0) = (0.25, 0, 3.5)",
+            "categorical_k5_mix": "five decisions with three arms on law (B, s, c0) = (1, 0.05, 3.5)",
+        },
+        "long-horizon-sdr": {
+            "sdr_binary_k3": f"three binary decisions on {base}",
+            "sdr_binary_k4": f"four binary decisions on {base}",
+            "sdr_binary_k5": f"five binary decisions on {base}",
+            "sdr_categorical_k5": f"five decisions with three arms on {base}",
+            "sdr_categorical_k5_crossfit": (
+                f"five decisions with three arms on {base}, cross-fitted over five folds"
+            ),
+            "sdr_categorical_k5_static": "five decisions with three arms on law (B, s, c0) = (0.5, 0.05, 3.5)",
+            "sdr_categorical_k5_switch": "five decisions with three arms on law (B, s, c0) = (0.5, 0.1, 3.5)",
+            "sdr_categorical_k5_high": "five decisions with three arms on law (B, s, c0) = (0.25, 0, 3.5)",
+            "sdr_categorical_k5_mix": "five decisions with three arms on law (B, s, c0) = (1, 0.05, 3.5)",
+            "sdr_policy_k5": f"five decisions with three arms on {base}, with known stochastic policies",
+            "sdr_policy_k5_mix": "five decisions with three arms on law (B, s, c0) = (1, 0.05, 3.5), with known stochastic policies",
+            "sdr_policy_k5_taper": "five decisions with three arms on law (B, s, c0) = (1, 0, 3.5), with known stochastic policies",
+        },
+    }
+    for slug, table in scenarios.items():
+        STUDY_SCENARIOS.update({(slug, name): words for name, words in table.items()})
+    PROPERTIES.update(
+        {
+            "censoring_necessity": (
+                "the declared censoring mechanism, rather than a mechanism that ignores "
+                "censoring, determines the target"
+            ),
+            "support_loss": (
+                "what the default mechanism bounds do to the estimate when the plan has "
+                "little support, reported rather than gated"
+            ),
+            "learned_mechanism": (
+                "the same contrast with a learned treatment mechanism, reported rather than gated"
+            ),
+        }
+    )
+
+
+_long_horizon_study_text()
