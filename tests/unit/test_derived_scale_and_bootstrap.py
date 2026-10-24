@@ -8,6 +8,7 @@ from typing import Literal
 import numpy as np
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.inference import Transform, make_estimate
 from cleverly.inference.bootstrap import BootstrapResult
 from cleverly.inference.results import (
@@ -154,7 +155,9 @@ def test_an_interior_transformed_estimate_can_be_displayed_without_a_default_tes
     estimate = smooth_contrast(
         {"ey": source}, _identity, ["ey"], n=4, transform=transform, gradient=_identity_gradient
     )
-    assert "p=nan" in repr(estimate)
+    (p_value,) = estimate.summary().table().column(vocabulary.P_VALUE)
+    assert np.isnan(p_value.value) and p_value.text == vocabulary.MISSING
+    assert "p-value" not in repr(estimate)
     assert np.isnan(estimate.to_dict()["p_value"])
     assert estimate.wald_test(null=0.4).pvalue == 1.0
     with pytest.raises(ValueError, match="default null 0"):
@@ -186,7 +189,7 @@ def test_invalid_ratio_draws_are_dropped_and_counted(
     }
     bootstrap = BootstrapResult(draws=draws, n_requested=6, n_failed=2, resampling="iid")
     estimates = {
-        name: make_estimate(name, 0.4, CURVE, n=4).with_bootstrap(bootstrap.summary(name))
+        name: make_estimate(name, 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval(name))
         for name in draws
     }
     function = ratio_function(kind, complement)  # type: ignore[arg-type]
@@ -210,7 +213,7 @@ def test_derived_bootstrap_does_not_swallow_a_user_callable_error() -> None:
     bootstrap = BootstrapResult(
         draws={"a": np.array([0.4, 0.6])}, n_requested=2, n_failed=0, resampling="iid"
     )
-    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.summary("a"))
+    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval("a"))
 
     def broken(values: np.ndarray) -> float:
         raise ValueError("the user's contrast is broken")
@@ -223,7 +226,7 @@ def test_a_nonfinite_callback_value_counts_as_a_derived_failure() -> None:
     bootstrap = BootstrapResult(
         draws={"a": np.array([0.4, 0.6, 0.8])}, n_requested=4, n_failed=1, resampling="iid"
     )
-    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.summary("a"))
+    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval("a"))
     summary = derived_bootstrap(
         {"a": estimate},
         bootstrap,

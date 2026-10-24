@@ -55,6 +55,32 @@ GOLDEN = json.loads(
     (Path(__file__).parent / "golden" / "rm42b" / "origin_main.json").read_text(encoding="utf-8")
 )
 
+#: The golden one-line repr, written before the repr became ``ParameterEstimate(...)``.
+_GOLDEN_REPR = re.compile(
+    r"^(\w+): (\S+) \(se \S+, (?:t\(\d+\) )?([\d.]+)% CI \[(\S+), (\S+)\], p=\S+\)$"
+)
+
+
+def assert_repr_reads_the_golden(estimate: Any, golden_repr: str) -> None:
+    """The repr prints the golden estimate and interval, each to its own last place.
+
+    The golden file keeps the repr of the commit it was written on; the numbers, not the
+    layout, are the witness, so the file is not regenerated.
+    """
+    match = _GOLDEN_REPR.match(golden_repr)
+    assert match is not None, golden_repr
+    name, psi, level, low, high = match.groups()
+    shown = re.match(
+        rf"ParameterEstimate\({re.escape(name)}=(\S+), {re.escape(level)}% CI "
+        r"\[(\S+), (\S+)\], (?:experimental, )?n=",
+        repr(estimate),
+    )
+    assert shown is not None, repr(estimate)
+    for text, value in zip(shown.groups(), (psi, low, high), strict=True):
+        places = len(text.split(".")[1]) if "." in text else 0
+        assert abs(float(text) - float(value)) <= 0.5 * 10**-places + 1e-4 * abs(float(value))
+
+
 #: The columns and text that only the label adds.
 LABEL_KEYS = ("support", "support_reason", "support_evidence", "support_limits")
 
@@ -181,7 +207,8 @@ class TestAGoldenCopy:
         summary = result.summary(detail="full")
         assert "support" not in summary.table("estimates").columns
         assert "experimental" not in summary.note_codes
-        assert repr(estimate) == golden["repr"]
+        assert_repr_reads_the_golden(estimate, golden["repr"])
+        assert "experimental" not in repr(estimate)
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
         frame = result.to_frame()
         assert list(frame["support"]) == ["supported"] * len(frame)
@@ -200,7 +227,8 @@ class TestAGoldenCopy:
         summary = result.summary()
         assert "support" in summary.table("estimates").columns
         assert "experimental" in summary.note_codes
-        assert repr(result["ate"]) != GOLDEN["canonical"]["repr"]
+        assert repr(result["ate"]).count(", experimental") == 1
+        assert_repr_reads_the_golden(result["ate"], GOLDEN["canonical"]["repr"])
 
     @pytest.mark.parametrize("clusters", [10, 20, 39, 40])
     def test_cluster_counts_from_ten_move_no_number(self, clusters: int) -> None:
@@ -215,7 +243,8 @@ class TestAGoldenCopy:
             "experimental"
         ] * 5
         assert "experimental" in summary.note_codes
-        assert repr(estimate).removesuffix(" [experimental]") == golden["repr"]
+        assert repr(estimate).count(", experimental") == 1
+        assert_repr_reads_the_golden(estimate, golden["repr"])
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
 
 
@@ -245,7 +274,7 @@ class TestTheLabelAtEverySurface:
     def test_the_point_fit_shows_the_marker(self, point: Any) -> None:
         estimate = point["ate"]
         assert estimate.support.label == "experimental"
-        assert repr(estimate).endswith(" [experimental]")
+        assert repr(estimate).count(", experimental") == 1
         summary = point.summary()
         assert [cell.value for cell in summary.table("estimates").column("support")] == [
             "experimental"
@@ -265,7 +294,7 @@ class TestTheLabelAtEverySurface:
     def test_the_longitudinal_fit_shows_the_marker(self, longitudinal: Any) -> None:
         for estimate in longitudinal.estimates.values():
             assert estimate.support.label == "experimental"
-            assert repr(estimate).endswith(" [experimental]")
+            assert repr(estimate).count(", experimental") == 1
             assert estimate.to_dict()["support"] == "experimental"
         assert "experimental" in longitudinal.summary()
         assert set(longitudinal.to_frame()["support"]) == {"experimental"}

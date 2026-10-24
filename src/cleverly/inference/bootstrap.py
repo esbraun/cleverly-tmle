@@ -41,9 +41,12 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 import numpy as np
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 from .._support import UNCLASSIFIED, Support
 from .._typing import FloatArray, IntArray
@@ -169,7 +172,60 @@ class BootstrapResult:
     resampling: str
     std_errors: dict[str, FloatArray] = field(default_factory=dict)
 
-    def summary(
+    def to_frame(self) -> Any:
+        """One row per estimand: the usable replicates and their mean, SD and range.
+
+        A description of the replicate estimates, not an interval: the fitted result says
+        whether they give one.
+
+        Returns
+        -------
+        dataframe
+            The columns ``estimand``, ``n_replicates``, ``mean``, ``sd``, ``min`` and
+            ``max``, in the default dataframe backend.
+        """
+        from ..utils.frames import frame_from_dict
+        from ._summaries import replicate_rows
+
+        return frame_from_dict(replicate_rows(self))
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the replicates, laid out like a statsmodels summary.
+
+        For the interval of one estimand, call :meth:`interval`.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how a replicate is drawn.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import bootstrap_result_summary
+
+        return bootstrap_result_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "BootstrapResult",
+            [
+                ("estimands", len(self.draws)),
+                ("replicates", self.n_requested),
+                ("failed", self.n_failed),
+                ("resampling", self.resampling),
+            ],
+        )
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def interval(
         self,
         name: str,
         alpha: float = 0.05,

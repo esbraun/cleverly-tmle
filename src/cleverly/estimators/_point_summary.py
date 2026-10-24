@@ -43,11 +43,7 @@ from .._summary import (
 )
 from .._summary._estimates import estimates_table, plain_support_reason, without_roadmap
 from .._summary._learners import is_parametric, learner_name
-from ..data.treatment_covariates import (
-    adaptive_iptw_restriction_line,
-    drtmle_restriction_line,
-    treatment_mechanism_restriction,
-)
+from ..data.treatment_covariates import treatment_mechanism_restriction
 from ..inference.cluster import (
     cluster_sizes,
     cluster_weight_mass,
@@ -60,6 +56,7 @@ from ..inference.influence import (
     bootstrap_is_diagnostic,
 )
 from ..targets import TARGETS
+from ._method_summary import method_facts
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
@@ -128,36 +125,24 @@ def base_summary_facts(result: TMLEResult) -> SummaryFacts:
             header.append((vocabulary.RECORDING_MODEL, learner_name(specs["missingness"])))
         if data.intermediate is not None and specs["intermediate"] is not None:
             header.append((vocabulary.INTERMEDIATE_MODEL, learner_name(specs["intermediate"])))
-    details: list[str] = []
-    selection = result.ctmle_selection
-    if selection is not None:
-        details.append(selection.describe())
-    sources = data.treatment_adjustment_sources
-    reduced = result.extra.get("drtmle")
-    if reduced is not None:
-        details.append(reduced.describe())
-        if sources is not None:
-            details.append(drtmle_restriction_line(sources))
-    if iptw is not None:
-        details.append(iptw.describe())
-        if sources is not None:
-            everything = tuple(
-                dict.fromkeys(data.indicator_sources.get(n, n) for n in data.covariate_names)
-            )
-            details.append(
-                adaptive_iptw_restriction_line(
-                    sources, [name for name in everything if name not in sources]
-                )
-            )
+    record = method_facts(
+        result,
+        learner_name(specs["treatment"]) if specs is not None and config.fits_treatment else None,
+    )
+    if record.treatment_model is not None:
+        treatment_model = record.treatment_model
+    header.extend(record.header)
+    details = list(record.details)
     learned = result.extra.get("learned_rule")
     if learned is not None:
         details.append(learned.describe())
     return SummaryFacts(
         title=vocabulary.ESTIMATE_TITLE.format(method=vocabulary.method_short_name(method)),
-        method=vocabulary.method_name(method),
+        method=record.method or vocabulary.method_name(method),
         outcome_model=outcome_model,
         treatment_model=treatment_model,
         header=tuple(header),
+        notes=record.notes,
         sections=(
             (SummarySection(vocabulary.SECTION_METHOD, tuple(map(without_roadmap, details))),)
             if details
@@ -685,6 +670,7 @@ def _fit_notes(
             )
         )
     notes.extend(_score_notes(result))
+    notes.extend(facts.notes)
     # A note that states what a recorded warning says takes the warning's place, and is
     # shown as a warning when the fit warned.
     config = result.config
@@ -710,7 +696,6 @@ def _fit_notes(
             kept = [r for r in kept if r not in restated]
             notes[index] = replace(item, kind="warning")
     notes.extend(_warning_notes(kept))
-    notes.extend(facts.notes)
     return notes
 
 
