@@ -25,6 +25,7 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._refusal import NO_ALTERNATIVE, Refusal
+from .._summary import Detail
 from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
@@ -78,7 +79,7 @@ from ..inference.results import (
 )
 from ..inference.results import repeat_spread as shared_repeat_spread
 from ..learners.crossfit import CrossFitPlan, SplitPlan
-from ..protocol import ProtocolDetail, protocol_summary_lines
+from ..protocol import protocol_summary_lines
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..targets.base import arm_alias, parameter_name
@@ -1529,14 +1530,14 @@ class TMLEResult:
             {name: estimate.influence_curve for name, estimate in self.estimates.items()}
         )
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+    def summary(self, *, detail: Detail = "short") -> str:
         """A printable report of the fit.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` prints every field of the study protocol record. ``"fingerprint"``
-            prints only its schema and fingerprint, for a reader who has the record already.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
 
         Returns
         -------
@@ -1568,7 +1569,7 @@ class TMLEResult:
         if self.identified_effect is not None:
             facts.extend(
                 self.identified_effect.summary_lines(
-                    protocol=protocol, fitted_method=self.fitted_method
+                    detail=detail, fitted_method=self.fitted_method
                 )
             )
         else:
@@ -1579,7 +1580,7 @@ class TMLEResult:
                     "model restrictions: "
                     + treatment_mechanism_restriction(data.treatment_adjustment_sources)
                 )
-            facts.extend(protocol_summary_lines(None, protocol))
+            facts.extend(protocol_summary_lines(None, detail))
         if data.cluster is not None:
             facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")
         if data.is_weighted:
@@ -1914,7 +1915,7 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
         stacked = nw.concat([nw.from_native(frame, eager_only=True) for frame in frames])
         return stacked.to_native()
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+    def summary(self, *, detail: Detail = "short") -> str:
         """The results, headed by level -- or bare, when there is only one.
 
         A single-entry set prints exactly what its result prints.  Heading it
@@ -1923,8 +1924,9 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            Passed to :meth:`TMLEResult.summary` of each result.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
 
         Returns
         -------
@@ -1932,14 +1934,14 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
             Each result's summary, headed by its level of the intermediate variable.
         """
         if len(self.results) == 1 and self.levels[0] is None:
-            return self.single().summary(protocol=protocol)
+            return self.single().summary(detail=detail)
         blocks = []
         for value in self.levels:
             label = (
                 "no intermediate" if value is None else f"{self.intermediate_name} = {value:.0f}"
             )
             blocks.append(f"--- {label} ---")
-            blocks.append(self.results[value].summary(protocol=protocol))
+            blocks.append(self.results[value].summary(detail=detail))
         return "\n\n".join(blocks)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

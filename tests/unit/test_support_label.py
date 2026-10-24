@@ -7,7 +7,8 @@ Each class names a component that can vanish and a witness that fails when it do
   count from 10 to 40 moves a number. The copies live in ``tests/unit/golden/rm42b``. The
   script that made them fits the configuration in :func:`golden_fit` on that commit and dumps
   ``summary()``, ``repr``, ``to_dict()`` and ``to_frame()`` of the ``ate`` estimate. The
-  summary has its version and time stamp replaced.
+  summary has its version and time stamp replaced. That commit's default summary is today's
+  ``summary(detail="full")``; the short default leaves out its protocol line only.
 * ``TestTheLabelAtEverySurface`` fits one experimental point fit and one experimental
   longitudinal fit and reads the label from every report that prints an estimate.
 * ``TestAWithheldStatusWinsOverAShownOne`` pins the two-tier precedence.
@@ -73,6 +74,13 @@ def stamped(text: str) -> str:
     return re.sub(r"cleverly [\d.]+ \| \S+", "cleverly VERSION | TIMESTAMP", text)
 
 
+def without_protocol_line(summary: str) -> str:
+    """``summary`` without the protocol line, which only a full summary prints."""
+    removed = summary.replace("\ncausal study protocol: absent\n", "\n", 1)
+    assert removed != summary, "the golden summary no longer holds its protocol line"
+    return removed
+
+
 def unlabelled(summary: str) -> str:
     """``summary`` without the support column and its note, which the label adds."""
     lines = []
@@ -101,7 +109,8 @@ class TestAGoldenCopy:
         estimate = result["ate"]
         assert estimate.support.label == "supported"
         assert estimate.support.row == "T01.continuous"
-        assert stamped(result.summary()) == golden["summary"]
+        assert stamped(result.summary(detail="full")) == golden["summary"]
+        assert stamped(result.summary()) == without_protocol_line(golden["summary"])
         assert repr(estimate) == golden["repr"]
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
         frame = result.to_frame()
@@ -118,7 +127,7 @@ class TestAGoldenCopy:
         monkeypatch.setattr(_support, "registered_rows", lambda: ())
         result = golden_fit("canonical")
         assert result["ate"].support.label == "experimental"
-        assert stamped(result.summary()) != GOLDEN["canonical"]["summary"]
+        assert stamped(result.summary(detail="full")) != GOLDEN["canonical"]["summary"]
         assert repr(result["ate"]) != GOLDEN["canonical"]["repr"]
 
     @pytest.mark.parametrize("clusters", [10, 20, 39, 40])
@@ -128,7 +137,7 @@ class TestAGoldenCopy:
         golden = GOLDEN[f"clusters_{clusters}"]
         estimate = result["ate"]
         assert result.inference_status == "influence_curve"
-        assert unlabelled(result.summary()) == unlabelled(golden["summary"])
+        assert unlabelled(result.summary(detail="full")) == unlabelled(golden["summary"])
         assert repr(estimate).removesuffix(" [experimental]") == golden["repr"]
         assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
 
