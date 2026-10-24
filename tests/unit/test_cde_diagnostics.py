@@ -37,6 +37,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
+from cleverly._summary import vocabulary
 from cleverly.estimators import TMLE
 from cleverly.estimators.direct_effect import (
     check_level,
@@ -429,4 +430,5 @@ class TestTheSummaryNamesTheEstimand:
         assert describe(1.0, "mediator") == "controlled direct effect at mediator = 1"
 
     def test_the_fit_summary_carries_it(self, fit_at_one: Any) -> None:
-        assert "controlled direct effect at Z = 1" in fit_at_one.summary()
+        question = dict(fit_at_one.summary().header)[vocabulary.QUESTION]
+        assert question == vocabulary.DIRECT_EFFECT_QUESTION.format(A="A", Y="Y", Z="Z", z="1")

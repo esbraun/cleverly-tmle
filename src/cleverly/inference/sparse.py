@@ -44,7 +44,6 @@ from __future__ import annotations
 import math
 import os
 import sys
-import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -53,6 +52,7 @@ import numpy as np
 from scipy.stats import norm
 
 from .._typing import FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import SparseInfluenceWarning
 from ..utils.frames import emit_frame
 from .bootstrap import bca_acceleration, bca_bias_correction, cluster_sums
@@ -410,7 +410,7 @@ def warn_sparse_influence(
         if percentile_bootstrap
         else _IN_SAMPLE_ADVICE
     )
-    warnings.warn(
+    _warn(
         f"{len(flagged)} estimate(s) read their influence curve from few rows, so the "
         f"variance estimate's relative SD is above {SPARSE_INFLUENCE_THRESHOLD}: "
         f"{listed}{more}. The Wald interval may under-cover. {advice}",

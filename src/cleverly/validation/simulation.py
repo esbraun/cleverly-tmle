@@ -48,6 +48,7 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._typing import FloatArray
+from .._warnings import suppressed as _suppressed
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
 from ..inference.influence import spread_name
@@ -882,7 +883,6 @@ class CoverageStudy:
         tuple of ReplicationRecord or ReplicationFailure
             One record per estimand on success, or the fit's explicit failure record.
         """
-        import warnings
 
         if (
             isinstance(replicate_index, bool)
@@ -895,10 +895,9 @@ class CoverageStudy:
         # not a fit that broke down on one sample.
         frame, truth = self._draw(int(seed))
         try:
-            with warnings.catch_warnings():
+            with _suppressed():
                 # Individual replications routinely trip positivity warnings; the
                 # aggregate coverage is the diagnostic here, not the per-fit warnings.
-                warnings.simplefilter("ignore")
                 fitted = self.estimator().fit(frame, **self.fit_kwargs)
             result = self._select(fitted)
             names = self.estimands or tuple(result.estimates)

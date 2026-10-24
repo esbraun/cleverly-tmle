@@ -125,8 +125,8 @@ def check(namespace: dict[str, Any]) -> None:
     # known range of the score as q_bounds.
     method = namespace["method"]
     fit_summary = fitted.summary()
-    assert "stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds" in fit_summary
-    assert "TMLE (in-sample nuisances)" not in fit_summary
+    assert dict(fit_summary.header)["Out-of-fold predictions"] == "5 folds"
+    assert fitted.config.estimator_name == "stacked CV-TMLE (Levy)"
     assert method.cross_fitting == CrossFitting(n_folds=5)
     assert method.targeting.q_bounds == (0.0, 1.0)
     assert isinstance(method.models.outcome_learner, HistGradientBoostingRegressor)

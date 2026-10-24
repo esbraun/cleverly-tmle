@@ -150,6 +150,34 @@ docstring breaks the published site.
 An example runs in the fast tier. Pass explicit learners to every fit, because the default learner
 library costs 30 to 120 seconds per fit. `CLAUDE.md` gives the complete docstring rules.
 
+## Write a summary
+
+A printed summary is for the person who ran the analysis. Model it on statsmodels: a title, a
+header of facts in two columns, the estimates table, numbered warnings and notes, and longer
+sections only at `detail="full"`. Build it from `cleverly._summary`, never with hand-made
+strings.
+
+1. Take every label, note text, and plain name from `cleverly._summary.vocabulary`. A new note
+   gets a code in `NOTE_CODES` and a template in `NOTE_TEXTS`. A number in a note comes through a
+   placeholder from the constant that sets it, never written into the template.
+2. Build the estimates table with `cleverly._summary._estimates.estimates_table`. It is the one
+   place a summary applies the inference-status rule of
+   [the invariants](../architecture-invariants.md), so a spread that is not a standard error
+   never prints under that name.
+3. Leave library bookkeeping out at both details: hashes, fingerprints, versions, time stamps,
+   seeds, run ids, registry or roadmap ids, cache keys, and the internals of the targeting step.
+   They stay on the object.
+4. Say what a condition means for the reader's number, in plain words, and keep every condition
+   the statement needs. A note that only restates a warning replaces it
+   (`RESTATED_WARNINGS`).
+5. Keep a configuration object's generated repr. A fitted object's one-line repr comes from
+   `short_repr`, and an object with a rounded repr names its content through `_cache_token`, so
+   two different objects never share an assessment cache key.
+6. Add fixtures to a module in `tests/unit/summary_fixtures/`, compact and with explicit
+   learners, so `tests/unit/test_summary_contract.py` checks fidelity against `to_frame()`, width,
+   escaping, and the absence of internals for every one. Each new note code fires on a fixture,
+   or on a literal check when no compact fit reaches it.
+
 ## Add a method, or a validation study
 
 Read [method benchmarking strategy](method-benchmarking.md) first. Its governing rule is that a row

@@ -102,7 +102,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert "standardized" not in protocol.outcome
     assert "hypothetical strategy" in protocol.intercurrent_event_handling[2]
     assert not method.cross_fitting.enabled
-    assert "in-sample nuisances" in fitted.summary()
+    assert dict(fitted.summary().header)["Out-of-fold predictions"] == "no"
     assert_protocol_recorded(
         NOTEBOOK, "protocol", namespace["protocol"], fitted, namespace["trend_result"]
     )

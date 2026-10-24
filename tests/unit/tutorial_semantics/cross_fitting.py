@@ -138,16 +138,14 @@ def check(namespace: dict[str, Any]) -> None:
     assert fingerprint in stored_output(EXAMPLES / "point-treatment-tmle.ipynb", "protocol")
 
     # Estimate: the construction line, and one draw whose interval contains the truth.
-    assert (
-        "stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled"
-        in first.summary()
-    )
+    assert dict(first.summary().header)["Out-of-fold predictions"] == "5 folds"
+    assert first.config.estimator_name == "stacked CV-TMLE (Levy)"
     assert covers(cross_fitted, truth)
 
     # In-sample fit: "close" points; the in-sample SE is 0.73 times the cross-fitted one; both
     # cover, and the truth lies 1.9 in-sample and 1.0 cross-fitted standard errors away.  Each
     # window brackets the narrated decimal.  The coverage claims are the probe's, not this draw's.
-    assert "in-sample nuisances" in namespace["in_sample"].summary()
+    assert dict(namespace["in_sample"].summary().header)["Out-of-fold predictions"] == "no"
     assert abs(in_sample.psi - cross_fitted.psi) < 0.01
     assert 0.725 <= in_sample.std_error / cross_fitted.std_error < 0.735
     assert covers(in_sample, truth)
@@ -215,7 +213,7 @@ def check(namespace: dict[str, Any]) -> None:
     # The diagnostic row must describe that same headline estimate.
     repeated = namespace["repeated"]
     assert len(repeated.to_frame()) == 1
-    assert "median over 3 independent draws" in repeated.summary()
+    assert "median over 3 random splits" in repeated.summary().note("repeated_splits").text
     draw_estimates = []
     for draw in repeated.repeats:
         estimates, _, _ = repeated.estimator._retarget_detailed(

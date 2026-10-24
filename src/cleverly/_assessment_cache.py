@@ -83,6 +83,11 @@ def _normalize(value: Any) -> Any:
         }
     if isinstance(value, (tuple, list)):
         return [_normalize(item) for item in value]
+    # A fitted object's repr is a rounded one-line summary, so two different results can
+    # share it. Such an object keys by the content its ``_cache_token`` names instead.
+    token = getattr(value, "_cache_token", None)
+    if callable(token):
+        return {"token": _normalize(token()), "type": type(value).__qualname__}
     return {"object": repr(value), "type": type(value).__qualname__}
 
 

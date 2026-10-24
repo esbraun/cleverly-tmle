@@ -20,7 +20,6 @@ plus ``"discrete"``, which puts all weight on the single best candidate (the
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -30,6 +29,7 @@ from scipy import optimize
 from sklearn.base import BaseEstimator
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..exceptions import DataError
 from ..utils.parallel import map_parallel
 from ._fitting import Task, as_target, clone_learner, fit_learner, infer_task, predict_mean
@@ -249,7 +249,7 @@ class SuperLearner(BaseEstimator):
         usable: BoolArray = np.asarray(~np.isnan(cv_predictions).any(axis=0), dtype=bool)
         failed = tuple(name for name, ok in zip(names, usable, strict=True) if not ok)
         if failed:
-            warnings.warn(
+            _warn(
                 f"dropping learner(s) {list(failed)} from the ensemble: fitting raised",
                 UserWarning,
                 stacklevel=2,

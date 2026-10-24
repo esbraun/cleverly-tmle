@@ -35,10 +35,13 @@ import pytest
 
 from cleverly import variable_importance
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
+from cleverly._summary._estimates import plain_support_reason
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
+from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity import omitted_variable_bounds, robustness_value
 from tests.conftest import linear_in_sample
@@ -126,11 +129,14 @@ class TestTheEstimatesAndTheirReports:
             assert_refused_by(status, raised)
 
     def test_the_summary_prints_the_record(self, result: Any, status: str) -> None:
-        record = STATUS_RECORDS[status]
-        text = result.summary()
-        assert record.summary_label in text
-        assert record.reason in text
-        assert_no_inferential_text(text)
+        summary = result.summary()
+        # The withheld note gives the status's plain reason and names the diagnostic column.
+        label = vocabulary.SPREAD_LABELS[spread_name("std_err", status)]
+        withheld = summary.note("no_inference").text
+        assert STATUS_RECORDS[status].plain_reason in withheld
+        assert label in withheld
+        assert label in summary.table("estimates").columns
+        assert_no_inferential_text(summary)
 
     def test_the_frame_names_the_status(self, result: Any, status: str) -> None:
         frame = result.to_frame()
@@ -258,9 +264,13 @@ class TestAShownStatusReachesEveryReport:
         assert STATUS_RECORDS[shown].shown_reason in estimate.support.reason
 
     def test_the_summary_and_the_frame_name_the_status(self, shown_result: Any, shown: str) -> None:
-        text = shown_result.summary()
-        assert STATUS_RECORDS[shown].shown_reason in text
-        assert "95% CI" in text
+        summary = shown_result.summary()
+        assert "95% CI" in summary.table("estimates").columns
+        assert "experimental" in summary.note_codes
+        # The full summary gives the shown reason, without its roadmap id.
+        reason = plain_support_reason(STATUS_RECORDS[shown].shown_reason)
+        settings = shown_result.summary(detail="full").section("Settings").lines
+        assert any(reason in line for line in settings), settings
         frame = shown_result.to_frame()
         assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
         assert list(frame["inference"]) == [shown]

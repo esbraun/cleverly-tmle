@@ -43,6 +43,7 @@ import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import FitWarning, records_data
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..utils.frames import (
     as_frame,
@@ -322,10 +323,14 @@ class CausalData:
     #: vector treatment holds ``(component, atoms)`` pairs in column order; read them with
     #: :attr:`component_atoms`.
     dose_atoms: tuple[Any, ...] = ()
+    #: The package warnings raised while this data was built and checked (a dropped
+    #: constant covariate, say), which every fit on it adds to its own record.
+    validation_warnings: tuple[FitWarning, ...] = field(default=(), compare=False, repr=False)
 
     # ------------------------------------------------------------------ build
 
     @classmethod
+    @records_data
     def from_frame(
         cls,
         data: Any,
@@ -564,6 +569,7 @@ class CausalData:
         )
 
     @classmethod
+    @records_data
     def from_arrays(
         cls,
         outcome: Any,

@@ -50,9 +50,8 @@ statement of :math:`\Psi(P_w)`.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
@@ -68,6 +67,7 @@ from .._inference_status import (
 )
 from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
@@ -801,6 +801,10 @@ class ParameterEstimate:
             # still lets the caller declare an interior null.
             return float("nan")
 
+    def _cache_token(self) -> dict[str, Any]:
+        """The content an assessment cache key reads when this estimate is an argument."""
+        return {field_.name: getattr(self, field_.name) for field_ in fields(self)}
+
     @property
     def supplies_inference(self) -> bool:
         """Whether the package supplies inference for this estimate.
@@ -1446,7 +1450,7 @@ def median_estimates(
     if dropped:
         # Silence here would report a median over a subset of the draws under the same
         # name as a median over all of them.
-        warnings.warn(
+        _warn(
             f"{', '.join(dropped)} was estimated in some cross-fitting repeats but not "
             "in all of them (a draw whose targeting step failed, or a fold with no "
             "units in the conditioning arm), so it is omitted from the median report "

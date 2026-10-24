@@ -242,7 +242,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert rows["offer to all"].max_ratio == max(row.max_ratio for row in rows.values())
     # "The largest ratio of each plan is below that cap ... Truncation therefore changes no
     # weight on this draw, and each score load agrees with its ratio effective n."
-    assert f"propensity truncated to [{TRUNCATION}, " in stored_output(NOTEBOOK, "regime-fit")
+    assert re.search(
+        rf"Probability limits:\s+\[{TRUNCATION}, ", stored_output(NOTEBOOK, "regime-fit")
+    )
     for row in rows.values():
         assert row.max_ratio < 1 / TRUNCATION
         assert row.score_load["effective"] == pytest.approx(row.effective_sample_size, rel=1e-3)

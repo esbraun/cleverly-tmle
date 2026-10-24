@@ -642,6 +642,10 @@ _DECLARED_DIFFERENTLY = {
     "result.provenance": "digests the vector's components and counts F as a covariate",
     "result.nuisance": "the vector's shifted values are (n, C, d)",
     "result.nuisances": "the vector's shifted values are (n, C, d)",
+    "result.fit_warnings": (
+        "each reading records the warnings its own fit raised, and F is a treatment "
+        "component on one and a covariate on the other"
+    ),
     "diagnostics.support": (
         "a cap holds the top dose of 'random' on the vector, a piece on D; the vector's "
         "min_density is the joint density of (D, F), the scalar's that of D given F"

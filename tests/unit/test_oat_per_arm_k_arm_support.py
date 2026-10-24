@@ -49,6 +49,11 @@ FOUR_ARM = laws.OatLaw(
 """A four-arm law with every arm well represented (the smallest ``g`` stays near 0.1)."""
 
 
+def _method_text(result: Any) -> str:
+    """The Method details of a full summary, as one string."""
+    return " ".join(result.summary(detail="full").section("Method details").lines)
+
+
 def _options(**overrides: Any) -> dict[str, Any]:
     options: dict[str, Any] = {
         "strategy": "oat",
@@ -350,15 +355,15 @@ class TestTheBand:
         )
         assert result.simultaneous is None
         assert result["ey0"].inference == "influence_curve"
-        text = result.summary()
+        settings = result.summary(detail="full").section("Settings").lines
         assert (
-            "no simultaneous band: fewer than two estimates supply an interval. "
-            "Left out: ate (stack_failure_plugin), ey1 (stack_failure_plugin)"
-        ) in text
+            "No simultaneous band: fewer than two rows have an interval. Left out: ate, ey1."
+            in (settings)
+        )
 
     def test_a_sound_fit_without_a_band_request_says_nothing(self) -> None:
         result = _fit(_binary(), outcome_learner=ParametricOutcome(), estimands=("ey0", "ate"))
-        assert "no simultaneous band" not in result.summary()
+        assert "No simultaneous band" not in result.summary(detail="full")
 
 
 # --------------------------------------------------------------------------- the held set
@@ -383,14 +388,14 @@ class TestTheHeldSet:
 class TestTheWeights:
     def test_the_summary_states_the_weights(self) -> None:
         fixed = _fit(_weighted(), "wt", outcome_learner=ParametricOutcome())
-        text = fixed.summary()
+        text = _method_text(fixed)
         assert "with the data weights in every equation" in text
         assert "which are declared estimated" not in text
         estimated = _fit(
             _weighted(), "wt", outcome_learner=ParametricOutcome(), weights_estimated=True
         )
         assert "The interval conditions on the weights, which are declared estimated" in (
-            estimated.summary()
+            _method_text(estimated)
         )
 
     def test_constant_weights_equal_the_unweighted_stack(self) -> None:

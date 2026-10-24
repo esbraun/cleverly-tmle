@@ -55,8 +55,6 @@ and not on the installed scikit-learn.  The stratified splits stay on scikit-lea
 
 from __future__ import annotations
 
-import warnings
-
 # Imported at run time rather than under ``TYPE_CHECKING``: ``Sequence`` appears in a
 # dataclass field annotation, and a documentation build that resolves those annotations
 # needs the name to exist.
@@ -69,6 +67,8 @@ import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import suppressed as _suppressed
+from .._warnings import warn as _warn
 from ..exceptions import (
     CapabilityError,
     DataError,
@@ -835,8 +835,7 @@ class SplitPlan:
                 )
             # The cap warning belongs to the fit that drew the split. This draw repeats it
             # to check the labels, and resolves no fold count for the fit.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", UserWarning)
+            with _suppressed(UserWarning):
                 try:
                     redrawn = random_partition(
                         n, origin.requested_n_folds, cluster=cluster, seed=origin.seed
@@ -1141,7 +1140,7 @@ def resolve_n_folds(
             f"cannot cross-fit: {binding} {cap} {counted}, so no split into two folds exists"
         )
     if resolved < n_folds:
-        warnings.warn(
+        _warn(
             f"reducing n_folds from {n_folds} to {resolved}: {binding} {cap} {counted}",
             UserWarning,
             stacklevel=2,
@@ -1149,7 +1148,7 @@ def resolve_n_folds(
     if cluster is not None:
         n_groups = int(np.unique(cluster).size)
         if n_groups < resolved:
-            warnings.warn(
+            _warn(
                 f"reducing n_folds from {resolved} to {n_groups}: only {n_groups} clusters",
                 UserWarning,
                 stacklevel=2,

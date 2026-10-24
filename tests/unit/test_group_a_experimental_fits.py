@@ -40,6 +40,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.estimators.targeting as targeting
 from cleverly import CapabilityError, SplitPlan
+from cleverly._summary._estimates import plain_support_reason
 from cleverly.data import CausalData
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import RefusalReason
@@ -548,9 +549,10 @@ def test_the_fit_runs_and_every_estimate_carries_the_label(site: Site) -> None:
         assert support.label == "experimental", name
         assert site.fragment in support.reason, (name, support.reason)
         assert site.roadmap in support.evidence, (name, support.evidence)
-    summary = result.summary()
-    assert "experimental" in summary
-    assert site.fragment in summary
+    assert "experimental" in result.summary().note_codes
+    # The full summary gives the reason, without its row and roadmap ids.
+    settings = result.summary(detail="full").section("Settings").lines
+    assert any(plain_support_reason(site.fragment) in line for line in settings), settings
     if site.n_bootstrap:
         boots = [e.bootstrap for e in result.estimates.values() if e.bootstrap is not None]
         assert boots

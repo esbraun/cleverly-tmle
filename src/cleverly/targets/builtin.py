@@ -108,10 +108,11 @@ _CONDITIONAL_ID = Identification(
         *_POINT_TREATMENT,
         "the conditioning event (having received the arm the effect is reported among) "
         "has positive probability, so the parameter is defined",
-        "positivity is only needed *at the reference arm* within that population: the "
+        "positivity is only needed at the reference arm within that population: the "
         "conditioning arm's own outcomes are already drawn from it and are not reweighted, "
-        "which is why g_ref(W) near zero is what these estimands are sensitive to and why "
-        "g_bounds='auto' truncates them harder",
+        "so these estimands are sensitive to a probability of the reference arm near zero, "
+        "and the automatic probability limits for them are a fixed 0.025 and 0.975 rather "
+        "than the sample-size rule",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(

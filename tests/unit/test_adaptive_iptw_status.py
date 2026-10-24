@@ -214,10 +214,10 @@ class TestW18StatusRouting:
         result = _point_fit(known=False, simultaneous=True)
         assert result.inference_status == PLUGIN
         assert result.simultaneous is None
-        assert NO_SIMULTANEOUS_BANDS in result.summary()
+        assert NO_SIMULTANEOUS_BANDS in result.summary(detail="full").section("Settings").lines
         known = _point_fit(known=True, simultaneous=True)
         assert known.simultaneous is not None
-        assert NO_SIMULTANEOUS_BANDS not in known.summary()
+        assert NO_SIMULTANEOUS_BANDS not in known.summary(detail="full").section("Settings").lines
 
     def test_estimated_weights_do_not_rescue_an_estimated_mechanism(self) -> None:
         result = _point_fit(known=False, weights="wt", weights_estimated=True)

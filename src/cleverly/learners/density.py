@@ -53,7 +53,6 @@ question entirely.
 from __future__ import annotations
 
 import math
-import warnings
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, overload
@@ -61,6 +60,7 @@ from typing import Any, Protocol, overload
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..exceptions import DataError, MethodConfigurationError
 from ..utils.memory import available_memory
 from ..utils.parallel import map_parallel, resolve_n_jobs
@@ -1143,7 +1143,7 @@ def warn_if_unresolved(
                 f"{component!r} cannot tell the changed dose from the natural one, and that "
                 "change is invisible rather than merely noisy."
             )
-        warnings.warn(
+        _warn(
             f"{message} Use more bins, or a larger change of dose, or read the estimate as the "
             "effect of a policy the bin width can resolve.",
             UserWarning,

@@ -81,7 +81,7 @@ carries the reason.
 | surface | where the label appears |
 | --- | --- |
 | `repr(estimate)` | the marker `[experimental]` after the estimate |
-| `result.summary()` | a `support` column, only when an estimate is experimental, and one `experimental:` note per distinct reason below the table |
+| `result.summary()` | a `support` column, only when an estimate is experimental, and an `experimental` note below the table that says in plain words why. `summary(detail="full")` prints each reason under Settings. A longitudinal summary prints one `experimental:` line per distinct reason |
 | `estimate.support` | a `Support` record with `label`, `reason`, `evidence`, `row` and `limits` |
 | `estimate.to_dict()` and `result.to_frame()` | `support` on every row. An experimental row adds `support_reason` and `support_evidence`. A row with limits adds `support_limits` |
 | `estimate.bootstrap.support` and `bootstrap_support` | the label of the percentile interval, which a row can license apart from the Wald interval |
@@ -92,7 +92,8 @@ The `evidence` of a `supported` estimate holds study slugs. The `evidence` of an
 estimate holds roadmap ids, such as `X54`, that name the missing evidence.
 
 A fit with fewer clusters than the interval floor shows its interval under the experimental
-label. Its bootstrap prints as `bootstrap sd` and a percentile range. A fit that withholds its
+label. Its bootstrap is published as `bootstrap sd` and a percentile range, and its summary
+labels both as diagnostics. A fit that withholds its
 interval, such as a collaborative fit, keeps its point estimate and refuses `ci`. The
 [inference status](../technical-reference/inference.md#inference-status) table lists each case.
 

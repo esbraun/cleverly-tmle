@@ -1374,9 +1374,10 @@ class TestValidation:
 
         assert not broken.score_verdict.passed
         summary = broken.summary()
-        assert "score check: FAIL" in summary
-        assert "mean" in summary.split("score check: FAIL")[1]
-        assert "do not describe this estimate" in summary
+        unsolved = summary.note("score_unsolved")
+        assert unsolved.kind == "warning"
+        assert "the means and the average effect" in unsolved.text
+        assert "may be wrong" in unsolved.text
         # The interval is still printed -- the line says it is not licensed, it does not
         # withhold it. Predeclaring which regimes are refused outright needs the
         # targeting-and-exit study's evidence; see
@@ -1946,8 +1947,12 @@ class TestTheMechanismDenominatorsAreDiagnosed:
     def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
         # Traceability: a reported number must be traceable to every bound that shaped
         # it, not just the one with a familiar name.
-        assert "P(Delta=1|A,W) truncated to" in strained.summary()
-        assert "truncated to [0.01, 1]" not in good_overlap.summary()
+        def recorded(result: object) -> list[str]:
+            settings = result.summary(detail="full").section("Settings").lines
+            return [line for line in settings if "that the outcome is recorded raised" in line]
+
+        assert recorded(strained)
+        assert not recorded(good_overlap)
 
     def test_the_curve_sweeps_the_mechanism_bound(self, strained) -> None:
         curve = nw.from_native(

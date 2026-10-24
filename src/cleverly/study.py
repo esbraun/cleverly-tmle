@@ -11,6 +11,7 @@ import narwhals as nw
 from ._summary import Detail
 from ._support import combine_support
 from ._typing import Family
+from ._warnings import records_fit
 from .data import CausalData
 from .data.causal_data import _vector_components
 from .data.known_mechanism import (
@@ -4479,6 +4480,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             *protocol_summary_lines(self.protocol, detail),
         )
 
+    @records_fit
     def estimate(
         self,
         method: str | EstimationMethod = "tmle",

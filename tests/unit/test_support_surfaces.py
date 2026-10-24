@@ -21,6 +21,7 @@ import pytest
 
 from cleverly import _support, variable_importance
 from cleverly import load as cleverly_load
+from cleverly._summary import vocabulary
 from cleverly._support import Support, combine_support
 from cleverly.datasets import make_binary_outcome, make_clustered
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -198,11 +199,10 @@ class TestBootstrapAndBand:
     def check(self, result: Any) -> None:
         assert result.simultaneous is not None
         assert result.simultaneous.support.label == "experimental"
-        text = result.summary()
-        header = next(line for line in text.splitlines() if "simultaneous" in line.lower())
-        assert "[experimental]" in header
-        line = next(line for line in text.splitlines() if "percentile CI" in line)
-        assert "[experimental]" in line
+        summary = result.summary()
+        bands = summary.note("simultaneous_bands").text
+        assert vocabulary.NOTE_TEXTS["bands_experimental"] in bands
+        assert "bootstrap_experimental" in summary.note_codes
 
     def test_a_band_at_a_shown_status_is_experimental_and_marked(self) -> None:
         self.check(self.weighted())
