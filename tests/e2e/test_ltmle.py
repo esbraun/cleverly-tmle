@@ -21,6 +21,7 @@ from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult
 from cleverly.longitudinal.estimator import _level_head
 from cleverly.validation.longitudinal import LONGITUDINAL_CONSTANT_TARGET_IN_FOLD
+from tests.unit._longitudinal_repeats_support import describe_config
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates
@@ -915,8 +916,11 @@ class TestTheReportSaysWhichRuleWasRun:
         low, high = (self._fit(frame, threshold) for threshold in self.THRESHOLDS)
 
         # The plan strings are identical, which is the problem the digest exists for.
-        assert low.config.describe(contrast=True)[2] == high.config.describe(contrast=True)[2]
-        assert "rule=(1/d)" in low.config.describe(contrast=True)[2]
+        assert (
+            describe_config(low.config, contrast=True)[2]
+            == describe_config(high.config, contrast=True)[2]
+        )
+        assert "rule=(1/d)" in describe_config(low.config, contrast=True)[2]
 
         digests = [dict(result.config.plan_fingerprints)["rule"] for result in (low, high)]
         assert digests[0] != digests[1]
@@ -947,13 +951,15 @@ class TestTheReportSaysWhichRuleWasRun:
             reference="never",
             simultaneous=False,
         )
-        assert "rule=(1/d:responders)" in result.config.describe(contrast=True)[2]
+        assert "rule=(1/d:responders)" in describe_config(result.config, contrast=True)[2]
 
     def test_a_static_fit_reports_no_digest(self) -> None:
         """The line would say nothing a ``1/0`` has not already said in full."""
         frame, _ = make_longitudinal(n=600, seed=13)
         result = run(frame, simultaneous=False)
-        assert not any("assigned arms" in line for line in result.config.describe(contrast=True))
+        assert not any(
+            "assigned arms" in line for line in describe_config(result.config, contrast=True)
+        )
         assert result.config.plan_fingerprints  # recorded, just not printed
 
 

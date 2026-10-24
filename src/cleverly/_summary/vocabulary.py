@@ -961,6 +961,10 @@ LONGITUDINAL_CONSTRUCTIONS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 #: The caveat on a rule's follower counts, for the Settings section.
+POLICY_FOLLOWERS: Final = (
+    "A plan that draws each unit's treatment at random counts as followed by the units whose "
+    "observed treatment the draw can give."
+)
 RULE_FOLLOWERS: Final = (
     "A rule's followers depend on their covariates, so the counts in the plan table describe "
     "this sample."

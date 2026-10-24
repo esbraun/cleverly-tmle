@@ -665,8 +665,9 @@ hazard_curve = study.estimate(
 print(hazard_curve.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-The risks of each arm do not decrease over the four grid times. Call `summary()` to see the walk: the
-parameter count, the step count, the largest relative score, and whether the walk converged.
+The risks of each arm do not decrease over the four grid times. Call `summary(detail="full")` to see
+the walk under Settings: the step count, the number of estimates it updated, the largest relative
+score, and whether it solved its equations.
 
 `targeting="iterative"`, the default, targets the hazards at each horizon on its own. That curve is
 not guaranteed to be monotone.

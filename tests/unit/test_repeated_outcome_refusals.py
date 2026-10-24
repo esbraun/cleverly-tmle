@@ -19,6 +19,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.exceptions import DataError
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, Repeated
+from tests.unit._longitudinal_repeats_support import describe_config
 
 from .test_repeated_outcome import panel
 
@@ -183,7 +184,7 @@ def test_a_rule_description_names_the_earlier_outcome() -> None:
             n_folds=1,
             simultaneous=False,
         ).fit(panel(), outcome=OUTCOME, **ROLES)
-    lines = fit.config.describe(contrast=False)
+    lines = describe_config(fit.config, contrast=False)
     assert any("Y_{t-1}" in line for line in lines)
 
 

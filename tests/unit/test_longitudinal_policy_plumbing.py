@@ -29,6 +29,7 @@ from cleverly.longitudinal.regimen import (
     resolve_plans,
     resolve_regimens,
 )
+from tests.unit._longitudinal_repeats_support import describe_config
 
 from .. import discrete_law_longitudinal as binary_law
 from .. import discrete_law_longitudinal_multivalue as law
@@ -426,7 +427,7 @@ def test_the_support_report_of_a_deterministic_fit_has_no_node_kind() -> None:
 
 
 def test_the_settings_report_lists_the_policies(mix_fit: Any) -> None:
-    lines = mix_fit.config.describe(contrast=True)
+    lines = describe_config(mix_fit.config, contrast=True)
     assert any(line.startswith("  a 'q' is a known policy") for line in lines)
 
 

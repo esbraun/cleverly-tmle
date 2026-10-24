@@ -730,11 +730,18 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
 
 
 def _isotonic_note(result: LongitudinalResult) -> Note | None:
-    moves = result.isotonic_moves
+    # Every split's projection, each moved level once.
+    moves = list(
+        dict.fromkeys(
+            (regimen, cause, horizon)
+            for repeat in result.repeats
+            for regimen, cause, horizon, _, _ in repeat.isotonic_moves
+        )
+    )
     if not result.config.isotonic or not moves:
         return None
     names = []
-    for regimen, cause, horizon, _, _ in moves:
+    for regimen, cause, horizon in moves:
         where = (
             f"{regimen}" + (f", {cause}" if cause else "") + f" at time {result._time_of(horizon)}"
         )
@@ -928,6 +935,10 @@ def _settings(result: LongitudinalResult) -> SummarySection:
         )
     if any(isinstance(regimen, DynamicRegimen) and regimen.has_rule for regimen in config.regimens):
         lines.append(vocabulary.RULE_FOLLOWERS)
+    if any(
+        isinstance(regimen, DynamicRegimen) and regimen.has_policy for regimen in config.regimens
+    ):
+        lines.append(vocabulary.POLICY_FOLLOWERS)
     lines.extend(_hazard_lines(result))
     if result.simulation is not None:
         lines.extend(simulation_lines(result.simulation))
@@ -984,7 +995,7 @@ def _hazard_lines(result: LongitudinalResult) -> list[str]:
     first = next(iter(records.values()))
     if first.algorithm == "one_step":
         lines = [
-            f"The hazard update took {first.n_iter} steps over {len(first.targets)} rows and "
+            f"The hazard update took {first.n_iter} steps over {len(first.targets)} estimates and "
             f"{verdict}; largest relative score {largest:.2g}."
         ]
     else:

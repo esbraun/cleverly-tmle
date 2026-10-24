@@ -27,6 +27,7 @@ import sklearn.linear_model
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
+from tests.unit._longitudinal_repeats_support import describe_config
 
 #: How long each regimen treats for -- the summary the working model is a dose-response
 #: in. A table rather than anything parsed out of the label, which is what ``MSM.linear``
@@ -379,7 +380,7 @@ class TestTheSurroundingMachineryStillWorks:
     def test_the_settings_report_names_the_working_model(self, fitted: Any) -> None:
         result, _ = fitted
         # A working model has no reference line, even where the report would hold a contrast.
-        lines = result.config.describe(contrast=True)
+        lines = describe_config(result.config, contrast=True)
         assert any("working model: 2 term(s) (intercept), duration" in line for line in lines)
         assert not any(line.startswith("reference:") for line in lines)
 

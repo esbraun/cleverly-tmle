@@ -46,6 +46,7 @@ from cleverly.provenance import fold_fingerprint
 from cleverly.study import LongPanel
 from tests.unit import _longitudinal_repeats_support as support
 from tests.unit._longitudinal_repeats_golden import GOLDEN
+from tests.unit._longitudinal_repeats_support import describe_config
 
 #: The relative tolerance of every float comparison.
 RTOL = 1e-12
@@ -196,8 +197,8 @@ def test_none_seed_draws_fresh_concrete_seeds(monkeypatch: pytest.MonkeyPatch) -
     # One multiplier seed for the fit, used by every draw's critical value.
     seed = result.config.multiplier_seed
     assert isinstance(seed, int)
-    assert f"multiplier seed: {seed} (drawn, random_state=None)" in result.config.describe(
-        contrast=True
+    assert f"multiplier seed: {seed} (drawn, random_state=None)" in describe_config(
+        result.config, contrast=True
     )
     rebuilt = median_bands(
         [draw.estimates for draw in result.repeats],
@@ -295,10 +296,12 @@ def test_config_records_repeats_and_the_multiplier_seed() -> None:
     result = _fit("ltmle", repeats=3)
     assert result.config.repeats == 3
     assert result.config.multiplier_seed == 11
-    assert "cross-fitting: 5 fold(s), median over 3 draws" in result.config.describe(contrast=True)
+    assert "cross-fitting: 5 fold(s), median over 3 draws" in describe_config(
+        result.config, contrast=True
+    )
     single = _fit("ltmle")
     assert single.config.repeats == 1
-    assert not any("median over" in line for line in single.config.describe(contrast=True))
+    assert not any("median over" in line for line in describe_config(single.config, contrast=True))
 
 
 def test_read_through_fields_are_draw_zero() -> None:
@@ -1168,7 +1171,7 @@ def test_long_panel_repeats_reproduce_the_wide_fit() -> None:
             _close(left.estimates[name].psi, estimate.psi)
             _close(left.estimates[name].influence_curve, estimate.influence_curve)
     pd.testing.assert_frame_equal(adapted.to_frame(), wide.to_frame(), rtol=RTOL)
-    describe = adapted.config.describe(contrast=True)
+    describe = describe_config(adapted.config, contrast=True)
     assert any(line.startswith("long panel: unit column 'customer'") for line in describe)
     assert "cross-fitting: 2 fold(s), median over 3 draws" in describe
     # The study design ``LongPanel`` reaches the same repeated engine.

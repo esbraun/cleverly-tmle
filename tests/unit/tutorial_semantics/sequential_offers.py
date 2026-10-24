@@ -315,11 +315,13 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert method.runtime.random_state == 42 and method.runtime.n_jobs == 1
     assert method.models.treatment_learner is None
     summary = result.summary()
-    assert "known factors (declared, no learner): offer@1, offer@2, offer@3" in summary
-    assert "no truncation bound moved a declared value" in summary
-    assert "cross-fitting: none; nuisances fitted in sample" in summary
-    assert "g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability" in (
-        summary
+    settings = result.summary(detail="full").section("Settings").lines
+    assert "Declared known, with no learner and no limit: offer@1, offer@2, offer@3." in settings
+    assert dict(summary.header)["Out-of-fold predictions"] == "no"
+    assert dict(summary.header)["Probability limits"] == "[0.01, 1]"
+    assert settings[0].startswith(
+        "Probability limits [0.01, 1] (the default) on each cumulative probability of the plan's "
+        "treatment and of staying under observation."
     )
     # "The win-back contrast is 0.0754 ... All four intervals contain their true values on this
     # draw." The seed follows a fixed rule (the first seed of the swept range), so this relation
@@ -338,20 +340,26 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert 0 < result[_key("shipping")].ci[0] < 2e-3
     assert round(result[_key("shipping")].pvalue, 4) == 0.0456
     assert result[_key("win_back")].ci[0] > 0 and result[_key("win_back_ship")].ci[0] > 0
-    # The plan lines of the summary: followers of each policy.
-    assert "none: 805 of 20000 units followed it throughout" in summary
-    assert "win_back: 1247 of 20000 units followed it throughout" in summary
-    assert "win_back_ship: 956 of 20000 units followed it throughout" in summary
-    assert "shipping: 550 of 20000 units followed it throughout; max weight 100.0" in summary
-    assert "max truncated share 0.2% at t=3" in summary
+    # The plan table of the summary: followers of each policy, and the largest weight.
+    plans_table = summary.table("What each plan assigns and who followed it to the end")
+    followed = {row[0].value: (row[1].value, row[2].value) for row in plans_table.rows}
+    counts = {"none": 805, "shipping": 550, "win_back": 1247, "win_back_ship": 956}
+    assert {plan: followed[plan][0] for plan in counts} == counts
+    assert round(followed["shipping"][1], 1) == 100.0
+    # The 0.01 floor moved 0.2% of the units still following shipping at month 3.
+    assert (
+        "plan shipping through time 3 to [0.01, 1] for 0.2%" in summary.note("weights_capped").text
+    )
+    # "The simultaneous bands are wider intervals (2.411 standard errors each way instead of
+    # 1.96)."
+    assert result.simultaneous is not None
+    assert round(result.simultaneous.critical_value, 3) == 2.411
+    assert round(result.simultaneous.pointwise_critical_value, 3) == 1.960
     # "The bands of discount, win-back, and win-back then ship exclude zero. The band of shipping
-    # contains it." The simultaneous bands are printed lines of the summary.
-    assert "critical value 2.411 vs 1.960" in summary
+    # contains it." The simultaneous bands are a printed table of the summary.
     bands = {
-        name: (float(low), float(high))
-        for name, low, high in re.findall(
-            r"^ +ate_regimen\[(\w+) vs none\] +\[(-?[\d.]+), (-?[\d.]+)\]$", summary, re.MULTILINE
-        )
+        re.fullmatch(r"ate_regimen\[(\w+) vs none\]", row[0].value).group(1): row[1].value
+        for row in summary.table("Simultaneous 95% bands").rows
     }
     assert set(bands) == set(CONTRASTS)
     assert bands["discount"][1] < 0 < bands["win_back"][0] < bands["win_back_ship"][1]
@@ -711,7 +719,8 @@ def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     assert (benchmark["move"].abs() > 0.0).all()
     assert (benchmark["move_in_se"].abs() < 1.0).all()
     assert set(namespace["static"]) == {"none", "discount", "shipping"}
-    assert "known factors (declared, no learner)" in namespace["reduced_fit"].summary()
+    reduced_settings = namespace["reduced_fit"].summary(detail="full").section("Settings").lines
+    assert any(line.startswith("Declared known, with no learner") for line in reduced_settings)
 
 
 def _check_probe_logs() -> None:

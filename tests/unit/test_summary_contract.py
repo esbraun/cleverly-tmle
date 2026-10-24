@@ -59,7 +59,13 @@ def _estimates_block(text: str) -> tuple[list[str], list[list[str]]]:
     for line in lines[rule + 1 :]:
         if set(line) == {"="}:
             break
-        rows.append(re.split(r"\s{2,}", line.strip()))
+        cells = re.split(r"\s{2,}", line.strip())
+        if rows and len(cells) == 1:
+            # The rest of a long row name the renderer wrapped, at a space or after "[".
+            name = rows[-1][0]
+            rows[-1][0] = name + ("" if name.endswith("[") else " ") + cells[0]
+            continue
+        rows.append(cells)
     return labels, rows
 
 
@@ -127,6 +133,13 @@ def _user_names(result: Any) -> set[str]:
         *getattr(data, "indicator_sources", {}).values(),
         *(getattr(data, "strata_names", None) or ()),
         *(str(level) for level in getattr(data, "treatment_levels", None) or ()),
+        # A longitudinal fit names its columns per time point.
+        *getattr(data, "treatment_names", ()),
+        *getattr(data, "baseline_names", ()),
+        *(name for names in getattr(data, "time_varying_names", ()) for name in names),
+        *getattr(data, "censoring_names", ()),
+        *getattr(data, "event_names", ()),
+        *getattr(data, "cause_labels", ()),
     }
     if data.is_weighted:
         names.add(data.weight_report().name)
