@@ -29,7 +29,7 @@ from cleverly._summary._estimates import (
     plain_support_reason,
     without_roadmap,
 )
-from tests.unit.summary_fixtures import collect
+from tests.unit.summary_fixtures import Case, collect
 
 FIXTURES = collect()
 KEYS = sorted(FIXTURES)
@@ -124,8 +124,12 @@ def _check_fidelity(result: Any, text: str) -> None:
                 assert _close(shown, float(record[column])), (name, label, shown, record[column])
 
 
-def _user_names(result: Any) -> set[str]:
-    data = result.data
+def _user_names(result: Any, key: str | None = None) -> set[str]:
+    """The user-supplied names a summary prints: read off a result's data, or, for an
+    object without data such as a check, the names its fixture declares."""
+    data = getattr(result, "data", None)
+    if data is None:
+        return set(FIXTURES[key].names) if key is not None else set()
     names = {
         getattr(data, "outcome_name", None),
         getattr(data, "treatment_name", None),
@@ -146,7 +150,7 @@ def _user_names(result: Any) -> set[str]:
     return {str(name) for name in names if name}
 
 
-def _authored(result: Any, summary: Summary) -> str:
+def _authored(result: Any, summary: Summary, key: str | None = None) -> str:
     """Every string of the summary, with user-supplied names and quoted warnings taken out.
 
     A fit-time warning is quoted as the user saw it, and its wording belongs to the warning
@@ -157,7 +161,9 @@ def _authored(result: Any, summary: Summary) -> str:
     for table in summary.tables:
         pieces.extend([table.title or "", *table.columns])
         pieces.extend(cell.text for row in table.rows for cell in row)
-    messages = [record.message for record in result.fit_warnings]
+    messages = [record.message for record in getattr(result, "fit_warnings", ())]
+    if key is not None:
+        messages.extend(FIXTURES[key].quotes(result))
     for item in summary.notes:
         text = item.text
         for message in messages:
@@ -166,7 +172,7 @@ def _authored(result: Any, summary: Summary) -> str:
     for section in summary.sections:
         pieces.extend([section.title, *section.lines])
     text = "\n".join(pieces)
-    for name in sorted(_user_names(result), key=len, reverse=True):
+    for name in sorted(_user_names(result, key), key=len, reverse=True):
         text = re.sub(rf"(?<![\w]){re.escape(name)}(?![\w])", "NAME", text)
     return text
 
@@ -177,8 +183,8 @@ _VERSION = re.compile(r"(?<![\w.])\d+\.\d+\.\d+(?![\w.])")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
 
 
-def _check_internals(result: Any, summary: Summary) -> None:
-    text = _authored(result, summary)
+def _check_internals(result: Any, summary: Summary, key: str | None = None) -> None:
+    text = _authored(result, summary, key)
     assert " -- " not in text
     assert "—" not in text
     assert not _ROADMAP_ID.search(text), _ROADMAP_ID.search(text)
@@ -204,10 +210,38 @@ def test_a_summary_has_a_heading_a_table_and_fits_the_width(key: str, detail: st
     assert not long, long
 
 
+def _check_numbers(case: Case, result: Any) -> None:
+    """Read every printed number back: an estimates frame through ``to_frame()``, any other
+    object through its fixture's reader. A fixture with neither fails rather than passing
+    unread."""
+    text = str(result.summary())
+    if case.fidelity is not None:
+        case.fidelity(result, text)
+        return
+    frame = result.to_frame() if hasattr(result, "to_frame") else None
+    assert frame is not None and "estimand" in frame.columns, (
+        "the object has no estimates frame and its fixture gives no fidelity reader"
+    )
+    _check_fidelity(result, text)
+
+
 @pytest.mark.parametrize("key", KEYS)
-def test_every_printed_estimate_equals_the_frame(key: str) -> None:
-    result = _fitted(key)
-    _check_fidelity(result, str(result.summary()))
+def test_every_printed_number_equals_the_object(key: str) -> None:
+    _check_numbers(FIXTURES[key], _fitted(key))
+
+
+def test_a_fixture_without_a_reader_fails_the_number_check() -> None:
+    """Control: an object that has no estimates frame cannot pass without a reader."""
+    summary = Summary.build(
+        title="A check",
+        tables=[SummaryTable(("row", "value"), ((Cell("a", "a"), Cell(1.0, "1.000")),))],
+    )
+    bare = SimpleNamespace(summary=lambda: summary)
+    with pytest.raises(AssertionError, match="no fidelity reader"):
+        _check_numbers(Case(lambda: bare), bare)
+    read: list[str] = []
+    _check_numbers(Case(lambda: bare, fidelity=lambda obj, text: read.append(text)), bare)
+    assert read == [str(summary)]
 
 
 @pytest.mark.parametrize("key", KEYS)
@@ -233,7 +267,7 @@ def test_the_html_parses_and_escapes_every_name(key: str) -> None:
     allowed = {"div", "h4", "table", "caption", "thead", "tbody", "tr", "th", "td"}
     assert reader.tags <= allowed | {"p", "ol", "li", "ul", "b"}
     shown = " ".join(reader.text)
-    for name in _user_names(result):
+    for name in _user_names(result, key):
         if "<" in name or "&" in name:
             assert name in shown, name
             assert name in str(result.summary()), name
@@ -251,7 +285,7 @@ def test_the_markup_fixture_reaches_the_escaping_check() -> None:
 @pytest.mark.parametrize("detail", ["short", "full"])
 def test_the_text_holds_no_library_internals(key: str, detail: str) -> None:
     result = _fitted(key)
-    _check_internals(result, result.summary(detail=detail))
+    _check_internals(result, result.summary(detail=detail), key)
 
 
 def test_a_covariate_named_like_an_id_prints_as_written() -> None:
@@ -501,8 +535,23 @@ def _check_header_counts(result: Any, summary: Summary) -> None:
 
 @pytest.mark.parametrize("key", KEYS)
 def test_the_header_counts_equal_the_data(key: str) -> None:
-    """The row count and the treated share print the numbers of the fitted data."""
-    _check_header_counts(_fitted(key), _summary(key))
+    """The row count and the treated share print the numbers of the fitted data.
+
+    An object without data, such as a check, prints counts its fidelity reader checks.
+    """
+    result = _fitted(key)
+    data = getattr(result, "data", None)
+    if data is None or getattr(data, "treatment", None) is None:
+        assert FIXTURES[key].fidelity is not None, key
+        return
+    _check_header_counts(result, _summary(key))
+
+
+def test_every_fitted_result_reaches_the_header_count_check() -> None:
+    """Witness: the data guard above never skips a fitted result."""
+    results = [key for key in KEYS if key.startswith("point_tmle:")]
+    assert results
+    assert all(getattr(_fitted(key).data, "treatment", None) is not None for key in results)
 
 
 def test_a_header_that_misreports_the_rows_fails(monkeypatch: pytest.MonkeyPatch) -> None:
