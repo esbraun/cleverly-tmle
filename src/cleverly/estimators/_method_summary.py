@@ -973,14 +973,13 @@ def cv_summary(report: CVTargeting, detail: Detail) -> Summary:
     names = list(report.variance)
     decimals = decimals_for([errors[n] for n in names])
     rows = []
+    spread_rows = []
     for name in names:
         folds = report.fold_estimates.get(name, ())
         sd = float(np.std(folds, ddof=1)) if len(folds) > 1 else float("nan")
         averaged = float(report.fold_evaluated[name].psi)
         whole = float(report.pooled[name].psi)
         whole_se = float(report.pooled[name].plugin_std_error)
-        low = min(folds) if folds else float("nan")
-        high = max(folds) if folds else float("nan")
         rows.append(
             (
                 Cell(name, name),
@@ -988,28 +987,36 @@ def cv_summary(report: CVTargeting, detail: Detail) -> Summary:
                 Cell(errors[name], number_text(errors[name], decimals)),
                 Cell(whole, number_text(whole, decimals)),
                 Cell(whole_se, number_text(whole_se, decimals)),
-                Cell(sd, number_text(sd, decimals)),
-                Cell(
-                    (low, high),
-                    f"[{number_text(low, decimals)}, {number_text(high, decimals)}]"
-                    if folds
-                    else "",
-                ),
             )
         )
-    table = SummaryTable(
-        (
-            "",
-            vocabulary.FOLD_AVERAGED,
-            cv_label,
-            vocabulary.WHOLE_SAMPLE,
-            whole_label,
-            vocabulary.FOLD_SD,
-            vocabulary.FOLD_RANGE,
-        ),
-        tuple(rows),
-        kind="other",
-    )
+        if folds:
+            low, high = float(min(folds)), float(max(folds))
+            spread_rows.append(
+                (
+                    Cell(name, name),
+                    Cell(sd, number_text(sd, decimals)),
+                    Cell(
+                        (low, high),
+                        f"[{number_text(low, decimals)}, {number_text(high, decimals)}]",
+                    ),
+                )
+            )
+    tables = [
+        SummaryTable(
+            ("", vocabulary.FOLD_AVERAGED, cv_label, vocabulary.WHOLE_SAMPLE, whole_label),
+            tuple(rows),
+            kind="other",
+        )
+    ]
+    if spread_rows:
+        tables.append(
+            SummaryTable(
+                ("", vocabulary.FOLD_SD, vocabulary.FOLD_RANGE),
+                tuple(spread_rows),
+                title="Estimates of the single folds, first split",
+                kind="other",
+            )
+        )
     sizes = report.fold_sizes
     header = [
         (
@@ -1046,7 +1053,7 @@ def cv_summary(report: CVTargeting, detail: Detail) -> Summary:
             )
         )
     return Summary.build(
-        title=vocabulary.CV_TITLE, header=header, tables=[table], notes=notes, sections=sections
+        title=vocabulary.CV_TITLE, header=header, tables=tables, notes=notes, sections=sections
     )
 
 

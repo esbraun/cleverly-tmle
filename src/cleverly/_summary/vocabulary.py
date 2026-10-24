@@ -857,14 +857,14 @@ REDUCTION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 #: Plain names of the DR-TMLE extra regressions, keyed by ``ReducedFit.diagnostics`` key.
 REDUCED_REGRESSIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "qr": "outcome-model error on the treatment probability",
-        "gr1": "treatment on the treatment probability",
-        "gr2": "weighted treatment error on the outcome prediction",
-        "gamma_a": "treatment recording on the reduced predictions",
-        "gamma_m": "outcome recording on the reduced predictions",
-        "r_a": "treatment error on the reduced predictions",
-        "r_m": "recording error on the reduced predictions",
-        "e": "outcome-model error on the reduced predictions",
+        "qr": "outcome error on treatment probability",
+        "gr1": "treatment on treatment probability",
+        "gr2": "weighted treatment error on outcome prediction",
+        "gamma_a": "treatment recorded, on reduced predictions",
+        "gamma_m": "outcome recorded, on reduced predictions",
+        "r_a": "treatment error on reduced predictions",
+        "r_m": "recording error on reduced predictions",
+        "e": "outcome error on reduced predictions",
     }
 )
 
