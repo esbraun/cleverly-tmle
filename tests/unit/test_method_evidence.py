@@ -993,6 +993,20 @@ class TestPublishedVerdicts:
                 f"endpoints: bias {endpoint}, SE ratio {row.se_ratio}"
             )
 
+        refuter = published.loc[published["property"].isin({"refuter_size", "refuter_power"})]
+        if not refuter.empty:
+            declared = study.runner()
+            for row in refuter.itertuples():
+                count = round(row.rejection_rate * row.replicates)
+                expected = (
+                    count <= declared.SIZE_MAX_REJECTIONS
+                    if row.property == "refuter_size"
+                    else count >= declared.POWER_MIN_DETECTIONS
+                )
+                assert bool(row.passed) is expected, (
+                    f"{row.cell} publishes passed={row.passed} against its own count {count}"
+                )
+
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
@@ -1166,6 +1180,9 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
+                elif suffix == "wrong_gamma_control":
+                    # X82 SH: a smaller Gamma's end read against the declared truth must miss.
+                    expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
                         row.efficiency_empirical_ci_lower > band[1]
@@ -1343,6 +1360,15 @@ class TestPublishedVerdicts:
                 missingness["passed"].all()
                 and missingness["missingness_displacement"].iloc[0]
                 >= study.properties().MISSINGNESS_DISPLACEMENT
+            )
+
+        mask = published.loc[published["property"] == "response_mask_necessity"]
+        if not mask.empty:
+            assert mask["property_passed"].nunique() == 1
+            assert bool(mask["property_passed"].iloc[0]) is bool(
+                mask["passed"].all()
+                and mask["response_mask_displacement"].iloc[0]
+                >= study.properties().RESPONSE_MASK_DISPLACEMENT
             )
 
         projection = published.loc[published["property"] == "projection_necessity"]
@@ -1547,6 +1573,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X82 SG: the O1 bound with the masked sigma^2 inside the margin, the bound with the
+        # observed-rows sigma^2 outside it.
+        "response_mask_necessity",
         # X16's three-arm pair: the positive cell's bias inside the margin, the control's
         # outside it.
         "multi_arm",
@@ -1593,6 +1622,10 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X82 SL: each size row answers to its own rejection count and each power row to its
+        # own detection count (checked below against the study's declared thresholds).
+        "refuter_size",
+        "refuter_power",
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",
@@ -2936,19 +2969,26 @@ class TestThePublishedTestTables:
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""
         data = _artifacts(study.slug)
+
+        def scenario(key: str) -> str:
+            return descriptions.scenario(key, slug=study.slug)
+
+        def estimand(key: str) -> str:
+            return descriptions.estimand(key, slug=study.slug)
+
         undescribed: list[str] = []
         for frame, resolvers in (
             (
                 data["performance"],
                 (
                     ("implementation", descriptions.implementation),
-                    ("scenario", descriptions.scenario),
-                    ("estimand", descriptions.estimand),
+                    ("scenario", scenario),
+                    ("estimand", estimand),
                 ),
             ),
             (
                 data["equivalence"],
-                (("scenario", descriptions.scenario), ("estimand", descriptions.estimand)),
+                (("scenario", scenario), ("estimand", estimand)),
             ),
         ):
             for column, resolve in resolvers:
@@ -3044,6 +3084,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
     "margin:fold_locality_displacement": lambda s: s.properties().FOLD_LOCALITY_DISPLACEMENT,
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
+    "margin:response_mask_displacement": lambda s: s.properties().RESPONSE_MASK_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
     "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,

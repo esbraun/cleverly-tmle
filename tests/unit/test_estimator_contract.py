@@ -475,6 +475,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "LongitudinalDiagnostics": "field",
     "LongitudinalNuisanceDiagnostics": "field",
     "LongitudinalScoreDiagnostics": "field",
+    "MarginalSensitivityBounds": "field",
     "NuisanceDiagnostics": "field",
     "PositivityReport": "field",
     "RefutationResult": "field",

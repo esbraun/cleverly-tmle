@@ -590,6 +590,8 @@ class DRTMLE(TMLE):
     """
 
     _assessment_method = "drtmle"
+    #: The refit refits the reduced regressions on the perturbed table.
+    simulated_confounding_replay = True
 
     def __init__(
         self,
@@ -769,7 +771,7 @@ class DRTMLE(TMLE):
             raise ValueError(
                 f"guard entries must be drawn from {list(GUARDS)}; got {unknown}. "
                 "'Q' guards against a misspecified outcome regression and 'g' against a "
-                "misspecified mechanism -- the keyword names the nuisance you are worried "
+                "misspecified mechanism; the keyword names the nuisance you are worried "
                 "about, not the one the equation it adds fluctuates."
             )
         if len(set(self.guard)) != len(self.guard):
@@ -777,7 +779,7 @@ class DRTMLE(TMLE):
         if self.max_outer < 1:
             raise ValueError(
                 f"max_outer must be at least one round; got {self.max_outer}. It caps the "
-                "three-equation alternation, not the Newton steps inside one fluctuation -- "
+                "three-equation alternation, not the Newton steps inside one fluctuation; "
                 "that is max_iter."
             )
         if self.update_order not in UPDATE_ORDERS:
@@ -804,7 +806,7 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     "evaluation= and repeats= are not combined. Each draw of the split "
                     "targets its own alternation, so there would be one companion per draw "
-                    "and no single state for P_0 D-hat to be the mean of -- and "
+                    "and no single state for P_0 D-hat to be the mean of, and "
                     "result.extra['drtmle'] already describes draw 0 only.",
                     reason=RefusalReason.INVALID_DECLARATION,
                     alternative="Fit each draw separately, or drop repeats=.",
@@ -822,7 +824,7 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     "evaluation= and target_weights=True are not combined. The weighted form "
                     "of the submodel divides the covariate by the *fitting* sample's weights, "
-                    "and a companion row has none of them -- so the companion would travel "
+                    "and a companion row has none of them, so the companion would travel "
                     "along a covariate belonging to other rows while reporting itself as "
                     "that fit's.",
                     reason=RefusalReason.INVALID_DECLARATION,
@@ -1258,7 +1260,7 @@ class DRTMLE(TMLE):
             raise CapabilityError(
                 "DRTMLE and CTMLE are not combined, and the reason is a derivation rather "
                 "than plumbing. A reduced-dimension regression conditions on g-hat *as a "
-                "covariate*, and C-TMLE's g-hat is deliberately not an estimate of g_0 -- "
+                "covariate*, and C-TMLE's g-hat is deliberately not an estimate of g_0, "
                 "the collaborative point being that g need only adjust for what Qbar "
                 "missed. C-TMLE also scores its path by the cross-validated loss of the "
                 "targeted Qbar, so the criterion choosing g-hat presupposes that Qbar is "
@@ -1361,7 +1363,7 @@ class DRTMLE(TMLE):
             raise CapabilityError(
                 f"DRTMLE does not support estimand(s) {outside}: the reduced-dimension "
                 "regressions are derived for the counterfactual means, and the ATT and ATC "
-                "clever covariates are a propensity odds conditioning on a random event -- "
+                "clever covariates are a propensity odds conditioning on a random event, "
                 "a different score equation with its own reductions to derive.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative=(

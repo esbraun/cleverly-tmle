@@ -812,7 +812,7 @@ def _numeric_level(level: Any) -> float:
         raise DataError(
             f"MSM.linear reads the treatment level {level!r} as a number, and it is not "
             "one. A working model linear in the arm treats it as a dose to interpolate "
-            "between, which a label has no ordering for -- and the sort order a coding "
+            "between, which a label has no ordering for, and the sort order a coding "
             "would fall back on is not one anybody chose. Pass design= with "
             "design_kind='known' and code the arms explicitly."
         ) from None
@@ -882,8 +882,8 @@ class MSMSet:
         weights = np.asarray(self.weights, dtype=float)
         if design.ndim != 3 or design.shape[1] != len(self.arms):
             raise DataError(
-                f"the working model's design must have shape (n, {len(self.arms)}, p) -- "
-                f"rows, arms, terms -- got {design.shape}"
+                f"the working model's design must have shape (n, {len(self.arms)}, p) ("
+                f"rows, arms, terms), got {design.shape}"
             )
         if design.shape[2] != len(self.terms):
             raise DataError(
@@ -1370,7 +1370,7 @@ def _arm_design(msm: MSM, label: Any, frame: Any, n: int) -> FloatArray:
     if values.shape != (n, len(msm.terms)):
         raise DataError(
             f"the working model's design returned shape {values.shape} for arm {label!r}; "
-            f"expected ({n}, {len(msm.terms)}) -- one row per unit and one column per term "
+            f"expected ({n}, {len(msm.terms)}): one row per unit and one column per term "
             f"{list(msm.terms)}"
         )
     return values
@@ -1383,7 +1383,7 @@ def _arm_weights(msm: MSM, label: Any, frame: Any, n: int) -> FloatArray:
     if values.shape != (n,):
         raise DataError(
             f"the working model's weights returned shape {values.shape} for arm {label!r}; "
-            f"expected ({n},) -- one weight per unit"
+            f"expected ({n},): one weight per unit"
         )
     return values
 
@@ -1409,14 +1409,14 @@ def _check_support(link: Link, data: CausalData) -> None:
         raise DataError(
             f"link={link.name!r} models the counterfactual mean as exp(beta' phi), which "
             f"is positive, and {data.outcome_name} takes the value {low:g}. A log-link "
-            "working model needs a non-negative outcome -- a risk, a count or a rate. Use "
+            "working model needs a non-negative outcome: a risk, a count or a rate. Use "
             "link='identity' for an outcome that can be negative."
         )
     if link.support == "unit" and (low < 0.0 or high > 1.0):
         raise DataError(
             f"link='logit' models the counterfactual mean as a probability, and "
             f"{data.outcome_name} ranges over [{low:g}, {high:g}]. A logit working model "
-            "needs an outcome in [0, 1] -- a binary outcome or a proportion. Note that "
+            "needs an outcome in [0, 1]: a binary outcome or a proportion. Note that "
             "q_bounds rescales the outcome for the *fit* but not for the projection, "
             "which is solved on the outcome's own scale so that its coefficients are "
             "reported in the units they were declared in."

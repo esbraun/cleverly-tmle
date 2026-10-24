@@ -265,10 +265,6 @@ def test_a_longitudinal_fit_reads_descriptive_at_the_calibrated_budget(fitted: A
 
 
 class TestRefusals:
-    def test_the_plasmode_is_refused(self, fitted: Any) -> None:
-        error = _refused(fitted, CONTRAST, "plasmode")
-        assert error.refusal.roadmap == "X82"
-
     def test_a_binary_outcome_is_refused(self, frame: pd.DataFrame) -> None:
         binary = frame.assign(Y2=np.where(frame.Y2.isna(), np.nan, (frame.Y2 > 0).astype(float)))
         result = _fit(binary, outcome_learner=LogisticRegression())

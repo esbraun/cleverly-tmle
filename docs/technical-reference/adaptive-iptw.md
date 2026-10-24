@@ -302,12 +302,12 @@ result on nine fits.
 | `estimate`, `estimates`, `influence_curves`, `covariance`, `contrast`, `to_frame`, `summary`, `save`, `load`, `inference_status` | supported |
 | `nuisance`, `fluctuations` | supported. The outcome accessors raise a named `CapabilityError`: the fit has no outcome regression |
 | `diagnostics.support`, `nuisance_models`, `score_equations` | supported. The outcome row reads "not fitted" |
-| `sensitivity.evalue` | supported on a fit that reports inference. Refused on a fit with an estimated mechanism |
+| `sensitivity.evalue` | supported on a fit that reports inference, including the risk ratio derived from an ATE or odds ratio on a binary outcome. Refused on a fit with an estimated mechanism |
 | `validate` | refused: `api_redirection` to `diagnostics.nuisance_models` |
 | `diagnostics.truncation_curve` | refused: `implementation_gap`, [X81](../roadmap.md#x81-adaptiveiptw-follow-ups) |
-| `diagnostics.refute` | refused: `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
+| `diagnostics.refute` | supported for every point test. [Refutation operations](validation-methods.md#refutation-operations) gives, under "Adaptive-propensity IPTW refutation", the readings that differ from TMLE |
 | `sensitivity.omitted_confounding`, `robustness_value`, `elements`, `benchmark`, `contour` | refused: `api_redirection` to TMLE. The bound needs an outcome regression |
-| `sensitivity.simulated_confounding` | refused: `implementation_gap`, [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part I |
+| `sensitivity.simulated_confounding` | supported on the arm axis: arm means, ATE, risk ratio and odds ratio, marginal or in a baseline stratum. A regime is refused ([X81](../roadmap.md#x81-adaptiveiptw-follow-ups) part (d)) |
 | `sensitivity.missingness`, `tipping_gamma` | refused: `api_redirection` to TMLE |
 
 ## Differences from `drtmle`

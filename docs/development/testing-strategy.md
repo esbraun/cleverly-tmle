@@ -9,17 +9,38 @@ run only when a relevant implementation changes. `README.md` gives the fast comm
 | check | command | what it establishes |
 | --- | --- | --- |
 | fast tests | `pytest -q -n auto --dist loadgroup` | unit, integration, end-to-end, documentation, provenance, artifact, and published-verdict behavior |
+| slow tests | `pytest -q -n auto --dist loadgroup -m slow` | each tutorial notebook runs with its refit cells, and its callbacks hold |
 | registered validation study | the affected study directory's documented regeneration command | repeated-sampling, large-sample, flexible-learner, and reference-implementation claims |
 
 Run the fast tests before every pull request. They recompute every published verdict and negative
-control from committed study artifacts. They do not refit committed study replications.
+control from committed study artifacts. They do not refit committed study replications. The CI job
+`slow-tests` runs the slow tests on every pull request.
 
 Run a registered study only when a result-determining change can affect what that study computes.
 Choose a complete rerun or an audited targeted rerun under the conditions below.
 Both routes retain every declared replication and recompute each affected summary and verdict.
 
-The repository has no pytest slow tier. Registered studies replace the deprecated repeated-sampling tests.
+Registered studies replace the deprecated repeated-sampling tests.
 An unrecorded partial probe cannot replace published study evidence.
+
+## The slow tier
+
+The `slow` marker has one use: the tutorial notebooks' refit cells. A refit cell calls `refute`,
+`simulated_confounding`, or `benchmark`, or it reads a name that a refit cell binds. These cells
+took about 90% of the notebook gate's time, so they moved out of the fast tier (Eric, 2026-10-23).
+[Example notebooks](example-notebooks.md#refit-cells-and-the-slow-tier) states the rule for authors.
+
+| item | fact |
+| --- | --- |
+| default run | `pyproject.toml` adds `-m "not slow"`, so the fast command deselects the tier |
+| slow run | a later `-m slow` replaces that option |
+| other `-m` expressions | any other `-m` also replaces it, so add `and not slow` to keep the tier out |
+| a node id | a slow test named by its node id still needs `-m slow`. Without it, pytest deselects the test and exits with status 5 |
+| interpreter | the `slow-tests` job runs on 3.12 only. The refit cells ran on 3.11, 3.12, and 3.13 before |
+| what the fast tier keeps | every other notebook cell, the execution stamp, the stored outputs, and the narration check |
+
+A pull request can pass the fast tests while an API change breaks a refit cell. The `slow-tests`
+job runs on every pull request without a path filter, so CI still sees that break.
 
 ## What belongs in the fast suite
 
@@ -35,8 +56,8 @@ behavior. This includes these checks:
 Use `tests.conftest.FAST_KWARGS` and explicit parametric learners for estimator tests. Use a
 flexible learner only when flexible learning is the subject.
 
-Do not add an expensive pytest marker. A claim that needs repeated sampling, large samples, many
-flexible fits, or an external implementation belongs in a registered validation study.
+Do not add another expensive pytest marker. A claim that needs repeated sampling, large samples,
+many flexible fits, or an external implementation belongs in a registered validation study.
 
 ## Choose affected studies
 

@@ -446,7 +446,7 @@ def _refuse_non_probability_means(dgp: MultiArmDGP) -> None:
                 f"refused rather than clipped because truth() integrates the mean you "
                 f"passed: clipping would draw from one law and report another. For the "
                 f"three-armed process, multi_arm_dgp(family='binomial') is the binary "
-                f"law -- the same design on the logit scale, not this one squashed"
+                f"law, the same design on the logit scale, not this one squashed"
             )
 
 

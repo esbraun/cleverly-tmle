@@ -427,6 +427,24 @@ class SimulatedConfoundingResult:
             )
             + (
                 (
+                    "incremental reading: every cell refits the treatment mechanism, and the odds "
+                    "tilt reads that refitted mechanism, so a cell moves the intervention with "
+                    "the confounding",
+                )
+                if self.estimand.startswith(("ey_ipsi[", "ate_ipsi["))
+                else ()
+            )
+            + (
+                (
+                    "learned-rule reading: every cell refits on the fit's folds with each row's "
+                    "realized fold rule held fixed, so a cell reads confounding of the value of "
+                    "these fixed rules, not of the learned-rule procedure",
+                )
+                if self.estimand.startswith("ey_learned_rule[")
+                else ()
+            )
+            + (
+                (
                     "treatment mechanism: known on the data; each cell that flips the treatment "
                     "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
                     if self.arm_pair is None
@@ -1647,7 +1665,7 @@ def simulated_confounding(
         mean, risk ratio, odds ratio, population attributable contrast, or continuous
         modified-policy fit. Ordinary binary TMLE also supports fixed regime means,
         regime contrasts, and incremental means and contrasts. Ordinary TMLE also supports
-        binary and continuous MSM coefficients under built-in links.
+        binary and continuous MSM coefficients under any registered link.
         Baseline strata require estimator support for their targeting.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
@@ -1739,11 +1757,14 @@ def simulated_confounding(
     evidences no collaborative score and no reduced-dimension correction for these
     observed-law contrasts, so it offers neither C-TMLE nor DR-TMLE for them.
 
-    Binary ordinary TMLE supports fixed Static, Rule, and Stochastic regimes.
-    The operation validates declared policy arrays against every stored cross-fitting
-    draw and freezes those arrays on the original baseline rows.
-    MSMs support built-in identity, log, and logit links for binary and continuous
-    treatments. Grid designs and raw projection weights stay fixed. Continuous MSMs
+    A binary fit replays under an estimator whose class declares
+    ``simulated_confounding_replay = True``: ``TMLE``, ``CTMLE`` and ``DRTMLE``.
+    Binary ordinary TMLE supports a fixed regime of any class whose density is declared
+    known, such as Static, Rule, and Stochastic. The operation validates declared policy
+    arrays against every stored cross-fitting draw and freezes those arrays on the original
+    baseline rows.
+    MSMs support every link registered in ``cleverly.msm.LINKS`` for binary and
+    continuous treatments. Grid designs and raw projection weights stay fixed. Continuous MSMs
     reevaluate the declared deterministic functions at each perturbed observed dose;
     the estimator rebuilds observed weights and the integration-support mask.
     Coefficient movement is a difference on the stored coefficient scale, including
@@ -1753,9 +1774,9 @@ def simulated_confounding(
     Complete refits rebuild intervention densities from the refitted treatment mechanism
     and retain its targeting contribution. Movement includes this intervention change.
     A multiplier-one mean is the natural course and is refused before a draw; contrasts
-    against that reference remain supported. Custom intervention types and MSM links
-    remain refused. All these extensions use exact ordinary TMLE only. Incremental
-    targets and nonlinear or continuous MSMs refuse baseline strata upstream.
+    against that reference remain supported. A multi-arm incremental target swaps the
+    declared ``arm_pair``. All these extensions use exact ordinary TMLE only, and each
+    accepts a baseline stratum.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
@@ -1961,6 +1982,11 @@ def simulated_confounding(
                 replacement,
                 intermediate_value=result.intermediate_value,
                 random_state=refit_seed,
+                **(
+                    {}
+                    if request.frozen_folds is None
+                    else {"frozen_folds": list(request.frozen_folds)}
+                ),
             )
             # ``inference.influence.median_estimates`` drops a name that is absent from any
             # draw, so ``refitted[estimand]`` would raise "was not requested" for an estimand

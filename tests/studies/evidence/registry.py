@@ -642,16 +642,24 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
+    from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
+    from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
+    from tests.studies.refuter_calibration_longitudinal import (
+        STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
+    )
+    from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -746,7 +754,13 @@ def registered() -> tuple[StudyRecord, ...]:
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+        OVB_LIMIT_COVERAGE,
+        EVALUE_LIMIT_COVERAGE,
+        MARGINAL_BOUND_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
+        REFUTER_CALIBRATION_LONGITUDINAL,
+        REFUTER_CALIBRATION_POINT,
+        REFUTER_CALIBRATION_BAND,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

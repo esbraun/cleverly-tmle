@@ -3551,8 +3551,34 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."
     ),
+    "ovb-limit-coverage": (
+        "It measures the coverage of the omitted-variable bound limits of X82 part G. A limit "
+        "is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
+        "licenses."
+    ),
+    "marginal-bound-limit-coverage": (
+        "It measures the coverage of the marginal sensitivity bound limits of X82 part H. A "
+        "limit is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
+        "licenses."
+    ),
+    "evalue-limit-coverage": (
+        "It measures the coverage of the risk-ratio intervals that two E-value limits map. "
+        "VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
     "calibration-slope-warning": (
         "It measures the rate of a diagnostic warning. The warning is no estimate."
+    ),
+    "refuter-calibration-longitudinal": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
+    "refuter-calibration-point": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
+    "refuter-calibration-band": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
     ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "

@@ -189,7 +189,7 @@ def intermediate_fit() -> Any:
 
 @pytest.fixture(scope="module")
 def repeated_fit() -> Any:
-    """A median over two cross-fitting draws, the one refusal a refit with one split lifts."""
+    """A median over two cross-fitting draws, which the bound admits since X82 part G."""
     frame, _ = make_binary_outcome(n=400, seed=17)
     return fast_tmle(repeats=2, estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
 
@@ -222,6 +222,17 @@ def msm_fit() -> Any:
     frame, _ = make_linear_ate(n=300, seed=0)
     return (
         TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, msm=MSM.linear())
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
+def msm_logit_fit() -> Any:
+    """A working model under a logit link, whose coefficient is not linear in the regression."""
+    frame, _ = make_binary_outcome(n=300, seed=3)
+    return (
+        TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, msm=MSM.linear(link="logit"))
         .fit(frame, outcome="Y", treatment="A")
         .single()
     )
@@ -264,10 +275,8 @@ REFUSED_FITS: tuple[tuple[str, str], ...] = (
     ("drtmle_fit", "W"),
     ("collaborative_fit", "W1"),
     ("ipsi_fit", "W1"),
-    ("shift_fit", "W1"),
-    ("msm_fit", "W1"),
+    ("msm_logit_fit", "W1"),
     ("ratio_only_fit", "W1"),
-    ("repeated_fit", "W1"),
 )
 
 #: Every public entry point that reaches :func:`sensitivity_elements`, called the way a
@@ -355,26 +364,38 @@ class TestEachReasonNamesTheMissingResult:
         # The representer is that average only where the working mechanism is P(A | V).
         assert "Where the working mechanism is P(A | V) in the limit" in reason
 
-    @pytest.mark.parametrize(
-        ("fixture", "axis", "phrase"),
-        [
-            ("ipsi_fit", "ipsi", "part of the estimand"),
-            ("shift_fit", "policy", "A modified-policy mean"),
-            ("msm_fit", "msm", "A point-treatment MSM coefficient"),
-        ],
-    )
-    def test_a_real_fit_on_each_non_arm_axis_hears_its_own_reason(
-        self, request: pytest.FixtureRequest, fixture: str, axis: str, phrase: str
-    ) -> None:
+    def test_a_real_incremental_fit_hears_its_own_reason(self, ipsi_fit: Any) -> None:
         """The axis is the one the fit records, not one written into its configuration."""
-        result = request.getfixturevalue(fixture)
-        assert result.config.parameter_axis == axis
-        refusal = fit_wide_bound_refusal(result)
+        assert ipsi_fit.config.parameter_axis == "ipsi"
+        refusal = fit_wide_bound_refusal(ipsi_fit)
         assert refusal is not None
         reason = refusal.message()
-        assert f"indexed by {axis!r}" in reason
-        assert phrase in reason
-        assert ("well posed" in reason) is (axis != "ipsi")
+        assert "indexed by 'ipsi'" in reason
+        assert "part of the estimand" in reason
+        assert "well posed" not in reason
+
+    def test_a_real_msm_fit_is_admitted(self, msm_fit: Any) -> None:
+        """Nonzero control: X82 part G covers this axis, so no fit-wide rule refuses it."""
+        assert fit_wide_bound_refusal(msm_fit) is None
+        for name in msm_fit.estimates:
+            assert sensitivity_elements(msm_fit, name).nu2 > 0, name
+
+    @pytest.mark.parametrize("nu2_estimator", ["doubly_robust", "plugin"])
+    def test_a_continuous_dose_shift_is_refused(self, shift_fit: Any, nu2_estimator: str) -> None:
+        """The dose has no atoms, so the shift's representer is a fitted density ratio."""
+        refusal = fit_wide_bound_refusal(shift_fit)
+        assert refusal is not None
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert "continuous dose" in refusal.message()
+        assert "dose_atoms" in refusal.message()
+        with pytest.raises(CapabilityError, match="continuous dose"):
+            sensitivity_elements(shift_fit, "ey_policy[+0.5]", nu2_estimator=nu2_estimator)
+
+    def test_a_non_identity_msm_names_its_link(self, msm_logit_fit: Any) -> None:
+        refusal = fit_wide_bound_refusal(msm_logit_fit)
+        assert refusal is not None
+        assert "link='logit'" in refusal.message()
+        assert "no Riesz representer" in refusal.message()
 
     @pytest.mark.parametrize("fixture", ["drtmle_fit", "collaborative_fit"])
     def test_a_mechanism_refusal_names_the_assumption_it_lacks(
@@ -417,19 +438,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             "collaborative_tmle",
             "parameter_axis",
             "bound_parameters",
-            "repeats",
         ]
-
-    def test_a_fit_refused_twice_hears_the_rule_a_refit_cannot_lift(self, drtmle_fit: Any) -> None:
-        """Why ``repeats`` is last.
-
-        A repeated DR-TMLE fit breaks two rules. Told to fit one split, its reader would
-        refit and meet the DR-TMLE refusal next, so the table reports that one first.
-        """
-        repeated = replace(drtmle_fit, repeats=drtmle_fit.repeats * 2)
-        rules = dict(_FIT_WIDE_BOUND_RULES)
-        assert rules["repeats"](repeated) is not None
-        assert fit_wide_bound_refusal(repeated) == rules["drtmle"](repeated)
 
     def test_the_longitudinal_reason_is_the_literal_the_facade_published(self) -> None:
         rules = dict(_FIT_WIDE_BOUND_RULES)
@@ -467,9 +476,8 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         [
             ("drtmle", "plain_fit", {"fitted_method": "drtmle"}),
             ("collaborative_tmle", "plain_fit", {"fitted_method": "collaborative_tmle"}),
-            ("parameter_axis", "plain_fit", {"parameter_axis": "regime"}),
+            ("parameter_axis", "plain_fit", {"parameter_axis": "rr_tilt"}),
             ("bound_parameters", "ratio_only_fit", {}),
-            ("repeats", "repeated_fit", {}),
         ],
     )
     def test_each_rule_is_the_one_a_matching_fit_reaches(
@@ -1124,6 +1132,8 @@ PUBLIC_PARAMETERS: tuple[str, ...] = (
     "nu2_correction",
     "features",
     "limit_reading",
+    "assumption",
+    "mechanism_learner",
 )
 
 
@@ -1196,7 +1206,7 @@ class TestReplaceKeepsTheStoredLimits:
         parameters = inspect.signature(SensitivityBounds).parameters
         assert tuple(parameters) == PUBLIC_PARAMETERS
         required = [name for name, p in parameters.items() if p.default is p.empty]
-        assert required == list(PUBLIC_PARAMETERS[:-7])
+        assert required == list(PUBLIC_PARAMETERS[:-9])
 
     @pytest.mark.parametrize(
         ("kind", "accessor"),

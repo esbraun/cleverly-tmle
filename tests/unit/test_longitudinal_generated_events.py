@@ -336,7 +336,3 @@ class TestRefusals:
     def test_a_dummy_hazard_must_read_nothing(self, fitted: Any) -> None:
         error = _refused(fitted, "dummy_outcome", dummy_outcome=HAZARD)
         assert "effect 0" in error.refusal.message()
-
-    def test_the_plasmode_is_refused(self, fitted: Any) -> None:
-        error = _refused(fitted, "plasmode", simulated_outcome=HAZARD)
-        assert error.refusal.roadmap == "X82"

@@ -1401,7 +1401,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M8": Mutation(
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
-        frozenset({"split_plan"}),
+        # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
+        frozenset({"split_plan", "regime", "regime+missing"}),
         _RAISED.format("benchmark") + "benchmark cannot drop every covariate",
     ),
     "M9": Mutation(
@@ -1415,7 +1416,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M10": Mutation(
         "the omitted-variable rows ignore a fit that reports no parameter to bound",
         _without_bound_parameters,
-        frozenset({"natural_course_study"}),
+        # Part G2a moved these kinds past the earlier rules, so this rule alone refuses them.
+        frozenset({"natural_course_study", "natural_course", "rr+missing", "par+missing"}),
         _RAISED.format("omitted_confounding") + "the omitted-variable bound applies",
     ),
 }

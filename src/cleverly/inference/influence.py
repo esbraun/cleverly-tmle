@@ -1448,8 +1448,8 @@ def median_estimates(
         # name as a median over all of them.
         warnings.warn(
             f"{', '.join(dropped)} was estimated in some cross-fitting repeats but not "
-            "in all of them -- a draw whose targeting step failed, or a fold with no "
-            "units in the conditioning arm -- so it is omitted from the median report "
+            "in all of them (a draw whose targeting step failed, or a fold with no "
+            "units in the conditioning arm), so it is omitted from the median report "
             "rather than combined over fewer draws than the rest.",
             UserWarning,
             stacklevel=2,

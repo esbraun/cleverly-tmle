@@ -621,6 +621,7 @@ SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
     "simulated_confounding": SensitivityRoute(
         "simulated_confounding", "simulated_confounding", needs_estimand=True
     ),
+    "marginal_bounds": SensitivityRoute("marginal", "marginal_sensitivity_bounds"),
 }
 
 
@@ -683,8 +684,8 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     if family == "point" and _method(result) == "adaptive_iptw":
-        # AdaptiveIPTW fits no outcome regression and retargets no cached propensity, so
-        # these two rows carry the record the operation function raises.
+        # AdaptiveIPTW retargets no cached propensity, so this row carries the record the
+        # operation function raises.
         from .estimators.iptw import OPERATION_REFUSALS
 
         rows = tuple(
@@ -694,7 +695,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 status=AssessmentStatus.UNAVAILABLE,
                 refusal=OPERATION_REFUSALS[row.operation],
             )
-            if row.operation in ("truncation_curve", "refute")
+            if row.operation == "truncation_curve"
             else row
             for row in rows
         )
@@ -736,24 +737,6 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 refusal=truncation,
             )
             if row.operation == "truncation_curve"
-            else row
-            for row in rows
-        )
-    if family == "point" and result.config.parameter_axis == "learned_rule":
-        # A refit relearns the rule inside each training fold, so no refutation compares
-        # like with like, whatever the estimand.  Declared for the whole fit, so the row
-        # does not defer on an argument that no value lifts.  ``refute`` raises the same
-        # sentence from its own rule table.
-        from .interventions.learned import LEARNED_RULE_REFIT_REFUSAL
-
-        rows = tuple(
-            replace(
-                row,
-                available=False,
-                status=AssessmentStatus.UNAVAILABLE,
-                refusal=LEARNED_RULE_REFIT_REFUSAL,
-            )
-            if row.operation == "refute"
             else row
             for row in rows
         )
@@ -3823,6 +3806,20 @@ def _tipping_item(
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
+def _marginal_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    rows = report.rows
+    facts = [
+        f"{report.estimand} bounds at gamma={rows[-1].gamma:g}: "
+        f"[{rows[-1].lower:.4g}, {rows[-1].upper:.4g}]",
+        f"{len(rows)} gamma value(s)",
+    ]
+    if report.null is not None:
+        facts.append(f"breakdown gamma {report.breakdown}")
+    return AssessmentItem("marginal_bounds", AssessmentStatus.COMPLETED, "; ".join(facts))
+
+
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -3847,6 +3844,7 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "evalue": _evalue_item,
     "missingness": _missingness_item,
     "tipping_gamma": _tipping_item,
+    "marginal_bounds": _marginal_item,
 }
 
 
@@ -4077,6 +4075,38 @@ _STRUCTURAL_TILT_REFUSAL = Refusal(
 )
 
 
+#: The artifacts and the reading of the marginal sensitivity model row, one record for
+#: every family.
+_MARGINAL_ARTIFACTS = ("out-of-fold treatment mechanism", "out-of-fold outcome regression")
+_MARGINAL_INTERPRETATION = "arm-mean and ATE bounds under a marginal sensitivity model"
+
+
+def _marginal_structural_refusal() -> Refusal:
+    from .sensitivity.marginal import STRUCTURAL_REFUSAL
+
+    return STRUCTURAL_REFUSAL
+
+
+def _marginal_row(result: Any, family: str) -> AssessmentCapability:
+    """The marginal sensitivity model row, declared from the bound's own refusal."""
+    from .sensitivity.marginal import marginal_bound_refusal
+
+    refusal = marginal_bound_refusal(result)
+    return _capability(
+        "marginal_bounds",
+        family,
+        artifacts=_MARGINAL_ARTIFACTS,
+        interpretation=_MARGINAL_INTERPRETATION,
+        # It fits quantile and tail regressions on the fit's folds; the estimator is not
+        # refitted.
+        execution="refit",
+        cost="moderate",
+        available=refusal is None,
+        status=AssessmentStatus.PASSED if refusal is None else AssessmentStatus.UNAVAILABLE,
+        refusal=refusal,
+    )
+
+
 def _structural_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
     """Every sensitivity row of a structural fit, each refused with its record."""
 
@@ -4155,6 +4185,12 @@ def _structural_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             artifacts=("observation mechanism", "published tilt identification"),
             interpretation="missingness departure at which the conclusion reaches its null",
             status=AssessmentStatus.NOT_APPLICABLE,
+        ),
+        refused(
+            "marginal_bounds",
+            _marginal_structural_refusal(),
+            artifacts=_MARGINAL_ARTIFACTS,
+            interpretation=_MARGINAL_INTERPRETATION,
         ),
     )
 
@@ -4297,6 +4333,7 @@ class SensitivityFacade(_CapabilityFacade):
             artifacts: Sequence[str],
             interpretation: str,
             cost: Literal["cheap", "moderate", "expensive"] = "cheap",
+            requires_arguments: Sequence[str] = (),
         ) -> AssessmentCapability:
             return _capability(
                 operation,
@@ -4307,6 +4344,7 @@ class SensitivityFacade(_CapabilityFacade):
                 available=available,
                 status=status,
                 refusal=declared_refusal,
+                requires_arguments=requires_arguments,
             )
 
         def tilt(operation: str, *, interpretation: str) -> AssessmentCapability:
@@ -4352,6 +4390,10 @@ class SensitivityFacade(_CapabilityFacade):
                 "elements",
                 artifacts=("fitted representer", "outcome residuals"),
                 interpretation="raw components of the omitted-confounder bias bound",
+                # The elements describe one draw, so a fit with several names the draw.
+                requires_arguments=(
+                    ("repeat",) if int(getattr(self._result, "n_repeats", 1)) > 1 else ()
+                ),
             ),
             _capability(
                 "benchmark",
@@ -4405,6 +4447,7 @@ class SensitivityFacade(_CapabilityFacade):
                 "tipping_gamma",
                 interpretation="missingness departure at which the conclusion reaches its null",
             ),
+            _marginal_row(self._result, family),
         )
 
     @cached_property
@@ -4491,6 +4534,52 @@ class SensitivityFacade(_CapabilityFacade):
         "simulated_confounding": "_simulated_confounding_gated",
         "tipping_gamma": "_tipping_interval_gated",
     }
+
+    #: The operations whose call takes ``assume_consistent_mechanism=True``.
+    _CONSISTENT_MECHANISM_OPERATIONS: ClassVar[frozenset[str]] = frozenset(
+        {"omitted_confounding", "robustness_value", "contour"}
+    )
+
+    def _request_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Lift the bound's fit-wide refusal for a consistent-mechanism request first.
+
+        A DR-TMLE or a selecting C-TMLE fit refuses the bare bound, and
+        ``assume_consistent_mechanism=True`` lifts that one rule.  The row then reads
+        :func:`~cleverly.sensitivity.omitted_variable.consistent_mechanism_refusal`, which
+        the call raises from too.  A row refused for any other reason stays refused.  This
+        gate runs before the base request gate, so the base gate sees the lifted row.
+        """
+        if capability.operation in self._CONSISTENT_MECHANISM_OPERATIONS and arguments.get(
+            "assume_consistent_mechanism"
+        ):
+            capability = self._consistent_mechanism_gated(capability, arguments)
+        return super()._request_gated(capability, arguments)
+
+    def _consistent_mechanism_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve an omitted-variable row for ``assume_consistent_mechanism=True``."""
+        from .sensitivity.omitted_variable import (
+            _FIT_WIDE_BOUND_RULES,
+            CONSISTENT_MECHANISM_METHODS,
+            consistent_mechanism_refusal,
+            fit_wide_bound_refusal,
+        )
+
+        method = getattr(self._result, "fitted_method", None)
+        if capability.available or method not in CONSISTENT_MECHANISM_METHODS:
+            return capability
+        lifted = dict(_FIT_WIDE_BOUND_RULES)[method](self._result)
+        if lifted is None or capability.refusal != fit_wide_bound_refusal(self._result):
+            return capability
+        declared = consistent_mechanism_refusal(self._result, arguments.get("mechanism_learner"))
+        if declared is not None:
+            return replace(capability, refusal=declared)
+        runnable = replace(capability, available=True, status=AssessmentStatus.PASSED, refusal=None)
+        # The replay gate skipped the refused row in ``_gated_map``, so it applies here.
+        return _replay_gated(runnable, replayability(self._result))
 
     def _benchmark_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
@@ -4606,7 +4695,8 @@ class SensitivityFacade(_CapabilityFacade):
         ``simulated_confounding`` answers for ratio and population attributable contrasts
         too, so it consults its own eligible set first and falls back to the linear set
         when that set names no single parameter. The rest are functionals of one linear
-        contrast, and their eligible set is the arm-indexed one.
+        contrast, and their eligible set is the arm-indexed one, with the regime, shift
+        and MSM parameters that the omitted-variable bound covers.
 
         Parameters
         ----------
@@ -4636,8 +4726,12 @@ class SensitivityFacade(_CapabilityFacade):
 
             return _default_estimand_candidates(self._result, _tilt_target_names(self._result))
         from .sensitivity._parameters import arm_parameters
+        from .sensitivity.omitted_variable import axis_parameters
 
-        return _default_estimand_candidates(self._result, arm_parameters(self._result))
+        # A regime, shift or MSM fit reports no arm parameter, and the bound answers for
+        # its own parameters (X82 part G).
+        eligible = {**arm_parameters(self._result), **axis_parameters(self._result)}
+        return _default_estimand_candidates(self._result, eligible)
 
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
         """Bound omitted-confounder bias for a reported estimand.
@@ -4816,6 +4910,26 @@ class SensitivityFacade(_CapabilityFacade):
         """
         return self._dispatch("evalue", args, kwargs)
 
+    def marginal_bounds(self, *args: Any, **kwargs: Any) -> Any:
+        """Bound an arm mean or the ATE under the marginal sensitivity model.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.marginal_sensitivity_bounds`, without
+            its first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        MarginalSensitivityBounds
+            One row of bounds per sensitivity parameter value.
+
+        See Also
+        --------
+        cleverly.sensitivity.marginal_sensitivity_bounds : The same bounds as a free function.
+        """
+        return self._dispatch("marginal_bounds", args, kwargs)
+
     def missingness(self, *args: Any, **kwargs: Any) -> Any:
         """Vary unobserved-outcome odds under a missingness tilt.
 
@@ -4862,7 +4976,10 @@ class SensitivityFacade(_CapabilityFacade):
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
         # A structural fit declares every row refused, so an explicit estimand lifts none.
         if not explicit_evalue or _family(self._result) == "structural":
-            self._require(operation)
+            # The omitted-variable rows read the request, which can lift their refusal.
+            self._require(
+                operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None
+            )
         return self._invoke(operation, args, kwargs)
 
     def _with_default_parameter(

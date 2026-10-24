@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -40,6 +41,7 @@ from tests.studies.evidence.property_verdicts import (
     Necessity,
     alternative_target_necessity_verdicts,
     alternative_target_verdicts,
+    calibration_rule,
     calibration_verdicts,
     se_ratio_leaves_band,
 )
@@ -185,6 +187,42 @@ def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
     }
     with pytest.raises(ValueError, match="unknown side"):
         se_ratio_leaves_band(Interval(1.0, 1.1), (0.93, 1.07), "beside")  # type: ignore[arg-type]
+
+
+def test_a_wrong_gamma_control_must_cover_below_the_band() -> None:
+    """The X82 SH control: a bound at a smaller gamma read against the declared bound's truth.
+
+    A coverage interval wholly below the band floor 0.92 passes as the control and fails as a
+    positive arm. One that reaches the floor resolves nothing and fails. The accounting rule
+    has exactly one clause for the kind, and it reads coverage against the same floor.
+    """
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 3,
+            "cell": [
+                "SH1_ate_lower__wrong_gamma_control",
+                "SH1_ate_lower__correctly_specified",
+                "SH1_ate_upper__wrong_gamma_control",
+            ],
+            "se_ratio_ci_lower": [0.98, 0.98, 0.98],
+            "se_ratio_ci_upper": [1.02, 1.02, 1.02],
+            "coverage_ci_lower": [0.30, 0.30, 0.90],
+            "coverage_ci_upper": [0.40, 0.40, 0.93],
+            "passed": [False, True, True],
+        }
+    )
+    calibration_verdicts(summary, margins=Margins(), efficiency_band=None)
+    assert list(summary["passed"]) == [True, False, False]
+
+    rule = calibration_rule(efficiency_band=None)
+    control = pd.Series({"role": "control", "cell": "SH1_ate_lower__wrong_gamma_control"})
+    clauses = [clause for clause in rule.clauses if clause.applies(None, control)]  # type: ignore[arg-type]
+    assert [clause.name for clause in clauses] == ["wrong-gamma coverage below band"]
+    (clause,) = clauses
+    context = SimpleNamespace(margins=Margins())
+    for index, expected in ((0, True), (2, False)):
+        row = summary.loc[index]
+        assert clause.read(context, row).passed is expected  # type: ignore[arg-type]
 
 
 def test_an_alternative_target_control_must_recover_the_target_it_claims() -> None:

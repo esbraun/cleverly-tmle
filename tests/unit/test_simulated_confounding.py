@@ -2223,8 +2223,6 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
     assert [name for name, _ in _FIT_WIDE_RULES] == [
         "longitudinal",
         "result_type",
-        "adaptive_iptw",
-        "learned_rule",
         "risk_ratio_tilt",
         "missing_estimator",
         "repeat_provenance",
@@ -3505,7 +3503,7 @@ def test_relabeling_an_ate_cannot_substitute_another_estimand(
         else (
             "fixed-policy parameter metadata"
             if estimand == "ate_regime"
-            else "exact MSM with identity, log, or logit link only"
+            else "an MSM declared by the MSM class under a registered link"
         )
     )
     with pytest.raises(CapabilityError, match=message):
@@ -3834,7 +3832,7 @@ def test_a_named_reconstruction_failure_refuses_and_an_unnamed_one_is_raised(
         ("missing", "missing-outcome"),
         ("intermediate", "controlled-direct-effect"),
         ("no-estimator", "replayable"),
-        ("estimator", "supports ordinary TMLE"),
+        ("estimator", "declares simulated_confounding_replay = True"),
         ("outcome-family", "outcome family"),
         ("identification", "identification metadata"),
         ("functional-type", "backdoor-identified parameter"),

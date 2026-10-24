@@ -199,7 +199,7 @@ class Propensity:
                 raise ValueError(
                     f"a two-arm propensity's rows must sum to one, and these depart by "
                     f"{deviation:.3g}. Pass simplex=False if this is deliberately not a "
-                    "distribution over the arms -- a joint mechanism g_a(W) pi_a(W), say -- "
+                    "distribution over the arms (a joint mechanism g_a(W) pi_a(W), say) "
                     "so that bounded() clips both columns instead of taking one as the "
                     "complement of the other."
                 )

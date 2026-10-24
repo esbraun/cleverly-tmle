@@ -729,14 +729,11 @@ class TestTheLimitReading:
             warnings.simplefilter("ignore")
             return every_configuration(response, composite, intermediate, stratified)
 
-    def test_every_configuration_is_descriptive_on_the_shipped_registry(
+    def test_every_test_fit_is_descriptive_on_the_shipped_registry(
         self, calls: dict[str, Any]
     ) -> None:
-        assert not [
-            row
-            for row in interpretation.VERDICT_EVIDENCE
-            if row.instrument == ov.OVB_LIMIT_INSTRUMENT
-        ]
+        # The shipped rows need n >= 2,000 and the studies' saturated GLMs; these fits have
+        # neither.
         for rule, call in calls.items():
             bound = call()
             assert "+".join(bound.features) == rule

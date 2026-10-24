@@ -22,6 +22,7 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError
 from cleverly.interventions import ModifiedPolicy, Piece, Shift, Support
 from cleverly.longitudinal import LTMLE, DynamicRegimen
+from cleverly.validation.refute import refute, refute_refusal
 
 from .. import dose_declarations as law
 
@@ -274,3 +275,21 @@ def test_a_support_without_a_policy_is_refused() -> None:
             covariates=["W"],
             treatment_support=Support(0.0, 2.0),
         )
+
+
+def test_a_history_dependent_support_takes_the_band_rank_point_placebo() -> None:
+    """X82 part J: the placebo moves each dose's position within its own band (was #428's
+    refusal), so every placebo dose meets the declared support the refit checks."""
+    contrast = "ate_policy[inside vs natural course]"
+    frame = law.point_frame()
+    declared = _fit(frame, "density", treatment_support=Support(0.0, law.upper)).single()
+    assert refute_refusal(declared, estimand=contrast, tests=("placebo",)) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = refute(declared, estimand=contrast, tests=("placebo",), n_replicates=3)
+    assert len(report["placebo"].values) == 3
+    assert "keeps each unit's declared band" in report["placebo"].detail
+    fixed = _fit(frame, "density", treatment_support=Support(-10.0, 10.0)).single()
+    assert refute_refusal(fixed, estimand=contrast, tests=("placebo",)) is None
+    plain = _fit(frame, "density").single()
+    assert refute_refusal(plain, estimand=contrast, tests=("placebo",)) is None

@@ -33,8 +33,8 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "reference: never",
                 "cross-fitting: 5 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each cumulative "
-                "treatment-and-censoring probability (package default; R "
-                "ltmle-compatible heuristic -- inspect truncation "
+                "treatment-and-censoring probability (package default, an R "
+                "ltmle-compatible heuristic; inspect the truncation "
                 "diagnostics)",
                 "q_bounds: [-8, 17]",
                 "confidence level: 95%",
@@ -94,7 +94,7 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "cross-fitting: 5 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each cumulative censoring and "
                 "non-tilt treatment probability; the tilt factor is unbounded "
-                "(package default; R ltmle-compatible heuristic -- inspect "
+                "(package default, an R ltmle-compatible heuristic; inspect the "
                 "truncation diagnostics)",
                 "q_bounds: [-8, 17]",
                 "confidence level: 95%",
@@ -140,8 +140,8 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "reference: never",
                 "cross-fitting: 5 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each cumulative "
-                "treatment-and-censoring probability (package default; R "
-                "ltmle-compatible heuristic -- inspect truncation "
+                "treatment-and-censoring probability (package default, an R "
+                "ltmle-compatible heuristic; inspect the truncation "
                 "diagnostics)",
                 "confidence level: 95%",
                 "random_state: 11",
@@ -184,8 +184,8 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "working model: 2 term(s) (intercept), duration, link=identity",
                 "cross-fitting: 5 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each cumulative "
-                "treatment-and-censoring probability (package default; R "
-                "ltmle-compatible heuristic -- inspect truncation diagnostics)",
+                "treatment-and-censoring probability (package default, an R "
+                "ltmle-compatible heuristic; inspect the truncation diagnostics)",
                 "confidence level: 95%",
                 "random_state: 11",
             ],
@@ -219,8 +219,8 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "reference: never",
                 "cross-fitting: 2 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each cumulative "
-                "treatment-and-censoring probability (package default; R "
-                "ltmle-compatible heuristic -- inspect truncation "
+                "treatment-and-censoring probability (package default, an R "
+                "ltmle-compatible heuristic; inspect the truncation "
                 "diagnostics)",
                 "confidence level: 95%",
                 "random_state: 11",
@@ -277,8 +277,8 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "reference: never",
                 "cross-fitting: 5 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each partial path "
-                "treatment-and-censoring probability (package default; R "
-                "ltmle-compatible heuristic -- inspect truncation diagnostics)",
+                "treatment-and-censoring probability (package default, an R "
+                "ltmle-compatible heuristic; inspect the truncation diagnostics)",
                 "confidence level: 95%",
                 "random_state: 11",
             ],
@@ -338,8 +338,8 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "reference: never",
                 "cross-fitting: 5 fold(s)",
                 "g_bounds: fixed [0.01, 1] on each cumulative "
-                "treatment-and-censoring probability (package default; R "
-                "ltmle-compatible heuristic -- inspect truncation "
+                "treatment-and-censoring probability (package default, an R "
+                "ltmle-compatible heuristic; inspect the truncation "
                 "diagnostics)",
                 "survival model: iterated_mean",
                 "targeting: iterative",

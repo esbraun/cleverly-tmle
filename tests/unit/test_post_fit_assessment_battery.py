@@ -1444,7 +1444,9 @@ def test_repeated_exact_ratio_preserves_combination_and_retargets_each_repeat(mo
     original = source.estimator.retarget
 
     def tracked(*args, **kwargs):
-        calls.append(args[1])
+        # The omitted-variable rows retarget each draw too; count the risk-ratio retargets.
+        if tuple(kwargs["estimands"]) == ("rr",):
+            calls.append(args[1])
         return original(*args, **kwargs)
 
     monkeypatch.setattr(source.estimator, "retarget", tracked)
@@ -1778,7 +1780,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     )
     assert list(sections) == ["Returned results", "Checks", "Not run"]
 
-    assert len(battery.to_frame()) == 15
+    assert len(battery.to_frame()) == 16
     assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
     assert "poorly calibrated" not in text
     assert "not run by default because it retargets the fit" not in text
@@ -1794,7 +1796,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
 
     # The nonzero witness for completeness: two groups are larger than a head of two.
     statuses = [item.status for _, item in battery._presented()]
-    assert statuses.count(AssessmentStatus.DEFERRED) == 4
+    assert statuses.count(AssessmentStatus.DEFERRED) == 5
     assert statuses.count(AssessmentStatus.NOT_APPLICABLE) == 3
 
     review = "\n".join((checks, omissions, _SUMMARY_FOOTER))
@@ -1803,7 +1805,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
         for surface, item in battery._presented()
         if item.status is not AssessmentStatus.COMPLETED
     }
-    assert len(inventoried) == 8
+    assert len(inventoried) == 9
     assert {name for name in inventoried if name in review} == inventoried
 
     # Every returned result names the operation ``report(...)`` takes. No detail on this

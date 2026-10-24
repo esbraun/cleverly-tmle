@@ -73,7 +73,7 @@ def reader_facing(root: Path) -> list[Path]:
 
     It **excludes** ``CLAUDE.md`` and ``AGENTS.md``, which :data:`DOCUMENTS` picks up from the
     root glob.  Those are instructions to a contributor rather than documentation, and
-    ``CLAUDE.md`` states the dash rule by quoting the characters it bans.
+    ``CLAUDE.md`` states the dash rule.
 
     It **adds** ``.rst`` and ``.ipynb``.  The notebook is the one that matters: it is in the
     ``docs/examples`` toctree and reader-facing by every other measure, and an em dash survived

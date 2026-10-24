@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from .evalue import EValue, evalue, evalue_from_rr
+from .marginal import (
+    MarginalSensitivityBounds,
+    MarginalSensitivityRow,
+    marginal_sensitivity_bounds,
+)
 from .missingness import DEFAULT_GAMMA_GRID, missingness_tilt, tipping_gamma
 from .omitted_variable import (
     LINEAR_ESTIMANDS,
@@ -30,6 +35,8 @@ __all__ = [
     "BenchmarkResult",
     "ConfounderStrengthGrid",
     "EValue",
+    "MarginalSensitivityBounds",
+    "MarginalSensitivityRow",
     "ObservedConfounderCalibration",
     "PositivityReport",
     "SensitivityBounds",
@@ -40,6 +47,7 @@ __all__ = [
     "contour_data",
     "evalue",
     "evalue_from_rr",
+    "marginal_sensitivity_bounds",
     "missingness_tilt",
     "omitted_variable_bounds",
     "positivity_report",

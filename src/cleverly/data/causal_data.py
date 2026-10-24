@@ -1106,7 +1106,7 @@ class CausalData:
             raise DataError(
                 f"{self.treatment_name} is continuous and has no arms, so {float(code)!r} "
                 "has no label. A continuous treatment's parameters are indexed by "
-                "intervention -- a shift -- rather than by arm."
+                "intervention (a shift) rather than by arm."
             )
         index = round(float(code))
         if index < 0 or index >= self.n_arms or float(index) != float(code):

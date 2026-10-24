@@ -1016,9 +1016,11 @@ source conventions for numeric covariates. It does not change the declared grid.
 
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
-check is one ordered list, and it stops at the first boundary your fit meets. Three stops wait on
-a declared law: longitudinal fits outside the time-fixed latent, learned-rule fits, and
-risk-ratio tilt fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+check is one ordered list, and it stops at the first boundary your fit meets.
+
+Two stops wait on
+a declared law: longitudinal fits outside the time-fixed latent, and learned-rule fits. A third
+stop refuses a risk-ratio tilt fit, which no typed study request reports. Twelve provenance and shape stops read the result type, the replay estimator, the
 repeat provenance, the outcome family, the observation weights, and the identification metadata.
 The result-type stop runs second, because every later stop reads a field that only a
 point-treatment result declares.

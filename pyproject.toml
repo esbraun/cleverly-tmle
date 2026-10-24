@@ -107,7 +107,13 @@ exclude = ["/tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# `-m "not slow"` keeps the slow tier out of the default run, so the fast command stays
+# `pytest -q -n auto --dist loadgroup`. A later `-m slow` on the command line replaces it.
+# `docs/development/testing-strategy.md` says what may carry the marker.
+addopts = '-ra --strict-markers -m "not slow"'
+markers = [
+    "slow: a tutorial notebook's refit cells, run by `pytest -m slow` and the CI slow-tests job",
+]
 filterwarnings = [
     "error::RuntimeWarning",
     "ignore::DeprecationWarning",

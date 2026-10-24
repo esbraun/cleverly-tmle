@@ -1068,7 +1068,7 @@ def test_readers_report_the_combined_estimates() -> None:
     assert "median over 3 draws" in text
     assert "leverage of draw 1 of 3" in text
     # The split-noise block names every parameter with its spread across the draws.
-    assert "split noise -- spread across the 3 draws on the inference scale" in text
+    assert "split noise: spread across the 3 draws on the inference scale" in text
     spread = result.repeat_spread()
     for name in result.estimates:
         assert f"  {name} {spread[name]:.4g}  (" in text

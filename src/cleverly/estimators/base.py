@@ -1872,7 +1872,7 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
                 f"this fit produced {len(self.results)} results, one per level of "
                 f"{self.intermediate_name or 'the intermediate'} ({list(self.levels)}), so "
                 "there is no single one to return. A controlled direct effect is a "
-                "different parameter at each level -- index the level you mean, e.g. "
+                "different parameter at each level; index the level you mean, e.g. "
                 f"result[{self.levels[0]!r}]."
             )
         return next(iter(self.results.values()))
@@ -2049,7 +2049,7 @@ def _arm_shares(data: CausalData) -> str:
             else:
                 dose = np.asarray(values, dtype=float)
                 parts.append(f"{name}: range [{dose.min():.3g}, {dose.max():.3g}]")
-        return "vector treatment -- " + "; ".join(parts)
+        return "vector treatment: " + "; ".join(parts)
     if data.is_continuous_treatment:
         dose = np.asarray(data.treatment, dtype=float)
         mean = float(np.average(dose, weights=data.weights))

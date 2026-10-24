@@ -11,8 +11,11 @@ import re
 from typing import Any
 
 import numpy as np
+import pytest
 
 from cleverly.datasets import navigation_protocol
+from cleverly.exceptions import CapabilityError
+from cleverly.sensitivity import evalue_from_rr, omitted_variable_bounds
 from tests.studies.oat_per_arm_laws import BINARY_ACTIVE
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -27,26 +30,28 @@ NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/collaborative-tmle-oat/summary.log"
 _TRUTH = "reviews/notebook-review/probes/collaborative-tmle-oat/truth.log"
+_REFUTE = "reviews/notebook-review/probes/collaborative-tmle-refuters/probe.log"
 
 # Integer counts the readings quote, which the decimal gate does not read:
 # 1,857, 1,881 and 1,963 of 2,000 draws come from _PROBE.
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "0.015": "the gap between the two printed estimates, 0.16289 - 0.1483 = 0.0146",
     "+0.0006": f"mean error of both fits (+0.00055), 2,000 draws: {_PROBE}",
     "0.0358": f"ordinary TMLE empirical SD (0.03583), 2,000 draws: {_PROBE}",
     "0.0297": f"OAT C-TMLE empirical SD (0.02969), 2,000 draws: {_PROBE}",
     "0.93": f"ordinary TMLE mean SE over SD (0.9333), 2,000 draws: {_PROBE}",
     "0.98": f"OAT C-TMLE mean SE over SD (0.9759), 2,000 draws: {_PROBE}",
     "0.0134": f"median |OAT - TMLE| (0.0134), 2,000 draws: {_PROBE}",
-    "0.0381": f"95th percentile of |OAT - TMLE| (0.0381), 2,000 draws: {_PROBE}",
+    "0.038": f"95th percentile of |OAT - TMLE| (0.0381), 2,000 draws: {_PROBE}",
+    "1.3": "the printed tipping weight-side strength over readiness's printed cf_d, 0.0576 / 0.0451",
     "0.0016": f"twice the Monte Carlo SE of the mean error (2 x 0.0358 / sqrt(2000)): {_PROBE}",
     "10.14": f"population nu2 of the full set (10.136): {_TRUTH}",
     "9.14": f"population nu2 of the full set, g clipped at the page bounds (9.142): {_TRUTH}",
     "4.12": f"population nu2 without staffing (4.122): {_TRUTH}",
     "0.193": f"ordinary TMLE mean share of g outside (0.1, 0.9) (0.1933): {_PROBE}",
     "0.0002": f"OAT C-TMLE mean share of g outside (0.1, 0.9) (0.0002): {_PROBE}",
+    "1.01": f"both placebo ratios of mean reported SE over SD (1.012, 1.010), 400 refits: {_REFUTE}",
 }
 
 
@@ -86,6 +91,10 @@ def _check_committed_sources() -> None:
         (r"without staffing", 4.12),
     ):
         assert round(_probe(rf"^{label}: nu2 = ([\d.]+)$", _TRUTH)[0], 2) == value
+    # "about 1.01": the 400-refit placebo ratios of both fits, from the refutation probe.
+    for name, ratio in (("tmle", 1.012), ("oat", 1.010)):
+        (probed,) = _probe(rf"^{name} placebo t -[\d.]+ mean se / sd ([\d.]+);", _REFUTE)
+        assert probed == ratio and round(probed, 2) == 1.01
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -130,19 +139,17 @@ def check(namespace: dict[str, Any]) -> None:
     ordinary, oat = tmle["ate"], collaborative["ate"]
     assert ordinary.inference == "influence_curve"
     assert oat.inference == "influence_curve"
-    assert "Its intervals read the stacked parametric curve" in stored_output(
-        NOTEBOOK, "collaborative"
-    )
+    assert "Its intervals read the stacked parametric curve" in collaborative.summary()
     assert not namespace["in_sample"].enabled
     # "The interval contains the true 0.1186 on this draw", for each fit.
     assert covers(ordinary, truth["ate"])
     assert covers(oat, truth["ate"])
-    # "The two estimates differ by about 0.015 on this draw."
+    # "The estimates differ by 0.015."
     assert 0.01 < abs(ordinary.psi - oat.psi) < 0.02
 
-    # Step 8: staffing puts the ordinary g in the tails, and the OAT g has none there.
+    # "What staffing does to each treatment model": staffing puts the ordinary g in the tails, and the OAT g has none there.
     weights = {name: fit.diagnostics.support() for name, fit in namespace["fits"].items()}
-    ordinary_support, oat_support = weights["TMLE"], weights["OAT C-TMLE"]
+    ordinary_support, oat_support = weights["standard TMLE"], weights["collaborative TMLE"]
     assert ordinary_support.tail_mass[0.1]["below"] > 0.05
     assert ordinary_support.tail_mass[0.1]["above"] > 0.05
     assert ordinary_support.truncated["fraction"] > 0.0
@@ -160,8 +167,11 @@ def check(namespace: dict[str, Any]) -> None:
         ordinary_support.clever_covariate_max["mean"] > 5 * oat_support.clever_covariate_max["mean"]
     )
     assert namespace["se_ratio"] < 0.9
+    # "about 14% of patients get a predicted offer probability below 0.1 or above 0.9".
+    tails = ordinary_support.tail_mass[0.1]
+    assert round(tails["below"] + tails["above"], 2) == 0.14
 
-    # Step 9: the working mechanisms read the outcome prediction only, so they discriminate
+    # "Check the fit": the working mechanisms read the outcome prediction only, so they discriminate
     # the offer weakly.  The ordinary g, which holds staffing, discriminates it well.
     assessment = namespace["assessment"]
     assert tuple(assessment.attention) == ()
@@ -176,7 +186,212 @@ def check(namespace: dict[str, Any]) -> None:
     stored = stored_output(NOTEBOOK, "assessment")
     assert "unavailable" not in stored and "not_applicable" not in stored
 
-    # Step 10: the bound on the declared set, with nu2 above the 4 of a g near one half.
+    _check_refutation_stored(namespace)
+    _check_evalue(namespace)
+    _check_bound_limit(namespace)
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """The refit cells: the refutation, the bound, the generated outcome, and the stress surface."""
+    _check_refutation(namespace)
+    _check_bound(namespace)
+    _check_generated_outcome(namespace)
+    _check_stress_surface(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Three descriptive refits of each fit, and the scope sentence that says why."""
+    refutations, fits = namespace["refutations"], namespace["fits"]
+    assert list(refutations) == list(fits)
+    for name, fit in fits.items():
+        report = refutations[name]
+        tests = {test.name: test for test in report.tests}
+        assert list(tests) == ["placebo", "random_common_cause", "subset"]
+        original = fit["ate"].psi
+        for test in tests.values():
+            # "No check prints a verdict": no registry row covers either fit.
+            assert test.passed is None and test.rung == "L0"
+            assert len(test.values) == 20 and test.original == pytest.approx(original)
+        assert report.passed is None
+        # The nearest registry row is a TMLE row this fit differs from.
+        summary = report.summary()
+        assert "cross-fitting 'off', learner ParametricOutcome() and n = 1500" in summary
+        differs_on_method = "This fit differs on method 'CTMLE[oat:per_arm]'" in summary
+        assert differs_on_method == (fit is namespace["collaborative"])
+        # A nonzero witness: a placebo that kept the observed offers would return the original
+        # estimate, so the null reading would sit near 0.15 and not near zero.
+        values = np.asarray(tests["placebo"].values)
+        assert abs(values.mean()) < 0.1 * original
+        assert tests["placebo"].statistic_pvalue > 0.05
+        # "run 11% and 12% short of the spread of their 20 estimates".
+        ratio = np.mean(tests["placebo"].standard_errors) / values.std(ddof=1)
+        assert round(1 - ratio, 2) == {"standard TMLE": 0.11, "collaborative TMLE": 0.12}[name]
+        # "Both reported standard errors are on the scale that the refits show".
+        se = fit["ate"].std_error
+        reference = float(se * np.sqrt(1 / 0.7 - 1))
+        scatter = float(np.std(tests["subset"].values, ddof=1))
+        assert 0.8 < scatter / reference < 1.0
+        shift = (np.asarray(tests["random_common_cause"].values) - original) / se
+        assert 0.0 < abs(shift.mean()) < 0.05
+        # "moves each estimate by 0.013 standard errors or less".
+        assert abs(tests["random_common_cause"].statistic) < 0.0135
+
+
+def _check_refutation_stored(namespace: dict[str, Any]) -> None:
+    """What the registry says about the refutation, read without a refit."""
+    from cleverly.validation import refute
+
+    assert "descriptive" in stored_output(NOTEBOOK, "refutation")
+    # The page says the registry holds one C-TMLE point row, the greedy placebo cell C1.
+    from cleverly.validation import _interpretation as registry
+
+    c_tmle_rows = [
+        row
+        for row in registry.VERDICT_EVIDENCE
+        if any(method.startswith("CTMLE") for method in row.scope.methods or ())
+        and row.scope.outcome_families == frozenset({"binomial"})
+    ]
+    assert [(row.instrument, sorted(row.scope.methods or ())) for row in c_tmle_rows] == [
+        ("placebo", ["CTMLE[greedy]"])
+    ]
+    assert all(row.scope.n_min == 2000 for row in c_tmle_rows)
+    # "these data have none": the five simulated columns and no other measure.
+    assert list(namespace["frame"].columns) == [
+        "transition_success",
+        "transition_navigation",
+        "baseline_readiness",
+        "coordination_need",
+        "navigator_staffing",
+    ]
+    with pytest.raises(ValueError, match="negative_control_outcome"):
+        refute(namespace["collaborative"], tests=("negative_control_outcome",))
+
+
+def _check_generated_outcome(namespace: dict[str, Any]) -> None:
+    """The generated Bernoulli law has ATE 0.12, and 400 draws state a pass."""
+    law = namespace["generated_law"]
+    # An identity link gives an arm contrast that does not vary with W: the truth is the effect.
+    assert law.link == "identity" and law.effect == 0.12
+    for name, report in namespace["generated"].items():
+        (test,) = report.tests
+        assert test.name == "simulated_outcome" and test.rung == "L2"
+        assert test.passed is True and report.passed is True
+        assert len(test.values) == 400
+        # "0.12194 and 0.12191": the mean of the generated estimates sits at the law's truth.
+        spread = np.std(test.values, ddof=1) / np.sqrt(400)
+        assert abs(np.mean(test.values) - 0.12) < 3 * spread
+        # The generated truth is not the page's ATE.
+        assert abs(namespace["fits"][name]["ate"].psi - 0.12) > 0.02
+
+
+def _check_evalue(namespace: dict[str, Any]) -> None:
+    """The E-value of each fit is the retargeted risk ratio's, with the page's scope."""
+    for name, fit in namespace["fits"].items():
+        value = fit.sensitivity.evalue()
+        assert value.estimand == "rr" and not value.approximate
+        assert value.risk_ratio > 1.0 and 1.0 < value.risk_ratio_ci[0] < value.risk_ratio
+        assert value.point == pytest.approx(evalue_from_rr(value.risk_ratio), rel=1e-12)
+        # The limit is the E-value of the interval end nearest the null.
+        assert value.limit == pytest.approx(evalue_from_rr(value.risk_ratio_ci[0]), rel=1e-12)
+        assert 1.0 < value.limit < value.point
+        # "Derived ... no nuisance model was refit": the retargeted ratio of two arm means.
+        assert value.source_estimand == "ate"
+        # The note under the OAT fit only: no registered calibration covers its limit.
+        assert (value.limit_reading is not None) == (name == "collaborative TMLE")
+    stored = stored_output(NOTEBOOK, "evalue")
+    assert stored.count("No calibration covers this configuration") == 1
+    assert stored.index("collaborative TMLE") < stored.index(
+        "No calibration covers this configuration"
+    )
+
+
+def _check_stress_surface(namespace: dict[str, Any]) -> None:
+    """The stress surface induces no confounding at this nearly balanced offer."""
+    surfaces = namespace["surfaces"]
+    treated_share = float(namespace["frame"]["transition_navigation"].mean())
+    assert 0.45 < treated_share < 0.55
+    for name, surface in surfaces.items():
+        cells = surface.to_frame()
+        assert len(cells) == 16
+        zero = cells[(cells["treatment_strength"] == 0.0) & (cells["outcome_strength"] == 0.0)]
+        assert float(zero["displacement"].iloc[0]) == 0.0
+        # "The printed associations stay between -0.0071 and 0.0122 in every cell."
+        association = cells["induced_treatment_association"]
+        assert association.min() == pytest.approx(-0.0071, abs=5e-5)
+        assert association.max() == pytest.approx(0.0122, abs=5e-5)
+        assert abs(association).max() < 0.05
+        # "The cells on the diagonal ... return near zero": a nonzero witness against the
+        # off-diagonal cells, which move the estimate by several times as much.
+        diagonal = cells[
+            (cells["treatment_strength"] == cells["outcome_strength"])
+            & (cells["treatment_strength"] > 0.0)
+        ]["displacement"]
+        assert (diagonal > 0).all() and diagonal.max() < 0.04
+        # The outcome-only column moves the estimate further as the strength grows.
+        column = cells[cells["treatment_strength"] == 0.0].sort_values("outcome_strength")
+        movement = column["displacement"].to_numpy()
+        assert (np.diff(movement) < 0).all()
+        original = namespace["fits"][name]["ate"].psi
+        if name == "standard TMLE":
+            assert abs(movement[-1]) > original
+        else:
+            assert 0.5 * original < abs(movement[-1]) < original
+    assert (
+        surfaces["standard TMLE"].to_frame()["induced_treatment_association"].to_numpy()
+        == surfaces["collaborative TMLE"].to_frame()["induced_treatment_association"].to_numpy()
+    ).all()
+    calibration = (
+        surfaces["standard TMLE"].calibration_frame().set_index(["covariate", "role"])["strength"]
+    )
+    assert calibration[("baseline_readiness", "outcome")] == pytest.approx(0.4267, abs=5e-5)
+    assert calibration[("navigator_staffing", "treatment")] == pytest.approx(0.3727, abs=5e-5)
+    assert calibration.max() < 0.5
+
+
+def _check_bound_limit(namespace: dict[str, Any]) -> None:
+    """The bound refuses the per-arm OAT fit even under the declaration."""
+    collaborative = namespace["collaborative"]
+    with pytest.raises(CapabilityError, match="per-arm"):
+        omitted_variable_bounds(collaborative, "ate", assume_consistent_mechanism=True)
+    with pytest.raises(CapabilityError, match="assume_consistent_mechanism=True"):
+        omitted_variable_bounds(collaborative, "ate")
+    # The ordinary TMLE fit gives the bound the page reads.
+    assert omitted_variable_bounds(namespace["tmle"], "ate").lower < namespace["tmle"]["ate"].psi
+
+
+def _check_bound(namespace: dict[str, Any]) -> None:
+    """The bound on the standard fit, benchmarked against every recorded characteristic."""
+    # nu2 sits above the 4 of a propensity near one half, because staffing drives the offer.
     elements, robustness = namespace["elements"], namespace["robustness"]
     assert elements.nu2 > 6.0
+    # "The fit slightly underestimates nu^2": a probe of the simulated population puts it at 9.14
+    # with the propensities capped as in the fit.
+    assert elements.nu2 < 9.14
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
+    sensitivity, records = namespace["sensitivity"], namespace["records"]
+    assert list(records) == list(namespace["covariates"])
+    readiness, need, staffing = (
+        records[name] for name in ("baseline_readiness", "coordination_need", "navigator_staffing")
+    )
+    # Readiness is the strongest recorded confounder: both of its strengths are below the
+    # robustness value, and its bound keeps the lower limit above zero.  Staffing, which drives
+    # the offer, carries almost all of the weight side, and its bound crosses zero: the nonzero
+    # witness that the benchmark reads each covariate's own strengths.
+    assert readiness.cf_y < robustness["rv"] and readiness.cf_d < robustness["rv"]
+    assert sensitivity.omitted_confounding(benchmark=readiness).ci_lower > 0.0
+    assert need.cf_d == 0.0 and sensitivity.omitted_confounding(benchmark=need).bias == 0.0
+    assert staffing.cf_d > 0.9 and staffing.cf_y < 0.01
+    assert sensitivity.omitted_confounding(benchmark=staffing).ci_lower < 0.0
+    # "A weight-side strength of 0.058, about 1.3 times readiness's 0.045, pulls it to zero".
+    tipping_cf_d, tipping_cf_y = namespace["tipping_cf_d"], namespace["tipping_cf_y"]
+    assert round(tipping_cf_d / readiness.cf_d, 1) == 1.3
+    # The benchmark's weight-side value is a gain; staffing's share of the weights' mean square is
+    # gain / (1 + gain), about one half ("At its actual share, 0.48, the limit is 0.028").
+    share = namespace["staffing_share"]
+    assert share == pytest.approx(staffing.cf_d / (1 + staffing.cf_d)) and round(share, 2) == 0.48
+    at_share = namespace["at_share"]
+    assert at_share.ci_lower > 0.0 and round(at_share.ci_lower, 3) == 0.028
+    # "would need a success-side strength of only 0.0074 to reach zero".
+    assert staffing.cf_y < tipping_cf_y < 0.01
+    for cf_y, cf_d in ((readiness.cf_y, tipping_cf_d), (tipping_cf_y, share)):
+        assert abs(sensitivity.omitted_confounding(cf_y=cf_y, cf_d=cf_d).ci_lower) < 1e-6

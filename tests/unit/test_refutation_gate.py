@@ -60,6 +60,7 @@ def _fit_configuration(**overrides: Any) -> FitConfiguration:
         "clusters": None,
         "arms": 2,
         "replicates": 5,
+        "placebo_draw": "permute",
     }
     base.update(overrides)
     return FitConfiguration(**base)
@@ -243,6 +244,13 @@ class TestEquivalenceBands:
         wide = band_readings(psi, se, 0.0, EquivalenceBands(), truth_variance=0.5)[0]
         assert wide.upper - wide.lower > narrow.upper - narrow.lower
 
+    def test_the_monte_carlo_truth_variance_widens_each_coverage_interval(self) -> None:
+        # A draw at 2 SE misses the exact truth and is a hit once V_T widens its interval.
+        psi, se = np.full(10, 2.0) + np.linspace(0.0, 0.01, 10), np.ones(10)
+        exact = band_readings(psi, se, 0.0, EquivalenceBands())[2]
+        sampled = band_readings(psi, se, 0.0, EquivalenceBands(), truth_variance=0.1)[2]
+        assert exact.estimate == 0.0 and sampled.estimate == 1.0
+
 
 class TestRegistry:
     def test_every_non_exact_row_names_a_study(self) -> None:
@@ -278,6 +286,44 @@ class TestRegistry:
         assert not other.licensed
         assert "method" in other.sentence
         assert "TMLE" in other.sentence
+
+    def test_an_outside_fit_names_the_nearest_row_not_the_first(self) -> None:
+        """The sentence reads the row that differs on the fewest axes."""
+        far = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"LTMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        near = _covering_row("placebo", "t")
+        fit = _fit_configuration(method="CTMLE")
+        for rows in ((far, near), (near, far)):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert "LTMLE" not in sentence and "survival" not in sentence
+            assert "method 'CTMLE'" in sentence
+
+    def test_a_tie_names_the_earlier_row_and_every_difference(self) -> None:
+        """Two rows that differ on one axis each: the earlier row is named, with all its axes."""
+        first = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"DRTMLE"}))
+        )
+        second = replace(
+            _covering_row("placebo", "t"), scope=CalibrationScope(methods=frozenset({"IPSI"}))
+        )
+        fit = _fit_configuration(method="CTMLE")
+        for rows, named in (((first, second), "DRTMLE"), ((second, first), "IPSI")):
+            sentence = resolve("placebo", "t", fit, evidence=rows).sentence
+            assert f"['{named}']" in sentence
+        wide = replace(
+            _covering_row("placebo", "t"),
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}), outcome_families=frozenset({"survival"})
+            ),
+        )
+        sentence = resolve(
+            "placebo", "t", _fit_configuration(method="CTMLE"), evidence=(wide,)
+        ).sentence
+        assert "method 'CTMLE' and outcome family" in sentence
 
     @pytest.mark.parametrize(
         "change",
@@ -365,6 +411,7 @@ class TestScopeContainment:
                 arms=frozenset({2}),
                 nodes=frozenset({None}),
                 replicates=frozenset({5}),
+                placebo_draws=frozenset({"permute"}),
                 n_min=fit.n,
                 covariates_per_row_max=fit.covariates_per_row,
             ),
@@ -385,7 +432,10 @@ class TestScopeContainment:
         )
         smaller_n = replace(row, scope=replace(row.scope, n_min=row.scope.n_min - 1))
         more_covariates = replace(row, scope=replace(row.scope, covariates_per_row_max=0.5))
-        for mutated in (extra_learner, smaller_n, more_covariates):
+        band_draw = replace(
+            row, scope=replace(row.scope, placebo_draws=frozenset({"permute", "band_permute"}))
+        )
+        for mutated in (extra_learner, smaller_n, more_covariates, band_draw):
             assert check_scope_containment(mutated, cells)
         without_power = {key: cell for key, cell in cells.items() if key != "p1"}
         assert check_scope_containment(row, without_power)
@@ -633,18 +683,21 @@ class TestGeneratedOutcomeBands:
         assert test.passed is False
         assert not test.readings[1].inside
 
-    def test_the_covariate_part_check_reads_the_effect_and_the_contrast(self) -> None:
-        from cleverly.validation.refute import _covariate_part_vanishes
+    def test_the_covariate_part_check_reads_the_law_and_the_contrast(self) -> None:
+        from cleverly.validation._point_generated import PointTarget
 
-        assert _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=False
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=True
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=False, effect_varies_with_covariates=False
-        )
+        weights = np.ones(3)
+        constant = {1.0: np.array([2.0, 3.0, 4.0]), 0.0: np.array([1.0, 2.0, 3.0])}
+        varying = {1.0: np.array([2.0, 3.5, 4.0]), 0.0: np.array([1.0, 2.0, 3.0])}
+        contrast = PointTarget("difference", "all", 1.0, 0.0)
+        assert contrast.covariate_part_vanishes(constant, weights)
+        assert not contrast.covariate_part_vanishes(varying, weights)
+        # A level or a ratio reads the arm functions themselves, which vary here.
+        assert not PointTarget("level", "all", 1.0, None).covariate_part_vanishes(constant, weights)
+        assert not PointTarget("rr", "all", 1.0, 0.0).covariate_part_vanishes(constant, weights)
+        flat = {1.0: np.full(3, 2.0), 0.0: np.full(3, 1.0)}
+        assert PointTarget("level", "all", 1.0, None).covariate_part_vanishes(flat, weights)
+        assert PointTarget("rr", "all", 1.0, 0.0).covariate_part_vanishes(flat, weights)
 
     def test_a_non_registered_band_declaration_is_refused(self) -> None:
         from cleverly.exceptions import CapabilityError
@@ -850,13 +903,13 @@ class TestLearnedRulePlacebo:
         assert test.expectation == f"~ {mean:g}"
         assert "outcome mean" in test.detail
 
-    def test_every_other_test_still_refuses_a_learned_rule_fit(self) -> None:
+    def test_the_other_refit_tests_meet_no_learned_rule_stop(self) -> None:
+        """X82 part F4 holds the realized rules on every other refit test."""
+        from cleverly.validation.refute import refute_refusal
         from tests.unit import _learned_rule_support as support
 
-        result = self._fit()
-        for name in ("random_common_cause", "subset"):
-            with pytest.raises(CapabilityError, match="relearns the rule"):
-                refute(result, estimand=support.NAME, tests=("placebo", name))
+        tests = ("placebo", "random_common_cause", "subset", "bootstrap_stability")
+        assert refute_refusal(self._fit(), estimand=support.NAME, tests=tests) is None
 
     def test_the_reference_is_exact_over_every_permutation(self) -> None:
         """An IPW value of a fixed rule, with the marginal ``g``, averages to the weighted mean."""
@@ -1172,21 +1225,18 @@ class TestFrozenSplitsAndCovariatePart:
             )
 
     def test_a_varying_effect_would_withhold_the_ratio_and_coverage(self) -> None:
-        from cleverly.validation.refute import _covariate_part_vanishes
+        from cleverly.validation._point_generated import PointTarget
 
-        assert _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=False
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=True, effect_varies_with_covariates=True
-        )
-        assert not _covariate_part_vanishes(
-            difference_contrast=False, effect_varies_with_covariates=False
-        )
+        # Only the rows of the population count: a contrast that varies on a row outside
+        # the ATT population still has a zero covariate part there.
+        target = PointTarget("difference", "value", 1.0, 0.0)
+        means = {1.0: np.array([2.0, 2.0, 9.0]), 0.0: np.array([1.0, 1.0, 1.0])}
+        assert target.covariate_part_vanishes(means, np.array([1.0, 1.0, 0.0]))
+        assert not target.covariate_part_vanishes(means, np.ones(3))
 
     def test_the_registered_processes_carry_a_scalar_effect(self) -> None:
-        # The call site passes effect_varies_with_covariates=False. That is sound only while
-        # every accepted process has a constant effect, so a tau(W) process fails here first.
+        # The covariate-part check reads the law, so a tau(W) process would be read
+        # correctly; the catalog still declares a scalar effect only.
         from cleverly.validation import GaussianAdjustmentOutcome
 
         with pytest.raises((ValueError, TypeError)):

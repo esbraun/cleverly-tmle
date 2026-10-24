@@ -364,7 +364,7 @@ def band_readings(
         draws' standard deviation :math:`s`. The ratio interval is the delta method on
         :math:`\log \overline{se} - \tfrac12 \log \overline{(\psi_r - \bar\psi)^2}`,
         from the joint sample moments. Coverage is the two-sided Clopper-Pearson interval of
-        the share of draws with :math:`|\psi_r - T| \le 1.96\, se_r`.
+        the share of draws with :math:`|\psi_r - T| \le 1.96\sqrt{se_r^2 + V_T}`.
     """
     psi = np.asarray(estimates, dtype=float)
     se = np.asarray(std_errors, dtype=float)
@@ -402,7 +402,8 @@ def band_readings(
         bool(bands.se_ratio[0] <= low and high <= bands.se_ratio[1]),
     )
 
-    hits = int(np.count_nonzero(np.abs(psi - truth) <= critical * se))
+    # A Monte Carlo truth adds its variance to each interval's, in quadrature.
+    hits = int(np.count_nonzero(np.abs(psi - truth) <= critical * np.sqrt(se**2 + truth_variance)))
     cp_low = 0.0 if hits == 0 else float(stats.beta.ppf(0.025, hits, r - hits + 1))
     cp_high = 1.0 if hits == r else float(stats.beta.ppf(0.975, hits + 1, r - hits))
     coverage_reading = BandReading(

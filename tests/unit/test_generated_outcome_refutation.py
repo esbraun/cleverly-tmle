@@ -199,20 +199,19 @@ class TestGeneratedProcesses:
         ids=("treatment-removed", "sign-reversed", "arms-reversed"),
     )
     def test_nonzero_mutations_fail(self, mutation: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        def mutated_draw(process: GaussianAdjustmentOutcome, data: Any, *, seed: int) -> np.ndarray:
-            adjustment = process.adjustment(data.covariates)
-            noise = process.noise.draw(np.random.default_rng(seed), data.n)
+        def mutated_term(process: Any, codes: Any, **_: Any) -> np.ndarray:
+            treatment = np.asarray(codes, dtype=float)
             if mutation == "treatment-removed":
-                treatment_term = 0.0
-            elif mutation == "sign-reversed":
-                treatment_term = -process.effect * data.treatment
-            else:
-                treatment_term = process.effect * (1.0 - data.treatment)
-            return np.asarray(adjustment + treatment_term + noise, dtype=float)
+                return np.zeros_like(treatment)
+            if mutation == "sign-reversed":
+                return np.asarray(-process.effect * treatment)
+            return np.asarray(process.effect * (1.0 - treatment))
 
-        # Deliberately mutate the exact registered implementation. Unsupported subclasses
-        # are refused before their draw method can run and therefore are not valid controls.
-        monkeypatch.setattr(GaussianAdjustmentOutcome, "draw", mutated_draw)
+        # Deliberately mutate the arm term the held draw reads. The truth reads its own copy
+        # in ``_point_generated``, so the draw and the truth disagree, as a wrong draw would.
+        import sys
+
+        monkeypatch.setattr(sys.modules["cleverly.validation.refute"], "arm_term", mutated_term)
         report = refute(
             _eligible_result(),
             tests=("simulated_outcome",),
@@ -324,7 +323,7 @@ class TestGeneratedOutcomeRefusals:
             pass
 
         result = _eligible_result()
-        with pytest.raises(CapabilityError, match="exact registered GaussianAdjustmentOutcome"):
+        with pytest.raises(CapabilityError, match="registered declarations"):
             refute(
                 result,
                 tests=("simulated_outcome",),
@@ -485,11 +484,11 @@ class TestGeneratedOutcomeRefusals:
 
 class TestGeneratedOutcomeFailureBoundary:
     def test_generation_errors_propagate(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def broken_draw(process: GaussianAdjustmentOutcome, data: Any, *, seed: int) -> np.ndarray:
-            del process, data, seed
+        def broken_sample(process: GaussianAdjustmentOutcome, *args: Any, **kwargs: Any) -> Any:
+            del process, args, kwargs
             raise DataError("broken generation")
 
-        monkeypatch.setattr(GaussianAdjustmentOutcome, "draw", broken_draw)
+        monkeypatch.setattr(GaussianAdjustmentOutcome, "sample", broken_sample)
         with pytest.raises(DataError, match="broken generation"):
             refute(
                 _eligible_result(),
@@ -539,14 +538,13 @@ class TestGeneratedOutcomeFailureBoundary:
     @pytest.mark.parametrize(
         ("change", "message"),
         [
-            ("nonbinary", "non-binary"),
-            ("missing", "missing-outcome"),
-            ("axis", "intervention-indexed"),
-            ("msm", "MSM"),
-            ("ratio", "ratio"),
+            ("continuous", "continuous treatment"),
+            ("axis", "effect derivation for the 'rr_tilt' axis"),
+            ("msm", "an MSM on the 'arm' axis"),
+            ("unknown-target", "nde effect derivation"),
             ("longitudinal", "longitudinal"),
-            ("intermediate-data", "controlled-direct-effect"),
-            ("intermediate-functional", "controlled-direct-effect"),
+            ("intermediate-data", "none on the functional"),
+            ("intermediate-functional", "inconsistent registered target provenance"),
         ],
     )
     def test_unsupported_compositions_are_refused_pre_fit(self, change: str, message: str) -> None:
@@ -557,10 +555,8 @@ class TestGeneratedOutcomeFailureBoundary:
         result.data.is_binary_treatment = len(result.data.treatment_levels) == 2
         result.data.has_missing_outcome = not bool(np.all(result.data.observed))
         result.data.has_intermediate = False
-        if change == "nonbinary":
-            result.data.treatment_levels = (0, 1, 2)
-        elif change == "missing":
-            result.data.observed = np.zeros(result.data.n, dtype=bool)
+        if change == "continuous":
+            result.data.is_continuous_treatment = True
         elif change == "longitudinal":
             result.identified_effect.functional = replace(
                 result.identified_effect.functional, longitudinal=True
@@ -573,14 +569,14 @@ class TestGeneratedOutcomeFailureBoundary:
             )
         elif change == "axis":
             result.identified_effect.functional = replace(
-                result.identified_effect.functional, axis="regime"
+                result.identified_effect.functional, axis="rr_tilt"
             )
         elif change == "msm":
             result.identified_effect.functional = replace(
                 result.identified_effect.functional, msm=object()
             )
         else:
-            result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], estimand="rr")
+            result.parameter_keys["ate"] = replace(result.parameter_keys["ate"], estimand="nde")
         result.data.is_binary_treatment = len(result.data.treatment_levels) == 2
         result.data.has_missing_outcome = not bool(np.all(result.data.observed))
         with pytest.raises(CapabilityError, match=message):
@@ -732,6 +728,13 @@ class TestRealFitAcceptance:
         assert test.rung == "L2"
         assert test.passed is True
         assert len(test.records) == DEFAULT_OUTCOME_REPLICATES
+        assert (
+            "the standard deviation of the draws) lies inside its equivalence band"
+            in test.scope_sentence
+        )
+        # Each band reading carries the same caveat, so the sentence states it once.
+        assert test.scope_sentence.count("Your own outcome law is not this one.") == 1
+        assert "standardized bias" in test.detail
 
     def test_the_refute_cache_key_is_value_based(self) -> None:
         result = _linear_ate_fit(ATE())
@@ -794,6 +797,16 @@ class TestAdjustmentSignalScale:
         bias = next(reading for reading in test.readings if reading.name == "bias")
         assert not bias.inside
         assert abs(test.mean - 1.0) > 3.0 * test.spread
+        # The licence sentence follows the result: a reading outside its band never prints
+        # that it lies inside.
+        assert (
+            "the standard deviation of the draws) lies outside its equivalence band"
+            in test.scope_sentence
+        )
+        assert (
+            "the standard deviation of the draws) lies inside its equivalence band"
+            not in test.scope_sentence
+        )
 
     def test_a_dummy_outcome_still_passes_under_the_same_confounding(self) -> None:
         # The control for the test above: independent noise carries no covariate signal,
@@ -885,3 +898,26 @@ class TestDummyOutcomeNegativeControl:
         assert not bias.inside
         assert test.spread > 0.0
         assert len(set(test.values)) == len(test.values)
+
+
+def test_every_band_sentence_is_stated_for_the_side_the_reading_fell_on() -> None:
+    """Each generated-outcome and plasmode row says 'lies inside' once, and outside flips it."""
+    from cleverly.validation import _interpretation
+    from cleverly.validation.refute import _band_sentence
+
+    rows = [
+        row
+        for row in _interpretation.VERDICT_EVIDENCE
+        if row.instrument in ("generated_outcome", "plasmode")
+    ]
+    assert {(row.instrument, row.rule) for row in rows} >= {
+        (instrument, rule)
+        for instrument in ("generated_outcome", "plasmode")
+        for rule in ("bias_band", "se_ratio_band", "coverage_band")
+    }
+    for row in rows:
+        assert row.sentence.count("lies inside") == 1, row.sentence
+        assert _band_sentence(row.sentence, True) == row.sentence
+        flipped = _band_sentence(row.sentence, False)
+        assert flipped != row.sentence
+        assert "lies outside" in flipped and "lies inside" not in flipped

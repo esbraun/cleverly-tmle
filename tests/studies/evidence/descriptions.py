@@ -859,13 +859,67 @@ ARMS.update(
     }
 )
 
+#: The rows of the X82 SG limit coverage studies, as arm labels; see the section at the end.
+_SG_OVB = "ovb-limit-coverage"
+_SG_EVALUE = "evalue-limit-coverage"
+_SG_STRENGTH = "at cf_y 0.3, cf_d 0.2, rho 1"
+_SG_PARAMETERS = {
+    "O1": {
+        "ate": "the ATE, outcome missing at random",
+        "ey1": "the arm-1 mean, outcome missing at random",
+    },
+    "O2": {
+        "cde_z0": "the controlled direct effect at Z = 0",
+        "cde_z1": "the controlled direct effect at Z = 1",
+    },
+    "O3": {
+        "coin": "the mean under the stochastic regime coin",
+        "coin_vs_always": "the contrast of the regime coin with always treat",
+    },
+    "O4": {
+        "w2": "the W2 coefficient of the linear MSM with modifier W2",
+        "a_w2": "the treatment-by-W2 coefficient of the linear MSM with modifier W2",
+    },
+    "O5": {
+        "plus1": "the mean under the shift +1 on the dose atoms",
+        "plus1_vs_natural": "the contrast of the shift +1 with the natural course",
+    },
+}
+_SG_OVB_ROWS = {
+    f"{label}_{end}": (cell, f"{end} omitted-variable bound on {words}, {_SG_STRENGTH}")
+    for cell, parameters in _SG_PARAMETERS.items()
+    for label, words in parameters.items()
+    for end in ("lower", "upper")
+}
+_SG_EVALUE_ROWS = {
+    **{
+        f"E3_rr[V={stratum}]": f"risk ratio in stratum V={stratum}, on the log scale"
+        for stratum in (0, 1, 2)
+    },
+    "E4_rr_t5": "ratio of the arm-1 and arm-0 risks at t = 5, on the log scale",
+}
+
+ARMS.update({f"{cell}_{row}": words for row, (cell, words) in _SG_OVB_ROWS.items()})
+ARMS.update(_SG_EVALUE_ROWS)
+
+#: The rows of the X82 SH limit coverage study, as arm labels; see the section at the end.
+_SH_ROWS = {
+    f"{cell}_ate_{end}": f"{end} end of the ATE bound under the marginal sensitivity model at "
+    "Gamma 1.5"
+    for cell in ("SH1", "SH2")
+    for end in ("lower", "upper")
+}
+ARMS.update(_SH_ROWS)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
 #: raise :class:`Undescribed`.  Longest alternative first, so a longer arm is never shadowed
 #: by a shorter one it starts with.
 _ARM = re.compile(
-    r"^(?P<arm>" + "|".join(sorted(ARMS, key=len, reverse=True)) + r")__(?P<cell>.+)$"
+    r"^(?P<arm>"
+    + "|".join(re.escape(arm) for arm in sorted(ARMS, key=len, reverse=True))
+    + r")__(?P<cell>.+)$"
 )
 
 #: A contraction ladder's rung, ``"<configuration>_n<size>"``.  Matched only for the family
@@ -3847,20 +3901,36 @@ def implementation(key: str) -> str:
         raise Undescribed(f"no description for implementation {key!r}") from None
 
 
-def scenario(key: str) -> str:
-    """The law a scenario samples."""
+#: Scenario descriptions that one study scopes, by ``(slug, scenario)``. A study whose
+#: recorded scenario key another study already describes names its own law here.
+STUDY_SCENARIOS: dict[tuple[str, str], str] = {}
+
+
+def scenario(key: str, *, slug: str | None = None) -> str:
+    """The law a scenario samples, read from the study's own entry first."""
+    if slug is not None and (slug, key) in STUDY_SCENARIOS:
+        return STUDY_SCENARIOS[slug, key]
     try:
         return SCENARIOS[key]
     except KeyError:
         raise Undescribed(f"no description for scenario {key!r}") from None
 
 
-def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
+#: Estimand descriptions that one study scopes, by ``(slug, estimand)``.  A study whose row key
+#: another study already describes, such as ``ate_lower`` at another strength, names its own
+#: reading here.
+STUDY_ESTIMANDS: dict[tuple[str, str], str] = {}
+
+
+def estimand(key: str, *, outcome_kind: str = "absorbing", slug: str | None = None) -> str:
     """What an estimand key names, including a bracketed longitudinal regimen.
 
     ``outcome_kind`` is the study record's declaration.  It decides the wording of a
     horizon-indexed contrast, which reads the same on a survival and a repeated outcome.
+    ``slug`` selects the study's own entry in :data:`STUDY_ESTIMANDS` first.
     """
+    if slug is not None and (slug, key) in STUDY_ESTIMANDS:
+        return STUDY_ESTIMANDS[slug, key]
     stratum = _STRATUM.match(key)
     if stratum is not None:
         base = estimand(stratum.group("base"), outcome_kind=outcome_kind)
@@ -4020,9 +4090,10 @@ def cell(
     size = _SIZE.match(base) if family == "double_robust_contraction" else None
     if size is not None:
         base = size.group("cell")
+    scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
     try:
         tested, required = (
-            (STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None)
+            scoped
             or (ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None)
             or CELLS[family, base]
         )
@@ -4030,7 +4101,7 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
-    if family == "interval_calibration" and base == "correctly_specified":
+    if family == "interval_calibration" and base == "correctly_specified" and scoped is None:
         if nuisance_count == 2:
             tested = "both nuisances are correctly specified"
         else:
@@ -4882,3 +4953,275 @@ def _adaptive_cells() -> None:
 
 
 _adaptive_cells()
+
+
+def _refuter_calibration_cells() -> None:
+    """The longitudinal refutation study (X82 SL): its laws, families and 40 cells."""
+    slug = "refuter-calibration-longitudinal"
+    STUDY_SCENARIOS[(slug, "end_of_study")] = (
+        "law E, two nodes, a Gaussian outcome and a time-varying confounder; `SDR` at five folds"
+    )
+    STUDY_SCENARIOS[(slug, "survival")] = (
+        "law S, the registered censored survival law, risk at t = 2; `LTMLE` at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-longitudinal"] = (
+        "`cleverly` fit that the longitudinal refutation rules read"
+    )
+    PROPERTIES["refuter_size"] = (
+        "under its null a refutation rule rejects in no more than 17 of 200 trials"
+    )
+    PROPERTIES["refuter_power"] = (
+        "a refutation rule detects a declared defect in at least 38 of 50 trials"
+    )
+    fits = {
+        "L1": "LTMLE, law S",
+        "S1": "SDR, law E",
+        "I1": "IPSI at odds x2, law E",
+        "B1": "SequentialGComputation, law E",
+        "B2": "SequentialIPW, law E",
+        "B3": "ParametricGFormula, law E",
+        "SN1": "StructuralNestedMean, law E",
+    }
+    size = "no more than 17 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    readings = {
+        "placebo": "the placebo t rule against the exact Markov null",
+        "subset": "the subset rho rule, both tails",
+        "negative_control": "the negative-control z rule on a valid control",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo t rule, with a declared share of stale rows",
+        "subset_half_se": "the subset rho rule, at the reported SE halved",
+        "subset_double_se": "the subset rho rule, at the reported SE doubled",
+        "negative_control_confounded": (
+            "the negative-control z rule, on a control that reads an unmeasured cause of A1"
+        ),
+    }
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, fit in fits.items():
+        for reading, words in readings.items():
+            if cell == "L1" and reading == "negative_control":
+                continue
+            table[("refuter_size", f"{cell}__{reading}")] = (f"{fit}: {words}", size)
+        for defect, words in defects.items():
+            if cell == "L1" and defect.startswith("negative_control"):
+                continue
+            table[("refuter_power", f"{cell}__{defect}")] = (f"{fit}: {words}", power)
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_calibration_cells()
+
+
+# ------------------------------------------------------------------ X82 SG limit coverage
+
+#: The rows of ``ovb-limit-coverage`` and ``evalue-limit-coverage``.  Mirrored from
+#: ``tests.studies.ovb_limit_coverage.CELLS`` and ``tests.studies.evalue_limit_coverage``, which
+#: this module cannot import; ``tests/unit/test_sensitivity_limit_coverage_registry.py`` pins
+#: that every published key resolves.
+IMPLEMENTATIONS["cleverly-ovb-limit"] = "`cleverly` omitted-variable bound limits (X82 part G)"
+IMPLEMENTATIONS["cleverly-evalue-limit"] = "`cleverly` risk-ratio interval behind the E-value limit"
+STUDY_SCENARIOS.update(
+    {
+        (_SG_OVB, "O1"): "part G law, outcome missing at random given A and W; saturated GLMs",
+        (_SG_OVB, "O2"): "part G law with a binary intermediate Z; saturated GLMs",
+        (_SG_OVB, "O3"): "part G law, complete data, three regimes; saturated GLMs",
+        (_SG_OVB, "O4"): "part G law, complete data, linear MSM with modifier W2; saturated GLMs",
+        (_SG_OVB, "O5"): "`tests.discrete_law_shift` on its four dose atoms; saturated GLMs",
+        (_SG_EVALUE, "E3"): "`stratified_law`, three strata, as `canonical-stratified-tmle` fits",
+        (_SG_EVALUE, "E4"): "the `survival` law of `point-treatment-survival`, hazard LTMLE",
+    }
+)
+STUDY_ESTIMANDS.update({(_SG_OVB, row): words for row, (_, words) in _SG_OVB_ROWS.items()})
+STUDY_ESTIMANDS[_SG_EVALUE, "rr_t5"] = _SG_EVALUE_ROWS["E4_rr_t5"]
+STUDY_ARM_CELLS.update(
+    {
+        (slug, "interval_calibration", label, kind): words
+        for slug, labels in (
+            (_SG_OVB, [f"{cell}_{row}" for row, (cell, _) in _SG_OVB_ROWS.items()]),
+            (_SG_EVALUE, list(_SG_EVALUE_ROWS)),
+        )
+        for label in labels
+        for kind, words in (
+            (
+                "correctly_specified",
+                (
+                    "every nuisance is correctly specified, and the row reads its reported limit",
+                    "SE ratio and coverage intervals both inside their calibration bands",
+                ),
+            ),
+            (
+                "inflated_se_control",
+                (
+                    "the reported standard error is multiplied by 1.5",
+                    "the SE-ratio interval must fall above the calibration band",
+                ),
+            ),
+        )
+    }
+)
+PROPERTIES["response_mask_necessity"] = (
+    "the response mask in sigma^2 is what puts the response-mechanism bound at its truth"
+)
+CELLS[("response_mask_necessity", "masked")] = (
+    "the package bound, whose sigma^2 is the masked mean over all rows",
+    "bias interval inside the equivalence margin",
+)
+CELLS[("response_mask_necessity", "unmasked_sigma2")] = (
+    "sigma^2 read as the mean over the observed rows only",
+    "bias interval must fall entirely outside the margin",
+)
+
+
+def _refuter_point_cells() -> None:
+    """The point-treatment refutation study (X82 SP): its laws and 27 cells."""
+    slug = "refuter-calibration-point"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point law with 20 covariates and a Gaussian outcome; TMLE at five folds"
+    )
+    STUDY_SCENARIOS[(slug, "binomial")] = (
+        "the point law with 20 covariates and a binary outcome of prevalence 0.100; "
+        "TMLE at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-point"] = (
+        "`cleverly` fit that the point-treatment refutation rules read"
+    )
+    fits = {
+        "T1": "TMLE with GLM nuisances, Gaussian outcome",
+        "T2": "TMLE with GLM nuisances, binary outcome",
+        "T3": "TMLE with a depth-2 booster, binary outcome",
+        "C1": "greedy C-TMLE, binary outcome",
+        "D1": "DR-TMLE with a declared mechanism, binary outcome",
+        "D2": "DR-TMLE with an estimated mechanism, binary outcome",
+    }
+    readings = {
+        "T1": ("placebo", "subset", "negative_control"),
+        "T2": ("placebo", "subset", "negative_control"),
+        "T3": ("placebo",),
+        "C1": ("placebo",),
+        "D1": ("placebo", "subset", "negative_control"),
+        "D2": ("placebo",),
+    }
+    size = "no more than 17 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    words = {
+        "placebo": "the placebo t rule against the exact permutation null",
+        "subset": "the subset rho rule, both tails",
+        "negative_control": "the negative-control z rule on a valid control",
+    }
+    defects = {
+        "placebo": {
+            "placebo_stale_rows": "the placebo t rule, with a declared share of stale rows"
+        },
+        "subset": {
+            "subset_half_se": "the subset rho rule, at the reported SE halved",
+            "subset_double_se": "the subset rho rule, at the reported SE doubled",
+        },
+        "negative_control": {
+            "negative_control_confounded": (
+                "the negative-control z rule, on a control that reads an unmeasured cause of A"
+            )
+        },
+    }
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, fit in fits.items():
+        for reading in readings[cell]:
+            table[("refuter_size", f"{cell}__{reading}")] = (f"{fit}: {words[reading]}", size)
+            for defect, text in defects[reading].items():
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{fit}: {text}", power)
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_point_cells()
+
+
+def _refuter_band_cells() -> None:
+    """The band-rank placebo study (X82 SJ): its point law and four cells."""
+    slug = "refuter-calibration-band"
+    STUDY_SCENARIOS[(slug, "point")] = (
+        "law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; "
+        "TMLE of a capped +0.5 shift at five folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-band"] = "`cleverly` fit that the band-rank placebo rule reads"
+    fits = {
+        "PJ1": "TMLE of a capped dose shift on law P",
+        "LJ1": "LTMLE of a dose shift at three nodes on the pricing-shaped law L",
+    }
+    size = "no more than 20 rejections in 200 trials"
+    power = "at least 38 detections in 50 trials"
+    for cell, fit in fits.items():
+        for key, value in {
+            ("refuter_size", f"{cell}__placebo"): (
+                f"{fit}: the placebo t rule against the exact band-rank null",
+                size,
+            ),
+            ("refuter_power", f"{cell}__placebo_stale_rows"): (
+                f"{fit}: the placebo t rule, with a declared share of stale rows",
+                power,
+            ),
+        }.items():
+            if key in CELLS:
+                raise ValueError(f"{key} is already described")
+            CELLS[key] = value
+
+
+_refuter_band_cells()
+
+
+# ------------------------------------------------------------------ X82 SH limit coverage
+
+
+def _marginal_bound_cells() -> None:
+    """The marginal sensitivity bound limit study (X82 SH): two laws, two ends each.
+
+    Mirrored from ``tests.studies.marginal_bound_coverage``, which this module cannot
+    import; ``tests/unit/test_marginal_bound_limit_registry.py`` pins that every published
+    key resolves.
+    """
+    slug = "marginal-bound-limit-coverage"
+    IMPLEMENTATIONS["cleverly-msm-bound-limit"] = (
+        "`cleverly` marginal sensitivity bound limits (X82 part H)"
+    )
+    STUDY_SCENARIOS.update(
+        {
+            (slug, "SH1"): "Gaussian linear outcome, 20 covariates, logistic propensity; GLMs",
+            (slug, "SH2"): "logistic outcome, prevalence near 0.33, 20 covariates; GLMs",
+        }
+    )
+    ends = {
+        end: f"{end} end of the ATE bound under the marginal sensitivity model at Gamma 1.5"
+        for end in ("lower", "upper")
+    }
+    rows = {f"ate_{end}": words for end, words in ends.items()}
+    STUDY_ESTIMANDS.update({(slug, row): words for row, words in rows.items()})
+    labels = {f"{cell}_{row}" for cell in ("SH1", "SH2") for row in rows}
+    kinds = {
+        "correctly_specified": (
+            "every nuisance is correctly specified, and the row reads its reported standard error",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        "inflated_se_control": (
+            "the reported standard error is multiplied by 1.5",
+            "the SE-ratio interval must fall above the calibration band",
+        ),
+        "wrong_gamma_control": (
+            "the end at Gamma 1.25, read against the Gamma 1.5 truth",
+            "the coverage interval must fall below the calibration band",
+        ),
+    }
+    STUDY_ARM_CELLS.update(
+        {
+            (slug, "interval_calibration", label, kind): words
+            for label in labels
+            for kind, words in kinds.items()
+        }
+    )
+
+
+_marginal_bound_cells()

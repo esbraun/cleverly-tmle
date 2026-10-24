@@ -599,7 +599,7 @@ def split_noise_lines(
         # Beside the standard error rather than in a separate report, because the
         # comparison is the whole content of the number: on its own "0.0065" says
         # nothing about whether the split mattered.
-        f"split noise -- spread across the {n_repeats} draws on the inference "
+        f"split noise: spread across the {n_repeats} draws on the inference "
         "scale (the log scale for a ratio), a diagnostic and not a standard error:",
     ]
     for name, value in spreads.items():
