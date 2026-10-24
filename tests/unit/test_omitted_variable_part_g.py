@@ -49,6 +49,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.sensitivity.omitted_variable as ov
 from cleverly import ATE, ATT, CausalStudy, PointTreatment
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.datasets import make_missing_outcome
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
@@ -656,13 +657,15 @@ class TestTheJointStrengthSentence:
         self, response: Any, composite: Any, intermediate: Any
     ) -> None:
         expected = {
-            "the response mechanism.": response,
-            "the response and recording mechanisms.": composite,
-            "the response and intermediate mechanisms.": intermediate[0.0],
+            "whether the outcome is recorded": response,
+            "whether the outcome is recorded and whether the treatment is recorded": composite,
+            "whether the outcome is recorded and the intermediate variable": intermediate[0.0],
         }
-        for tail, result in expected.items():
+        for mechanisms, result in expected.items():
             summary = ov.omitted_variable_bounds(result, "ate").summary()
-            assert f"joint strength over the treatment mechanism and {tail}" in summary
+            assert summary.note("joint_strength").text == NOTE_TEXTS["joint_strength"].format(
+                mechanisms=mechanisms
+            )
 
     def test_the_shipped_bound_prints_no_sentence(self) -> None:
         frame, _ = make_missing_outcome(n=300, seed=4)
@@ -742,7 +745,9 @@ class TestTheLimitReading:
             assert bound.limit_reading.sentence.startswith(DESCRIPTIVE_SENTENCE), rule
             assert bound.limit_descriptive, rule
             assert bound.to_dict()["limit_licensed"] is False, rule
-            assert f"confidence limits: {DESCRIPTIVE_SENTENCE}" in bound.summary(), rule
+            summary = bound.summary(detail="full")
+            assert "limits_descriptive" in summary.note_codes, rule
+            assert _evidence(summary).startswith(DESCRIPTIVE_SENTENCE), rule
 
     def test_a_registered_row_licenses_exactly_its_configuration(
         self, calls: dict[str, Any], monkeypatch: pytest.MonkeyPatch
@@ -754,8 +759,17 @@ class TestTheLimitReading:
             licensed = readings.pop(rule)
             assert licensed.limit_reading.licensed, rule
             assert not licensed.limit_descriptive, rule
-            assert "confidence limits: covered by the test row" in licensed.summary()
+            summary = licensed.summary(detail="full")
+            assert "limits_descriptive" not in summary.note_codes
+            assert _evidence(summary) == "covered by the test row"
             assert all(bound.limit_descriptive for bound in readings.values()), rule
+
+
+def _evidence(summary: Any) -> str:
+    """The limits' evidence sentence, as the full summary's settings print it."""
+    prefix = "Evidence for the limits: "
+    (line,) = [line for line in summary.section("Settings").lines if line.startswith(prefix)]
+    return line.removeprefix(prefix)
 
 
 def test_the_benchmark_refits_a_response_fit() -> None:
@@ -780,5 +794,7 @@ def test_the_benchmark_refits_a_response_fit() -> None:
     bound = ov.omitted_variable_bounds(result, "ate", benchmark=record)
     assert bound.features == ("response",)
     assert record.features == ("response",)
-    assert "joint strength over the treatment mechanism and the response" in record.summary()
+    assert record.summary().note("joint_strength").text == NOTE_TEXTS["joint_strength"].format(
+        mechanisms="whether the outcome is recorded"
+    )
     assert record.to_dict()["features"] == "response"

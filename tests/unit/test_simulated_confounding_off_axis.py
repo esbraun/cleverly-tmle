@@ -27,6 +27,7 @@ from cleverly import (
     RegimeMean,
     TMLEMethod,
 )
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental, Stochastic
@@ -177,7 +178,8 @@ def test_a_multi_arm_incremental_cell_equals_the_hand_g_formula(
     _, original_g, _ = _cells(result.data)
     frozen = _incremental_mean(seen[1], _FACTORS, g=original_g) - seen[1].outcome.mean()
     assert abs(frozen - moved.estimate) > 1e-3
-    assert "incremental reading: every cell refits the treatment mechanism" in surface.summary()
+    summary = surface.summary()
+    assert summary.note("incremental_reading").text == NOTE_TEXTS["incremental_reading"]
 
 
 def _swapped(data: Any, tail: np.ndarray[Any, Any], pair: tuple[float, float]) -> Any:

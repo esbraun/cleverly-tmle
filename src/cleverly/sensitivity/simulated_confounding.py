@@ -20,14 +20,15 @@ from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
+from .._summary import short_repr
 from ..data.causal_data import arm_share
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
-from ..utils.text import format_table
 from ..validation.simulation import ReplicationFailure
 from ._simulated_confounding_request import _validate_request, _ValidatedRequest
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
     from ..data import WeightReport
     from ..estimators.base import TMLEResult
 
@@ -123,7 +124,7 @@ class ConfounderStrengthGrid:
         return tuple(tuple(point) for point in product(*axes))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ObservedConfounderCalibration:
     """Record one model-dependent observed-covariate calibration.
 
@@ -150,8 +151,14 @@ class ObservedConfounderCalibration:
     method: str
     component: str | None = None
 
+    def __repr__(self) -> str:
+        facts = [("", self.covariate), ("role", self.role), ("strength", f"{self.strength:.3g}")]
+        if self.component is not None:
+            facts.append(("component", self.component))
+        return short_repr("ObservedConfounderCalibration", facts)
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, repr=False)
 class SimulatedConfoundingCell:
     """Store one strength pair's estimate or structured failure.
 
@@ -205,8 +212,25 @@ class SimulatedConfoundingCell:
     induced_intermediate_association: float | None = None
     induced_outcome_association: float | None = None
 
+    def __repr__(self) -> str:
+        strength = self.treatment_strength
+        treatment = (
+            ", ".join(f"{float(item):g}" for item in strength)
+            if isinstance(strength, tuple)
+            else f"{float(strength):g}"
+        )
+        facts: list[tuple[str, Any]] = [
+            ("treatment", treatment),
+            ("outcome", f"{float(self.outcome_strength):g}"),
+        ]
+        if self.failure is not None:
+            facts.append(("", f"failed ({self.failure.error_type})"))
+        elif self.displacement is not None:
+            facts.append(("movement", f"{float(self.displacement):+.4g}"))
+        return short_repr("SimulatedConfoundingCell", facts)
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, repr=False)
 class SimulatedConfoundingResult:
     r"""Store a qualitative simulated-confounding stress surface.
 
@@ -416,16 +440,20 @@ class SimulatedConfoundingResult:
             One ``label: value`` line for each population field, in a fixed order.
         """
         return (
+            f"target population: {self.population}",
+            f"conditioning arm: {self.conditioning_arm!r}",
+            f"baseline stratum: {self.stratum!r}",
+            f"strata columns: {self.strata_names!r}",
+            f"association population: {self.association_population}",
+            f"calibration population: {self.calibration_population}",
+            f"refit population: {self.refit_population}",
+            *self._population_conditions(),
+        )
+
+    def _population_conditions(self) -> tuple[str, ...]:
+        """The lines of :meth:`population_lines` that only some surfaces print."""
+        return (
             (
-                f"target population: {self.population}",
-                f"conditioning arm: {self.conditioning_arm!r}",
-                f"baseline stratum: {self.stratum!r}",
-                f"strata columns: {self.strata_names!r}",
-                f"association population: {self.association_population}",
-                f"calibration population: {self.calibration_population}",
-                f"refit population: {self.refit_population}",
-            )
-            + (
                 (
                     "incremental reading: every cell refits the treatment mechanism, and the odds "
                     "tilt reads that refitted mechanism, so a cell moves the intervention with "
@@ -639,100 +667,31 @@ class SimulatedConfoundingResult:
         }
         return emit_frame(payload, backend=self.backend)
 
-    def summary(self) -> str:
-        """Return a qualitative text summary without an inferential verdict.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the population and refit settings.
 
         Returns
         -------
-        str
-            Original estimate, seeds, perturbation laws, cell movements, and the
-            induced treatment association of each cell.
+        Summary
+            A ``str`` that prints the question, the numbers and how to read them, and
+            keeps its header, tables and notes as data.
         """
-        rows = []
-        for cell in self.cells:
-            reported = _format_values(cell.induced_treatment_association, "+.4f")
-            fraction = cell.target_population_fraction
-            population_fraction = "n/a" if fraction is None else f"{fraction:.4f}"
-            strength = _format_values(cell.treatment_strength, ".4g")
-            if cell.failure is None:
-                rows.append(
-                    [
-                        strength,
-                        f"{cell.outcome_strength:.4g}",
-                        f"{cell.estimate:.5g}",
-                        f"{cell.displacement:+.5g}",
-                        reported,
-                        population_fraction,
-                    ]
-                )
-            else:
-                rows.append(
-                    [
-                        strength,
-                        f"{cell.outcome_strength:.4g}",
-                        "failed",
-                        cell.failure.error_type,
-                        reported,
-                        population_fraction,
-                    ]
-                )
-        headers = [
-            "treatment strength"
-            + (f" ({', '.join(self.treatment_components)})" if self.treatment_components else ""),
-            "outcome strength",
-            "estimate",
-            f"movement ({self.movement_scale.replace('_', ' ')})",
-            "induced association",
-            "population fraction",
-        ]
-        if self.intermediate_name is not None:
-            headers[1:1] = ["intermediate strength"]
-            headers.append("intermediate association")
-            for row, cell in zip(rows, self.cells, strict=True):
-                row[1:1] = [_format_values(cell.intermediate_strength, ".4g")]
-                row.append(_format_values(cell.induced_intermediate_association, "+.4f"))
-        if self.bounded_outcome_law is not None:
-            headers.append("outcome association")
-            for row, cell in zip(rows, self.cells, strict=True):
-                row.append(_format_values(cell.induced_outcome_association, "+.4f"))
-        # ``inference.influence.median_estimates`` returns its input unchanged for a single
-        # draw, so a one-draw report must not name an aggregation rule that never ran.
-        crossfit = (
-            f"cross-fitting: {self.n_repeats} draws, aggregation={self.repeat_aggregation}"
-            if self.n_repeats > 1
-            else "cross-fitting: 1 draw, no repeat aggregation"
-        )
-        return "\n".join(
-            [
-                f"Simulated common-cause stress surface for {self.estimand!r}",
-                f"original estimate: {self.original_estimate:.5g}",
-                (
-                    f"seeds: root={self.root_seed}, latent={self.latent_seed}, "
-                    f"refit={self.refit_seed}"
-                ),
-                crossfit,
-                f"target measure: {self.target_measure}",
-                *self.population_lines(),
-                self.treatment_law,
-                self.outcome_law,
-                *self._calibration_lines(),
-                "",
-                format_table(headers, rows),
-                "",
-                "The induced association is the correlation between the latent vector and the "
-                "treatment of the cell within the selected baseline population.",
-                *(
-                    (
-                        "ATT and ATC membership follows each cell's perturbed treatment. "
-                        "Movement includes this change of population.",
-                    )
-                    if self.population == "perturbed_treatment_group"
-                    else ()
-                ),
-                *self._reading_guard(),
-                "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
-            ]
-        )
+        from ._summaries import surface_summary
+
+        return surface_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summaries import surface_repr
+
+        return surface_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def _calibration_lines(self) -> tuple[str, ...]:
         """Name the calibration rows without a finite strength, and the sign conventions."""
@@ -758,7 +717,10 @@ class SimulatedConfoundingResult:
         return tuple(lines)
 
     def _reading_guard(self) -> tuple[str, ...]:
-        """Return the lines that say which cells carry a confounding path."""
+        """Return the lines that say which cells carry a confounding path.
+
+        A rebuilt ATT or ATC population is the summary's own note, so it is not here.
+        """
         if self.treatment_family == "longitudinal":
             return (
                 "Each node's association reports what its perturbation achieved on these "
@@ -785,23 +747,11 @@ class SimulatedConfoundingResult:
                 else "",
                 "An association near zero says the swap moved the estimate by "
                 "misclassification between the two arms and not by confounding.",
-                *(
-                    (
-                        "The estimate can also move because each cell rebuilds its ATT or "
-                        "ATC population from the swapped treatment.",
-                    )
-                    if self.population == "perturbed_treatment_group"
-                    else ()
-                ),
             )
         if self.treatment_family == "binary":
             if self.population == "perturbed_treatment_group":
                 return (
                     "An association near zero says the treatment axis opened no confounding path.",
-                    "The estimate can still move, because each cell rebuilds its ATT or "
-                    "ATC population from the perturbed treatment.",
-                    "Read target_population_fraction beside the movement. It reports the "
-                    "share of the selected baseline population this cell conditions on.",
                 )
             return (
                 "An association near zero says the treatment axis moved the estimate by "
@@ -822,9 +772,6 @@ class SimulatedConfoundingResult:
             "whatever its association, and reports dose perturbation alone.",
             f"A cell whose treatment strength is zero also has no confounding path. {outcome_axis}",
         )
-
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
 
 
 def _outcome_law_text(bounded_outcome_law: str | None, family: str) -> str:
@@ -849,15 +796,6 @@ def _outcome_law_text(bounded_outcome_law: str | None, family: str) -> str:
 def _component(value: Any, index: int) -> Any:
     """One component's entry of a per-component cell value, or ``None`` when absent."""
     return None if value is None else value[index]
-
-
-def _format_values(value: Any, spec: str) -> str:
-    """A cell value for the summary table: one number, or one per component."""
-    if value is None:
-        return "n/a"
-    if isinstance(value, tuple):
-        return "(" + ", ".join("n/a" if v is None else format(v, spec) for v in value) + ")"
-    return format(value, spec)
 
 
 def _pair_labels(data: Any, request: _ValidatedRequest) -> Any:

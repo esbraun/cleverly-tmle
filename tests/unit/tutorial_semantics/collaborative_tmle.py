@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import navigation_protocol
 from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity import evalue_from_rr, omitted_variable_bounds
@@ -215,9 +216,11 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
             assert len(test.values) == 20 and test.original == pytest.approx(original)
         assert report.passed is None
         # The nearest registry row is a TMLE row this fit differs from.
-        summary = report.summary()
-        assert "cross-fitting 'off', learner ParametricOutcome() and n = 1500" in summary
-        differs_on_method = "This fit differs on method 'CTMLE[oat:per_arm]'" in summary
+        compared = report.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines
+        summary = " ".join(compared)
+        assert "no out-of-fold predictions, a learner outside those studied" in summary
+        assert "1,500 rows (fewer than" in summary
+        differs_on_method = "another method (CTMLE[oat:per_arm])" in summary
         assert differs_on_method == (fit is namespace["collaborative"])
         # A nonzero witness: a placebo that kept the observed offers would return the original
         # estimate, so the null reading would sit near 0.15 and not near zero.

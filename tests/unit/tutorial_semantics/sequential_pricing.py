@@ -310,7 +310,6 @@ def _check_design(namespace: dict[str, Any]) -> None:
         namespace["revenue_result"],
         namespace["rise_fit"],
     )
-    assert f"protocol: schema 1; {FINGERPRINT}" in stored_output(NOTEBOOK, "protocol")
     printed = stored_output(NOTEBOOK, "identify")
     for month, names in (
         (1, ("usage", "engaged_1")),
@@ -767,13 +766,15 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert test.rung == "L0" and test.passed is None and test.verdict == "descriptive"
         assert len(test.values) == 10 and not test.failures
     assert report.passed is None
-    summary = report.summary()
-    assert "This fit differs on outcome family 'binomial'" in summary
+    summary = report.summary(detail="full")
+    compared = summary.section(vocabulary.SECTION_COMPARED).lines
+    assert any("another kind of outcome (binary)" in line for line in compared)
     # "From month 2 on, the donor is one of the 5 subscribers whose previous-month value is nearest"
     # and "The placebo prices therefore still depend on engagement through the band".
-    assert "The placebo dose keeps each unit's declared band" in summary
-    assert "one of the 5 donors whose previous value is nearest" in summary
-    assert "so the placebo dose depends on the covariates through the band" in summary
+    note = summary.note("test_placebo").text
+    assert "The placebo dose keeps each unit's declared band" in note
+    assert "one of the 5 donors whose previous value is nearest" in note
+    assert "so the placebo dose depends on the covariates through the band" in note
     placebo = report["placebo"]
     values = np.asarray(placebo.values)
     assert len(values) == 10

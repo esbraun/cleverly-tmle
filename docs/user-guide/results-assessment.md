@@ -525,10 +525,10 @@ generated = ate_result.diagnostics.refute(
 draws = generated.draws_frame("simulated_outcome")
 ```
 
-That call refits 400 times and reports the bias, the standard-error ratio, and the coverage, each
-with its 95% interval and its equivalence band. It prints `yes` when all three intervals lie inside
-their bands. Each row in `draws` records the child seed, estimate, standard error, family, or refit
-failure.
+That call refits 400 times. Its summary lists the bias, the standard-error ratio, and the
+coverage, each with its 95% interval and the band it must fall in, and marks `yes` where the
+interval lies inside the band. Each row in `draws` records the child seed, estimate, standard
+error, family, or refit failure.
 
 Use bootstrap measurement error to assess estimate stability under declared covariate error.
 The operation samples rows first. It then perturbs original adjustment variables and refits the
@@ -562,10 +562,13 @@ The placebo refutation permutes treatment and reads the refit estimates against 
 operation refuses it before refitting. The `random_common_cause` and `subset` refutations keep
 their descriptive readings for this target.
 
-A refutation prints `passed` only where the evidence registry covers the fit. Otherwise the report
-prints the numbers, `passed` is `None`, and the report says what it would take to read them as a
-verdict. `bool(report)` raises `TypeError` for a descriptive report, so test `report.passed` against
-`True` and `False`. 
+`print(report.summary())` shows one row per test: the mean and SD of the refits, what to expect
+of them, and the result. A test prints `passed` or `failed` only where a simulation study or
+an exact reference backs it for this kind of fit. Otherwise it prints `no pass or fail`, its
+`passed` is `None`, and so is `report.passed` unless another test failed. The note under each
+test says what it checks and what its numbers can show, and `summary(detail="full")` adds the studied fits each test was compared with.
+`bool(report)` raises `TypeError` for a report without a pass or fail, so test `report.passed`
+against `True` and `False`.
 
 Checks that need more than 20 refits are opt-in. The default tests run 20
 replications each. A generated-outcome call defaults to `DEFAULT_OUTCOME_REPLICATES`, which is 400
@@ -653,7 +656,8 @@ print(plugin_bounds.summary())
 print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
 ```
 
-The summary names the mechanism whose score the standard error carries. A treatment learner
+`plugin_bounds.summary(detail="full")` names, under Settings, the mechanism whose score the
+standard error carries. A treatment learner
 outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
 `robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
 omits `rva`. The bounds and the rest of `robustness_value` stay available.

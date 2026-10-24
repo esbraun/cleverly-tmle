@@ -13,6 +13,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.inference import run_bootstrap
@@ -699,12 +700,22 @@ class TestReporting:
             BootstrapMeasurementError(("numeric", "group"), resampling="iid"),
         )
 
-        summary = report.summary()
-        assert (
-            "bootstrap_measurement_error: variables=numeric, group; resampling=iid; "
-            "original=29.5; successful=4; failed=0" in summary
+        summary = report.summary(detail="full")
+        header = dict(summary.header)
+        assert header[vocabulary.ESTIMATE_TESTED] == "ate = 29.50"
+        assert header[vocabulary.REPEATS_PER_TEST] == "4"
+        row = [cell.text for cell in summary.tables[0].rows[0]]
+        assert row[0] == "measurement error"
+        assert row[3] == "moves from 29.5"
+        draws = summary.section(vocabulary.SECTION_DRAWS).lines
+        assert draws == (
+            "Measurement error: 4 refits succeeded and 0 failed; error added to numeric, "
+            "group; rows resampled one at a time.",
         )
-        assert "moves from 29.5 under the declared error" in summary
+        assert (
+            "adds the measurement error you declared to numeric, group"
+            in summary.note("test_bootstrap_measurement_error").text
+        )
 
     def test_a_failed_measurement_test_is_rendered_as_a_failure(self) -> None:
         report, _ = _run(
@@ -713,12 +724,20 @@ class TestReporting:
             draws=20,
             estimator=_RecordingEstimator(statistic=_column_spread),
         )
-        summary = report.summary()
-        assert (
-            "bootstrap_measurement_error: variables=numeric; resampling=iid; "
-            "original=17.318; successful=20; failed=0" in summary
+        summary = report.summary(detail="full")
+        assert dict(summary.header)[vocabulary.ESTIMATE_TESTED] == "ate = 17.32"
+        row = [cell.text for cell in summary.tables[0].rows[0]]
+        assert row[-1] == vocabulary.CHECK_RESULTS["descriptive"]
+        assert summary.note("test_bootstrap_measurement_error").text.endswith(
+            vocabulary.EVIDENCE_WORDS["L0"] + "."
         )
-        assert "VERDICT: none" in summary
+        assert (
+            summary.section(vocabulary.SECTION_DRAWS)
+            .lines[0]
+            .startswith(
+                "Measurement error: 20 refits succeeded and 0 failed; error added to numeric"
+            )
+        )
 
     def test_the_report_table_carries_the_resolved_resampling_mode(self) -> None:
         data = _data(clusters=True)

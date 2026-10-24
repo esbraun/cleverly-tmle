@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from cleverly import CapabilityError
+from cleverly._summary import vocabulary
 from cleverly.datasets import navigation_protocol
 from cleverly.validation import BoundedAdjustmentOutcome, GaussianAdjustmentOutcome, refute
 from tests.unit.tutorial_semantics import (
@@ -159,11 +160,12 @@ def check(namespace: dict[str, Any]) -> None:
     # recomputes it from the structural equations as 0.024137 (MC SE 2.4e-06).
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
     assert double_odds == pytest.approx(0.024137, abs=2e-5)
-    assert "positivity *for the assigned dose*" in namespace["shift_effect"].summary()
-    assert "An upper cap alone does not ensure this for negative shifts or support gaps" in (
-        namespace["shift_effect"].summary()
-    )
-    assert "*no positivity assumption*" in namespace["incremental_effect"].summary()
+    # A full summary wraps its lines, so each check reads the words in order.
+    shift = " ".join(str(namespace["shift_effect"].summary(detail="full")).split())
+    assert "positivity *for the assigned dose*" in shift
+    assert "An upper cap alone does not ensure this for negative shifts or support gaps" in shift
+    incremental = " ".join(str(namespace["incremental_effect"].summary(detail="full")).split())
+    assert "*no positivity assumption*" in incremental
 
     # Each reading names the fields its protocol changes in the program protocol.
     program = navigation_protocol()
@@ -394,9 +396,10 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         # "No check prints a verdict": no registry row covers a TMLE regime contrast.
         assert test.passed is None and test.rung == "L0" and len(test.values) == 20
     assert screen_report.passed is None
-    assert (
-        "This fit differs on estimand kind 'ate_regime[screen on risk vs offer to none]'"
-        in screen_report.summary()
+    compared = screen_report.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines
+    assert any(
+        "another estimate (ate_regime[screen on risk vs offer to none])" in line
+        for line in compared
     )
     placebo = tests["placebo"]
     values = np.asarray(placebo.values)

@@ -2160,6 +2160,17 @@ def test_every_status_is_presented_by_exactly_one_grouping() -> None:
     assert set(AssessmentStatus) == {AssessmentStatus.COMPLETED, *summary_order}
 
 
+def _frame_values(frame, backend):  # type: ignore[no-untyped-def]
+    return frame.to_dict(as_series=False) if backend == "polars" else frame.to_dict(orient="list")
+
+
+def _poke(frame, backend):  # type: ignore[no-untyped-def]
+    if backend == "pandas":
+        frame.iloc[0, 0] = 99
+    else:
+        frame[0, 0] = 99
+
+
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
     point_result, backend, monkeypatch, tmp_path
@@ -2167,6 +2178,7 @@ def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
     import joblib
 
     from cleverly._assessment_cache import _CachedFrame
+    from cleverly.sensitivity import SensitivityContour
 
     result = dataclasses.replace(
         point_result,
@@ -2180,25 +2192,33 @@ def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
         return original(cls, frame, backend)
 
     monkeypatch.setattr(_CachedFrame, "from_frame", classmethod(tracked))
+    # The truncation curve is a dataframe: it is packed once, and a retrieved copy that
+    # the caller edits leaves the stored rows unchanged.
+    diagnostics = result.diagnostics.run_all(include_retargets=True)
+    assert calls == [1]
+    retained = diagnostics.report("truncation_curve")
+    expected = _frame_values(retained, backend)
+    _poke(retained, backend)
+    fresh = diagnostics.report("truncation_curve")
+    assert _frame_values(fresh, backend) == expected
+    path = tmp_path / f"{backend}.joblib"
+    joblib.dump(diagnostics, path)
+    assert type(joblib.load(path).report("truncation_curve")) is type(fresh)
+    assert calls == [1]
+
+    # The contour keeps its rows as Python values, so it needs no packing, and the frame
+    # it emits is a fresh copy each time.
     report = result.sensitivity.run_all()
     assert calls == [1]
-    retained = report.report("contour")
-    expected = (
-        retained.to_dict(as_series=False)
-        if backend == "polars"
-        else retained.to_dict(orient="list")
-    )
-    if backend == "pandas":
-        retained.iloc[0, 0] = 99
-    else:
-        retained[0, 0] = 99
-    fresh = report.report("contour")
-    actual = fresh.to_dict(as_series=False) if backend == "polars" else fresh.to_dict(orient="list")
-    assert actual == expected
-    path = tmp_path / f"{backend}.joblib"
+    contour = report.report("contour")
+    assert isinstance(contour, SensitivityContour)
+    retained = contour.to_frame()
+    expected = _frame_values(retained, backend)
+    _poke(retained, backend)
+    assert _frame_values(report.report("contour").to_frame(), backend) == expected
+    path = tmp_path / f"{backend}-sensitivity.joblib"
     joblib.dump(report, path)
-    assert type(joblib.load(path).report("contour")) is type(fresh)
-    assert calls == [1]
+    assert joblib.load(path).report("contour") == contour
 
 
 def test_natural_course_keeps_the_two_refutations_that_still_read(

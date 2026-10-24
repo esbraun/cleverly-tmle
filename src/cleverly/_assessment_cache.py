@@ -27,6 +27,11 @@ from .utils.frames import emit_frame
 
 
 def _frame_payload(frame: Any) -> dict[str, Any]:
+    # A sensitivity result that keeps its rows as Python values (``MissingnessTilt``,
+    # ``SensitivityContour``) gives them directly.
+    rows = getattr(frame, "_payload", None)
+    if callable(rows):
+        return dict(rows())
     if isinstance(frame, _CachedFrame):
         return dict(zip(frame.columns, frame.values, strict=True))
     if type(frame).__module__.startswith("polars"):

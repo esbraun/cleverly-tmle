@@ -94,7 +94,9 @@ def msm_modified() -> Any:
 
 
 def _rows(result: Any, gamma: tuple[float, ...] = (0.0, GAMMA), **kwargs: Any) -> Any:
-    return nw.from_native(missingness_tilt(result, list(gamma), **kwargs), eager_only=True)
+    return nw.from_native(
+        missingness_tilt(result, list(gamma), **kwargs).to_frame(), eager_only=True
+    )
 
 
 def _psi(result: Any, name: str, gamma: float, **kwargs: Any) -> float:
@@ -330,7 +332,7 @@ class TestTheSpreadClaimsNoIntervalOffMar:
         assert high == pytest.approx(psi * np.exp(z * se), rel=1e-6)
 
     def test_an_arm_frame_keeps_its_columns(self, ratios: Any) -> None:
-        frame = missingness_tilt(ratios, [0.0, GAMMA], estimands=["ey1", "ate"])
+        frame = missingness_tilt(ratios, [0.0, GAMMA], estimands=["ey1", "ate"]).to_frame()
         assert "plugin_std_err" not in nw.from_native(frame, eager_only=True).columns
 
 

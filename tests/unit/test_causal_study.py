@@ -43,6 +43,7 @@ from cleverly import (
     Runtime,
     TMLEMethod,
 )
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData, validate
 from cleverly.data.validate import RANDOMIZED_INTERCEPT
 from cleverly.datasets import (
@@ -300,18 +301,20 @@ def test_identification_is_inspectable_before_estimation() -> None:
         "outcome_regression",
         "treatment_mechanism",
     )
-    summary = effect.summary()
-    assert "E_W[E(Y | A=a, W)" in summary
-    assert "no unmeasured confounding" in summary
+    full = effect.summary(detail="full")
+    lines = full.section(vocabulary.SECTION_ASSUMPTIONS).lines
+    assert "E_W[E(Y | A=a, W)" in lines[0]
+    assert "- no unmeasured confounding: Y^a is independent of A given W" in lines
     # The design-bound sentence, not the registry's binary template.  ``"0" in summary``
     # held at the old truth too -- ``positivity: 0 < P(A = 1 | W) < 1`` contains both
     # digits -- so it could not tell the two apart.
     assert (
-        "positivity: P(A = a | W) > 0 almost surely for every supported treatment "
-        "level a in [0, 1]" in summary
+        "- positivity: P(A = a | W) > 0 almost surely for every supported treatment "
+        "level a in [0, 1]" in lines
     )
-    assert "0 < P(A = 1 | W) < 1" not in summary
-    assert "required nuisances" in summary
+    assert "0 < P(A = 1 | W) < 1" not in full
+    # The models a fit needs are a program's record, not a line of the summary.
+    assert "nuisance" not in full.lower()
 
     result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
     assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
@@ -325,12 +328,13 @@ def test_multi_arm_identification_names_every_level_and_fitted_mechanism() -> No
     ).identify(ATE(reference="low"))
 
     assert effect.functional.treatment_levels == ("high", "low", "medium")
-    summary = effect.summary()
+    summary = effect.summary(detail="full")
+    assert dict(summary.header)[vocabulary.TREATMENT] == "A (levels high, low, medium)"
+    lines = summary.section(vocabulary.SECTION_ASSUMPTIONS).lines
     for level in effect.functional.treatment_levels:
-        assert repr(level) in summary
+        assert repr(level) in lines[-1]
     assert "P(A = 1 | W)" not in summary
     assert "both counterfactual means" not in summary
-    assert "treatment_mechanism" in summary
 
     result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
     assert result.nuisance.propensity.values.shape == (len(frame), 3)
@@ -353,7 +357,9 @@ def test_missing_outcome_identification_matches_the_observed_data_fit() -> None:
         "treatment_mechanism",
         "missingness_mechanism",
     )
-    assert "missingness_mechanism" in effect.summary()
+    names = [row[0].text for row in effect.summary().tables[0].rows]
+    assert "outcome missing at random" in names
+    assert "overlap for recorded outcomes" in names
 
     result = effect.estimate(
         outcome_learner=OracleOutcome(law),
@@ -452,8 +458,8 @@ def test_design_bound_identification_provenance_requires_the_complete_record() -
 def test_an_empty_model_restriction_prints_nothing() -> None:
     effect = _study().identify(ATE())
     assert effect.identification.model_restrictions == ()
-    assert "restriction" not in effect.summary()
-    assert not any("restriction" in line for line in effect.summary_lines())
+    assert "restriction" not in effect.summary(detail="full")
+    assert "model_restriction" not in effect.summary().note_codes
 
 
 def test_a_model_restriction_prints_after_the_assumptions() -> None:
@@ -465,20 +471,15 @@ def test_a_model_restriction_prints_after_the_assumptions() -> None:
             model_restrictions=("restriction one", "restriction two"),
         ),
     )
-    lines = restricted.summary().splitlines()
-    start = lines.index("model restrictions:")
-    assert lines[start + 1 : start + 3] == ["  - restriction one", "  - restriction two"]
-    assert lines.index("assumptions:") < start
-    assert all(
-        item in lines[lines.index("assumptions:") + 1 : start]
-        for item in (f"  - {a}" for a in effect.identification.assumptions)
+    summary = restricted.summary(detail="full")
+    assert "model_restriction" in summary.note_codes
+    lines = summary.section(vocabulary.SECTION_ASSUMPTIONS).lines
+    assert lines[-2:] == (
+        "- model restriction: restriction one",
+        "- model restriction: restriction two",
     )
-    facts = restricted.summary_lines()
-    kinds = [line.split(":")[0] for line in facts]
-    assert facts[kinds.index("model restrictions")] == (
-        "model restrictions: restriction one; restriction two"
-    )
-    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
+    statements = [f"- {item}" for item in effect.identification.assumptions]
+    assert all(lines.index(item) < len(lines) - 2 for item in statements)
 
 
 def test_a_result_prints_the_model_restrictions_of_its_identification() -> None:

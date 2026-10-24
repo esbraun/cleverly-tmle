@@ -547,7 +547,7 @@ class TestAFacadeReadsAnIteratorOnce:
         result.sensitivity.missingness(gamma for gamma in [1.0])
         second = result.sensitivity.missingness(gamma for gamma in [2.0, 3.0])
         listed = result.sensitivity.missingness([2.0, 3.0])
-        pd.testing.assert_frame_equal(second, listed)
+        pd.testing.assert_frame_equal(second.to_frame(), listed.to_frame())
         assert not any("generator" in key for key in result.assessment_cache)
 
 
@@ -710,16 +710,17 @@ class TestTheIdentificationSummaryPrintsEachNodesHistory:
         )
         study = CausalStudy(frame.assign(K=1.0), design=design)
         assert "K" in study.design.baseline
-        lines = study.identify(_contrast()).summary().splitlines()
-        assert "history at A1: ['W1', 'W2']" in lines
-        assert "history at A2: ['W1', 'W2', 'L2', 'A1']" in lines
-        assert not any(line.startswith("adjustment/history") for line in lines)
+        summary = study.identify(_contrast()).summary()
+        (table,) = [table for table in summary.tables if table.title == vocabulary.HISTORY_TITLE]
+        rows = {row[0].text: row[1].text for row in table.rows}
+        assert rows == {"A1": "W1, W2", "A2": "W1, W2, L2, A1"}
+        assert dict(summary.header)[vocabulary.BASELINE] == "W1, W2"
 
     def test_a_point_design_keeps_its_adjustment_line(self) -> None:
         study = CausalStudy(_missing_frame().fillna({"Y": 0.0}), design=_design())
-        lines = study.identify(ATE()).summary()
-        assert "adjustment/history: ['W1', 'W2', 'W3']" in lines.splitlines()
-        assert "history at" not in lines
+        summary = study.identify(ATE()).summary()
+        assert dict(summary.header)[vocabulary.ADJUSTED_FOR] == "W1, W2, W3"
+        assert vocabulary.HISTORY_TITLE not in summary
 
 
 # --------------------------------------------------------- row 3: the DR-TMLE line
@@ -848,7 +849,7 @@ class TestTheSupportTableStatesEachColumnsBasis:
 
 def _record_lines() -> tuple[str, ...]:
     """The record's fields as a summary prints them, without the fingerprint line."""
-    return navigation_protocol().summary_lines()[1:]
+    return navigation_protocol().summary_lines()
 
 
 def _count(text: str, lines: tuple[str, ...]) -> list[int]:
@@ -879,11 +880,7 @@ class TestTheProtocolPrintsAtFullDetailOnly:
 
     @staticmethod
     def _summaries(effect: Any, result: Any, **options: Any) -> list[str]:
-        return [
-            effect.summary(**options),
-            "\n".join(effect.summary_lines(**options)),
-            result.summary(**options),
-        ]
+        return [effect.summary(**options), result.summary(**options)]
 
     @pytest.mark.parametrize("kind", ["point", "longitudinal"])
     def test_the_short_default_prints_no_protocol_line(
@@ -915,7 +912,7 @@ class TestTheProtocolPrintsAtFullDetailOnly:
 
     def test_an_unknown_detail_is_refused(self, point: Any) -> None:
         effect, result = point
-        for call in (effect.summary, effect.summary_lines, result.summary):
+        for call in (effect.summary, result.summary):
             with pytest.raises(ValueError, match="detail must be 'short' or 'full'"):
                 call(detail="fingerprint")
 

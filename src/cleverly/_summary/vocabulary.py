@@ -47,8 +47,27 @@ CENSORING_MODEL: Final = "Censoring model"
 #: The censoring indicators of a longitudinal fit, and what every plan does with them.
 CENSORING: Final = "Censoring"
 ANALYSIS: Final = "Analysis"
-#: The longitudinal and structural summaries (X89 T2).
+#: The study-setup and simulation summaries (X89 T5).
+DESIGN: Final = "Design"
 TREATMENT: Final = "Treatment"
+BASELINE: Final = "Baseline"
+FOLLOWED: Final = "Observed to the end"
+EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
+CENSORED_BEFORE_END: Final = "Censored before the end"
+STRATA: Final = "Strata"
+HELD_FIXED: Final = "Held fixed"
+PROTOCOL: Final = "Study protocol"
+ANSWERED_BY: Final = "Answered by"
+METHODS_FIT: Final = "Methods that fit"
+POPULATION: Final = "Population"
+TIME_ZERO: Final = "Time zero"
+INTERFERENCE_UNIT: Final = "Interference unit"
+REPLICATIONS: Final = "Replications"
+ROWS_PER_REPLICATION: Final = "Rows per replication"
+INTERVAL_LEVEL: Final = "Interval level"
+TOTAL_TIME: Final = "Total time"
+ACCOUNTED: Final = "Accounted for"
+#: The longitudinal and structural summaries (X89 T2).
 COVARIATE_MODELS: Final = "Covariate models"
 CONTRASTS: Final = "Contrasts"
 FOLD_SPLITS: Final = "Fold splits"
@@ -92,7 +111,25 @@ HEADER_LABELS: frozenset[str] = frozenset(
         HORIZON,
         CENSORING_MODEL,
         ANALYSIS,
+        DESIGN,
         TREATMENT,
+        BASELINE,
+        FOLLOWED,
+        EFFECTIVE_SAMPLE_SIZE,
+        CENSORED_BEFORE_END,
+        STRATA,
+        HELD_FIXED,
+        PROTOCOL,
+        ANSWERED_BY,
+        METHODS_FIT,
+        POPULATION,
+        TIME_ZERO,
+        INTERFERENCE_UNIT,
+        REPLICATIONS,
+        ROWS_PER_REPLICATION,
+        INTERVAL_LEVEL,
+        TOTAL_TIME,
+        ACCOUNTED,
         COVARIATE_MODELS,
         CONTRASTS,
         FOLD_SPLITS,
@@ -168,6 +205,10 @@ SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
         "bootstrap_ci_upper": "bootstrap CI upper",
         "bootstrap_range_lower": "bootstrap range lower (diagnostic)",
         "bootstrap_range_upper": "bootstrap range upper (diagnostic)",
+        "robustness_value_ci": "limit robustness value",
+        "rva": "limit robustness value",
+        "robustness_value_plugin_interval": "plug-in limit robustness value (diagnostic)",
+        "rv_plugin_interval": "plug-in limit robustness value (diagnostic)",
     }
 )
 
@@ -180,6 +221,13 @@ METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
         "collaborative_tmle": "collaborative TMLE (C-TMLE)",
         "drtmle": "doubly robust TMLE (DR-TMLE)",
         "adaptive_iptw": "adaptive-propensity inverse probability weighting",
+        "sdr": "sequentially doubly robust regression (SDR)",
+        "ipsi": "incremental propensity score intervention (IPSI)",
+        "gcomp": "sequential g-computation",
+        "ipw": "sequential inverse probability weighting",
+        "parametric_gformula": "parametric g-formula",
+        "riesz_tmle": "TMLE with a learned Riesz representer",
+        "ep": "efficient plug-in learner",
     }
 )
 
@@ -377,6 +425,18 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "fit_warning_parameter_space": "warning",
         "fit_warning_data": "warning",
         "fit_warning_other": "warning",
+        # The study-setup and simulation summaries (X89 T5).
+        "further_conditions": "note",
+        "checkable": "note",
+        "model_restriction": "note",
+        "several_readings": "note",
+        "unbound_effect": "warning",
+        "no_method": "warning",
+        "other_methods": "note",
+        "failed_replications": "warning",
+        "measures_diagnostic": "warning",
+        "mixed_statuses": "note",
+        "worker_time": "note",
         # The longitudinal, structural and support summaries (X89 T2).
         "bootstrap_bands": "note",
         "model_based_interval": "note",
@@ -600,6 +660,56 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "fit_warning_more": (
             "It also gave {count} more warnings of this kind; result.fit_warnings lists them."
         ),
+        # The study-setup and simulation summaries (X89 T5).
+        "other_methods": (
+            "The methods table lists the methods that fit. {count} other {methods} "
+            "cannot estimate this question; the full summary says why."
+        ),
+        "further_conditions": (
+            "The full summary states {count} further {conditions} the answer rests on."
+        ),
+        "checkable": (
+            "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
+            "after a fit, result.diagnostics.support() shows where the fitted treatment model "
+            "gives units little chance of a compared treatment. That check reads a fitted "
+            "model, so a clean result does not prove overlap."
+        ),
+        "model_restriction": (
+            "The design restricts the model of the data; the full summary states how. The "
+            "question is unchanged, and the interval of a fit is claimed only under the "
+            "restriction."
+        ),
+        "several_readings": (
+            "The answer has {count} causal readings, each resting on its own condition; the "
+            "full summary states each."
+        ),
+        "unbound_effect": (
+            "This question is not bound to data, so it cannot be estimated, and the methods "
+            "table is worked out from the question without the study's design."
+        ),
+        "no_method": "No method fits this question; the full summary says why each does not.",
+        "data_warning": "When cleverly read the data it warned: {messages}",
+        "failed_replications": (
+            "Replications that raised an error: {count} of {total}. Every column leaves "
+            "them out, and the full summary lists the errors."
+        ),
+        "measures_diagnostic": (
+            "One or more estimates supply no interval{some}, so mean SE, SE ratio, coverage "
+            "and rejected describe the {noun} and not a confidence interval."
+        ),
+        "mixed_statuses": (
+            "The replicates took more than one inference status, named as in the inference "
+            "column of to_frame(): {clauses}."
+        ),
+        "worker_time": (
+            "The parallel workers' times are each worker's own elapsed time, added across "
+            "workers, so they can pass the time the fit waited and are not added to the "
+            "table above."
+        ),
+        "spread_scale_simulation": (
+            "For {names}, mean SE and SE ratio are on the log scale; truth, bias and MC SD "
+            "are on the ratio scale."
+        ),
         # The longitudinal, structural and support summaries (X89 T2).
         "in_sample_flexible_longitudinal": (
             "The models were fitted and evaluated on the same rows. With flexible learners "
@@ -767,18 +877,663 @@ INTERNAL_TERMS: Final[tuple[str, ...]] = (
 
 # ----------------------------------------------------------------- checks (T3)
 
-#: Plain evidence words for each refutation rung (X89 plan 6.6). A verdict needs L2 or
-#: above (``validation/refute.py``).
+#: Header labels of the check and refutation summaries.
+RESULT: Final = "Result"
+ESTIMATE_TESTED: Final = "Estimate tested"
+TESTS_RUN: Final = "Tests run"
+REPEATS_PER_TEST: Final = "Repeats per test"
+HEADER_LABELS = HEADER_LABELS | {RESULT, ESTIMATE_TESTED, TESTS_RUN, REPEATS_PER_TEST}
+
+#: The notes of a refutation report: one per test, a warning when that test failed.
+T3_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "test_placebo": "note",
+        "test_random_common_cause": "note",
+        "test_subset": "note",
+        "test_negative_control_outcome": "note",
+        "test_dummy_outcome": "note",
+        "test_simulated_outcome": "note",
+        "test_bootstrap_measurement_error": "note",
+        "test_bootstrap_stability": "note",
+        "test_plasmode": "note",
+        "test_future_treatment": "note",
+        "refit_failures": "warning",
+        "refit_spread_diagnostic": "warning",
+        "ratio_scale": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_NOTE_CODES})
+
+T3_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "refutation_test": (
+            "{name}: {purpose}{conditions} For this kind of fit the test {evidence}."
+        ),
+        "refit_failures": (
+            "{failed} of {total} repeats of the {name} test failed and are left out of its "
+            'row; report.draws_frame("{test}") lists why.'
+        ),
+        "refit_spread_diagnostic": (
+            "The refits of {names} have no valid standard error, only a plug-in diagnostic, "
+            "so their statistics read the {label}."
+        ),
+        "ratio_scale": "For a ratio, {parts}.",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_NOTE_TEXTS})
+
+#: What a check found, in the words every check summary prints for it: in the ``Result``
+#: header fact and in a table's ``result`` column. The keys are what the code decides.
+CHECK_RESULTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": "passed",
+        "failed": "failed",
+        "descriptive": "no pass or fail",
+        "warning": "needs attention",
+    }
+)
+
+#: Plain evidence words for each refutation evidence level (X89 plan 6.6), as a verb phrase
+#: that completes "For this kind of fit the test ...". A pass or fail needs the third or
+#: fourth level (``validation/refute.py``).
 EVIDENCE_WORDS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "L0": "description only, no pass or fail",
+        "L0": "gives a description only, with no pass or fail",
         "L1": (
-            "compared with a stated reference; how often it fails a correct fit is not "
-            "measured, so no pass or fail"
+            "compares the refits with a stated reference, but how often it fails a correct "
+            "fit is not measured, so it gives no pass or fail"
         ),
-        "L2": "pass or fail from an exact reference or a simulation study of this kind of fit",
-        "L3": "as L2, with an external package's result beside it",
+        "L2": (
+            "gives a pass or fail backed by an exact reference or by a simulation study of "
+            "this kind of fit"
+        ),
+        "L3": (
+            "gives a pass or fail backed the same way, with an external package's result beside it"
+        ),
+        "withheld": "is studied, but gives no pass or fail here because {reason}",
+        "studied": "is studied, but gives no pass or fail on this report",
+        "not_run": "gives no pass or fail, because no refit ran",
     }
+)
+
+#: Each refutation test by what it does, for the ``test`` column.
+REFUTATION_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "placebo": "shuffled treatment",
+        "random_common_cause": "added noise column",
+        "subset": "random subsamples",
+        "negative_control_outcome": "negative-control outcome",
+        "dummy_outcome": "noise outcome",
+        "simulated_outcome": "simulated outcome",
+        "bootstrap_measurement_error": "measurement error",
+        "bootstrap_stability": "bootstrap stability",
+        "plasmode": "plasmode outcome",
+        "future_treatment": "future treatment",
+    }
+)
+
+#: What cleverly does in each refutation test, the lead of that test's note. ``{null}`` is
+#: the value the test expects with no effect, read from the test itself.
+REFUTATION_PURPOSES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "placebo": (
+            "cleverly replaces the treatment with a shuffled or independently drawn copy, so "
+            "the treatment has no effect and the estimate should be about {null}."
+        ),
+        "random_common_cause": (
+            "cleverly adds a column of pure noise to the adjustment set, so the estimate "
+            "should barely move."
+        ),
+        "subset": (
+            "cleverly refits on random subsamples of the rows. If the standard error is "
+            "right, the refits spread about as much as the expected SD."
+        ),
+        "negative_control_outcome": (
+            "cleverly refits with the control outcome you gave, which you assume the "
+            "treatment cannot affect, so the estimate should be about {null}."
+        ),
+        "dummy_outcome": (
+            "cleverly replaces the outcome with random noise unrelated to the treatment and "
+            "the covariates, so the true effect is known, and checks {readings} against it."
+        ),
+        "simulated_outcome": (
+            "cleverly replaces the outcome with one simulated from the process you declared, "
+            "with a known effect, and checks {readings} against it."
+        ),
+        "plasmode": (
+            "cleverly resamples your covariates, draws treatment from a frozen treatment "
+            "model and the outcome from the process you declared, with a known effect, and "
+            "checks {readings} against it."
+        ),
+        "bootstrap_measurement_error": (
+            "cleverly resamples the rows, adds the measurement error you declared to "
+            "{variables}, and refits."
+        ),
+        "bootstrap_stability": (
+            "cleverly resamples units, keeping their folds, and refits, to show how far the "
+            "estimate moves."
+        ),
+        "placebo_not_run": (
+            "cleverly would replace the treatment with a shuffled copy, but runs no refit here."
+        ),
+        "future_treatment": (
+            "cleverly estimates the effect of a later treatment on a control you measured "
+            "before it, which the later treatment cannot cause, so the estimate should be "
+            "about {null}."
+        ),
+    }
+)
+
+#: Plain names of a refutation statistic, keyed by the test's ``statistic_name`` or the
+#: label of one of its extra numbers.
+STATISTIC_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "t": "t of the refits against {null}",
+        "z": "z of the estimate against {null}",
+        "scatter ratio rho": "spread ratio (refit SD / expected SD)",
+        "paired shift in standard errors": "shift, in std. errors",
+        "paired shift in plug-in standard errors": "shift, in plug-in SEs (diagnostic)",
+        "mean reported SE over SD of the draws": "mean std. error / refit SD",
+        "mean plug-in SE over SD of the draws": "mean plug-in SE (diagnostic) / refit SD",
+        "spread of the paired differences (SE units)": "SD of the shifts, in std. errors",
+        "spread across seeds with no noise column (SE units)": (
+            "SD across seeds without noise, in std. errors"
+        ),
+        "shift against the original fit": "shift from the original fit",
+        "standardized bias": "standardized bias",
+        "bias": "std. bias",
+        "se_ratio": "SE ratio",
+        "coverage": "coverage",
+    }
+)
+
+#: The reading sentence of a refutation report, by its result.
+REFUTATION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": "Every test that gives a pass or fail passed.",
+        "failed": (
+            "{names} failed. A failure points to the kind of defect the test is built to "
+            "find, but a correct fit also fails by chance, at about the rate its evidence "
+            "measured or its exact reference sets; the note for each test says what it "
+            "can show."
+        ),
+        "descriptive_all": (
+            "No test failed, and none of the {n} tests gives a pass or fail for this kind of fit, "
+            "so compare each mean with the expected column."
+        ),
+        "descriptive_one": (
+            "The test gives no pass or fail for this kind of fit, so compare its mean with "
+            "the expected column."
+        ),
+        "descriptive_both": (
+            "No test failed, and neither test gives a pass or fail for this kind of fit, so "
+            "compare each mean with the expected column."
+        ),
+        "descriptive_some": (
+            "No test failed. {k} of the {n} tests {verb} no pass or fail for this kind of "
+            "fit, so compare their means with the expected column."
+        ),
+    }
+)
+
+#: The outcome processes a generated-outcome test can declare, in plain words, keyed by the
+#: process's ``name``.
+PROCESS_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "gaussian_independent_noise": "Gaussian noise unrelated to the data",
+        "gaussian_adjustment_dependent": "a Gaussian outcome built from your covariates",
+        "bernoulli_adjustment_dependent": "a binary outcome built from your covariates",
+        "bounded_beta_adjustment_dependent": "a bounded outcome built from your covariates",
+        "logistic_hazard": "event times from a logistic hazard",
+        "multinomial_hazard": "competing event times from a multinomial hazard",
+    }
+)
+
+#: What a generated-outcome test reads, by reading name, for its note.
+READING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"bias": "the bias", "se_ratio": "the std. error", "coverage": "the coverage"}
+)
+
+#: The two parts of the ``ratio_scale`` note, each naming the tests it applies to.
+RATIO_GEOMETRIC: Final = "the mean of the {names} is the geometric mean of the refits"
+RATIO_LOG: Final = "the SD of the {names} is on the log scale"
+
+#: How a resampling test drew its rows, by the report's ``resampling``.
+REFIT_RESAMPLING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"iid": "rows resampled one at a time", "cluster": "whole clusters resampled"}
+)
+
+#: Section titles of a refutation report's full detail.
+SECTION_COMPARED: Final = "What each test was compared with"
+SECTION_DRAWS: Final = "Repeats"
+REFUTATION_TITLE: Final = "Refutation tests"
+STATISTICS_TITLE: Final = "Test statistics"
+READINGS_TITLE: Final = "Readings against their allowed bands"
+
+
+# ----------------------------------------------------------------- study setup (T5)
+
+#: The Design fact, keyed by the design class's name. ``{T}`` is the number of time points.
+DESIGN_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "PointTreatment": "one treatment decision",
+        "LongitudinalTreatment": "treatment at {T} times",
+        "TimeToEvent": "time to an event, {T} time points",
+        "LongPanel": "{T} times, long rows read as one row per unit",
+    }
+)
+
+#: The Answered by fact, keyed by whether the design is longitudinal.
+ANSWERED_BY_WORDS: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: "adjusting for covariates",
+        True: "adjusting for history",
+    }
+)
+#: The Outcome fact of a time-to-event design.
+EVENT_OUTCOME: Final = "{event} (event code), timed by {time}"
+#: The Answered by fact of a randomized design that adjusts for nothing.
+ANSWERED_BY_RANDOMIZED: Final = "randomized assignment"
+#: The Adjusted for fact of a randomized design that adjusts for nothing.
+RANDOMIZED_NO_ADJUSTMENT: Final = "none (randomized, as declared)"
+#: The title of each setup summary.
+STUDY_TITLE: Final = "Study design"
+QUESTION_TITLE: Final = "Causal question ({name})"
+METHODS_TITLE: Final = "Estimation methods"
+PROTOCOL_TITLE: Final = "Study protocol"
+SIMULATION_STUDY_TITLE: Final = "Simulation study: {label}"
+PHASES_TITLE: Final = "Time by phase"
+#: Table titles.
+ROLES_TITLE: Final = "Columns by role"
+CONDITIONS_TITLE: Final = "Conditions the answer rests on"
+ARMS_TITLE: Final = "Share of rows by treatment level"
+#: The share column of that table, marked weighted on weighted data.
+SHARE_COLUMN: Final = "share"
+HISTORY_TITLE: Final = "What each treatment time adjusts for"
+METHODS_TABLE_TITLE: Final = "Methods"
+STRATEGIES_TITLE: Final = "Treatment strategies"
+ELIGIBILITY_TITLE: Final = "Eligibility"
+WORKERS_TITLE: Final = "In parallel workers"
+#: Full-detail sections of the setup summaries.
+SECTION_UNAVAILABLE: Final = "Why a method does not fit"
+SECTION_INTERCURRENT: Final = "Intercurrent events"
+SECTION_RATIONALE: Final = "Rationale for the assumptions"
+SECTION_PER_ESTIMAND: Final = "Per estimand"
+SECTION_FAILURES: Final = "Failed replications"
+SECTION_COLUMNS: Final = "Reading the columns"
+#: The lead of a question's Assumptions section, with the terms of art the short table's
+#: plain names stand for.
+CONDITIONS_LEAD: Final = (
+    "The answer equals {functional} when the statements below hold. The short table calls "
+    "consistency well-defined treatment, exchangeability no hidden confounding, and "
+    "positivity overlap."
+)
+
+#: One condition's plain words: the name the short table prints, its sentence, and
+#: whether the data can say anything about it.
+Checkable = Literal["no", "partly"]
+
+#: The plain words for the identification statements that recur, matched on the start of
+#: the statement in this order, most specific first. Each value is ``(name, sentence,
+#: checkable)``; ``{A}``, ``{Y}`` and ``{Z}`` are the treatment, outcome and held variable.
+#: A statement no entry matches prints only in the full summary, verbatim, such as the
+#: definedness of a ratio, a known policy or a model restriction. ``test_setup_summaries``
+#: pins which entry each statement of a broad set of questions reaches.
+CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
+    (
+        "consistency: each observed history",
+        (
+            "well-defined treatment",
+            "Each unit's observed outcomes are the ones it would have had under the "
+            "treatments it actually received over time. This needs each treatment to be "
+            "well defined: every way of getting the same treatment has the same effect.",
+            "no",
+        ),
+    ),
+    (
+        "consistency:",
+        (
+            "well-defined treatment",
+            "Each unit's observed outcome is the outcome it would have had under the "
+            "treatment it actually received{held}. This needs the treatment to be well "
+            "defined: every way of getting the same level has the same effect.",
+            "no",
+        ),
+    ),
+    (
+        "no interference:",
+        ("no interference", "One unit's treatment does not change another unit's outcome.", "no"),
+    ),
+    (
+        "no unmeasured intermediate confounding:",
+        (
+            "no hidden confounding of {Z}",
+            "Among units with the same treatment and adjusted-for values, the value of {Z} "
+            "is unrelated to the outcomes they would have had.",
+            "no",
+        ),
+    ),
+    (
+        "no unmeasured treatment confounding:",
+        (
+            "no hidden confounding",
+            "Among units with the same adjusted-for values, which treatment a unit got is "
+            "unrelated to the outcomes it would have had. This holds when the adjusted-for "
+            "columns account for the common causes of {A} and {Y} and none of them is "
+            "affected by {A}.",
+            "no",
+        ),
+    ),
+    (
+        "no unmeasured confounding:",
+        (
+            "no hidden confounding",
+            "Among units with the same adjusted-for values, which treatment a unit got is "
+            "unrelated to the outcomes it would have had. This holds when the adjusted-for "
+            "columns account for the common causes of {A} and {Y} and none of them is "
+            "affected by {A}.",
+            "no",
+        ),
+    ),
+    (
+        "sequential exchangeability given the recorded history",
+        (
+            "no hidden confounding at each time",
+            "At each time, among units with the same recorded history, which treatment a "
+            "unit got and whether it stays in follow-up are unrelated to the outcomes it "
+            "would have had.",
+            "no",
+        ),
+    ),
+    (
+        "sequential exchangeability in the form the chosen interpretation names",
+        (
+            "no hidden confounding at each time",
+            "At each time, among units with the same recorded history, the dose a unit got "
+            "is unrelated to the outcomes it would have had, in the strong or the standard "
+            "form that each causal reading names.",
+            "no",
+        ),
+    ),
+    (
+        "dropout is missing at random given the recorded history",
+        (
+            "follow-up loss at random",
+            "At each time, among units with the same recorded history, whether a unit stays "
+            "in follow-up is unrelated to its later outcomes, and each unit still at risk had "
+            "some chance of staying.",
+            "no",
+        ),
+    ),
+    (
+        "sequential positivity for treatment and remaining under observation",
+        (
+            "overlap at each time",
+            "At each time, units with every history that following the compared regimens "
+            "can produce had some chance of the treatment a regimen assigns and of staying "
+            "in follow-up.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity: the dose a policy assigns",
+        (
+            "overlap at each time",
+            "At each time, units with every recorded history had some chance of the dose "
+            "the policy assigns wherever they had a chance of their observed dose, and of "
+            "staying in follow-up.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity: ",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of "
+            "each compared level of {A}.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for the evaluated arm:",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of the "
+            "evaluated level of {A}.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for the reference arm within each comparison population:",
+        (
+            "overlap",
+            "Among units that got a compared level of {A}, every group that shares the "
+            "adjusted-for values had some chance of the reference level.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for each comparison arm within the reference population:",
+        (
+            "overlap",
+            "Among units that got the reference level of {A}, every group that shares the "
+            "adjusted-for values had some chance of each compared level.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for the reference intervention:",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of the "
+            "reference level of {A}.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for the evaluated doses:",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of each "
+            "dose of {A} the question evaluates.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for the evaluated treatment values:",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of each "
+            "treatment value the question evaluates.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity *for the regime*",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of the "
+            "level of {A} the rule assigns them.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity *for the assigned dose*",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of the "
+            "dose the policy assigns, wherever it had some chance of its observed dose.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity for the treated arm wherever the tilt keeps it",
+        (
+            "overlap",
+            "Every group of units the tilt moves towards a level of {A} had some chance of "
+            "that level.",
+            "partly",
+        ),
+    ),
+    (
+        "intermediate positivity at",
+        (
+            "overlap for {Z}",
+            "Every group of units that share the treatment and adjusted-for values had some "
+            "chance of the value {Z} is held at.",
+            "partly",
+        ),
+    ),
+    (
+        "missingness at random for",
+        (
+            "outcome missing at random",
+            "Among units with the same treatment and adjusted-for values, whether {Y} was "
+            "recorded is unrelated to its value.",
+            "no",
+        ),
+    ),
+    (
+        "response positivity for",
+        (
+            "overlap for recorded outcomes",
+            "Every group of units that share the treatment and adjusted-for values that the "
+            "question reads had some chance of a recorded {Y}.",
+            "partly",
+        ),
+    ),
+    (
+        "product positivity at the reference arm",
+        (
+            "overlap for recorded outcomes",
+            "Every group of units that share the adjusted-for values had some chance of "
+            "both the reference level of {A} and a recorded {Y}.",
+            "partly",
+        ),
+    ),
+)
+
+#: The plain words that replace an entry of :data:`CONDITION_WORDS` when the design has a
+#: feature: ``"held"`` a held intermediate, ``"randomized"`` a randomized assignment with no
+#: adjustment, ``"uncensored"`` a longitudinal design without censoring.
+CONDITION_VARIANTS: Final[Mapping[str, tuple[tuple[str, tuple[str, str, Checkable]], ...]]] = (
+    MappingProxyType(
+        {
+            "held": (
+                (
+                    "missingness at random for",
+                    (
+                        "outcome missing at random",
+                        "Among units with the same treatment, {Z} and adjusted-for values, "
+                        "whether {Y} was recorded is unrelated to its value.",
+                        "no",
+                    ),
+                ),
+            ),
+            "randomized": (
+                (
+                    "no unmeasured confounding:",
+                    (
+                        "no hidden confounding",
+                        "Which treatment a unit got is unrelated to the outcomes it would "
+                        "have had, as in a randomized trial. The design declares this, and "
+                        "the data cannot show it.",
+                        "no",
+                    ),
+                ),
+                (
+                    "positivity: ",
+                    (
+                        "overlap",
+                        "Every unit had some chance of each compared level of {A}, as a "
+                        "randomized assignment gives.",
+                        "partly",
+                    ),
+                ),
+            ),
+            "uncensored": (
+                (
+                    "sequential exchangeability given the recorded history",
+                    (
+                        "no hidden confounding at each time",
+                        "At each time, among units with the same recorded history, which "
+                        "treatment a unit got is unrelated to the outcomes it would have had.",
+                        "no",
+                    ),
+                ),
+                (
+                    "sequential positivity for treatment and remaining under observation",
+                    (
+                        "overlap at each time",
+                        "At each time, units with every history that following the compared "
+                        "regimens can produce had some chance of the treatment a regimen "
+                        "assigns.",
+                        "partly",
+                    ),
+                ),
+                (
+                    "positivity: the dose a policy assigns",
+                    (
+                        "overlap at each time",
+                        "At each time, units with every recorded history had some chance of "
+                        "the dose the policy assigns wherever they had a chance of their "
+                        "observed dose.",
+                        "partly",
+                    ),
+                ),
+            ),
+        }
+    )
+)
+
+#: The words a question's held intermediate adds to the well-defined-treatment sentence.
+HELD_CLAUSE: Final = " and the value of {Z} it was held at"
+
+
+#: The reading of a simulation study.
+SIMULATION_PASS: Final = (
+    "Coverage is not below {level} by more than Monte Carlo error, and the bias is within "
+    "Monte Carlo error of zero."
+)
+SIMULATION_DIAGNOSTIC_PASS: Final = (
+    "The bias is within Monte Carlo error of zero. The coverage column measures a {noun}, so "
+    "it certifies no confidence interval."
+)
+SIMULATION_UNDERCOVERAGE: Final = (
+    "{name}: coverage {coverage} is below the nominal {level} by more than Monte Carlo error"
+)
+SIMULATION_SMALL_UNDERCOVERAGE: Final = (
+    "{name}: coverage {coverage} is below the nominal {level} by more than Monte Carlo error, "
+    "though by no more than {floor} percentage points"
+)
+#: One estimand's clause of the mixed-statuses note.
+MIXED_STATUS_CLAUSE: Final = "{name} took {statuses}, and each of its columns reads {what}"
+SIMULATION_SE_SMALL: Final = "; the {spread} is {factor}x too small"
+SIMULATION_SE_ZERO: Final = "; every reported standard error is zero"
+SIMULATION_SE_RIGHT: Final = (
+    "; the standard error is not too small, so the shortfall points to bias or a skewed "
+    "sampling distribution"
+)
+SIMULATION_BIAS: Final = "{name}: bias {bias} is {count} Monte Carlo standard errors from zero"
+SIMULATION_CONSTANT_BIAS: Final = (
+    "{name}: every replicate returned the same estimate, so its bias {bias} has no Monte Carlo "
+    "error"
+)
+SIMULATION_SMALL_BIAS: Final = (
+    "{name}: bias {bias} is {count} Monte Carlo standard errors from zero, though no more "
+    "than {floor} of the larger of 1 and the absolute truth"
+)
+SIMULATION_EXPERIMENTAL: Final = (
+    "At least one replicate's estimate of {names} has no validation study behind its kind of "
+    "fit, so cleverly marks it experimental."
+)
+#: How to read the columns of a phase timing profile.
+PHASE_COLUMNS: Final[tuple[str, ...]] = (
+    "own s: the seconds spent in the phase itself, outside any phase nested in it; this "
+    "column adds up to the accounted time.",
+    "with nested s: the seconds from entering the phase to leaving it, nested phases "
+    "included, so this column overlaps itself and does not add up.",
+    "share: own seconds as a share of the total time.",
 )
 
 # ----------------------------------------------------------------- longitudinal (T2)
@@ -1259,8 +2014,6 @@ REDUCTION: Final = "Extra regressions"
 FORM: Final = "Form"
 ROUNDS: Final = "Rounds"
 STOPPED: Final = "Stopped"
-DESIGN: Final = "Design"
-STRATA: Final = "Strata"
 SOURCE: Final = "Source"
 TRAINING_SETS: Final = "Training sets"
 INTERMEDIATE: Final = "Intermediate"
@@ -1692,3 +2445,381 @@ RESTATED_WARNINGS = MappingProxyType(
         "risk_order": ("strategy='learners' needs treatment_candidates= ordered",),
     }
 )
+
+# ----------------------------------------------------------------- sensitivity analyses (T4)
+
+#: Header labels of the sensitivity summaries. ``POPULATION`` and ``SCALE`` above serve too.
+ESTIMATE_ANALYSED: Final = "Estimate"
+OUTCOME_STRENGTH: Final = "Outcome-side strength"
+TREATMENT_STRENGTH: Final = "Treatment-side strength"
+ALIGNMENT: Final = "Alignment"
+LARGEST_SHIFT: Final = "Largest shift"
+CONCLUSION: Final = "Conclusion"
+BENCHMARK_COVARIATES: Final = "Benchmark covariates"
+IMPLIED_ALIGNMENT: Final = "Implied alignment"
+GRID: Final = "Grid"
+MISSING_OUTCOMES: Final = "Missing outcomes"
+DIRECTION: Final = "Direction"
+MOVEMENT: Final = "Movement"
+CELLS: Final = "Cells"
+REPEATED_SPLITS: Final = "Repeated splits"
+
+HEADER_LABELS = HEADER_LABELS | {
+    ESTIMATE_ANALYSED,
+    OUTCOME_STRENGTH,
+    TREATMENT_STRENGTH,
+    ALIGNMENT,
+    LARGEST_SHIFT,
+    CONCLUSION,
+    BENCHMARK_COVARIATES,
+    IMPLIED_ALIGNMENT,
+    GRID,
+    MISSING_OUTCOMES,
+    DIRECTION,
+    MOVEMENT,
+    CELLS,
+    REPEATED_SPLITS,
+}
+
+T4_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        # The sensitivity analyses (X89 T4).
+        "sensitivity_assumption": "note",
+        "no_inference_sensitivity": "warning",
+        "limits_withheld": "warning",
+        "limits_descriptive": "warning",
+        "rv_limit": "note",
+        "alignment_stated": "note",
+        "joint_strength": "note",
+        "consistent_mechanism": "note",
+        "strength_clipped": "note",
+        "grid_thinned": "note",
+        "approximate_scale": "note",
+        "censoring_conditions": "note",
+        "per_arm_conditions": "note",
+        "bound_truncated": "note",
+        "tilt_diagnostic": "note",
+        "association_reading": "note",
+        "population_moves": "note",
+        "incremental_reading": "note",
+        "learned_rule_reading": "note",
+        "observation_reads": "note",
+        "bounded_rows": "note",
+        "redrawn_folds": "note",
+        "cells_failed": "warning",
+        "calibration_nan": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T4_NOTE_CODES})
+
+T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        # The sensitivity analyses (X89 T4). ``assumption_<analysis>`` texts are the
+        # ``sensitivity_assumption`` note of each analysis; ``verdict_*`` texts are its
+        # one reading sentence.
+        "no_inference_sensitivity": (
+            "No confidence statement for {names}. {reason} The {label} is a diagnostic, "
+            "not a confidence limit."
+        ),
+        "assumption_bounds": (
+            "The range is the estimate moved down and up by the largest bias that variables "
+            "the adjustment left out could, at worst, cause at the stated strengths. cf_y is "
+            "the share of the outcome variation left after adjustment that they would "
+            "explain, cf_d the share of the average squared weight that only they would add, "
+            "and rho how far their two effects line up (one is the worst case)."
+        ),
+        "assumption_bounds_limits": (
+            "Each one-sided limit is a {level} confidence limit for its own end of the range: "
+            "the lower limit for the lower end, the upper limit for the upper end."
+        ),
+        "verdict_rv_reached": (
+            "Left-out variables with both strengths at {rv} could, at worst, move the "
+            "estimate to {null}{alignment}; weaker ones, with both strengths below {rv}, "
+            "could not."
+        ),
+        "verdict_rv_at_null": (
+            "The estimate already equals {null}, so the robustness value is zero."
+        ),
+        "verdict_rv_unreached": (
+            "No left-out variables with equal strengths below one could move the estimate to "
+            "{null}{alignment}."
+        ),
+        "rv_limit": (
+            "The {limit} robustness value (RVa) is the same strength for the {level} "
+            "one-sided limit nearest {null}: below it, that limit stays on its side of "
+            "{null}."
+        ),
+        "rv_limit_plugin": (
+            "The plug-in limit robustness value is the same strength for the plug-in limit "
+            "nearest {null}, a diagnostic and not a confidence limit: below it, that limit "
+            "stays on its side of {null}."
+        ),
+        "assumption_robustness": (
+            "The robustness value is the strength that left-out variables would need, with "
+            "the same value for cf_y (the share of the outcome variation left after "
+            "adjustment that they would explain) and cf_d (the share of the average squared "
+            "weight that only they would add), to move the estimate to {null}."
+        ),
+        "alignment_stated": (
+            "rho = {rho} assumes the two effects of the left-out variables line up less "
+            "than in the worst case, where rho is one."
+        ),
+        "assumption_elements": (
+            "The bias scale is the square root of the product of the first two rows. A bound "
+            "multiplies it by a factor that grows with the strengths of the left-out "
+            "variables, so these rows give the range at any strengths."
+        ),
+        "assumption_benchmark": (
+            "A common calibration (Chernozhukov et al.) takes these as the strengths that "
+            "left-out variables would have if leaving them out hurt the fit as much as "
+            "leaving out {covariates} does. Leaving those out moved the estimate by {delta}."
+        ),
+        "benchmark_pointer": (
+            "Pass this record as benchmark= to result.sensitivity.omitted_confounding() for "
+            "the range at these strengths."
+        ),
+        "assumption_contour": (
+            "Each cell is the {bound} end of the range for {estimand} when the variables the "
+            "adjustment left out have the outcome-side strength of its row (cf_y) and the "
+            "treatment-side strength of its column (cf_d), at alignment {rho}."
+        ),
+        "verdict_evalue": (
+            "An unmeasured confounder would need a risk ratio of {point} with both the "
+            "treatment and the outcome, beyond the measured covariates, to explain away the "
+            "estimate; {limit_sentence}"
+        ),
+        "verdict_evalue_per_arm": (
+            "An unmeasured confounder would need a risk ratio of {point} in each of four "
+            "associations, with the treatment and with the outcome in each of the two arms, "
+            "beyond the measured covariates, to explain away the estimate; {limit_sentence}"
+        ),
+        "evalue_limit_reached": "{limit} to move the interval to the null.",
+        "evalue_limit_covers": "the interval already includes the null.",
+        "assumption_evalue": (
+            "The E-value is the strength at which the confounder's associations with the "
+            "treatment and with the outcome, taken as equal, could explain the estimate "
+            "away. Unequal strengths can trade off: one association may be below the "
+            "E-value if the other is above it."
+        ),
+        "assumption_evalue_per_arm": (
+            "The estimate holds the intermediate fixed, so its bias is a product of one "
+            "bounding factor per arm, and the E-value is the equal strength of all four "
+            "risk-ratio associations, two per arm. Unequal strengths can trade off."
+        ),
+        "evalue_conversion_or": (
+            "The odds ratio was converted to a risk ratio by its square root, an "
+            "approximation for common outcomes that can land above or below the true risk "
+            "ratio."
+        ),
+        "evalue_conversion_rd": (
+            "The risk difference was converted to a risk ratio with the estimated risk of "
+            "the reference arm, held fixed, so the sampling error of that risk is ignored."
+        ),
+        "evalue_conversion_smd": (
+            "The mean difference was divided by the outcome's standard deviation and "
+            "converted to a risk ratio through an odds ratio; each step is an approximation."
+        ),
+        "evalue_derived": (
+            "The risk ratio {name} was derived from the models fitted for the reported "
+            "{source}, with no model refit."
+        ),
+        "censoring_conditions": (
+            "The risk is the chance of the event by the horizon. The E-value also assumes "
+            "that censoring is random given the treatment and covariates, and that the "
+            "unmeasured confounder does not affect censoring."
+        ),
+        "per_arm_conditions": (
+            "It also assumes the confounder is a baseline variable the treatment does not "
+            "affect, that every unit could receive each treatment and intermediate level, "
+            "and that no common cause of the intermediate and the outcome is affected by "
+            "the treatment."
+        ),
+        "assumption_marginal": (
+            "gamma is the largest factor by which an unmeasured confounder may change a "
+            "unit's odds of treatment, given the covariates, in either direction, with no "
+            "limit on its link to the outcome. The range holds every value of {estimand} "
+            "that allows, if this confounder is all the adjustment missed. At a gamma of one, no "
+            "unmeasured confounding, the range shrinks to one value, the bound's own doubly "
+            "robust estimate, close to the fit's."
+        ),
+        "marginal_interval": (
+            "In large samples the interval contains the true range with probability at "
+            "least {level}, if either the treatment model or the outcome-quantile model is "
+            "right."
+        ),
+        "assumption_tilt": (
+            "gamma is how far the average outcome of units whose outcome is missing differs "
+            "from that of recorded units with the same treatment and covariates, on the "
+            "log-odds scale of the outcome rescaled to run from zero to one{arm_clause}. A "
+            "gamma of zero is the main analysis, which assumes outcomes are missing at "
+            "random. {direction}"
+        ),
+        "tilt_direction": "A positive gamma means the missing outcomes were higher.",
+        "tilt_direction_arms": (
+            "Where gamma times an arm's factor is positive, that arm's missing outcomes were "
+            "higher; a factor of zero leaves the arm at missing at random."
+        ),
+        "tilt_interval": (
+            "Where an interval is printed off a gamma of zero, it reuses the main analysis's "
+            "standard error and treats gamma as known, so it describes sampling error at "
+            "that gamma, not doubt about gamma."
+        ),
+        "assumption_surface": (
+            "Each cell adds a simulated common cause of {moved} and the outcome, refits the "
+            "analysis, and reports how far the estimate moved. The surface is qualitative: "
+            "it is not a bound and carries no interval. {laws}"
+        ),
+        "law_binary": (
+            "The treatment strength is the share of units, those highest on the simulated "
+            "cause, whose treatment is flipped."
+        ),
+        "law_categorical": (
+            "The treatment strength is the share of units in arms {a} and {b}, those highest "
+            "on the simulated cause, whose arms are swapped."
+        ),
+        "law_continuous": (
+            "The treatment strength is how far the dose moves per standard deviation of the "
+            "simulated cause."
+        ),
+        "law_vector": (
+            "Each binary component flips for a share of units, those highest on the "
+            "simulated cause, set by its strength, and each dose moves by its strength per "
+            "standard deviation of the cause."
+        ),
+        "law_longitudinal": (
+            "Each treatment node flips for a share of units, those highest on the simulated "
+            "cause, set by its strength; one cause value per unit is shared by every node "
+            "and the outcome."
+        ),
+        "law_intermediate": (
+            "Every cell holds the treatment and flips the intermediate {name} for a share of "
+            "units, those highest on the simulated cause, so the cause confounds the "
+            "intermediate and the outcome."
+        ),
+        "law_outcome_gaussian": (
+            "The outcome moves by its strength, with the sign reversed, per standard "
+            "deviation of the simulated cause."
+        ),
+        "law_outcome_binomial": (
+            "The outcome flips for a share of units, those highest on the simulated cause, "
+            "set by the outcome strength."
+        ),
+        "law_outcome_logit": (
+            "The outcome moves on the log-odds scale of its declared bounds, so it stays "
+            "inside them, and the outcome strength is not in standard-deviation units: "
+            "compare cells across fits by their outcome association."
+        ),
+        "law_outcome_normal_score": (
+            "The outcome moves on a normal-score scale and is mapped back inside its "
+            "declared bounds, so the law depends on the sample, and the outcome strength is "
+            "not in standard-deviation units: compare cells across fits by their outcome "
+            "association."
+        ),
+        "association_defined": (
+            "An association column is the correlation, on these data, between the simulated "
+            "cause and the treatment{intermediate} the cell produced{stratum}."
+        ),
+        "incremental_reading": (
+            "Each cell refits the treatment model, and the shift in treatment odds reads "
+            "that refitted model, so a cell moves the intervention along with the "
+            "confounding."
+        ),
+        "learned_rule_reading": (
+            "Each cell keeps every unit's learned rule fixed, so it reads confounding of "
+            "those fixed rules, not of the procedure that learned them."
+        ),
+        "observation_reads": (
+            "The cells that move the treatment are valid only if whether a value is recorded "
+            "depends on {reads} alone, as declared."
+        ),
+        "bounded_rows": (
+            "A share {share} of recorded outcomes sits at a bound and never moves in any cell."
+        ),
+        "redrawn_folds": (
+            "Each refit redraws the cross-fitting folds, so every movement includes fold "
+            "noise; the anchor is the original fit."
+        ),
+        "limits_withheld_learner": (
+            "No one-sided limits or limit robustness value: the plug-in estimate of the "
+            "average squared weight has a standard error only for a "
+            "declared known treatment model or a qualifying scikit-learn LogisticRegression, "
+            "and this fit's treatment model does not qualify. {alternative}"
+        ),
+        "limits_withheld_configuration": (
+            "No one-sided limits or limit robustness value: this bound's weight also reads "
+            "a second model or a stratum share, and the standard error of the plug-in "
+            "estimate covers the treatment model alone. "
+            "{alternative}"
+        ),
+        "limits_withheld_correction": (
+            "No one-sided limits or limit robustness value: the plug-in estimate of the "
+            "average squared weight needs a correction before it "
+            "has a standard error, and the correction does not hold on this fit. "
+            "{alternative}"
+        ),
+        "limits_withheld_fit": (
+            "No one-sided limits or limit robustness value: the standard error of the "
+            "plug-in estimate of the average squared weight cannot be built from this "
+            "fit's stored treatment model. {alternative}"
+        ),
+        "limits_withheld_consistent": (
+            "No one-sided limits or limit robustness value: with "
+            "assume_consistent_mechanism=True the bound is a point bound, and no cited "
+            "source gives its standard error. {alternative}"
+        ),
+        "limits_withheld_zero": (
+            "No one-sided limits or limit robustness value: the bias scale is zero on this "
+            "fit, and a zero scale has no standard error."
+        ),
+        "limits_descriptive": (
+            "No validation study licenses the {what} for this kind of fit, so read it as "
+            "descriptive."
+        ),
+        "joint_strength": (
+            "Here the treatment-side strength measures how much the left-out variables add "
+            "to the weights of the treatment and of {mechanisms} together."
+        ),
+        "consistent_mechanism": (
+            "This point bound also assumes that the treatment model behind its weights is "
+            "correct (assume_consistent_mechanism=True); the package does not check it."
+        ),
+        "strength_clipped_y": (
+            "Leaving out {covariates} raised the outcome variation left by a factor above "
+            "two (gain {gain}), so cf_y is one: left-out variables this strong would explain "
+            "all of the outcome variation left after adjustment."
+        ),
+        "strength_clipped_d": (
+            "The treatment-side gain is {gain}, at least one, so cf_d is one, where the bound "
+            "has no finite value."
+        ),
+        "grid_thinned": (
+            "The table shows {rows} of the {y_size} cf_y values and {columns} of the "
+            "{d_size} cf_d values; to_frame() holds every cell."
+        ),
+        "bound_truncated": (
+            "The converted lower limit, {value}, lies below zero, outside the risk-ratio "
+            "scale, so the table shows zero."
+        ),
+        "bound_truncated_upper": (
+            "The converted lower limit, {value}, lies below zero, outside the risk-ratio "
+            "scale. The limit nearest the null is the upper one, which this does not touch."
+        ),
+        "tilt_diagnostic": (
+            "For {names} the spread off a gamma of zero is the main analysis's spread around the "
+            "moved estimate{scale}, a diagnostic: no interval is claimed there."
+        ),
+        "population_moves": (
+            "Each cell rebuilds the population of units with {arm_phrase} from its own "
+            "treatment, so part of a movement can be a change of population; the population "
+            "share column shows the share of units in that group."
+        ),
+        "cells_failed": (
+            "{failed} of {total} cells failed, so their movement is missing. "
+            "surface.failures gives each error."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T4_NOTE_TEXTS})
+
+#: Symbols a short sensitivity summary leaves to ``detail="full"`` (X89 plan 8.1 row T4).
+SHORT_DETAIL_SYMBOLS: Final[tuple[str, ...]] = ("sigma^2", "nu^2", "Riesz")

@@ -256,10 +256,10 @@ def markov_restriction(markov_order: int) -> str:
         f"statistical-model restriction, Markov order {markov_order}: at every node the "
         "outcome regression and the treatment and censoring mechanisms depend on the history "
         f"only through W and the last {markov_order + 1} nodes. It restricts the observed-data "
-        "model and does not change the estimand. Every nuisance the estimator fits reads the "
+        "model and does not change the estimand. Every model the estimator fits reads the "
         "window, so the estimator's own consistency and interval conditions apply to the "
-        "nuisances fitted on the window, and each of them needs the restriction for the "
-        "nuisance it reads."
+        "models fitted on the window, and each of them needs the restriction for the "
+        "model it reads."
     )
 
 
@@ -3317,7 +3317,10 @@ class LongitudinalData:
         """Build a dataframe of ``payload`` in the backend this data came from."""
         return frame_from_dict(payload, backend=self.backend)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
+        """One line of at most 100 characters: the rows and the facts a fit reads first."""
+        from .._summary import short_repr
+
         parts = [
             f"n={self.n}",
             f"T={self.n_times}",
@@ -3337,7 +3340,7 @@ class LongitudinalData:
             parts.append(f"clusters={self.n_clusters}")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
-        return f"LongitudinalData({', '.join(parts)})"
+        return short_repr("LongitudinalData", [("", part) for part in parts])
 
 
 #: What to tell a caller whose node has more levels than the estimator accepts.  Not
