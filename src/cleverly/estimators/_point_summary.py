@@ -342,7 +342,9 @@ def _folds_fact(result: TMLEResult) -> str:
     return f"{config.n_folds} folds"
 
 
-def _header(result: TMLEResult, facts: SummaryFacts) -> tuple[list[tuple[str, str]], int]:
+def _header(
+    result: TMLEResult, facts: SummaryFacts, clipping: _Clipping
+) -> tuple[list[tuple[str, str]], int]:
     """The header facts and how many of them go in the left column."""
     data = result.data
     left: list[tuple[str, str]] = [
@@ -384,6 +386,11 @@ def _header(result: TMLEResult, facts: SummaryFacts) -> tuple[list[tuple[str, st
         right.append((vocabulary.OUTCOME_MODEL, facts.outcome_model))
     if facts.treatment_model is not None:
         right.append((vocabulary.TREATMENT_MODEL, facts.treatment_model))
+    # The limits of the means and the average effect; Settings gives every pair.
+    limits = [pair for pair, _, groups in clipping.pairs if "mean" in groups]
+    if limits:
+        low, high = limits[0]
+        right.append((vocabulary.PROBABILITY_LIMITS, f"[{low:.4g}, {high:.4g}]"))
     right.extend(facts.header)
     return [*left, *right], len(left)
 
@@ -1068,7 +1075,8 @@ def point_summary(result: TMLEResult, facts: SummaryFacts, detail: Detail) -> Su
     """
     level_value = 1.0 - result.config.alpha_sig
     level = f"{level_value * 100:g}%"
-    header, split = _header(result, facts)
+    clipping = _clipping(result)
+    header, split = _header(result, facts, clipping)
     table, notes = estimates_table(result.estimates, level=level_value)
     tables = [table]
     key = _key_table(result)
@@ -1084,7 +1092,6 @@ def point_summary(result: TMLEResult, facts: SummaryFacts, detail: Detail) -> Su
         if boot_table.rows:
             tables.append(boot_table)
             notes.extend(boot_notes)
-    clipping = _clipping(result)
     # The spread column's label, which names a diagnostic when no row has an interval.
     notes.extend(_fit_notes(result, facts, clipping, table.columns[2]))
     sections: list[SummarySection] = []

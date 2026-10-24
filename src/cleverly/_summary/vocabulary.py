@@ -27,6 +27,7 @@ DOSE: Final = "Dose"
 OUT_OF_FOLD: Final = "Out-of-fold predictions"
 OUTCOME_MODEL: Final = "Outcome model"
 TREATMENT_MODEL: Final = "Treatment model"
+PROBABILITY_LIMITS: Final = "Probability limits"
 MISSINGNESS_MODEL: Final = "Missingness model"
 #: Appended to a share label on weighted data, whose shares the weights tilt.
 WEIGHTED: Final = " (weighted)"
@@ -57,6 +58,7 @@ HEADER_LABELS: Final[frozenset[str]] = frozenset(
         OUT_OF_FOLD,
         OUTCOME_MODEL,
         TREATMENT_MODEL,
+        PROBABILITY_LIMITS,
         MISSINGNESS_MODEL,
         CLUSTERS,
         FEWEST_IN_STRATUM,
