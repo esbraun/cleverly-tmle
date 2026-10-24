@@ -175,10 +175,8 @@ PRIMARY_N = min(SCENARIO_N.values())
 #: Every bias family of the long-horizon studies reads its rows one at a time.
 BIAS_ROW_FAMILIES = frozenset(
     {
-        "targeting_necessity",
         "censoring_necessity",
         "categorical_probability_necessity",
-        "rule_necessity",
         "policy_necessity",
         "sequential_double_robustness",
     }

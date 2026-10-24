@@ -299,6 +299,11 @@ class StudyRecord:
     failure_bound: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        undeclared = self.bias_row_families - set(self.property_cells)
+        if undeclared:
+            raise ValueError(
+                f"bias_row_families names families the record does not declare: {sorted(undeclared)}"
+            )
         if self.publication_policy not in ("gated", "reporting"):
             raise ValueError(
                 "publication_policy must be 'gated' or 'reporting'; "

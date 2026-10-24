@@ -3920,3 +3920,13 @@ def test_a_record_requires_a_comparison_exactly_when_it_names_a_reference() -> N
     assert one.comparison_kind("a", "b") == "related target"
     assert one.comparison_kind("c", "anything") == "different estimator"
     assert one.comparison_kind("d", "e") == backed.comparison
+
+
+def test_a_record_names_only_declared_families_as_row_gated() -> None:
+    """``bias_row_families`` is a subset of the declared property families."""
+    record = next(study for study in STUDIES if study.slug == "long-horizon-ltmle")
+    assert record.bias_row_families <= set(record.property_cells)
+    with pytest.raises(ValueError, match="bias_row_families"):
+        dataclasses.replace(
+            record, bias_row_families=record.bias_row_families | {"selector_necessity"}
+        )

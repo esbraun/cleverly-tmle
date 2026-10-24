@@ -194,7 +194,6 @@ BIAS_ROW_FAMILIES = frozenset(
         "categorical_probability_necessity",
         "rule_necessity",
         "policy_necessity",
-        "sequential_double_robustness",
     }
 )
 
