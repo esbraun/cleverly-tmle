@@ -529,6 +529,11 @@ def oat_summary(fit: CTMLEOutcomeAdaptiveFit, detail: Detail) -> Summary:
             SummarySection(
                 vocabulary.SECTION_SETTINGS,
                 (
+                    *(
+                        line
+                        for line in _oat_facts(fit, None, banded=False).details
+                        if not line.startswith("No stacked interval")
+                    ),
                     "The risk is the negative log-likelihood of the treatment model, "
                     "weighted as the fit is.",
                 ),

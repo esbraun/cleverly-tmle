@@ -152,7 +152,7 @@ class TestKnownMechanismBootstrap:
             "fit_cleverly",
             lambda frame, **settings: _Result(
                 bootstrap=SimpleNamespace(
-                    n_failed=lost if frame == 4 else 0, summary=lambda name, alpha: summary
+                    n_failed=lost if frame == 4 else 0, interval=lambda name, alpha: summary
                 )
             ),
         )
