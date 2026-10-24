@@ -35,11 +35,33 @@ Practical consequences:
   bias must keep the level sets of the truth, or be negligible in the direction
   [the theorem page](theorem.md#the-conditioning-terms-are-linear-in-one-error) names. No fit can check either. Declare a known mechanism where the
   design gives one.
-- **Choose the reduction learners deliberately.** They default to the primary specification.
-  `reduced_outcome_learner=` and `reduced_treatment_learner=` are two keywords rather than one
-  because the tasks differ: `g_{r,1}` (or bivariate `g_r`) is a conditional probability and
-  `Q_r` plus univariate `g_{r,2}` are conditional means of signed quantities. A learner
-  *instance* built for classification cannot serve `Q_r`, whose target is an outcome residual.
+- **Choose the reduction learners deliberately.** Each reduced regression has its own keyword.
+  The table below gives the routing. A `None` slot uses the primary specification of its side.
+
+  | regression | target, on design | task | keyword | `None` resolves to |
+  | --- | --- | --- | --- | --- |
+  | `Q_r` | `Y − Q̄_n` on `g_n` | regression | `reduced_outcome_learner=` | `outcome_learner=` |
+  | `g_{r,1}`, or bivariate `g_r` | `1_a` on `Q̄_n` | classification | `reduced_treatment_learner=` | `treatment_learner=` |
+  | univariate `g_{r,2}` | `(1_a − g_n)/g_n` on `Q̄_n` | regression | `reduced_mechanism_residual_learner=` | `outcome_learner=` |
+
+  The two regression slots resolve independently. So `reduced_outcome_learner=` alone leaves
+  `g_{r,2}` on the default. R `drtmle` routes the same way: its `gr` learner (`glm_gr`,
+  `SL_gr`) fits both reduced propensities, and its `Qr` learner fits only `Q_r`
+  (`tests/canonical/drtmle/run_drtmle.R`). `tests/unit/test_drtmle_reduced_routing.py` pins
+  the routing.
+
+  Theory asks for a flexible `Q_r` learner when only the mechanism is consistent. The same
+  learner on `g_{r,2}` fits noise when `Q̄_n` is near constant. A
+  [fold-wise study cell](../method-evidence/dr-tmle-foldwise.md#the-spline-cell-and-the-red-cell-it-replaced)
+  that fitted one spline on both was red, and its paired diagnosis put the bias in `g_{r,2}`.
+  Its replacement fits the spline on `Q_r` only and passes.
+
+  `Q_r` and `g_{r,2}` have signed targets, so a classifier cannot fit them. `DRTMLE` refuses a
+  classifier in either regression slot before it fits a learner. A `None` slot takes
+  `outcome_learner=`, which is often a classifier on a binary outcome. Pass a regressor to each
+  regression slot in that case. On the randomized missing-outcome route,
+  `reduced_mechanism_residual_learner=` fits `r_a` and `r_m`, and `reduced_outcome_learner=`
+  fits `e`.
 - **A flexible primary nuisance does not buy a flexible reduction.** The reductions are on one
   scalar by default and two for bivariate `g_r`, so their bias is a low-dimensional smoothing
   question independent of how well the primary fit adjusted for `W`.

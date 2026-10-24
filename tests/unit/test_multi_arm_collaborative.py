@@ -58,6 +58,7 @@ LEARNED = {
 
 REDUCED_LEARNERS = {
     "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+    "reduced_mechanism_residual_learner": sklearn.linear_model.LinearRegression(),
     "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
 }
 

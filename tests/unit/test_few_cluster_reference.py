@@ -396,6 +396,7 @@ def _drtmle(k: int) -> Any:
             outcome_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
             learner_folds=2,
             n_folds=3,

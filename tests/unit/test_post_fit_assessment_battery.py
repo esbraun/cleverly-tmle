@@ -85,7 +85,13 @@ def _learners(**overrides: object) -> dict[str, object]:
 
 
 def _raw(engine: type = TMLE, **overrides: object):
-    """An unfitted estimator built directly, bypassing ``CausalStudy``."""
+    """An unfitted estimator built directly, bypassing ``CausalStudy``.
+
+    A DR-TMLE takes the pooled reduced regressions, because the two folds of
+    :func:`_learners` are fewer than the foldwise default needs.
+    """
+    if engine is DRTMLE:
+        overrides.setdefault("reduced_crossfit", "pooled")
     return engine(**_learners(**overrides))
 
 
@@ -2179,9 +2185,12 @@ def _drtmle(**overrides: object):
         "outcome_learner": LinearRegression(),
         "treatment_learner": LogisticRegression(max_iter=1000),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(max_iter=1000),
         "estimands": ("ey1", "ey0", "ate"),
         "n_folds": 2,
+        # Two folds, so the pooled construction: foldwise needs three.
+        "reduced_crossfit": "pooled",
         "random_state": 3,
         "simultaneous": False,
     }

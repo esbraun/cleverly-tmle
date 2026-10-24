@@ -657,6 +657,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
@@ -761,6 +762,7 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
+        DRTMLE_FOLDWISE,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,

@@ -210,6 +210,7 @@ CONFIGURATION = {
     "simultaneous_intervals": False,
     "g_bounds": list(G_BOUNDS),
     "regimens": list(REGIMENS),
+    "drtmle_reduced_crossfit": "foldwise: each fold's reduced regressions train on its own slab",
 }
 
 

@@ -88,6 +88,7 @@ def _fit(frame: pd.DataFrame, configuration: str) -> Any:
             treatment_learner=OracleTreatment(correct),
             missingness_learner=OracleMissingness(pi),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             estimands=(TARGET,),
             simultaneous=False,

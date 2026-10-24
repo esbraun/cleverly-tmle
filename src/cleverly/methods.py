@@ -1540,11 +1540,16 @@ class DRTMLEMethod(TMLEMethod):
     reduction : {"univariate", "bivariate"}, default="univariate"
         Reduced-regression family.
     reduced_outcome_learner : estimator or None, default=None
-        Learner for the reduced outcome regression.
+        Learner for the reduced outcome regression ``Q_r``.
     reduced_treatment_learner : estimator or None, default=None
-        Learner for the reduced treatment regression.
-    reduced_crossfit : {"pooled", "nested"}, default="pooled"
-        Cross-fitting policy for reduced regressions.
+        Learner for the reduced treatment probability ``g_{r,1}``.
+    reduced_mechanism_residual_learner : estimator or None, default=None
+        Learner for the reduced mechanism-residual regression ``g_{r,2}``. ``None`` uses
+        the default regression learner, also when ``reduced_outcome_learner`` is set.
+    reduced_crossfit : {"foldwise", "pooled"}, default="foldwise"
+        Cross-fitting construction for the reduced regressions. ``"foldwise"`` keeps each
+        fold's reduced regressions apart from that fold's data; ``"pooled"`` is R
+        ``drtmle``'s ``cvFolds`` construction.
     update_order : {"drtmle", "benkeser"}, default="drtmle"
         Order of reduced targeting updates.
     evaluation : dataframe or None, default=None
@@ -1587,7 +1592,8 @@ class DRTMLEMethod(TMLEMethod):
     reduction: str = "univariate"
     reduced_outcome_learner: Any = None
     reduced_treatment_learner: Any = None
-    reduced_crossfit: str = "pooled"
+    reduced_mechanism_residual_learner: Any = None
+    reduced_crossfit: str = "foldwise"
     update_order: str = "drtmle"
     evaluation: Any = None
     randomized: bool = False
@@ -1597,6 +1603,9 @@ class DRTMLEMethod(TMLEMethod):
         super().__post_init__()
         _validate_learner(self.reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(self.reduced_treatment_learner, "reduced_treatment_learner")
+        _validate_learner(
+            self.reduced_mechanism_residual_learner, "reduced_mechanism_residual_learner"
+        )
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         """Translate this configuration for the point-treatment DR-TMLE engine.
@@ -1626,6 +1635,7 @@ class DRTMLEMethod(TMLEMethod):
             "reduction": self.reduction,
             "reduced_outcome_learner": self.reduced_outcome_learner,
             "reduced_treatment_learner": self.reduced_treatment_learner,
+            "reduced_mechanism_residual_learner": self.reduced_mechanism_residual_learner,
             "reduced_crossfit": self.reduced_crossfit,
             "update_order": self.update_order,
             "evaluation": self.evaluation,

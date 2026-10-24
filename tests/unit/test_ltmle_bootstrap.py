@@ -435,6 +435,7 @@ class TestReporting:
         if estimator is DRTMLE:
             settings.update(
                 reduced_outcome_learner=LinearRegression(),
+                reduced_mechanism_residual_learner=LinearRegression(),
                 reduced_treatment_learner=LogisticRegression(max_iter=1000),
             )
         with warnings.catch_warnings():

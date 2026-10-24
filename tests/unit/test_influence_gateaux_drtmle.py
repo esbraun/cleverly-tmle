@@ -347,6 +347,7 @@ def _fit(cell: str) -> Any:
         outcome_learner=OracleOutcome(dgp),
         treatment_learner=OracleTreatment(dgp),
         reduced_outcome_learner=CellMeans(),
+        reduced_mechanism_residual_learner=CellMeans(),
         reduced_treatment_learner=CellMeans(),
         guard=guard,
         estimands=ESTIMANDS,

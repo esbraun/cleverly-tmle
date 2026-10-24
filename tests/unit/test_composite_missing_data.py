@@ -66,6 +66,7 @@ GUARDS = (("Q", "g"), ("Q",), ("g",), ())
 def _reduced_learners() -> dict[str, Any]:
     return {
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(C=1e6, max_iter=2000),
     }
 
@@ -1299,6 +1300,7 @@ def test_the_study_route_declares_a_missing_treatment() -> None:
     fitted = effect.estimate(
         method=DRTMLEMethod(
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         ),
         **_fitted_learners(),

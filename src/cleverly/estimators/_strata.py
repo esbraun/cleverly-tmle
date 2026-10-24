@@ -296,6 +296,57 @@ def refuse_untrainable_stratum_folds(
                 )
 
 
+def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
+    """Refuse a foldwise fit whose leave-two-out complements cannot train every arm.
+
+    The foldwise DR-TMLE slabs fit the primary regressions once for each unordered pair of
+    folds ``{k, m}``, on the rows outside both.  Each of those fits trains on the whole
+    sample outside the pair, so it needs a row of every arm with an observed outcome there.
+    Baseline strata do not enter: the primary regressions are not fitted inside a stratum,
+    and a stratum's reduced regressions for fold ``k`` train on the rows of the fold-``k``
+    complement, which :func:`refuse_untrainable_stratum_folds` checks.  A cluster split
+    removes whole clusters, so a few-cluster split can empty an arm here while every
+    one-fold complement still holds it.  The check reads the data and the drawn folds only,
+    so it runs after the fold draw and before any learner.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit.
+    folds : Folds
+        The drawn split, with at least three folds.
+
+    Raises
+    ------
+    ValueError
+        If some arm and pair of folds leave no trainable row outside the pair.
+    """
+    from ..learners.crossfit import _POST_DRAW_REMEDY
+
+    if data.is_continuous_treatment or folds.is_single:
+        return
+    treatment = np.asarray(data.treatment, dtype=float)
+    observed = np.asarray(data.observed, dtype=bool)
+    assignment = np.asarray(folds.assignment)
+    pairs = [
+        (first, second)
+        for first in range(folds.n_folds)
+        for second in range(first + 1, folds.n_folds)
+    ]
+    for arm in data.arm_codes:
+        trainable = (treatment == float(arm)) & observed
+        for first, second in pairs:
+            outside = (assignment != first) & (assignment != second)
+            if np.any(trainable & outside):
+                continue
+            raise ValueError(
+                f"folds {first} and {second} together hold every trainable row of arm "
+                f"{data.arm_label(arm)!r} in the sample, so the leave-two-out primary "
+                "regressions of reduced_crossfit='foldwise' cannot be fitted. "
+                + _POST_DRAW_REMEDY.format(remedy="fit with reduced_crossfit='pooled'")
+            )
+
+
 def check_stratified_msm_design(msm: object, data: CausalData) -> None:
     """Refuse a working model whose projection is singular inside a baseline stratum.
 

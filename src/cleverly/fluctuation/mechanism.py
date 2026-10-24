@@ -120,11 +120,10 @@ __all__ = [
 
 #: One item of ``carry`` on this side: a further mechanism moved by the same tilt.
 #:
-#: A bare array takes the **production** covariate, which is what the nested
-#: reduced-regression construction wants -- its fold-free copies describe the same rows.  A
-#: ``(base, covariate)`` pair takes one of its own, which is what an evaluation companion
-#: needs: :math:`Q_r/g^*` at rows the fit never saw is a different array at the same
-#: :math:`\epsilon`.  The counterpart of
+#: A bare array takes the **production** covariate.  A ``(base, covariate)`` pair takes one
+#: of its own, which is what an evaluation companion and a foldwise DR-TMLE slab need:
+#: :math:`Q_r/g^*` at rows the fit never saw, or built from another fold's reduced
+#: regressions, is a different array at the same :math:`\epsilon`.  The counterpart of
 #: :data:`~cleverly.fluctuation.iterative.CarryItem` on the outcome side.
 MechanismCarry: TypeAlias = "FloatArray | tuple[FloatArray, FloatArray]"
 
@@ -202,8 +201,8 @@ class MechanismFluctuation:
     score_initial: FloatArray
     #: Further mechanisms moved by the **same** tilt at the **same** ``epsilon``, in the
     #: order they were passed as ``carry``, and truncated exactly when :attr:`propensity`
-    #: was.  Empty on every fit that did not ask for one --
-    #: :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"`` is the only caller.
+    #: was.  Empty on every fit that did not ask for one.  :class:`~cleverly.DRTMLE` asks
+    #: for them with an ``evaluation=`` companion and with ``reduced_crossfit="foldwise"``.
     #: Nothing here reads them: they take the tilt and contribute nothing to it.
     carried: tuple[FloatArray, ...] = ()
     converged: bool = True

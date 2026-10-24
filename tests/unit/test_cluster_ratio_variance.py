@@ -127,7 +127,11 @@ def fit_unit_law(
     if cross_fit:
         settings["n_folds"] = 5
     if estimator is DRTMLE:
+        # A real truncation: each foldwise slab is tilted at the pooled epsilon without a
+        # solve of its own, and at bounds of 1e-9 a slab's mechanism runs to zero.
+        settings["g_bounds"] = (0.01, 0.99)
         settings["reduced_outcome_learner"] = LinearRegression()
+        settings["reduced_mechanism_residual_learner"] = LinearRegression()
         settings["reduced_treatment_learner"] = LogisticRegression(max_iter=1000)
         settings["learner_folds"] = 2
     return (

@@ -774,7 +774,11 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
 
     def test_the_bivariate_reduction(self) -> None:
         frame, _ = make_binary_outcome(n=160, seed=11)
-        estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), reduction="bivariate")
+        estimator = DRTMLE(
+            **linear_drtmle(n_folds=2, estimands=("ate",)),
+            reduction="bivariate",
+            reduced_crossfit="pooled",
+        )
         lines = _method_lines(estimator.fit(frame, outcome="Y", treatment="A").single())
         assert _reduction_line("bivariate") in lines
         assert _reduction_line("univariate") not in lines
