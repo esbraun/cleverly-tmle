@@ -127,9 +127,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 from .._inference_status import FEW_CLUSTER_THRESHOLD
 from .._support import UNCLASSIFIED, Support, combine_support
@@ -216,6 +219,32 @@ class SimultaneousBands:
         from scipy import stats
 
         return float(stats.norm.ppf(1.0 - self.alpha / 2.0))
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the bands, laid out like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds the critical value a single interval would use.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import bands_summary
+
+        return bands_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import bands_repr
+
+        return bands_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 #: Mammen's two-point distribution: mean 0, variance 1, third moment 1, which matches one

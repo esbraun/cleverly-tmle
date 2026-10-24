@@ -49,6 +49,7 @@ from ..inference.influence import (
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
     RatioKind,
+    RepeatSpread,
     estimate_covariance,
     estimate_curves,
     ratio_contrast,
@@ -226,87 +227,6 @@ class TMLEConfig:
             if self.cv_evaluation
             else "fold-specific targeted TMLE"
         )
-
-    def describe(self, *, outcome_fit: bool = True) -> list[str]:
-        """Human-readable lines for :meth:`TMLEResult.summary`.
-
-        Parameters
-        ----------
-        outcome_fit : bool
-            ``False`` for an AdaptiveIPTW fit, which fits no outcome regression and no
-            outcome fluctuation, so the lines name neither.
-
-        Returns
-        -------
-        list of str
-            The lines, one fact each.
-        """
-        lines = [
-            f"outcome family: {self.family}; fluctuation: {self.fluctuation} ({self.targeting})"
-            if outcome_fit
-            else f"outcome family: {self.family}; no outcome regression is fitted",
-        ]
-        if self.cross_fit:
-            name = self.estimator_name if outcome_fit else "AdaptiveIPTW"
-            lines.append(
-                f"{name}: nuisances cross-fitted over {self.n_folds} folds; "
-                f"targeting: {self.targeting_scheme}"
-            )
-            if self.crossfit.repeated:
-                # Always shown when it applies, unlike the capped-folds line below: a
-                # repeated fit reports a different estimator from an ordinary one, and a
-                # reader who cannot tell them apart cannot compare two summaries.
-                lines.append(
-                    f"  (median over {self.crossfit.repeats} independent draws of the "
-                    "split; variance includes within-draw uncertainty and split dispersion)"
-                )
-        else:
-            name = self.estimator_name if outcome_fit else "AdaptiveIPTW"
-            lines.append(f"{name}: nuisances fitted in-sample (cross_fit=False)")
-        if self.cross_fit and self.crossfit.n_folds != self.n_folds:
-            # Only when they disagree, because agreeing is the ordinary case and a line
-            # that always appears is a line nobody reads. When they do disagree the
-            # warning that explained it was emitted at fit time and is long gone, so this
-            # is the only place a reader can find out that the split was capped.
-            lines.append(
-                f"  ({self.crossfit.n_folds} folds were declared; the split was capped "
-                f"at {self.n_folds} by the rarest stratum or the cluster count)"
-            )
-        # A policy fit on a dose reads a conditional density, not a propensity: nothing is
-        # truncated into g_bounds and reporting the bound would name a step that did not
-        # happen. What bounds a density ratio there is the cap the analyst declared,
-        # which is part of the estimand and so appears in the parameter names instead.
-        if not (self.parameter_axis == "policy" and self.continuous_treatment) and (
-            self.fits_treatment
-        ):
-            bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
-            if self.auto_bounds_n is not None:
-                # Named because it is a deliberate divergence from R's rule, and because a
-                # reader comparing two fits needs to know the bound moved with the weights.
-                bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
-            if outcome_fit and self.g_bounds_conditional != self.g_bounds:
-                bounds += (
-                    f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
-                    f"{self.g_bounds_conditional[1]:.4g}]"
-                )
-            lines.append(bounds)
-        if self.treatment_mechanism == "known":
-            lines.append(
-                "treatment mechanism: known (declared); no truncation bound moved a known value"
-            )
-        if self.bounded_mechanisms:
-            # The propensity is not the only denominator in the clever covariate, and a
-            # reader comparing two fits needs to see every bound that shaped the estimate
-            # -- not just the one with a familiar name.
-            named = " and ".join(self.bounded_mechanisms)
-            lines.append(f"{named} truncated to [{self.missingness_bound:.4g}, 1]")
-        if self.q_bounds is not None and outcome_fit:
-            lines.append(
-                f"outcome scaled from [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}] to [0, 1]"
-            )
-        if self.target_weights and outcome_fit:
-            lines.append("fluctuation in weighted form (target_weights=True)")
-        return lines
 
 
 @dataclass(frozen=True)
@@ -779,7 +699,7 @@ class TMLEResult:
             ),
         )
 
-    def repeat_spread(self) -> dict[str, float]:
+    def repeat_spread(self) -> RepeatSpread:
         r"""Split spread of the estimate across the cross-fitting draws, per estimand.
 
         A *diagnostic*, and emphatically not a standard error.  It measures how much the
@@ -813,9 +733,10 @@ class TMLEResult:
 
         Returns
         -------
-        dict of str to float
+        RepeatSpread
             Standard deviation across the cross-fitting draws, per estimand, on the
-            inference scale of that estimand.
+            inference scale of that estimand: a ``dict`` whose ``summary()`` sets each
+            spread beside the standard error it is read against.
         """
         return shared_repeat_spread(self.estimates, [repeat.psi for repeat in self.repeats])
 

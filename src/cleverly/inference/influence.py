@@ -53,9 +53,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
-from typing import Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import numpy as np
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 from .._inference_status import (
     PARAMETER_STATUSES,
@@ -368,6 +371,51 @@ class WaldTest:
     pvalue: float
     scale: Scale
     reference_df: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The test as a mapping of its fields.
+
+        Returns
+        -------
+        dict of str to Any
+            ``estimand``, ``null``, ``null_inference_value``, ``statistic``, ``p_value``,
+            ``scale`` and ``reference_df``.
+        """
+        return {
+            "estimand": self.name,
+            "null": self.null,
+            "null_inference_value": self.null_inference_value,
+            "statistic": self.statistic,
+            "p_value": self.pvalue,
+            "scale": self.scale,
+            "reference_df": self.reference_df,
+        }
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the test.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how the statistic is formed.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import wald_summary
+
+        return wald_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import wald_repr
+
+        return wald_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -1043,23 +1091,44 @@ class ParameterEstimate:
                 row["bootstrap_acceleration"] = self.bootstrap.acceleration
         return row
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        marker = " [experimental]" if self.support.label == "experimental" else ""
-        if not self.supplies_inference:
-            low, high = self.plugin_interval
-            return (
-                f"{self.name}: {self.psi:.5g} ({status_record(self.inference).summary_label} "
-                f"{self.plugin_std_error:.4g}, plug-in interval [{low:.5g}, {high:.5g}]; "
-                "a diagnostic, and no confidence interval or p-value is reported)" + marker
-            )
-        low, high = self.ci
-        reference = "" if self.reference_df is None else f"t({self.reference_df}) "
-        return (
-            f"{self.name}: {self.psi:.5g} (se {self.std_error:.4g}, "
-            f"{reference}{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], "
-            f"p={self._reported_pvalue():.3g})" + marker
-        )
+    def to_frame(self) -> Any:
+        """This estimate as a one-row frame: the row of :meth:`to_dict`.
 
+        Returns
+        -------
+        dataframe
+            One row, in the default dataframe backend.
+        """
+        from ..utils.frames import frame_from_dict
+
+        return frame_from_dict({key: [value] for key, value in self.to_dict().items()})
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the estimate, laid out like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds the level, the bootstrap interval when there is one, and why an
+            experimental estimate is marked.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import estimate_summary
+
+        return estimate_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import estimate_repr
+
+        return estimate_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 def support_column(estimates: Mapping[str, ParameterEstimate]) -> list[str] | None:
     """The ``support`` cell of each estimate, or ``None`` when every estimate is supported.
@@ -1175,6 +1244,32 @@ class BootstrapSummary:
     @property
     def variance(self) -> float:
         return float(self.std_error**2)
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the replicates behind this interval.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds the one-sided limits and the BCa corrections.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import bootstrap_summary_summary
+
+        return bootstrap_summary_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import bootstrap_summary_repr
+
+        return bootstrap_summary_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 #: Why the raw second-moment rule refuses clusters. One text for the estimate constructor

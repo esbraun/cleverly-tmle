@@ -45,7 +45,7 @@ CENSORING_MODEL: Final = "Censoring model"
 ANALYSIS: Final = "Analysis"
 
 #: Every header label above, so a test can check a summary uses only shared labels.
-HEADER_LABELS: Final[frozenset[str]] = frozenset(
+HEADER_LABELS: frozenset[str] = frozenset(
     {
         QUESTION,
         OUTCOME,
@@ -309,7 +309,7 @@ NoteKind = Literal["warning", "note"]
 
 #: Every note code, with its kind. A ``warning`` changes how to read a number; a ``note``
 #: explains one. A summary may only print a code listed here.
-NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
     {
         "no_inference": "warning",
         "experimental": "note",
@@ -445,7 +445,7 @@ BOOTSTRAP_DIAGNOSTIC: Final[Mapping[str, str]] = MappingProxyType(
 #: Appended to a quoted warning the fit raised more than once.
 REPEATS: Final = " ({count} times)"
 
-NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
     {
         "no_inference": (
             "No confidence interval or p-value for {names}. {reason} The {label} column is "
@@ -613,3 +613,314 @@ EVIDENCE_WORDS: Final[Mapping[str, str]] = MappingProxyType(
         "L3": "as L2, with an external package's result beside it",
     }
 )
+
+# ----------------------------------------------------------------- point-estimate objects (T1)
+
+#: Header labels of the summaries of a single estimate, a test, a bootstrap, a cross-fitted
+#: report and the method records a point fit keeps.
+ESTIMAND: Final = "Estimand"
+NULL_VALUE: Final = "Null value"
+SCALE: Final = "Scale"
+REFERENCE: Final = "Reference"
+RESAMPLING: Final = "Resampling"
+REPLICATES: Final = "Replicates"
+FAILED: Final = "Failed"
+INTERVAL: Final = "Interval"
+FOLDS: Final = "Folds"
+SPLITS: Final = "Splits"
+CANDIDATES: Final = "Candidates"
+CHOSEN: Final = "Chosen"
+CRITERION: Final = "Criterion"
+SEARCH: Final = "Search"
+COVARIATES_SEARCHED: Final = "Covariates searched"
+ADJUSTMENT: Final = "P-value adjustment"
+LOSS: Final = "Loss"
+BEST: Final = "Best candidate"
+ENSEMBLE_RISK: Final = "Ensemble CV risk"
+GUARD: Final = "Protects against"
+REDUCTION: Final = "Extra regressions"
+FORM: Final = "Form"
+ROUNDS: Final = "Rounds"
+STOPPED: Final = "Stopped"
+DESIGN: Final = "Design"
+STRATA: Final = "Strata"
+SOURCE: Final = "Source"
+TRAINING_SETS: Final = "Training sets"
+INTERMEDIATE: Final = "Intermediate"
+CRITICAL_VALUE: Final = "Critical value"
+MULTIPLIER_DRAWS: Final = "Multiplier draws"
+MULTIPLIER_KIND: Final = "Multiplier weights"
+STATISTIC: Final = "statistic"
+
+HEADER_LABELS = HEADER_LABELS | {
+    ESTIMAND,
+    NULL_VALUE,
+    SCALE,
+    REFERENCE,
+    RESAMPLING,
+    REPLICATES,
+    FAILED,
+    INTERVAL,
+    FOLDS,
+    SPLITS,
+    CANDIDATES,
+    CHOSEN,
+    CRITERION,
+    SEARCH,
+    COVARIATES_SEARCHED,
+    ADJUSTMENT,
+    LOSS,
+    BEST,
+    ENSEMBLE_RISK,
+    GUARD,
+    REDUCTION,
+    FORM,
+    ROUNDS,
+    STOPPED,
+    DESIGN,
+    STRATA,
+    SOURCE,
+    TRAINING_SETS,
+    INTERMEDIATE,
+    CRITICAL_VALUE,
+    MULTIPLIER_DRAWS,
+    MULTIPLIER_KIND,
+}
+
+#: Titles of the T1 summaries.
+ESTIMATE_ONE_TITLE: Final = "Estimate: {name}"
+WALD_TITLE: Final = "Wald test: {name}"
+BOOTSTRAP_TITLE: Final = "Bootstrap replicates"
+BOOTSTRAP_INTERVAL_TITLE: Final = "Bootstrap interval"
+BANDS_TITLE: Final = "Simultaneous {level} bands"
+SPREAD_TITLE: Final = "Spread across cross-fitting splits"
+#: The row label of a one-row bootstrap table.
+REPLICATES_ROW: Final = "replicates"
+#: The kind of a bootstrap interval, keyed by ``BootstrapSummary.interval``.
+BOOTSTRAP_INTERVAL_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
+)
+#: What a bootstrap resamples, keyed by ``BootstrapResult.resampling``.
+RESAMPLING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"iid": "rows", "cluster": "clusters"}
+)
+
+#: The row label of a result set's estimate at one level of the intermediate variable.
+LEVEL_ROW: Final = "{name} at {Z} = {z}"
+
+#: Plain words for the scale an estimate's interval is built on, keyed by ``scale``.
+SCALE_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "difference": "difference",
+        "level": "level",
+        "fraction": "fraction",
+        "ratio": "ratio (interval on the log scale)",
+    }
+)
+
+#: Plain words for each collaborative search, keyed by the ``strategy=`` of ``CTMLE``.
+CTMLE_SEARCHES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "greedy": "adding covariates one at a time",
+        "ordered": "adding covariates in a fixed order",
+        "discrete": "over declared covariate sets",
+        "lasso": "along a lasso penalty path",
+        "learners": "over declared learners",
+        "oat": "outcome-adaptive",
+        "derivative": "derivative form",
+    }
+)
+
+#: The order an ``ordered`` search adds covariates in, keyed by ``preorder``.
+CTMLE_PREORDERS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "logistic": "ranked by a logistic fit of the treatment",
+        "partial_correlation": "ranked by partial correlation with the outcome residual",
+        "custom": "as declared",
+    }
+)
+
+#: The losses a collaborative search and a super learner score candidates by.
+LOSS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "loglik": "log-likelihood",
+        "squared": "squared-error",
+        "mse": "squared error",
+        "squared_error": "squared error",
+        "nll": "negative log-likelihood",
+        "log_loss": "negative log-likelihood",
+        "negative_log_likelihood": "negative log-likelihood",
+    }
+)
+
+#: What each DR-TMLE guard protects against, keyed by the guard name.
+GUARD_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "Q": "a wrong outcome model, when the treatment model is right",
+        "g": "a wrong treatment model, when the outcome model is right",
+    }
+)
+
+#: The extra regressions of each DR-TMLE construction, keyed by ``reduction``.
+REDUCTION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "univariate": "three one-dimensional regressions",
+        "bivariate": "one two-dimensional treatment regression",
+        "missing_outcome": "five regressions for missing outcomes",
+    }
+)
+
+#: Plain names of the DR-TMLE extra regressions, keyed by ``ReducedFit.diagnostics`` key.
+REDUCED_REGRESSIONS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "qr": "outcome-model error on the treatment probability",
+        "gr1": "treatment on the treatment probability",
+        "gr2": "weighted treatment error on the outcome prediction",
+        "gamma_a": "treatment recording on the reduced predictions",
+        "gamma_m": "outcome recording on the reduced predictions",
+        "r_a": "treatment error on the reduced predictions",
+        "r_m": "recording error on the reduced predictions",
+        "e": "outcome-model error on the reduced predictions",
+    }
+)
+
+#: The column labels of the T1 tables.
+REPLICATE_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "usable": "usable",
+        "mean": "mean",
+        "sd": "SD of replicates",
+        "smallest": "smallest",
+        "largest": "largest",
+    }
+)
+SPREAD_DIAGNOSTIC: Final = "spread (diagnostic)"
+SPREAD_RATIO: Final = "spread / SE"
+SPREAD_RATIO_PLUGIN: Final = "spread / plug-in SE"
+FOLD_AVERAGED: Final = "fold-averaged"
+WHOLE_SAMPLE: Final = "whole-sample"
+FOLD_SD: Final = "fold SD"
+FOLD_RANGE: Final = "fold range"
+ADJUSTED_P_VALUE: Final = "adjusted p-value"
+CV_RISK: Final = "CV risk"
+IN_SAMPLE_RISK: Final = "in-sample risk"
+WEIGHT: Final = "weight"
+TREATMENT_MODEL_COLUMN: Final = "treatment model"
+LOWER: Final = "lower"
+UPPER: Final = "upper"
+#: The marks a search table puts beside the candidate the fit reports.
+CHOSEN_MARK: Final = "chosen"
+FINAL_MARK: Final = "final step"
+
+#: More note codes, used by the point-estimate objects (thread T1).
+T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "rounds_capped": "warning",
+        "levels_separate": "note",
+        "null_scale": "note",
+        "bootstrap_failed": "warning",
+        "bootstrap_describes": "note",
+        "split_spread": "note",
+        "spread_missing": "note",
+        "cv_two_reports": "note",
+        "cv_first_split": "note",
+        "left_out": "note",
+        "search_stopped": "note",
+        "risk_order": "warning",
+        "stacked_interval": "note",
+        "ordinary_tmle": "note",
+        "multiple_testing": "note",
+        "separate_fits": "note",
+        "learners_failed": "warning",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T1_NOTE_CODES})
+
+T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "rounds_capped": (
+            "The weight adjustment stopped at its round limit before the weighted score of "
+            "{names} met its tolerance, so the estimate may keep part of the bias the "
+            "adjustment is meant to remove."
+        ),
+        "levels_separate": (
+            "Each level of {Z} is a different parameter. The levels do not split the total "
+            "effect into direct and indirect parts, and their difference is an interaction "
+            "contrast, not a mediated effect."
+        ),
+        "null_scale": (
+            "The test compares the estimate with the null value on the {scale} scale, where "
+            "the interval is built."
+        ),
+        "bootstrap_failed": (
+            "{failed} of {requested} replicates failed and are left out, so any interval "
+            "from these replicates is conditional on the replicates that ran."
+        ),
+        "bootstrap_describes": (
+            "These numbers describe the replicate estimates. The fitted result's summary "
+            "says whether they give a confidence interval for this fit."
+        ),
+        "bootstrap_describes_one": (
+            "These numbers describe the replicate estimates of one row. The fitted result's "
+            "summary says whether the interval is a confidence interval for this fit."
+        ),
+        "split_spread": (
+            "Each spread is the standard deviation of the estimate across {repeats} random "
+            "splits into folds. It shows how much the split moved the estimate; it is a "
+            "diagnostic, not a standard error, and the reported {spread} already includes "
+            "it."
+        ),
+        "spread_missing": (
+            "{names} {verb} no spread: a split gave a value the scale of the interval "
+            "cannot take."
+        ),
+        "cv_two_reports": (
+            "The fold-averaged estimate evaluates the parameter inside each fold and "
+            "averages the folds, with the cross-validated standard error. The whole-sample "
+            "estimate puts the held-out predictions together and evaluates them once. They "
+            "agree for the means and the average effect when the folds have equal weight, "
+            "and they can differ for ratios and for effects among the treated or untreated."
+        ),
+        "cv_first_split": (
+            "Both estimates combine {repeats} splits by their median; the fold columns "
+            "describe the first split only."
+        ),
+        "left_out": (
+            "The chosen treatment model leaves out {names}. The search chose by "
+            "cross-validated risk; it does not show why a covariate was left out."
+        ),
+        "search_stopped": (
+            "The search stopped after candidate {stopped} because the cross-validated risk "
+            "had not improved for {patience} candidates in a row; later candidates were "
+            "{later}."
+        ),
+        "search_never_stopped": (
+            "The stopping rule (patience {patience}) never triggered, so every candidate "
+            "was scored."
+        ),
+        "risk_order": (
+            "The declared learners are not ordered from least to most adaptive: the "
+            "treatment-model risk rises at candidate {names}. The search assumes that order."
+        ),
+        "ordinary_tmle": (
+            "No extra regressions were fitted (an empty guard), so the estimate is the "
+            "ordinary TMLE."
+        ),
+        "multiple_testing": (
+            "The adjusted p-values control the false discovery rate over the {count} tests "
+            "({method}). The intervals and the unadjusted p-values are not adjusted."
+        ),
+        "separate_fits": (
+            "Each row comes from its own fit with that candidate as the treatment and the "
+            "other declared variables as adjustment. Each row needs its own no-unmeasured-"
+            "confounding and positivity conditions, and a row is not the candidate's share "
+            "of one effect."
+        ),
+        "learners_failed": "These candidates failed to fit and were left out: {names}.",
+        "spread_withheld": (
+            "No interval for {names}, so the std. error column is empty there; the spread "
+            "is still a diagnostic of the split."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T1_NOTE_TEXTS})

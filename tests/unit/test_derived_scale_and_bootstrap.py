@@ -186,7 +186,7 @@ def test_invalid_ratio_draws_are_dropped_and_counted(
     }
     bootstrap = BootstrapResult(draws=draws, n_requested=6, n_failed=2, resampling="iid")
     estimates = {
-        name: make_estimate(name, 0.4, CURVE, n=4).with_bootstrap(bootstrap.summary(name))
+        name: make_estimate(name, 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval(name))
         for name in draws
     }
     function = ratio_function(kind, complement)  # type: ignore[arg-type]
@@ -210,7 +210,7 @@ def test_derived_bootstrap_does_not_swallow_a_user_callable_error() -> None:
     bootstrap = BootstrapResult(
         draws={"a": np.array([0.4, 0.6])}, n_requested=2, n_failed=0, resampling="iid"
     )
-    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.summary("a"))
+    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval("a"))
 
     def broken(values: np.ndarray) -> float:
         raise ValueError("the user's contrast is broken")
@@ -223,7 +223,7 @@ def test_a_nonfinite_callback_value_counts_as_a_derived_failure() -> None:
     bootstrap = BootstrapResult(
         draws={"a": np.array([0.4, 0.6, 0.8])}, n_requested=4, n_failed=1, resampling="iid"
     )
-    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.summary("a"))
+    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval("a"))
     summary = derived_bootstrap(
         {"a": estimate},
         bootstrap,
