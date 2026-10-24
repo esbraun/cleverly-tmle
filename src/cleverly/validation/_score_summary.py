@@ -130,8 +130,13 @@ def _is_correction(row: ScoreCheckRow) -> bool:
 
 def _correction_cells(row: ScoreCheckRow, splits: bool) -> tuple[Cell, ...]:
     match = _ROW_NAME.match(row.name)
-    part, arm, draw = match.group("part", "arm", "draw") if match else (row.name, None, None)
-    words = vocabulary.EQUATION_PARTS.get(part, part).removesuffix(" correction")
+    part, arm, draw = match.group("part", "arm", "draw") if match else (None, None, None)
+    # A row built by hand may name no correction; it prints as its plain name.
+    words = (
+        vocabulary.EQUATION_PARTS.get(part, part).removesuffix(" correction")
+        if part is not None
+        else equation_words(row.name)
+    )
     cells = [Cell(row.name, words), Cell(arm, arm or vocabulary.MISSING)]
     if splits:
         cells.append(

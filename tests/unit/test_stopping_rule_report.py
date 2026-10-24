@@ -275,10 +275,11 @@ class TestTheVerdictReadsTheRule:
         assert "PASS" not in summary
 
     def test_the_verdict_text_says_the_rule_and_not_the_machine_precision_root(self) -> None:
-        text = score_check(one_step("sample_size")).summary()
-        assert "met the sample_size stopping rule" in text
-        assert "not to machine precision" in text
-        assert "the theory does not license" not in text
+        summary = score_check(one_step("sample_size")).summary()
+        assert summary.facts[vocabulary.ALLOWED_ERROR] == "sample_size rule"
+        assert summary.reading == vocabulary.EQUATION_READINGS["passed_declared"]
+        assert "not to machine precision" in summary.reading
+        assert "the theory does not license" not in summary
 
     def test_a_default_fit_reads_the_default_bar_and_prints_nothing_new(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)
