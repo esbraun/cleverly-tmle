@@ -90,7 +90,7 @@ def test_invalid_weights_fail_before_warnings(kind, weights, weight_type, error)
 def _build_call_location(constructor) -> tuple[str, int]:
     lines, start = inspect.getsourcelines(constructor)
     offset = next(i for i, line in enumerate(lines) if "cls._build(" in line)
-    return str(Path(inspect.getfile(constructor)).resolve()), start + offset
+    return str(Path(inspect.getfile(inspect.unwrap(constructor))).resolve()), start + offset
 
 
 def test_weight_warnings_keep_order_messages_and_constructor_locations() -> None:
