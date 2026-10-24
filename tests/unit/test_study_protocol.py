@@ -253,8 +253,9 @@ def test_complete_protocol_and_digest_survive_result_round_trip(
     full = restored.summary(detail="full")
     # A structured summary wraps long lines; its section holds them whole.
     printed = full.section(vocabulary.SECTION_STUDY).lines if hasattr(full, "section") else full
-    for line in restored.identified_effect.protocol.summary_lines()[1:]:
-        assert line in restored.identified_effect.summary(detail="full")
+    question = restored.identified_effect.summary(detail="full")
+    for line in restored.identified_effect.protocol.summary_lines():
+        assert line in question.section(vocabulary.SECTION_STUDY).lines
         assert line in printed
 
 

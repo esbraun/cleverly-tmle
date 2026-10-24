@@ -24,4 +24,5 @@ runtime behavior. Pass the configured object to `IdentifiedEffect.estimate()`.
    cleverly.Inference
    cleverly.Runtime
    cleverly.MethodAvailability
+   cleverly.MethodAvailabilities
 ```

@@ -25,6 +25,7 @@ from cleverly import (
     PointTreatment,
     RegimeContrast,
 )
+from cleverly._summary import vocabulary
 from cleverly.interventions import Shift
 from cleverly.targets import TARGETS, Interpretation
 
@@ -115,13 +116,11 @@ def test_t_d1_each_record_carries_both_readings_with_their_own_exchangeability(
     assert "Williams & Díaz (2025)" in strong.references
     assert any("Theorem 1 (i) and Assumption 2" in ref for ref in standard.references)
     assert strong.meaning != standard.meaning
-    summary = effect.summary()  # type: ignore[attr-defined]
-    assert "interpretations, each with the assumption it adds:" in summary
+    summary = effect.summary(detail="full")  # type: ignore[attr-defined]
+    assert "has 2 causal readings" in summary.note("several_readings").text
+    lines = summary.section(vocabulary.SECTION_ASSUMPTIONS).lines
     for item in (strong, standard):
-        assert f"  - {item.label}: {item.meaning}" in summary
-        assert f"      needs {item.assumptions[0]}" in summary
-    lines = effect.summary_lines()  # type: ignore[attr-defined]
-    assert sum(line.startswith("interpretation ") for line in lines) == 2
+        assert f"- {item.label}: {item.meaning} (needs {'; '.join(item.assumptions)})" in lines
 
 
 @pytest.mark.parametrize("build", [_point_effect, _point_vector_effect])

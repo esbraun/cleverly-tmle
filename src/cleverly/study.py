@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
-from ._summary import Detail
+from ._summary import Detail, Summary
 from ._support import combine_support
 from ._typing import Family
 from ._warnings import records_fit
@@ -75,6 +75,7 @@ from .methods import (
     GComputationMethod,
     IPSIMethod,
     IPWMethod,
+    MethodAvailabilities,
     MethodAvailability,
     ParametricGFormulaMethod,
     Runtime,
@@ -310,7 +311,7 @@ class CausalResult(Protocol):
         """
         ...
 
-    def summary(self, *, detail: Detail = "short") -> str:
+    def summary(self, *, detail: Detail = "short") -> Summary:
         """Return a printable fit summary.
 
         Parameters
@@ -2620,7 +2621,7 @@ class BackdoorMeanContrast:
             )
         return (
             f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
-            "with influence correction"
+            "corrected by its influence function"
         )
 
 
@@ -3946,6 +3947,33 @@ class CausalStudy:
         """Return the scientific study protocol, if one was supplied."""
         return self._protocol
 
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the study design and its data.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the design, the data's size and the columns in each role.
+            ``"full"`` also prints the study protocol's fields, or that there is none.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose text is the printed summary. Its ``header``, ``tables`` and
+            ``notes`` hold the same facts as data, and a notebook renders it as HTML.
+        """
+        from ._summary._setup import study_summary
+
+        return study_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summary._setup import study_repr
+
+        return study_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
     def identify(
         self,
         estimand: PointEstimand,
@@ -4099,13 +4127,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     protocol: StudyProtocol | None = None
     _study: CausalStudy | None = field(repr=False, compare=False, default=None)
 
-    def available_methods(self) -> tuple[MethodAvailability, ...]:
+    def available_methods(self) -> MethodAvailabilities:
         """Report estimation methods available for this functional.
 
         Returns
         -------
-        tuple of MethodAvailability
-            One capability record for each named method, including refusal reasons.
+        MethodAvailabilities
+            A tuple of one capability record for each named method, including refusal
+            reasons. Its ``summary()`` prints the methods as a table and ``to_frame()``
+            returns them as a dataframe.
 
         Notes
         -----
@@ -4185,7 +4215,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
         iptw_reason = self._adaptive_iptw_refusal(design)
-        return (
+        records = (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability("adaptive_iptw", iptw_reason is None, iptw_reason),
             MethodAvailability(
@@ -4224,6 +4254,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 ),
             ),
         )
+        from ._summary._setup import question_text
+
+        return MethodAvailabilities(records, question=question_text(self))
 
     def _adaptive_iptw_refusal(self, design: Any) -> Refusal | None:
         """Why ``adaptive_iptw`` does not fit this functional, or ``None`` where it does.
@@ -4378,67 +4411,64 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             return True, None, False, IPW_MTP_REFUSAL
         return True, None, True, None
 
-    def summary(self, *, detail: Detail = "short") -> str:
-        """Return a readable identification summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the identified question.
+
+        It states the question in plain words, the conditions the answer rests on (which
+        the data can partly probe and which they cannot), and the methods that can estimate
+        it.
 
         Parameters
         ----------
         detail : {"short", "full"}, default "short"
-            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
-            protocol record, or that the fit had none.
+            ``"short"`` prints the question. ``"full"`` also prints every identification
+            statement as written, why each method that does not fit does not, and the
+            study protocol's fields, or that the study had none.
 
         Returns
         -------
-        str
-            A printable block naming the estimand, the functional, and the assumptions.
+        Summary
+            A ``str`` whose text is the printed summary. Its ``header``, ``tables`` and
+            ``notes`` hold the same facts as data, and a notebook renders it as HTML.
         """
-        assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
-        readings = [
-            line
-            for reading in self.identification.interpretations
-            for line in (
-                f"  - {reading.label}: {reading.meaning}",
-                *(f"      needs {item}" for item in reading.assumptions),
-                *(f"      source: {item}" for item in reading.references),
-            )
-        ]
-        restrictions = (
-            [
-                "model restrictions:",
-                *(f"  - {item}" for item in self.identification.model_restrictions),
-            ]
-            if self.identification.model_restrictions
-            else []
-        )
-        history = self.functional.history
-        # A longitudinal functional conditions each node's mechanism on its own history,
-        # so one list of the baseline covariates would understate every later node.
-        adjustment = (
-            [f"history at {node}: {list(names)}" for node, names in history]
-            if history
-            else [f"adjustment/history: {list(self.functional.adjustment)}"]
-        )
-        return "\n".join(
-            [
-                self.estimand.definition,
-                f"identified by {self.provider.name}: {self.functional.expression}",
-                *adjustment,
-                f"required nuisances: {list(self.identification.required_nuisances)}",
-                f"assumptions:\n{assumptions}",
-                *(
-                    ["interpretations, each with the assumption it adds:", *readings]
-                    if readings
-                    else []
-                ),
-                *restrictions,
-                *protocol_summary_lines(self.protocol, detail),
-            ]
-        )
+        from ._summary._setup import question_summary
 
-    def summary_lines(
+        return question_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summary._setup import question_repr
+
+        return question_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def _assumption_lines(self, fitted_method: str | None = None) -> list[str]:
+        """The lines of an Assumptions section: every statement this question rests on.
+
+        Parameters
+        ----------
+        fitted_method : str or None
+            The method that fitted a result. An ``"adaptive_iptw"`` fit leaves the model
+            restriction to its own lines.
+
+        Returns
+        -------
+        list of str
+            The lead sentence, then one line per statement, reading and restriction.
+        """
+        from ._summary._setup import assumption_lines
+
+        return assumption_lines(self, fitted_method)
+
+    def _result_summary_lines(
         self, *, detail: Detail = "short", fitted_method: str | None = None
     ) -> tuple[str, ...]:
-        """Return identification facts for inclusion in result summaries.
+        """Return identification facts for the longitudinal result summary.
+
+        Kept for :meth:`~cleverly.LongitudinalResult.summary` until that summary is built
+        on the shared summary layer; a summary built on that layer reads
+        :meth:`_assumption_lines`.
 
         Parameters
         ----------

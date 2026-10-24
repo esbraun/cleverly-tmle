@@ -46,6 +46,10 @@ import threading
 import time as _time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Summary
 
 __all__ = [
     "PhaseProfile",
@@ -137,43 +141,37 @@ class PhaseProfile:
             return float("nan")
         return self.exclusive.get(name, 0.0) / self.total_seconds
 
-    def summary(self) -> str:
-        """A table, ordered by exclusive cost.  Deliberately plain text.
+    def summary(self, *, detail: Literal["short", "full"] = "short") -> Summary:
+        """A table of the phases, ordered by each phase's own time.
 
-        This is a diagnostic for a benchmark and a developer, not a result object: giving
-        it a dataframe would put it on the narwhals contract the package makes about
+        This is a diagnostic for a benchmark and a developer, not a result object: it has
+        no dataframe, which would put it on the narwhals contract the package makes about
         *reported* quantities, and a timing is not one.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how to read the columns.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose text is the printed table; a notebook renders it as HTML.
         """
-        lines = [
-            f"{'phase':<28} {'calls':>7} {'exclusive s':>12} {'share':>7} {'inclusive s':>12}",
-            "-" * 70,
-        ]
-        for name in sorted(self.exclusive, key=lambda key: -self.exclusive[key]):
-            lines.append(
-                f"{name:<28} {self.counts[name]:>7d} {self.exclusive[name]:>12.4f} "
-                f"{self.share(name):>6.1%} {self.inclusive[name]:>12.4f}"
-            )
-        accounted = sum(self.exclusive.values())
-        lines.append("-" * 70)
-        lines.append(
-            f"{'accounted for':<28} {'':>7} {accounted:>12.4f} "
-            f"{accounted / self.total_seconds if self.total_seconds else float('nan'):>6.1%} "
-            f"{self.total_seconds:>12.4f}"
+        from .._summary._setup import phases_summary
+
+        return phases_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "PhaseProfile",
+            (("total", f"{self.total_seconds:.3f} s"), ("phases", len(self.exclusive))),
         )
-        workers = self.workers
-        if workers is not None:
-            # Indented and headed rather than appended to the table above, because these
-            # are processor seconds across the workers and those are wall seconds in the
-            # parent. One table would invite the reader to add them up.
-            lines.append("")
-            lines.append("in parallel workers (processor time, not wall time):")
-            for name in sorted(workers.exclusive, key=lambda key: -workers.exclusive[key]):
-                lines.append(
-                    f"  {name:<26} {workers.counts[name]:>7d} "
-                    f"{workers.exclusive[name]:>12.4f} {'':>7} "
-                    f"{workers.inclusive[name]:>12.4f}"
-                )
-        return "\n".join(lines)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 class _State(threading.local):
