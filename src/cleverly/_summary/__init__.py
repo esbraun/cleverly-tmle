@@ -1,7 +1,7 @@
 """The printed summary every result object shares.
 
-Users meet this module through ``result.summary()`` only. It is private so a seam can
-change a layout without a public deprecation.
+Users meet this module through ``result.summary()`` only. It is private: only
+``summary()`` is public.
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ from typing import Literal
 
 __all__ = ["Detail", "check_detail"]
 
-#: How much a summary prints: the analysis (``"short"``, the default), or the analysis with
-#: its assumptions, settings and study description (``"full"``).
+#: How much a summary prints: the analysis (``"short"``, the default), or the analysis and
+#: the study protocol's fields (``"full"``).
 Detail = Literal["short", "full"]
 
 

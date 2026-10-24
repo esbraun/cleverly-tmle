@@ -4442,7 +4442,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         Parameters
         ----------
         detail : {"short", "full"}, default "short"
-            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            ``"short"`` gives the analysis. ``"full"`` also gives the fields of the study
             protocol record, or that the fit had none.
         fitted_method : str or None
             The method that fitted the result. An ``"adaptive_iptw"`` fit fits no outcome

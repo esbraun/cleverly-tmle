@@ -101,8 +101,8 @@ print(effect.summary())
 
 The summary states the identifying formula, the four assumptions, and the two nuisance functions.
 The outcome regression is $Q(A, W) = E(Y \mid A, W)$. The treatment mechanism is
-$g(W) = P(A = 1 \mid W)$. This page records no `StudyProtocol`, a written description of the study's population, timing,
-and treatments. The [workflow](../workflow.md) shows how to record one.
+$g(W) = P(A = 1 \mid W)$. This page records no `StudyProtocol`, a written description of the
+study's population, timing, and treatments. The [workflow](../workflow.md) shows how to record one.
 
 ## Why TMLE with these settings
 
