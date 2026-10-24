@@ -364,7 +364,10 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # The treatment-only stress surface: both cells return, and the flip moves the screen
     # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]
-    assert "bounded outcome law: logit on [0, 1]" in surface.summary()
+    from cleverly._summary import vocabulary
+
+    assumption = surface.summary().note("sensitivity_assumption").text
+    assert vocabulary.NOTE_TEXTS["law_outcome_logit"] in assumption
     cells = sorted(surface.cells, key=lambda cell: cell.treatment_strength)
     assert [cell.treatment_strength for cell in cells] == [0.0, 0.1]
     assert all(cell.outcome_strength == 0.0 and cell.failure is None for cell in cells)
