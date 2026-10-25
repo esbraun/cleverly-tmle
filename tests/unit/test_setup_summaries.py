@@ -18,9 +18,17 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import ATE, CausalStudy, MethodAvailabilities, PointTreatment
+from cleverly import (
+    ATE,
+    CausalStudy,
+    LongitudinalTreatment,
+    MethodAvailabilities,
+    PointTreatment,
+    RegimeContrast,
+    Repeated,
+)
 from cleverly._summary import Summary, _setup, vocabulary
-from cleverly.datasets import make_linear_ate
+from cleverly.datasets import make_linear_ate, make_longitudinal_repeated
 from cleverly.learners.crossfit import SplitPlan
 from cleverly.methods import MethodAvailability
 from tests.unit.summary_fixtures import _setup_readers as readers
@@ -595,6 +603,22 @@ def test_a_longitudinal_study_counts_the_rows_followed_to_the_end() -> None:
     assert header[vocabulary.CENSORING] == "C1, C2"
     roles = {row[0].text: row[1].text for row in study.summary().tables[0].rows}
     assert roles["measured before A2"] == "blood_pressure"
+
+
+def test_a_repeated_outcome_names_every_outcome_column() -> None:
+    frame, _ = make_longitudinal_repeated(n=300, seed=3)
+    design = LongitudinalTreatment(
+        outcome=Repeated(["Y1", "Y2", "Y3"]),
+        treatment=("A1", "A2", "A3"),
+        baseline=("W",),
+        time_varying=((), ("L2",), ("L3",)),
+        censoring=("C1", "C2", "C3"),
+    )
+    effect = CausalStudy(frame, design=design).identify(
+        RegimeContrast({"never": 0, "always": 1}, reference="never")
+    )
+    expected = "Y1, Y2, Y3 (binary), measured at each time point"
+    assert dict(effect.summary().header)[vocabulary.OUTCOME] == expected
 
 
 def test_a_randomized_design_says_it_adjusts_for_nothing() -> None:
