@@ -45,6 +45,20 @@ Seven names serve the pricing tutorial of the same program.
 `make_sequential_pricing` is not in `GENERATORS` either. Its columns are `usage`, `engaged_1`,
 `price_1`, `engaged_2`, `price_2`, `engaged_3`, `price_3`, `renewed`, and `revenue`.
 
+Seven names serve the [weekly-outcomes tutorial](../examples/weekly-outcomes.ipynb) of the same
+program, where the order of every week is the outcome.
+
+| name | what it holds |
+| --- | --- |
+| `make_weekly_orders` | a wide frame of three weekly free-shipping offers with an order recorded each week, with the exact truths |
+| `weekly_orders_truth` | the exact weekly order share under each plan and odds tilt, and each contrast |
+| `weekly_orders_protocol` | the `StudyProtocol` of the weekly-orders question |
+| `offer_after_no_order` | the win-back rule, as a function of last week's order |
+| `ORDER_PLANS`, `ORDER_TILTS`, `ORDER_WEEKS` | the three plans by name, the two odds tilts, and the number of weekly sends |
+
+`make_weekly_orders` is not in `GENERATORS` either. Its columns are `tenure`, `order_0`, and
+`engaged_t`, `offer_t`, `tracked_t`, and `order_t` for each week `t` from 1 to 3.
+
 `make_population_impact` draws the program data of the
 [population-impact example](../examples/population-impact.ipynb): a binary top-box outcome with
 unreturned surveys and a 7-day primary-care visit after the offer. `population_impact_truth` holds
@@ -103,6 +117,10 @@ Three functions serve the team readmission part of the
    cleverly.datasets.pricing_truth
    cleverly.datasets.pricing_protocol
    cleverly.datasets.price_rise
+   cleverly.datasets.make_weekly_orders
+   cleverly.datasets.weekly_orders_truth
+   cleverly.datasets.weekly_orders_protocol
+   cleverly.datasets.offer_after_no_order
    cleverly.datasets.make_team_readmission
    cleverly.datasets.team_readmission_truth
    cleverly.datasets.team_readmission_protocol

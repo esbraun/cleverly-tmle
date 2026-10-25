@@ -247,3 +247,7 @@ categorized API tables.
    cleverly.datasets.pricing_truth
    cleverly.datasets.pricing_protocol
    cleverly.datasets.price_rise
+   cleverly.datasets.make_weekly_orders
+   cleverly.datasets.weekly_orders_truth
+   cleverly.datasets.weekly_orders_protocol
+   cleverly.datasets.offer_after_no_order

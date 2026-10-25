@@ -85,6 +85,15 @@ from .synthetic import (
     shift_dgp,
     weak_overlap_dgp,
 )
+from .weekly_orders import (
+    ORDER_PLANS,
+    ORDER_TILTS,
+    ORDER_WEEKS,
+    make_weekly_orders,
+    offer_after_no_order,
+    weekly_orders_protocol,
+    weekly_orders_truth,
+)
 
 __all__ = [
     "DGP",
@@ -92,6 +101,9 @@ __all__ = [
     "OFFER_LEVELS",
     "OFFER_PLANS",
     "OFFER_WEEKS",
+    "ORDER_PLANS",
+    "ORDER_TILTS",
+    "ORDER_WEEKS",
     "PILOT_OFFER_CHANCES",
     "PRICE_BANDS",
     "PRICE_NODES",
@@ -139,6 +151,7 @@ __all__ = [
     "make_shift_dose",
     "make_team_readmission",
     "make_weak_overlap",
+    "make_weekly_orders",
     "missing_outcome_binary_dgp",
     "missing_outcome_bounded_dgp",
     "missing_outcome_dgp",
@@ -148,6 +161,7 @@ __all__ = [
     "nonlinear_bounded_dgp",
     "nonlinear_dgp",
     "nonlinear_logit",
+    "offer_after_no_order",
     "offers_protocol",
     "offers_truth",
     "point_survival_truth",
@@ -164,6 +178,8 @@ __all__ = [
     "team_readmission_protocol",
     "team_readmission_truth",
     "weak_overlap_dgp",
+    "weekly_orders_protocol",
+    "weekly_orders_truth",
     "win_back",
     "win_back_then_ship",
 ]
