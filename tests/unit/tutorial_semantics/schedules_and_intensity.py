@@ -130,6 +130,9 @@ def _check_dose_fit(namespace: dict[str, Any]) -> None:
     both = namespace["BOTH"]
     # "one fifteenth of the true +0.0731"
     assert 0.0 < namespace["simple_both"] < truth[both] / 10
+    # Adjusting brings the regression close to the added-up raises, still short of the truth.
+    added = truth[namespace["HOURS"]] + truth[namespace["MINUTES"]]
+    assert added < namespace["adjusted_both"] < truth[both]
     result = namespace["dose_result"]
     for key in (namespace["HOURS"], namespace["MINUTES"], both):
         point = result[key]
