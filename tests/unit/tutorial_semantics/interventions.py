@@ -26,6 +26,17 @@ from tests.unit.tutorial_semantics import (
     stored_output,
 )
 
+#: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
+#: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
+REFIT_CELLS = (
+    "bound",
+    "refute-regimes",
+    "generated",
+    "sensitivity",
+    "sensitivity-other",
+)
+
+
 NOTEBOOK = EXAMPLES / "interventions.ipynb"
 
 #: The propensity bound the regime fit prints, which Step 6 compares with each plan's ratios.
