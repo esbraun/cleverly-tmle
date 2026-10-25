@@ -30,11 +30,9 @@ _PROBE = ROOT / _PROBE_NAME
 
 #: Decimals the readings quote from the committed review probe, which no cell prints.
 UNPRINTED_DECIMALS = dict.fromkeys(
-    ("-0.1294", "0.9525", "0.8275", "-0.1556", "0.9600", "0.9915", "0.7131"),
+    ("-0.1294", "-0.1556", "0.9600", "0.9915", "0.7131"),
     f"a value of the review probe log, {_PROBE_NAME}",
 )
-#: The nominal level the failure reading compares the probe's coverage with.
-UNPRINTED_DECIMALS["0.95"] = "the nominal coverage of a 95% interval"
 
 
 def _check_probe_log() -> None:
@@ -45,13 +43,16 @@ def _check_probe_log() -> None:
         "-0.1556": "fitted difference: mean -0.1556",
         "0.9600": "coverage 0.9600",
         "0.9915": "teams declared: mean -0.1296, SD 0.0258, mean SE 0.0256, SE over SD 0.9915",
-        "0.9525": "SE over SD 0.9915, coverage 0.9525",
         "0.7131": "SE over SD 0.7131",
-        "0.8275": "SE over SD 0.7131, coverage 0.8275",
     }
     for literal, line in lines.items():
         assert literal in UNPRINTED_DECIMALS
         assert line in text, f"{line!r} is not in {_PROBE_NAME}"
+    # "the team interval contained the true value in about 95% of them and the independent one in
+    # only 83%".
+    assert "SE over SD 0.9915, coverage 0.9525" in text
+    assert "SE over SD 0.7131, coverage 0.8275" in text
+    assert round(100 * 0.9525) == 95 and round(100 * 0.8275) == 83
     # "about a sixth of the effect short, and more data would not remove that gap": the bias of
     # the simple difference is a sixth of the true value, and the fitted difference has almost none.
     assert "bias 0.0246" in text and "true value -0.1539" in text
