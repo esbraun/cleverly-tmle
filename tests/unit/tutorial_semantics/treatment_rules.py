@@ -153,6 +153,8 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert round(float(overlap["min_propensity"]), 3) == 0.429
     assert round(float(overlap["max_ratio"]), 2) == 2.33
     assert round(float(overlap["effective_n"])) == 1139
+    # "Only the 1152 patients whose offer matched the rule carry weight".
+    assert namespace["matched"] == 1152 and float(overlap["effective_n"]) <= namespace["matched"]
 
 
 def _check_failure(namespace: dict[str, Any]) -> None:
@@ -217,9 +219,15 @@ def check_refits(namespace: dict[str, Any]) -> None:
     robustness, bound = namespace["robustness"], namespace["bound"]
     # "The robustness value, 0.076 ... 0.039 on both sides".
     assert round(robustness["rv"], 3) == 0.076 and round(robustness["rva"], 3) == 0.039
-    # "would shift the gain by at most 0.0008, leaving its limits at 0.0124 to 0.0400".
+    # "would shift the gain by at most 0.0008, leaving one-sided 95% limits of 0.0124 and 0.0400".
     assert round(bound.bias, 4) == 0.0008 and bound.ci_lower > 0.0
     assert round(bound.ci_lower, 4) == 0.0124 and round(bound.ci_upper, 4) == 0.0400
+    # "They are one-sided, which is why they sit inside the two-sided interval".
+    low, high = lottery_fit[name].ci
+    assert low < bound.ci_lower and bound.ci_upper < high
+    # "Living alone has strengths of only 0.003 and 0.002".
+    benchmark = namespace["benchmark"]
+    assert round(benchmark.cf_y, 3) == 0.003 and round(benchmark.cf_d, 3) == 0.002
 
     reports = namespace["refutations"]
     assert list(reports) == ["lottery's gain", "learned rule's value"]
@@ -233,12 +241,14 @@ def check_refits(namespace: dict[str, Any]) -> None:
         # "The noise column barely moves either estimate".
         assert abs(tests["random_common_cause"].statistic) < 0.05
         scatter[label] = round(tests["subset"].statistic, 2)
-    # "their scatter ratio ... is 0.94 and 0.91".
+    # "the scatter ratio ... is near 1 for both" (0.94 and 0.91).
     assert scatter == {"lottery's gain": 0.94, "learned rule's value": 0.91}
     placebo = {label: report.tests[0] for label, report in reports.items()}
     # "the lottery's gain averages 0.0013, near zero, and the rules are worth 0.6692 on average,
     # near the plain share of 0.6695".
     assert round(placebo["lottery's gain"].mean, 4) == 0.0013
+    # "the `t` column ... is below 1 for both".
+    assert all(abs(test.statistic) < 1.0 for test in placebo.values())
     share = float(namespace["frame"]["home_30"].mean())
     assert round(share, 4) == 0.6695
     rules = placebo["learned rule's value"]
@@ -258,3 +268,5 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # "such as 0.0271 against 0.0261 for `simulated_outcome`".
     simulated = generated["simulated_outcome"]
     assert round(simulated.mean, 4) == 0.0271 and round(simulated.declared_effect, 4) == 0.0261
+    # "The check is meant to run with 400 refits, the number its simulation study used".
+    assert "fewer than the 400 its simulation study needs" in simulated.evidence

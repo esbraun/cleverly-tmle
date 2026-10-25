@@ -1675,10 +1675,10 @@ def simulated_confounding(
     keeps the normalized weight on its original row. The induced association conditions
     this empirical law on the selected baseline stratum. Numeric calibration uses the full
     original population, or the recorded rows of each target when observations are
-    missing. A longitudinal fit, a learned rule, and a risk-ratio tilt are refused before
-    calibration, a draw, or a refit, and so are the grid stops of ``observation_reads`` and
-    the intermediate axis. Execution and the assessment capability share the same ordered
-    reasons.
+    missing. A learned-rule fit keeps the fit's folds and each row's realized rule in every
+    cell. A longitudinal fit and a risk-ratio tilt are refused before calibration, a draw, or
+    a refit, and so are the grid stops of ``observation_reads`` and the intermediate axis.
+    Execution and the assessment capability share the same ordered reasons.
 
     All strata share the same full-row latent draw and complete estimator refit. Baseline
     stratum membership stays fixed. ATT and ATC instead recompute their observed-treatment

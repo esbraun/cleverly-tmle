@@ -1306,7 +1306,7 @@ is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model
 folds, learner templates and seeds replay it.
 
 A refit relearns the rules, so the full-refit bootstrap and `repeats` above 1 refuse.
-`simulated_confounding` and the `refute` tests that refit hold each row's realized rule fixed.
+`simulated_confounding` and the `refute` tests `subset`, `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` hold each row's realized rule fixed. `placebo` relearns the rules, because the placebo law gives every rule the value `E[Y]`.
 The [simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface) states that reading.
 
 The other sensitivity analyses read `unavailable`, because the package does not implement them for this target.

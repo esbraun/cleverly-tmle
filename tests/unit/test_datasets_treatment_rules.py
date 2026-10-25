@@ -13,11 +13,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import (
+    ATE,
     CausalStudy,
     CrossFitting,
     LearnedRuleValue,
@@ -144,10 +146,43 @@ def _learned_fit(seed: int):
 def test_the_fold_truth_refits_the_rules_the_fit_used() -> None:
     result, outcome = _learned_fit(seed=5)
     value = learned_rule_truth(result, outcome)
+    # An independent computation: refit each fold's model with scikit-learn on the frame.
+    frame, _ = make_treatment_rules(n=1_000, seed=5)
+    columns = ["offer", "need", "lives_alone"]
+    fold_values = []
+    for train, _test in result.nuisance.folds:
+        model = clone(outcome).fit(frame.iloc[train][columns], frame.iloc[train]["home_30"])
+
+        def rule(data: pd.DataFrame, model=model) -> np.ndarray:
+            rows = data[["need", "lives_alone"]]
+            treated = model.predict_proba(rows.assign(offer=1.0)[columns])[:, 1]
+            control = model.predict_proba(rows.assign(offer=0.0)[columns])[:, 1]
+            return (treated > control).astype(float)
+
+        fold_values.append(treatment_rule_value(rule))
+    # The folds learn different rules, so a bug that gave every fold one model would show.
+    assert len(set(np.round(fold_values, 10))) > 1
+    assert value == pytest.approx(float(np.mean(fold_values)), abs=1e-9)
     _, truth = make_treatment_rules(n=10, seed=0)
     # Each fold rule is a threshold near the best one, so its value sits just below the best.
     assert truth["ey_none"] < value <= truth["ey_best_rule"]
     assert truth["ey_best_rule"] - value < 0.01
+
+
+def test_the_fold_truth_refuses_a_fit_of_another_target() -> None:
+    frame, _ = make_treatment_rules(n=400, seed=2)
+    design = PointTreatment(
+        outcome="home_30", treatment="offer", adjustment=("need", "lives_alone")
+    )
+    method = TMLEMethod(
+        models=ModelSpec(
+            outcome_learner=LogisticRegression(), treatment_learner=LogisticRegression()
+        ),
+        cross_fitting=CrossFitting(enabled=False),
+    )
+    result = CausalStudy(frame, design=design).estimate(ATE(), method=method)
+    with pytest.raises(ValueError, match="LearnedRuleValue"):
+        learned_rule_truth(result, LogisticRegression())
 
 
 def test_the_fold_truth_refuses_a_learner_that_learns_another_rule() -> None:

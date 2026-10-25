@@ -241,8 +241,9 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
     Raises
     ------
     ValueError
-        When the fit is not adjusted for ``need`` and ``lives_alone``, or a refitted rule
-        differs from the fit's rule on a row.
+        When the fit is not a ``LearnedRuleValue`` fit of ``home_30`` on ``offer``, adjusted
+        for ``need`` and ``lives_alone``, or a refitted rule differs from the fit's rule on a
+        row.
 
     See Also
     --------
@@ -251,7 +252,11 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
     from ..estimators._nuisance import fit_on_rows
     from ..learners._fitting import predict_mean
 
+    if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
+        raise ValueError("the fit must be a LearnedRuleValue fit")
     data = result.data
+    if (data.outcome_name, data.treatment_name) != ("home_30", "offer"):
+        raise ValueError("the fit must have the outcome home_30 and the treatment offer")
     if tuple(data.covariate_names) != ("need", "lives_alone"):
         raise ValueError("the fit must adjust for need and lives_alone, in that order")
     design = np.asarray(data.treatment_design(), dtype=float)
