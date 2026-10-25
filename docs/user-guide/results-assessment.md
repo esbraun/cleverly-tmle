@@ -1104,9 +1104,12 @@ assert type(restored.method) is type(result.method)
 assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
 
-Read `result.diagnostics.capabilities` before you run an operation on a loaded artifact. Each
-row declares the replay it needs, and `available` is `False` when the artifact cannot supply it.
-The row says which slot is missing, so you learn the answer before the operation runs.
+Print `restored.replayability.summary()` to see what a loaded result can redo: show its stored
+checks, re-estimate from its stored models, refit the models, or rerun on changed data. A note
+names any part the result lacks. Read `result.diagnostics.capabilities` before you run an
+operation on a loaded artifact. Each row declares the replay it needs, and `available` is `False`
+when the artifact cannot supply it. The row says which slot is missing, so you learn the answer
+before the operation runs.
 
 A result can hold a copied or modified estimator whose configuration the package refuses before a
 refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
