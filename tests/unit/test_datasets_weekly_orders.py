@@ -6,7 +6,7 @@ mean.  The draw uses no code path of the enumeration, so it checks the law's boo
 plan and tilt definitions.
 
 These checks are blind to a term that vanishes at the truth, so three wrong truths must fail the
-same comparison: a win-back rule that reads the order of the same week, a truth weighted by
+same comparison: a rule that reads this week's order draw (which no rule can see at the send), a truth weighted by
 staying tracked (the complete-case law instead of the hypothetical strategy), and a tilt that
 doubles the chance of an offer instead of its odds.
 """
@@ -179,7 +179,8 @@ def test_three_wrong_truths_fail_the_forward_comparison(truth: dict[str, float])
     right = _curve(truth, "win_back")
     _, errors = _forward(_plan(ORDER_PLANS["win_back"]), seed=730)
 
-    # 1. A win-back rule that reads the order of the same week, which no rule can see at the send.
+    # 1. A rule that reads this week's order draw, which no rule can see at the send: it sends the
+    #    code when the customer would not order this week without one.
     def reads_this_week(tenure, engaged, order, offer, draw):
         # The order of this week under no code, from the documented order model and the draw.
         p_no_code = expit(-1.5 + 0.3 * tenure + 1.0 * engaged + 1.2 * order)
@@ -209,9 +210,9 @@ def test_the_frame_is_wide_in_time_order_with_monotone_censoring() -> None:
     assert set(frame["tenure"].unique()) == {0.0, 1.0, 2.0}
     for week in (1, 2, 3):
         lost = frame[f"tracked_{week}"] == 0
-        assert frame.loc[lost, f"order_{week}"].isna().all()
-        if week < 3:
-            assert frame.loc[lost, f"engaged_{week + 1}"].isna().all()
+        # Every column after the week's tracking flag is missing once tracking stops.
+        later = columns[columns.index(f"tracked_{week}") + 1 :]
+        assert frame.loc[lost, later].isna().all().all()
         kept = frame[f"tracked_{week}"] == 1
         assert frame.loc[kept, f"order_{week}"].notna().all()
     # Last week's order lowers the chance of an offer.

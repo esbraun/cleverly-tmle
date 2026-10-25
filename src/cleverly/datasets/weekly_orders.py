@@ -109,7 +109,7 @@ def offer_after_no_order(previous_order: Any) -> Any:
     >>> offer_after_no_order([0, 1, 0]).tolist()
     [1.0, 0.0, 1.0]
     """
-    return 1.0 - np.asarray(previous_order, dtype=float)
+    return np.where(np.asarray(previous_order, dtype=float) == 0.0, 1.0, 0.0)
 
 
 def _fixed(level: float) -> Callable[[Any], Any]:
@@ -436,7 +436,8 @@ def weekly_orders_protocol() -> StudyProtocol:
         assumption_rationale=(
             "The scoring system reads tenure, the week's engagement score, and last week's order "
             "and code, all recorded, which gives sequential exchangeability for the codes",
-            "Tenure and weekly engagement are the recorded causes of consent loss",
+            "Tenure, weekly engagement, and the week's code are the recorded causes of "
+            "consent loss",
             *base.assumption_rationale[2:],
         ),
     )

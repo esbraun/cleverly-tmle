@@ -172,6 +172,9 @@ def _check_total(namespace: dict[str, Any]) -> None:
         assert [round(value, 3) for value in shown[: len(expected[plan])]] == list(expected[plan])
         # "their errors move together": the joint standard error is above the unpaired one.
         assert total.std_error > unpaired
+        # "Win-back's interval just misses its true total"; the interval of `always` holds it.
+        true_total = sum(truth[key] for key in keys)
+        assert covers(total, true_total) == (plan == "always")
         # The total is the sum of the weekly gains.
         assert total.psi == pytest.approx(sum(result[key].psi for key in keys), abs=1e-12)
     totals = [round(sum(truth[_key(plan, week)] for week in WEEKS), 2) for plan in PLANS]
