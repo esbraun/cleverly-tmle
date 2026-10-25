@@ -250,6 +250,14 @@ An incremental fit with missing outcomes reads `deferred` on `mechanism`, becaus
 `mechanism=True` runs. `TestTheTruncationRowResolvesEachRequest` in
 `tests/unit/test_capability_row_predicates.py` checks each request on five kinds of fit.
 
+The facade returns a `TruncationCurve`. It holds the frame, which `to_frame()` returns, and it
+forwards attribute access, indexing, `len` and iteration to that frame. `summary()` prints one row
+per parameter and pair: the estimate, its change from the fitted estimate, and the capped share or
+score-cell count, with `*` on each parameter's fitted pair. Its reading is the largest absolute
+change, divided by the fitted pair's `std_err` when the frame carries one. A frame that carries
+`plugin_std_err` or no spread prints the change alone. The combined report keeps the frame, and
+`report("truncation_curve")` returns the curve.
+
 The returned frame records both ends of every evaluated pair. Scalar treatment-mechanism values
 remain symmetric shorthand for `[bound, 1 - bound]`; observation- and intermediate-mechanism
 values use `[bound, 1]`. It also records each parameter's own fitted pair and estimate, plus the

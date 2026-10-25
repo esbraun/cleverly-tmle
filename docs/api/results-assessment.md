@@ -21,6 +21,7 @@ Reports provide stable summaries and dataframe output for downstream analysis.
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
+   cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
    cleverly.variable_importance
