@@ -234,7 +234,7 @@ def _notes(check: NuisanceDiagnostics) -> list[Note]:
     if calibration is not None:
         notes.append(calibration)
     if check._working_model:
-        notes.append(note("working_model", texts["working_model"]))
+        notes.append(note("collaborative_model", texts["collaborative_model"]))
     if check.treatment_role == "declared_treatment_law":
         notes.append(note("declared_treatment", texts["declared_treatment"]))
     if is_labelled(check.inference):

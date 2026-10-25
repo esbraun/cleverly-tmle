@@ -202,7 +202,7 @@ class TestDownstreamMachineryStillWorks:
             estimand=selection.estimand,
             more="",
         )
-        assert "not treatment given all covariates" in summary.note("working_model").text
+        assert "not treatment given all covariates" in summary.note("collaborative_model").text
 
         combined = fit.diagnostics.run_all()
         retained = combined.report("nuisance_models")
@@ -358,7 +358,7 @@ class TestDownstreamMachineryStillWorks:
         summary = diagnostics.summary()
         assert diagnostics.verdict() == summary.reading == vocabulary.MODEL_READINGS["clear"]
         # The working model and the missing interval are notes beside the reading.
-        assert {"working_model", "fit_status"} <= set(summary.note_codes)
+        assert {"collaborative_model", "fit_status"} <= set(summary.note_codes)
         assert summary.note("fit_status").text.startswith(vocabulary.NO_INTERVAL)
 
         # Flipping the *role* alone does not retract the status note, because that note
@@ -367,7 +367,7 @@ class TestDownstreamMachineryStillWorks:
         # say the wrong thing about it. This assertion is what pins the two apart.
         role_only = replace(diagnostics, treatment_role="estimated_treatment_law")
         assert "fit_status" in role_only.summary().note_codes
-        assert "working_model" not in role_only.summary().note_codes
+        assert "collaborative_model" not in role_only.summary().note_codes
 
         ordinary = replace(
             _flagged_slopes(role_only, "propensity"),
@@ -409,7 +409,7 @@ class TestDownstreamMachineryStillWorks:
         assert diagnostics.treatment_role == "collaborative_working_model"
         assert not _weak_treatment(diagnostics)
         assert _calibration_notes(_flagged_slopes(diagnostics, "propensity")) == []
-        assert "working_model" in diagnostics.summary().note_codes
+        assert "collaborative_model" in diagnostics.summary().note_codes
 
         detail = detached.diagnostics.run_all()["nuisance_models"].detail
         assert f"C-TMLE selection unavailable: {NUISANCE_SELECTION_MISSING}" in detail

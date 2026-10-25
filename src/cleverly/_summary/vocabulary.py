@@ -1402,7 +1402,7 @@ T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "weak_outcome_model": "warning",
         "weak_treatment_model": "note",
         "calibration": "note",
-        "working_model": "note",
+        "collaborative_model": "note",
         "declared_treatment": "note",
         "fit_status": "note",
         "selection": "note",
@@ -1441,7 +1441,7 @@ T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "alike on these covariates, which favours overlap."
         ),
         "calibration": "{sentences}",
-        "working_model": (
+        "collaborative_model": (
             "The treatment model here is the one the collaborative search chose, so its "
             "metrics describe that working model, not treatment given all covariates."
         ),

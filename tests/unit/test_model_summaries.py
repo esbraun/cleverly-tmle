@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import re
 import warnings
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -36,6 +38,18 @@ def _check(name: str) -> Any:
 def test_every_note_of_the_check_fires() -> None:
     fired = {code for name in CHECKS for code in _check(name).summary().note_codes}
     assert set(vocabulary.T3_MODEL_NOTE_CODES) <= fired, set(vocabulary.T3_MODEL_NOTE_CODES) - fired
+
+
+def test_no_section_redeclares_a_note_code() -> None:
+    """Each section rebinds ``NOTE_CODES`` with ``{**NOTE_CODES, **SECTION}``, so a code that
+    two sections declare silently takes the later text everywhere. The model check's
+    ``collaborative_model`` once took the name of the point-estimate ``working_model``
+    note and changed what a longitudinal working-model fit printed."""
+    source = Path(vocabulary.__file__).read_text()
+    declared = re.findall(r'^\s+"(\w+)": "(?:note|warning)",?$', source, re.MULTILINE)
+    twice = sorted({code for code in declared if declared.count(code) > 1})
+    assert not twice, twice
+    assert set(declared) == set(vocabulary.NOTE_CODES)
 
 
 def test_the_reading_is_the_verdict_and_counts_the_findings() -> None:
