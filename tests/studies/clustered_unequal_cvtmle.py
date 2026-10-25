@@ -152,6 +152,7 @@ CONFIGURATION = {
     "stratify_folds": STRATIFY_FOLDS,
     "cluster_average_weights": "one over the cluster size, on the cluster-average scenario",
     "q_bounds": "none: the outcome is binary",
+    "drtmle_reduced_crossfit": "foldwise: each fold's reduced regressions train on its own slab",
 }
 
 

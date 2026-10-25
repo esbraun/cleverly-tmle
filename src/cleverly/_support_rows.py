@@ -47,7 +47,14 @@ _POINT: Final[frozenset[Kind]] = frozenset({"point"})
 
 
 def default_options(engine: str) -> dict[str, Any]:
-    """The options a default fit of ``engine`` carries in its key.
+    """The options a support row of ``engine`` carries in its key unless it overrides them.
+
+    For ``"tmle"`` and ``"collaborative_tmle"`` these are the options of a default fit.  For
+    ``"drtmle"`` they differ from a default fit in one option.  The key names
+    ``reduced_crossfit="pooled"``, which :func:`cleverly._support.point_key` records for
+    every fit that runs the in-sample or unguarded path, and which the stacked rows ``D01``
+    to ``D03`` measured against R ``drtmle``.  A default cross-fitted ``DRTMLE`` fit runs
+    ``"foldwise"``, and only a row that overrides ``reduced_crossfit`` covers it.
 
     Parameters
     ----------
@@ -816,6 +823,15 @@ def _t_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit line of a stacked DR-TMLE row whose evidence ran the pooled reduced regressions.
+LEAK = (
+    "Pooled reduced regressions: R drtmle cvFolds parity. The drtmle-foldwise study "
+    "measured the fold leak on shared draws at n = 1,000: ATE bias 0.400 SD pooled against "
+    "0.156 SD foldwise, a paired displacement of 0.266 SD. Row D11 covers the binary "
+    "unstratified foldwise default."
+)
+
+
 def _d_rows() -> tuple[SupportRow, ...]:
     """DR-TMLE (``D`` rows)."""
     dr = ("drtmle",)
@@ -828,7 +844,10 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             cells=["both_correct", "outcome_correct", "treatment_correct"],
             # Roadmap: RM18.
-            limits=["The one-inconsistent-nuisance cells are red."],
+            limits=[
+                "The one-inconsistent-nuisance cells are red.",
+                LEAK,
+            ],
         ),
         point_row(
             "D02",
@@ -839,7 +858,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
             # Roadmap: RM18.
-            limits=["The boundary and one-sided-bias cells are red."],
+            limits=["The boundary and one-sided-bias cells are red.", LEAK],
         ),
         point_row(
             "D03",
@@ -850,7 +869,13 @@ def _d_rows() -> tuple[SupportRow, ...]:
             qualifiers=["strata"],
             cells=["stratified_both_correct"],
             # Roadmap: X8.
-            limits=["Two truth cells and the small-stratum cell are red."],
+            limits=[
+                "Two truth cells and the small-stratum cell are red.",
+                LEAK,
+                "Foldwise reduced regressions do not remove the stratified treatment_correct "
+                "bias: a 200-draw pilot at n = 2,000 read foldwise marginal 0.29, v1 0.30, "
+                "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
+            ],
         ),
         point_row(
             "D04",
@@ -859,6 +884,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             dependence="clustered",
+            options={"reduced_crossfit": "foldwise"},
             cells=["unequal_informative"],
         ),
         point_row(
@@ -869,6 +895,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="t",
             kinds=_WALD_T,
+            options={"reduced_crossfit": "foldwise"},
             cells=["few_cluster_reference"],
         ),
     ]
@@ -913,6 +940,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             engine=dr,
             splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
             cells=["q_wrong_g_glm_cf"],
         ),
         point_row(
@@ -980,9 +1008,24 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             cells=["three_arm_mar_outcome_and_treatment"],
         ),
+        # X83: the default cross-fitted fit, foldwise reduced regressions on the
+        # canonical-drtmle law. Its key is the key of D07.estimated_g_stacked, so the two merge.
+        point_row(
+            "D11",
+            ["drtmle-foldwise"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
+            cells=["both_correct", "outcome_correct", "treatment_correct"],
+        ),
     ]
     return _merged(
-        rows, {"D01": ["D01", "D07.estimated_g_stacked"], "D06.qg": ["D06.qg", "D07.known_g"]}
+        rows,
+        {
+            "D06.qg": ["D06.qg", "D07.known_g"],
+            "D11": ["D11", "D07.estimated_g_stacked"],
+        },
     )
 
 

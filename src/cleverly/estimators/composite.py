@@ -59,14 +59,13 @@ from ..utils.bounds import bound
 from ._nuisance import NuisanceEstimates, Propensity
 
 __all__ = [
-    "COMPOSITE_NESTED_REFUSAL",
+    "COMPOSITE_EVALUATION_REFUSAL",
     "CompositeState",
     "MissingDataRoute",
     "complement_form",
     "composite_bounds",
     "composite_clipping_mask",
     "composite_mechanism",
-    "composite_nested_refusal",
     "composite_state",
     "composite_view",
     "missing_data_route",
@@ -82,37 +81,16 @@ __all__ = [
 #: (2017) for a randomized trial.  ``"composite"`` is this module's construction.
 MissingDataRoute = Literal["complete", "missing_outcome", "randomized_missing_outcome", "composite"]
 
-#: The refusal of ``evaluation=`` and ``reduced_crossfit="nested"`` on a composite
-#: DR-TMLE fit, with or without a missing treatment. X50 part (d) holds ``evaluation=``;
-#: :func:`composite_nested_refusal` names F21 instead when the request is the nested
-#: construction alone.
-COMPOSITE_NESTED_REFUSAL = Refusal(
+#: The refusal of ``evaluation=`` on a composite DR-TMLE fit, with or without a missing
+#: treatment. X50 part (d) holds it. ``reduced_crossfit=`` is not refused here: the
+#: composite construction is in-sample only, and there the keyword has no effect.
+COMPOSITE_EVALUATION_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "The nested construction and the evaluation companion carry one fold-free treatment "
-    "mechanism. The composite mechanism has up to three factors, and neither construction "
-    "carries them.",
-    alternative="Use the default pooled reductions and no evaluation=.",
+    "The evaluation companion carries one fold-free treatment mechanism. The composite "
+    "mechanism has up to three factors, and the companion does not carry them.",
+    alternative="Drop evaluation=.",
     roadmap="X50",
 )
-
-
-def composite_nested_refusal(estimator: Any) -> Refusal:
-    """The composite refusal, with the roadmap item that holds the refused setting.
-
-    Parameters
-    ----------
-    estimator : Any
-        The DR-TMLE estimator whose ``evaluation=`` or ``reduced_crossfit=`` is refused.
-
-    Returns
-    -------
-    Refusal
-        :data:`COMPOSITE_NESTED_REFUSAL`. It names X50 when ``evaluation=`` is set, and F21,
-        which keeps the nested construction, otherwise.
-    """
-    if getattr(estimator, "evaluation", None) is not None:
-        return COMPOSITE_NESTED_REFUSAL
-    return replace(COMPOSITE_NESTED_REFUSAL, roadmap="F21")
 
 
 def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
@@ -639,12 +617,9 @@ def missing_treatment_refusal(
     if (
         method == "drtmle"
         and getattr(estimator, "guard", ())
-        and (
-            getattr(estimator, "evaluation", None) is not None
-            or getattr(estimator, "reduced_crossfit", "pooled") != "pooled"
-        )
+        and getattr(estimator, "evaluation", None) is not None
     ):
-        refusal = composite_nested_refusal(estimator)
+        refusal = COMPOSITE_EVALUATION_REFUSAL
         return message(
             data,
             refusal.condition,

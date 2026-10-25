@@ -206,6 +206,7 @@ def fit(
             treatment="treatment_delta" in roles, arms=arms, stratum=stratum
         ),
         reduced_outcome_learner=CellMeans(),
+        reduced_mechanism_residual_learner=CellMeans(),
         reduced_treatment_learner=CellMeans(),
         cross_fit=False,
         simultaneous=False,
@@ -349,11 +350,12 @@ def test_a_nested_reduction_solves_every_block(frame: pd.DataFrame) -> None:
     """The nested construction fits each stratum's reductions on the nested designs."""
     result = (
         DRTMLE(
-            reduced_crossfit="nested",
+            reduced_crossfit="foldwise",
             estimands=("ey", "ate"),
             outcome_learner=ArmOutcome(),
             treatment_learner=WOnlyTreatment(2),
             reduced_outcome_learner=CellMeans(),
+            reduced_mechanism_residual_learner=CellMeans(),
             reduced_treatment_learner=CellMeans(),
             n_folds=3,
             simultaneous=False,
@@ -387,6 +389,7 @@ class TestTheStratifiedCompanionIsTheFit:
                 outcome_learner=LogisticRegression(max_iter=1000),
                 treatment_learner=LogisticRegression(max_iter=1000),
                 reduced_outcome_learner=LinearRegression(),
+                reduced_mechanism_residual_learner=LinearRegression(),
                 reduced_treatment_learner=LogisticRegression(max_iter=1000),
                 n_folds=3,
                 simultaneous=False,

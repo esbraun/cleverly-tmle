@@ -879,8 +879,10 @@ def refuse_untrainable_mechanism_pairs(
     treatment observation        both values of ``DeltaA``
     ============================ ==============================================
 
-    This check is distinct from the DR-TMLE leave-two-out check, which reads arm, observed
-    outcome and baseline stratum; the two may merge later.
+    The DR-TMLE leave-two-out check
+    (:func:`~cleverly.estimators._strata.refuse_untrainable_leave_two_out`) reads only the arms
+    among the rows with an observed outcome, because DR-TMLE refits the outcome regression and
+    the treatment mechanism there.
 
     Parameters
     ----------

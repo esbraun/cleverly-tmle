@@ -79,6 +79,7 @@ class SubsetOutcome(BaseEstimator, ClassifierMixin):
 def _settings() -> dict[str, Any]:
     return {
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": ColumnLogistic(),
         "cross_fit": True,
         "n_folds": study.N_FOLDS,

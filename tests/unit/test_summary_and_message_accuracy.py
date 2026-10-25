@@ -68,7 +68,7 @@ from cleverly.datasets import (
     navigation_protocol,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, TMLEResultSet
-from cleverly.estimators.targeting import ONE_STEP_NESTED_REFUSAL
+from cleverly.estimators.targeting import ONE_STEP_FOLDWISE_REFUSAL
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Shift, Static
 from cleverly.sensitivity import benchmark
@@ -562,7 +562,7 @@ class TestTheGuardedCurveReadsItsReductionSettings:
     ``tests/unit/test_capability_row_predicates.py``).  The alternation refits the reduced
     regressions under the live reduction settings, so a refused setting or a construction
     other than the fitted one refuses every surface.  Without the check, a changed
-    ``reduction`` or ``reduced_crossfit`` and the one-step nested pair raise a plain
+    ``reduction`` or ``reduced_crossfit`` and the one-step foldwise pair raise a plain
     ``ValueError`` inside the retarget, and ``guard=("Q",)`` on a ``("Q", "g")`` fit returns
     the curve of another construction: an ATE of 0.3235 where the fitted construction gives
     0.3168.
@@ -583,11 +583,12 @@ class TestTheGuardedCurveReadsItsReductionSettings:
         return str(raised.value)
 
     def test_a_refused_reduction_setting_refuses_every_surface(self) -> None:
-        # ``n_folds=3`` passes the nested fold-count check, so the one-step refusal answers.
-        result = sweep.reconfigured(
-            sweep.fit_drtmle(), targeting="one_step", reduced_crossfit="nested", n_folds=3
+        # The fit runs the default foldwise reduced regressions on three folds, so one-step
+        # targeting alone meets the one-step foldwise refusal.
+        result = sweep.reconfigured(sweep.fit_drtmle(), targeting="one_step")
+        assert (
+            self._refused_everywhere(result) == self._PREFIX + ONE_STEP_FOLDWISE_REFUSAL.message()
         )
-        assert self._refused_everywhere(result) == self._PREFIX + ONE_STEP_NESTED_REFUSAL.message()
 
     @pytest.mark.parametrize(
         ("configuration", "named"),
@@ -595,8 +596,8 @@ class TestTheGuardedCurveReadsItsReductionSettings:
             ({"guard": ("Q",)}, "guard=('Q',) (fitted ('Q', 'g'))"),
             ({"reduction": "bivariate"}, "reduction='bivariate' (fitted 'univariate')"),
             (
-                {"reduced_crossfit": "nested", "n_folds": 3},
-                "reduced_crossfit='nested' (fitted 'pooled')",
+                {"reduced_crossfit": "pooled"},
+                "reduced_crossfit='pooled' (fitted 'foldwise')",
             ),
         ],
         ids=["guard", "reduction", "reduced_crossfit"],
@@ -729,7 +730,7 @@ class TestTheIdentificationSummaryPrintsEachNodesHistory:
 def _guarded(guard: tuple[str, ...]) -> Any:
     """:func:`tests.unit._capability_sweep_support.fit_drtmle` at the given guard."""
     frame, _ = make_binary_outcome(n=160, seed=11)
-    estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), guard=guard)
+    estimator = DRTMLE(**linear_drtmle(n_folds=3, estimands=("ate",)), guard=guard)
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
@@ -774,7 +775,11 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
 
     def test_the_bivariate_reduction(self) -> None:
         frame, _ = make_binary_outcome(n=160, seed=11)
-        estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), reduction="bivariate")
+        estimator = DRTMLE(
+            **linear_drtmle(n_folds=2, estimands=("ate",)),
+            reduction="bivariate",
+            reduced_crossfit="pooled",
+        )
         lines = _method_lines(estimator.fit(frame, outcome="Y", treatment="A").single())
         assert _reduction_line("bivariate") in lines
         assert _reduction_line("univariate") not in lines

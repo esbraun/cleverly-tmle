@@ -62,13 +62,19 @@ def test_ltmle_rejects_string_nuisance_learners(slot: str) -> None:
         LTMLE({}, **{slot: "glm"})
 
 
-@pytest.mark.parametrize("slot", ["reduced_outcome_learner", "reduced_treatment_learner"])
+@pytest.mark.parametrize(
+    "slot",
+    ["reduced_outcome_learner", "reduced_treatment_learner", "reduced_mechanism_residual_learner"],
+)
 def test_drtmle_rejects_string_reduced_learners(slot: str) -> None:
     with pytest.raises(TypeError, match=slot):
         DRTMLE(**{slot: "glm"})
 
 
-@pytest.mark.parametrize("slot", ["reduced_outcome_learner", "reduced_treatment_learner"])
+@pytest.mark.parametrize(
+    "slot",
+    ["reduced_outcome_learner", "reduced_treatment_learner", "reduced_mechanism_residual_learner"],
+)
 def test_drtmle_method_rejects_string_reduced_learners(slot: str) -> None:
     with pytest.raises(TypeError, match=slot):
         DRTMLEMethod(**{slot: "glm"})

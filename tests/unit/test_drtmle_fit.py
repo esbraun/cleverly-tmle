@@ -59,7 +59,7 @@ def _bounded_nonlinear_dgp() -> DGP:
     """``nonlinear_dgp``'s predictor and shape, with the outcome mapped into (0, 1).
 
     DR-TMLE refuses ``cross_fit=False`` for its reduced regressions at several settings
-    this module exercises (``reduced_crossfit='nested'``, and every ``n_folds<3``), so
+    this module exercises (``reduced_crossfit='foldwise'``, and every ``n_folds<3``), so
     this module's fits cannot turn cross-fitting off. A cross-fitted continuous outcome
     needs a declared ``q_bounds``, and ``nonlinear_dgp``'s Gaussian outcome has no finite
     one (the fold and outcome-scale rules). The nonlinear, heterogeneous, interacted shape is what several tests here
@@ -1312,7 +1312,14 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         """
         law = replace(_bounded_nonlinear_dgp(), concentration=80.0)
         sample, _ = law.sample(600, seed=3)
-        return DRTMLE(**SETTINGS, repeats=2).fit(sample, outcome="Y", treatment="A").single()
+        # The pooled reduced regressions, because the draw was selected under them: the
+        # foldwise default moves this draw clear of the bound (margin 0.017), and none of
+        # seeds 3 to 14 binds under it. The bounded solve does not depend on the construction.
+        return (
+            DRTMLE(**SETTINGS, repeats=2, reduced_crossfit="pooled")
+            .fit(sample, outcome="Y", treatment="A")
+            .single()
+        )
 
     def test_the_identity_holds_on_the_draw_that_clips_as_well_as_the_one_that_does_not(
         self, repeated

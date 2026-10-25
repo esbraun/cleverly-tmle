@@ -289,7 +289,7 @@ class KnownPropensity(Propensity):
     :attr:`~cleverly.data.CausalData.known_treatment`, and every arithmetic accessor is the
     inherited one, so a fit that divides by this mechanism runs the same targeting step, the
     same curve and the same truncation rule as a fit that divides by an estimate.  What the
-    type records is where the values came from.  Two readers branch on it: the nested
+    type records is where the values came from.  Two readers branch on it: the leave-two-out
     DR-TMLE designs, which reuse a known mechanism in every fold rather than refit it, and
     :attr:`NuisanceEstimates.treatment_mechanism`, which the summary and the reports read.
 
@@ -375,11 +375,14 @@ class UnfittedOutcome(InitialFit):
 class InnerDesigns:
     r"""One fold-free copy of the primary nuisances per outer fold: **leave two folds out**.
 
-    Entry ``k`` holds, at row ``j`` in fold ``m``, the prediction of a model fitted on
+    Entry ``k`` holds, at row ``j`` in fold ``m != k``, the prediction of a model fitted on
     ``assignment ∉ {k, m}``.  So it never saw outer fold ``k``, and it never saw row ``j``
-    either -- both properties at once, which is what the nested reduced regression needs and
-    what neither an independent split nor per-outer-fold designs give.  The ``m = k`` slice
-    is the production model and is never read: the nested construction takes its
+    either -- both properties at once, which is what the foldwise reduced regression needs and
+    what neither an independent split nor per-outer-fold designs give.  One model serves
+    each unordered pair ``{k, m}`` (:func:`fit_inner_designs`).  At fold ``k``'s own rows
+    entry ``k`` holds the production arrays.  Fold ``k``'s reduced regression never trains
+    there, and the slab's tilt there equals the production tilt, so slab ``k`` holds the
+    production state at those rows at every refit.  The foldwise construction takes its
     **evaluation** designs from the production arrays exactly as the pooled one does, and
     differs only in what fold ``k``'s reduced regression **trains** on.
 
@@ -388,7 +391,7 @@ class InnerDesigns:
     would have to re-establish the cluster integrity :func:`~cleverly.learners.crossfit.
     make_folds` already checked; reusing the assignment inherits both.  It also fixes the
     inner training size at ``(K-2)/K`` of the sample against production's ``(K-1)/K`` --
-    the smallest mismatch reachable without more than ``K(K-1)`` fits, and the one respect
+    the smallest mismatch reachable with ``K(K-1)/2`` extra fits, and the one respect
     in which this is not the production estimator at a different split.
 
     **That mismatch is not the covariate shift** :func:`~cleverly.estimators.reduced.
@@ -404,14 +407,25 @@ class InnerDesigns:
         One per outer fold, in fold order, each full length.  Both are the ordinary types
         rather than bare arrays, so a fold's copy is shape-checked on construction and its
         arm keys cannot silently disagree with the fit's.
+    reduced:
+        Fold ``k``'s reduced regressions evaluated at every row of slab ``k``, one
+        :class:`~cleverly.estimators.reduced.ReducedSet` per outer fold.  Empty until the
+        reductions are first fitted.  The own-fold rows of slab ``k`` equal the production
+        arrays, because the ``m = k`` slice is the production model.
 
-    Carried on :attr:`NuisanceEstimates.inner` and used only by
-    :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``, which is a reference
-    construction used to diagnose generated-regressor leakage rather than a production path.
+    Carried on :attr:`NuisanceEstimates.inner` and used by :class:`~cleverly.DRTMLE` with
+    ``reduced_crossfit="foldwise"``.  Entry ``k`` is fold ``k``'s **slab**: outside fold
+    ``k`` every array in it comes from a model that never saw outer fold ``k``.  The
+    alternation tilts each slab along the covariate built from that slab and fold ``k``'s own
+    reduced regressions, at the pooled ``epsilon``.  So, given the ``epsilon`` history, fold
+    ``k``'s reduced regressions stay functions of the fold-``k`` complement at every round
+    (``docs/technical-reference/dr-tmle/targeting.md``, "Reduced-regression cross-fitting").
+    The ``epsilon`` values themselves are solved on every row, fold ``k`` included.
     """
 
     outcome: tuple[InitialFit, ...]
     propensity: tuple[Propensity, ...]
+    reduced: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.outcome) != len(self.propensity):
@@ -663,7 +677,7 @@ class NuisanceEstimates:
     reduced: ReducedSet | MissingOutcomeReducedSet | None = None
     #: Fold-free copies of the primary nuisances, or ``None`` for every fit that did not
     #: ask for them -- which is every fit but a :class:`~cleverly.DRTMLE` with
-    #: ``reduced_crossfit="nested"``.  Carried here rather than in that estimator for the
+    #: ``reduced_crossfit="foldwise"``.  Carried here rather than in that estimator for the
     #: reason ``reduced`` is: :func:`~cleverly.estimators.reduced.fit_reduced` takes a whole
     #: :class:`NuisanceEstimates` and reads ``folds`` off it, so the designs and the split
     #: they were built against cannot come apart.  See :class:`InnerDesigns`.
@@ -929,6 +943,7 @@ def cross_fit_predictions(
     remedy: str = _CROSS_FIT_REMEDY,
     constant_folds: list[int] | None = None,
     models: list[Any] | None = None,
+    only: Sequence[int] | None = None,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
 
@@ -965,6 +980,10 @@ def cross_fit_predictions(
         :class:`ConstantFit` for a target with one value.  ``None`` keeps nothing.  A
         stacked estimating equation reads the model's coefficients, so only the single
         fold takes it.
+    only:
+        The folds to fit, in any order.  ``None`` fits every fold.  The rows of a fold that
+        is not fitted come back ``NaN``.  :func:`fit_inner_designs` passes it so that each
+        leave-two-out pair of folds is fitted once.
 
     Returns
     -------
@@ -988,6 +1007,7 @@ def cross_fit_predictions(
         remedy=remedy,
         constant_folds=constant_folds,
         models=models,
+        only=only,
     )
     return predictions, diagnostics
 
@@ -1011,6 +1031,7 @@ def cross_fit_companion(
     constant_folds: list[int] | None = None,
     models: list[Any] | None = None,
     mechanisms: list[MechanismFit] | None = None,
+    only: Sequence[int] | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -1032,6 +1053,10 @@ def cross_fit_companion(
 
     A companion design may be one matrix, used for every fold, or one matrix **per fold** --
     see :data:`CompanionDesign`.
+
+    ``only``, when given, names the folds to fit (see :func:`cross_fit_predictions`).  The
+    rows of the other folds come back ``NaN``, and the companion stack holds the fitted
+    folds only, in fold order.
 
     ``mechanisms``, when given, receives one :class:`MechanismFit` per fold, in fold order.
     :func:`describe_mechanism` runs inside the fold worker, where the fitted model exists,
@@ -1096,7 +1121,13 @@ def cross_fit_companion(
         diagnostics = getattr(model, "diagnostics_", None)
         return predictions, companion, [diagnostics] if diagnostics is not None else []
 
-    jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
+    selected = None if only is None else {int(fold) for fold in only}
+    jobs = [
+        (fold, train, test)
+        for fold, (train, test) in enumerate(folds)
+        if selected is None or fold in selected
+    ]
+    trains = {fold: train for fold, train, _ in jobs}
     describe = mechanisms is not None
 
     def run_fold(
@@ -1124,7 +1155,10 @@ def cross_fit_companion(
 
     results = map_parallel(run_fold, jobs, n_jobs=n_jobs)
     shape: tuple[int, ...] = (n,) if classes is None else (n, len(tuple(classes)))
-    out = {name: np.empty(shape, dtype=float) for name in predict_designs}
+    out = {
+        name: np.empty(shape, dtype=float) if selected is None else np.full(shape, np.nan)
+        for name in predict_designs
+    }
     slabs: dict[str, list[FloatArray]] = {name: [] for name in companion_designs}
     order: list[int] = []
     diagnostics_list: list[SuperLearnerDiagnostics] = []
@@ -1133,7 +1167,7 @@ def cross_fit_companion(
         records[fold] = record
         # Read from the rows, by the test ``fit`` applies, rather than from the workers'
         # models, which a process pool does not hand back.
-        if constant_folds is not None and one_value(jobs[fold][1][mask[jobs[fold][1]]]) is not None:
+        if constant_folds is not None and one_value(trains[fold][mask[trains[fold]]]) is not None:
             constant_folds.append(fold + 1)
         for name, values in predictions.items():
             out[name][test] = values
@@ -1463,7 +1497,12 @@ def _gather_by_arm(
 
 
 def _check_arm_training(
-    data: CausalData, folds: Folds, rows: BoolArray, arm: float, left_out: int | None
+    data: CausalData,
+    folds: Folds,
+    rows: BoolArray,
+    arm: float,
+    left_out: int | None,
+    only: Sequence[int] | None = None,
 ) -> None:
     """Refuse a fit whose arm has no training row in some fold (R-f2).
 
@@ -1478,7 +1517,9 @@ def _check_arm_training(
     arm : float
         The arm code.
     left_out : int or None
-        The outer fold a nested fit also leaves out, or ``None``.
+        The outer fold a leave-two-out fit also leaves out, or ``None``.
+    only : sequence of int or None
+        The folds the fit trains, or ``None`` for every fold.
 
     Raises
     ------
@@ -1490,6 +1531,8 @@ def _check_arm_training(
             raise _no_arm_rows(data, arm, "the training sample")
         return
     for fold, (train, _) in enumerate(folds):
+        if only is not None and fold not in only:
+            continue
         if not rows[train].any():
             where = f"training fold {fold + 1}"
             if left_out is not None:
@@ -1512,6 +1555,8 @@ def _fit_outcome_by_arm(
     n_jobs: int = 1,
     remedy: str = _CROSS_FIT_REMEDY,
     left_out: int | None = None,
+    only: Sequence[int] | None = None,
+    companion_rows: IntArray | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold outcome regressions with one learner per treatment arm.
 
@@ -1550,7 +1595,13 @@ def _fit_outcome_by_arm(
     remedy : str
         The sentences a fold with no trainable rows closes its error with.
     left_out : int or None
-        The outer fold a nested fit also leaves out, for the error message.
+        The outer fold a leave-two-out fit also leaves out, for the error message.
+    only : sequence of int or None
+        The folds to fit, as for :func:`cross_fit_predictions`.  ``None`` fits every fold.
+    companion_rows : ndarray or None
+        Rows of ``data`` itself at which every fitted fold's models are also evaluated, in
+        place of an independent ``companion``.  ``companion_queries`` then name the arm of
+        each of these rows.
 
     Returns
     -------
@@ -1585,12 +1636,16 @@ def _fit_outcome_by_arm(
     levels = list(dict.fromkeys(query.intermediate for query in queries.values()))
     predict_designs = {f"z@{level}": design_at(level) for level in levels}
     companion_designs: dict[str, FloatArray] = {}
+    if companion is not None and companion_rows is not None:
+        raise ValueError("pass an independent companion or companion rows, not both")
     if companion is not None:
         companion_designs = {"x": companion.covariates}
+    if companion_rows is not None:
+        companion_designs = {"x": train_design[np.asarray(companion_rows)]}
 
     eligible = {arm: mask & (treatment == arm) for arm in arms}
     for arm in arms:
-        _check_arm_training(data, folds, eligible[arm], arm, left_out)
+        _check_arm_training(data, folds, eligible[arm], arm, left_out, only)
 
     per_arm: dict[float, dict[str, FloatArray]] = {}
     per_arm_companion: dict[float, dict[str, FloatArray]] = {}
@@ -1610,6 +1665,7 @@ def _fit_outcome_by_arm(
             clip=clip,
             n_jobs=n_jobs,
             remedy=remedy,
+            only=only,
         )
         per_arm[arm] = predictions
         per_arm_companion[arm] = at_companion
@@ -1622,10 +1678,11 @@ def _fit_outcome_by_arm(
         for name, query in queries.items()
     }
     at_companion_out: dict[str, FloatArray] = {}
-    if companion is not None:
+    if companion_designs:
+        where = data if companion is None else companion
         for name, query in companion_queries.items():
             at_companion_out[name] = _gather_by_arm(
-                companion, query.arm, {arm: per_arm_companion[arm]["x"] for arm in arms}
+                where, query.arm, {arm: per_arm_companion[arm]["x"] for arm in arms}
             )
     return out, at_companion_out, diagnostics
 
@@ -2451,15 +2508,16 @@ def fit_inner_designs(
     n_jobs: int = 1,
     outcome_by_arm: bool = False,
 ) -> InnerDesigns:
-    r"""Refit the two primary nuisances once per outer fold, leaving that fold out as well.
+    r"""Fit the two primary nuisances once per unordered pair of outer folds.
 
-    The whole construction is one keyword of :func:`cross_fit_predictions`: passing
-    ``fit_mask`` with fold ``k``'s rows removed makes every fold's model train on
-    ``train(m) ∩ complement(k)``, which is leave-two-folds-out and needs no second split, no
-    further randomness and no new fold machinery.  Predictions still come back for every
-    row, and the ``m = k`` slice -- the production model, since removing fold ``k`` from a
-    training set that already excludes it changes nothing -- is the one entry
-    :class:`InnerDesigns` says is never read.
+    Slab ``k`` needs, at the rows of each fold ``m != k``, a model fitted on the rows outside
+    both folds.  That training set is symmetric in ``k`` and ``m``, so one model serves the
+    pair: its predictions at fold ``m`` go to slab ``k``, and its predictions at fold ``k``
+    go to slab ``m``.  The pair's model comes from one :func:`cross_fit_companion` run with
+    ``fit_mask`` removing fold ``k`` and ``only`` naming the folds ``m > k``; the run
+    predicts fold ``m`` as usual and evaluates the same fitted object at fold ``k``'s rows
+    as a companion.  At fold ``k``'s own rows slab ``k`` reads the production arrays, because
+    removing fold ``k`` from a training set that already excludes it changes nothing.
 
     Only the treatment mechanism and the outcome regression are refitted, because those are
     the two arrays a reduced regression conditions on and takes residuals of.  A declared
@@ -2468,21 +2526,24 @@ def fit_inner_designs(
     missingness or intermediate model here and no shift or incremental set: a
     :class:`~cleverly.DRTMLE` refuses ``intermediate=`` and the other parameter axes by
     name, while its supported ``delta=`` surface requires ``cross_fit=False`` and therefore
-    cannot enter this nested construction.
+    cannot enter this foldwise construction.
 
-    ``outcome_by_arm=True`` fits the nested outcome regressions per arm
+    ``outcome_by_arm=True`` fits the leave-two-out outcome regressions per arm
     (``_fit_outcome_by_arm``): each inner model of arm ``a`` trains on the rows of arm
     ``a`` outside the two left-out folds.
 
-    **Cost is ``K`` times the primary nuisance fitting**, paid once at the initial fit --
-    ``K²`` models of each nuisance against ``K``.  Every refit inside the alternation reuses
-    these arrays, moved by the fluctuation that moved the production ones
+    **Cost is ``K(K-1)/2`` extra fits of each primary learner**, paid once at the initial
+    fit.  Each pair's model trains on the rows the former once-per-ordered-pair loop gave
+    both of its fits, sorted the same way, and predicts the same row batches, so a learner
+    whose fit is a function of its inputs and its own ``random_state`` returns the same
+    arrays bit for bit.  Every refit inside the alternation reuses these arrays, moved by the
+    fluctuation that moved the production ones
     (:attr:`~cleverly.fluctuation.iterative.Fluctuation.carried`), so the alternation costs
     what it costs on a pooled fit.
     """
     if data.is_continuous_treatment:
         raise CapabilityError(
-            "the nested construction reads a per-arm mechanism, and a continuous dose has none.",
+            "the foldwise construction reads a per-arm mechanism, and a continuous dose has none.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit TMLE on the continuous dose.",
             roadmap="F5",
@@ -2490,7 +2551,7 @@ def fit_inner_designs(
     folds = nuisance.folds
     if folds.n_folds < 3:
         raise ValueError(
-            "the nested construction leaves two folds out at a time, so it needs at least "
+            "the foldwise construction leaves two folds out at a time, so it needs at least "
             f"three; this fit has {folds.n_folds}. Pass n_folds=3 or more, or "
             "reduced_crossfit='pooled'."
         )
@@ -2502,14 +2563,28 @@ def fit_inner_designs(
     scaled = nuisance.scaler.scale(data.outcome)
     assignment = np.asarray(folds.assignment)
     observed = np.asarray(data.observed, dtype=bool)
+    held = [folds.test_index(fold) for fold in range(folds.n_folds)]
 
-    outcomes: list[InitialFit] = []
-    propensities: list[Propensity] = []
     known = isinstance(nuisance.propensity, KnownPropensity)
-    for fold in range(folds.n_folds):
+    # Every slab starts as a copy of the production arrays, which are its own-fold values.
+    # The pair loop below overwrites every other fold's rows.
+    mechanism_slabs = [
+        np.array(nuisance.propensity.values, dtype=float) for _ in range(folds.n_folds)
+    ]
+    outcome_slabs = [
+        {
+            "observed": np.array(nuisance.outcome.observed, dtype=float),
+            **{f"arm{arm}": np.array(nuisance.outcome.arms[arm], dtype=float) for arm in arms},
+        }
+        for _ in range(folds.n_folds)
+    ]
+    by_row = _arm_codes_by_row(data, data.treatment)
+    for fold in range(folds.n_folds - 1):
         without = assignment != fold
+        later = tuple(range(fold + 1, folds.n_folds))
+        own = held[fold]
         if not known:
-            mechanism, _ = cross_fit_predictions(
+            mechanism, at_fold, _ = cross_fit_companion(
                 treatment_learner,
                 data.mechanism_covariates,
                 data.treatment,
@@ -2517,29 +2592,40 @@ def fit_inner_designs(
                 folds,
                 task="classification",
                 predict_designs={"g": data.mechanism_covariates},
+                companion_designs={"g": data.mechanism_covariates[own]},
                 fit_mask=without,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 classes=arms,
                 n_jobs=n_jobs,
+                only=later,
             )
+            for position, other in enumerate(later):
+                mechanism_slabs[fold][held[other]] = mechanism["g"][held[other]]
+                mechanism_slabs[other][own] = at_fold["g"][position]
         if outcome_by_arm:
-            regression, _, _ = _fit_outcome_by_arm(
+            regression, at_own, _ = _fit_outcome_by_arm(
                 outcome_learner,
                 data,
                 scaled,
                 folds,
                 task=nuisance.outcome_task,
                 queries={
-                    "observed": ArmQuery(_arm_codes_by_row(data, data.treatment)),
+                    "observed": ArmQuery(by_row),
                     **{f"arm{arm}": ArmQuery(arm) for arm in arms},
                 },
                 fit_mask=observed & without,
+                companion_queries={
+                    "observed": ArmQuery(by_row[own]),
+                    **{f"arm{arm}": ArmQuery(arm) for arm in arms},
+                },
                 n_jobs=n_jobs,
                 left_out=fold,
+                only=later,
+                companion_rows=own,
             )
         else:
-            regression, _ = cross_fit_predictions(
+            regression, at_own, _ = cross_fit_companion(
                 outcome_learner,
                 outcome_design,
                 scaled,
@@ -2547,15 +2633,24 @@ def fit_inner_designs(
                 folds,
                 task=nuisance.outcome_task,
                 predict_designs=designs,
+                companion_designs={name: matrix[own] for name, matrix in designs.items()},
                 fit_mask=observed & without,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
+                only=later,
             )
-        propensities.append(nuisance.propensity if known else Propensity(mechanism["g"], arms))
-        outcomes.append(
-            InitialFit(regression["observed"], {arm: regression[f"arm{arm}"] for arm in arms})
-        )
+        for position, other in enumerate(later):
+            for name, values in regression.items():
+                outcome_slabs[fold][name][held[other]] = values[held[other]]
+                outcome_slabs[other][name][own] = at_own[name][position]
+    propensities = [
+        nuisance.propensity if known else Propensity(values, arms) for values in mechanism_slabs
+    ]
+    outcomes = [
+        InitialFit(slab["observed"], {arm: slab[f"arm{arm}"] for arm in arms})
+        for slab in outcome_slabs
+    ]
     return InnerDesigns(outcome=tuple(outcomes), propensity=tuple(propensities))
 
 

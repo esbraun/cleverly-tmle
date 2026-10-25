@@ -262,6 +262,7 @@ def fit_cleverly(
             guard=guard,
             reduction=str(CONFIGURATION["reduction"]),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             max_outer=MAX_OUTER,
             **settings,

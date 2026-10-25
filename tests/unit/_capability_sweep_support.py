@@ -500,15 +500,14 @@ def drtmle_companion_frame() -> Any:
 
 
 def fit_drtmle(evaluation: Any = None) -> Any:
-    """A two-fold DR-TMLE fit of a binary outcome, ``make_binary_outcome(160, 11)``.
+    """A three-fold DR-TMLE fit of a binary outcome, ``make_binary_outcome(240, 11)``.
 
     The outcome is binary, so the cross-fitted fit needs no declared ``q_bounds``.
-    ``evaluation`` is the companion the estimator declares, or ``None``. Two folds of 160
-    rows keep each refit of the sweep cheap, and every row answers as it does at three
-    folds of 240.
+    ``evaluation`` is the companion the estimator declares, or ``None``. Three folds is the
+    fewest the default foldwise reduced regressions accept.
     """
-    frame, _ = make_binary_outcome(n=160, seed=11)
-    estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), evaluation=evaluation)
+    frame, _ = make_binary_outcome(n=240, seed=11)
+    estimator = DRTMLE(**linear_drtmle(n_folds=3, estimands=("ate",)), evaluation=evaluation)
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
@@ -523,6 +522,7 @@ def _missing_drtmle(frame: Any) -> Any:
         **linear_in_sample(
             missingness_learner=LogisticRegression(max_iter=1000),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         ),
         randomized=True,
@@ -585,6 +585,7 @@ def _composite_drtmle(**settings: Any) -> DRTMLE:
         **linear_in_sample(
             missingness_learner=LogisticRegression(max_iter=1000),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         ),
         max_outer=10,
@@ -749,7 +750,7 @@ def unbounded_scale_ate(engine: type[TMLE] = TMLE, **settings: Any) -> Any:
     frame = _linear_frame()
     bounds = outcome_bounds(frame)
     if engine is DRTMLE:
-        estimator: TMLE = DRTMLE(**linear_drtmle(n_folds=2, q_bounds=bounds, **settings))
+        estimator: TMLE = DRTMLE(**linear_drtmle(n_folds=3, q_bounds=bounds, **settings))
     else:
         estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds, **settings))
     return reconfigured(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)

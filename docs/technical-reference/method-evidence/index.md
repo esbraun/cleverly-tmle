@@ -108,6 +108,7 @@ point-treatment-survival-policies
 survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
+dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
 known-node-mechanisms-ltmle

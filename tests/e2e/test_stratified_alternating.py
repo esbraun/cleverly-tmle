@@ -43,6 +43,7 @@ COMPOSITIONS: dict[str, tuple[Any, dict[str, Any]]] = {
         lambda **kw: DRTMLE(
             estimands=("ey", "ate"),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=logistic(),
             **kw,
         ),

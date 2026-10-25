@@ -100,6 +100,7 @@ def _drtmle(**settings: Any) -> DRTMLE:
         "outcome_learner": _wrong_outcome(),
         "treatment_learner": NeverFit(),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(max_iter=1000),
         "cross_fit": False,
         "simultaneous": False,
@@ -315,7 +316,7 @@ def _finite_frame(n: int = 600, seed: int = 11) -> pd.DataFrame:
         pytest.param(lambda **kw: _drtmle(**kw), id="drtmle"),
         pytest.param(lambda **kw: _drtmle(cross_fit=True, n_folds=4, **kw), id="cv_drtmle"),
         pytest.param(
-            lambda **kw: _drtmle(cross_fit=True, n_folds=4, reduced_crossfit="nested", **kw),
+            lambda **kw: _drtmle(cross_fit=True, n_folds=4, reduced_crossfit="foldwise", **kw),
             id="nested_drtmle",
         ),
         pytest.param(lambda **kw: _tmle(n_bootstrap=4, estimands=("ate",), **kw), id="bootstrap"),
@@ -843,6 +844,7 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             cross_fit=False,
             estimands=("ate",),
             reduced_outcome_learner=NeverFit(),
+            reduced_mechanism_residual_learner=NeverFit(),
             reduced_treatment_learner=NeverFit(),
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_delta="DeltaA", treatment_probabilities=_columns(2)),
@@ -862,6 +864,7 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             estimands=("ate",),
             evaluation=_trial().drop(columns=["p0", "p1"]),
             reduced_outcome_learner=NeverFit(),
+            reduced_mechanism_residual_learner=NeverFit(),
             reduced_treatment_learner=NeverFit(),
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_probabilities=_columns(2)),
@@ -874,6 +877,7 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             estimands=("ate",),
             evaluation=_trial(),
             reduced_outcome_learner=NeverFit(),
+            reduced_mechanism_residual_learner=NeverFit(),
             reduced_treatment_learner=NeverFit(),
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_probabilities=np.full(200, 0.5)),
@@ -905,6 +909,7 @@ def test_a_companion_with_the_declared_columns_reaches_the_learners() -> None:
             estimands=("ate",),
             evaluation=_trial(),
             reduced_outcome_learner=NeverFit(),
+            reduced_mechanism_residual_learner=NeverFit(),
             reduced_treatment_learner=NeverFit(),
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_probabilities=_columns(2))
@@ -944,6 +949,7 @@ def test_a_point_design_declares_the_mechanism_for_every_method() -> None:
     learners = {"outcome_learner": _wrong_outcome(), "treatment_learner": NeverFit()}
     reduced = {
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(max_iter=1000),
     }
     for method in (TMLEMethod(), DRTMLEMethod(guard=("Q",), **reduced)):

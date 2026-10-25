@@ -64,14 +64,14 @@ TargetingLabel = Literal["iterative", "one_step", "linear"]
 
 #: One item of ``carry``: a further initial fit moved by the same steps as the fitted one.
 #:
-#: A bare :class:`InitialFit` travels along the **production** submodel, which is what the
-#: nested reduced-regression construction wants -- its fold-free copies describe the same
-#: rows, so they take the same clever covariate.  A ``(fit, submodel)`` pair travels along
-#: one of its own, which is what an *evaluation companion* needs: its rows are not the
-#: fitted rows, so ``1_a / g^*`` at them is a different array even though ``epsilon`` is the
-#: same number.  Both are moved by the identical step sequence, which is the whole reason
-#: either goes through the solver rather than being reconstructed from ``(initial, epsilon)``
-#: afterwards -- see :attr:`Fluctuation.carried`.
+#: A bare :class:`InitialFit` travels along the **production** submodel.  A
+#: ``(fit, submodel)`` pair travels along one of its own, which is what an *evaluation
+#: companion* and a foldwise DR-TMLE slab need: a companion's rows are not the fitted rows,
+#: and a slab's covariate is built from its own fold's reduced regressions, so ``1_a / g^*``
+#: there is a different array even though ``epsilon`` is the same number.  Both are moved by
+#: the identical step sequence, which is the whole reason either goes through the solver
+#: rather than being reconstructed from ``(initial, epsilon)`` afterwards -- see
+#: :attr:`Fluctuation.carried`.
 CarryItem: TypeAlias = "InitialFit | tuple[InitialFit, Submodel]"
 
 #: How a targeting step failed, when it did.  Naming the mode matters because the
@@ -345,8 +345,8 @@ class Fluctuation:
     carried : tuple of InitialFit
         Further initial fits moved along the **same** submodel by the **same** steps, in
         the order they were passed as ``carry``.  Empty on every fit that did not ask for
-        one, which is every fit but a
-        :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``.
+        one.  :class:`~cleverly.DRTMLE` asks for them with an ``evaluation=`` companion and
+        with ``reduced_crossfit="foldwise"``.
 
         It exists because a step sequence cannot be reconstructed from its endpoint.  The
         solve applies :func:`apply_logistic` once per Newton step and shrinks after each,
