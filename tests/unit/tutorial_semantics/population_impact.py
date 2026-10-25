@@ -21,6 +21,7 @@ from cleverly.datasets import navigation_protocol, population_impact_truth
 from cleverly.datasets import population_impact as law
 from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
 from cleverly.validation import BernoulliAdjustmentOutcome
+from cleverly.validation._readings import subset_reference_sd
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -178,6 +179,7 @@ def _check_estimates(namespace: dict[str, Any]) -> None:
     assert gain.psi < 0.0 < achieved.psi
     # The failure mode: the ATE splits into the two parts to the printed digits, it is larger
     # than the gain, and its interval misses the true gain.
+    assert abs(namespace["parts"] - ate.psi) < 5e-5
     assert f"{namespace['parts']:.4f}" == f"{ate.psi:.4f}"
     assert ate.psi > -gain.psi
     assert not covers(ate, -truth["par[reference=1]"])
@@ -280,6 +282,11 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert abs(float(np.mean(tests["placebo"].values))) < 0.1 * ate.psi
     shift = np.asarray(tests["random_common_cause"].values) - ate.psi
     assert abs(float(shift.mean())) < 0.2 * ate.std_error
+    # The 70% refits spread about as much as the standard error implies for such subsamples.
+    n = len(namespace["frame"])
+    reference = subset_reference_sd(ate.std_error, n, int(0.7 * n))
+    assert f"{reference:.4f}" == "0.0126"
+    assert 0.5 < float(np.std(tests["subset"].values, ddof=1)) / reference < 2.0
 
     # The generated outcomes run at level L1, near their true values.
     independent, adjusted = namespace["independent"], namespace["adjusted"]
@@ -290,7 +297,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert check_result.rung == "L1" and check_result.n_replicates == 10, name
         assert abs(check_result.mean - check_result.declared_effect) < 0.02, name
     dummy = namespace["generated_tests"]["dummy_outcome"].readings[0]
-    assert f"{dummy.lower:.2f}" == "0.00"
+    assert abs(dummy.lower) < 0.005
 
     # The replay the page skips: the response reads the offer, so a cell that moves the offer is
     # refused and names F12.  Nonzero witness: the law's response differs by arm.

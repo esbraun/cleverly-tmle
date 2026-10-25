@@ -22,6 +22,8 @@ import pytest
 from cleverly.datasets import make_population_impact, population_impact_truth
 from cleverly.datasets import population_impact as law
 
+pytestmark = pytest.mark.xdist_group("datasets_population_impact")
+
 #: Patients per intervened arm.  A rate's standard error is at most 0.5 / sqrt(N) = 0.00035, so
 #: four standard errors are about 0.0014 for a rate and 0.002 for a contrast of two arms.
 MONTE_CARLO_N = 2_000_000
@@ -117,6 +119,8 @@ def test_the_derived_truths_follow_from_the_rates() -> None:
     truth = population_impact_truth()
     assert truth["ate"] == pytest.approx(truth["ey1"] - truth["ey0"], abs=1e-15)
     assert truth["rr"] == pytest.approx(truth["ey1"] / truth["ey0"], rel=1e-14)
+    odds = {a: truth[f"ey{a}"] / (1.0 - truth[f"ey{a}"]) for a in (0, 1)}
+    assert truth["or"] == pytest.approx(odds[1] / odds[0], rel=1e-14)
     for reference in (0, 1):
         rate = truth[f"ey{reference}"]
         assert truth[f"par[reference={reference}]"] == pytest.approx(
@@ -128,6 +132,9 @@ def test_the_derived_truths_follow_from_the_rates() -> None:
     for z in (0, 1):
         assert truth[f"cde_ate[visit={z}]"] == pytest.approx(
             truth[f"cde_ey1[visit={z}]"] - truth[f"cde_ey0[visit={z}]"], abs=1e-15
+        )
+        assert truth[f"cde_rr[visit={z}]"] == pytest.approx(
+            truth[f"cde_ey1[visit={z}]"] / truth[f"cde_ey0[visit={z}]"], rel=1e-14
         )
     # The gain over current practice is the effect among the patients not offered today, times
     # their share; the tutorial's failure mode reads this identity.

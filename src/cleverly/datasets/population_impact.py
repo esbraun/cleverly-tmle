@@ -6,19 +6,19 @@ asks whether the transition was top box, and some patients never return it.  The
 kinds of question about one population: what current practice achieves, what offering everyone or
 no one would achieve, and what the offer does when the 7-day visit is held at one level.
 
-======================  =================================================================
-node                    law
-======================  =================================================================
-``discharge_risk``      standard normal
-``age``                 standard normal, independent of the others
-``prior_utilization``   standard normal, independent of the others
+=========================  ==============================================================
+node                       law
+=========================  ==============================================================
+``discharge_risk``         standard normal
+``age``                    standard normal, independent of the others
+``prior_utilization``      standard normal, independent of the others
 ``transition_navigation``  Bernoulli, ``expit(-0.3 + 0.7 risk - 0.3 age + 0.2 use)``
-``pcp_visit_7d``        Bernoulli, ``expit(-0.5 + 1.2 A - 0.4 risk + 0.3 age)``
-``top_box``             Bernoulli, ``expit(-0.4 + 0.5 A + 0.8 Z + 0.4 A risk - 0.6 risk``
-                        ``- 0.2 age - 0.2 use)``
-``responded``           Bernoulli, ``expit(1.0 + 0.4 A - 0.6 risk + 0.2 age)``; ``top_box`` is
-                        missing where it is 0
-======================  =================================================================
+``pcp_visit_7d``           Bernoulli, ``expit(-0.5 + 1.2 A - 0.4 risk + 0.3 age)``
+``top_box``                Bernoulli, ``expit(-0.4 + 0.5 A + 0.8 Z + 0.4 A risk - 0.6 risk``
+                           ``- 0.2 age - 0.2 use)``
+``responded``              Bernoulli, ``expit(1.0 + 0.4 A - 0.6 risk + 0.2 age)``; ``top_box`` is
+                           missing where it is 0
+=========================  ==============================================================
 
 Every patient, offered or not, can have the visit or not, so the controlled direct effect at
 either visit level has positivity.  Survey response reads the offer and the baseline covariates
@@ -156,8 +156,8 @@ def population_impact_truth() -> dict[str, float]:
     >>> truth = population_impact_truth()
     >>> round(truth["ey_obs"], 4), round(truth["ey1"], 4), round(truth["ey0"], 4)
     (0.5641, 0.644, 0.4791)
-    >>> round(truth["ey1"] - truth["ey_obs"], 4) == round(-truth["par[reference=1]"], 4)
-    True
+    >>> round(truth["par[reference=1]"], 4)
+    -0.0799
     """
     return dict(_cached_truth())
 
