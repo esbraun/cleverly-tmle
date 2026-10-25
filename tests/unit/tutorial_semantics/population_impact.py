@@ -218,7 +218,7 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     for name in ("propensity", "missingness", "outcome"):
         assert abs(namespace["models"][name]["calibration_slope"] - 1.0) < 0.1
     assert namespace["scores"].passed
-    assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
+    assert not namespace["nuisance"].findings
 
 
 def _check_tilt(namespace: dict[str, Any]) -> None:
