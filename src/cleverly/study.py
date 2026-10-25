@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
 from ._summary import Detail, Summary
-from ._support import combine_support
+from ._support import Support, combine_support
 from ._typing import Family
 from ._warnings import records_fit
 from .data import CausalData
@@ -2414,7 +2414,17 @@ def _narrow_bands(
             random_state=getattr(method, "runtime", Runtime()).random_state,
             cluster=result.data.cluster,
         )
-    return replace(narrowed, support=combine_support([bands.support, narrowed.support]))
+    # No study measures a band over a narrowed family, so the band is experimental whatever its
+    # row licenses for the engine's own band.
+    return replace(narrowed, support=combine_support([bands.support, _NARROWED_BAND]))
+
+
+#: The support of a band narrowed to the parameters an effect reports.
+_NARROWED_BAND: Final[Support] = Support(
+    "experimental",
+    "The band covers a subset of the parameters of the fit's own band, and no study measures a "
+    "band over that subset.",
+)
 
 
 def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
