@@ -46,6 +46,10 @@ print(result.check_model().summary())
 `snmm()` is the one-call form. `result.blip(node)` returns the coefficient matrix of one node.
 `result.check_model()` compares the structural contrasts with the contrasts of `LTMLE`.
 
+The [model-based-over-time tutorial](../examples/model-based-over-time.ipynb) fits this estimator
+on three binary nodes with a baseline feature in the first two blips, compares its regimen levels
+with the parametric g-formula, and reads `check_model()`.
+
 ## The model
 
 Write $H_t$ for the history before the treatment $A_t$ of node $t$. The history holds the baseline

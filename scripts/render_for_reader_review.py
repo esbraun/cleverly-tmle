@@ -31,6 +31,7 @@ DEFAULT_BUDGET = 2000
 #: Pages that carry two or three analyses get a larger budget.
 BUDGETS = {
     "interventions": 2600,
+    "model-based-over-time": 2600,
     "sequential-offers": 2600,
     "sequential-pricing": 2600,
 }

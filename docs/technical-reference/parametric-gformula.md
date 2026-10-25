@@ -43,6 +43,11 @@ print(result.summary())
 `gformula()` is the one-call form. `ParametricGFormulaMethod` (name `"parametric_gformula"`) is the
 study method.
 
+The [model-based-over-time tutorial](../examples/model-based-over-time.ipynb) fits this estimator
+on three navigation decisions with binary symptom covariates and a continuous score, beside the
+structural nested mean model, and shows the shift that main-terms covariate models produce when a
+covariate law carries a treatment-by-baseline product.
+
 ## Status
 
 | item | state | evidence |

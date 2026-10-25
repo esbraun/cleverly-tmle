@@ -139,7 +139,7 @@ measures below. The exit status is 1 when a gated measure fails.
 | --- | --- |
 | `**What this output tells you.**` even once, and any other bold opener used twice or more | none (gated) |
 | step numbers in headings or prose, such as "Step 7" or a heading such as `## 1. Setup` | none (gated) |
-| words of prose on the main path: everything before a "Go deeper" heading, excluding dropdowns and code | at most 2,000 (gated). The budget is 2,600 for `interventions`, `sequential-offers`, and `sequential-pricing`, which carry two or three analyses. `--budget` sets another limit |
+| words of prose on the main path: everything before a "Go deeper" heading, excluding dropdowns and code | at most 2,000 (gated). The budget is 2,600 for `interventions`, `model-based-over-time`, `sequential-offers`, and `sequential-pricing`, which carry two or three analyses. `--budget` sets another limit |
 | words inside each dropdown | reported. The accuracy reviewer confirms that each dropdown holds only formulas, exact conditions, derivations, and probe numbers, and no main-path explanation |
 | the first use of each term in [library words](#library-words-and-their-plain-replacements), in prose outside code and dropdowns | listed with its cell id. The persona and accuracy reviewers confirm a plain definition at or before it |
 | tables in prose | listed with their row and column counts. A table with fewer than three rows needs a reason |
