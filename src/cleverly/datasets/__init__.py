@@ -29,6 +29,7 @@ from .offers import (
     win_back,
     win_back_then_ship,
 )
+from .pilot import PILOT_OFFER_CHANCES, make_randomized_pilot, randomized_pilot_truth
 from .pricing import (
     PRICE_BANDS,
     PRICE_NODES,
@@ -90,6 +91,7 @@ __all__ = [
     "OFFER_LEVELS",
     "OFFER_PLANS",
     "OFFER_WEEKS",
+    "PILOT_OFFER_CHANCES",
     "PRICE_BANDS",
     "PRICE_NODES",
     "PRICE_PLANS",
@@ -129,6 +131,7 @@ __all__ = [
     "make_nonlinear_ate",
     "make_nonlinear_bounded",
     "make_point_survival",
+    "make_randomized_pilot",
     "make_sequential_offers",
     "make_sequential_pricing",
     "make_shift_dose",
@@ -149,6 +152,7 @@ __all__ = [
     "price_rise",
     "pricing_protocol",
     "pricing_truth",
+    "randomized_pilot_truth",
     "repeated_truth",
     "rule_arm_at_node_two",
     "sampling_probability",

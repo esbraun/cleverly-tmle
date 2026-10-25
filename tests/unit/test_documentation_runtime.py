@@ -799,6 +799,7 @@ EXPECTED_REFIT_CELLS = {
         "generated-outcomes",
         "simulated-confounding",
     ],
+    "randomized-pilot": ["refutation"],
     "sequential-offers": ["refute"],
     "sequential-pricing": ["refute"],
     "survey-nonresponse": ["bound", "refutation", "generated-outcomes"],
