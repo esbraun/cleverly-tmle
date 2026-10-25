@@ -163,7 +163,7 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
 def _check_failure(namespace: dict[str, Any]) -> None:
     scored = namespace["scored"].set_index("model")
     logistic, forest = scored.loc["logistic, as above"], scored.loc["random forest"]
-    # "Both rules look better on the patients who chose them than they are".
+    # "Both rules look better on the patients they were learned from than they are".
     assert logistic["in-sample score"] > logistic["true value"]
     assert forest["in-sample score"] > forest["true value"]
     # "The in-sample score even ranks the worse rule first".
