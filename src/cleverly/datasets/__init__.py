@@ -44,6 +44,13 @@ from .readmission import (
     team_readmission_protocol,
     team_readmission_truth,
 )
+from .recovery import (
+    RECOVERY_BOUNDS,
+    RECOVERY_PLANS,
+    make_recovery_score,
+    recovery_score_protocol,
+    recovery_score_truth,
+)
 from .survival_point import make_point_survival, point_survival_truth
 from .synthetic import (
     DGP,
@@ -107,6 +114,8 @@ __all__ = [
     "PRICE_BANDS",
     "PRICE_NODES",
     "PRICE_PLANS",
+    "RECOVERY_BOUNDS",
+    "RECOVERY_PLANS",
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "WEIGHTED_SELECTION_PROBABILITIES",
@@ -144,6 +153,7 @@ __all__ = [
     "make_nonlinear_bounded",
     "make_point_survival",
     "make_randomized_pilot",
+    "make_recovery_score",
     "make_sequential_offers",
     "make_sequential_pricing",
     "make_shift_dose",
@@ -167,6 +177,8 @@ __all__ = [
     "pricing_protocol",
     "pricing_truth",
     "randomized_pilot_truth",
+    "recovery_score_protocol",
+    "recovery_score_truth",
     "repeated_truth",
     "rule_arm_at_node_two",
     "sampling_probability",

@@ -117,3 +117,23 @@ Three functions serve the team readmission part of the
    cleverly.datasets.team_readmission_truth
    cleverly.datasets.team_readmission_protocol
 ```
+
+Five names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),
+where navigation is offered at discharge, on day 10, and on day 20, and a recovery score is read on
+day 30.
+
+| name | what it holds |
+| --- | --- |
+| `make_recovery_score` | a wide frame of three navigation offers with a symptom flag before each later offer and the day-30 score, with the exact plan means and the effect of each offer |
+| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers |
+| `recovery_score_protocol` | the `StudyProtocol` of the three-decision recovery question |
+| `RECOVERY_PLANS`, `RECOVERY_BOUNDS` | the plans `always` and `never`, and the known range of the score, 0 to 100 |
+
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.datasets.make_recovery_score
+   cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_score_protocol
+```
