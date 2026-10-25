@@ -162,6 +162,14 @@ def spread_lines(result: Any) -> list[str]:
     return [line for line in lines if "splits" in line or "no spread" in line]
 
 
+def _spread_omission(report: Any) -> str:
+    """The reason the model check's full detail gives for a missing split spread."""
+    lines = report.summary(detail="full").section(vocabulary.SECTION_DETAILS).lines
+    prefix, _, _ = vocabulary.MODEL_OMISSIONS["spread"].partition("{reason}")
+    (line,) = [line for line in lines if line.startswith(prefix)]
+    return line[len(prefix) :].removesuffix(".")
+
+
 class TestOneRepeatIsAnOrdinaryFit:
     """The regression guard.
 
@@ -728,7 +736,14 @@ class TestTheSpreadAcrossDraws:
             assert row.ratio_to_standard_error == pytest.approx(
                 expected / repeated[row.estimand].std_error
             )
-        assert "Repeated-split sensitivity" in diagnostics.summary()
+        (spread,) = [
+            table
+            for table in diagnostics.summary().tables
+            if table.title == vocabulary.SPREAD_TABLE
+        ]
+        assert [row[0].value for row in spread.rows] == [
+            row.estimand for row in diagnostics.repeat_spread
+        ]
         assert "split spread" in repeated.diagnostics.run_all()["nuisance_models"].detail
 
     def test_the_combined_row_names_the_widest_parameter_and_not_the_narrowest(
@@ -781,7 +796,7 @@ class TestTheSpreadAcrossDraws:
         assert np.isnan(row.standard_deviation)
         assert np.isnan(row.ratio_to_standard_error)
         assert report.repeat_spread_omission == SPREAD_UNAVAILABLE_DRAWS + missing
-        assert f"split spread unavailable: {SPREAD_UNAVAILABLE_DRAWS}{missing}" in report.summary()
+        assert _spread_omission(report) == f"{SPREAD_UNAVAILABLE_DRAWS}{missing}"
         assert f"split spread unavailable: {SPREAD_UNAVAILABLE_DRAWS}{missing}" in (
             mutated.diagnostics.run_all()["nuisance_models"].detail
         )
@@ -805,7 +820,7 @@ class TestTheSpreadAcrossDraws:
         assert np.isnan(row.ratio_to_standard_error)
         assert row.reported_standard_error == ratio_repeated["rr"].std_error
         assert report.repeat_spread_omission == SPREAD_NOT_FINITE + "rr"
-        assert f"split spread unavailable: {SPREAD_NOT_FINITE}rr" in report.summary()
+        assert _spread_omission(report) == f"{SPREAD_NOT_FINITE}rr"
         assert f"split spread unavailable: {SPREAD_NOT_FINITE}rr" in (
             mutated.diagnostics.run_all()["nuisance_models"].detail
         )
@@ -864,7 +879,7 @@ class TestTheSpreadAcrossDraws:
         report = mutated.diagnostics.nuisance_models()
         assert report.repeat_spread == ()
         assert report.repeat_spread_omission == SPREAD_NO_PARAMETERS
-        assert f"split spread unavailable: {SPREAD_NO_PARAMETERS}" in report.summary()
+        assert _spread_omission(report) == SPREAD_NO_PARAMETERS
 
     @pytest.mark.parametrize("variance", [0.0, float("nan")])
     def test_a_row_survives_a_standard_error_it_cannot_divide_by(
@@ -1039,15 +1054,20 @@ class TestTheSensitivityLayerFollowsTheDraws:
         self, repeated: Any, once: Any
     ) -> None:
         assert positivity_report(repeated).n_repeats == REPEATS
-        assert "draw 1 of 3" in positivity_report(repeated).summary()
-        assert "draw 1 of" not in positivity_report(once).summary()
+        split = vocabulary.SPLIT_SHOWN
+        summary = positivity_report(repeated).summary()
+        assert summary.facts[split] == "split 1 of 3"
+        assert "first_split" in summary.note_codes
+        assert split not in positivity_report(once).summary().facts
+        assert "first_split" not in positivity_report(once).summary().note_codes
 
     def test_the_nuisance_diagnostics_say_so_too(self, repeated: Any) -> None:
         report = repeated.diagnostics.nuisance_models()
         assert report.n_repeats == REPEATS
-        assert "draw 1 of 3" in report.summary()
-        assert "draw 2 of 3" in replace(report, reported_repeat=2).summary()
-        assert "draw 1 of 3" not in replace(report, reported_repeat=2).summary()
+        split = vocabulary.SPLIT_SHOWN
+        assert dict(report.summary().header)[split] == "split 1 of 3"
+        assert dict(replace(report, reported_repeat=2).summary().header)[split] == "split 2 of 3"
+        assert split not in dict(replace(report, n_repeats=1).summary().header)
 
     def test_the_group_load_row_counts_the_same_draws_the_report_does(
         self, repeated: Any, once: Any
@@ -1065,7 +1085,9 @@ class TestTheSensitivityLayerFollowsTheDraws:
         detail = repeated.diagnostics.run_all()["support"].detail
         assert f"draw {REPORTED_DRAW:02d} of {REPEATS:02d}" in detail
         assert detail == repeated.assess().diagnostics["support"].detail
-        assert f"draw {REPORTED_DRAW} of {REPEATS}" in positivity_report(repeated).summary()
+        assert positivity_report(repeated).summary().facts[vocabulary.SPLIT_SHOWN] == (
+            f"split {REPORTED_DRAW} of {REPEATS}"
+        )
 
         assert f"draw {REPORTED_DRAW:02d} of 01" in once.diagnostics.run_all()["support"].detail
 
@@ -1157,7 +1179,7 @@ class TestVariantsInheritRepeats:
         assert set(selected) <= set(COLUMNS["covariates"])
 
         assert report.n_repeats == 2
-        assert "draw 1 of 2" in report.summary()
+        assert dict(report.summary().header)[vocabulary.SPLIT_SHOWN] == "split 1 of 2"
         assert "on draw 1 of 2" in result.diagnostics.run_all()["nuisance_models"].detail
         spread = next(row for row in report.repeat_spread if row.estimand == "ate")
         assert spread.standard_deviation == pytest.approx(split_spread(result, "ate"))

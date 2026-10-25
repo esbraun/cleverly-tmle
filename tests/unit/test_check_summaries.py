@@ -81,6 +81,11 @@ def test_a_note_says_what_the_test_can_show_for_this_fit() -> None:
     generated = _report("refute_generated")
     simulated = generated["simulated_outcome"]
     assert simulated.rung == "L1" and simulated.withheld
+    # A studied fit keeps the count-only reason; the no-study wording is for uncovered fits.
+    assert simulated.evidence == (
+        "Its 10 repeats are fewer than the 400 its simulation study needs, so it gives no pass "
+        "or fail."
+    )
     text = generated.summary().note("test_simulated_outcome").text
     assert text.endswith(
         words["withheld"].format(reason="its 10 repeats are fewer than the 400 its study used")

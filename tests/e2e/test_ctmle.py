@@ -55,6 +55,11 @@ TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 SETTINGS = {**TMLE_SETTINGS, "selection_folds": 3}
 
 
+def _weak_treatment(report: Any) -> bool:
+    """Whether the model check prints the note that treatment is barely predictable."""
+    return "weak_treatment_model" in report.summary().note_codes
+
+
 def _flagged_slopes(report, *names: str):  # type: ignore[no-untyped-def]
     """``report`` with a slope the calibration rule flags planted on each named model.
 
@@ -189,9 +194,15 @@ class TestDownstreamMachineryStillWorks:
         assert diagnostics.treatment_role == "collaborative_working_model"
         assert diagnostics.reported_repeat == 1
         assert diagnostics.selection.path == fit.extra["ctmle"].path
-        assert "C-TMLE greedy selected candidate" in diagnostics.summary()
-        assert diagnostics.selection.describe() in diagnostics.summary()
-        assert "complete adjustment set" in diagnostics.summary()
+        selection = diagnostics.selection
+        summary = diagnostics.summary()
+        assert summary.note("selection").text == vocabulary.SELECTION_SENTENCE.format(
+            selected=selection.selected + 1,
+            count=len(selection.path),
+            estimand=selection.estimand,
+            more="",
+        )
+        assert "not treatment given all covariates" in summary.note("collaborative_model").text
 
         combined = fit.diagnostics.run_all()
         retained = combined.report("nuisance_models")
@@ -221,10 +232,10 @@ class TestDownstreamMachineryStillWorks:
         planted = _flagged_slopes(diagnostics, "propensity")
 
         # Suppressed: both claims would otherwise fire on these very metrics.
-        assert "confounding by these covariates is limited" not in planted.verdict()
+        assert not _weak_treatment(planted)
         assert _calibration_notes(planted, "propensity") == []
         wrong_role = replace(planted, treatment_role="estimated_treatment_law")
-        assert "confounding by these covariates is limited" in wrong_role.verdict()
+        assert _weak_treatment(wrong_role)
         assert len(_calibration_notes(wrong_role, "propensity")) == 1
 
         # Not suppressed: the same metric read as a property of the weights, not the law.
@@ -239,7 +250,11 @@ class TestDownstreamMachineryStillWorks:
         )
         for report in (collaborative_high_auc, ordinary_high_auc):
             assert any("positivity problem" in item for item in report.findings)
-        assert "positivity problem" in collaborative_high_auc.verdict()
+        assert "separation" in collaborative_high_auc.summary().note_codes
+        assert (
+            dict(collaborative_high_auc.summary().header)[vocabulary.RESULT]
+            == (vocabulary.CHECK_RESULTS["warning"])
+        )
 
     def test_a_mean_only_learner_library_is_reported_for_a_working_model_too(self, fit) -> None:
         """A fact about a learner library, and not an interpretation of a treatment law.
@@ -268,10 +283,12 @@ class TestDownstreamMachineryStillWorks:
         notes = [note for note in report.findings if "weight on the marginal mean" in note]
         assert len(notes) == 1
         assert notes[0].startswith("propensity put 95%")
-        assert notes[0] in report.verdict()
+        assert report.summary().note("mean_only").text == vocabulary.NOTE_TEXTS["mean_only"].format(
+            model="treatment model", share="95%"
+        )
         # The two treatment-law claims are still quiet on the very same report.
         assert _calibration_notes(_flagged_slopes(report, "propensity"), "propensity") == []
-        assert "confounding by these covariates is limited" not in report.verdict()
+        assert not _weak_treatment(report)
         # And a weight under the threshold reports nothing, so the rule still has a gate.
         below = replace(propensity, learner_weights={"mean": 0.8, "glm": 0.2})
         quiet = replace(
@@ -338,19 +355,19 @@ class TestDownstreamMachineryStillWorks:
         """
         diagnostics = fit.diagnostics.nuisance_models()
         assert diagnostics.findings == ()
-        assert diagnostics.verdict() == (
-            "VERDICT: C-TMLE working-model metrics are descriptive, and this fit reports "
-            "no confidence interval and no p-value; inspect the selection and support "
-            "reports."
-        )
-        assert diagnostics.verdict() in diagnostics.summary()
+        summary = diagnostics.summary()
+        assert diagnostics.verdict() == summary.reading == vocabulary.MODEL_READINGS["clear"]
+        # The working model and the missing interval are notes beside the reading.
+        assert {"collaborative_model", "fit_status"} <= set(summary.note_codes)
+        assert summary.note("fit_status").text.startswith(vocabulary.NO_INTERVAL)
 
-        # Flipping the *role* alone does not retract the RM12 sentence, because that
-        # sentence is keyed on the declared inference status. The outcome-adaptive path
-        # carries this same role and does publish an interval, so a line keyed on the role
-        # would say the wrong thing about it. This assertion is what pins the two apart.
+        # Flipping the *role* alone does not retract the status note, because that note
+        # is keyed on the declared inference status. The outcome-adaptive path carries
+        # this same role and does publish an interval, so a line keyed on the role would
+        # say the wrong thing about it. This assertion is what pins the two apart.
         role_only = replace(diagnostics, treatment_role="estimated_treatment_law")
-        assert "no confidence interval or p-value is available" in role_only.summary()
+        assert "fit_status" in role_only.summary().note_codes
+        assert "collaborative_model" not in role_only.summary().note_codes
 
         ordinary = replace(
             _flagged_slopes(role_only, "propensity"),
@@ -361,7 +378,11 @@ class TestDownstreamMachineryStillWorks:
             ordinary,
             models=tuple(replace(model, metrics={}) for model in diagnostics.models),
         )
-        assert no_metrics.verdict() == "VERDICT: nuisance fits look reasonable."
+        assert no_metrics.verdict() == vocabulary.MODEL_READINGS["clear"]
+        assert ordinary.verdict() == vocabulary.MODEL_READINGS["findings"].format(
+            count=len(ordinary.findings),
+            findings="finding" if len(ordinary.findings) == 1 else "findings",
+        )
 
     def test_a_missing_selection_stays_a_machine_readable_omission(self, fit) -> None:
         """A lost artifact is an absent artifact, and never an absent method.
@@ -377,17 +398,18 @@ class TestDownstreamMachineryStillWorks:
 
         assert diagnostics.selection is None
         assert diagnostics.selection_omission == NUISANCE_SELECTION_MISSING
+        details = diagnostics.summary(detail="full").section(vocabulary.SECTION_DETAILS)
         assert (
-            f"C-TMLE selection unavailable: {NUISANCE_SELECTION_MISSING}" in diagnostics.summary()
+            vocabulary.MODEL_OMISSIONS["selection"].format(reason=NUISANCE_SELECTION_MISSING)
+            in details.lines
         )
+        assert "selection" not in diagnostics.summary().note_codes
 
         assert detached.fitted_method == "collaborative_tmle"
         assert diagnostics.treatment_role == "collaborative_working_model"
-        assert "confounding by these covariates is limited" not in diagnostics.verdict()
+        assert not _weak_treatment(diagnostics)
         assert _calibration_notes(_flagged_slopes(diagnostics, "propensity")) == []
-        assert "The propensity metrics describe the selected C-TMLE working mechanism" in (
-            diagnostics.summary()
-        )
+        assert "collaborative_model" in diagnostics.summary().note_codes
 
         detail = detached.diagnostics.run_all()["nuisance_models"].detail
         assert f"C-TMLE selection unavailable: {NUISANCE_SELECTION_MISSING}" in detail
@@ -408,7 +430,8 @@ class TestDownstreamMachineryStillWorks:
         report = foreign.diagnostics.nuisance_models()
         assert report.selection is None
         assert report.selection_omission == NUISANCE_SELECTION_MISSING
-        assert NUISANCE_SELECTION_MISSING in report.summary()
+        details = report.summary(detail="full").section(vocabulary.SECTION_DETAILS)
+        assert any(NUISANCE_SELECTION_MISSING in line for line in details.lines)
 
     def test_the_warmed_method_report_survives_persistence(self, fit, tmp_path) -> None:
         before = fit.diagnostics.run_all()
@@ -488,7 +511,7 @@ class TestDownstreamMachineryStillWorks:
             # The default outcome learner is outside the stacked interval of X58.
             assert refusal is not None and "outcome_learner" in refusal
             assert oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval: {refusal}"
-        assert sentence in diagnostics.summary()
+        assert sentence in diagnostics.summary().note("selection").text
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 
     def test_refutation_runs(self, fit) -> None:
@@ -617,7 +640,8 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
 
     ordinary = replace(report, treatment_role="estimated_treatment_law")
     assert _calibration_notes(ordinary) == []
-    assert "confounding by these covariates is limited" in ordinary.verdict()
+    assert _weak_treatment(ordinary)
+    assert "0.490" in ordinary.summary().note("weak_treatment_model").text
 
 
 #: The option each test in :class:`TestCombinedWithOtherOptions` combines the selection

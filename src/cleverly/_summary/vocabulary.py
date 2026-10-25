@@ -1385,6 +1385,556 @@ WEIGHT_ESTIMAND_LINES: Final[tuple[str, ...]] = (
 )
 
 
+# ------------------------------------------- checks (T3): outcome and treatment models
+
+#: Header labels of the model check.
+SPLIT_SHOWN: Final = "Split shown"
+HEADER_LABELS = HEADER_LABELS | {SPLIT_SHOWN}
+
+#: The notes of the model check (``NuisanceDiagnostics``). Each finding the code makes has
+#: its own warning; the ``findings`` property keeps the sentences as data.
+T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "separation": "warning",
+        "recording_separation": "warning",
+        "calibration_finding": "warning",
+        "mean_only": "warning",
+        "weak_outcome_model": "warning",
+        "weak_treatment_model": "note",
+        "calibration": "note",
+        "collaborative_model": "note",
+        "declared_treatment": "note",
+        "fit_status": "note",
+        "selection": "note",
+        "split_ratio": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_MODEL_NOTE_CODES})
+
+T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "separation": (
+            "The treatment model separates the arms almost perfectly (AUC {auc}). That "
+            "signals an overlap problem, not a good fit."
+        ),
+        "recording_separation": (
+            "The recording model predicts almost perfectly (AUC {auc}): some units had almost "
+            "no chance of a recorded outcome, so their weights are extreme. See "
+            "result.diagnostics.support()."
+        ),
+        "calibration_finding": (
+            "The {model}'s out-of-fold predictions are {direction} than the observed rates "
+            "(calibration slope {slope}, {level} interval {low} to {high}{extra}).{noise} "
+            "Review the learner before you change the model."
+        ),
+        "mean_only": (
+            "The {model} put {share} of its weight on the overall mean: no candidate beat "
+            "predicting the average."
+        ),
+        "weak_outcome_model": (
+            "The outcome model explains little of the outcome (R squared {r2}), so the estimate "
+            "behaves like inverse-probability weighting and is correspondingly noisy."
+        ),
+        "weak_treatment_model": (
+            "The treatment model predicts treatment barely better than chance (AUC {auc}). If "
+            "the model captures how treatment was assigned, treated and untreated rows look "
+            "alike on these covariates, which favours overlap."
+        ),
+        "calibration": "{sentences}",
+        "collaborative_model": (
+            "The treatment model here is the one the collaborative search chose, so its "
+            "metrics describe that working model, not treatment given all covariates."
+        ),
+        "declared_treatment": (
+            "The treatment probabilities were declared, not fitted, so the treatment rows "
+            "compare the declaration with the treatment each row received."
+        ),
+        "fit_status": "{sentences}",
+        "selection": "{sentence}",
+        "split_ratio": (
+            "Each split fits its own models. The SD between splits and the reported {label} "
+            "are on the estimate's inference scale (the log scale for a ratio); their ratio "
+            "is a description, and no threshold applies."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_MODEL_NOTE_TEXTS})
+
+#: Sentences of the ``calibration`` note.
+CALIBRATION_IN_SAMPLE: Final = (
+    "Calibration slopes are in sample and carry no test: an unpenalized logistic model with "
+    "an intercept has an in-sample slope of {one} by construction."
+)
+CALIBRATION_OUT_OF_FOLD: Final = (
+    "The calibration slope refits the out-of-fold predictions by logistic regression with "
+    "one intercept per fold; {one} means the predictions are as spread as the outcomes."
+)
+CALIBRATION_RULE: Final = (
+    "A finding needs the {level} interval to lie above {zero} and exclude {one}, a "
+    "Bonferroni level over {tested} tested {models}."
+)
+CALIBRATION_MISSING: Final = "The {model} has no calibration slope: {reason}."
+CALIBRATION_NOISE: Final = (
+    " Estimation noise can cause this even in a correctly specified model when the signal "
+    "is weak or the model has many covariates."
+)
+CALIBRATION_DIRECTIONS: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "more extreme", False: "more moderate"}
+)
+
+#: The first sentence of the ``fit_status`` note on a fit that reports no interval.
+NO_INTERVAL: Final = "This fit reports no confidence interval or p-value."
+
+#: The ``selection`` note of a collaborative selector fit.
+SELECTION_SENTENCE: Final = (
+    "The collaborative search chose candidate {selected} of {count} for {estimand}{more}."
+)
+SELECTION_STOPPED: Final = "; it stopped after candidate {stopped}"
+SELECTION_FINAL: Final = "; the final step used candidate {final}"
+
+#: Plain names of the fitted models, by report name (an arm label follows in brackets).
+MODEL_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "propensity": "treatment model",
+        "outcome": "outcome model",
+        "missingness": "recording model",
+        "intermediate": "intermediate model",
+        "treatment_observation": "treatment-recording model",
+    }
+)
+
+#: Table titles and columns of the model check.
+MODEL_TITLE: Final = "Outcome and treatment model check"
+PROBABILITY_TABLE: Final = "Models that predict a probability"
+REGRESSION_TABLE: Final = "Models that predict a mean"
+PROBABILITY_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "auc": "AUC",
+        "brier": "Brier score",
+        "log_loss": "log loss",
+        "calibration_slope": "calib. slope",
+        "calibration_slope_se": "slope SE",
+    }
+)
+REGRESSION_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
+    {"r2": "R2", "mse": "MSE", "regression_slope": "regression slope"}
+)
+LEARNER_TABLE: Final = "Super learner weights"
+SPREAD_TABLE: Final = "Spread between splits"
+
+#: The ``Predictions`` fact of the model check, by ``evaluation``.
+EVALUATION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"out_of_fold": "out of fold", "in_sample": "in sample"}
+)
+
+#: The ``Split shown`` fact of a repeated fit.
+SPLIT_OF: Final = "split {split} of {total}"
+
+#: The reading of the model check.
+MODEL_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "clear": "The models show no problem these metrics can detect.",
+        "findings": "{count} {findings} about the models; see the warnings.",
+    }
+)
+
+#: Lines of the model check's full detail, for what the fit could not report.
+MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "selection": "The collaborative selection is not available: {reason}.",
+        "outcome": "No outcome model was fitted: {reason}.",
+        "spread": "No spread between splits is available: {reason}.",
+    }
+)
+MODEL_NOTHING_OMITTED: Final = "The fit reported every model this check reads."
+
+
+# ------------------------------------------------------- checks (T3): overlap of the weights
+
+#: Header labels of the overlap check.
+UNITS_CAPPED: Final = "Units capped"
+HEADER_LABELS = HEADER_LABELS | {UNITS_CAPPED}
+
+#: The notes of the overlap check. None is a warning: the reading carries the graded tier.
+T3_OVERLAP_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "effective_share": "note",
+        "equation_concentration": "note",
+        "simplex": "note",
+        "composed_excluded": "note",
+        "group_omitted": "note",
+        "first_split": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_OVERLAP_NOTE_CODES})
+
+T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "effective_share": (
+            "The smallest arm keeps an effective {share} of its rows after weighting. That "
+            "share describes how concentrated the weights are; it is not a test, and no "
+            "threshold applies. Effective rows count how many equally weighted rows would "
+            "carry the same weight, and the top shares are the part of the total weight "
+            "that the largest {top_small} and {top_large} of the weights hold."
+        ),
+        "equation_concentration": (
+            "In the estimating equation the weights concentrate most for {group}: {effective} "
+            "effective rows of {rows} ({share}). This describes how unevenly rows are "
+            "weighted; it is not the estimator's sample size, its precision or a test of "
+            "overlap."
+        ),
+        "simplex": (
+            "With more than two arms each arm's probability is capped on its own and not "
+            "rescaled, so a row's capped probabilities can sum to other than one, here by up "
+            "to {deviation}. A large value means the limits bind hard."
+        ),
+        "composed_excluded": (
+            "{lead} {groups}. Read the single-probability rows for those estimates.{pointer}"
+        ),
+        "group_omitted": "{sentences}",
+        "first_split": (
+            "Overlap is shown for split {split} of {total}; each split fits its own "
+            "treatment model."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_OVERLAP_NOTE_TEXTS})
+
+#: The sentences of the ``group_omitted`` note: a group with no equation row, and a group
+#: whose row lacks its capped count (an omission keyed ``"{group}.clipping"``).
+GROUP_OMISSION_ROW: Final = "No equation row for {group}: {reason}."
+GROUP_OMISSION_CAP: Final = "The capped count for {group} is not available: {reason}."
+
+#: Pieces of the ``composed_excluded`` note.
+COMPOSED_LEAD: Final = "The {name} row does not describe"
+COMPOSED_LEAD_NONE: Final = "No joint-probability row is reported for"
+COMPOSED_GROUP: Final = "{group}, which divides by {what}"
+COMPOSED_POINTER: Final = " Their weights in the estimating equation are in the equation table."
+
+#: What each estimand the joint-probability row leaves out divides by instead.
+COMPOSED_EXCLUSION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "att": (
+            "the share treated rather than each row's treatment probability, and reweights "
+            "the comparison arm by the odds of treatment"
+        ),
+        "atc": (
+            "the share untreated rather than each row's treatment probability, and "
+            "reweights the other arm by the odds of treatment"
+        ),
+        "ipsi": "a tilted treatment probability that drops the fitted one",
+        "mtp": "a density ratio rather than a treatment probability",
+    }
+)
+COMPOSED_EXCLUSION_OTHER: Final = "a quantity this row does not form"
+
+#: Plain names of the other probabilities the weights divide by. A name not listed prints
+#: as written.
+MECHANISM_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "P(Delta=1|A,W)": "probability that the outcome is recorded",
+        "P(Z=z|A,W)": "probability of the held intermediate value",
+        "P(Delta_A=1|W)": "probability that the treatment is recorded",
+        "P(A=a,Delta=1|W)": "joint probability of the treatment and a recorded outcome",
+        "P(A=a,Z=z|W)": "joint probability of the treatment and the held intermediate value",
+        "P(A=a,Delta=1,Z=z|W)": (
+            "joint probability of the treatment, a recorded outcome and the held intermediate value"
+        ),
+        "P(A=a,Delta_A=1|W)": "joint probability of the treatment and its recording",
+        "P(A=a,Delta_A=1,Delta=1|W)": (
+            "joint probability of the treatment, its recording and a recorded outcome"
+        ),
+    }
+)
+#: Short row labels of the same probabilities, for the table, completing "probability of".
+MECHANISM_LABELS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "P(Delta=1|A,W)": "outcome recorded",
+        "P(Z=z|A,W)": "intermediate value",
+        "P(Delta_A=1|W)": "treatment recorded",
+        "P(A=a,Delta=1|W)": "arm and outcome recorded",
+        "P(A=a,Z=z|W)": "arm and intermediate value",
+        "P(A=a,Delta=1,Z=z|W)": "arm, outcome recorded, intermediate value",
+        "P(A=a,Delta_A=1|W)": "arm and treatment recorded",
+        "P(A=a,Delta_A=1,Delta=1|W)": "arm, treatment and outcome recorded",
+    }
+)
+#: The condition a per-arm outcome-adaptive design puts in place of the covariates.
+MECHANISM_DESIGN: Final = "{name}, given the fitted outcome means"
+MECHANISM_DESIGN_STRATA: Final = "{name}, given the fitted outcome means and the strata"
+
+#: The ``Result`` fact of the overlap check, worded from the branch that fired. The shares
+#: come from the constants the tiers read. On a branch another probability fired, the
+#: reading names it; the fact stays short enough for its half of the header.
+OVERLAP_RESULTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "adequate": "at most {strain} of units capped",
+        "strain": "{strain} to {serious} of units capped",
+        "serious": "over {serious} of units capped",
+        "mechanism_capped": "another probability capped",
+        "mechanism_concentrated": "weights concentrated",
+    }
+)
+
+#: The reading of the overlap check, by branch.
+OVERLAP_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "adequate": (
+            "{share} of units were capped at {limits}, so the estimate does not lean on "
+            "the cap. This check grades the cap only; the tables show the overlap itself."
+        ),
+        "strain": (
+            "{share} of units were capped at {limits}. Report {curve} beside the estimate "
+            "so readers see how much the answer depends on the cap."
+        ),
+        "serious": (
+            "{share} of units were capped at {limits}, so the estimate leans on the cap "
+            "rather than the fitted model for those units. The cap does not change the "
+            "question, but treat the estimate as sensitive to it and check {curve} before "
+            "you draw conclusions."
+        ),
+        "mechanism_capped": (
+            "The {name} was capped on {share} of the rows at {limits}. It divides the "
+            "weights as the treatment probability does, so those rows carry outsized weight "
+            "whatever the treatment overlap looks like. Check {curve}."
+        ),
+        "mechanism_concentrated": (
+            "The {name} falls to {low} and leaves an effective {effective} of the rows it "
+            "weights, below the {threshold} share at which this check reports it, so a few "
+            "rows carry much of the weight. Check {curve}."
+        ),
+        "mechanism_treatment": " {share} of units were capped at the treatment limits {limits}.",
+    }
+)
+#: The limits a tier read, when they are one group's rather than the fit's.
+GROUP_LIMITS: Final = "{limits}, the limits of {group}"
+#: The curves a reading points to.
+CURVE_TREATMENT: Final = "result.diagnostics.truncation_curve()"
+CURVE_MECHANISM: Final = "result.diagnostics.truncation_curve(mechanism=True)"
+CURVE_BOTH: Final = (
+    "result.diagnostics.truncation_curve() and "
+    "result.diagnostics.truncation_curve(mechanism=True), since either cap moves this row"
+)
+
+#: Table titles and columns of the overlap check.
+OVERLAP_TITLE: Final = "Overlap check"
+QUANTILE_TABLE: Final = "Treatment probabilities by group"
+ARM_TABLE: Final = "Weights by arm"
+TAIL_TABLE: Final = "Rows near 0 or 1"
+EQUATION_TABLE: Final = "Weight concentration in the estimating equation"
+MECHANISM_TABLE: Final = "Other probabilities in the weights"
+WEIGHT_SHARE_COLUMNS: Final[tuple[str, ...]] = (
+    "effective rows",
+    "eff. share",
+    "top 1%",
+    "top 5%",
+)
+TAIL_COLUMNS: Final[tuple[str, ...]] = ("threshold t", "share below t", "share above 1 - t")
+#: The ``Treatment model`` fact when the data declares the treatment probabilities.
+KNOWN_TREATMENT: Final = "known (declared)"
+#: A group's limits or cap count when the fit does not report them.
+NOT_APPLICABLE: Final = "does not apply"
+
+#: Titles and lines of the overlap check's full detail.
+OVERLAP_DETAILS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "extreme": "Most extreme uncapped treatment probability: {value}.",
+        "largest": "Largest weight in the correction step for {group}: {value}.",
+        "equation": (
+            "{group}: equation {equation}, {zero} of its rows carry zero weight, limits {limits}."
+        ),
+        "mechanism_limits": "The {name} is capped at {limits}.",
+        "factor_by_factor": "{limits}, factor by factor",
+        "composite": (
+            "{name}: smallest value {low}; {share} of unit-arm cells fall below the "
+            "treatment floor {floor}. The joint probability is adjusted inside [{lower}, "
+            "{upper}], the product of the factor floors."
+        ),
+    }
+)
+OVERLAP_NOTHING_MORE: Final = "The tables above report everything this check measured."
+
+
+# ----------------------------------------------------- checks (T3): longitudinal diagnostics
+
+#: Header labels of the longitudinal checks.
+REGIMENS: Final = "Regimens"
+HEADER_LABELS = HEADER_LABELS | {REGIMENS}
+
+#: The notes of the three longitudinal checks (overlap, equations and models over time).
+T3_LONGITUDINAL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "cumulative_weights": "note",
+        "assigned": "note",
+        "policy_nodes": "note",
+        "tilt_nodes": "note",
+        "trimmed": "note",
+        "capped_nodes": "warning",
+        "not_converged": "warning",
+        "relative_error": "note",
+        "every_split": "note",
+        "working_model_rows": "note",
+        "iterated_outcome": "note",
+        "model_omitted": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_LONGITUDINAL_NOTE_CODES})
+
+T3_LONGITUDINAL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "cumulative_weights": (
+            "rows counts the units that followed the regimen and stayed observed through the "
+            "time point. max weight and eff. rows describe the cumulative weight: one over the "
+            "product of the treatment and censoring probabilities up to that time point, times "
+            "the observation weight on a weighted fit. A product can be extreme while every "
+            "time point looks fine. capped is the share of rows whose cumulative probability "
+            "the lower limit replaced."
+        ),
+        "assigned": "{sentence}",
+        "policy_nodes": (
+            "At {nodes} the regimen draws the arm from a probability rather than fixing it. "
+            "There assigned is the mean probability of each arm over the units at risk, rows "
+            "counts the units whose observed arm has a positive probability, and the weight "
+            "is the ratio of the regimen's probability to the fitted one. capped counts the "
+            "rows whose denominator the limit replaced, which need not carry a large ratio."
+        ),
+        "tilt_nodes": (
+            "Each time point of an incremental regimen tilts the odds of treatment, so "
+            "assigned is the mean tilted probability of treatment over the units at risk."
+        ),
+        "trimmed": (
+            "trimmed is the share of rows whose weight ratio at that time point the ratio trim "
+            "moved."
+        ),
+        "capped_nodes": "{sentences}",
+        "not_converged": "{sentences}",
+        "relative_error": (
+            "The remaining error is the largest part of a time point's estimating equation, as "
+            "a share of the largest value that part could take. An equation passes when that "
+            "share is at most the allowed error and its correction step converged."
+        ),
+        "every_split": "Rows cover every split; each split fits and corrects its own models.",
+        "working_model_rows": (
+            "A row with a component solves one equation of the working model, which combines "
+            "every regimen, so it names no regimen."
+        ),
+        "iterated_outcome": (
+            "An iterated outcome model regresses the prediction carried back from the next "
+            "time point on the history up to its own; the last time point's outcome model "
+            "regresses the outcome itself."
+        ),
+        "model_omitted": "{sentences}",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_LONGITUDINAL_NOTE_TEXTS})
+
+#: Sentences of the ``assigned`` note, by the kind of treatment.
+ASSIGNED_SHARE: Final = (
+    "assigned is the share of the units at risk at that time point whom the regimen treats; "
+    "a regimen that names one arm assigns exactly {zero} or {one}."
+)
+ASSIGNED_SHARES: Final = (
+    "assigned lists the share of the units at risk that the regimen sends to each arm."
+)
+
+#: Sentences of the ``capped_nodes`` and ``not_converged`` warnings.
+CAPPED_NODES: Final = (
+    "At {nodes} the lower limit replaced the cumulative probability of every row, so the "
+    "estimate there rests on the limit, not on the fitted models."
+)
+CAPPED_OTHER_SPLITS: Final = "The limit replaced every row of some time point in {splits}."
+NOT_CONVERGED: Final = (
+    "The correction step did not converge at {nodes}. result.diagnostics.score_equations() "
+    "shows how far each equation is from solved."
+)
+NOT_CONVERGED_OTHER_SPLITS: Final = "A correction step also failed to converge in {splits}."
+NODE_NOT_SETTLED: Final = "{name}: the correction step did not converge."
+
+#: Sentences of the ``model_omitted`` note.
+MODEL_OMITTED_AT: Final = "No {model} model at time {time}{folds}: {reason}."
+MODEL_OMITTED_ALL: Final = "No {model} model{folds}: {reason}."
+MODEL_OMITTED_FOLDS: Final = " in fold {folds}"
+
+#: How the longitudinal checks name a row: a regimen, its qualifiers and a time point.
+NODE_AT: Final = "{name} at time {time}"
+NODE_CAUSE: Final = "cause {cause}"
+NODE_HORIZON: Final = "horizon {horizon}"
+NODE_COMPONENT: Final = "working-model term {component}"
+NODE_SPLIT: Final = "split {split}"
+ALL_REGIMENS: Final = "all"
+EVERY_REGIMEN: Final = "every regimen"
+
+#: Plain names of the longitudinal model roles.
+LONGITUDINAL_ROLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "treatment": "treatment",
+        "censoring": "censoring",
+        "outcome": "outcome",
+        "pseudo_outcome": "iterated outcome",
+        "hazard": "event hazard",
+    }
+)
+
+#: Short names of the losses the model check prints.
+LOSS_SHORT: Final[Mapping[str, str]] = MappingProxyType(
+    {"log_loss": "log loss", "brier": "Brier score", "mse": "MSE"}
+)
+
+#: Titles, columns, results and readings of the longitudinal checks.
+STAGE_TITLE: Final = "Overlap over time"
+STAGE_COLUMNS: Final[tuple[str, ...]] = ("rows", "max weight", "eff. rows", "capped")
+STAGE_TRIMMED: Final = "trimmed"
+STAGE_CONVERGED: Final = "converged"
+STAGE_ASSIGNED: Final = "assigned"
+CONVERGED_WORDS: Final[Mapping[bool, str]] = MappingProxyType({True: "yes", False: "no"})
+STAGE_READING: Final = (
+    "Overlap is thinnest for {node}: {effective} effective rows of {rows} followed."
+)
+STAGE_READING_NONE: Final = "This fit reports no time point with weights."
+#: The full-detail lines of an SDR or IPSI fit's overlap over time, one per row.
+SDR_LINE: Final = (
+    "{node}: {outside} of the regression targets fall outside [{zero}, {one}] (from {low} to "
+    "{high}), {predictions} of the predictions fall outside it, and the limits moved "
+    "{bound} of the partial paths."
+)
+IPSI_LINE: Final = (
+    "{node}: the tilt reweights a unit by a factor from {low} to {high}, which the limits "
+    "never cap; {share} of the estimate's variance comes from this time point's treatment "
+    "model; {degenerate} of the units at risk have a fitted treatment probability of "
+    "exactly {zero} or {one}, which a tilt tolerates."
+)
+
+LONGITUDINAL_EQUATIONS_TITLE: Final = "Equations solved over time"
+ALLOWED_SHARE: Final = "{tolerance:g} of max possible"
+EQUATION_COLUMNS: Final[tuple[str, ...]] = ("remaining error", "result")
+LONGITUDINAL_EQUATION_FAILED: Final = (
+    "{count} of {total} equations {verb} not solved ({names}), so the standard error may be wrong."
+)
+#: The full-detail line of each equation: the steps taken and the equation's raw value.
+STEPS_LINE: Final = "{node}: {steps} {word}, equation value {score}."
+
+EQUATION_SCALE: Final = (
+    "The allowed error is a share of the largest value each equation could take, the scale "
+    "the correction loop itself stops on. The point-treatment check compares an equation "
+    "with tolerance x SE / sqrt(n) instead."
+)
+
+LONGITUDINAL_MODELS_TITLE: Final = "Models over time"
+MODEL_COLUMNS: Final[tuple[str, ...]] = ("model", "rows", "loss", "measure")
+#: The full-detail line of each model: the metrics its kind reports.
+METRIC_LINE: Final = "{node}, {model} model: {metrics}."
+METRIC_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {"auc": "AUC", "calibration_slope": "calibration slope", "r2": "R2"}
+)
+METRIC_NONE: Final = "no metric reported"
+
+LONGITUDINAL_MODELS_READING: Final = (
+    "Each row describes how well one model fits; no pass or fail applies. A loss compares "
+    "only with rows of the same model and measure."
+)
+LONGITUDINAL_SPREAD_LABEL: Final = "standard error"
+
+
 # ----------------------------------------------------------------- study setup (T5)
 
 #: The header labels of the study-setup and simulation summaries.

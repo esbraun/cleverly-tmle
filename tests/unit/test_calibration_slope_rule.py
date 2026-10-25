@@ -39,6 +39,7 @@ from scipy.special import expit, logit
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE
 from cleverly.learners.crossfit import random_partition
@@ -452,10 +453,10 @@ class TestTheStatistic:
         )
         assert pooled == pytest.approx(-2.0, abs=5e-2)
 
-        summary = report.summary()
+        calibration = report.summary().note("calibration").text
         assert (
-            f"calibration slope unavailable for propensity: "
-            f"{nuisance_module.CALIBRATION_CONSTANT_WITHIN_FOLDS}" in summary
+            f"The treatment model has no calibration slope: "
+            f"{nuisance_module.CALIBRATION_CONSTANT_WITHIN_FOLDS}." in calibration
         )
 
 
@@ -782,13 +783,14 @@ class TestTheSurfaces:
     def test_w13_the_summary_states_the_basis_of_the_slope(self) -> None:
         crossed = _fit(_law(600, 2, (1.0, -0.5), seed=5), _logistic(), seed=5)
         summary = crossed.diagnostics.nuisance_models().summary()
-        header = next(line for line in summary.splitlines() if line.startswith("model"))
-        for column in ("cal_slope", "cal_se", "reg_slope"):
-            assert column in header
-        assert "one intercept per fold" in summary
-        assert "97.5% interval" in summary
+        (table,) = [t for t in summary.tables if t.title == vocabulary.PROBABILITY_TABLE]
+        for column in ("calib. slope", "slope SE"):
+            assert column in table.columns
+        calibration = summary.note("calibration").text
+        assert "one intercept per fold" in calibration
+        assert "97.5% interval" in calibration
 
         in_sample = _fit(_law(600, 2, (1.0, -0.5), seed=5), _logistic(), seed=5, cross_fit=False)
-        summary = in_sample.diagnostics.nuisance_models().summary()
-        assert "in sample and carry no test" in summary
-        assert "one intercept per fold" not in summary
+        calibration = in_sample.diagnostics.nuisance_models().summary().note("calibration").text
+        assert "in sample and carry no test" in calibration
+        assert "one intercept per fold" not in calibration

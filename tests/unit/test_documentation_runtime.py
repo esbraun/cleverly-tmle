@@ -789,6 +789,7 @@ EXPECTED_REFIT_CELLS = {
         "team-plasmode",
         "team-surface",
     ],
+    "discharge-to-readmission": ["refute", "refute-generated"],
     "interventions": ["bound", "refute-regimes", "generated", "sensitivity", "sensitivity-other"],
     "longitudinal-survival": ["refute-checks", "refute-generated"],
     "msm-projections": ["sensitivity", "refute", "generated", "surface"],

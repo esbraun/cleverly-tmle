@@ -39,6 +39,11 @@ from .pricing import (
     pricing_protocol,
     pricing_truth,
 )
+from .readmission import (
+    make_team_readmission,
+    team_readmission_protocol,
+    team_readmission_truth,
+)
 from .survival_point import make_point_survival, point_survival_truth
 from .synthetic import (
     DGP,
@@ -129,6 +134,7 @@ __all__ = [
     "make_sequential_offers",
     "make_sequential_pricing",
     "make_shift_dose",
+    "make_team_readmission",
     "make_weak_overlap",
     "missing_outcome_binary_dgp",
     "missing_outcome_bounded_dgp",
@@ -151,6 +157,8 @@ __all__ = [
     "sampling_probability",
     "shift_dgp",
     "survival_truth",
+    "team_readmission_protocol",
+    "team_readmission_truth",
     "weak_overlap_dgp",
     "win_back",
     "win_back_then_ship",

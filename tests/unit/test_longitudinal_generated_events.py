@@ -287,6 +287,9 @@ class TestTheTruth:
         assert "uncensored share by node" in test.detail
         assert "censors the unit at t" in test.scope_sentence
         assert test.passed is None
+        # No study row covers a survival fit with several nodes, so the evidence must not
+        # promise a verdict at the calibrated count.
+        assert "no simulation study backs a verdict for this kind of fit" in test.evidence
 
     def test_a_competing_risk_contrast_runs(self) -> None:
         with warnings.catch_warnings():
