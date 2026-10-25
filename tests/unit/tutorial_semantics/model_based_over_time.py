@@ -33,6 +33,12 @@ _PROBE = "reviews/notebook-review/probes/model-based-over-time"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.43": f"the largest gap between the g-formula's and the blip model's gains, 400 draws: "
+    f"{_PROBE}/sweep.csv; checked by _check_probe_log",
+    "0.96": f"the smallest gap of the simple-model g-formula's gain above the blip model's, 400 "
+    f"draws: {_PROBE}/sweep.csv; checked by _check_probe_log",
+    "1.155": "half the width of the g-formula's printed interval for the gain, 9.51 to 11.82; "
+    "checked by _check_probe_log",
     "1.66": "the simple-model g-formula's gain minus the right fit's, 12.32 - 10.66 (interpret); "
     "checked by _check_failure_mode",
     "3.0": f"the largest simulation share of a plan mean's variance, in percent, 400 draws: "
@@ -241,6 +247,16 @@ def _check_probe_log(namespace: dict[str, Any]) -> None:
     assert round(100 * max(shares), 1) == 3.0
     assert round(100 * frame[f"gf:{CONTRAST}:mc_share"].max(), 1) == 0.7
     assert round(frame[f"wrong:{LEVELS[1]}"].mean() - truth[LEVELS[1]], 2) == 2.26
+    # "differed from the blip model's by at most 0.43 points, while the gain with simple symptom
+    # models sat at least 0.96 points above it, and more than 1.155 ... on 382 of 400 draws".
+    right = frame[f"gf:{CONTRAST}"] - frame[f"snmm:{CONTRAST}"]
+    simple = frame[f"wrong:{CONTRAST}"] - frame[f"snmm:{CONTRAST}"]
+    assert round(right.abs().max(), 2) == 0.43
+    assert round(simple.min(), 2) == 0.96
+    low, high = (round(float(bound), 2) for bound in namespace["difference"].ci)
+    half = round((high - low) / 2, 3)
+    assert half == 1.155
+    assert int((simple > half).sum()) == 382
     for column in frame.columns:
         if column.startswith("snmm:effect:") and not column.endswith(":covers"):
             name = column.removeprefix("snmm:")
