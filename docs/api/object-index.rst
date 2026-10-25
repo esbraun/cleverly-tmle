@@ -75,6 +75,7 @@ categorized API tables.
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
+   cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
    cleverly.variable_importance

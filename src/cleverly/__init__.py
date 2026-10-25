@@ -38,6 +38,7 @@ from .assessment import (
     AssessmentStatus,
     DiagnosticReport,
     Replayability,
+    TruncationCurve,
     ValidationReport,
 )
 from .estimators.serialize import load
@@ -186,6 +187,7 @@ __all__ = [
     "TMLEMethod",
     "Targeting",
     "TimeToEvent",
+    "TruncationCurve",
     "ValidationReport",
     "VariableImportanceEntry",
     "VariableImportanceResult",

@@ -199,6 +199,10 @@ stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
 
+`truncation_curve()` re-estimates at other limits on extreme weights. Print
+`stability.summary()` to see each estimate's change from the fitted one and the share of units the
+limits capped. Call `stability.to_frame()` for the dataframe.
+
 `influence()` reports how few rows carry each estimate's influence curve. It gives the Kish
 count, the skewness, the kurtosis, the relative standard deviation of the variance estimate, and
 the coverage loss of the Wald interval that the Edgeworth term predicts. This operation is a direct

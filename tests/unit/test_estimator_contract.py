@@ -173,6 +173,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "TMLEMethod",
         "Targeting",
         "TimeToEvent",
+        "TruncationCurve",
         "VariableImportanceEntry",
         "VariableImportanceResult",
         "ValidationReport",
@@ -464,7 +465,9 @@ def _package_classes() -> dict[str, type]:
 #: * ``container`` -- it holds the :class:`~cleverly.data.CausalData` and emits through
 #:   ``data.frame_like``, which reads the same stored name;
 #: * ``argument`` -- the backend is a parameter of ``to_frame`` because the object was not
-#:   built from a fit at all.
+#:   built from a fit at all;
+#: * ``wrapped`` -- it holds a frame that a ``field`` or ``container`` route already emitted
+#:   in the fit's backend, and ``to_frame`` returns that frame unchanged.
 BACKEND_ROUTES: dict[str, str] = {
     "AssessmentReport": "field",
     "CausalResult": "protocol",
@@ -503,6 +506,8 @@ BACKEND_ROUTES: dict[str, str] = {
     "ParameterEstimate": "argument",
     "RepeatSpread": "argument",
     "SimultaneousBands": "argument",
+    # The truncation curve (X89 T3) wraps the frame the diagnostics built.
+    "TruncationCurve": "wrapped",
 }
 
 
@@ -550,6 +555,7 @@ POLARS_EMITTERS: dict[str, list[Any]] = {
         lambda r: r.diagnostics.nuisance_models().to_frame(),
         lambda r: r.diagnostics.refute().to_frame(),
         lambda r: r.diagnostics.run_all().to_frame(),
+        lambda r: r.diagnostics.truncation_curve().to_frame(),
         lambda r: r.validate().to_frame(),
     ],
     "LongitudinalResult": [
