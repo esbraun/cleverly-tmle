@@ -27,6 +27,7 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import AssessmentStatus, SuperLearner
+from cleverly._summary import vocabulary
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -1395,7 +1396,9 @@ class TestValidation:
         assert names == {"propensity", "outcome"}
         assert 0.0 < diagnostics["propensity"].metrics["auc"] < 1.0
         assert diagnostics["outcome"].metrics["r2"] > 0.1
-        assert "VERDICT" in diagnostics.summary()
+        summary = diagnostics.summary()
+        assert summary.reading == diagnostics.verdict()
+        assert dict(summary.header)[vocabulary.MODELS] == "2"
 
     def test_an_almost_randomised_treatment_is_read_as_good_overlap(self) -> None:
         frame, _ = make_linear_ate(n=1500, seed=81)
@@ -1407,8 +1410,11 @@ class TestValidation:
             .fit(randomised, outcome="Y", treatment="A")
             .single()
         )
-        verdict = result.diagnostics.nuisance_models().verdict()
-        assert "overlap is excellent" in verdict
+        report = result.diagnostics.nuisance_models()
+        auc = report["propensity"].metrics["auc"]
+        assert auc < 0.55
+        text = report.summary().note("weak_treatment_model").text
+        assert f"(AUC {auc:.3f})" in text and "which favours overlap" in text
 
     def test_calibration_is_reported_per_model(self, good_overlap) -> None:
         diagnostics = good_overlap.diagnostics.nuisance_models()

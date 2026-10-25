@@ -261,8 +261,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["heavy"] == int((weight > 20).sum()) == 3
     # The fit caps the chances at the printed bounds, and nothing reached them.
     assert round(support.bounds[0], 4) == 0.0095 and support.nuisance_bound == 0.01
-    assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
-    assert "out-of-fold predictions" in namespace["nuisance"].summary()
+    nuisance_summary = namespace["nuisance"].summary()
+    assert nuisance_summary.reading == vocabulary.MODEL_READINGS["clear"]
+    assert dict(nuisance_summary.header)[vocabulary.PREDICTIONS] == "out of fold"
     # The omitted-variable bound admits a response mechanism, so its rows run.  The benchmark
     # refits, so the default assessment defers it.
     ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])
