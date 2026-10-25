@@ -2081,7 +2081,8 @@ PROTOCOL: Final = "Study protocol"
 ANSWERED_BY: Final = "Answered by"
 METHODS_FIT: Final = "Methods that fit"
 POPULATION: Final = "Population"
-TIME_ZERO: Final = "Time zero"
+#: The protocol's ``time_zero`` field, in plain words.
+TIME_ZERO: Final = "Follow-up starts"
 INTERFERENCE_UNIT: Final = "Interference unit"
 REPLICATIONS: Final = "Replications"
 ROWS_PER_REPLICATION: Final = "Rows per replication"
@@ -2111,6 +2112,8 @@ HEADER_LABELS = HEADER_LABELS | {
 T5_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "further_conditions": "note",
+        "as_treated_complete": "note",
+        "as_treated_missing": "note",
         "checkable": "note",
         "model_restriction": "note",
         "several_readings": "note",
@@ -2133,6 +2136,17 @@ T5_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "further_conditions": (
             "The full summary states {count} further {conditions} the answer rests on."
+        ),
+        "as_treated_complete": (
+            "The mean of {Y} as treated, under the treatment each unit actually got, is "
+            "{average}, so it needs no model."
+        ),
+        "as_treated_missing": (
+            "Some {Y} values are missing, so the mean of {Y} as treated, under the treatment "
+            "each unit actually got, need not equal the average of the recorded values. cleverly "
+            "estimates it from a model of {Y} and a model of which outcomes were recorded, so "
+            "it rests on the outcome missing at random and chance of a recorded outcome "
+            "conditions above."
         ),
         "checkable": (
             "The data cannot confirm these conditions. Overlap (marked partly) can be probed: "
@@ -2463,7 +2477,7 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
     (
         "response positivity for",
         (
-            "overlap for recorded outcomes",
+            "chance of a recorded outcome",
             "Every group of units that share the treatment and adjusted-for values that the "
             "question reads had some chance of a recorded {Y}.",
             "partly",
@@ -2472,13 +2486,36 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
     (
         "product positivity at the reference arm",
         (
-            "overlap for recorded outcomes",
+            "recorded outcome at reference",
             "Every group of units that share the adjusted-for values had some chance of "
             "both the reference level of {A} and a recorded {Y}.",
             "partly",
         ),
     ),
 )
+
+#: Identification statements that describe how the method reads the data rather than a
+#: condition on it. Each prefix maps to its note code for a complete outcome and for a
+#: missing one; the identify summary states the note instead of counting the statement as
+#: a further condition.
+METHOD_STATEMENTS: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
+    (
+        "the observed outcome is complete; under missingness at random the natural-course",
+        ("as_treated_complete", "as_treated_missing"),
+    ),
+    (
+        "the natural-course mean is a functional of the observed law alone",
+        ("as_treated_complete", "as_treated_missing"),
+    ),
+    (
+        "the natural-course mean averages m(A, W) over the empirical joint law",
+        ("as_treated_complete", "as_treated_missing"),
+    ),
+)
+#: How the complete-outcome as-treated note names the average, and the weights of a
+#: weighted design.
+AS_TREATED_AVERAGE: Final = "the average of {Y} over the rows"
+AS_TREATED_WEIGHTED: Final = ", weighted by {weights}"
 
 #: The plain words that replace an entry of :data:`CONDITION_WORDS` when the design has a
 #: feature: ``"held"`` a held intermediate, ``"randomized"`` a randomized assignment with no
