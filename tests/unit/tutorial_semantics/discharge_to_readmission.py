@@ -115,7 +115,7 @@ def _check_first_fit(namespace: dict[str, Any]) -> None:
         assert difference.ci[1] < -0.05
         assert difference.psi < previous
         previous = difference.psi
-        # "Every interval contains its true value".
+        # At a glance: "each interval contains its true value".
         assert covers(difference, row["true_difference"])
         names = [namespace["risk"]("offered", day), namespace["risk"]("not offered", day)]
         assert difference.psi == pytest.approx(
@@ -178,6 +178,15 @@ def _check_teams(namespace: dict[str, Any]) -> None:
     assert round(namespace["se_ratio"], 2) == 0.72
     low, high = independent.ci
     assert clustered.ci[0] < low and high < clustered.ci[1]
+    # "The weight check still finds nothing that needs attention, no patient at the floor, and
+    # every group worth at least 64.3% of its size."
+    assert not namespace["team_assessment"].attention
+    team_support = namespace["team_support"]
+    assert (team_support["share_truncated"] == 0.0).all()
+    assert round(namespace["team_ratio"], 3) == 0.643
+    # "The largest weight, 58.2 among patients who got neither".
+    top = team_support.loc[team_support["max_weight"].idxmax()]
+    assert top["regimen"] == "neither" and round(float(top["max_weight"]), 1) == 58.2
 
 
 def _check_evalue(namespace: dict[str, Any]) -> None:
