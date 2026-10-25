@@ -1954,7 +1954,11 @@ HEADER_LABELS = HEADER_LABELS | {
 
 #: The notes of the combined reports.
 T3_BATTERY_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
-    {"next_steps": "note", "report_access": "note", "inference_status": "note"}
+    {
+        "next_steps": "note",
+        "report_access": "note",
+        "inference_status": "note",
+    }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_BATTERY_NOTE_CODES})
 
