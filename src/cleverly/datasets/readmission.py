@@ -313,7 +313,9 @@ def team_readmission_protocol() -> StudyProtocol:
         ),
         assumption_rationale=(
             program.assumption_rationale[0],
-            "Version records support consistency of the discharge offer and the day-30 call",
+            "Version records make the discharge offer and the day-30 call each one "
+            "well-defined action, so a patient's recorded outcome is what that offer and call "
+            "produce",
             program.assumption_rationale[2],
         ),
     )

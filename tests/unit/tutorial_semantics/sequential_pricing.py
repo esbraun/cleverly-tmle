@@ -51,6 +51,7 @@ from cleverly.validation import refute
 from cleverly.validation.refute import _placebo_null, refute_refusal
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    adjustment_table,
     assert_protocol_recorded,
     covers,
     notebook_code,
@@ -117,7 +118,7 @@ UNPRINTED_DECIMALS = {
     "0.154": f"mean effective n over n of price_down at month 3, 200 draws: {_PROBE}/summary.log",
 }
 
-FINGERPRINT = "682ab02814f9837b"
+FINGERPRINT = "d277d3930deb5f56"
 PLANS = ("price_up", "price_down")
 #: Relative tolerance of the weight-tail quantities, the maximum weight and the effective n, which
 #: the fresh run agrees with within the last digits on every platform.
@@ -323,22 +324,27 @@ def _check_design(namespace: dict[str, Any]) -> None:
     ):
         assert study.data.history_names(month) == names
         assert f"history_names({month}): {names}" in printed
-    assert (
-        "history at price_3: ['usage', 'engaged_1', 'engaged_2', 'engaged_3', 'price_1', 'price_2']"
-    ) in printed
-    assert "history at price_1: ['usage', 'engaged_1']" in printed
+    adjusted = adjustment_table(printed)
+    assert adjusted["price_3"] == (
+        "usage",
+        "engaged_1",
+        "engaged_2",
+        "engaged_3",
+        "price_1",
+        "price_2",
+    )
+    assert adjusted["price_1"] == ("usage", "engaged_1")
     # The short summary prints the analysis and leaves the record to the protocol step.
     assert "causal study protocol" not in printed and FINGERPRINT not in printed
-    for assumption in (
-        "consistency: each observed history equals the potential history",
-        "no interference: one unit's potential history",
-        "strong sequential randomization (Díaz et al. 2023, Assumption 3) for the modified "
-        "treatment policy effect",
-        "positivity: the dose a policy assigns",
-        "modified treatment policy effect: the mean outcome had each node's natural dose",
-        "stochastic intervention (LMTP-SI)",
+    # The four printed conditions, and the note that the answer has two causal readings.
+    for condition in (
+        "well-defined treatment",
+        "no interference",
+        "no hidden confounding at each time",
+        "overlap at each time",
+        "The answer has 2 causal readings",
     ):
-        assert assumption in printed
+        assert condition in printed
     design = namespace["pricing_design"]("renewed")
     assert isinstance(design, LongitudinalTreatment)
     assert list(design.treatment) == ["price_1", "price_2", "price_3"]

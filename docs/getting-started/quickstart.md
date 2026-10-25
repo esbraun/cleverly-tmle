@@ -99,9 +99,9 @@ effect = study.identify(ATE(reference=0))
 print(effect.summary())
 ```
 
-The summary states the identifying formula, the four assumptions, and the two nuisance functions.
-The outcome regression is $Q(A, W) = E(Y \mid A, W)$. The treatment mechanism is
-$g(W) = P(A = 1 \mid W)$. This page records no `StudyProtocol`, a written description of the
+The summary states the question, the four conditions the answer rests on (with whether the data
+can check each), and the methods that can answer it. The fit needs two helper models. The outcome
+regression is $Q(A, W) = E(Y \mid A, W)$. The treatment mechanism is $g(W) = P(A = 1 \mid W)$. This page records no `StudyProtocol`, a written description of the
 study's population, timing, and treatments. The [workflow](../workflow.md) shows how to record one.
 
 ## Why TMLE with these settings
@@ -158,9 +158,10 @@ print(f"TMLE: {estimate.psi:.3f}, 95% CI [{estimate.ci[0]:.3f}, {estimate.ci[1]:
 print(f"population ATE: {truth['ate']:.3f}")
 ```
 
-The summary records the fit decisions. Two of them matter here. The package bounds $g$ away from 0 and 1, and no patient
-reaches that bound here. The package also maps the score to $[0, 1]$ for the logistic update, and
-maps the estimate back. The TMLE estimate is 1.513, with a 95% interval from 1.422 to 1.603. The
+The header names the two models and shows the limits on the predicted offer probabilities,
+[0.0147, 0.9853]. The package keeps $g$ away from 0 and 1, and `result.summary(detail="full")`
+confirms that no patient reaches a limit. The package also maps the score to $[0, 1]$ for the
+logistic update, and maps the estimate back. The TMLE estimate is 1.513, with a 95% interval from 1.422 to 1.603. The
 interval contains the true value of 1.5.
 
 ## Check the fit
@@ -183,10 +184,12 @@ assessment = result.assess()
 print(assessment.summary())
 ```
 
-`completed` is not a pass. The
-[status contract](../technical-reference/validation-methods.md#the-status-contract) defines each
-status. The `robustness_value` row reports 0.51. An omitted confounder with strengths `cf_y = cf_d = 0.51` and the
-worst-case correlation `rho = 1` could move the point estimate to zero.
+Only the Checks table passes or fails. The Results rows report findings that have no pass or fail
+rule, so a row there is not a pass. `assessment.to_frame()` lists every row with its status, and
+the [status contract](../technical-reference/validation-methods.md#the-status-contract) defines
+each one. The unmeasured-confounding row reports 0.514. A left-out variable whose strengths
+with the offer and with the score are both 0.514 could, at worst, move the point estimate to zero;
+weaker ones could not.
 [Omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 define the two strengths.
 

@@ -76,6 +76,25 @@ print(result["ate"].ci, "population ATE:", truth["ate"])
 print(result.assess().summary())
 ```
 
+`print(result.summary())` shows the effect estimate. The question and the setup come first, and the
+answer, an effect of 1.513 with a 95% interval from 1.422 to 1.603, is in the table:
+
+```text
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of A on   Rows:                            2,000
+               Y (1 compared with 0)    Treated share:                   0.506
+Outcome:       Y (continuous)           Out-of-fold predictions:            no
+Adjusted for:  W1, W2, W3, W4           Outcome model:       linear regression
+Method:        targeted maximum         Treatment model:   logistic regression
+               likelihood (TMLE)        Probability limits:  [0.01471, 0.9853]
+==============================================================================
+      estimate   std. error           95% CI    p-value
+------------------------------------------------------------------------------
+ate      1.513        0.046   [1.422, 1.603]    <0.0001
+==============================================================================
+```
+
 Both nuisance functions of `make_linear_ate` are linear, so these learners are correctly specified.
 A correctly specified parametric learner needs no cross-fitting, so this fit uses none. Cross-fitting
 a continuous outcome needs its support declared, because `q_bounds=None` reads the held-out rows to

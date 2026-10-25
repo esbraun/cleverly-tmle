@@ -339,7 +339,8 @@ def test_the_full_summary_holds_every_short_fact(key: str) -> None:
     assert set(short.header) <= set(full.header)
     assert short.note_codes == full.note_codes
     assert [table.rows for table in short.tables] == [table.rows for table in full.tables]
-    assert full.sections and not short.sections
+    assert not short.sections
+    assert full.sections or not FIXTURES[key].sectioned
 
 
 # ----------------------------------------------------------------- coverage

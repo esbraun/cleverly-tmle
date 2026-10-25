@@ -16,6 +16,7 @@ import pytest
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     ROOT,
+    adjustment_table,
     assert_protocol_recorded,
     changed_fields,
     covers,
@@ -266,11 +267,14 @@ def check(namespace: dict[str, Any]) -> None:
 
     # "the history lines show what each offer is adjusted for".
     identify_output = stored_output(NOTEBOOK, "identify")
-    assert "history at navigation_p1: ['age', 'baseline_readiness']" in identify_output
-    assert (
-        "history at navigation_p2: ['age', 'baseline_readiness', 'identified_needs', "
-        "'navigation_p1']"
-    ) in identify_output
+    adjusted = adjustment_table(identify_output)
+    assert adjusted["navigation_p1"] == ("age", "baseline_readiness")
+    assert adjusted["navigation_p2"] == (
+        "age",
+        "baseline_readiness",
+        "identified_needs",
+        "navigation_p1",
+    )
 
     # Estimate readmission and death risk. Eight incidences, each interval covering its population value on this draw, and
     # simultaneous bands wider than the pointwise intervals.

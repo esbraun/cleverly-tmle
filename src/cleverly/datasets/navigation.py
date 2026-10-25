@@ -188,7 +188,8 @@ def navigation_protocol() -> StudyProtocol:
         interference_unit="Individual patient",
         assumption_rationale=(
             "The recorded baseline variables cover the measured common causes",
-            "The standardized offer and version records support consistency",
+            "Standardized offer and version records make each offer one well-defined action, "
+            "so a patient's recorded outcome is what that offer produces",
             "Reserved navigator capacity and access controls support no interference",
         ),
     )
@@ -270,7 +271,8 @@ def longitudinal_navigation_protocol() -> StudyProtocol:
         interference_unit=program.interference_unit,
         assumption_rationale=(
             "Recorded history covers the measured common causes at each decision",
-            "Version records support consistency at both navigation decisions",
+            "Version records make the offer at each navigation decision one well-defined action, "
+            "so a patient's recorded outcome is what that offer produces",
             "Reserved navigator capacity supports no interference between patients",
         ),
     )

@@ -44,12 +44,16 @@ class Case:
         wording belongs to the code that raised them, so the house-style check reads the
         summary's own text around them. A callable takes the object. A fitted result's
         own ``fit_warnings`` are always treated this way.
+    sectioned : bool
+        Whether ``detail="full"`` adds a section. ``False`` for a display that has one level,
+        such as a facade's table of the checks it offers.
     """
 
     build: Callable[[], Any]
     names: tuple[str, ...] = ()
     fidelity: Callable[[Any, str], None] | None = None
     quoted: tuple[str, ...] | Callable[[Any], tuple[str, ...]] = ()
+    sectioned: bool = True
 
     def quotes(self, obj: Any) -> tuple[str, ...]:
         """The quoted messages for ``obj``.

@@ -665,7 +665,8 @@ def pricing_protocol() -> StudyProtocol:
             "the renewal. This is sequential randomization given the recorded history",
             "A price band that moves with engagement is declared for each month, so the "
             "policy keeps every price inside the support of the engine's price",
-            "A declared factor on the quoted price, for one month, supports consistency",
+            "A declared factor on the quoted price, for one month, makes each price one "
+            "well-defined action, so a customer's recorded outcome is what that price produces",
             "One account per customer and no reference-price spillover support no interference",
         ),
     )

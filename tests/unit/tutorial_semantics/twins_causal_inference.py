@@ -156,22 +156,23 @@ def check_stored() -> None:
 
     # Protocol: printed in its own step only.
     protocol_text = stored_output(NOTEBOOK, "protocol")
-    match = re.search(r"causal study protocol: schema \d+; ([0-9a-f]{16})", protocol_text)
-    assert match, "the protocol step no longer prints its fingerprint"
-    fingerprint = match.group(1)
     identify_text = stored_output(NOTEBOOK, "identify")
     fit_text = stored_output(NOTEBOOK, "att-fit")
     # The short summaries print the analysis and leave the record to the protocol step.
     for text in (identify_text, fit_text):
-        assert "causal study protocol" not in text and fingerprint not in text
-        assert "assumption rationale:" not in text
-    intercurrent = "intercurrent-event handling: ['Fetal death of a twin: the cohort conditions on"
+        assert "causal study protocol" not in text and "Rationale:" not in text
+    intercurrent = "Intercurrent events: Fetal death of a twin: the cohort conditions on"
     assert intercurrent in protocol_text
     assert "No tobacco use at any time in the pregnancy" in protocol_text
-    # The identify reading names two judgment assumptions beyond confounding and positivity.
-    assert identify_text.count("\n  - ") == 5
-    for assumption in ("consistency", "no interference", "no unmeasured confounding"):
-        assert f"  - {assumption}:" in identify_text, assumption
+    # The identify summary lists the four conditions: two judgment assumptions beyond
+    # confounding and overlap.
+    for condition in (
+        "well-defined treatment",
+        "no interference",
+        "no hidden confounding",
+        "overlap",
+    ):
+        assert re.search(rf"^{condition}\s+(no|partly)\s", identify_text, re.M), condition
 
     # Design: the pair is the unit, so no cluster; the ATT; the declared outcome support.
     assert "cluster=" not in code["identify"] and "ATT(reference=0)" in code["identify"]
@@ -221,8 +222,12 @@ def check_stored() -> None:
     assert sorted(re.findall(r"'(\w+)'", attention.group(1))) == ["nuisance_models", "support"]
     slope = re.search(r"calibration slope: (\S+) \(95% interval (\S+) to (\S+)\)", diagnostics)
     assert slope and float(slope[2]) > 1, "the reading says the slope interval lies above 1"
-    assert diagnostics.rstrip().endswith(
-        "PASS: the targeting step solved the estimated efficient score equation."
+    assert (
+        diagnostics.rstrip()
+        .splitlines()[-1]
+        .startswith(
+            "The correction step solved every estimating equation to within its allowed error."
+        )
     )
     assert _number(diagnostics, r"highest probability of smoking:\s+(\S+)") < 0.975
     assert not _MACHINE_NOISE.search(diagnostics)
@@ -285,8 +290,8 @@ def check_stored() -> None:
 
     # The E-value uses the standardized-difference approximation for a continuous outcome.
     evalue = stored_output(NOTEBOOK, "evalue")
-    assert "(approximate conversion)" in evalue and "Standardised by sd(Y)" in evalue
-    assert _number(evalue, r"E-value, confidence limit\s+:\s+(\S+)") > 1
+    assert "mean difference, converted" in evalue and "each step is an" in evalue
+    assert _number(evalue, r"95% limit nearest the null\s+\S+\s+(\S+)") > 1
 
     # Simulated confounding: nine cells calibrated on the two benchmark covariates.
     surface = stored_output(NOTEBOOK, "simulated-confounding")

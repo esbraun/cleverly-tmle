@@ -670,7 +670,7 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "holds, and they are its causal coefficients only when it does."
         ),
         "isotonic_moves": (
-            "cleverly made each curve non-decreasing, which moved {count} levels ({names}). "
+            "cleverly made each curve non-decreasing, which moved {count} {levels} ({names}). "
             "The standard errors are unchanged; an interval at a moved level is valid only "
             "where the true curve strictly increases."
         ),
