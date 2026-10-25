@@ -297,7 +297,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert check_result.rung == "L1" and check_result.n_replicates == 10, name
         assert abs(check_result.mean - check_result.declared_effect) < 0.02, name
     dummy = namespace["generated_tests"]["dummy_outcome"].readings[0]
-    assert abs(dummy.lower) < 0.005
+    assert 0.0 < dummy.lower < 0.01
 
     # The replay the page skips: the response reads the offer, so a cell that moves the offer is
     # refused and names F12.  Nonzero witness: the law's response differs by arm.
