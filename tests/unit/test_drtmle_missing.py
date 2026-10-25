@@ -1045,11 +1045,12 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
     def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
         """Every other row has one bound; quoting it here named one the row never met."""
         report = pinched_observation_fit.diagnostics.support()
-        text = report.summary() + report.verdict()
-
-        assert "P(A=a,Delta=1|W) truncated to" in text
-        assert f"[{report.bounds[0]:.4g}, {report.bounds[1]:.4g}] x " in text
-        assert f"[{report.nuisance_bound:.4g}, 1], factor by factor" in text
+        details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
+        lower, upper = report.bounds
+        assert (
+            "The joint probability of the treatment and a recorded outcome is capped at "
+            f"[{lower:.3f}, {upper:.3f}] x [{report.nuisance_bound:.3f}, 1.000], factor by factor."
+        ) in details
 
 
 def _missing_treatment_frame(column: str, arms: int = 2) -> pd.DataFrame:

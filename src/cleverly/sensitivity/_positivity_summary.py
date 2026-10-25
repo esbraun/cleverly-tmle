@@ -3,7 +3,7 @@
 The header names the cap and how many units it moved; the tables show the treatment
 probabilities, the weights each arm keeps, the rows near 0 or 1, the weights in each
 estimating equation and the other probabilities the weights divide by. The reading grades
-the cap only, from :meth:`PositivityReport.grade`; every concentration measure is a note
+the cap only, from ``PositivityReport._grade()``; every concentration measure is a note
 and carries no threshold. The numbers are read from the report; nothing here decides a
 tier.
 """
@@ -287,10 +287,18 @@ def _notes(report: PositivityReport) -> list[Note]:
     composed = _composed_note(report)
     if composed is not None:
         notes.append(composed)
-    for group, reason in report.group_score_load_omissions.items():
-        reason_text = without_roadmap(reason).rstrip(".")
+    omissions = [
+        (
+            vocabulary.GROUP_OMISSION_CAP.format(group=key.removesuffix(".clipping"), reason=text)
+            if key.endswith(".clipping")
+            else vocabulary.GROUP_OMISSION_ROW.format(group=key, reason=text)
+        )
+        for key, reason in report.group_score_load_omissions.items()
+        for text in [without_roadmap(reason).rstrip(".")]
+    ]
+    if omissions:
         notes.append(
-            note("group_omitted", texts["group_omitted"].format(group=group, reason=reason_text))
+            note("group_omitted", texts["group_omitted"].format(sentences=" ".join(omissions)))
         )
     if report.n_repeats > 1:
         notes.append(
@@ -464,7 +472,7 @@ def positivity_summary(report: PositivityReport, detail: Detail) -> Summary:
     Summary
         The summary.
     """
-    grade = report.grade()
+    grade = report._grade()
     return Summary.build(
         title=vocabulary.OVERLAP_TITLE,
         header=_header(report, grade),
@@ -498,6 +506,6 @@ def positivity_repr(report: PositivityReport) -> str:
                 f"{count_text(report.truncated['count'])} capped "
                 f"({_percent(float(report.truncated['fraction']))})",
             ),
-            ("", result_words(report.grade())),
+            ("", result_words(report._grade())),
         ],
     )

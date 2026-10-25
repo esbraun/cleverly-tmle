@@ -41,7 +41,7 @@ def test_every_note_of_the_check_fires() -> None:
 
 
 def test_every_branch_of_the_grade_is_reached() -> None:
-    branches = {_report(name).grade().branch for name in REPORTS}
+    branches = {_report(name)._grade().branch for name in REPORTS}
     assert branches == set(vocabulary.OVERLAP_RESULTS), branches
 
 
@@ -85,13 +85,13 @@ def test_the_readings_carry_the_graded_share_and_its_limits() -> None:
 
 def test_a_group_cap_above_the_fits_names_the_group_limits() -> None:
     report = _report("overlap_group_limits")
-    assert report.grade().group == "att"
+    assert report._grade().group == "att"
     assert report.severity == "serious"
     assert report.verdict().startswith(
         "7.5% of units were capped at [0.025, 0.975], the limits of att"
     )
     # Witness: the same report without the group's cap reads the fit's own limits.
-    assert _report("overlap_plain").grade().group is None
+    assert _report("overlap_plain")._grade().group is None
 
 
 def test_a_capped_recording_probability_reads_before_the_treatment() -> None:
@@ -131,9 +131,9 @@ def test_a_joint_rows_cap_is_the_treatments_and_keeps_the_treatment_branch() -> 
             },
         )
 
-    joint = with_cap("P(A=a,Delta=1|W)").grade()
+    joint = with_cap("P(A=a,Delta=1|W)")._grade()
     assert (joint.branch, joint.mechanism) == ("serious", None)
-    factor = with_cap("P(Delta=1|A,W)").grade()
+    factor = with_cap("P(Delta=1|A,W)")._grade()
     assert (factor.branch, factor.mechanism) == ("mechanism_capped", "P(Delta=1|A,W)")
 
 
@@ -145,7 +145,7 @@ def test_the_thresholds_are_the_named_constants(monkeypatch: pytest.MonkeyPatch)
     assert strained.severity == "serious"
     assert dict(strained.summary().header)[vocabulary.RESULT] == "over 2% of units capped"
     monkeypatch.setattr(positivity, "MECHANISM_ESS_SHARE", 0.3)
-    assert _report("overlap_recording_concentrated").grade().mechanism is None
+    assert _report("overlap_recording_concentrated")._grade().mechanism is None
 
 
 def test_the_disclaimers_stay() -> None:
@@ -184,7 +184,11 @@ def test_the_split_and_the_known_law_are_stated() -> None:
     )
     known = _report("overlap_known").summary()
     assert dict(known.header)[vocabulary.TREATMENT_MODEL] == "known (declared)"
-    assert known.note("group_omitted").text.startswith("No equation row for mean: ")
+    omitted = known.note("group_omitted").text
+    assert omitted.startswith("No equation row for mean: ")
+    assert omitted.endswith(
+        "The capped count for att is not available: the fitted clipping mask was not retained."
+    )
     plain = _report("overlap_plain").summary()
     assert vocabulary.TREATMENT_MODEL not in dict(plain.header)
     assert {"first_split", "group_omitted", "simplex"}.isdisjoint(plain.note_codes)

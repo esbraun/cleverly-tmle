@@ -167,7 +167,7 @@ class TestPositivity:
     def test_the_report_renders_and_tabulates(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
         summary = report.summary()
-        assert summary.title == vocabulary.OVERLAP_TITLE
+        assert str(summary).splitlines()[0].strip() == vocabulary.OVERLAP_TITLE
         assert summary.reading == report.verdict()
         frame = report.to_frame(good_overlap.data)
         assert set(nw.from_native(frame, eager_only=True)["group"].unique().to_list()) == {
@@ -1819,7 +1819,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 .single()
             )
         report = result.diagnostics.support()
-        assert report.grade().mechanism == "P(Delta=1|A,W)"
+        assert report._grade().mechanism == "P(Delta=1|A,W)"
         verdict = report.verdict()
         assert verdict.startswith("The probability that the outcome is recorded was capped")
         assert "truncation_curve(mechanism=True)" in verdict
@@ -1835,7 +1835,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 "P(Delta=1|A,W)": {**report.mechanisms["P(Delta=1|A,W)"], "ess_ratio": 0.4}
             },
         )
-        assert degenerate.grade().branch == "mechanism_concentrated"
+        assert degenerate._grade().branch == "mechanism_concentrated"
         assert degenerate.verdict().startswith("The probability that the outcome is recorded")
         assert "leaves an effective 40%" in degenerate.verdict()
         # Reported, not graded: this mechanism clips nothing, so the sentence appears and
@@ -1864,13 +1864,13 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 },
             )
 
-        grade = with_clipping(composed).grade()
+        grade = with_clipping(composed)._grade()
         assert (grade.branch, grade.mechanism) == ("serious", None)
         assert "leans on the cap" in with_clipping(composed).verdict()
 
         # The control: a *factor* row's clipping is its own, and still earns the sentence
         # ahead of the propensity's, which is the ordering this loop exists for.
-        factor = with_clipping("P(Delta=1|A,W)").grade()
+        factor = with_clipping("P(Delta=1|A,W)")._grade()
         assert (factor.branch, factor.mechanism) == ("mechanism_capped", "P(Delta=1|A,W)")
 
         # And joint leverage still reaches the verdict through the derived row.
@@ -1881,7 +1881,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 composed: {**report.mechanisms[composed], "ess_ratio": 0.4},
             },
         )
-        assert leveraged.grade().mechanism == composed
+        assert leveraged._grade().mechanism == composed
         assert leveraged.verdict().startswith(
             "The joint probability of the treatment and a recorded outcome falls to"
         )

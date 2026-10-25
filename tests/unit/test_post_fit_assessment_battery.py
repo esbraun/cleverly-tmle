@@ -2037,7 +2037,7 @@ def test_the_support_row_and_the_retained_verdict_cannot_disagree() -> None:
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(
             PositivityReport,
-            "grade",
+            "_grade",
             lambda _self: OverlapGrade("serious", "serious", 0.0, (0.01, 0.99), None),
         )
         mutated = INTERPRETERS["support"](report, None)
@@ -2146,9 +2146,10 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
         0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_score_load={"mean": empty}
     )
     summary = report.summary()
-    header = next(line for line in summary.splitlines() if line.startswith("group "))
+    (table,) = [t for t in summary.tables if t.title == vocabulary.EQUATION_TABLE]
 
-    assert header.index("effective rows") < header.index("largest")
+    assert table.columns.index("effective rows") < table.columns.index("largest")
+    assert "-" in str(summary).split(vocabulary.EQUATION_TABLE)[1].splitlines()[3]
     assert "mean: equation empty," in str(report.summary("full"))
     assert "equation_concentration" not in summary.note_codes
 

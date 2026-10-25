@@ -679,10 +679,10 @@ def read_overlap(report: Any, text: str) -> None:
     assert _capped_close(
         facts[vocabulary.UNITS_CAPPED], report.truncated["count"], report.truncated["fraction"]
     ), facts
-    if report.grade().mechanism is None:
+    if report._grade().mechanism is None:
         assert facts[vocabulary.RESULT] == _OVERLAP_RESULTS[report.severity], facts
     else:
-        stats = report.mechanisms[report.grade().mechanism]
+        stats = report.mechanisms[report._grade().mechanism]
         capped = stats["clipped_fraction"] > 0.01
         wanted = "another probability capped" if capped else "weights concentrated"
         assert facts[vocabulary.RESULT] == wanted, facts

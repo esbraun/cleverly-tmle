@@ -150,7 +150,10 @@ def known() -> PositivityReport:
         treatment_mechanism="known",
         group_score_load={"att": report.group_score_load["att"]},
         clever_covariate_max={"att": report.clever_covariate_max["att"]},
-        group_score_load_omissions={"mean": SCORE_LOAD_SHAPE_MISMATCH},
+        group_score_load_omissions={
+            "mean": SCORE_LOAD_SHAPE_MISMATCH,
+            "att.clipping": "the fitted clipping mask was not retained",
+        },
     )
 
 

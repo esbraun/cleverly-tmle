@@ -71,7 +71,7 @@ def _assert_one_column_per_equation(result) -> None:
     support = result.diagnostics.support()
     assert support.group_score_load_omissions.get("mean") != SCORE_LOAD_SHAPE_MISMATCH
     assert "mean" in support.group_score_load
-    assert "No equation row for mean" not in support.summary()
+    assert "No equation row for mean:" not in support.summary()
 
 
 @pytest.mark.parametrize("guard", [("Q", "g"), ("g",), ("Q",)])

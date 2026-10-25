@@ -1591,7 +1591,7 @@ T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "composed_excluded": (
             "{lead} {groups}. Read the single-probability rows for those estimates.{pointer}"
         ),
-        "group_omitted": "No equation row for {group}: {reason}.",
+        "group_omitted": "{sentences}",
         "first_split": (
             "Overlap is shown for split {split} of {total}; each split fits its own "
             "treatment model."
@@ -1599,6 +1599,11 @@ T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_OVERLAP_NOTE_TEXTS})
+
+#: The sentences of the ``group_omitted`` note: a group with no equation row, and a group
+#: whose row lacks its capped count (an omission keyed ``"{group}.clipping"``).
+GROUP_OMISSION_ROW: Final = "No equation row for {group}: {reason}."
+GROUP_OMISSION_CAP: Final = "The capped count for {group} is not available: {reason}."
 
 #: Pieces of the ``composed_excluded`` note.
 COMPOSED_LEAD: Final = "The {name} row does not describe"

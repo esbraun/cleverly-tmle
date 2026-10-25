@@ -72,7 +72,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
     from ..fluctuation.submodel import Submodel
 
-__all__ = ["OverlapGrade", "PositivityReport", "positivity_report", "truncation_curve"]
+__all__ = ["PositivityReport", "positivity_report", "truncation_curve"]
 
 #: Quantiles reported for the propensity distribution in each arm.
 _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
@@ -489,7 +489,7 @@ class PositivityReport:
         {"adequate", "strain", "serious"}
             The tier behind :meth:`verdict`, for a caller that must branch on it.
         """
-        return self.grade().tier
+        return self._grade().tier
 
     def verdict(self) -> str:
         """The reading of the check: one sentence on what the cap means for the estimate.
@@ -503,7 +503,7 @@ class PositivityReport:
         assert reading is not None
         return reading
 
-    def grade(self) -> OverlapGrade:
+    def _grade(self) -> OverlapGrade:
         """Decide the tier and the branch that reports it, in one place.
 
         A reader reads :meth:`verdict`; the combined assessment row reads
