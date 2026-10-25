@@ -27,6 +27,7 @@ from cleverly import (
     load,
 )
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly.assessment import (
     ASSESSMENT_CAPABILITIES,
     INTERPRETERS,
@@ -46,7 +47,7 @@ from cleverly.sensitivity.evalue import (
     _standardising_sd,
     evalue_from_rr,
 )
-from cleverly.sensitivity.positivity import PositivityReport
+from cleverly.sensitivity.positivity import OverlapGrade, PositivityReport
 from cleverly.validation import RepeatSpreadRow
 from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW, _critical_value
 
@@ -2036,19 +2037,19 @@ def test_the_support_row_and_the_retained_verdict_cannot_disagree() -> None:
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(
             PositivityReport,
-            "_verdict_parts",
-            lambda _self: ("serious", "VERDICT: truncation is carrying this estimate. Mutated."),
+            "_grade",
+            lambda _self: OverlapGrade("serious", "serious", 0.0, (0.01, 0.99), None),
         )
         mutated = INTERPRETERS["support"](report, None)
     assert mutated.status is AssessmentStatus.WARNING
 
 
-def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
+def test_the_summary_states_the_ratio_in_every_tier() -> None:
     """The reader-facing half of the contract: ungraded is not unreported."""
     for fraction in (0.0, 0.02, 0.06):
-        verdict = _positivity(fraction, 0.25).verdict()
-        assert "Kish-equivalent weight count of 25%" in verdict
-        assert "no threshold is applied because none is derived" in verdict
+        text = _positivity(fraction, 0.25).summary().note("effective_share").text
+        assert text.startswith("The smallest arm keeps an effective 25% of its rows")
+        assert "it is not a test, and no threshold applies" in text
 
 
 def _load(ratio: float, **overrides: float | str) -> dict[str, float | str]:
@@ -2118,12 +2119,18 @@ def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -
 
     assert ample.severity == threadbare.severity == "adequate"
     assert INTERPRETERS["support"](threadbare, None).status is AssessmentStatus.COMPLETED
-    assert "Absolute-load concentration is greatest" in ample.verdict()
-    assert "99.0 Kish-equivalent rows out of 100 score-mask rows (99%" in ample.verdict()
-    assert "4.0 Kish-equivalent rows out of 100 score-mask rows (4%" in threadbare.verdict()
+    concentration = ample.summary().note("equation_concentration").text
+    assert "concentrate most for mean: 99.0 effective rows of 100 (99%)" in concentration
+    assert "4.0 effective rows of 100 (4%)" in (
+        threadbare.summary().note("equation_concentration").text
+    )
     for report in (ample, threadbare):
-        assert "Kish-equivalent weight count of 90%" in report.verdict()
-        assert "not estimator effective sample size" in report.verdict()
+        summary = report.summary()
+        assert "effective 90% of its rows" in summary.note("effective_share").text
+        assert "it is not the estimator's sample size, its precision or a test of overlap" in (
+            summary.note("equation_concentration").text
+        )
+        assert report.verdict() == summary.reading
 
 
 def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
@@ -2139,11 +2146,12 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
         0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_score_load={"mean": empty}
     )
     summary = report.summary()
-    header = next(line for line in summary.splitlines() if line.startswith("group "))
+    (table,) = [t for t in summary.tables if t.title == vocabulary.EQUATION_TABLE]
 
-    assert header.index("Kish-equivalent rows") < header.index("max |w h|")
-    assert "empty" in summary
-    assert "Absolute-load concentration" not in report.verdict()
+    assert table.columns.index("effective rows") < table.columns.index("largest")
+    assert "-" in str(summary).split(vocabulary.EQUATION_TABLE)[1].splitlines()[3]
+    assert "mean: equation empty," in str(report.summary("full"))
+    assert "equation_concentration" not in summary.note_codes
 
 
 def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None:
@@ -2156,21 +2164,22 @@ def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None
     report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
 
     assert report.group_score_load == {}
-    assert "max |clever covariate| (mean): 1" in report.summary()
-    assert "max |clever covariate| (att): 4" in report.summary()
-    assert "Kish-equivalent rows" not in report.summary()
-    assert "Absolute-load concentration" not in report.verdict()
+    (details,) = report.summary("full").sections
+    assert "Largest weight in the correction step for mean: 1." in details.lines
+    assert "Largest weight in the correction step for att: 4." in details.lines
+    assert vocabulary.EQUATION_TABLE not in report.summary()
+    assert "equation_concentration" not in report.summary().note_codes
 
 
 def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:
     """A binding bound changes the procedure, not the parameter it estimates."""
     verdict = _positivity(0.06, 0.9).verdict()
 
-    assert "sensitive to this finite-sample regularisation" in verdict
+    assert "treat the estimate as sensitive to it" in verdict
+    assert "The cap does not change the question" in verdict
     explanations = (
         positivity_module.__doc__,
         positivity_module.truncation_curve.__doc__,
-        verdict,
     )
     for explanation in explanations:
         assert explanation is not None

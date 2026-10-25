@@ -1054,8 +1054,12 @@ class TestTheSensitivityLayerFollowsTheDraws:
         self, repeated: Any, once: Any
     ) -> None:
         assert positivity_report(repeated).n_repeats == REPEATS
-        assert "draw 1 of 3" in positivity_report(repeated).summary()
-        assert "draw 1 of" not in positivity_report(once).summary()
+        split = vocabulary.SPLIT_SHOWN
+        summary = positivity_report(repeated).summary()
+        assert summary.facts[split] == "split 1 of 3"
+        assert "first_split" in summary.note_codes
+        assert split not in positivity_report(once).summary().facts
+        assert "first_split" not in positivity_report(once).summary().note_codes
 
     def test_the_nuisance_diagnostics_say_so_too(self, repeated: Any) -> None:
         report = repeated.diagnostics.nuisance_models()
@@ -1081,7 +1085,9 @@ class TestTheSensitivityLayerFollowsTheDraws:
         detail = repeated.diagnostics.run_all()["support"].detail
         assert f"draw {REPORTED_DRAW:02d} of {REPEATS:02d}" in detail
         assert detail == repeated.assess().diagnostics["support"].detail
-        assert f"draw {REPORTED_DRAW} of {REPEATS}" in positivity_report(repeated).summary()
+        assert positivity_report(repeated).summary().facts[vocabulary.SPLIT_SHOWN] == (
+            f"split {REPORTED_DRAW} of {REPEATS}"
+        )
 
         assert f"draw {REPORTED_DRAW:02d} of 01" in once.diagnostics.run_all()["support"].detail
 

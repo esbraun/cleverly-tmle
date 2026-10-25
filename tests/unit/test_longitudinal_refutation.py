@@ -571,6 +571,40 @@ class TestPlaceboPositivity:
         stand_in, kernel = self._stand_in(blocked=False)
         assert _placebo_positivity_gap(stand_in, kernel) is None
 
+    @staticmethod
+    def _held_stand_in(treated: bool) -> tuple[Any, MarkovKernel]:
+        from cleverly.longitudinal.regimen import Regimen
+
+        frame = make_longitudinal(n=200, seed=1)[0]
+        if not treated:
+            frame = frame.assign(A1=0.0)
+        data = LongitudinalData.from_frame(
+            frame, outcome="Y", treatment="A1", baseline=["W1", "W2"], censoring=["C1", "C2"]
+        )
+        regimens = (Regimen("always", (1,)), Regimen("never", (0,)))
+        stand_in = SimpleNamespace(data=data, config=SimpleNamespace(regimens=regimens))
+        return stand_in, MarkovKernel.fit(data)
+
+    def test_a_held_regimen_reads_its_first_arm_at_every_node(self) -> None:
+        """Row 0's own arm fills the identity nodes; the check must not read it as a plan."""
+        from cleverly.validation.refute import _placebo_positivity_gap
+
+        stand_in, kernel = self._held_stand_in(treated=True)
+        assert kernel.held
+        # The witness: row 0 reaches the identity node on one arm, so the other regimen's
+        # encoded row-0 trajectory switches arms, which a held kernel never draws.
+        row = stand_in.data.encode_assignment(np.asarray((1,), dtype=object), "always")[0]
+        assert row[0] != row[1]
+        assert _placebo_positivity_gap(stand_in, kernel) is None
+
+    def test_a_held_arm_that_no_unit_takes_is_named(self) -> None:
+        from cleverly.validation.refute import _placebo_positivity_gap
+
+        stand_in, kernel = self._held_stand_in(treated=False)
+        gap = _placebo_positivity_gap(stand_in, kernel)
+        assert gap is not None
+        assert "'always'" in gap
+
     def test_the_trajectory_probability_is_the_law(self) -> None:
         _, kernel = self._stand_in(blocked=False)
         for codes, probability in kernel.trajectory_law():
