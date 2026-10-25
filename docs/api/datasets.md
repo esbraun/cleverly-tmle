@@ -40,6 +40,12 @@ Seven names serve the pricing tutorial of the same program.
 `make_sequential_pricing` is not in `GENERATORS` either. Its columns are `usage`, `engaged_1`,
 `price_1`, `engaged_2`, `price_2`, `engaged_3`, `price_3`, `renewed`, and `revenue`.
 
+`make_population_impact` draws the program data of the
+[population-impact example](../examples/population-impact.ipynb): a binary top-box outcome with
+unreturned surveys and a 7-day primary-care visit after the offer. `population_impact_truth` holds
+its exact truths, including the population attributable risk and the controlled direct effect at
+each visit level. `make_population_impact` is not in `GENERATORS`.
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
@@ -67,6 +73,8 @@ Seven names serve the pricing tutorial of the same program.
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
+   cleverly.datasets.make_population_impact
+   cleverly.datasets.population_impact_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol

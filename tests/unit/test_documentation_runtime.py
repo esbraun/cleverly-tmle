@@ -798,6 +798,7 @@ EXPECTED_REFIT_CELLS = {
         "generated-outcomes",
         "simulated-confounding",
     ],
+    "population-impact": ["sensitivity", "refutation", "generated-outcomes"],
     "sequential-offers": ["refute"],
     "sequential-pricing": ["refute"],
     "survey-nonresponse": ["bound", "refutation", "generated-outcomes"],

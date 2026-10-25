@@ -96,6 +96,9 @@ complete-data construction follows Díaz Muñoz and van der Laan (2012). Hubbard
 stated below, and [PAR and PAF with missing outcomes](#par-and-paf-with-missing-outcomes) gives the
 attributable stack.
 
+The [population-impact example](../examples/population-impact.ipynb) fits the natural-course mean,
+PAR and PAF with missing outcomes, cross-fitted, and the controlled direct effect below in sample.
+
 ### Missing outcomes and controlled direct effects
 
 With an observation indicator $\Delta$, let $X=(A,W)$,
