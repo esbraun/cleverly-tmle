@@ -66,6 +66,12 @@ program, where the order of every week is the outcome.
 `make_weekly_orders` is not in `GENERATORS` either. Its columns are `tenure`, `order_0`, and
 `engaged_t`, `offer_t`, `tracked_t`, and `order_t` for each week `t` from 1 to 3.
 
+`make_population_impact` draws the program data of the
+[population-impact example](../examples/population-impact.ipynb): a binary top-box outcome with
+unreturned surveys and a 7-day primary-care visit after the offer. `population_impact_truth` holds
+its exact truths, including the population attributable risk and the controlled direct effect at
+each visit level. `make_population_impact` is not in `GENERATORS`.
+
 Three functions serve the team readmission part of the
 [discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
 
@@ -102,6 +108,8 @@ Three functions serve the team readmission part of the
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
+   cleverly.datasets.make_population_impact
+   cleverly.datasets.population_impact_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol

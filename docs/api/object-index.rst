@@ -229,6 +229,8 @@ categorized API tables.
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
+   cleverly.datasets.make_population_impact
+   cleverly.datasets.population_impact_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
