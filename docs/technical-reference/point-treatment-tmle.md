@@ -1077,7 +1077,10 @@ can use.
 | a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism |
 
 The registered [known-mechanism TMLE study](method-evidence/known-treatment-mechanism.md) reports
-the spread of the first two side by side, as a row with no verdict.
+the spread of the first two side by side, as a row with no verdict. The
+[randomized-pilot example](../examples/randomized-pilot.ipynb) fits a stratified pilot with its
+declared chances, and beside it the same TMLE with a misspecified fitted mechanism and the same
+wrong outcome regression.
 
 **The ATT and the ATC.** Write $p=P(A=1)$ and $\bar Q_{a,0}$ for the true arm regression. At the
 declared mechanism,
