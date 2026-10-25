@@ -33,6 +33,8 @@ _PROBE = "reviews/notebook-review/probes/model-based-over-time"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "1.66": "the simple-model g-formula's gain minus the right fit's, 12.32 - 10.66 (interpret); "
+    "checked by _check_failure_mode",
     "3.0": f"the largest simulation share of a plan mean's variance, in percent, 400 draws: "
     f"{_PROBE}/sweep.log",
     "0.7": f"the largest simulation share of the difference's variance, in percent, 400 draws: "
@@ -128,6 +130,8 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
     assert [round(wrong[key].psi, 2) for key in LEVELS] == [50.05, 62.38]
     assert [round(value, 2) for value in wrong[LEVELS[1]].ci] == [61.71, 63.04]
     assert round(wrong_difference.psi, 2) == 12.32
+    # "Simple symptom models moved the answer by 1.66 points".
+    assert round(wrong_difference.psi - namespace["difference"].psi, 2) == 1.66
     for key in LEVELS:
         assert not covers(wrong[key], truth[key])
     assert not covers(wrong_difference, truth[CONTRAST])
@@ -173,6 +177,13 @@ def _check_blips(namespace: dict[str, Any]) -> None:
     gain = blips[CONTRAST].psi
     assert sum(part.values()) == pytest.approx(gain, abs=1e-6)
     discharge = part[("offer_discharge", 0)] + part[("offer_discharge", 1)]
+    # "The discharge offer carries 5.98 of the 10.82 points, 4.69 of them from patients who live
+    # alone, though they are only 0.350 of the patients."
+    assert round(discharge, 2) == 5.98
+    assert round(part[("offer_discharge", 1)], 2) == 4.69
+    assert round(share, 3) == 0.350
+    parts = namespace["parts"]
+    assert parts["both groups"].sum() == pytest.approx(gain, abs=1e-6)
     assert discharge / gain > 0.5
     assert part[("offer_discharge", 1)] > part[("offer_discharge", 0)]
 
