@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Nine examples use simulated data, so each page can compare its estimate with the true
-answer. The tenth uses real birth records. If you are new to causal inference, read
+manager. Sixteen examples use simulated data, so each page can compare its estimate with the true
+answer. The seventeenth uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse.
 
@@ -23,20 +23,28 @@ treatment was unlikely.
 | flexible models such as gradient boosting, or patients who share a care team | [flexible models and shared teams](cross-fitting.ipynb) | a model that predicts the same rows it was trained on looks more accurate than it is, and an analysis that treats teammates as independent ignores that their results move together. Both make the interval too narrow |
 | one recorded variable strongly predicts who gets the treatment | [a strong predictor of treatment](collaborative-tmle.ipynb) | some patients become nearly certain or nearly unable to get the treatment, so the few exceptions get very large weights. In 2,000 simulated repeats, the 95% interval of standard TMLE contained the truth only 93% of the time, so it was slightly too narrow |
 | many outcomes are missing, for example unanswered surveys | [missing outcomes](survey-nonresponse.ipynb) | analyzing only those who answered estimates the effect for people like the respondents, who differ from the whole group |
+| the treatment was assigned at random with a recorded chance, as in a pilot | [a randomized pilot](randomized-pilot.ipynb) | replacing the recorded chances with a fitted model of who got the treatment gives up the one model known to be right. When that fitted model and the outcome model are both wrong, the estimate is biased |
+| what offering everyone would add to current practice, or what a treatment does other than through a later step | [current practice as the baseline](population-impact.ipynb) | the usual average effect compares offering everyone with offering no one, so it also counts the gain current practice has already collected and overstates what offering everyone would add |
 | policies to compare, such as offering a program only to high-risk patients, raising each patient's chance of an offer, or raising how much of the program each patient gets | [three policy proposals](interventions.ipynb) | each policy has its own starting point: offering only to high-risk patients is compared with offering no one, and the other two with current practice, so the answers do not rank the policies or compare one with another directly. A staffing limit on how much each patient can get is part of the question: the same raise with and without the limit gives two different answers |
+| deciding who should get a treatment, or sharing a limited number of places by lottery | [who should get it](treatment-rules.ipynb) | a rule scored on the same patients it was learned from looks better than it will do on new patients |
+| several treatment levels or two treatment amounts, where a policy changes the levels or amounts patients get | [more contact and more service time](schedules-and-intensity.ipynb) | when two services help each other, the effects of raising each one alone do not add up to the effect of raising both |
 | several treatment levels, summarized by one trend | [one trend across three contact schedules](msm-projections.ipynb) | a straight line through the levels still reports a slope when it does not fit them, so the slope alone can mislead |
 | time until an event, when another event such as death can come first and some people leave follow-up | [time to an event](longitudinal-survival.ipynb) | treating death like dropout estimates readmission in a world where nobody dies, which the program cannot bring about |
+| one treatment at discharge and an event such as readmission by several days, or patients who share a team over two decisions | [readmission after discharge](discharge-to-readmission.ipynb) | treating patients of one team as independent ignores that their risks move together, so the interval is too narrow |
 | a treatment repeated weekly, where earlier offers change later behavior | [weekly offers](sequential-offers.ipynb) | treating two policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
+| an outcome counted every week while the treatment repeats | [orders every week](weekly-outcomes.ipynb) | fitting each week without the earlier orders leaves out what drove later offers, and adding weekly intervals as if the weeks were independent misstates the total's uncertainty |
+| repeated treatments where you can model how the whole process unfolds | [three offers after discharge](model-based-over-time.ipynb) | a model of the process that is too simple gives a confident wrong answer; comparing two methods that rest on different models shows the problem |
 | a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
 
 ## The health program
 
-Seven examples follow one imaginary health program. A regional health plan offers
+Thirteen examples follow one imaginary health program. A regional health plan offers
 **care-transition navigation** to adults who leave a participating hospital for home: a bedside
 plan for the transition and two scheduled navigator contacts within 30 days. Hospital teams decided
 who got the offer, so the data are observational, and each analysis adjusts for patient
-characteristics recorded before the offer. If your program can still choose at random who gets an
+characteristics recorded before the offer. The exception is the [randomized pilot](randomized-pilot.ipynb),
+which drew the offer at random with a recorded chance. If your program can still choose at random who gets an
 offer, do that: a randomized offer removes the need to assume that no unrecorded factor drove it.
 
 The main outcome is a 30-day transition score that patients report. Some pages use a variant: a
@@ -70,14 +78,16 @@ The health-program pages share one study description. It says who is eligible an
 starts, what the offer and the comparison are, and what the outcome is. When you adapt a page to
 your own program, this description is what you change. `navigation_protocol()` in
 `cleverly.datasets` returns it as a `StudyProtocol`, and each page changes only the parts its
-question changes, with `dataclasses.replace`. The time-to-event page starts from
-`longitudinal_navigation_protocol()`, which includes only patients discharged alive and starts
-follow-up at discharge.
+question changes, with `dataclasses.replace`. Three pages with decisions over time start
+from `longitudinal_navigation_protocol()`: the [time-to-event page](longitudinal-survival.ipynb),
+the team program of the [readmission page](discharge-to-readmission.ipynb), and the
+[three-offers page](model-based-over-time.ipynb). It includes only patients discharged alive and
+starts follow-up at discharge.
 
 Two choices hold on every page of this program. The treatment is what the plan assigns (the offer,
-or on two pages a navigation intensity or a schedule), not the navigation a patient completes.
-Patients take up the offer to different degrees, and the plan controls only the assignment, so
-analyzing it keeps the meaning of the treatment the same for everyone. And only information
+or on some pages a navigation intensity, a contact schedule, or service time), not the navigation a
+patient completes. Patients take up the offer to different degrees, and the plan controls only the
+assignment, so analyzing it keeps the meaning of the treatment the same for everyone. And only information
 recorded before the assignment goes into the adjustment. Length of stay and completed contacts
 happen after it, and the assignment can change them, so adjusting for them would remove part of the
 effect.
@@ -111,7 +121,7 @@ correlated. Scores are in simulated units.
 
 ## The retailer program
 
-Two examples follow a subscription retailer. On the [weekly offers](sequential-offers.ipynb) page,
+Three examples follow a subscription retailer. On the [weekly offers](sequential-offers.ipynb) page,
 the retailer sends each customer one offer in each of three weeks: nothing, a 15% discount code, or
 a free-shipping code. Its system draws each offer at random, with logged probabilities that depend
 on the customer's engagement that week, so the chance of each offer is known. Engagement responds to
@@ -127,7 +137,11 @@ recorded price is under the 12% rise than under the engine's own choices. The en
 inputs but not the chance of each price, so the page estimates that ratio from the data. No one leaves the data
 before the outcome. `pricing_protocol()` returns its study description.
 
-Both retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists each
+On the [orders every week](weekly-outcomes.ipynb) page, the retailer decides each week, for three
+weeks, whether to send a free-shipping code. It records each week whether the customer ordered.
+`weekly_orders_protocol()` returns its study description.
+
+All three retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists each
 generator and its true answers.
 
 ## A real-data example
@@ -149,10 +163,17 @@ simulation studies that check it.
 | [flexible models and shared teams](cross-fitting.ipynb) | the same method (CV-TMLE), showing why those out-of-fold predictions matter with flexible models, and keeping each team together when the models are trained and the interval computed | [CV-TMLE](../technical-reference/cv-tmle.md) |
 | [a strong predictor of treatment](collaborative-tmle.ipynb) | collaborative TMLE, here predicting the treatment from the outcome model's predictions instead of from every characteristic | [collaborative TMLE](../technical-reference/collaborative-tmle.md) |
 | [missing outcomes](survey-nonresponse.ipynb) | TMLE with a model of who responds | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [a randomized pilot](randomized-pilot.ipynb) | TMLE with the recorded chances of treatment, beside doubly robust TMLE (DR-TMLE) and adaptive-propensity weighting | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md), [DR-TMLE](../technical-reference/dr-tmle/index.md) and [adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) |
+| [current practice as the baseline](population-impact.ipynb) | TMLE for the population gain over current practice (attributable risk and fraction), risk and odds ratios, and the controlled direct effect | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [three policy proposals](interventions.ipynb) | TMLE for policies | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [who should get it](treatment-rules.ipynb) | the value of a treatment rule learned inside each fold (CV-TMLE), and a lottery with known chances | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [more contact and more service time](schedules-and-intensity.ipynb) | TMLE for an odds change across three treatment levels, and for a joint raise of two treatment amounts | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [one trend across three contact schedules](msm-projections.ipynb) | a trend line across treatment levels (MSM projection) | [MSM projections](../technical-reference/msm-projections.md) |
 | [time to an event](longitudinal-survival.ipynb) | TMLE for treatments over time, when death can come first | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [readmission after discharge](discharge-to-readmission.ipynb) | TMLE for risks over a time grid after one treatment, and cross-fitted TMLE over two decisions with team-robust intervals | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [weekly offers](sequential-offers.ipynb) | TMLE for treatments over time, compared with two simpler estimators | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) and [sequential g-computation and IPW](../technical-reference/sequential-baselines.md) |
+| [orders every week](weekly-outcomes.ipynb) | TMLE for a weekly outcome curve under repeated treatments, with the sequentially doubly robust estimator and an odds-doubling policy over weeks | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [three offers after discharge](model-based-over-time.ipynb) | the parametric g-formula, which simulates each plan forward, and a structural nested mean (blip) model of what each offer adds | [parametric g-formula](../technical-reference/parametric-gformula.md) and [structural dynamic effects](../technical-reference/structural-dynamic-effects.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 
@@ -170,6 +191,8 @@ point-treatment-tmle
 cross-fitting
 collaborative-tmle
 survey-nonresponse
+randomized-pilot
+population-impact
 ```
 
 ```{toctree}
@@ -178,6 +201,8 @@ survey-nonresponse
 
 interventions
 msm-projections
+treatment-rules
+schedules-and-intensity
 ```
 
 ```{toctree}
@@ -185,8 +210,11 @@ msm-projections
 :maxdepth: 1
 
 longitudinal-survival
+discharge-to-readmission
 sequential-offers
+weekly-outcomes
 sequential-pricing
+model-based-over-time
 ```
 
 ```{toctree}
