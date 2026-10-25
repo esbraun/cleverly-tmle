@@ -306,6 +306,11 @@ class AssessmentCapability:
         """The text of :attr:`refusal`, or ``None`` when the row declares none."""
         return None if self.refusal is None else self.refusal.message()
 
+    def __repr__(self) -> str:
+        from ._assessment_summary import capability_repr
+
+        return capability_repr(self)
+
 
 #: The fitted methods each result family declares by default.
 _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
@@ -1345,6 +1350,33 @@ class Replayability:
     unreconstructible: tuple[str, ...] = ()
     rerun_configuration: bool = False
 
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of what the saved result can redo.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints each action and whether it is possible, the reading and a
+            note naming what the result lacks. ``"full"`` adds what each action needs.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._assessment_summary import replay_summary
+
+        return replay_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._assessment_summary import replay_repr
+
+        return replay_repr(self)
+
 
 def replayability(result: Any) -> Replayability:
     """Derive replay capabilities from stored artifacts and the normalized method."""
@@ -1765,6 +1797,16 @@ class _CapabilityFacade:
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
         """Return declared operations, gated by the fitted method and by replayability."""
         return tuple(self._capability_map.values())
+
+    def _repr_html_(self) -> str:
+        from ._assessment_summary import facade_summary
+
+        return facade_summary(self._attribute, self.capabilities).as_html()
+
+    def __repr__(self) -> str:
+        from ._assessment_summary import facade_repr
+
+        return facade_repr(type(self).__name__, self.capabilities)
 
     @cached_property
     def _gated_map(self) -> dict[str, AssessmentCapability]:
