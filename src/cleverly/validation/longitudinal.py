@@ -28,6 +28,7 @@ from typing import Any
 
 import numpy as np
 
+from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW, effective_sample_size
 from ..longitudinal.sequential import constant_target
@@ -297,6 +298,34 @@ class LongitudinalDiagnostics:
     #: Whether every targeting step of each draw converged, in draw order.
     draw_converged: tuple[bool, ...] = ()
 
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per regimen and time point, the reading and the
+            notes. ``"full"`` adds the columns and explanations that the short form leaves
+            out.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._longitudinal_summary import stage_summary
+
+        return stage_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._longitudinal_summary import stage_repr
+
+        return stage_repr(self)
+
     def to_frame(self, data: Any = None) -> Any:
         assignment = "assigned_shares" if self.categorical else "share_assigned_1"
         payload: dict[str, Any] = {
@@ -400,6 +429,33 @@ class LongitudinalScoreDiagnostics:
     rows: tuple[LongitudinalScoreRow, ...]
     tolerance: float
     backend: str | None = None
+
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per equation, the reading and the notes. ``"full"``
+            adds the columns and explanations that the short form leaves out.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._longitudinal_summary import score_summary
+
+        return score_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._longitudinal_summary import score_repr
+
+        return score_repr(self)
 
     @property
     def passed(self) -> bool:
@@ -544,6 +600,33 @@ class LongitudinalNuisanceDiagnostics:
     reported_repeat: int = REPORTED_DRAW
     repeat_spread: tuple[RepeatSpreadRow, ...] = ()
     repeat_spread_omission: str | None = None
+
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per model, the reading and the notes. ``"full"``
+            adds the columns and explanations that the short form leaves out.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._longitudinal_summary import models_summary
+
+        return models_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._longitudinal_summary import models_repr
+
+        return models_repr(self)
 
     def to_frame(self, data: Any = None) -> Any:
         """Return one row per retained nuisance fit, in the input dataframe backend.

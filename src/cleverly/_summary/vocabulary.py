@@ -1755,6 +1755,186 @@ OVERLAP_DETAILS: Final[Mapping[str, str]] = MappingProxyType(
 OVERLAP_NOTHING_MORE: Final = "The tables above report everything this check measured."
 
 
+# ----------------------------------------------------- checks (T3): longitudinal diagnostics
+
+#: Header labels of the longitudinal checks.
+REGIMENS: Final = "Regimens"
+HEADER_LABELS = HEADER_LABELS | {REGIMENS}
+
+#: The notes of the three longitudinal checks (overlap, equations and models over time).
+T3_LONGITUDINAL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "cumulative_weights": "note",
+        "assigned": "note",
+        "policy_nodes": "note",
+        "tilt_nodes": "note",
+        "trimmed": "note",
+        "capped_nodes": "warning",
+        "not_converged": "warning",
+        "relative_error": "note",
+        "every_split": "note",
+        "working_model_rows": "note",
+        "iterated_outcome": "note",
+        "model_omitted": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_LONGITUDINAL_NOTE_CODES})
+
+T3_LONGITUDINAL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "cumulative_weights": (
+            "rows counts the units that followed the regimen and stayed observed through the "
+            "time point. max weight and eff. rows describe the cumulative weight: one over the "
+            "product of the treatment and censoring probabilities up to that time point, times "
+            "the observation weight on a weighted fit. A product can be extreme while every "
+            "time point looks fine. capped is the share of rows whose cumulative probability "
+            "the lower limit replaced."
+        ),
+        "assigned": "{sentence}",
+        "policy_nodes": (
+            "At {nodes} the regimen draws the arm from a probability rather than fixing it. "
+            "There assigned is the mean probability of each arm over the units at risk, rows "
+            "counts the units whose observed arm has a positive probability, and the weight "
+            "is the ratio of the regimen's probability to the fitted one. capped counts the "
+            "rows whose denominator the limit replaced, which need not carry a large ratio."
+        ),
+        "tilt_nodes": (
+            "Each time point of an incremental regimen tilts the odds of treatment, so "
+            "assigned is the mean tilted probability of treatment over the units at risk."
+        ),
+        "trimmed": (
+            "trimmed is the share of rows whose weight ratio at that time point the ratio trim "
+            "moved."
+        ),
+        "capped_nodes": "{sentences}",
+        "not_converged": "{sentences}",
+        "relative_error": (
+            "The remaining error is the largest part of a time point's estimating equation, as "
+            "a share of the largest value that part could take. An equation passes when that "
+            "share is at most the allowed error and its correction step converged."
+        ),
+        "every_split": "Rows cover every split; each split fits and corrects its own models.",
+        "working_model_rows": (
+            "A row with a component solves one equation of the working model, which combines "
+            "every regimen, so it names no regimen."
+        ),
+        "iterated_outcome": (
+            "An iterated outcome model regresses the prediction carried back from the next "
+            "time point on the history up to its own; the last time point's outcome model "
+            "regresses the outcome itself."
+        ),
+        "model_omitted": "{sentences}",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_LONGITUDINAL_NOTE_TEXTS})
+
+#: Sentences of the ``assigned`` note, by the kind of treatment.
+ASSIGNED_SHARE: Final = (
+    "assigned is the share of the units at risk at that time point whom the regimen treats; "
+    "a regimen that names one arm assigns exactly {zero} or {one}."
+)
+ASSIGNED_SHARES: Final = (
+    "assigned lists the share of the units at risk that the regimen sends to each arm."
+)
+
+#: Sentences of the ``capped_nodes`` and ``not_converged`` warnings.
+CAPPED_NODES: Final = (
+    "At {nodes} the lower limit replaced the cumulative probability of every row, so the "
+    "estimate there rests on the limit, not on the fitted models."
+)
+CAPPED_OTHER_SPLITS: Final = "The limit replaced every row of some time point in {splits}."
+NOT_CONVERGED: Final = (
+    "The correction step did not converge at {nodes}. result.diagnostics.score_equations() "
+    "shows how far each equation is from solved."
+)
+NOT_CONVERGED_OTHER_SPLITS: Final = "A correction step also failed to converge in {splits}."
+NODE_NOT_SETTLED: Final = "{name}: the correction step did not converge."
+
+#: Sentences of the ``model_omitted`` note.
+MODEL_OMITTED_AT: Final = "No {model} model at time {time}{folds}: {reason}."
+MODEL_OMITTED_ALL: Final = "No {model} model{folds}: {reason}."
+MODEL_OMITTED_FOLDS: Final = " in fold {folds}"
+
+#: How the longitudinal checks name a row: a regimen, its qualifiers and a time point.
+NODE_AT: Final = "{name} at time {time}"
+NODE_CAUSE: Final = "cause {cause}"
+NODE_HORIZON: Final = "horizon {horizon}"
+NODE_COMPONENT: Final = "working-model term {component}"
+NODE_SPLIT: Final = "split {split}"
+ALL_REGIMENS: Final = "all"
+EVERY_REGIMEN: Final = "every regimen"
+
+#: Plain names of the longitudinal model roles.
+LONGITUDINAL_ROLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "treatment": "treatment",
+        "censoring": "censoring",
+        "outcome": "outcome",
+        "pseudo_outcome": "iterated outcome",
+        "hazard": "event hazard",
+    }
+)
+
+#: Short names of the losses the model check prints.
+LOSS_SHORT: Final[Mapping[str, str]] = MappingProxyType(
+    {"log_loss": "log loss", "brier": "Brier score", "mse": "MSE"}
+)
+
+#: Titles, columns, results and readings of the longitudinal checks.
+STAGE_TITLE: Final = "Overlap over time"
+STAGE_COLUMNS: Final[tuple[str, ...]] = ("rows", "max weight", "eff. rows", "capped")
+STAGE_TRIMMED: Final = "trimmed"
+STAGE_CONVERGED: Final = "converged"
+STAGE_ASSIGNED: Final = "assigned"
+CONVERGED_WORDS: Final[Mapping[bool, str]] = MappingProxyType({True: "yes", False: "no"})
+STAGE_READING: Final = (
+    "Overlap is thinnest for {node}: {effective} effective rows of {rows} followed."
+)
+STAGE_READING_NONE: Final = "This fit reports no time point with weights."
+#: The full-detail lines of an SDR or IPSI fit's overlap over time, one per row.
+SDR_LINE: Final = (
+    "{node}: {outside} of the regression targets fall outside [{zero}, {one}] (from {low} to "
+    "{high}), {predictions} of the predictions fall outside it, and the limits moved "
+    "{bound} of the partial paths."
+)
+IPSI_LINE: Final = (
+    "{node}: the tilt reweights a unit by a factor from {low} to {high}, which the limits "
+    "never cap; {share} of the estimate's variance comes from this time point's treatment "
+    "model; {degenerate} of the units at risk have a fitted treatment probability of "
+    "exactly {zero} or {one}, which a tilt tolerates."
+)
+
+LONGITUDINAL_EQUATIONS_TITLE: Final = "Equations solved over time"
+ALLOWED_SHARE: Final = "{tolerance:g} of max possible"
+EQUATION_COLUMNS: Final[tuple[str, ...]] = ("remaining error", "result")
+LONGITUDINAL_EQUATION_FAILED: Final = (
+    "{count} of {total} equations {verb} not solved ({names}), so the standard error may be wrong."
+)
+#: The full-detail line of each equation: the steps taken and the equation's raw value.
+STEPS_LINE: Final = "{node}: {steps} {word}, equation value {score}."
+
+EQUATION_SCALE: Final = (
+    "The allowed error is a share of the largest value each equation could take, the scale "
+    "the correction loop itself stops on. The point-treatment check compares an equation "
+    "with tolerance x SE / sqrt(n) instead."
+)
+
+LONGITUDINAL_MODELS_TITLE: Final = "Models over time"
+MODEL_COLUMNS: Final[tuple[str, ...]] = ("model", "rows", "loss", "measure")
+#: The full-detail line of each model: the metrics its kind reports.
+METRIC_LINE: Final = "{node}, {model} model: {metrics}."
+METRIC_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {"auc": "AUC", "calibration_slope": "calibration slope", "r2": "R2"}
+)
+METRIC_NONE: Final = "no metric reported"
+
+LONGITUDINAL_MODELS_READING: Final = (
+    "Each row describes how well one model fits; no pass or fail applies. A loss compares "
+    "only with rows of the same model and measure."
+)
+LONGITUDINAL_SPREAD_LABEL: Final = "standard error"
+
+
 # ----------------------------------------------------------------- study setup (T5)
 
 #: The header labels of the study-setup and simulation summaries.
