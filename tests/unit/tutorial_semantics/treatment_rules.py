@@ -136,13 +136,16 @@ def _check_learned(namespace: dict[str, Any]) -> None:
     assert round(value.psi, 4) == round(true_target, 4)
     # "just below the best rule's 0.7197".
     assert 0.0 < truth["ey_best_rule"] - true_target < 0.005
-    # "almost no patient with a need score at or below 0 and ... every patient above 0.5".
+    # "almost no patient with a need score below -0.1 and ... almost every patient above 0.2".
     frame = namespace["frame"]
     offered = namespace["offered_by_rule"]
-    assert offered[frame["need"] <= 0.0].mean() < 0.01
-    assert offered[frame["need"] > 0.5].eq(1.0).all()
-    # "the learned rules miss some patients just below 0": the best rule offers above -0.1.
-    assert offered[frame["need"].between(-0.1, 0.0)].mean() < 0.5
+    assert offered[frame["need"] < -0.1].mean() < 0.01
+    assert offered[frame["need"] > 0.2].mean() > 0.99
+    # "the rules miss many patients between -0.1 and 0.2": the best rule offers all of them.
+    assert offered[frame["need"].between(-0.1, 0.2)].mean() < 0.5
+    # "The share each fold's rule offers varies" (printed as 0.345 to 0.545).
+    shares = namespace["fold_shares"]
+    assert round(min(shares), 3) == 0.345 and round(max(shares), 3) == 0.545
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
