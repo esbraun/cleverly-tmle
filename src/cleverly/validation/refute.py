@@ -4692,7 +4692,8 @@ def _placebo_positivity_gap(result: Any, kernel: MarkovKernel) -> str | None:
     """Name a static regimen that the placebo kernel never draws, or return ``None``.
 
     The exact null needs ``K(a) > 0`` for each regimen the fit evaluates (X82 plan 5.1.2).
-    The check reads static regimens on an all-categorical panel. A dynamic regimen or a dose
+    The check reads static regimens on an all-categorical panel. On a held design the
+    trajectory is the regimen's node-1 arm at every node. A dynamic regimen or a dose
     node has no single trajectory to read.
     """
     from ..longitudinal.regimen import Regimen
@@ -4705,6 +4706,11 @@ def _placebo_positivity_gap(result: Any, kernel: MarkovKernel) -> str | None:
             continue
         encoded = data.encode_assignment(np.asarray(regimen.values, dtype=object), regimen.label)
         codes = tuple(int(code) for code in encoded[0])
+        if kernel.held:
+            # A held regimen resolves on node 1 only. Its later columns are identity nodes,
+            # which ``encode_assignment`` fills with each unit's own observed arm, so row 0
+            # says nothing about the regimen there. The held kernel copies node 1 forward.
+            codes = (codes[0],) * kernel.n_times
         if kernel.trajectory_probability(codes) == 0.0:
             return (
                 f"the Markov kernel of the observed treatments gives regimen "
