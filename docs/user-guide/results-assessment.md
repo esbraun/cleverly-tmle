@@ -266,7 +266,7 @@ spread row. `nuisance.repeat_spread_omission` then names the cause, and every ab
 spread gets its own machine-readable reason. A table cell with no finite value prints `-`.
 
 Nuisance models and C-TMLE selection describe draw 1. Split-spread rows read every retained draw.
-The nuisance summary states the scope on its own line, as `describing draw 1 of 3`.
+The model check states the scope in its header, as `Split shown: split 1 of 3`.
 
 A repeated longitudinal fit uses the same rows. `result.diagnostics.nuisance_models().repeat_spread`
 holds one row per reported parameter, and `result.repeat_spread()` returns the standard deviations
