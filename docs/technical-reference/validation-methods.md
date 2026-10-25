@@ -646,41 +646,47 @@ presentation choice.
 | `not_applicable` | no such analysis exists for this scientific question |
 | `unavailable` | the analysis is meaningful, but its method, derivation, fitted artifact, or requested variant cannot run it |
 
-`AssessmentReport.summary()` prints three sections under these headings, in this order.
+`AssessmentReport.summary()` prints a header of counts (`Checks run`, `Need attention`, `Not
+run`) and a `Result`, then up to three tables under these titles, in this order.
 
-| section | the rows it holds | its shape |
+| table | the rows it holds | its columns |
 | --- | --- | --- |
-| `Returned results` | every `completed` row | one row per operation, which gives the surface, the operation, and the returned result in full text |
-| `Checks` | `failed`, then `warning`, then `passed` | the first row of a status group states the status and the count. Each row names one surface-qualified operation |
-| `Not run` | `deferred`, then `unavailable`, then `not_applicable` | the same compact shape as `Checks` |
+| `Results` | every `completed` row | `analysis` and `finding` |
+| `Checks` | `failed`, then `warning`, then `passed` | `check`, `result` and `finding` |
+| `Not run` | `deferred`, then `unavailable`, then `not_applicable` | `check` and `why` |
 
-An empty section states `none`. The summary ends with two footer lines. They name `to_frame()`,
-`next_steps()`, and `report(...)`.
+A table with no row is left out; the header counts say how many rows each group holds. A row
+prints the operation's plain name (`overlap` for `support`, `equations solved` for
+`score_equations`), with its surface in parentheses only when two surfaces share the name.
+
+The `finding` of a row that ran is the first sentence of the `reading` of the report it retained, read
+when the summary prints. A row that retained no report, and a row that did not run, print the
+first clause of their `detail`, without roadmap ids. `summary("full")` adds a `Rows in full`
+section with each row's whole reading or reason. The notes give the distinct next steps and name
+`to_frame()`, `next_steps()` and `report(name)`. A retained nuisance report whose fit carries a
+labelled inference status adds that status's plain reason as a note. `ValidationReport.summary()`
+and `DiagnosticReport.summary()` print one `check`, `result`, `finding` table in row order.
 
 `_SUMMARY_CHECK_ORDER` and `_SUMMARY_OMISSION_ORDER` in `src/cleverly/assessment.py` pin the two
 status orders above. The test
-`test_the_battery_summary_expands_results_before_compact_checks_and_omissions` in
+`test_the_battery_summary_puts_results_before_checks_and_omissions` in
 `tests/unit/test_post_fit_assessment_battery.py` builds one report that carries all seven
-statuses. It reads the three section headings, the status order, and the count on each group. It
-also reads the surface qualification of a duplicated name, and it asserts that the long check
-detail stays out of the summary.
+statuses. It reads the table titles, the status order, the surface qualification of a duplicated
+name, and the first sentence of a long detail. `tests/unit/summary_fixtures/_battery_reader.py`
+reads every printed count and row of the combined-report fixtures back against the rows.
 
 **The summary leads with returned results, and that order is a recorded decision.** A completed
-analysis carries the numbers a reader interprets, so it expands first. A `failed` check therefore
-prints below several full-width result rows.
+analysis carries the numbers a reader interprets, so it prints first. A `failed` check therefore
+prints below the result rows, and the header's `Need attention` count and the reading name it.
 [Pull request 198](https://github.com/esbraun/cleverly-tmle/pull/198) records the decision. Two
 independent reviews found that its first draft over-prioritized warnings, and the result-first
 revision resolved their findings.
-
-The reader still finds every actionable row in the `Checks` section. That section gives one line to
-each failure and each warning. Read `AssessmentReport.attention` for those rows as objects. Call
-`next_steps()` for the follow-up action on each row that carries one.
 
 `AssessmentReport.to_frame()` remains the complete row ledger, including warning and refusal
 details. The three report surfaces retain the original rows. `next_steps()` retains follow-up
 actions. `report(...)` returns a retained payload from an operation that ran.
 
-The summary prints no next step for any row, and `next_steps()` returns them. Deferred rows retain
+The summary's notes join the distinct next steps, and `next_steps()` returns them. Deferred rows retain
 the required argument or flag in their next step. They also retain the request the caller made, and
 the combined run's seed when the operation accepts one.
 

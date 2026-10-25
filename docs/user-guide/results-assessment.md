@@ -10,13 +10,16 @@ print(battery.summary())
 support = battery.report("support")
 ```
 
-The summary prints three sections. `Returned results` expands each completed analysis with its
-returned result. `Checks` and `Not run` inventory every other row. Each group states its status and
-count on its first row. It then gives one surface-qualified operation on each line.
+The summary opens with counts: how many checks ran, how many need attention, and how many did not
+run. `Results` gives one line for each analysis that ran without a pass or fail rule, such as the
+E-value, with its main finding. `Checks` lists the checks that pass or fail, failures and warnings first.
+`Not run` lists what was skipped and why, such as an analysis that needs an argument you have not
+given. The notes list the suggested next steps. Print `battery.summary("full")` to see each row's
+whole finding or reason.
 
 Call `battery.to_frame()` for the complete row ledger. It carries the `surface`, `check`, `status`,
-`detail`, and `next_steps` columns. The summary prints no next step, so call `battery.next_steps()`
-for the follow-up actions.
+`detail`, and `next_steps` columns. Call `battery.next_steps()` for the follow-up actions as a
+list.
 
 ```python
 ledger = battery.to_frame()

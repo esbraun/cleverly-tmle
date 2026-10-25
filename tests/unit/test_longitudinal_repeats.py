@@ -839,7 +839,7 @@ def test_validate_and_assess_run_on_a_repeated_fit() -> None:
     result = _quiet(support.ltmle, _rows("ltmle"), repeats=3)
     assert result.assessment_family == _fit("ltmle").assessment_family
     report = result.validate()
-    assert any("draw 1 of 3" in str(item) for item in report.items)
+    assert any("draw 1 of 3" in item.detail for item in report.items)
     assessed = result.assess()
     assert assessed.validation.items == report.items
     assert result.replayability.refit_nuisances

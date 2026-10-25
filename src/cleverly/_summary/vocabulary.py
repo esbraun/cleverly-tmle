@@ -10,6 +10,7 @@ Nothing here is public. Users meet these strings in printed summaries only.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Final, Literal
@@ -1933,6 +1934,135 @@ LONGITUDINAL_MODELS_READING: Final = (
     "only with rows of the same model and measure."
 )
 LONGITUDINAL_SPREAD_LABEL: Final = "standard error"
+
+
+# --------------------------------------------- checks (T3): combined reports of the checks
+
+#: Header labels of the combined reports (``validate()``, ``run_all()``, ``assess()``).
+CHECKS_RUN: Final = "Checks run"
+NEED_ATTENTION: Final = "Need attention"
+NOT_RUN: Final = "Not run"
+REFITS_ALLOWED: Final = "Refits allowed"
+RETARGETS_ALLOWED: Final = "Re-estimates allowed"
+HEADER_LABELS = HEADER_LABELS | {
+    CHECKS_RUN,
+    NEED_ATTENTION,
+    NOT_RUN,
+    REFITS_ALLOWED,
+    RETARGETS_ALLOWED,
+}
+
+#: The notes of the combined reports.
+T3_BATTERY_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {"next_steps": "note", "report_access": "note", "inference_status": "note"}
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_BATTERY_NOTE_CODES})
+
+T3_BATTERY_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "next_steps": "Suggested next steps: {steps}.",
+        "inference_status": "About the interval: {reason}",
+        "report_access": (
+            "report.to_frame() lists every row with its detail, report.next_steps() the "
+            "suggested calls, and report.report(name) the full report of one check."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
+
+#: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
+CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "support": "overlap",
+        "score_equations": "equations solved",
+        "nuisance_models": "outcome and treatment models",
+        "corrections": "DR-TMLE corrections",
+        "truncation_curve": "cap on extreme weights",
+        "refute": "refutation tests",
+        "influence": "influential rows",
+        "omitted_confounding": "unmeasured confounding",
+        "robustness_value": "robustness value",
+        "elements": "confounding bound inputs",
+        "contour": "confounding grid",
+        "benchmark": "covariate benchmark",
+        "evalue": "E-value",
+        "simulated_confounding": "simulated confounder",
+        "marginal_bounds": "worst-case bounds",
+        "missingness": "missing not at random",
+        "tipping_gamma": "missing-data tipping point",
+    }
+)
+
+#: The status of a battery row in words.
+STATUS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "passed": "passed",
+        "failed": "failed",
+        "warning": "needs attention",
+        "completed": "done",
+        "deferred": "on request",
+        "not_applicable": "does not apply",
+        "unavailable": "not available",
+    }
+)
+
+#: Titles, tables, results and readings of the combined reports.
+BATTERY_TITLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "validation": "Quick checks of the fit",
+        "diagnostics": "Diagnostics of the fit",
+        "sensitivity": "Sensitivity analyses of the fit",
+        "assessment": "Assessment of the fit",
+    }
+)
+BATTERY_COLUMNS: Final[tuple[str, ...]] = ("check", "result", "finding")
+BATTERY_CHECKS: Final = "Checks"
+BATTERY_RESULTS: Final = "Results"
+BATTERY_RESULT_COLUMNS: Final[tuple[str, ...]] = ("analysis", "finding")
+BATTERY_NOT_RUN: Final = "Not run"
+BATTERY_NOT_RUN_COLUMNS: Final[tuple[str, ...]] = ("check", "why")
+BATTERY_SURFACE: Final = "{name} ({surface})"
+BATTERY_ROWS_IN_FULL: Final = "Rows in full"
+BATTERY_ROW_LINE: Final = "{name} ({status}): {text}"
+BATTERY_NO_ROWS: Final = "This report holds no rows."
+YES_NO: Final[Mapping[bool, str]] = MappingProxyType({True: "yes", False: "no"})
+
+#: The finding of a row whose report has no reading.
+FINDING_HELD: Final = "see report.report('{name}')"
+
+#: The ``Result`` of a combined report, by what its rows hold.
+BATTERY_RESULTS_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "failed": "failed",
+        "attention": "needs attention",
+        "incomplete": "incomplete",
+        "passed": "passed",
+        "clear": "nothing needs attention",
+    }
+)
+BATTERY_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "failed": "{names} failed.",
+        "attention": "{names} {verb} attention; each row says why.",
+        "incomplete": "{names} did not run, so validation is incomplete.",
+        "passed": "Every quick check passed or gave a description.",
+        "diagnostics_clear": "Nothing failed or needs attention.",
+        "assessment": "{count} {checks} {verb} attention: {names}.",
+        "assessment_clear": "No check needs attention.",
+    }
+)
+
+#: Code that a summary may print whole, though it holds a word the house style keeps out of
+#: prose: a public call such as ``result.diagnostics.nuisance_models()``, or the attribute
+#: path that counts the DR-TMLE reduction's hard steps, which no check prints. The contract
+#: test takes each match out before it reads the text for internal terms.
+PUBLIC_CALL: Final = re.compile(
+    r"result\.(?:diagnostics|sensitivity)\.(?:"
+    + "|".join(sorted(CHECK_NAMES, key=len, reverse=True))
+    + r")\([^)]*\)"
+    r"|report\.(?:to_frame|next_steps|reports|report|draws_frame|summary)\([^)]*\)"
+    r"|result\.repeats\[\*\]\.fluctuations\['mean'\]\.reduction\.ill_conditioned"
+)
 
 
 # ----------------------------------------------------------------- study setup (T5)
