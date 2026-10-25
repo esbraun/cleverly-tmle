@@ -99,6 +99,8 @@ _LAW = {
 
 #: The scale of the team component of the day-90 outcome.
 TEAM_DELTA = 0.95
+#: The two values of each team's sign. Their mean is zero, which keeps the truth exact.
+_TEAM_SIGNS = (-1.0, 1.0)
 
 #: The plans of the question, as (offer at discharge, call on day 30).
 _PLANS = {"always": (1.0, 1.0), "never": (0.0, 0.0), "offer_only": (1.0, 0.0)}
@@ -243,7 +245,7 @@ def make_team_readmission(
     ).astype(float)
     followed_90 = np.where(early == 1.0, 1.0, stays)
 
-    latent = rng.choice((-1.0, 1.0), size=(n_teams, 2))
+    latent = rng.choice(_TEAM_SIGNS, size=(n_teams, 2))
     shared = latent[team, offer.astype(int)]
     late = _late(alone, risk, offer, call)
     mean = late + TEAM_DELTA * shared * np.minimum(late, 1.0 - late)
@@ -293,7 +295,7 @@ def team_readmission_protocol() -> StudyProtocol:
         program,
         treatment_strategies=(
             "Offer navigation at discharge and make the day-30 follow-up call",
-            program.treatment_strategies[1],
+            "Offer no navigation at discharge and make no day-30 call",
         ),
         treatment_versions=(
             "The declared discharge navigation contact and the day-30 call by the patient's team",
@@ -308,5 +310,10 @@ def team_readmission_protocol() -> StudyProtocol:
             "every patient stayed in follow-up (hypothetical strategy)",
             "Count death before day 90 as a readmission (composite strategy)",
             program.intercurrent_event_handling[2],
+        ),
+        assumption_rationale=(
+            program.assumption_rationale[0],
+            "Version records support consistency of the discharge offer and the day-30 call",
+            program.assumption_rationale[2],
         ),
     )

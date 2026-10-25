@@ -25,8 +25,9 @@ from cleverly.datasets import (
 )
 from cleverly.datasets import readmission as law
 
-#: Draws in the Monte Carlo comparison.  The standard error of a plan mean is under 5e-4.
+#: Draws in the Monte Carlo comparison, in teams of 40 that share one sign.
 MONTE_CARLO_N = 1_000_000
+TEAM = 40
 #: The floor added to four Monte Carlo standard errors: the quadrature error of the truth.
 QUADRATURE_FLOOR = 1e-9
 
@@ -43,17 +44,23 @@ def _intervened(offer: float, call: float, n: int, seed: int, delta: float) -> n
     risk = rng.standard_normal(n)
     early = rng.binomial(1, law._early(alone, risk, offer)).astype(float)
     late = law._late(alone, risk, offer, call)
-    team = np.arange(n) // 40
+    team = np.arange(n) // TEAM
     shared = rng.choice((-1.0, 1.0), size=int(team[-1]) + 1)[team]
     mean = late + delta * shared * np.minimum(late, 1.0 - late)
     return np.where(early == 1.0, 1.0, rng.binomial(1, mean).astype(float))
+
+
+def _tolerance(draws: np.ndarray) -> float:
+    """Four standard errors of the plan mean, from team means: teammates share their sign."""
+    teams = draws.reshape(-1, TEAM).mean(axis=1)
+    return 4.0 * teams.std(ddof=1) / np.sqrt(teams.size) + QUADRATURE_FLOOR
 
 
 @pytest.mark.parametrize("plan", list(PLANS))
 def test_the_truth_matches_a_monte_carlo_draw_of_the_intervened_law(plan: str) -> None:
     offer, call = PLANS[plan]
     draws = _intervened(offer, call, MONTE_CARLO_N, seed=11, delta=law.TEAM_DELTA)
-    tolerance = 4.0 * draws.std() / np.sqrt(draws.size) + QUADRATURE_FLOOR
+    tolerance = _tolerance(draws)
     assert abs(draws.mean() - team_readmission_truth(offer, call)) < tolerance
 
 
@@ -78,8 +85,7 @@ def _without_call(offer: float, call: float) -> float:
 def test_a_wrong_truth_fails_the_same_comparison(wrong: Any) -> None:
     offer, call = PLANS["always"]
     draws = _intervened(offer, call, MONTE_CARLO_N, seed=11, delta=law.TEAM_DELTA)
-    tolerance = 4.0 * draws.std() / np.sqrt(draws.size) + QUADRATURE_FLOOR
-    assert abs(draws.mean() - wrong(offer, call)) > 10.0 * tolerance
+    assert abs(draws.mean() - wrong(offer, call)) > 10.0 * _tolerance(draws)
 
 
 def test_the_quadrature_has_converged() -> None:
@@ -160,17 +166,51 @@ def test_the_team_component_correlates_teammates(monkeypatch: pytest.MonkeyPatch
     assert abs(independent) < 0.02
 
 
-def test_the_team_component_reads_no_earlier_node() -> None:
-    """Every column before the day-90 outcome is the same with and without the component."""
+def _late_residuals(frame: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Day-90 outcome minus the late risk, for the patients it is drawn for, and their teams."""
+    observed = frame[frame["readmitted_90"].notna() & frame["readmitted_30"].eq(0)]
+    fitted = law._late(
+        observed["lives_alone"], observed["discharge_risk"], observed["offer"], observed["call"]
+    )
+    return (observed["readmitted_90"] - fitted).to_numpy(), observed["team"].to_numpy()
+
+
+def _team_mean_shift(frame: Any) -> tuple[float, float]:
+    """The mean late residual and its standard error from team sums (team as the unit)."""
+    residual, team = _late_residuals(frame)
+    sums = np.bincount(team.astype(int), weights=residual)
+    counts = np.bincount(team.astype(int))
+    mean = sums.sum() / counts.sum()
+    centred = sums - mean * counts
+    return mean, float(np.sqrt(np.sum(centred**2)) / counts.sum())
+
+
+def test_the_generated_outcome_has_the_late_risk_as_its_mean(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The generator's own draw, not a copy of the law, keeps the day-90 mean at the late risk.
+
+    Censoring and the call read only earlier columns, so among the patients observed at day 90
+    and not readmitted by day 30 the team component must average zero.  Signs of 0 and 1, with a
+    nonzero mean, are the mutation control: they must move the mean.
+    """
+    frame, _ = make_team_readmission(n_teams=500, team_size=40, seed=13)
+    mean, error = _team_mean_shift(frame)
+    assert abs(mean) < 4.0 * error
+    monkeypatch.setattr(law, "_TEAM_SIGNS", (0.0, 1.0))
+    shifted, _ = make_team_readmission(n_teams=500, team_size=40, seed=13)
+    moved, moved_error = _team_mean_shift(shifted)
+    assert moved > 10.0 * moved_error
+
+
+def test_the_team_component_reads_no_earlier_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flipping every team's sign changes the day-90 outcome and no earlier column."""
     frame, _ = make_team_readmission(n_teams=20, team_size=10, seed=8)
-    original = law.TEAM_DELTA
-    try:
-        law.TEAM_DELTA = 0.0
-        control, _ = make_team_readmission(n_teams=20, team_size=10, seed=8)
-    finally:
-        law.TEAM_DELTA = original
+    monkeypatch.setattr(law, "_TEAM_SIGNS", (1.0, -1.0))
+    flipped, _ = make_team_readmission(n_teams=20, team_size=10, seed=8)
     before = list(frame.columns[:-1])
-    assert frame[before].equals(control[before])
+    assert frame[before].equals(flipped[before])
+    assert not frame["readmitted_90"].equals(flipped["readmitted_90"])
 
 
 def test_bad_sizes_are_refused() -> None:

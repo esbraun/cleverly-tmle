@@ -128,12 +128,18 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert not assessment.attention
     ledger = assessment.to_frame().set_index("check")["status"]
     assert ledger["score_equations"] == "passed"
-    # "The largest weight is 4.3, among the patients not offered who reached day 90".
+    # "The largest weight is 4.3, among the patients not offered in the last interval".  Node 4
+    # is the interval from day 60 to day 90; `n_followed` counts the patients at risk entering it.
     top = support.loc[support["max_weight"].idxmax()]
     assert top["regimen"] == "not offered" and top["time"] == 4
     assert round(float(top["max_weight"]), 1) == 4.3
     assert (support["share_truncated"] == 0.0).all()
     assert namespace["ratio"] >= 0.915
+    frame = namespace["frame"]
+    # "515 offered patients were still in follow-up and not yet readmitted when the last interval
+    # ... began".
+    entering = support.set_index(["regimen", "time"]).loc[("offered", 4), "n_followed"]
+    assert entering == 515 == int((frame["offer"].eq(1) & frame["day"].gt(60.0)).sum())
     assert bool(support["converged"].all())
 
 
@@ -155,6 +161,7 @@ def _check_teams(namespace: dict[str, Any]) -> None:
         "outcome",
         "horizon",
         "intercurrent_event_handling",
+        "assumption_rationale",
     }
     assert_protocol_recorded(NOTEBOOK, "team-identify", team_protocol, team_result)
 
@@ -248,3 +255,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert bias.lower < bias.band[0] and bias.band[1] < bias.upper
         assert abs(test.mean - test.declared_effect) < 0.01
     assert generated["dummy_outcome"].declared_effect == 0.0
+    # "A verdict needs at least 400 refits, so with 20 it reads `descriptive`".
+    from cleverly.validation import EquivalenceBands
+
+    assert EquivalenceBands().minimum_draws == 400
