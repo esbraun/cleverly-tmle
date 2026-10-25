@@ -15,22 +15,39 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries nine tutorials and the TWINS notebook. Five mirror five of the
-six method entries in the technical reference. The sequential pricing tutorial is the one for the
-longitudinal entry. The parametric g-formula entry has no tutorial yet.
+[Examples](examples/index.md) carries sixteen tutorials and the TWINS notebook. Every method entry
+in the technical reference links to at least one tutorial, and the table lists the tutorials each
+entry links to. Three tutorials do not yet link back. Point-treatment-tmle and survey-nonresponse
+link to the CV-TMLE entry instead of the point-treatment entry, and sequential-offers links to the
+sequential-baselines simulation study instead of its entry. A new method entry needs a new
+tutorial, or a new section in a tutorial that fits its question, and the entry and the tutorial
+link to each other in both directions.
 
-Three more tutorials cover sections inside an entry: the intervention axes and survey non-response
-inside the point-treatment entry, and longitudinal event outcomes inside the longitudinal entry. The
-ninth, sequential offers, applies the longitudinal entry and the sequential baselines to a
-commercial campaign. A new method entry needs a new tutorial, and the two link to each other in both
-directions.
+| method entry | tutorials |
+| --- | --- |
+| [point-treatment TMLE](technical-reference/point-treatment-tmle.md) | point-treatment-tmle, survey-nonresponse, interventions, population-impact, randomized-pilot, treatment-rules, schedules-and-intensity |
+| [CV-TMLE](technical-reference/cv-tmle.md) | cross-fitting |
+| [collaborative TMLE](technical-reference/collaborative-tmle.md) | collaborative-tmle |
+| [MSM projections](technical-reference/msm-projections.md) | msm-projections |
+| [longitudinal TMLE](technical-reference/longitudinal-tmle.md) | sequential-pricing, longitudinal-survival, sequential-offers, weekly-outcomes, discharge-to-readmission |
+| [sequential g-computation and IPW](technical-reference/sequential-baselines.md) | sequential-offers |
+| [parametric g-formula](technical-reference/parametric-gformula.md) | model-based-over-time |
+| [structural dynamic effects](technical-reference/structural-dynamic-effects.md) | model-based-over-time |
+| [DR-TMLE](technical-reference/dr-tmle/index.md) | randomized-pilot |
+| [adaptive-propensity IPTW](technical-reference/adaptive-iptw.md) | randomized-pilot |
 
-The tutorials share two narratives. Seven follow one health program: a health plan's hospital
+The tutorials share two narratives. Thirteen follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
-tutorial is that case, because the health program has no continuous price. The applied commercial
-pair follows a second program: a subscription retailer sends weekly offers and sets monthly renewal
-prices. The offers tutorial and the pricing tutorial form the pair.
+tutorial is that case, because the health program has no continuous price. Three tutorials follow a
+second program, a subscription retailer that sends weekly offers, counts weekly orders, and sets
+monthly renewal prices. The weekly-orders tutorial uses the retailer's weekly orders, an outcome
+recorded every week that the health program lacks, and the offers tutorial draws each week's offer
+with a logged chance.
+
+[Worked examples by method family](development/example-notebooks.md#worked-examples-by-method-family)
+maps each family of the implementation matrix to the tutorials that show it, and names the
+families no tutorial shows.
 
 ## The record documents
 

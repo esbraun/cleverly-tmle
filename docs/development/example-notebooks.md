@@ -297,6 +297,51 @@ stale when the study is regenerated.
 | the page's own simulations | one sentence that says a simulation run for this page (a script under `reviews/notebook-review/probes/`) checks a reading of the page, and is not a simulation study that validates the method. Quote its result in the reading that uses it |
 | the technical entry | a link to the "Validation issues special to this method" section of the method's technical entry |
 
+## Worked examples by method family
+
+Each row but the last is one family of the
+[implementation matrix](../technical-reference/index.md#implementation-matrix); the last is a
+feature the roadmap names that the matrix has no row for. A family counts as
+shown when a code cell of the tutorial fits it and the page reads the output; a mention in prose
+does not count. When a change adds a family or retires a tutorial, update this table in the same
+change.
+
+| family | tutorials that show it |
+| --- | --- |
+| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle, cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`) |
+| ATT and ATC | twins-causal-inference (ATT). No tutorial fits `ATC` |
+| Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
+| Natural-course mean, PAR, and PAF | population-impact |
+| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
+| Deterministic and dynamic regimes | interventions |
+| Known stochastic regimes | treatment-rules |
+| Value of a learned treatment rule | treatment-rules |
+| Continuous modified treatment policies | interventions |
+| Modified treatment policies on a vector treatment | schedules-and-intensity |
+| Continuous policies at declared boundaries, with learned and tuned inputs | sequential-pricing |
+| Incremental propensity-score interventions | interventions |
+| Incremental interventions over time | weekly-outcomes |
+| Categorical incremental interventions | schedules-and-intensity |
+| Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
+| Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
+| Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
+| Sequential g-computation and IPW over time | sequential-offers (g-computation). No tutorial fits `IPWMethod`: its supported row needs a bounded outcome with dropout |
+| Structural nested mean model | model-based-over-time |
+| Parametric g-formula over time | model-based-over-time |
+| Longitudinal survival and competing risks | longitudinal-survival |
+| Longitudinal repeated outcomes, `IPSI` | weekly-outcomes |
+| Longitudinal repeated outcomes, `SDR` | weekly-outcomes |
+| Longitudinal evidence at three to five decisions | sequential-offers, weekly-outcomes |
+| Longitudinal repeated outcomes | weekly-outcomes |
+| Point-treatment survival | discharge-to-readmission |
+| Collaborative TMLE | collaborative-tmle |
+| DR-TMLE | randomized-pilot |
+| Adaptive-propensity IPTW | randomized-pilot |
+| Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` carry the experimental label and stay on their reference sections |
+| Inference, diagnostics, and sensitivity | every tutorial |
+| Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |
+
 ## Write the callback
 
 Start from the tutorial's existing module in `tests/unit/tutorial_semantics/`. Keep each assertion
