@@ -1136,8 +1136,9 @@ class TestTheSelectorPathsPublishNoInference:
         # the outcome-adaptive one, so it has no row to mark unavailable here.
         detail = result.diagnostics.run_all()["nuisance_models"].detail
         assert WORKING_MECHANISM.assessment_note in detail
-        # And it reaches the assessment a reader actually prints.
-        assert WORKING_MECHANISM.assessment_note in result.assess().summary()
+        # And it reaches the assessment a reader actually prints, in plain words.
+        summary = result.assess().summary()
+        assert summary.note("inference_status").text.endswith(WORKING_MECHANISM.plain_reason)
 
     def test_the_evalue_capability_goes_unavailable_rather_than_raising(self) -> None:
         """The row must say so, not raise from inside the computation.

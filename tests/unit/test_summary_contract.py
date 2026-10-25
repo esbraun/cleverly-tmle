@@ -151,16 +151,14 @@ def _user_names(result: Any, key: str | None = None) -> set[str]:
 
 
 def _authored(result: Any, summary: Summary, key: str | None = None) -> str:
-    """Every string of the summary, with user-supplied names and quoted warnings taken out.
+    """Every string of the summary, with user-supplied names, quoted messages and code taken out.
 
     A fit-time warning is quoted as the user saw it, and its wording belongs to the warning
-    site, so the check reads the note's own sentence around it.
+    site, so the check reads the note's own sentence around it. A combined report quotes a
+    refusal in a table cell and a section line, so those are read the same way. A public
+    call such as ``result.diagnostics.nuisance_models()`` is code, not prose
+    (``vocabulary.PUBLIC_CALL``).
     """
-    pieces = [summary.heading]
-    pieces.extend(f"{label}: {value}" for label, value in summary.header)
-    for table in summary.tables:
-        pieces.extend([table.title or "", *table.columns])
-        pieces.extend(cell.text for row in table.rows for cell in row)
     # A summary quotes a warning without its roadmap ids, so both forms are taken out.
     messages = [
         text
@@ -169,13 +167,21 @@ def _authored(result: Any, summary: Summary, key: str | None = None) -> str:
     ]
     if key is not None:
         messages.extend(FIXTURES[key].quotes(result))
-    for item in summary.notes:
-        text = item.text
+    messages.sort(key=len, reverse=True)
+
+    def own(text: str) -> str:
         for message in messages:
             text = text.replace(message, " ")
-        pieces.append(text)
+        return vocabulary.PUBLIC_CALL.sub("CALL", text)
+
+    pieces = [summary.heading]
+    pieces.extend(f"{label}: {value}" for label, value in summary.header)
+    for table in summary.tables:
+        pieces.extend([table.title or "", *table.columns])
+        pieces.extend(own(cell.text) for row in table.rows for cell in row)
+    pieces.extend(own(item.text) for item in summary.notes)
     for section in summary.sections:
-        pieces.extend([section.title, *section.lines])
+        pieces.extend([section.title, *(own(line) for line in section.lines)])
     text = "\n".join(pieces)
     for name in sorted(_user_names(result, key), key=len, reverse=True):
         text = re.sub(rf"(?<![\w]){re.escape(name)}(?![\w])", "NAME", text)

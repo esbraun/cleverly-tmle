@@ -14,6 +14,11 @@ Three functions serve the navigation program that the [examples](../examples/ind
 | `navigation_protocol` | the `StudyProtocol` of the one-decision program |
 | `longitudinal_navigation_protocol` | the `StudyProtocol` of the two-decision program |
 
+`make_randomized_pilot` draws the randomized pilot of the
+[randomized-pilot example](../examples/randomized-pilot.ipynb): a binary success outcome, an offer
+drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truth
+of `randomized_pilot_truth`.
+
 Eight names serve the subscription-retailer program of the [offers tutorial](../examples/sequential-offers.ipynb).
 
 | name | what it holds |
@@ -79,6 +84,8 @@ Three functions serve the team readmission part of the
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_randomized_pilot
+   cleverly.datasets.randomized_pilot_truth
    cleverly.datasets.make_sequential_offers
    cleverly.datasets.offers_truth
    cleverly.datasets.offers_protocol

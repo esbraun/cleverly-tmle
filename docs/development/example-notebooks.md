@@ -243,7 +243,7 @@ keep each reading accurate.
 | Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Run the analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | an underived bound can be too narrow |
 | In a plain reading of an omitted-variable bound, name the side each strength measures (the outcome's remaining variation, or the change in the weights), and quote the strength at which the conclusion tips, computed by the cell, rather than "stronger than" a covariate. Read the robustness value as a floor: a confounder weaker than it on both sides cannot erase the effect. Do not read it as the strength a confounder needs, since one strong on a single side can erase the effect with the other side below it | a covariate that is the strongest confounder on one side can be weak on the other, and "stronger than" can understate the margin many times over |
 | Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
-| Put a status word, a label, or a column name in backticks only when the reader must find it in a stored output (rule R15). The assessment summary prints `Returned results`, not `completed` | the reader searches the output for the quoted token |
+| Put a status word, a label, or a column name in backticks only when the reader must find it in a stored output (rule R15). The assessment summary prints `Results`, not `completed` | the reader searches the output for the quoted token |
 
 Define each technical term in plain words where it first appears, and link to the reference page.
 The guide's [library words](writing-for-readers.md#library-words-and-their-plain-replacements)

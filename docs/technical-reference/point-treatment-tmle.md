@@ -1052,7 +1052,8 @@ point treatment, that is complete data with no `intermediate=`.
 
 With $g=g_0$ the remainder
 $P_0\{(g-g_0)/g\,(\bar Q-\bar Q_0)\}$ is zero. The estimate is then consistent for any limit
-$\bar Q_\infty$ of the outcome regression. Its influence curve is exactly
+$\bar Q_\infty$ of the outcome regression. When the regression is fitted out of fold, or lies in a
+Donsker class, the estimate is asymptotically linear with influence curve exactly
 $D^*(\bar Q_\infty,g_0)$. Moore and van der Laan (2009), Section 2, state the consistency.
 Their Section 5 states that inference with the true mechanism is not conservative. The table gives
 the curve each fit reports.
@@ -1072,12 +1073,15 @@ can use.
 
 | mechanism | what the interval means |
 | --- | --- |
-| the declared design mechanism, on complete data with no `intermediate=` | an interval that is not conservative, for any outcome learner |
+| the declared design mechanism, on complete data with no `intermediate=` | an interval that is not conservative, for any limit of the outcome regression. The regression must still be fitted out of fold or lie in a Donsker class, such as a fixed parametric model: an adaptive learner fitted in sample can overfit, and then the empirical-process term is not $o_P(n^{-1/2})$, which biases the estimate, and the in-sample residuals understate the influence-curve variance |
 | maximum likelihood in a parametric model that contains $g_0$, such as a logistic regression on the randomization strata | a smaller true variance when $\bar Q$ is wrong. The reported standard error is then conservative (Moore and van der Laan 2009, Section 4.2 and Section 7.3, Table IV; Petersen et al. 2014, Section 3.7) |
 | a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism |
 
 The registered [known-mechanism TMLE study](method-evidence/known-treatment-mechanism.md) reports
-the spread of the first two side by side, as a row with no verdict.
+the spread of the first two side by side, as a row with no verdict. The
+[randomized-pilot example](../examples/randomized-pilot.ipynb) fits a stratified pilot with its
+declared chances, and beside it the same TMLE with a misspecified fitted mechanism and the same
+wrong outcome regression.
 
 **The ATT and the ATC.** Write $p=P(A=1)$ and $\bar Q_{a,0}$ for the true arm regression. At the
 declared mechanism,
