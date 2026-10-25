@@ -73,7 +73,7 @@ __all__ = [
 #: The known range of the 30-day recovery score.  Every draw of the law falls inside it.
 RECOVERY_BOUNDS = (0.0, 100.0)
 
-#: The plans of the tutorial, as (offer at discharge, offer on day 10, offer on day 20).
+#: The plans whose means the truth dictionary reports, as (offer at discharge, day 10, day 20).
 RECOVERY_PLANS: dict[str, tuple[float, float, float]] = {
     "always": (1.0, 1.0, 1.0),
     "never": (0.0, 0.0, 0.0),
@@ -229,14 +229,14 @@ def make_recovery_score(
 
     Returns
     -------
-    dataframe
+    frame : dataframe
         One row per patient, with the columns ``lives_alone``, ``discharge_risk``,
         ``offer_discharge``, ``symptoms_day10``, ``offer_day10``, ``symptoms_day20``,
         ``offer_day20`` and ``recovery_day30`` in time order.
     truth : dict of str to float
         ``ey_regimen[always]``, ``ey_regimen[never]`` and ``ate_regimen[always vs never]``,
-        and each blip coefficient of the declared features ``lives_alone`` at the first two
-        offers and the intercept at the third, under the names a fit reports them by.
+        and the blip coefficients under the names a fit reports them by: an intercept at each
+        offer, and a ``lives_alone`` coefficient at the first two.
 
     See Also
     --------

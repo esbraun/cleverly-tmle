@@ -140,6 +140,95 @@ def test_the_truth_dictionary_uses_the_names_a_fit_reports() -> None:
     assert truth["blip[offer_day10:1.0:lives_alone]"] > 0.0
 
 
+FRAME_N = 400_000
+
+
+@pytest.fixture(scope="module")
+def large_frame() -> Any:
+    frame, _ = make_recovery_score(FRAME_N, seed=11)
+    return frame
+
+
+def _offer_probability(frame: Any, node: int) -> np.ndarray:
+    """The known probability of each patient's offer at one decision, from the law's table."""
+    p = law._LAW
+    risk = frame["discharge_risk"].to_numpy()
+    alone = frame["lives_alone"].to_numpy()
+    if node == 0:
+        logit = p["o1_intercept"] + p["o1_risk"] * risk + p["o1_alone"] * alone
+    else:
+        prefix = f"o{node + 1}"
+        symptoms = frame[("symptoms_day10", "symptoms_day20")[node - 1]].to_numpy()
+        earlier = frame[("offer_discharge", "offer_day10")[node - 1]].to_numpy()
+        logit = (
+            p[f"{prefix}_intercept"]
+            + p[f"{prefix}_risk"] * risk
+            + p[f"{prefix}_alone"] * alone
+            + p[f"{prefix}_symptoms"] * symptoms
+            + p[f"{prefix}_offer"] * earlier
+        )
+    return np.asarray(1.0 / (1.0 + np.exp(-logit)), dtype=float)
+
+
+@pytest.mark.parametrize("plan", list(RECOVERY_PLANS))
+def test_weighting_the_drawn_frame_recovers_each_plan_mean(large_frame: Any, plan: str) -> None:
+    """The end-to-end witness: the sampler draws the law whose plan means the truths report.
+
+    Inverse probability weighting with the known offer probabilities is unbiased for the plan
+    mean, so a sampler that drifts from the law the truths describe moves this estimate.
+    """
+    columns = ("offer_discharge", "offer_day10", "offer_day20")
+    weight = np.ones(len(large_frame))
+    for node, (column, value) in enumerate(zip(columns, RECOVERY_PLANS[plan], strict=True)):
+        offered = _offer_probability(large_frame, node)
+        chance = offered if value == 1.0 else 1.0 - offered
+        weight *= (large_frame[column].to_numpy() == value) / chance
+    terms = weight * large_frame["recovery_day30"].to_numpy()
+    assert abs(terms.mean() - recovery_score_truth(*RECOVERY_PLANS[plan])) < _tolerance(terms)
+
+
+@pytest.mark.parametrize("day", [10, 20])
+def test_each_symptom_flag_follows_its_law_in_every_cell_of_the_record(
+    large_frame: Any, day: int
+) -> None:
+    """Each flag depends on living alone and the latest offer only, as the truths assume."""
+    flag = f"symptoms_day{day}"
+    record = ["lives_alone", "offer_discharge"]
+    if day == 20:
+        record += ["symptoms_day10", "offer_day10"]
+    helper = law._symptoms_day10 if day == 10 else law._symptoms_day20
+    offer = "offer_discharge" if day == 10 else "offer_day10"
+    for key, cell in large_frame.groupby(record):
+        values = dict(zip(record, key, strict=True))
+        expected = float(helper(values["lives_alone"], values[offer]))
+        observed = cell[flag].to_numpy()
+        se = np.sqrt(expected * (1.0 - expected) / observed.size)
+        assert abs(observed.mean() - expected) < 4.0 * se + FLOOR, key
+
+
+def test_a_regression_of_the_drawn_score_recovers_the_score_law(large_frame: Any) -> None:
+    """The score's mean is linear in the record, so least squares recovers each coefficient."""
+    names = [
+        ("y_risk", "discharge_risk"),
+        ("y_alone", "lives_alone"),
+        ("y_offer_discharge", "offer_discharge"),
+        ("y_symptoms_day10", "symptoms_day10"),
+        ("y_offer_day10", "offer_day10"),
+        ("y_symptoms_day20", "symptoms_day20"),
+        ("y_offer_day20", "offer_day20"),
+    ]
+    design = np.column_stack(
+        [np.ones(len(large_frame))] + [large_frame[column].to_numpy() for _, column in names]
+    )
+    score = large_frame["recovery_day30"].to_numpy()
+    coefficients, *_ = np.linalg.lstsq(design, score, rcond=None)
+    residual = score - design @ coefficients
+    covariance = residual.var() * np.linalg.inv(design.T @ design)
+    expected = [law._LAW["y_intercept"]] + [law._LAW[key] for key, _ in names]
+    se = np.sqrt(np.diag(covariance))
+    assert np.all(np.abs(coefficients - expected) < 4.0 * se + FLOOR)
+
+
 def test_the_layout_and_the_score_range() -> None:
     frame, _ = make_recovery_score(50_000, seed=3)
     assert list(frame.columns) == [
@@ -156,7 +245,15 @@ def test_the_layout_and_the_score_range() -> None:
     lower, upper = RECOVERY_BOUNDS
     # The smallest and largest means are 10 + 8 and 83.3 - 8 away from the bounds.
     assert frame["recovery_day30"].between(lower + 10.0, upper - 16.0).all()
-    for column in ("lives_alone", "offer_discharge", "symptoms_day10", "offer_day10"):
+    binary = (
+        "lives_alone",
+        "offer_discharge",
+        "symptoms_day10",
+        "offer_day10",
+        "symptoms_day20",
+        "offer_day20",
+    )
+    for column in binary:
         assert set(frame[column].unique()) <= {0.0, 1.0}
 
 

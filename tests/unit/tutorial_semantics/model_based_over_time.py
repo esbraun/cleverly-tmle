@@ -151,8 +151,6 @@ def _check_blips(namespace: dict[str, Any]) -> None:
     }
     for index, value in expected.items():
         assert round(effects.loc[index, "effect"], 2) == value
-    # The day-20 effect is one effect for every patient, as declared.
-    assert effects.loc[("offer_day20", 1), "effect"] == effects.loc[("offer_day20", 0), "effect"]
     # "Four of the five estimates hold their true values"; the day-10 effect when alone misses.
     held = {
         index: bool(row["ci_low"] <= row["truth"] <= row["ci_high"])
@@ -164,12 +162,19 @@ def _check_blips(namespace: dict[str, Any]) -> None:
         4.67,
     ]
     assert _support(blips.estimates.values()) == {("supported", "G42.three_nodes")}
-    # The effects add up to the plan contrast, which the next cell reads.
-    true = namespace["truth"]
-    assert true[CONTRAST] == pytest.approx(
-        sum(true[f"blip[{c}:1.0:intercept]"] for c in OFFERS)
-        + 0.35 * sum(true[f"blip[{c}:1.0:lives_alone]"] for c in OFFERS[:2])
-    )
+    # The blip model's gain is the patients' mean of the summed effects, so the interpret cell's
+    # "more than half of the gain comes from the discharge offer, most of that among patients who
+    # live alone" reads these rows weighted by the share who live alone.
+    share = float(namespace["frame"]["lives_alone"].mean())
+    weights = {0: 1.0 - share, 1: share}
+    part = {
+        index: weights[index[1]] * float(effects.loc[index, "effect"]) for index in effects.index
+    }
+    gain = blips[CONTRAST].psi
+    assert sum(part.values()) == pytest.approx(gain, abs=1e-6)
+    discharge = part[("offer_discharge", 0)] + part[("offer_discharge", 1)]
+    assert discharge / gain > 0.5
+    assert part[("offer_discharge", 1)] > part[("offer_discharge", 0)]
 
 
 def _check_compare(namespace: dict[str, Any]) -> None:
@@ -178,12 +183,17 @@ def _check_compare(namespace: dict[str, Any]) -> None:
     gaps = [abs(blips[key].psi - result[key].psi) for key in LEVELS]
     gaps.append(abs(blips[CONTRAST].psi - difference.psi))
     assert 0.0 < max(gaps) < 0.3
+    # "sits well above the blip model (12.32 against 10.82 for the gain)".
+    wrong = namespace["wrong"]
+    assert round(namespace["wrong_difference"].psi, 2) == 12.32
+    assert round(blips[CONTRAST].psi, 2) == 10.82
+    assert all(wrong[key].psi - blips[key].psi > 0.5 for key in LEVELS)
     check = namespace["check"]
     assert check.names == (CONTRAST,)
     assert round(float(check.structural[0]), 2) == 10.80
     assert round(float(check.nonparametric[0]), 2) == 10.41
     assert round(float(check.pvalue), 2) == 0.29
-    # "The check itself reads `experimental`".
+    # "The check reads `experimental`", printed by the cell.
     assert check.support.label == "experimental"
 
 

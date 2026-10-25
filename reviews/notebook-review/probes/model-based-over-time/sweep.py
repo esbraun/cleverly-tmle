@@ -2,7 +2,7 @@
 
 Each seed ``s`` draws ``make_recovery_score(4_000, seed=s)`` and runs the page's fits: the
 parametric g-formula of the plans ``never`` and ``always`` with symptom models that hold every
-product of the record columns up to four at a time (the right models), the same fit with
+product of two record columns (the right models), the same fit with
 main-terms symptom models (the wrong models), the cross-fitted structural nested mean model with
 ``lives_alone`` in the blips of the first two offers, its model check against LTMLE, and the crude
 comparison of the patients who followed each plan. Truths come from ``make_recovery_score``.
