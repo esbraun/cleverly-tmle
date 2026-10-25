@@ -1459,8 +1459,9 @@ class TestValidation:
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-6)
 
     def test_the_combined_report_renders(self, good_overlap) -> None:
-        assert "score_equations" in good_overlap.diagnostics.run_all().summary()
-        assert "nuisance_models" in good_overlap.diagnostics.run_all().summary()
+        summary = good_overlap.diagnostics.run_all().summary()
+        assert "equations solved" in summary
+        assert "outcome and treatment models" in summary
 
 
 class TestRefutation:
@@ -1719,9 +1720,9 @@ class TestTheDefaultEstimandOfTheOmittedVariableBound:
 class TestCombinedSensitivityReport:
     def test_the_report_gathers_what_it_can(self, good_overlap) -> None:
         report = good_overlap.sensitivity.run_all().summary()
-        assert "omitted_confounding" in report
-        assert "robustness_value" in report
-        assert "evalue" in report
+        assert "unmeasured confounding" in report
+        assert "robustness value" in report
+        assert "E-value" in report
 
 
 class TestTheMechanismDenominatorsAreDiagnosed:

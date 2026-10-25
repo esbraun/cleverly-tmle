@@ -325,7 +325,9 @@ W,\; L_1, A_1, C_1, Y_1,\; L_2, A_2, C_2, Y_2,\; \ldots,\; L_T, A_T, C_T, Y_T.
 $$
 
 The parameter is the curve of means $E[Y_h^d]$, one for each plan $d$ and horizon $h$. A fit
-reports `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]`.
+reports `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]`. The
+[weekly outcomes tutorial](../examples/weekly-outcomes.ipynb) fits this curve for a weekly order,
+with a dynamic plan and the total over the horizons by `contrast`.
 
 The construction is a reduction to the end-of-study fit. The container puts $Y_s$ first in the
 covariate block of node $s + 1$, before the covariate screen. Each later treatment, censoring and
@@ -1921,7 +1923,9 @@ runs each one end to end.
 named `ey_regimen[always @ t=2]`, and the contrasts `ate_regimen[always vs never @ t=2]`. Each
 horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
 outcome and each earlier $Y_s$ as a covariate of node $s + 1$. In a `CausalStudy`,
-`RegimeMean(..., horizons=[1, 3])` with `method="sdr"` takes the same horizons.
+`RegimeMean(..., horizons=[1, 3])` with `method="sdr"` takes the same horizons. The
+[weekly outcomes tutorial](../examples/weekly-outcomes.ipynb) fits the cross-fitted form beside
+LTMLE.
 
 The transform of the [section "The transform"](#the-transform) runs over the nodes $t, \ldots, h$ only. The
 seed $v_{h+1}$ is the scaled $Y_h$ on the rows uncensored through $h$. So $\varphi_1$ at horizon $h$
@@ -2160,7 +2164,9 @@ $10^{-4}$: a stitched training target, and the average of fold means on unequal 
 named `ey_regimen[odds x2 @ t=2]`, and the contrasts `ate_regimen[odds x2 vs natural course @ t=2]`.
 Each horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
 outcome and each earlier $Y_s$ as a covariate of node $s + 1$. `IncrementalMean(horizons=[1, 3])`
-and `IncrementalEffect(horizons=[1, 3])` take the same horizons in a `CausalStudy`.
+and `IncrementalEffect(horizons=[1, 3])` take the same horizons in a `CausalStudy`. The
+[weekly outcomes tutorial](../examples/weekly-outcomes.ipynb) fits the in-sample form with
+$\delta = 2$ against the natural course.
 
 The parameter is $\psi_h(\delta) = E[Y_h^{Q(\delta)}]$. The plan $Q(\delta)$ draws $A_t$ from
 $q_t(1 \mid H_t)$ at every $t \le h$ and prevents dropout. Theorem 3.1 of Kim et al. (2021) at

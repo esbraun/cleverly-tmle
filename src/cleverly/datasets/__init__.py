@@ -29,6 +29,7 @@ from .offers import (
     win_back,
     win_back_then_ship,
 )
+from .pilot import PILOT_OFFER_CHANCES, make_randomized_pilot, randomized_pilot_truth
 from .pricing import (
     PRICE_BANDS,
     PRICE_NODES,
@@ -84,6 +85,15 @@ from .synthetic import (
     weak_overlap_dgp,
 )
 from .treatment_rules import learned_rule_truth, make_treatment_rules, treatment_rule_value
+from .weekly_orders import (
+    ORDER_PLANS,
+    ORDER_TILTS,
+    ORDER_WEEKS,
+    make_weekly_orders,
+    offer_after_no_order,
+    weekly_orders_protocol,
+    weekly_orders_truth,
+)
 
 __all__ = [
     "DGP",
@@ -91,6 +101,10 @@ __all__ = [
     "OFFER_LEVELS",
     "OFFER_PLANS",
     "OFFER_WEEKS",
+    "ORDER_PLANS",
+    "ORDER_TILTS",
+    "ORDER_WEEKS",
+    "PILOT_OFFER_CHANCES",
     "PRICE_BANDS",
     "PRICE_NODES",
     "PRICE_PLANS",
@@ -131,12 +145,14 @@ __all__ = [
     "make_nonlinear_ate",
     "make_nonlinear_bounded",
     "make_point_survival",
+    "make_randomized_pilot",
     "make_sequential_offers",
     "make_sequential_pricing",
     "make_shift_dose",
     "make_team_readmission",
     "make_treatment_rules",
     "make_weak_overlap",
+    "make_weekly_orders",
     "missing_outcome_binary_dgp",
     "missing_outcome_bounded_dgp",
     "missing_outcome_dgp",
@@ -146,12 +162,14 @@ __all__ = [
     "nonlinear_bounded_dgp",
     "nonlinear_dgp",
     "nonlinear_logit",
+    "offer_after_no_order",
     "offers_protocol",
     "offers_truth",
     "point_survival_truth",
     "price_rise",
     "pricing_protocol",
     "pricing_truth",
+    "randomized_pilot_truth",
     "repeated_truth",
     "rule_arm_at_node_two",
     "sampling_probability",
@@ -161,6 +179,8 @@ __all__ = [
     "team_readmission_truth",
     "treatment_rule_value",
     "weak_overlap_dgp",
+    "weekly_orders_protocol",
+    "weekly_orders_truth",
     "win_back",
     "win_back_then_ship",
 ]

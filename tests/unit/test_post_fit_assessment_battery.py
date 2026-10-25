@@ -6,6 +6,7 @@ import inspect
 import re
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -1576,45 +1577,23 @@ def test_a_method_outside_the_correction_system_refuses_corrections_by_name(meth
     assert result.assess().diagnostics["corrections"].status is AssessmentStatus.NOT_APPLICABLE
 
 
-_SUMMARY_FOOTER = (
-    "Full ledger: call to_frame(). Next steps: call next_steps()."
-    "\nRetained payloads: call report(...)."
-)
+def _table(summary: Any, title: str) -> Any:
+    """The summary table titled ``title``."""
+    [table] = [table for table in summary.tables if table.title == title]
+    return table
 
 
-def _summary_sections(text: str) -> dict[str, str]:
-    """Map each title in ``AssessmentReport.summary`` to its body, in printed order.
-
-    Three tests below read one section each. Each split the text its own way on a
-    hand-typed title and underline, so a renamed section failed only the test that
-    retyped the same bytes. A section here is a block whose second line underlines the
-    first, and its body is every line below that underline.
-
-    Parameters
-    ----------
-    text : str
-        The output of :meth:`AssessmentReport.summary`.
-
-    Returns
-    -------
-    dict of str to str
-        Section title to section body, in the order the summary prints them.
-    """
-    sections: dict[str, str] = {}
-    for block in text.split("\n\n"):
-        title, _, remainder = block.partition("\n")
-        underline, _, body = remainder.partition("\n")
-        if underline == "-" * len(title):
-            sections[title] = body
-    return sections
+def _statuses(table: Any) -> list[str]:
+    """The status of each row of a battery table, in printed order."""
+    return [row[1].value for row in table.rows]
 
 
-def test_the_battery_summary_expands_results_before_compact_checks_and_omissions():
-    """Every status is visible, while only completed analyses expand to full text.
+def test_the_battery_summary_puts_results_before_checks_and_omissions():
+    """Every row prints once: returned results, then checks by urgency, then omissions.
 
     The duplicate ``shared`` name is a nonzero witness for surface qualification. The
-    long warning detail is a witness for compactness: it remains in the ledger but does
-    not push returned results below review prose.
+    long warning detail is a witness for the full detail: the table prints its first
+    sentence, and only ``"full"`` and the frame carry the next steps.
     """
 
     def item(name: str, status: AssessmentStatus, detail: str) -> AssessmentItem:
@@ -1629,7 +1608,7 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
         ),
         diagnostics=DiagnosticReport(
             (
-                item("warning", AssessmentStatus.WARNING, "warning detail " * 20),
+                item("warning", AssessmentStatus.WARNING, "warning detail. " * 20),
                 item("choose", AssessmentStatus.DEFERRED, "deferred detail " * 20),
                 item("missing", AssessmentStatus.UNAVAILABLE, "unavailable detail"),
             )
@@ -1643,84 +1622,34 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
         ),
     )
 
-    text = battery.summary()
-    sections = _summary_sections(text)
-    results, checks, omissions = (
-        sections["Returned results"],
-        sections["Checks"],
-        sections["Not run"],
-    )
-    assert list(sections) == ["Returned results", "Checks", "Not run"]
-    # ``_summary_sections`` skips any block that carries no rule, so section order alone
-    # would admit a preamble printed above the first section.  The two anchors below pin
-    # the text to its first and last byte, and the width check pins the rule itself.
-    assert text.startswith("Returned results\n")
-    assert results.splitlines()[0].split() == ["surface", "operation", "result"]
-    assert "sensitivity" in results and "completed detail" in results
-    # The operation column is the name a reader passes back to ``report(...)``, so the
-    # one completed row has to print its own name and not only its surface and detail.
-    assert "estimate" in results
-    assert "passed detail" not in text
-    assert "warning detail" not in text
-    assert "deferred detail" not in text
-
-    expected_checks: dict[AssessmentStatus, tuple[str, ...]] = {
-        AssessmentStatus.FAILED: ("validation.shared",),
-        AssessmentStatus.WARNING: ("diagnostics.warning",),
-        AssessmentStatus.PASSED: ("validation.score",),
-    }
-    expected_omissions: dict[AssessmentStatus, tuple[str, ...]] = {
-        AssessmentStatus.DEFERRED: ("diagnostics.choose",),
-        AssessmentStatus.UNAVAILABLE: ("diagnostics.missing", "sensitivity.shared"),
-        AssessmentStatus.NOT_APPLICABLE: ("sensitivity.irrelevant",),
-    }
-    for body, expected in ((checks, expected_checks), (omissions, expected_omissions)):
-        for status, qualified_names in expected.items():
-            assert status.value in body
-            for qualified_name in qualified_names:
-                assert qualified_name in body
-
+    summary = battery.summary()
+    assert [table.title for table in summary.tables] == ["Results", "Checks", "Not run"]
+    results, checks, omissions = summary.tables
     # The declared order of the two status tuples, as rendered. Membership alone holds
     # for either tuple reversed, and the order carries the meaning: the check a reader
     # must act on comes first, and the omission a reader can resolve comes first.
-    assert checks.index("failed") < checks.index("warning") < checks.index("passed")
-    assert (
-        omissions.index("deferred")
-        < omissions.index("unavailable")
-        < omissions.index("not_applicable")
-    )
+    assert _statuses(checks) == ["failed", "warning", "passed"]
+    assert [row[0].value for row in omissions.rows] == ["choose", "missing", "shared", "irrelevant"]
+    assert [row[0].text for row in results.rows] == ["estimate"]
+    assert results.rows[0][1].text == "completed detail"
+    # Every presented row prints exactly once.
+    assert len(checks.rows) + len(results.rows) + len(omissions.rows) == len(battery._presented())
+    labels = [row[0].text for table in summary.tables for row in table.rows]
+    assert "shared (validation)" in labels and "shared (sensitivity)" in labels
 
-    # The compact rendering itself. Only the first row of a status group carries the
-    # status and the count. The second row of the two-member group leaves both fields
-    # blank, keeps the column positions, and carries its operation name alone.
-    lines = omissions.splitlines()
-    first = next(line for line in lines if line.startswith(AssessmentStatus.UNAVAILABLE.value))
-    second = lines[lines.index(first) + 1]
-    assert first.split() == ["unavailable", "2", "diagnostics.missing"]
-    assert second.split() == ["sensitivity.shared"]
-    assert second.index("sensitivity.shared") == first.index("diagnostics.missing")
-
-    assert text.endswith(f"\n\n{_SUMMARY_FOOTER}")
-    expected_counts = {
-        status.value: len(qualified_names)
-        for status, qualified_names in {**expected_checks, **expected_omissions}.items()
-    }
-    inventory_counts = {
-        fields[0]: int(fields[1])
-        for line in (checks + omissions).splitlines()
-        if len(fields := line.split(maxsplit=2)) == 3 and fields[0] in expected_counts
-    }
-    assert inventory_counts == expected_counts
-    completed_rows = sum(
-        1 for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
-    )
-    assert completed_rows == 1
-    assert completed_rows + sum(inventory_counts.values()) == len(battery._presented())
+    assert summary.facts[vocabulary.RESULT] == "failed"
+    assert summary.reading == "2 checks need attention: shared (validation) and warning."
+    warning = next(row for row in checks.rows if row[0].value == "warning")
+    assert warning[2].text == "warning detail"
+    full = battery.summary("full").section(vocabulary.BATTERY_ROWS_IN_FULL).lines
+    assert any(line.startswith("warning (needs attention): warning detail.") for line in full)
+    steps = summary.note("next_steps").text
+    assert all(f"act on {name}" in steps for name in ("shared", "warning", "choose"))
 
     frame = battery.to_frame()
-    warning = frame.loc[frame["check"] == "warning"].iloc[0]
-    assert warning["detail"] == "warning detail " * 20
-    assert warning["next_steps"] == "act on warning"
+    row = frame.loc[frame["check"] == "warning"].iloc[0]
+    assert row["detail"] == "warning detail. " * 20
+    assert row["next_steps"] == "act on warning"
     assert battery.omissions == (
         battery.diagnostics["choose"],
         battery.diagnostics["missing"],
@@ -1729,12 +1658,12 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
     )
 
 
-def test_the_battery_summary_names_empty_result_check_and_omission_sections():
-    """An empty section keeps its title and says ``none``, rather than disappearing.
+def test_the_battery_summary_counts_what_it_leaves_out():
+    """A table with no row is left out, and the header's counts say so.
 
     The witness is a report at each extreme: one that only returned results, and one that
-    only ran a check. A dropped section reads as a summary that was never asked the
-    question, which is the reading the three fixed titles exist to prevent.
+    only ran a check. The counts read zero where a table is missing, so a missing table
+    never reads as a question nobody asked.
     """
     no_review = AssessmentReport(
         ValidationReport(
@@ -1749,42 +1678,35 @@ def test_the_battery_summary_names_empty_result_check_and_omission_sections():
         DiagnosticReport(()),
     )
 
-    reviewed = _summary_sections(no_review.summary())
-    assert list(reviewed) == ["Returned results", "Checks", "Not run"]
-    assert reviewed["Checks"] == "none"
-    assert reviewed["Not run"] == "none"
-    assert "returned result" in reviewed["Returned results"]
+    reviewed = no_review.summary()
+    assert [table.title for table in reviewed.tables] == ["Results"]
+    assert reviewed.facts[vocabulary.NOT_RUN] == "0"
+    assert reviewed.facts[vocabulary.NEED_ATTENTION] == "0"
+    assert reviewed.facts[vocabulary.RESULT] == "nothing needs attention"
+    assert "returned result" in str(reviewed)
 
-    returned = _summary_sections(no_results.summary())
-    assert list(returned) == ["Returned results", "Checks", "Not run"]
-    assert returned["Returned results"] == "none"
-    assert "validation.score" in returned["Checks"]
+    returned = no_results.summary()
+    assert [table.title for table in returned.tables] == ["Checks"]
+    assert returned.facts[vocabulary.RESULT] == "failed"
+    assert returned.facts[vocabulary.NEED_ATTENTION] == "1"
+    assert "outside tolerance" in str(returned)
 
 
-def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventory():
-    """A real fit presents every row it ran: results in full, and the rest by name.
+def test_the_documented_seed_fit_prints_every_row_it_ran():
+    """A real fit presents every row it ran: checks, results and omissions by name.
 
     Size is the witness a synthetic report cannot give. Two of this fit's status groups
-    hold more than two rows, so a summary that renders only the head of a group drops rows here
-    and stays self-consistent, because the count column reports what it printed. The
-    inventory is therefore checked against every presented row rather than against the
-    count printed beside it.
+    hold more than two rows, so a summary that renders only the head of a group would drop
+    rows here. Each presented row is therefore checked against the printed labels.
     """
     fitted = _fit(_study(), ATE())
     battery = fitted.assess()
-    text = battery.summary()
-    sections = _summary_sections(text)
-    results, checks, omissions = (
-        sections["Returned results"],
-        sections["Checks"],
-        sections["Not run"],
-    )
-    assert list(sections) == ["Returned results", "Checks", "Not run"]
+    summary = battery.summary()
+    text = str(summary)
+    assert [table.title for table in summary.tables] == ["Results", "Checks", "Not run"]
 
     assert len(battery.to_frame()) == 16
-    assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
     assert "poorly calibrated" not in text
-    assert "not run by default because it retargets the fit" not in text
     # The nuisance row completes because the linear outcome learner puts some predictions of
     # this binary outcome at or beyond 0 or 1. Their clipped logits pull the slope toward 0,
     # and the rule's interval reaches 0, so the rule gives no finding.
@@ -1800,24 +1722,12 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     assert statuses.count(AssessmentStatus.DEFERRED) == 5
     assert statuses.count(AssessmentStatus.NOT_APPLICABLE) == 3
 
-    review = "\n".join((checks, omissions, _SUMMARY_FOOTER))
-    inventoried = {
-        f"{surface}.{item.name}"
-        for surface, item in battery._presented()
-        if item.status is not AssessmentStatus.COMPLETED
-    }
-    assert len(inventoried) == 9
-    assert {name for name in inventoried if name in review} == inventoried
-
-    # Every returned result names the operation ``report(...)`` takes. No detail on this
-    # fit repeats its own operation name, so the results block is the only source.
-    completed = {
-        item.name for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
-    }
-    assert {"support", "nuisance_models", "omitted_confounding"} <= completed
-    assert {name for name in completed if name in results} == completed
-
-    assert max(len(line) for line in review.splitlines()) < 80
+    printed = [row[0].value for table in summary.tables for row in table.rows]
+    assert sorted(printed) == sorted(item.name for _, item in battery._presented())
+    # A completed row prints its report's reading, read when the summary prints.
+    support = next(row for row in _table(summary, "Results").rows if row[0].value == "support")
+    assert battery.report("support").summary().reading.startswith(support[1].text)
+    assert max(len(line) for line in text.splitlines()) <= 78
 
 
 def test_next_steps_are_de_duplicated_and_keep_presentation_order():
@@ -2237,7 +2147,7 @@ def test_a_guarded_drtmle_truncation_curve_asks_for_the_refit_flag() -> None:
     """The gate reads the execution class, so the corrected label must reroute the caller."""
     guarded = _drtmle().diagnostics.run_all(include_retargets=True)["truncation_curve"]
     assert guarded.status is AssessmentStatus.DEFERRED
-    assert "refits nuisance models" in guarded.detail
+    assert "refits the models" in guarded.detail
     assert "include_refits=True" in guarded.detail
 
     unguarded = _drtmle(guard=()).diagnostics.run_all(include_retargets=True)["truncation_curve"]
