@@ -802,6 +802,7 @@ EXPECTED_REFIT_CELLS = {
     "sequential-offers": ["refute"],
     "sequential-pricing": ["refute"],
     "survey-nonresponse": ["bound", "refutation", "generated-outcomes"],
+    "treatment-rules": ["sensitivity", "refute", "refute-generated"],
 }
 
 

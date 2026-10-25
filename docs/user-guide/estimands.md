@@ -235,12 +235,17 @@ default `CrossFitting()` refuses before any learner and names that remedy. The f
 binary treatment, complete outcomes, iid rows without weights, and no strata or intermediate
 variable. `CausalStudy.identify` refuses each of those designs.
 
-A refit relearns the rules, so `refute` reads `unavailable` on this fit. The package does not
-implement a sensitivity analysis for this target, so every sensitivity analysis reads
-`unavailable` too. The support report and `truncation_curve` run.
+A refit that relearned the rules would estimate the value of other rules. So the `subset` and
+`random_common_cause` tests of `refute`, and `simulated_confounding`, keep the outer folds and the
+rule of each row, and read the value of the fit's own rules. The `placebo` test refits as the fit
+did: under random treatment every rule has the value of the mean outcome, which is what it reads
+against. The omitted-variable bound, the E-value and the missingness tilt read `unavailable` for
+this target. The support report and `truncation_curve` run.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.
+
+The [treatment-rules example](../examples/treatment-rules.ipynb) runs this fit end to end.
 
 ## Modified treatment policies
 

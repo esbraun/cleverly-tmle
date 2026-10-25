@@ -83,6 +83,7 @@ from .synthetic import (
     shift_dgp,
     weak_overlap_dgp,
 )
+from .treatment_rules import learned_rule_truth, make_treatment_rules, treatment_rule_value
 
 __all__ = [
     "DGP",
@@ -106,6 +107,7 @@ __all__ = [
     "competing_truth",
     "heterogeneous_dgp",
     "instrument_dgp",
+    "learned_rule_truth",
     "linear_dgp",
     "longitudinal_navigation_protocol",
     "longitudinal_rule_truth",
@@ -133,6 +135,7 @@ __all__ = [
     "make_sequential_pricing",
     "make_shift_dose",
     "make_team_readmission",
+    "make_treatment_rules",
     "make_weak_overlap",
     "missing_outcome_binary_dgp",
     "missing_outcome_bounded_dgp",
@@ -156,6 +159,7 @@ __all__ = [
     "survival_truth",
     "team_readmission_protocol",
     "team_readmission_truth",
+    "treatment_rule_value",
     "weak_overlap_dgp",
     "win_back",
     "win_back_then_ship",

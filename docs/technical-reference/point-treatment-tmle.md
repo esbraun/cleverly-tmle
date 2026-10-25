@@ -1193,7 +1193,8 @@ refuses an undeclared density, and a density declared `"estimated"`, when the re
 `TMLE` refuses both again before any learner. For a population-law odds tilt of the mechanism,
 the [scope page](scope-and-refusals.md#wrong-by-construction) gives the omitted variance term on
 one exact law. A realized learned density defines a different target. Its inference needs
-conditions that the `Stochastic` API does not check.
+conditions that the `Stochastic` API does not check. The
+[treatment-rules example](../examples/treatment-rules.ipynb) fits a known lottery in sample.
 
 `Static`, `Rule`, and `Stochastic` implement the intervention protocol. `RegimeMean` and
 `RegimeContrast` define the levels and the contrasts. See Robins (2004), Diaz Munoz and van der
@@ -1218,7 +1219,8 @@ $$
 Here $\bar Q_{nv}$ is the outcome regression that the fit trains on the training rows of fold
 $v$. A tie assigns control. The target is not the value of one rule fitted on all rows, and it is
 not the value of the optimal rule.
-[X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets.
+[X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets. The
+[treatment-rules example](../examples/treatment-rules.ipynb) fits this target end to end.
 
 The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table gives each step.
 
