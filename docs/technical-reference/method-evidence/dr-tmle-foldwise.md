@@ -261,7 +261,7 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| the spline reduced cell is red | the cell fits the spline on `Q_r` and on `g_{r,2}`. A flexible learner on `g_{r,2}` biases the one-wrong ATE. The evidence covers the GLM reduced learners on both regressions |
+| a flexible `g_{r,2}` learner is not covered | the first run's cell with a spline on `Q_r` and on `g_{r,2}` was red: a flexible learner on `g_{r,2}` biased the one-wrong ATE. The evidence covers a spline or a GLM on `Q_r`, with GLMs for `g_{r,1}` and `g_{r,2}` |
 | a fit at the outer cap can count as converged | a fit that reaches `max_outer` and meets the tolerance on its closing pass reports no failure. The failure count does not show how many fits reached the cap |
 | smooth reduced learners only | piecewise-constant reduced learners (capped histogram boosting, a 100-neighbour k-NN) reached `max_outer = 100` under both constructions on two pilot draws at n = 3,000. The study does not measure them |
 | one binary law with GLM nuisance learners | the paper law, plus the three-arm and the stratified laws in single property cells. Other outcome types, covariate laws and flexible primary learners have no witness here |

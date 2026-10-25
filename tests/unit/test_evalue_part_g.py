@@ -395,6 +395,7 @@ METHODS: dict[str, Any] = {
     "drtmle": lambda estimands: DRTMLE(
         estimands=estimands,
         **linear_drtmle(n_folds=2, outcome_learner=LogisticRegression(max_iter=1000)),
+        reduced_crossfit="pooled",
     ),
 }
 #: The fits whose ratio carries an interval.  The selector paths and the shared outcome-
