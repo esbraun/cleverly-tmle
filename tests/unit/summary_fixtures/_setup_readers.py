@@ -270,6 +270,16 @@ def _methods_check(text: str, records: Any, *, fitting_only: bool) -> None:
             assert row[1] == ("yes" if record.available else "no"), (row, record)
 
 
+#: The start of the identification statement that says how the mean as treated is read, a
+#: property of the method rather than a condition; copied from the identification record,
+#: not from the summary's vocabulary.
+AS_TREATED_STATEMENT: tuple[str, ...] = (
+    "the observed outcome is complete; under missingness at random",
+    "the natural-course mean is a functional of the observed law alone",
+    "the natural-course mean averages m(A, W) over the empirical joint law",
+)
+
+
 def question_statements(effect: Any) -> list[str]:
     """The statements a question rests on, read off its identification record: every
     assumption, less the missing-outcome and held-intermediate caveats of a design that
@@ -343,7 +353,24 @@ def read_question(effect: Any, text: str) -> None:
         assert row[1] in ("no", "partly"), row
     match = re.search(r"states (\d+) further condition", notes)
     further = int(match.group(1)) if match else 0
-    assert len(printed) + further == len(statements), (len(printed), further, statements)
+    # The as-treated statement is a property of the method, stated as a note of its own.
+    as_treated = [item for item in statements if item.startswith(AS_TREATED_STATEMENT)]
+    if as_treated:
+        outcome = functional.outcome
+        # Decided from the recorded-outcome mask itself, not from the declared column.
+        recorded = np.asarray(study.data.observed, dtype=bool)
+        if recorded.all():
+            average = f"is the average of {outcome} over the rows"
+            weights = getattr(study.data, "weights_name", None)
+            if weights is not None:
+                average += f", weighted by {weights}"
+            assert f"{average}, so it needs no model" in notes, notes
+            assert "values are missing" not in notes, notes
+        else:
+            assert f"Some {outcome} values are missing" in notes, notes
+            assert "need not equal the average of the recorded values" in notes, notes
+    total = len(printed) + further + len(as_treated)
+    assert total == len(statements), (len(printed), further, statements)
     expected.append(further)
     readings = len(effect.identification.interpretations)
     if readings:

@@ -359,7 +359,7 @@ def test_missing_outcome_identification_matches_the_observed_data_fit() -> None:
     )
     names = [row[0].text for row in effect.summary().tables[0].rows]
     assert "outcome missing at random" in names
-    assert "overlap for recorded outcomes" in names
+    assert "chance of a recorded outcome" in names
 
     result = effect.estimate(
         outcome_learner=OracleOutcome(law),
