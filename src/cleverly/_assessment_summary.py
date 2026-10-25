@@ -21,21 +21,30 @@ from ._summary._render import count_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import (
+        AssessmentCapability,
         AssessmentItem,
         AssessmentReport,
         DiagnosticReport,
+        Replayability,
         ValidationReport,
     )
 
 __all__ = [
     "assessment_repr",
     "assessment_summary",
+    "capability_cost",
+    "capability_repr",
     "check_name",
     "diagnostic_repr",
     "diagnostic_summary",
+    "facade_repr",
+    "facade_summary",
     "item_finding",
     "item_repr",
     "quoted_reasons",
+    "replay_part",
+    "replay_repr",
+    "replay_summary",
     "validation_repr",
     "validation_summary",
 ]
@@ -61,11 +70,11 @@ def check_name(name: str) -> str:
     return vocabulary.CHECK_NAMES.get(name, name.replace("_", " "))
 
 
-def _joined(items: Sequence[str]) -> str:
+def _joined(items: Sequence[str], conjunction: str = "and") -> str:
     items = list(items)
     if len(items) == 1:
         return items[0]
-    return ", ".join(items[:-1]) + " and " + items[-1]
+    return ", ".join(items[:-1]) + f" {conjunction} " + items[-1]
 
 
 def _first_sentence(text: str) -> str:
@@ -493,3 +502,226 @@ def assessment_repr(report: AssessmentReport) -> str:
         [item for _, item in report._presented()],
         f"{len(report.attention)} need attention",
     )
+
+
+# ----------------------------------------------------------------- capabilities and replay
+
+
+def capability_cost(capability: AssessmentCapability) -> str:
+    """What running a check costs, in words.
+
+    Parameters
+    ----------
+    capability : AssessmentCapability
+        The declared row.
+
+    Returns
+    -------
+    str
+        ``"cheap"``, ``"re-estimates"`` or ``"refits the models"``.
+    """
+    if capability.execution == "summarize" or capability.cost == "cheap":
+        return vocabulary.CHECK_COSTS["cheap"]
+    return vocabulary.CHECK_COSTS[capability.execution]
+
+
+def _capability_state(capability: AssessmentCapability) -> str:
+    if capability.available:
+        return vocabulary.YES_NO[True]
+    return vocabulary.STATUS_WORDS[capability.status.value]
+
+
+def capability_repr(capability: AssessmentCapability) -> str:
+    """A one-line repr of a declared check.
+
+    Parameters
+    ----------
+    capability : AssessmentCapability
+        The declared row.
+
+    Returns
+    -------
+    str
+        Such as ``AssessmentCapability(refute, available, refits the models)``, or
+        ``AssessmentCapability(benchmark, on request)`` for a row that cannot run as declared.
+    """
+    if capability.available:
+        parts = [("", capability.operation), ("", "available"), ("", capability_cost(capability))]
+    else:
+        parts = [("", capability.operation), ("", _capability_state(capability))]
+    return _short_repr("AssessmentCapability", parts)
+
+
+#: The longest repr of a facade before its list of checks is cut.
+_FACADE_REPR_WIDTH = 100
+
+
+def facade_repr(name: str, capabilities: Sequence[AssessmentCapability]) -> str:
+    """A one-line repr of a facade: the checks it can run now.
+
+    Parameters
+    ----------
+    name : str
+        The facade's class name.
+    capabilities : sequence of AssessmentCapability
+        Its declared rows.
+
+    Returns
+    -------
+    str
+        Such as ``DiagnosticsFacade(support, nuisance_models, ...)``, at most 100 characters.
+    """
+    names = [row.operation for row in capabilities if row.available]
+    text = f"{name}({', '.join(names)})"
+    if len(text) <= _FACADE_REPR_WIDTH:
+        return text
+    kept: list[str] = []
+    for operation in names:
+        if len(f"{name}({', '.join([*kept, operation])}, ...)") > _FACADE_REPR_WIDTH:
+            break
+        kept.append(operation)
+    return f"{name}({', '.join([*kept, '...'])})"
+
+
+def facade_summary(surface: str, capabilities: Sequence[AssessmentCapability]) -> Summary:
+    """The checks a facade offers on this fit, for its notebook display.
+
+    Parameters
+    ----------
+    surface : {"diagnostics", "sensitivity"}
+        The facade.
+    capabilities : sequence of AssessmentCapability
+        Its declared rows.
+
+    Returns
+    -------
+    Summary
+        A table of each check, the question it answers, whether it can run and its cost,
+        and a note naming each check that cannot run and where to read why.
+    """
+    blocked = [
+        f"{row.operation} ({_capability_state(row)})" for row in capabilities if not row.available
+    ]
+    rows = tuple(
+        (
+            Cell(row.operation, row.operation),
+            Cell(row.operation, check_name(row.operation)),
+            Cell(str(row.available), vocabulary.YES_NO[row.available]),
+            Cell(row.execution, capability_cost(row)),
+        )
+        for row in capabilities
+    )
+    return Summary.build(
+        title=vocabulary.FACADE_TITLES[surface],
+        header=[
+            (vocabulary.CHECKS_LISTED, count_text(len(capabilities))),
+            (vocabulary.CHECKS_AVAILABLE, count_text(sum(row.available for row in capabilities))),
+        ],
+        tables=[SummaryTable(vocabulary.FACADE_COLUMNS, rows)],
+        notes=[
+            note(
+                "why_not",
+                vocabulary.NOTE_TEXTS["why_not"].format(surface=surface, names=_joined(blocked)),
+            )
+        ]
+        if blocked
+        else [],
+        reading=vocabulary.FACADE_READING.format(surface=surface),
+    )
+
+
+def _replay_slots(replay: Replayability) -> list[tuple[str, bool]]:
+    return [(slot, bool(getattr(replay, slot))) for slot in vocabulary.REPLAY_ACTIONS]
+
+
+def replay_part(code: str) -> str:
+    """A part a saved result lacks, in words.
+
+    Parameters
+    ----------
+    code : str
+        An entry of ``Replayability.unreconstructible``.
+
+    Returns
+    -------
+    str
+        Its plain words; an unknown code prints with spaces for its underscores.
+    """
+    return vocabulary.REPLAY_PARTS.get(code, code.replace("_", " "))
+
+
+def replay_summary(replay: Replayability, detail: Detail) -> Summary:
+    """The printed summary of what a saved result can redo.
+
+    Parameters
+    ----------
+    replay : Replayability
+        The record.
+    detail : {"short", "full"}
+        ``"full"`` adds what each action needs.
+
+    Returns
+    -------
+    Summary
+        The summary.
+    """
+    slots = _replay_slots(replay)
+    actions = vocabulary.REPLAY_ACTIONS
+    can = [actions[slot][0] for slot, possible in slots if possible]
+    cannot = [actions[slot][0] for slot, possible in slots if not possible]
+    if not cannot:
+        reading = vocabulary.REPLAY_READINGS["all"]
+    elif not can:
+        reading = vocabulary.REPLAY_READINGS["none"]
+    else:
+        reading = vocabulary.REPLAY_READINGS["some"].format(cannot=_joined(cannot, "or"))
+    notes = []
+    if replay.unreconstructible:
+        parts = list(dict.fromkeys(replay_part(code) for code in replay.unreconstructible))
+        notes.append(
+            note(
+                "missing_parts", vocabulary.NOTE_TEXTS["missing_parts"].format(parts=_joined(parts))
+            )
+        )
+    sections: tuple[SummarySection, ...] = ()
+    if detail == "full":
+        lines = tuple(
+            vocabulary.REPLAY_NEED_LINE.format(action=actions[slot][0], needs=actions[slot][2])
+            for slot, _ in slots
+        )
+        sections = (SummarySection(vocabulary.REPLAY_NEEDS, lines),)
+    return Summary.build(
+        title=vocabulary.REPLAY_TITLE,
+        header=[(vocabulary.REPLAY_POSSIBLE, f"{len(can)} of {len(slots)}")],
+        tables=[
+            SummaryTable(
+                vocabulary.REPLAY_COLUMNS,
+                tuple(
+                    (Cell(slot, actions[slot][0]), Cell(possible, vocabulary.YES_NO[possible]))
+                    for slot, possible in slots
+                ),
+            )
+        ],
+        notes=notes,
+        reading=reading,
+        sections=sections,
+    )
+
+
+def replay_repr(replay: Replayability) -> str:
+    """A one-line repr naming the actions a saved result can redo.
+
+    Parameters
+    ----------
+    replay : Replayability
+        The record.
+
+    Returns
+    -------
+    str
+        Such as ``Replayability(summarize, re-estimate, refit, rerun)``.
+    """
+    names = [
+        vocabulary.REPLAY_ACTIONS[slot][1] for slot, possible in _replay_slots(replay) if possible
+    ]
+    return f"Replayability({', '.join(names) or 'nothing'})"
