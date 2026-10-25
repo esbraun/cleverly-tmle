@@ -3205,7 +3205,7 @@ def _point_identification(
         assumptions.append(
             "the natural-course mean is a functional of the observed law alone: neither "
             f"the adjustment set {list(design.adjustment)} nor a treatment mechanism "
-            "enters it, which is why this record requires no nuisance estimate"
+            "enters it, so this question needs no model of either"
         )
     elif target == "ey_obs":
         assumptions.append(

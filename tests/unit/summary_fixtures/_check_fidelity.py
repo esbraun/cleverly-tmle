@@ -54,12 +54,29 @@ def header_values(text: str) -> dict[str, str]:
     lines = text.splitlines()
     first = next(index for index, line in enumerate(lines) if _rule(line, "="))
     facts: dict[str, str] = {}
+    columns: list[tuple[int, str]] = []
     for line in lines[first + 1 :]:
         if _rule(line, "="):
             break
-        for part in re.split(r"\s{3,}(?=[A-Z][^:]*:)", line.strip()):
-            label, _, value = part.partition(":")
-            facts[label.strip()] = value.strip()
+        found: list[tuple[int, str]] = []
+        for match in re.finditer(r"(?:(?!\s{2,}[A-Z][^:\n]*:).)+", line):
+            text = match.group().strip()
+            if text:
+                found.append(
+                    (match.start() + len(match.group()) - len(match.group().lstrip()), text)
+                )
+        labelled = []
+        for offset, part in found:
+            label, colon, value = part.partition(":")
+            if colon:
+                labelled.append((offset, label.strip()))
+                facts[label.strip()] = value.strip()
+            else:
+                # The rest of a value the renderer wrapped, under the label it belongs to.
+                owner = [name for start, name in columns if start <= offset][-1]
+                facts[owner] = f"{facts[owner]} {part}"
+        if labelled:
+            columns = labelled
     return facts
 
 

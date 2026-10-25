@@ -27,6 +27,7 @@ from cleverly.utils.bounds import expit
 from cleverly.validation import refute
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    adjustment_table,
     assert_protocol_recorded,
     covers,
     stored_output,
@@ -260,9 +261,8 @@ def _check_design(namespace: dict[str, Any]) -> None:
     protocol, study = namespace["protocol"], namespace["study"]
     # The protocol step uses the shipped helper unchanged.
     assert protocol == offers_protocol()
-    assert protocol.fingerprint == "91f189a988d70fec"
+    assert protocol.fingerprint == "36bf1c5820debbb5"
     assert len(protocol.treatment_strategies) == len(protocol.treatment_versions) == 5
-    assert "91f189a988d70fec" in stored_output(NOTEBOOK, "protocol")
     assert_protocol_recorded(
         NOTEBOOK,
         "protocol",
@@ -280,22 +280,27 @@ def _check_design(namespace: dict[str, Any]) -> None:
         (3, ("tenure", "engaged@1", "engaged@2", "engaged@3")),
     ):
         assert study.data.history_names(week) == names
-    # "The `history at` lines list ... tenure, the engagement scores so far, and the earlier
-    # offers." No history holds the week-4 engagement.
-    assert (
-        "history at offer@3: ['tenure', 'engaged@1', 'engaged@2', 'engaged@3', "
-        "'offer@1', 'offer@2']"
-    ) in printed
-    assert "history at offer@1: ['tenure', 'engaged@1']" in printed
+    # "The summary lists ... tenure, the engagement scores so far, and the earlier offers."
+    # No history holds the week-4 engagement.
+    adjusted = adjustment_table(printed)
+    assert adjusted["offer@3"] == (
+        "tenure",
+        "engaged@1",
+        "engaged@2",
+        "engaged@3",
+        "offer@1",
+        "offer@2",
+    )
+    assert adjusted["offer@1"] == ("tenure", "engaged@1")
     assert "engaged@4" not in printed
-    # The four printed assumptions are those that the identify reading explains.
-    for assumption in (
-        "consistency: each observed history equals the potential history",
-        "no interference: one unit's potential history",
-        "sequential exchangeability given the recorded history at every node",
-        "sequential positivity for treatment and remaining under observation",
+    # The four printed conditions are those that the identify reading explains.
+    for condition in (
+        "well-defined treatment",
+        "no interference",
+        "no hidden confounding at each time",
+        "overlap at each time",
     ):
-        assert assumption in printed
+        assert condition in printed
     design = namespace["offers_design"]()
     assert dict(design.treatment_probabilities) == namespace["LOGGED"]
     assert dict(namespace["LOGGED"]) == {

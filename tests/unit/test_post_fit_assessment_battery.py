@@ -677,7 +677,7 @@ def test_the_truncation_row_costs_a_bounded_number_of_characters_per_parameter(
 ) -> None:
     """One long detail sets the width of the whole section, because nothing wraps it.
 
-    ``format_table`` sizes each column by its widest cell, so the combined report is as
+    The report table sizes each column by its widest cell, so the combined report is as
     wide as this row plus about 106 columns of name, status, and next step. What is
     bounded is the per-parameter cost and not the row itself, because a stratified fit
     reports one parameter for each estimand and stratum and the row names every one of

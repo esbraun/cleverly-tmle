@@ -1,5 +1,68 @@
 # Results, inference, and assessment
 
+## Reading a summary
+
+Every result and every check has a `summary()` method. Print it to see the answer first and the
+setup after it. The estimate of an effect looks like this:
+
+```text
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of        Rows:                            2,000
+               transition_navigation    Treated share:                   0.506
+               on transition_score (1   Out-of-fold predictions:            no
+               compared with 0)         Outcome model:       linear regression
+Outcome:       transition_score         Treatment model:   logistic regression
+               (continuous)             Probability limits:  [0.01471, 0.9853]
+Adjusted for:  discharge_risk,
+               prior_utilization,
+               medication_burden, age
+Method:        targeted maximum
+               likelihood (TMLE)
+==============================================================================
+      estimate   std. error           95% CI    p-value
+------------------------------------------------------------------------------
+ate      1.513        0.046   [1.422, 1.603]    <0.0001
+==============================================================================
+```
+
+The block above the table says what was asked and what was fitted: the question, the outcome, the
+columns adjusted for, the method, the number of rows, and the models. The table holds the
+numbers. The `estimate` is the effect on the scale of the outcome. The `std. error` measures how
+much the estimate would move from sample to sample. The `95% CI` is the interval built from it,
+and the `p-value` tests whether the effect is zero. A row with no interval says why in a note.
+
+Numbered notes follow the table, and they appear only when something changes how to read a number.
+A note can say that an estimate is experimental because no validation study covers that kind of
+fit, that the models were fitted and evaluated on the same rows, or that the cap on extreme weights
+changed some units. A warning prints before an ordinary note. A summary with no notes has nothing
+to flag.
+
+`summary()` prints the short form. `summary(detail="full")` adds sections after the notes: the
+assumptions, written out one per line, the settings that change how to read the numbers, and the
+description of the study. The short form always has the header and the table.
+
+A summary is also data. It is a string, so `print` and `str` give the text. The same object holds
+the parts, so a program does not need to parse the text.
+
+```python
+summary = result.summary()
+name = list(result.estimates)[0]
+row = summary.table().row(name)
+print(summary.heading)
+print(name, row["estimate"].value, row["95% CI"].text)
+print(summary.note_codes)
+```
+
+`summary.table()` returns the estimates table, and `.row(name)` returns its cells, each with the
+raw `value` and the printed `text`. `summary.facts` maps each header label to its value, and
+`summary.notes` lists the notes. A check's `summary().reading` gives its one-sentence verdict.
+`summary.as_html()` returns an escaped HTML fragment, and a notebook shows it without a call.
+`repr(result)` is one short line that names the method and the estimates.
+
+The rest of this page uses the same layout for the assessment, the sensitivity analyses, and the
+checks of the fit.
+
 ## Run the assessment battery
 
 Call `assess()` to collect validation, diagnostics, and sensitivity in one report.

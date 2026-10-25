@@ -670,7 +670,7 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "holds, and they are its causal coefficients only when it does."
         ),
         "isotonic_moves": (
-            "cleverly made each curve non-decreasing, which moved {count} levels ({names}). "
+            "cleverly made each curve non-decreasing, which moved {count} {levels} ({names}). "
             "The standard errors are unchanged; an interval at a moved level is valid only "
             "where the true curve strictly increases."
         ),
@@ -1119,8 +1119,8 @@ EQUATION_READINGS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "passed": (
             "The correction step solved every estimating equation to within its allowed "
-            "error. That is needed for the {spread} to describe this estimate, but it does "
-            "not show that it does."
+            "error. That is needed for the {spread} to describe this estimate, but solving "
+            "them does not show that the {spread} is right."
         ),
         "passed_declared": (
             "The correction step met its declared stopping rule on every equation it judges "

@@ -595,7 +595,7 @@ class TestTheSurroundingMachineryWorks:
         line, so no count-free bound holds here.
 
         Both bounds carry slack over the measurement. An endpoint that changes exponent
-        costs a few characters under ``%.4g``, and ``format_table`` pads every line to the
+        costs a few characters under ``%.4g``, and the report table pads every line to the
         widest cell in the report, which another row can hold.
         """
         _, combined = sweep

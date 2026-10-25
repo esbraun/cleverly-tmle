@@ -529,6 +529,26 @@ def stored_output(path: Path, cell_id: str) -> str:
     return "\n".join(_output_text(output) for output in cells[0].get("outputs", ()))
 
 
+def adjustment_table(printed: str) -> dict[str, tuple[str, ...]]:
+    """The "What each treatment time adjusts for" table of a printed summary, by treatment.
+
+    Rows that wrap continue on indented lines; the names are split on commas after the join.
+    """
+    lines = printed.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("What each treatment time"))
+    rows: dict[str, str] = {}
+    key = ""
+    for line in lines[start + 3 :]:
+        if line.startswith("="):
+            break
+        if line[:1].isspace():
+            rows[key] += " " + line.strip()
+        else:
+            key, _, rest = line.partition(" ")
+            rows[key] = rest.strip()
+    return {name: tuple(part.strip() for part in text.split(",")) for name, text in rows.items()}
+
+
 def stored_text(path: Path) -> str:
     """The stored readable output of every code cell, joined."""
     return "\n".join(

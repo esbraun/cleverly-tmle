@@ -145,8 +145,9 @@ def check(namespace: dict[str, Any]) -> None:
     # The protocol is the program's, unchanged, so this page and the point-treatment page print
     # one fingerprint.
     assert namespace["protocol"] == navigation_protocol()
-    fingerprint = assert_protocol_recorded(NOTEBOOK, "protocol", namespace["protocol"], first)
-    assert fingerprint in stored_output(EXAMPLES / "point-treatment-tmle.ipynb", "protocol")
+    assert_protocol_recorded(NOTEBOOK, "protocol", namespace["protocol"], first)
+    point_output = stored_output(EXAMPLES / "point-treatment-tmle.ipynb", "protocol")
+    assert all(line in point_output for line in namespace["protocol"].summary_lines())
 
     # Estimate: the construction line, and one draw whose interval contains the truth.
     assert dict(first.summary().header)["Out-of-fold predictions"] == "5 folds"
@@ -205,7 +206,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert nuisance is namespace["nuisance"]
     assert assessment.report("score_equations") is namespace["scores"]
     assert 0.9 < nuisance["propensity"].metrics["calibration_slope"] < 1.1
-    assert "nuisance fits look reasonable" in stored_output(NOTEBOOK, "assessment")
+    assert "The models show no problem these metrics can detect." in stored_output(
+        NOTEBOOK, "assessment"
+    )
     support = namespace["support"]
     assert assessment.report("support") is support
     assert 0.0 < support.propensity_quantiles["overall"][0.0] < 0.05
@@ -430,14 +433,15 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert "coverage  0.9450 in (0.9179, 0.9652), band (0.88, 0.99)" in plasmode_output
     _assert_refutation_probe()
 
-    # The median-rule fit prints the limit line.
-    assert "confidence limits:" in stored_output(NOTEBOOK, "repeated-bounds")
+    # The median-rule fit prints the warning that no study licenses the limits.
+    assert "No validation study licenses the one-sided limits" in stored_output(
+        NOTEBOOK, "repeated-bounds"
+    )
 
     # Go deeper: the E-value, the median-rule bound of the repeated fit, and the team surface.
     evalue_output = stored_output(NOTEBOOK, "evalue")
-    assert "E-value, point estimate     : 3.0920" in evalue_output
-    assert "E-value, confidence limit   : 2.9358" in evalue_output
-    assert "risk ratio 1.844" in evalue_output
+    assert re.search(r"^estimate\s+1\.844\s+3\.09$", evalue_output, re.M)
+    assert re.search(r"^95% limit nearest the null\s+1\.769\s+2\.94$", evalue_output, re.M)
     repeated = namespace["repeated"]["ate"]
     bounds = namespace["repeated_bounds"]
     assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (0.03, 0.03, 1.0)

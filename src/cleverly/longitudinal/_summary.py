@@ -817,7 +817,11 @@ def _isotonic_note(result: LongitudinalResult) -> Note | None:
         names.append(where)
     return note(
         "isotonic_moves",
-        vocabulary.NOTE_TEXTS["isotonic_moves"].format(count=len(moves), names="; ".join(names)),
+        vocabulary.NOTE_TEXTS["isotonic_moves"].format(
+            count=len(moves),
+            levels="level" if len(moves) == 1 else "levels",
+            names="; ".join(names),
+        ),
     )
 
 

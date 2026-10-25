@@ -111,7 +111,9 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     support = namespace["support"]
     assert abs(support.truncated["most_extreme"] - 0.2) < 1e-12
     assert support.truncated["fraction"] == 0.0
-    assert "VERDICT: nuisance fits look reasonable." in stored_output(NOTEBOOK, "assessment")
+    assert "The models show no problem these metrics can detect." in stored_output(
+        NOTEBOOK, "assessment"
+    )
     # A weight of 1 / 0.2 = 5 is the largest weight.
     for size in support.effective_sample_size.values():
         assert 0.6 < size["ratio"] < 0.7
