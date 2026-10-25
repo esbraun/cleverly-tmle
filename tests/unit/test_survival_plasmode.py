@@ -239,7 +239,9 @@ class TestRefits:
 
 class TestRefusals:
     def test_a_gaussian_declaration(self, survival: Any) -> None:
-        with pytest.raises(CapabilityError, match="LogisticHazardOutcome"):
+        # The plasmode reads the simulated_outcome declaration, so the message names that
+        # keyword; refute has no plasmode= keyword.
+        with pytest.raises(CapabilityError, match=r"pass simulated_outcome=LogisticHazardOutcome"):
             _run(survival, CONTRAST, GaussianAdjustmentOutcome(), 10)
 
     def test_a_cause_count_mismatch(self, competing: Any) -> None:

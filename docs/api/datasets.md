@@ -54,6 +54,15 @@ program, where the order of every week is the outcome.
 `make_weekly_orders` is not in `GENERATORS` either. Its columns are `tenure`, `order_0`, and
 `engaged_t`, `offer_t`, `tracked_t`, and `order_t` for each week `t` from 1 to 3.
 
+Three functions serve the team readmission part of the
+[discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_team_readmission` | a wide frame of patients in navigator teams: a discharge offer, a day-30 call, dropout, and readmission by day 90, with the exact truth |
+| `team_readmission_truth` | the exact share readmitted by day 90 under one plan of offer and call |
+| `team_readmission_protocol` | the `StudyProtocol` of the two-decision readmission question |
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
@@ -97,4 +106,7 @@ program, where the order of every week is the outcome.
    cleverly.datasets.weekly_orders_truth
    cleverly.datasets.weekly_orders_protocol
    cleverly.datasets.offer_after_no_order
+   cleverly.datasets.make_team_readmission
+   cleverly.datasets.team_readmission_truth
+   cleverly.datasets.team_readmission_protocol
 ```
