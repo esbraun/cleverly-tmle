@@ -299,8 +299,9 @@ stale when the study is regenerated.
 
 ## Worked examples by method family
 
-Each row is one family of the
-[implementation matrix](../technical-reference/index.md#implementation-matrix). A family counts as
+Each row but the last is one family of the
+[implementation matrix](../technical-reference/index.md#implementation-matrix); the last is a
+feature the roadmap names that the matrix has no row for. A family counts as
 shown when a code cell of the tutorial fits it and the page reads the output; a mention in prose
 does not count. When a change adds a family or retires a tutorial, update this table in the same
 change.
@@ -323,7 +324,7 @@ change.
 | Categorical incremental interventions | schedules-and-intensity |
 | Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
 | Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
-| Sequentially doubly robust longitudinal estimation | weekly-outcomes |
+| Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
 | Sequential g-computation and IPW over time | sequential-offers (g-computation). No tutorial fits `IPWMethod`: its supported row needs a bounded outcome with dropout |
 | Structural nested mean model | model-based-over-time |
 | Parametric g-formula over time | model-based-over-time |
