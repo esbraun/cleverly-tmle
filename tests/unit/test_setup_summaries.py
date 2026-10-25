@@ -175,7 +175,7 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
     ),
     "natural_course": (
         (),
-        2,
+        0,
     ),
     "incremental": (
         (
@@ -210,7 +210,7 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
             ("no hidden confounding", "no", "none of them is affected by A."),
             ("overlap", "partly", "chance of the reference level of A."),
         ),
-        1,
+        0,
     ),
     "paf": (
         (
@@ -219,7 +219,7 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
             ("no hidden confounding", "no", "none of them is affected by A."),
             ("overlap", "partly", "chance of the reference level of A."),
         ),
-        2,
+        1,
     ),
     "multi_arm_ate": (
         (
@@ -264,16 +264,28 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
             ("no hidden confounding", "no", "none of them is affected by A."),
             ("overlap", "partly", "chance of each compared level of A."),
             ("outcome missing at random", "no", "was recorded is unrelated to its value."),
-            ("overlap for recorded outcomes", "partly", "had some chance of a recorded Y."),
+            ("chance of a recorded outcome", "partly", "had some chance of a recorded Y."),
         ),
         0,
     ),
     "missing_natural_course": (
         (
             ("outcome missing at random", "no", "was recorded is unrelated to its value."),
-            ("overlap for recorded outcomes", "partly", "had some chance of a recorded Y."),
+            ("chance of a recorded outcome", "partly", "had some chance of a recorded Y."),
         ),
-        1,
+        0,
+    ),
+    "missing_par": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "chance of the reference level of A."),
+            ("outcome missing at random", "no", "was recorded is unrelated to its value."),
+            ("chance of a recorded outcome", "partly", "had some chance of a recorded Y."),
+            ("recorded outcome at reference", "partly", "level of A and a recorded Y."),
+        ),
+        0,
     ),
     "direct_effect": (
         (
@@ -284,7 +296,7 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
             ("overlap", "partly", "chance of each compared level of A."),
             ("overlap for Z", "partly", "of the value Z is held at."),
             ("outcome missing at random", "no", "was recorded is unrelated to its value."),
-            ("overlap for recorded outcomes", "partly", "had some chance of a recorded Y."),
+            ("chance of a recorded outcome", "partly", "had some chance of a recorded Y."),
         ),
         1,
     ),
@@ -368,7 +380,8 @@ def test_every_statement_reaches_the_condition_it_names(name: str) -> None:
     assert _condition_rows(effect) == rows
     assert _further(effect) == further
     statements = readers.question_statements(effect)
-    assert len(rows) + further == len(statements)
+    as_treated = [item for item in statements if item.startswith(readers.AS_TREATED_STATEMENT)]
+    assert len(rows) + further + len(as_treated) == len(statements)
 
 
 def test_every_entry_of_the_condition_words_is_reached() -> None:
@@ -388,13 +401,12 @@ def test_every_entry_of_the_condition_words_is_reached() -> None:
 
 
 #: Entries for statements none of the pinned questions makes: a vector treatment, a tilt,
-#: a learned rule and a product of response and treatment overlap.
+#: and a learned rule.
 UNREACHED = {
     "positivity for the evaluated doses:",
     "positivity for the evaluated treatment values:",
     "positivity *for the regime*",
     "positivity for the treated arm wherever the tilt keeps it",
-    "product positivity at the reference arm",
 }
 
 
@@ -851,3 +863,114 @@ def test_a_record_repr_is_one_quiet_line(build: Any) -> None:
     assert "\n" not in text
     assert len(text) <= 100
     assert text.startswith(type(obj).__name__ + "(")
+
+
+# ----------------------------------------------------------------- plain wording (X68 N1 review)
+
+
+def test_the_two_recorded_outcome_conditions_have_their_own_names() -> None:
+    """A missing-outcome attributable risk rests on both recorded-outcome conditions, and
+    the short table names them apart."""
+    effect = QUESTIONS["missing_par"]()
+    rows = effect.summary().table(vocabulary.CONDITIONS_TITLE).rows
+    names = [row[0].text for row in rows]
+    assert "chance of a recorded outcome" in names
+    assert "recorded outcome at reference" in names
+    assert len(names) == len(set(names))
+
+
+@pytest.mark.parametrize(
+    ("name", "code"),
+    [
+        ("par", "as_treated_complete"),
+        ("paf", "as_treated_complete"),
+        ("natural_course", "as_treated_complete"),
+        ("missing_par", "as_treated_missing"),
+    ],
+)
+def test_the_as_treated_statement_is_a_plain_note(name: str, code: str) -> None:
+    """The statement on how the mean as treated is read is a property of the method, so it is
+    stated in words and not counted among the further conditions."""
+    effect = QUESTIONS[name]()
+    summary = effect.summary()
+    assert code in summary.note_codes
+    statement = next(
+        item
+        for item in readers.question_statements(effect)
+        if item.startswith(readers.AS_TREATED_STATEMENT)
+    )
+    assert statement not in str(summary)
+    full = effect.summary(detail="full")
+    assert f"- {statement}" in full.section(vocabulary.SECTION_ASSUMPTIONS).lines
+    readers.read_question(effect, str(summary))
+
+
+def test_a_swapped_as_treated_note_fails_the_question_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deliberate mutation: the complete-outcome note on a missing-outcome question, and a
+    statement counted as a further condition, each fail the reader."""
+    effect = QUESTIONS["missing_par"]()
+    readers.read_question(effect, str(effect.summary()))
+    monkeypatch.setattr(
+        vocabulary,
+        "METHOD_STATEMENTS",
+        tuple((prefix, (done, done)) for prefix, (done, _) in vocabulary.METHOD_STATEMENTS),
+    )
+    with pytest.raises(AssertionError):
+        readers.read_question(effect, str(effect.summary()))
+    monkeypatch.setattr(vocabulary, "METHOD_STATEMENTS", ())
+    with pytest.raises(AssertionError):
+        readers.read_question(effect, str(effect.summary()))
+
+
+def test_the_protocol_prints_when_follow_up_starts() -> None:
+    """The ``time_zero`` field keeps its API name and prints in plain words."""
+    record = setup.protocol()
+    lines = record.summary_lines()
+    assert f"Follow-up starts: {record.time_zero}" in lines
+    assert not any(line.startswith("Time zero") for line in lines)
+    summary = record.summary()
+    assert dict(summary.header)[vocabulary.TIME_ZERO] == record.time_zero
+    assert "Time zero" not in str(summary)
+
+
+@pytest.mark.parametrize("estimand", ["par", "natural_course"])
+def test_a_declared_response_column_with_every_outcome_recorded_reads_complete(
+    estimand: str,
+) -> None:
+    """A witness: the response column is declared but marks every row recorded, so the
+    estimator takes the plain average and the note says so."""
+    from cleverly import NaturalCourseMean, PopulationAttributableRisk
+
+    frame = make_linear_ate(n=200, seed=8)[0].assign(R=1)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1",), missingness="R"),
+    )
+    question = PopulationAttributableRisk(reference=1) if estimand == "par" else None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        effect = study.identify(question or NaturalCourseMean())
+    summary = effect.summary()
+    assert "as_treated_complete" in summary.note_codes
+    assert "as_treated_missing" not in summary.note_codes
+    readers.read_question(effect, str(summary))
+
+
+def test_a_weighted_design_names_its_weights_in_the_as_treated_note() -> None:
+    """A witness: with observation weights the mean as treated is a weighted average."""
+    from cleverly import NaturalCourseMean
+
+    frame = make_linear_ate(n=200, seed=9)[0].assign(wt=np.linspace(0.5, 1.5, 200))
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1",), weights="wt"),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        effect = study.identify(NaturalCourseMean())
+    summary = effect.summary()
+    text = " ".join(summary.note("as_treated_complete").text.split())
+    assert "the average of Y over the rows, weighted by wt, so it needs no model" in text
+    readers.read_question(effect, str(summary))
