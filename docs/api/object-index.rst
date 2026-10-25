@@ -234,6 +234,9 @@ categorized API tables.
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_recovery_score
+   cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_score_protocol
    cleverly.datasets.make_randomized_pilot
    cleverly.datasets.randomized_pilot_truth
    cleverly.datasets.make_contact_schedules
@@ -246,6 +249,9 @@ categorized API tables.
    cleverly.datasets.make_team_readmission
    cleverly.datasets.team_readmission_truth
    cleverly.datasets.team_readmission_protocol
+   cleverly.datasets.make_treatment_rules
+   cleverly.datasets.treatment_rule_value
+   cleverly.datasets.learned_rule_truth
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship
    cleverly.datasets.make_sequential_pricing

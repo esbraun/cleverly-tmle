@@ -1200,7 +1200,8 @@ refuses an undeclared density, and a density declared `"estimated"`, when the re
 `TMLE` refuses both again before any learner. For a population-law odds tilt of the mechanism,
 the [scope page](scope-and-refusals.md#wrong-by-construction) gives the omitted variance term on
 one exact law. A realized learned density defines a different target. Its inference needs
-conditions that the `Stochastic` API does not check.
+conditions that the `Stochastic` API does not check. The
+[treatment-rules example](../examples/treatment-rules.ipynb) fits a known lottery in sample.
 
 `Static`, `Rule`, and `Stochastic` implement the intervention protocol. `RegimeMean` and
 `RegimeContrast` define the levels and the contrasts. See Robins (2004), Diaz Munoz and van der
@@ -1225,7 +1226,8 @@ $$
 Here $\bar Q_{nv}$ is the outcome regression that the fit trains on the training rows of fold
 $v$. A tie assigns control. The target is not the value of one rule fitted on all rows, and it is
 not the value of the optimal rule.
-[X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets.
+[X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets. The
+[treatment-rules example](../examples/treatment-rules.ipynb) fits this target end to end.
 
 The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table gives each step.
 
@@ -1311,7 +1313,7 @@ is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model
 folds, learner templates and seeds replay it.
 
 A refit relearns the rules, so the full-refit bootstrap and `repeats` above 1 refuse.
-`simulated_confounding` and the `refute` tests that refit hold each row's realized rule fixed.
+`simulated_confounding` and the `refute` tests `subset`, `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` hold each row's realized rule fixed. `placebo` relearns the rules, because the placebo law gives every rule the value `E[Y]`.
 The [simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface) states that reading.
 
 The other sensitivity analyses read `unavailable`, because the package does not implement them for this target.
