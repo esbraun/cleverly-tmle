@@ -58,7 +58,7 @@ def _finding(item: Any) -> str:
     reading = summary().reading if callable(summary) else None
     if not reading:
         return f"see report.report('{item.name}')"
-    return re.split(r"(?<=\.)\s", reading)[0]
+    return re.split(r"(?<=\.)\s(?=[A-Z])", reading)[0]
 
 
 def _same(shown: str, expected: str) -> bool:

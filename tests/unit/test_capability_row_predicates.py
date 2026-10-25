@@ -2105,7 +2105,7 @@ class TestGuardedTruncationUsesCachedNuisanceReplay:
         direct = truncation_curve(result, [0.05])
         through_facade = result.diagnostics.truncation_curve([0.05])
         assert len(direct) == len(result.estimates)
-        assert direct.equals(through_facade)
+        assert direct.equals(through_facade.to_frame())
 
     def test_a_missing_function_declaration_still_refuses_retargeting(
         self, guarded_curve_results: dict[str, Any], monkeypatch: pytest.MonkeyPatch

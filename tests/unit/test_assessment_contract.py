@@ -27,6 +27,7 @@ from cleverly import (
     NaturalCourseMean,
     PointTreatment,
     PositivityWarning,
+    TruncationCurve,
     ValidationReport,
     load,
 )
@@ -157,7 +158,7 @@ def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
     bounds = (0.01, 0.05)
     default = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds)
     explicit = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds, mechanism=True)
-    pd.testing.assert_frame_equal(default, explicit, check_exact=True)
+    pd.testing.assert_frame_equal(default.to_frame(), explicit.to_frame(), check_exact=True)
     combined = raw_natural_course_result.diagnostics.run_all(include_retargets=True)
     assert combined["truncation_curve"].status is AssessmentStatus.COMPLETED
 
@@ -1177,23 +1178,27 @@ def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -
     assert not before["is_fitted_bound"].any()
     restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
     after = restored.diagnostics.truncation_curve(bounds=[0.02, 0.05])
-    assert isinstance(after, pd.DataFrame)
-    pd.testing.assert_frame_equal(after, before, check_exact=True)
+    assert isinstance(after, TruncationCurve)
+    assert isinstance(after.to_frame(), pd.DataFrame)
+    pd.testing.assert_frame_equal(after.to_frame(), before.to_frame(), check_exact=True)
 
 
 def test_a_combined_report_retains_and_replays_a_returned_frame(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     combined = point_result.diagnostics.run_all(include_retargets=True)
     before = combined.report("truncation_curve")
     detail = combined["truncation_curve"].detail
-    assert isinstance(before, pd.DataFrame)
+    assert isinstance(before, TruncationCurve)
+    assert isinstance(before.to_frame(), pd.DataFrame)
     assert before["is_fitted_bound"].sum() == 1
-    pd.testing.assert_frame_equal(combined.reports()["truncation_curve"], before, check_exact=True)
+    pd.testing.assert_frame_equal(
+        combined.reports()["truncation_curve"].to_frame(), before.to_frame(), check_exact=True
+    )
 
     restored = load(point_result.save(tmp_path / "combined-frame.joblib"))
     replayed = restored.diagnostics.run_all(include_retargets=True)
     after = replayed.report("truncation_curve")
-    assert isinstance(after, pd.DataFrame)
-    pd.testing.assert_frame_equal(after, before, check_exact=True)
+    assert isinstance(after.to_frame(), pd.DataFrame)
+    pd.testing.assert_frame_equal(after.to_frame(), before.to_frame(), check_exact=True)
     assert replayed["truncation_curve"].detail == detail
 
 
@@ -2196,14 +2201,14 @@ def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
     # the caller edits leaves the stored rows unchanged.
     diagnostics = result.diagnostics.run_all(include_retargets=True)
     assert calls == [1]
-    retained = diagnostics.report("truncation_curve")
+    retained = diagnostics.report("truncation_curve").to_frame()
     expected = _frame_values(retained, backend)
     _poke(retained, backend)
-    fresh = diagnostics.report("truncation_curve")
+    fresh = diagnostics.report("truncation_curve").to_frame()
     assert _frame_values(fresh, backend) == expected
     path = tmp_path / f"{backend}.joblib"
     joblib.dump(diagnostics, path)
-    assert type(joblib.load(path).report("truncation_curve")) is type(fresh)
+    assert type(joblib.load(path).report("truncation_curve").to_frame()) is type(fresh)
     assert calls == [1]
 
     # The contour keeps its rows as Python values, so it needs no packing, and the frame
