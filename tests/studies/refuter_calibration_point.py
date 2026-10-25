@@ -516,7 +516,11 @@ def estimator(cell: Cell, seed: int) -> Any:
             outcome_learner=_logistic(),
             treatment_learner=DeclaredOnly() if known else _logistic(),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=_logistic(),
+            # The run predates the fold-wise default; these two keywords pin the
+            # construction and the g_r2 learner it fitted.
+            reduced_crossfit="pooled",
             **common,
         )
     raise ValueError(f"unknown estimator {cell.estimator!r}")
