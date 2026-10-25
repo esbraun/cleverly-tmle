@@ -779,6 +779,9 @@ whose times sit on the grid. `tests/unit/test_time_to_event_input.py` checks one
 and the round trip on two grids. It also checks the long fit against the wide held fit. Floor
 binning and the censor-first map are its mutations, and each one misses the truth.
 
+[Discharge to readmission](../examples/discharge-to-readmission.ipynb) applies this input to
+readmission times on a grid of check days.
+
 ### Long-panel input
 
 `LongitudinalData.from_long_panel` and the design `LongPanel` read one row per unit and decision
@@ -1773,6 +1776,10 @@ $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 | no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
 | the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
 | 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (b) holds it |
+
+[Discharge to readmission](../examples/discharge-to-readmission.ipynb) fits a clustered
+two-decision program at 100 teams, and compares its interval with the fit that leaves `cluster=`
+out.
 
 ## The sequentially doubly robust estimator
 

@@ -2481,9 +2481,11 @@ def _validate_hazard_process(data: Any, process: Any, name: str) -> None:
     competing = bool(data.is_competing)
     expected = MultinomialHazardOutcome if competing else LogisticHazardOutcome
     if type(process) is not expected:
+        # The plasmode has no keyword of its own: it reads the simulated_outcome declaration.
+        keyword = "simulated_outcome" if name == "plasmode" else name
         raise CapabilityError(
             f"{name} on a {'competing-risk' if competing else 'survival'} fit draws its "
-            f"events from a declared hazard; pass {name}={expected.__name__}(...)",
+            f"events from a declared hazard; pass {keyword}={expected.__name__}(...)",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     if name == "dummy_outcome" and not process.independent:
@@ -4053,10 +4055,18 @@ def _generated_outcome_test(
                 f"{bands.minimum_draws}, so the readings state no verdict."
             )
             resolved.add(sentences[-1])
-            evidence = (
-                f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} its "
-                "simulation study needs, so it gives no pass or fail."
-            )
+            if licensed_plain:
+                evidence = (
+                    f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} its "
+                    "simulation study needs, so it gives no pass or fail."
+                )
+            else:
+                # No study row covers this fit, so more repeats would not give a verdict either.
+                evidence = (
+                    f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} a "
+                    "verdict needs, and no simulation study backs a verdict for this kind of "
+                    "fit at any count, so it gives no pass or fail."
+                )
             if licensed_plain:
                 withheld = (
                     f"its {len(values):,} repeats are fewer than the "
@@ -4692,7 +4702,8 @@ def _placebo_positivity_gap(result: Any, kernel: MarkovKernel) -> str | None:
     """Name a static regimen that the placebo kernel never draws, or return ``None``.
 
     The exact null needs ``K(a) > 0`` for each regimen the fit evaluates (X82 plan 5.1.2).
-    The check reads static regimens on an all-categorical panel. A dynamic regimen or a dose
+    The check reads static regimens on an all-categorical panel. On a held design the
+    trajectory is the regimen's node-1 arm at every node. A dynamic regimen or a dose
     node has no single trajectory to read.
     """
     from ..longitudinal.regimen import Regimen
@@ -4705,6 +4716,11 @@ def _placebo_positivity_gap(result: Any, kernel: MarkovKernel) -> str | None:
             continue
         encoded = data.encode_assignment(np.asarray(regimen.values, dtype=object), regimen.label)
         codes = tuple(int(code) for code in encoded[0])
+        if kernel.held:
+            # A held regimen resolves on node 1 only. Its later columns are identity nodes,
+            # which ``encode_assignment`` fills with each unit's own observed arm, so row 0
+            # says nothing about the regimen there. The held kernel copies node 1 forward.
+            codes = (codes[0],) * kernel.n_times
         if kernel.trajectory_probability(codes) == 0.0:
             return (
                 f"the Markov kernel of the observed treatments gives regimen "

@@ -40,6 +40,15 @@ Seven names serve the pricing tutorial of the same program.
 `make_sequential_pricing` is not in `GENERATORS` either. Its columns are `usage`, `engaged_1`,
 `price_1`, `engaged_2`, `price_2`, `engaged_3`, `price_3`, `renewed`, and `revenue`.
 
+Three functions serve the team readmission part of the
+[discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_team_readmission` | a wide frame of patients in navigator teams: a discharge offer, a day-30 call, dropout, and readmission by day 90, with the exact truth |
+| `team_readmission_truth` | the exact share readmitted by day 90 under one plan of offer and call |
+| `team_readmission_protocol` | the `StudyProtocol` of the two-decision readmission question |
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
@@ -79,4 +88,7 @@ Seven names serve the pricing tutorial of the same program.
    cleverly.datasets.pricing_truth
    cleverly.datasets.pricing_protocol
    cleverly.datasets.price_rise
+   cleverly.datasets.make_team_readmission
+   cleverly.datasets.team_readmission_truth
+   cleverly.datasets.team_readmission_protocol
 ```
