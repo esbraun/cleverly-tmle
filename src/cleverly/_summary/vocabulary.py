@@ -2056,6 +2056,109 @@ BATTERY_READINGS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+#: What a check costs to run, by the capability's execution class and cost.
+CHECK_COSTS: Final[Mapping[str, str]] = MappingProxyType(
+    {"cheap": "cheap", "retarget": "re-estimates", "refit": "refits the models"}
+)
+
+#: The facades' list of the checks a fit offers (``result.diagnostics``, ``.sensitivity``).
+FACADE_TITLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "diagnostics": "Diagnostics available for this fit",
+        "sensitivity": "Sensitivity analyses available for this fit",
+    }
+)
+FACADE_COLUMNS: Final[tuple[str, ...]] = ("check", "what it answers", "available", "cost")
+CHECKS_AVAILABLE: Final = "Available"
+CHECKS_LISTED: Final = "Checks"
+HEADER_LABELS = HEADER_LABELS | {CHECKS_AVAILABLE, CHECKS_LISTED}
+FACADE_READING: Final = (
+    "Call result.{surface}.<check>() to run one, or result.{surface}.run_all() to run every "
+    "check that needs no argument."
+)
+
+#: What a saved result can redo (``Replayability``).
+REPLAY_TITLE: Final = "What this saved result can redo"
+REPLAY_COLUMNS: Final[tuple[str, ...]] = ("action", "possible")
+REPLAY_POSSIBLE: Final = "Possible"
+HEADER_LABELS = HEADER_LABELS | {REPLAY_POSSIBLE}
+#: Each slot of ``Replayability``: its action in words, its short repr name, and what it needs.
+REPLAY_ACTIONS: Final[Mapping[str, tuple[str, str, str]]] = MappingProxyType(
+    {
+        "summarize_existing_artifacts": (
+            "show the stored checks",
+            "summarize",
+            "the checks stored with the fit.",
+        ),
+        "retarget_cached_nuisances": (
+            "re-estimate from the stored models without refitting them",
+            "re-estimate",
+            "the stored model predictions and the estimator's settings.",
+        ),
+        "evaluate_stored_representer": (
+            "evaluate other quantities from the stored weighting function",
+            "evaluate",
+            "a stored weighting function, which no estimator keeps yet.",
+        ),
+        "refit_nuisances": (
+            "refit the models",
+            "refit",
+            "the estimator's settings, learners that can be copied with their seeds, and every "
+            "declaration the fit checked.",
+        ),
+        "evaluate_new_data": (
+            "score new data",
+            "score",
+            "fitted models kept for prediction on new rows, which no estimator keeps yet.",
+        ),
+        "rerun_configuration": (
+            "rerun the same settings on changed data",
+            "rerun",
+            "the estimator's settings and the declarations a fit checks; a rerun does not "
+            "promise the same numbers.",
+        ),
+    }
+)
+REPLAY_NEEDS: Final = "What each action needs"
+REPLAY_NEED_LINE: Final = "{action}: {needs}"
+#: The parts ``Replayability.unreconstructible`` names, in words.
+REPLAY_PARTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "estimator configuration": "the estimator's settings",
+        "point_replay_function_declaration": "a declaration that a stored function is known",
+        "point_replay_refit_configuration": "settings that a refit accepts",
+        "longitudinal_replay_learner_unclonable": "learners that can be copied",
+        "longitudinal_replay_random_state_unseeded": "a seed for each learner",
+        "longitudinal_replay_random_state_non_integer": "an integer seed for each learner",
+        "longitudinal_replay_fitted_bound_mismatch": "probability limits that match the fit",
+        "longitudinal_replay_regimen_declaration": "a declaration that a regimen rule is known",
+        "longitudinal_replay_msm_declaration": (
+            "a declaration that the working-model design and weights are known"
+        ),
+    }
+)
+REPLAY_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "all": "This result can redo every action listed.",
+        "some": "This result cannot {cannot}.",
+        "none": "This result can redo none of the actions listed.",
+    }
+)
+T3_ACCESS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "missing_parts": "note",
+        "why_not": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_ACCESS_NOTE_CODES})
+T3_ACCESS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "missing_parts": "The result lacks {parts}.",
+        "why_not": ("Cannot run here: {names}. result.{surface}.capability(name).reason says why."),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_ACCESS_NOTE_TEXTS})
+
 #: Code that a summary may print whole, though it holds a word the house style keeps out of
 #: prose: a public call such as ``result.diagnostics.nuisance_models()``, or the attribute
 #: path that counts the DR-TMLE reduction's hard steps, which no check prints. The contract
