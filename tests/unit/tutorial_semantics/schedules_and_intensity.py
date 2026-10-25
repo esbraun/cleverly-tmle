@@ -81,10 +81,17 @@ def _check_schedules(namespace: dict[str, Any]) -> None:
     assert risk == sorted(risk)
     raw, true = observed["average_score"], observed["true_average"]
     assert raw.max() - raw.min() < true.max() - true.min()
-    for name in list(tilts)[1:]:
-        key = f"ate_ipsi[{name} vs current practice]"
-        # "understate ... several times over"
-        assert 0.0 < namespace["simple"][name] < truth[key] / 2.5
+    # "about a third and a sixth of the true changes"
+    ratios = [
+        namespace["simple"][name] / truth[f"ate_ipsi[{name} vs current practice]"]
+        for name in list(tilts)[1:]
+    ]
+    assert 0.28 < ratios[0] < 0.4 and 0.13 < ratios[1] < 0.2
+    # "about an eighth of the true 0.17 gap between all-high and all-low"
+    gap = truth["ey[high]"] - truth["ey[low]"]
+    assert round(gap, 2) == 0.17
+    high = namespace["tilt_result"]["ate_ipsi[high doubled vs current practice]"].psi
+    assert 0.1 < high / gap < 0.15
 
 
 def _check_protocols(namespace: dict[str, Any]) -> None:
@@ -129,7 +136,8 @@ def _check_dose_fit(namespace: dict[str, Any]) -> None:
     assert round(frame["pharmacist_minutes"].mean(), 1) == 40.0
     both = namespace["BOTH"]
     # "one fifteenth of the true +0.0731"
-    assert 0.0 < namespace["simple_both"] < truth[both] / 10
+    # "one fifteenth of the true change"
+    assert 0.055 < namespace["simple_both"] / truth[both] < 0.08
     # Adjusting brings the regression close to the added-up raises, still short of the truth.
     added = truth[namespace["HOURS"]] + truth[namespace["MINUTES"]]
     assert added < namespace["adjusted_both"] < truth[both]
@@ -194,5 +202,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert (tests["subset"].statistic > 1.0) is ratio_above_one
     tilt = namespace["tilt_surface"].cells[-1]
     assert tilt.displacement / namespace["tilt_result"][namespace["TILT"]].std_error < -4.0
+    assert tilt.estimate > 0.0  # "The estimate stays positive"
     dose = namespace["dose_surface"].cells[-1]
     assert abs(dose.displacement / namespace["dose_result"][namespace["BOTH"]].std_error) < 0.5

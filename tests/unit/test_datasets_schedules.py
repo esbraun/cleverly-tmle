@@ -3,12 +3,14 @@
 :func:`cleverly.datasets.contact_schedules_truth` and
 :func:`cleverly.datasets.navigation_doses_truth` integrate by quadrature.  Monte Carlo checks hold
 each: the conditional mean averaged over drawn covariates and doses under the intervened law (no
-outcome noise), and an importance-weighted mean of drawn outcomes, which also checks the outcome,
-schedule and dose draws.  Each tolerance is four Monte Carlo standard errors.
+outcome noise), and a mean of drawn outcomes (importance-weighted for the schedules), which also
+checks the outcome and schedule draws and, through current practice, the dose draw.  Each
+tolerance is four Monte Carlo standard errors.
 
 An exact-law check is blind to a term that vanishes at the truth, so deliberately wrong laws must
 fail the same comparison: a tilt that ignores the factors, a score without the schedule step, a
-dose law without the interaction of the two doses, and a plan that ignores its cap.
+dose law without the interaction of the two doses, and a plan that ignores either cap.  The
+shipped caps bind on under 2% of rows, so the cap controls use tighter caps that bind often.
 """
 
 from __future__ import annotations
@@ -96,7 +98,8 @@ def _ignore_factors(factors: Any) -> np.ndarray:
 
 
 def _no_schedule_step(w: np.ndarray) -> np.ndarray:
-    base = -0.3 + 0.6 * w[..., 0] - 0.3 * w[..., 1] + 0.2 * w[..., 2]
+    # The shipped score mean with only the schedule step removed.
+    base = -0.1 - 0.6 * w[..., 0] - 0.3 * w[..., 1] - 0.3 * w[..., 2]
     return np.asarray(expit(base[..., None] + np.zeros(3)), dtype=float)
 
 
@@ -144,7 +147,9 @@ def test_the_schedule_truth_is_pinned() -> None:
 # ----------------------------------------------------------------- service doses
 
 
-def _dose_oracle_draws(seed: int) -> dict[str, np.ndarray]:
+def _dose_oracle_draws(
+    seed: int, plans: dict[str, dict[str, tuple[float, float]]] = DOSE_PLANS
+) -> dict[str, np.ndarray]:
     rng = np.random.default_rng(seed)
     w = rng.standard_normal((MONTE_CARLO_N, 3))
     hours_mean, minutes_mean = law._dose_means(w)
@@ -156,7 +161,7 @@ def _dose_oracle_draws(seed: int) -> dict[str, np.ndarray]:
             law._shifted(hours, plan.get("navigator_hours")),
             law._shifted(minutes, plan.get("pharmacist_minutes")),
         )
-        for name, plan in DOSE_PLANS.items()
+        for name, plan in plans.items()
     }
     terms = {f"ey_policy[{name}]": values for name, values in means.items()}
     for name, values in means.items():
@@ -187,13 +192,7 @@ def _no_interaction(w: np.ndarray, hours: np.ndarray, minutes: np.ndarray) -> np
     return np.asarray(expit(eta - 0.1 * h**2), dtype=float)
 
 
-def _no_cap(dose: np.ndarray, step: tuple[float, float] | None) -> np.ndarray:
-    return dose if step is None else dose + step[0]
-
-
-@pytest.mark.parametrize(
-    ("name", "wrong"), [("_success_probability", _no_interaction), ("_shifted", _no_cap)]
-)
+@pytest.mark.parametrize(("name", "wrong"), [("_success_probability", _no_interaction)])
 def test_a_wrong_dose_law_fails_the_monte_carlo_comparison(
     name: str, wrong: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -204,6 +203,44 @@ def test_a_wrong_dose_law_fails_the_monte_carlo_comparison(
         mutated = navigation_doses_truth()
     finally:
         law._plan_means.cache_clear()
+    assert any(not _within(mutated[key], terms[key]) for key in terms)
+
+
+#: Caps near each dose's mean, so that each binds on about a third of the rows.
+TIGHT_PLANS = {
+    "current practice": {},
+    "more navigator time": {"navigator_hours": (0.5, 4.5)},
+    "more pharmacist time": {"pharmacist_minutes": (5.0, 45.0)},
+    "both": {"navigator_hours": (0.5, 4.5), "pharmacist_minutes": (5.0, 45.0)},
+}
+
+
+def _truth_under(plans: dict[str, dict[str, tuple[float, float]]], monkeypatch: Any) -> Any:
+    monkeypatch.setattr(law, "DOSE_PLANS", plans)
+    law._plan_means.cache_clear()
+    try:
+        return navigation_doses_truth()
+    finally:
+        law._plan_means.cache_clear()
+
+
+def test_the_dose_truth_follows_caps_that_bind(monkeypatch: pytest.MonkeyPatch) -> None:
+    terms = _dose_oracle_draws(20261029, TIGHT_PLANS)
+    truth = _truth_under(TIGHT_PLANS, monkeypatch)
+    for key, draws in terms.items():
+        assert _within(truth[key], draws), key
+
+
+@pytest.mark.parametrize("dose", ["navigator_hours", "pharmacist_minutes"])
+def test_a_plan_that_ignores_one_cap_fails_the_monte_carlo_comparison(
+    dose: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    terms = _dose_oracle_draws(20261029, TIGHT_PLANS)
+    uncapped = {
+        name: {key: (step[0], np.inf) if key == dose else step for key, step in plan.items()}
+        for name, plan in TIGHT_PLANS.items()
+    }
+    mutated = _truth_under(uncapped, monkeypatch)
     assert any(not _within(mutated[key], terms[key]) for key in terms)
 
 

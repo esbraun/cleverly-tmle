@@ -97,7 +97,7 @@ DOSE_PLANS: dict[str, dict[str, tuple[float, float]]] = {
     "both": {"navigator_hours": (0.5, 7.0), "pharmacist_minutes": (5.0, 70.0)},
 }
 
-#: The mean and standard deviation of each dose given the covariates.
+#: The standard deviation of each dose given the covariates.
 _HOURS_SD = 1.0
 _MINUTES_SD = 10.0
 

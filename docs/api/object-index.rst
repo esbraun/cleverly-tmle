@@ -233,6 +233,10 @@ categorized API tables.
    cleverly.datasets.longitudinal_navigation_protocol
    cleverly.datasets.make_randomized_pilot
    cleverly.datasets.randomized_pilot_truth
+   cleverly.datasets.make_contact_schedules
+   cleverly.datasets.contact_schedules_truth
+   cleverly.datasets.make_navigation_doses
+   cleverly.datasets.navigation_doses_truth
    cleverly.datasets.make_sequential_offers
    cleverly.datasets.offers_truth
    cleverly.datasets.offers_protocol
