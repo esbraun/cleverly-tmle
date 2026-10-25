@@ -54,6 +54,7 @@ UNPRINTED_DECIMALS = {
         for page, literals in _STUDY_COVERAGES.items()
         for literal in literals
     },
+    "0.95": "the nominal coverage of a 95% interval, the target the study coverages are read against",
 }
 
 
