@@ -2704,12 +2704,15 @@ def _long_rows() -> tuple[SupportRow, ...]:
             qualifiers=("A1", "A2", "C1", "C2"),
             cells=["smart_q_correct"],
         ),
+        # The band is the default simultaneous band of the in-sample calibration fits, which
+        # estimate the mechanisms, over all fifteen reported parameters (cell all_reported).
         long_row(
             "G27",
             ["longitudinal-repeated-outcome"],
             outcome_kind="repeated",
             treatment=("2",) * 3,
-            cells=["interval_calibration"],
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "all_reported"],
         ),
     ]
     # The repeated-outcome ``IPSI`` study (X32b): three odds tilts at three nodes.  The band is
