@@ -55,6 +55,9 @@ The first fit prints `estimated_mechanism_plugin`. Its `std_error`, `ci` and `pv
 `CapabilityError`. The second fit prints `influence_curve`. Pass explicit learners in a fit. The
 default learner library takes 30 to 120 seconds per fit.
 
+The [randomized-pilot example](../examples/randomized-pilot.ipynb) fits `AdaptiveIPTWMethod` with
+recorded treatment probabilities and five folds, beside cross-fitted TMLE on the same declaration.
+
 ## The estimator
 
 A key is one targeting problem with an indicator $I$, a mechanism $g$ and an outcome $T$. Each key

@@ -800,6 +800,7 @@ EXPECTED_REFIT_CELLS = {
         "simulated-confounding",
     ],
     "population-impact": ["sensitivity", "refutation", "generated-outcomes"],
+    "randomized-pilot": ["refutation"],
     "sequential-offers": ["refute"],
     "sequential-pricing": ["refute"],
     "survey-nonresponse": ["bound", "refutation", "generated-outcomes"],

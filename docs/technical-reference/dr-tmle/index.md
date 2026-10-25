@@ -94,8 +94,10 @@ that is not, `R_{3,n}` or `R̃_{5,n}`, can stay first order.
 `DRTMLE` ships under **conditional validity**. Read
 [the release claim](#the-release-claim-in-brief) before you rely on it.
 
-No tutorial covers DR-TMLE. In every case that an analyst can name before a fit, the ordinary
-TMLE interval is valid or conservative whenever the DR-TMLE interval is. Compare the
+The [randomized-pilot example](../../examples/randomized-pilot.ipynb) fits DR-TMLE beside TMLE on
+a declared known mechanism, and it presents DR-TMLE as adding no protection there. In every case
+that an analyst can name before a fit, the ordinary TMLE interval is valid or conservative whenever
+the DR-TMLE interval is. Compare the
 [point-treatment contract](../point-treatment-tmle.md#known-treatment-mechanism) with
 [the case table](theorem.md#the-conditioning-terms-are-linear-in-one-error).
 

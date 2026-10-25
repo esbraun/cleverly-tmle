@@ -43,6 +43,7 @@ from ._assessment_cache import (
 )
 from ._declarations import declarations_pass
 from ._inference_status import is_labelled, precedent_status, status_record, supplies_inference
+from ._summary import Detail, Summary, check_detail
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import (
@@ -60,7 +61,7 @@ from .targets.population_intervention import (
 )
 from .utils.frames import emit_frame
 from .utils.memos import without_memos
-from .utils.text import format_draw, format_table
+from .utils.text import format_draw
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
@@ -218,21 +219,6 @@ _SUMMARY_OMISSION_ORDER: tuple[AssessmentStatus, ...] = (
     AssessmentStatus.DEFERRED,
     AssessmentStatus.UNAVAILABLE,
     AssessmentStatus.NOT_APPLICABLE,
-)
-
-#: The columns both compact inventories carry.  A check row and an omission row differ in
-#: which statuses they can hold, not in shape.
-_INVENTORY_HEADERS: tuple[str, ...] = ("status", "count", "operations")
-
-#: How the compact summary closes.  Both sentences name the surface that carries the detail
-#: the summary drops, so the wording is a contract rather than decoration:
-#: ``docs/technical-reference/validation-methods.md`` describes these lines, and
-#: ``tests/unit/test_post_fit_assessment_battery.py`` re-types them to assert the summary
-#: ends in exactly this text.  That test spells the literal out on purpose, so importing
-#: this name there would make the assertion agree with itself.
-_SUMMARY_FOOTER: str = (
-    "Full ledger: call to_frame(). Next steps: call next_steps().\n"
-    "Retained payloads: call report(...)."
 )
 
 #: What stops :attr:`ValidationReport.passed`.  This one cuts across the three above rather
@@ -877,6 +863,11 @@ class AssessmentItem:
         """Return the retained payload, or None when this operation did not run."""
         return None if self._report is _AbsentReport.TOKEN else _unpack_cached(self._report)
 
+    def __repr__(self) -> str:
+        from ._assessment_summary import item_repr
+
+        return item_repr(self)
+
 
 def _item_columns(items: Sequence[AssessmentItem], **extra: Any) -> dict[str, Any]:
     """The frame payload every assessment surface emits, after any leading columns."""
@@ -889,15 +880,6 @@ def _item_columns(items: Sequence[AssessmentItem], **extra: Any) -> dict[str, An
     }
 
 
-def _item_rows(items: Sequence[AssessmentItem], *, next_steps: bool = True) -> list[list[str]]:
-    """The printable rows of a report table, with or without the next-step column."""
-    return [
-        [item.name, item.status.value, item.detail]
-        + (["; ".join(item.next_steps)] if next_steps else [])
-        for item in items
-    ]
-
-
 def _retained(item: AssessmentItem, what: str) -> Any:
     """The payload an operation kept, or a ``KeyError`` naming what did not run."""
     if item._report is _AbsentReport.TOKEN:
@@ -908,51 +890,6 @@ def _retained(item: AssessmentItem, what: str) -> Any:
 def _distinct_steps(items: Sequence[AssessmentItem]) -> tuple[str, ...]:
     """Every suggested next step across ``items``, in its first-seen order."""
     return tuple(dict.fromkeys(step for item in items for step in item.next_steps))
-
-
-def _grouped_by_status(
-    presented: Sequence[tuple[str, AssessmentItem]],
-) -> dict[AssessmentStatus, list[tuple[str, AssessmentItem]]]:
-    """Presented rows by status, each group in presentation order.
-
-    One pass reads as one statement about the rows.  The alternative filters ``presented``
-    once per status and once more for the returned results, which reads as several
-    independent selections that happen to agree.  A report holds about sixteen rows, so
-    this is a readability choice and not a speed one.
-    """
-    grouped: dict[AssessmentStatus, list[tuple[str, AssessmentItem]]] = {}
-    for surface, item in presented:
-        grouped.setdefault(item.status, []).append((surface, item))
-    return grouped
-
-
-def _inventory_rows(
-    grouped: Mapping[AssessmentStatus, Sequence[tuple[str, AssessmentItem]]],
-    statuses: Sequence[AssessmentStatus],
-) -> list[list[str]]:
-    """Compact rows for ``statuses``: a status and its count once, then its operations.
-
-    A status with no row contributes nothing.  The second and later rows of a status leave
-    the status and count cells empty, so the count reads as one claim about the group.
-    """
-    rows: list[list[str]] = []
-    for status in statuses:
-        group = grouped.get(status, ())
-        for index, (surface, item) in enumerate(group):
-            rows.append(
-                [
-                    status.value if index == 0 else "",
-                    str(len(group)) if index == 0 else "",
-                    f"{surface}.{item.name}",
-                ]
-            )
-    return rows
-
-
-def _summary_section(title: str, headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
-    """One titled and underlined section, or ``none`` when it holds no row."""
-    body = format_table(headers, rows) if rows else "none"
-    return f"{title}\n{'-' * len(title)}\n{body}"
 
 
 @dataclass(frozen=True)
@@ -969,6 +906,8 @@ class DiagnosticReport:
         Whether the run allowed moderate retargets, beyond the default cheap retargets.
     backend : str or None
         Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
+    surface : {"diagnostics", "sensitivity"}
+        The facade whose ``run_all()`` made the report, which titles its summary.
 
     See Also
     --------
@@ -1001,6 +940,7 @@ class DiagnosticReport:
     include_refits: bool = False
     include_retargets: bool = False
     backend: str | None = None
+    surface: str = "diagnostics"
 
     def __getitem__(self, name: str) -> AssessmentItem:
         """Return the report item named ``name``.
@@ -1082,15 +1022,32 @@ class DiagnosticReport:
         """
         return _distinct_steps(self.items)
 
-    def summary(self) -> str:
-        """Return a printable table of operation statuses.
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the report.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per check with its result and one finding, the
+            reading and the notes. ``"full"`` adds every row with its whole reason.
 
         Returns
         -------
-        str
-            A printable table, one line per requested operation.
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
         """
-        return format_table(["diagnostic", "status", "detail", "next step"], _item_rows(self.items))
+        from ._assessment_summary import diagnostic_summary
+
+        return diagnostic_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._assessment_summary import diagnostic_repr
+
+        return diagnostic_repr(self)
 
 
 @dataclass(frozen=True)
@@ -1172,6 +1129,16 @@ class ValidationReport:
                 return item
         raise KeyError(f"no validation check named {name!r}")
 
+    def next_steps(self) -> tuple[str, ...]:
+        """Return de-duplicated next steps in report order.
+
+        Returns
+        -------
+        tuple of str
+            Suggested follow-up actions in their first-seen order.
+        """
+        return _distinct_steps(self.items)
+
     def to_frame(self, data: Any = None) -> Any:
         """Return validation items as a dataframe.
 
@@ -1187,25 +1154,32 @@ class ValidationReport:
         """
         return emit_frame(_item_columns(self.items), data, backend=self.backend)
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the report.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per check with its result and one finding, the
+            reading and the notes. ``"full"`` adds every row with its whole reason.
 
         Returns
         -------
-        str
-            A printable table, one line per validation check.
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
         """
-        heading = "Validation: PASS" if self.passed else "Validation: ATTENTION REQUIRED"
-        return "\n".join(
-            [
-                heading,
-                "-" * len(heading),
-                format_table(
-                    ["check", "status", "detail"],
-                    _item_rows(self.items, next_steps=False),
-                ),
-            ]
-        )
+        from ._assessment_summary import validation_summary
+
+        return validation_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._assessment_summary import validation_repr
+
+        return validation_repr(self)
 
 
 @dataclass(frozen=True)
@@ -1310,31 +1284,32 @@ class AssessmentReport:
             backend=self.validation.backend,
         )
 
-    def summary(self) -> str:
-        """Return completed analyses, then compact check and omission inventories.
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the report.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per check with its result and one finding, the
+            reading and the notes. ``"full"`` adds every row with its whole reason.
 
         Returns
         -------
-        str
-            Printable completed-analysis rows followed by every other status.
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
         """
-        grouped = _grouped_by_status(self._presented())
-        result_rows = [
-            [surface, item.name, item.detail]
-            for surface, item in grouped.get(AssessmentStatus.COMPLETED, ())
-        ]
-        check_rows = _inventory_rows(grouped, _SUMMARY_CHECK_ORDER)
-        omission_rows = _inventory_rows(grouped, _SUMMARY_OMISSION_ORDER)
-        return "\n\n".join(
-            [
-                _summary_section(
-                    "Returned results", ("surface", "operation", "result"), result_rows
-                ),
-                _summary_section("Checks", _INVENTORY_HEADERS, check_rows),
-                _summary_section("Not run", _INVENTORY_HEADERS, omission_rows),
-                _SUMMARY_FOOTER,
-            ]
-        )
+        from ._assessment_summary import assessment_summary
+
+        return assessment_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._assessment_summary import assessment_repr
+
+        return assessment_repr(self)
 
 
 @dataclass(frozen=True)
@@ -2204,6 +2179,7 @@ class _CapabilityFacade:
                 include_refits=include_refits,
                 include_retargets=include_retargets,
                 backend=self._result.data.backend,
+                surface=self._attribute,
             )
 
         return _cached(
@@ -2478,7 +2454,7 @@ def _cost_refusal(
     }
     if allowed[capability.execution]:
         return None
-    work = "refits nuisance models" if capability.execution == "refit" else "retargets the fit"
+    work = "refits the models" if capability.execution == "refit" else "retargets the fit"
     flag = "include_refits" if capability.execution == "refit" else "include_retargets"
     return AssessmentItem(
         capability.operation,
