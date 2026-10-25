@@ -538,7 +538,7 @@ class TestAFacadeReadsAnIteratorOnce:
         result.diagnostics.truncation_curve(bound for bound in [0.05])
         second = result.diagnostics.truncation_curve(bound for bound in [0.2, 0.3])
         listed = result.diagnostics.truncation_curve([0.2, 0.3])
-        pd.testing.assert_frame_equal(second, listed)
+        pd.testing.assert_frame_equal(second.to_frame(), listed.to_frame())
         assert not any("generator" in key for key in result.assessment_cache)
 
     def test_two_missingness_generators_give_their_own_tilts(self) -> None:
@@ -628,7 +628,7 @@ class TestTheGuardedCurveReadsItsReductionSettings:
         assert result.diagnostics.capability("truncation_curve").available
         facade = result.diagnostics.truncation_curve([0.05])
         module = truncation_curve(result, [0.05])
-        pd.testing.assert_frame_equal(facade, module)
+        pd.testing.assert_frame_equal(facade.to_frame(), module)
 
 
 # ============================================================== RM16b: summary displays
