@@ -778,45 +778,22 @@ def test_the_slow_tier_is_deselected_by_default_and_run_by_its_own_job() -> None
     assert "if:" not in slow_job, "the slow tier runs on every change"
 
 
-#: The refit cells the rule derives today.  A change here is a change in what the fast gate
-#: skips, so it shows in the diff of the pull request that causes it.
-EXPECTED_REFIT_CELLS = {
-    "collaborative-tmle": ["refutation", "sensitivity", "generated", "stress"],
-    "cross-fitting": [
-        "sensitivity-benchmarks",
-        "fold-check",
-        "bounded-truth",
-        "team-plasmode",
-        "team-surface",
-    ],
-    "discharge-to-readmission": ["refute", "refute-generated"],
-    "interventions": ["bound", "refute-regimes", "generated", "sensitivity", "sensitivity-other"],
-    "longitudinal-survival": ["refute-checks", "refute-generated"],
-    "msm-projections": ["sensitivity", "refute", "generated", "surface"],
-    "point-treatment-tmle": [
-        "refutation",
-        "sensitivity",
-        "generated-outcomes",
-        "simulated-confounding",
-    ],
-    "randomized-pilot": ["refutation"],
-    "sequential-offers": ["refute"],
-    "sequential-pricing": ["refute"],
-    "survey-nonresponse": ["bound", "refutation", "generated-outcomes"],
-    "treatment-rules": ["sensitivity", "refute", "refute-generated"],
-    "weekly-outcomes": ["refute"],
-}
-
-
 def test_the_derived_refit_cells_are_the_reviewed_ones() -> None:
     """Pin the derived refit cells of each notebook tutorial.
 
-    Edit :data:`EXPECTED_REFIT_CELLS` when a notebook gains or loses a refit cell.  The pin keeps
-    a classification change visible: a cell that silently left the fast gate would otherwise go
-    unnoticed until the slow job ran.
+    Each notebook's callback module declares ``REFIT_CELLS``, so each author edits one file when a
+    notebook gains or loses a refit cell.  The pin keeps a classification change visible: a cell
+    that silently left the fast gate would otherwise go unnoticed until the slow job ran.  A
+    notebook module without the pin fails here rather than defaulting to no refit cells.
     """
-    derived = {path.stem: list(refit_cells(path)) for path in TUTORIALS if path.suffix == ".ipynb"}
-    assert derived == EXPECTED_REFIT_CELLS
+    notebooks = [path for path in TUTORIALS if path.suffix == ".ipynb"]
+    missing = [
+        path.stem for path in notebooks if not hasattr(callback_module(path.stem), "REFIT_CELLS")
+    ]
+    assert not missing, f"callback modules without REFIT_CELLS: {missing}"
+    derived = {path.stem: list(refit_cells(path)) for path in notebooks}
+    pinned = {path.stem: list(callback_module(path.stem).REFIT_CELLS) for path in notebooks}
+    assert derived == pinned
 
 
 def test_the_refit_rule_follows_reads_and_ignores_rebinding(tmp_path: Path) -> None:

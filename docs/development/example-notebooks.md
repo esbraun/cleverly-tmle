@@ -48,7 +48,8 @@ outputs and probe logs in `check`, because the fast tier can read them. When `ch
 refit-bound name, the fast tier fails with a `KeyError` that names the refit cell.
 
 `test_the_derived_refit_cells_are_the_reviewed_ones` lists the refit cells of each notebook. When
-your notebook gains or loses a refit cell, update `EXPECTED_REFIT_CELLS` in the same change.
+your notebook gains or loses a refit cell, update `REFIT_CELLS` in your callback module in the same
+change.
 
 These fast tests read your notebook. Each one takes the notebook path as its test id, so the
 selection `-k <stem>` runs all of them.
@@ -59,7 +60,7 @@ selection `-k <stem>` runs all of them.
 | `test_every_notebook_records_its_repository_context` | a missing or malformed recorded half of the stamp |
 | `test_every_published_figure_has_a_non_image_companion` | a figure with no printed values beside it |
 | `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds. The test skips refit cells |
-| `test_the_derived_refit_cells_are_the_reviewed_ones` | a refit cell that `EXPECTED_REFIT_CELLS` does not list, or a listed cell that is no longer a refit cell |
+| `test_the_derived_refit_cells_are_the_reviewed_ones` | a refit cell that the callback module's `REFIT_CELLS` does not list, a listed cell that is no longer a refit cell, or a notebook callback module without `REFIT_CELLS` |
 | `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, or a claim in `check` or `check_refits` that no longer holds |
 | `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision. This test also reads the TWINS notebook |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
