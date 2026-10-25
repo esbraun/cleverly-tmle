@@ -30,6 +30,10 @@ from tests.unit.tutorial_semantics import (
     stored_output,
 )
 
+#: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
+#: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
+REFIT_CELLS = ("sensitivity", "refutation", "generated-outcomes")
+
 NOTEBOOK = EXAMPLES / "population-impact.ipynb"
 
 #: The support row each fit of the page resolves to.
