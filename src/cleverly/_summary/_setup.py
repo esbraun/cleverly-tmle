@@ -107,6 +107,9 @@ def _longitudinal_outcome(data: Any) -> str:
     if events:
         return f"{listed(events)} (event by each time)"
     kind = "binary" if data.family == "binomial" else "continuous"
+    repeated = tuple(getattr(data, "repeated_names", ()) or ())
+    if repeated:
+        return f"{listed(repeated)} ({kind}), measured at each time point"
     return f"{data.outcome_name} ({kind})"
 
 
