@@ -2145,7 +2145,10 @@ REPLAY_READINGS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 T3_ACCESS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
-    {"missing_parts": "note", "why_not": "note"}
+    {
+        "missing_parts": "note",
+        "why_not": "note",
+    }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_ACCESS_NOTE_CODES})
 T3_ACCESS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
