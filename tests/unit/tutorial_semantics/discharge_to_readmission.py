@@ -65,8 +65,8 @@ def _check_data(namespace: dict[str, Any]) -> None:
     assert frame.shape == (2_000, 5)
     assert list(frame.columns) == ["lives_alone", "prior_admissions", "offer", "readmitted", "day"]
     assert set(frame["prior_admissions"]) == {0.0, 1.0, 2.0, 3.0}
-    # "such as 9.3 for row 1"; "Row 2 left follow-up after the day-30 check, and rows 0 and 3
-    # reached day 90 without a readmission."
+    # "such as 9.3 for row 1"; the other head rows are a dropout after day 30 and two patients
+    # who reached day 90 without a readmission.
     assert frame.loc[1, "readmitted"] == 1 and frame.loc[1, "day"] == pytest.approx(9.3, abs=0.05)
     assert frame.loc[2, "readmitted"] == 0 and frame.loc[2, "day"] == 30.0
     for row in (0, 3):
@@ -122,6 +122,11 @@ def _check_first_fit(namespace: dict[str, Any]) -> None:
         assert difference.psi == pytest.approx(
             result[names[0]].psi - result[names[1]].psi, abs=1e-12
         )
+    # "the fitted day-90 difference lies farther from the truth than the simple one, though inside
+    # its interval".
+    day90, true90 = differences[90.0], rows[-1]["true_difference"]
+    assert abs(day90.psi - true90) > abs(namespace["naive"][90.0] - true90)
+    assert covers(day90, true90)
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
