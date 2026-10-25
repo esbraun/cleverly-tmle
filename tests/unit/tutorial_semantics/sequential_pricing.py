@@ -118,7 +118,7 @@ UNPRINTED_DECIMALS = {
     "0.154": f"mean effective n over n of price_down at month 3, 200 draws: {_PROBE}/summary.log",
 }
 
-FINGERPRINT = "d277d3930deb5f56"
+FINGERPRINT = "c04c00be0a4211eb"
 PLANS = ("price_up", "price_down")
 #: Relative tolerance of the weight-tail quantities, the maximum weight and the effective n, which
 #: the fresh run agrees with within the last digits on every platform.

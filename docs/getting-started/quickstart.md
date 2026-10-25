@@ -159,8 +159,8 @@ print(f"population ATE: {truth['ate']:.3f}")
 ```
 
 The header names the two models and shows the limits on the predicted offer probabilities,
-[0.0147, 0.9853]. The package keeps $g$ away from 0 and 1, and `result.summary(detail="full")`
-confirms that no patient reaches a limit. The package also maps the score to $[0, 1]$ for the
+[0.0147, 0.9853]. The package keeps $g$ away from 0 and 1, and the summary prints no capping note, so
+no patient reaches a limit. The package also maps the score to $[0, 1]$ for the
 logistic update, and maps the estimate back. The TMLE estimate is 1.513, with a 95% interval from 1.422 to 1.603. The
 interval contains the true value of 1.5.
 
@@ -189,7 +189,7 @@ rule, so a row there is not a pass. `assessment.to_frame()` lists every row with
 the [status contract](../technical-reference/validation-methods.md#the-status-contract) defines
 each one. The unmeasured-confounding row reports 0.514. A left-out variable whose strengths
 with the offer and with the score are both 0.514 could, at worst, move the point estimate to zero;
-weaker ones could not.
+with both strengths below 0.514 it could not.
 [Omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 define the two strengths.
 

@@ -147,7 +147,7 @@ def navigation_protocol() -> StudyProtocol:
     >>> protocol.horizon
     '30 days after discharge'
     >>> protocol.fingerprint
-    '623fc2c240615d26'
+    '2a3fef9367a4d20d'
 
     A tutorial with another question replaces only the fields that question changes:
 
@@ -188,8 +188,9 @@ def navigation_protocol() -> StudyProtocol:
         interference_unit="Individual patient",
         assumption_rationale=(
             "The recorded baseline variables cover the measured common causes",
-            "Standardized offer and version records make each offer one well-defined action, "
-            "so a patient's recorded outcome is what that offer produces",
+            "Standardized offer and version records support that each offer is one well-defined "
+            "action, so a patient's recorded outcome is the outcome they would have had under "
+            "the offer they got",
             "Reserved navigator capacity and access controls support no interference",
         ),
     )
@@ -224,7 +225,7 @@ def longitudinal_navigation_protocol() -> StudyProtocol:
     >>> program.treatment_strategies
     ('Offer navigation at discharge and day seven', 'Offer no navigation at either decision')
     >>> program.fingerprint
-    '0fe91ade3fc3f249'
+    '544064dae3f7ef14'
 
     A tutorial that also reports a dynamic rule names it as a third strategy:
 
@@ -271,8 +272,9 @@ def longitudinal_navigation_protocol() -> StudyProtocol:
         interference_unit=program.interference_unit,
         assumption_rationale=(
             "Recorded history covers the measured common causes at each decision",
-            "Version records make the offer at each navigation decision one well-defined action, "
-            "so a patient's recorded outcome is what that offer produces",
+            "Version records support that the offer at each navigation decision is one "
+            "well-defined action, so a patient's recorded outcome is the outcome they would "
+            "have had under the offer they got",
             "Reserved navigator capacity supports no interference between patients",
         ),
     )

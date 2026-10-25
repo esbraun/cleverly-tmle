@@ -496,8 +496,9 @@ def offers_protocol() -> StudyProtocol:
             "offers, given tenure and the weekly engagement score",
             "Tenure and weekly engagement are the recorded confounders, and they cover the "
             "measured causes of consent loss",
-            "Declared code templates, one send per week, make each weekly offer one "
-            "well-defined action, so a customer's recorded outcome is what that offer produces",
+            "Declared code templates, one send per week, support that each weekly offer is one "
+            "well-defined action, so a customer's recorded outcome is the outcome they would "
+            "have had under the offers they got",
             "One account per customer and per-customer codes support no interference",
         ),
     )
