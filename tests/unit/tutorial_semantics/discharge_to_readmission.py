@@ -144,8 +144,8 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     frame = namespace["frame"]
     # "515 offered patients were still in follow-up and not yet readmitted when the last interval
     # ... began".
-    entering = support.set_index(["regimen", "time"]).loc[("offered", 4), "n_followed"]
-    assert entering == 515 == int((frame["offer"].eq(1) & frame["day"].gt(60.0)).sum())
+    last = support[support["regimen"].eq("offered") & support["time"].eq(4)]["n_followed"]
+    assert set(last) == {515} == {int((frame["offer"].eq(1) & frame["day"].gt(60.0)).sum())}
     assert bool(support["converged"].all())
 
 
