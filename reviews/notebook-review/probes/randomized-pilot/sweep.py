@@ -1,7 +1,8 @@
 """Seed sweep of the randomized-pilot page's fits, 200 draws at the page's size.
 
 Run from the repository root:
-    python reviews/notebook-review/probes/randomized-pilot/sweep.py > reviews/notebook-review/probes/randomized-pilot/sweep.log
+    python reviews/notebook-review/probes/randomized-pilot/sweep.py \
+        > reviews/notebook-review/probes/randomized-pilot/sweep.log
 
 Each draw refits the page's configurations with the page's learners: TMLE with the recorded
 chances in sample and with out-of-fold predictions, DR-TMLE with the recorded chances in sample,
@@ -62,7 +63,10 @@ def one(seed: int) -> dict[str, float]:
     in_sample = CrossFitting(enabled=False)
     five = CrossFitting(n_folds=5)
     methods = {
-        "tmle_known_in": (True, TMLEMethod(models=models, cross_fitting=in_sample, runtime=runtime)),
+        "tmle_known_in": (
+            True,
+            TMLEMethod(models=models, cross_fitting=in_sample, runtime=runtime),
+        ),
         "tmle_known_xf": (True, TMLEMethod(models=models, cross_fitting=five, runtime=runtime)),
         "drtmle_known_in": (
             True,
@@ -77,6 +81,9 @@ def one(seed: int) -> dict[str, float]:
         ),
         "aiptw_known_xf": (
             True,
+            # The notebook passes models=ModelSpec() with
+            # reduced_outcome_learner=LogisticRegression(). With recorded chances both resolve to
+            # the same reduced logistic regression of success on the chance.
             AdaptiveIPTWMethod(models=models, cross_fitting=five, runtime=runtime),
         ),
         "tmle_fitted_g_in": (

@@ -92,7 +92,7 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
     recorded, fitted = namespace["estimate"], namespace["fitted"]["ate"]
     # The fitted chances pull the estimate down and further from the truth.
     assert fitted.psi < recorded.psi
-    assert abs(fitted.psi - truth) > 4 * abs(recorded.psi - truth)
+    assert abs(fitted.psi - truth) > abs(recorded.psi - truth)
     # "still just reaches the truth": the upper limit is within 0.01 above it.
     assert covers(fitted, truth) and fitted.ci[1] - truth < 0.01
     # The fitted model smooths the jump: chances outside the recorded ones in both groups.

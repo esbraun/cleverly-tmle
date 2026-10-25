@@ -100,3 +100,35 @@ def test_the_same_seed_gives_the_same_rows() -> None:
     first, _ = make_randomized_pilot(200, seed=11)
     second, _ = make_randomized_pilot(200, seed=11)
     assert first.equals(second)
+
+
+def _written_out_law(offer: float, risk: float, utilization: float) -> float:
+    """The success probability of the module docstring, written out by hand."""
+    high = 1.0 if risk > 0.0 else 0.0
+    logit = -0.2 + offer * (0.4 + 0.6 * high) - 1.2 * high - 0.3 * risk + 0.5 * risk**2
+    return 1.0 / (1.0 + np.exp(-(logit - 0.5 * utilization)))
+
+
+@pytest.mark.parametrize(
+    ("offer", "risk", "utilization"),
+    [
+        (0, -1.5, 0.3),
+        (1, -1.5, 0.3),
+        (0, 0.8, -1.2),
+        (1, 0.8, -1.2),
+        (1, 2.5, 0.0),
+        (0, -0.01, 2.0),
+    ],
+)
+def test_the_success_probability_is_the_documented_law(
+    offer: float, risk: float, utilization: float
+) -> None:
+    shipped = float(law._success_probability(offer, risk, utilization))
+    assert shipped == pytest.approx(_written_out_law(offer, risk, utilization), abs=1e-14)
+
+
+def test_the_truth_is_pinned() -> None:
+    # Independent check: scipy.integrate.dblquad of the documented law, split at S = 0.
+    truth = randomized_pilot_truth()
+    assert truth["ey0"] == pytest.approx(0.4306997053, abs=1e-9)
+    assert truth["ey1"] == pytest.approx(0.5726708535, abs=1e-9)
