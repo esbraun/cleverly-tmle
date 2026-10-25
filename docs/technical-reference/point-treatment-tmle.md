@@ -1052,7 +1052,8 @@ point treatment, that is complete data with no `intermediate=`.
 
 With $g=g_0$ the remainder
 $P_0\{(g-g_0)/g\,(\bar Q-\bar Q_0)\}$ is zero. The estimate is then consistent for any limit
-$\bar Q_\infty$ of the outcome regression. Its influence curve is exactly
+$\bar Q_\infty$ of the outcome regression, provided the regression is fitted out of fold or lies in
+a Donsker class. Its influence curve is exactly
 $D^*(\bar Q_\infty,g_0)$. Moore and van der Laan (2009), Section 2, state the consistency.
 Their Section 5 states that inference with the true mechanism is not conservative. The table gives
 the curve each fit reports.
@@ -1072,7 +1073,7 @@ can use.
 
 | mechanism | what the interval means |
 | --- | --- |
-| the declared design mechanism, on complete data with no `intermediate=` | an interval that is not conservative, for any outcome learner |
+| the declared design mechanism, on complete data with no `intermediate=` | an interval that is not conservative, for any limit of the outcome regression. The regression must still be fitted out of fold or lie in a Donsker class, such as a fixed parametric model: an adaptive learner fitted in sample can overfit, and the empirical-process term then biases the estimate and shrinks the standard error |
 | maximum likelihood in a parametric model that contains $g_0$, such as a logistic regression on the randomization strata | a smaller true variance when $\bar Q$ is wrong. The reported standard error is then conservative (Moore and van der Laan 2009, Section 4.2 and Section 7.3, Table IV; Petersen et al. 2014, Section 3.7) |
 | a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism |
 

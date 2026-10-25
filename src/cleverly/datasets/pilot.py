@@ -6,21 +6,21 @@ patient's discharge-risk group, and the pilot recorded each patient's chance of 
 ======================  =================================================================
 node                    law
 ======================  =================================================================
-:math:`R`               ``discharge_risk``, standard normal
-:math:`U`               ``prior_utilization``, standard normal
+:math:`S`               ``discharge_risk``, standard normal
+:math:`P`               ``prior_utilization``, standard normal
 :math:`M`, :math:`G`    ``medication_burden`` and ``age``, standard normal, unused by the law
-:math:`H`               ``high_risk``, :math:`1\{R > 0\}`
+:math:`H`               ``high_risk``, :math:`1\{S > 0\}`
 :math:`A`               ``transition_navigation``, Bernoulli with
                         :math:`P(A = 1 \mid H) = 0.2 + 0.6 H`
 :math:`Y`               ``transition_success``, Bernoulli with
                         :math:`\operatorname{expit}\{-0.2 + A (0.4 + 0.6 H) - 1.2 H
-                        - 0.3 R + 0.5 R^2 - 0.5 U\}`
+                        - 0.3 S + 0.5 S^2 - 0.5 P\}`
 ======================  =================================================================
 
 The columns ``chance_no_offer`` and ``chance_offer`` hold :math:`P(A = 0 \mid H)` and
 :math:`P(A = 1 \mid H)`, the design's offer chances.  Each counterfactual mean is a
-two-dimensional integral over :math:`(R, U)`, computed by Gauss-Legendre quadrature on each side
-of :math:`R = 0` and Gauss-Hermite quadrature in :math:`U`.
+two-dimensional integral over :math:`(S, P)`, computed by Gauss-Legendre quadrature on each side
+of :math:`S = 0` and Gauss-Hermite quadrature in :math:`P`.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ PILOT_OFFER_CHANCES: dict[int, float] = {0: 0.2, 1: 0.8}
 
 
 def _success_probability(offer: Any, risk: Any, utilization: Any) -> Any:
-    """``P(transition_success = 1 | A, R, U)`` of the pilot law."""
+    """``P(transition_success = 1 | A, S, P)`` of the pilot law."""
     a = np.asarray(offer, dtype=float)
     r = np.asarray(risk, dtype=float)
     high = (r > 0.0).astype(float)
@@ -64,10 +64,10 @@ def randomized_pilot_truth() -> dict[str, float]:
 
     Notes
     -----
-    The success probability is smooth in :math:`R` on each side of the risk threshold
-    :math:`R = 0`, so each side is integrated with 200 Gauss-Legendre nodes on ``[0, 12]``
+    The success probability is smooth in :math:`S` on each side of the risk threshold
+    :math:`S = 0`, so each side is integrated with 200 Gauss-Legendre nodes on ``[0, 12]``
     against the standard normal density.  The mass beyond 12 is below ``1e-32``.
-    :math:`U` enters through a standard normal integral, taken with 80 Gauss-Hermite nodes.
+    :math:`P` enters through a standard normal integral, taken with 80 Gauss-Hermite nodes.
 
     Examples
     --------

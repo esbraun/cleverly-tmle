@@ -107,6 +107,7 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     support = namespace["support"]
     assert abs(support.truncated["most_extreme"] - 0.2) < 1e-12
     assert support.truncated["fraction"] == 0.0
+    assert "VERDICT: nuisance fits look reasonable." in stored_output(NOTEBOOK, "assessment")
     # A weight of 1 / 0.2 = 5 is the largest weight.
     for size in support.effective_sample_size.values():
         assert 0.6 < size["ratio"] < 0.7
@@ -132,7 +133,9 @@ def _check_step_bound(namespace: dict[str, Any]) -> None:
     walk = namespace["walk"]
     # The iteration count near the tolerance depends on the platform, so the page prints none.
     assert walk.converged and walk.n_iter > 1
-    assert abs(namespace["point"].psi - namespace["estimate"].psi) < 1e-6
+    point, estimate = namespace["point"], namespace["estimate"]
+    assert abs(point.psi - estimate.psi) < 1e-6
+    assert all(abs(a - b) < 5e-5 for a, b in zip(point.ci, estimate.ci, strict=True))
     assert namespace["point"].support.label == "supported"
 
 
