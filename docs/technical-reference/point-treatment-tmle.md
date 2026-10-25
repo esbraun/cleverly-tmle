@@ -1585,7 +1585,9 @@ The agreement is within $10^{-10}$.
 The mutation controls are in `tests/unit/test_point_vector_mutations.py` and
 `tests/unit/test_vector_density_mutations.py`. Each control moves a witness by more than
 $10^{-4}$. The registered study is
-[`vector-mtp`](method-evidence/vector-modified-treatment-policies.md).
+[`vector-mtp`](method-evidence/vector-modified-treatment-policies.md). The
+[schedules and service doses example](../examples/schedules-and-intensity.ipynb) raises two capped
+doses, alone and together, on the classifier route.
 
 ### Incremental propensity-score interventions
 
@@ -1669,7 +1671,8 @@ surface rule in [the architecture invariants](../architecture-invariants.md).
 the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
 [categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment, in sample or cross-fitted. The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
 those rows has the support label `experimental`. No external comparator exists for the categorical
-tilt.
+tilt. The [schedules and service doses example](../examples/schedules-and-intensity.ipynb)
+fits two tilts of a three-level schedule with parametric learners, in sample.
 
 `tests/unit/test_categorical_incremental_compositions.py` checks four compositions against
 identities. Integer weights equal row duplication. Singleton clusters equal the iid fit, and

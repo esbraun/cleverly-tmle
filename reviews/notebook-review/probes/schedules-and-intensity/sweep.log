@@ -1,0 +1,9 @@
+n = 3000; draws = 400; seeds 5000 to 5399
+medium and high doubled: mean error -0.00002; SE/SD 1.03; covered 377 of 400; supported 400 of 400
+high doubled: mean error -0.00003; SE/SD 0.99; covered 378 of 400; supported 400 of 400
+more navigator time: mean error 0.00049; SE/SD 1.04; covered 384 of 400; supported 400 of 400
+more pharmacist time: mean error -0.00007; SE/SD 1.02; covered 379 of 400; supported 400 of 400
+both: mean error 0.00028; SE/SD 0.98; covered 372 of 400; supported 400 of 400
+together minus added up: mean error -0.00014; SE/SD 0.97; covered 379 of 400; supported 0 of 400
+added-up estimate below the lower limit of both's interval: 394 of 400
+mean estimate, together minus added up: 0.0173

@@ -19,6 +19,13 @@ Three functions serve the navigation program that the [examples](../examples/ind
 drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truth
 of `randomized_pilot_truth`.
 
+Two generators serve the [schedules and service doses example](../examples/schedules-and-intensity.ipynb).
+`make_contact_schedules` draws a 0-to-1 transition score and a three-level contact schedule
+(`SCHEDULE_LEVELS`), and `contact_schedules_truth` gives the exact mean under each declared odds
+change. `make_navigation_doses` draws a binary success outcome and two doses, navigator hours and
+pharmacist minutes, and `navigation_doses_truth` gives the exact success share under each capped
+raise in `DOSE_PLANS`.
+
 Eight names serve the subscription-retailer program of the [offers tutorial](../examples/sequential-offers.ipynb).
 
 | name | what it holds |
@@ -108,6 +115,10 @@ Three functions serve the [treatment-rules tutorial](../examples/treatment-rules
    cleverly.datasets.longitudinal_navigation_protocol
    cleverly.datasets.make_randomized_pilot
    cleverly.datasets.randomized_pilot_truth
+   cleverly.datasets.make_contact_schedules
+   cleverly.datasets.contact_schedules_truth
+   cleverly.datasets.make_navigation_doses
+   cleverly.datasets.navigation_doses_truth
    cleverly.datasets.make_sequential_offers
    cleverly.datasets.offers_truth
    cleverly.datasets.offers_protocol
