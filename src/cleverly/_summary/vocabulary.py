@@ -1385,6 +1385,170 @@ WEIGHT_ESTIMAND_LINES: Final[tuple[str, ...]] = (
 )
 
 
+# ------------------------------------------- checks (T3): outcome and treatment models
+
+#: Header labels of the model check.
+SPLIT_SHOWN: Final = "Split shown"
+HEADER_LABELS = HEADER_LABELS | {SPLIT_SHOWN}
+
+#: The notes of the model check (``NuisanceDiagnostics``). Each finding the code makes has
+#: its own warning; the ``findings`` property keeps the sentences as data.
+T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "separation": "warning",
+        "recording_separation": "warning",
+        "calibration_finding": "warning",
+        "mean_only": "warning",
+        "weak_outcome_model": "warning",
+        "weak_treatment_model": "note",
+        "calibration": "note",
+        "working_model": "note",
+        "declared_treatment": "note",
+        "fit_status": "note",
+        "selection": "note",
+        "split_ratio": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_MODEL_NOTE_CODES})
+
+T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "separation": (
+            "The treatment model separates the arms almost perfectly (AUC {auc}). That "
+            "signals an overlap problem, not a good fit."
+        ),
+        "recording_separation": (
+            "The recording model predicts almost perfectly (AUC {auc}): some units had almost "
+            "no chance of a recorded outcome, so their weights are extreme. See "
+            "result.diagnostics.support()."
+        ),
+        "calibration_finding": (
+            "The {model}'s out-of-fold predictions are {direction} than the observed rates "
+            "(calibration slope {slope}, {level} interval {low} to {high}{extra}).{noise} "
+            "Review the learner before you change the model."
+        ),
+        "mean_only": (
+            "The {model} put {share} of its weight on the overall mean: no candidate beat "
+            "predicting the average."
+        ),
+        "weak_outcome_model": (
+            "The outcome model explains little of the outcome (R squared {r2}), so the estimate "
+            "behaves like inverse-probability weighting and is correspondingly noisy."
+        ),
+        "weak_treatment_model": (
+            "The treatment model predicts treatment barely better than chance (AUC {auc}). If "
+            "the model captures how treatment was assigned, treated and untreated rows look "
+            "alike on these covariates, which favours overlap."
+        ),
+        "calibration": "{sentences}",
+        "working_model": (
+            "The treatment model here is the one the collaborative search chose, so its "
+            "metrics describe that working model, not treatment given all covariates."
+        ),
+        "declared_treatment": (
+            "The treatment probabilities were declared, not fitted, so the treatment rows "
+            "compare the declaration with the treatment each row received."
+        ),
+        "fit_status": "{sentences}",
+        "selection": "{sentence}",
+        "split_ratio": (
+            "Each split fits its own models. The SD between splits and the reported {label} "
+            "are on the estimate's inference scale (the log scale for a ratio); their ratio "
+            "is a description, and no threshold applies."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_MODEL_NOTE_TEXTS})
+
+#: Sentences of the ``calibration`` note.
+CALIBRATION_IN_SAMPLE: Final = (
+    "Calibration slopes are in sample and carry no test: an unpenalized logistic model with "
+    "an intercept has an in-sample slope of {one} by construction."
+)
+CALIBRATION_OUT_OF_FOLD: Final = (
+    "The calibration slope refits the out-of-fold predictions by logistic regression with "
+    "one intercept per fold; {one} means the predictions are as spread as the outcomes."
+)
+CALIBRATION_RULE: Final = (
+    "A finding needs the {level} interval to lie above {zero} and exclude {one}, a "
+    "Bonferroni level over {tested} tested {models}."
+)
+CALIBRATION_MISSING: Final = "The {model} has no calibration slope: {reason}."
+CALIBRATION_NOISE: Final = (
+    " Estimation noise can cause this even in a correctly specified model when the signal "
+    "is weak or the model has many covariates."
+)
+CALIBRATION_DIRECTIONS: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "more extreme", False: "more moderate"}
+)
+
+#: The first sentence of the ``fit_status`` note on a fit that reports no interval.
+NO_INTERVAL: Final = "This fit reports no confidence interval or p-value."
+
+#: The ``selection`` note of a collaborative selector fit.
+SELECTION_SENTENCE: Final = (
+    "The collaborative search chose candidate {selected} of {count} for {estimand}{more}."
+)
+SELECTION_STOPPED: Final = "; it stopped after candidate {stopped}"
+SELECTION_FINAL: Final = "; the final step used candidate {final}"
+
+#: Plain names of the fitted models, by report name (an arm label follows in brackets).
+MODEL_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "propensity": "treatment model",
+        "outcome": "outcome model",
+        "missingness": "recording model",
+        "intermediate": "intermediate model",
+        "treatment_observation": "treatment-recording model",
+    }
+)
+
+#: Table titles and columns of the model check.
+MODEL_TITLE: Final = "Outcome and treatment model check"
+PROBABILITY_TABLE: Final = "Models that predict a probability"
+REGRESSION_TABLE: Final = "Models that predict a mean"
+PROBABILITY_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "auc": "AUC",
+        "brier": "Brier score",
+        "log_loss": "log loss",
+        "calibration_slope": "calib. slope",
+        "calibration_slope_se": "slope SE",
+    }
+)
+REGRESSION_COLUMNS: Final[Mapping[str, str]] = MappingProxyType(
+    {"r2": "R2", "mse": "MSE", "regression_slope": "regression slope"}
+)
+LEARNER_TABLE: Final = "Super learner weights"
+SPREAD_TABLE: Final = "Spread between splits"
+
+#: The ``Predictions`` fact of the model check, by ``evaluation``.
+EVALUATION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {"out_of_fold": "out of fold", "in_sample": "in sample"}
+)
+
+#: The ``Split shown`` fact of a repeated fit.
+SPLIT_OF: Final = "split {split} of {total}"
+
+#: The reading of the model check.
+MODEL_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "clear": "The models show no problem these metrics can detect.",
+        "findings": "{count} {findings} about the models; see the warnings.",
+    }
+)
+
+#: Lines of the model check's full detail, for what the fit could not report.
+MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "selection": "The collaborative selection is not available: {reason}.",
+        "outcome": "No outcome model was fitted: {reason}.",
+        "spread": "No spread between splits is available: {reason}.",
+    }
+)
+MODEL_NOTHING_OMITTED: Final = "The fit reported every model this check reads."
+
+
 # ----------------------------------------------------------------- study setup (T5)
 
 #: The header labels of the study-setup and simulation summaries.
