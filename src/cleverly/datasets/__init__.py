@@ -44,6 +44,14 @@ from .readmission import (
     team_readmission_protocol,
     team_readmission_truth,
 )
+from .schedules import (
+    DOSE_PLANS,
+    SCHEDULE_LEVELS,
+    contact_schedules_truth,
+    make_contact_schedules,
+    make_navigation_doses,
+    navigation_doses_truth,
+)
 from .survival_point import make_point_survival, point_survival_truth
 from .synthetic import (
     DGP,
@@ -96,6 +104,7 @@ from .weekly_orders import (
 
 __all__ = [
     "DGP",
+    "DOSE_PLANS",
     "GENERATORS",
     "OFFER_LEVELS",
     "OFFER_PLANS",
@@ -109,6 +118,7 @@ __all__ = [
     "PRICE_PLANS",
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
+    "SCHEDULE_LEVELS",
     "WEIGHTED_SELECTION_PROBABILITIES",
     "MultiArmDGP",
     "ShiftDGP",
@@ -118,6 +128,7 @@ __all__ = [
     "cde_dgp",
     "clustered_dgp",
     "competing_truth",
+    "contact_schedules_truth",
     "heterogeneous_dgp",
     "instrument_dgp",
     "linear_dgp",
@@ -128,6 +139,7 @@ __all__ = [
     "make_binary_outcome",
     "make_cde",
     "make_clustered",
+    "make_contact_schedules",
     "make_heterogeneous",
     "make_instrument",
     "make_linear_ate",
@@ -140,6 +152,7 @@ __all__ = [
     "make_missing_outcome_binary",
     "make_missing_outcome_bounded",
     "make_multi_arm",
+    "make_navigation_doses",
     "make_nonlinear_ate",
     "make_nonlinear_bounded",
     "make_point_survival",
@@ -155,6 +168,7 @@ __all__ = [
     "missing_outcome_dgp",
     "multi_arm_dgp",
     "navigation_data",
+    "navigation_doses_truth",
     "navigation_protocol",
     "nonlinear_bounded_dgp",
     "nonlinear_dgp",
