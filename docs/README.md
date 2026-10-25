@@ -17,7 +17,7 @@ ordinary Markdown that is readable on GitHub.
 
 [Examples](examples/index.md) carries sixteen tutorials and the TWINS notebook. Every method entry
 in the technical reference links to at least one tutorial, and the table lists the tutorials each
-entry links to. Three of them do not yet link back. Point-treatment-tmle and survey-nonresponse
+entry links to. Three tutorials do not yet link back. Point-treatment-tmle and survey-nonresponse
 link to the CV-TMLE entry instead of the point-treatment entry, and sequential-offers links to the
 sequential-baselines simulation study instead of its entry. A new method entry needs a new
 tutorial, or a new section in a tutorial that fits its question, and the entry and the tutorial
@@ -41,8 +41,9 @@ network evaluates care-transition navigation. A new tutorial for a method joins 
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
 tutorial is that case, because the health program has no continuous price. Three tutorials follow a
 second program, a subscription retailer that sends weekly offers, counts weekly orders, and sets
-monthly renewal prices. The offers and weekly-orders tutorials use the retailer's weekly sends
-and weekly orders, a repeated outcome the health program does not record.
+monthly renewal prices. The weekly-orders tutorial uses the retailer's weekly orders, an outcome
+recorded every week that the health program lacks, and the offers tutorial draws each week's offer
+with a logged chance.
 
 [Worked examples by method family](development/example-notebooks.md#worked-examples-by-method-family)
 maps each family of the implementation matrix to the tutorials that show it, and names the

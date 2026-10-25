@@ -50,7 +50,7 @@ the need to assume that no unrecorded factor drove it.
 
 The main outcome is a 30-day transition score that patients report. Some pages use a variant: a
 yes-or-no successful transition, a top-box rating, staying home for 30 days, a 0-to-100 recovery
-score, or a simulated score with no fixed range. Others count events: readmission by day 30, 60
+score, or a simulated score with no fixed range. Others record an event: readmission by day 30, 60
 and 90, or, on the [time-to-event page](longitudinal-survival.ipynb), readmission and death.
 
 ## What must hold for a causal answer
