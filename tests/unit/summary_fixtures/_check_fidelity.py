@@ -20,6 +20,9 @@ __all__ = [
     "read_corrections",
     "read_equations",
     "read_influence",
+    "read_longitudinal_equations",
+    "read_longitudinal_models",
+    "read_longitudinal_overlap",
     "read_models",
     "read_overlap",
     "read_refutation",
@@ -777,3 +780,201 @@ def read_overlap(report: Any, text: str) -> None:
             for shown, key in zip(row[1:7], keys, strict=True):
                 assert close(shown, stats[key]), (row, key, stats)
             assert _capped_close(row[7], stats["clipped"], stats["clipped_fraction"]), row
+
+
+def _reading_text(text: str) -> str:
+    """The reading: the lines after the last ``=`` rule, up to the notes."""
+    lines = text.splitlines()
+    last = max(index for index, line in enumerate(lines) if _rule(line, "="))
+    reading = []
+    for line in lines[last + 1 :]:
+        if line in ("Notes:", "Warnings:") or not line.strip():
+            break
+        reading.append(line)
+    return " ".join(reading)
+
+
+def _records(frame: Any) -> list[dict[str, Any]]:
+    return [
+        dict(zip(frame.columns, values, strict=True)) for values in frame.itertuples(index=False)
+    ]
+
+
+def _absent(value: Any) -> bool:
+    return value is None or (isinstance(value, float) and not math.isfinite(value))
+
+
+def _identity_labels(records: list[dict[str, Any]], *, draws: bool = False) -> list[str]:
+    """The identity columns a longitudinal table prints: those with some value."""
+    labels = []
+    if draws and "draw" in (records[0] if records else {}):
+        labels.append("split")
+    labels.append("regimen")
+    labels.extend(
+        key for key in ("cause", "horizon") if any(not _absent(r.get(key)) for r in records)
+    )
+    labels.append("time")
+    return labels
+
+
+def _read_identity(cells: list[str], labels: list[str], record: dict[str, Any]) -> None:
+    for shown, label in zip(cells, labels, strict=True):
+        value = record["draw" if label == "split" else label]
+        if label == "regimen":
+            # Written out here so a wrong vocabulary entry fails the reader.
+            assert shown == ("all" if _absent(value) else str(value)), (shown, record)
+        elif _absent(value):
+            assert shown == "-", (shown, record)
+        elif label == "cause":
+            assert shown == str(value), (shown, record)
+        else:
+            assert int(shown) == int(value), (shown, record)
+
+
+def read_longitudinal_overlap(check: Any, text: str) -> None:
+    """Assert that every number an overlap-over-time summary prints equals the check's.
+
+    Parameters
+    ----------
+    check : LongitudinalDiagnostics
+        The check.
+    text : str
+        Its short summary.
+    """
+    records = _records(check.to_frame())
+    facts = header_values(text)
+    assert int(facts[vocabulary.REGIMENS]) == len({r["regimen"] for r in records}), facts
+    assert int(facts[vocabulary.TIME_POINTS]) == len({r["time"] for r in records}), facts
+    if check.n_repeats > 1:
+        assert (
+            facts[vocabulary.SPLIT_SHOWN] == f"split {check.reported_repeat} of {check.n_repeats}"
+        )
+    [(title, labels, rows)] = text_tables(text)
+    assert title == "", title
+    identity = _identity_labels(records)
+    assignment = "assigned_shares" if check.categorical else "share_assigned_1"
+    keys = ["n_followed", "max_weight", "effective_n", "share_truncated"]
+    wanted = [*identity, "rows", "max weight", "eff. rows", "capped"]
+    if "share_trimmed" in records[0]:
+        keys.append("share_trimmed")
+        wanted.append("trimmed")
+    unconverged = "converged" in records[0] and any(r["converged"] is False for r in records)
+    if unconverged:
+        wanted.append("converged")
+    wanted.append("assigned")
+    assert labels == wanted, labels
+    assert len(rows) == len(records), rows
+    for row, record in zip(rows, records, strict=True):
+        _read_identity(row[: len(identity)], identity, record)
+        rest = row[len(identity) :]
+        for shown, key in zip(rest, keys, strict=False):
+            assert close(shown, float(record[key])), (key, shown, record)
+        if unconverged:
+            flag = record["converged"]
+            assert rest[len(keys)] == ("-" if flag is None else "yes" if flag else "no"), row
+        if check.categorical:
+            assert rest[-1] == record[assignment], (row, record)
+        else:
+            assert close(rest[-1], float(record[assignment])), (row, record)
+    effective = [r for r in records if math.isfinite(float(r["effective_n"]))]
+    if effective:
+        thinnest = min(effective, key=lambda r: float(r["effective_n"]))
+        numbers = _numbers(_reading_text(text))
+        assert close(numbers[-2], float(thinnest["effective_n"])), numbers
+        assert int(numbers[-1].replace(",", "")) == thinnest["n_followed"], numbers
+
+
+def read_longitudinal_equations(check: Any, text: str) -> None:
+    """Assert that every number an equations-over-time summary prints equals the check's.
+
+    Parameters
+    ----------
+    check : LongitudinalScoreDiagnostics
+        The check.
+    text : str
+        Its short summary.
+    """
+    records = _records(check.to_frame())
+    facts = header_values(text)
+    assert int(facts[vocabulary.EQUATIONS]) == len(records), facts
+    assert facts[vocabulary.ALLOWED_ERROR] == f"{check.tolerance:g} of max possible", facts
+    wanted_result = "passed" if all(r["passed"] for r in records) else "failed"
+    assert facts[vocabulary.RESULT] == wanted_result, facts
+    [(title, labels, rows)] = text_tables(text)
+    assert title == "", title
+    pooled = any(not _absent(r["component"]) for r in records)
+    named = any(not _absent(r["regimen"]) for r in records)
+    identity = [
+        label
+        for label in _identity_labels(records, draws=True)
+        if label != "regimen" or named or not pooled
+    ]
+    if pooled:
+        identity.append("component")
+    assert labels == [*identity, "remaining error", "result"], labels
+    assert len(rows) == len(records), rows
+    for row, record in zip(rows, records, strict=True):
+        plain = [label for label in identity if label != "component"]
+        _read_identity(row[: len(plain)], plain, record)
+        if pooled:
+            assert row[len(plain)] == str(record["component"]), (row, record)
+        error, result = row[len(identity) :]
+        assert sci_close(error, abs(float(record["relative_score"])), check.tolerance), row
+        assert result == ("passed" if record["passed"] else "failed"), (row, record)
+
+
+def read_longitudinal_models(check: Any, text: str) -> None:
+    """Assert that every number a models-over-time summary prints equals the check's.
+
+    Parameters
+    ----------
+    check : LongitudinalNuisanceDiagnostics
+        The check.
+    text : str
+        Its short summary.
+    """
+    records = _records(check.to_frame())
+    facts = header_values(text)
+    assert int(facts[vocabulary.MODELS]) == len(records), facts
+    evaluations = {r["evaluation"] for r in records}
+    if len(evaluations) == 1:
+        assert facts[vocabulary.PREDICTIONS] == evaluations.pop().replace("_", " "), facts
+    if check.n_repeats > 1:
+        assert (
+            facts[vocabulary.SPLIT_SHOWN] == f"split {check.reported_repeat} of {check.n_repeats}"
+        )
+    tables = text_tables(text)
+    _, labels, rows = tables[0]
+    identity = _identity_labels(records)
+    assert labels == [*identity, "model", "rows", "loss", "measure"], labels
+    roles = {
+        "treatment": "treatment",
+        "censoring": "censoring",
+        "outcome": "outcome",
+        "pseudo_outcome": "iterated outcome",
+        "hazard": "event hazard",
+    }
+    measures = {"log_loss": "log loss", "brier": "Brier score", "mse": "MSE"}
+    assert len(rows) == len(records), rows
+    for row, record in zip(rows, records, strict=True):
+        _read_identity(row[: len(identity)], identity, record)
+        model, count, loss, measure = row[len(identity) :]
+        assert model == roles[record["role"]], (row, record)
+        assert int(count.replace(",", "")) == record["n"], (row, record)
+        assert close(loss, float(record["loss"])), (row, record)
+        assert measure == measures[record["loss_name"]], (row, record)
+    if check.repeat_spread:
+        title, labels, rows = tables[1]
+        assert title == vocabulary.SPREAD_TABLE, title
+        assert labels == ["estimate", "splits", "SD between splits", "standard error", "ratio"]
+        assert len(rows) == len(check.repeat_spread), rows
+        for row, spread in zip(rows, check.repeat_spread, strict=True):
+            assert row[0] == spread.estimand and int(row[1]) == spread.n_repeats, row
+            values = (
+                spread.standard_deviation,
+                spread.reported_standard_error,
+                spread.ratio_to_standard_error,
+            )
+            for shown, value in zip(row[2:], values, strict=True):
+                assert close(shown, value), (row, spread)
+    assert len(tables) == 1 + bool(check.repeat_spread), tables
