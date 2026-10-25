@@ -10,7 +10,9 @@ Its callback is ``tests/unit/tutorial_semantics/<module>.py``, where ``<module>`
 with each hyphen replaced by an underscore.  The module defines ``check(namespace)``, which
 receives the namespace the tutorial's code built at its documented size.  A notebook's module may
 also define ``UNPRINTED_DECIMALS``, a mapping from a decimal the prose writes to the reason no
-stored output prints it.  :func:`narration_mismatches` reads that mapping.  The check reads
+stored output prints it.  :func:`narration_mismatches` reads that mapping.  A notebook's module
+also defines ``REFIT_CELLS``, the tuple of its refit cells in notebook order, which the runtime
+module's pin test compares with :func:`refit_cells`.  The check reads
 fixed-point and scientific decimals in prose, keyed by their written form, such as ``0.26`` or
 ``5.114e-04``.  It does not read a decimal inside inline code.
 
