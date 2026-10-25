@@ -154,7 +154,7 @@ def protocol_lines(protocol: StudyProtocol) -> tuple[str, ...]:
     fields = (
         ("Population", protocol.target_population),
         ("Eligibility", protocol.eligibility),
-        ("Time zero", protocol.time_zero),
+        (vocabulary.TIME_ZERO, protocol.time_zero),
         ("Strategies", protocol.treatment_strategies),
         ("Versions", protocol.treatment_versions),
         ("Outcome", protocol.outcome),
@@ -470,6 +470,47 @@ def _randomized_without_adjustment(effect: IdentifiedEffect) -> bool:
     return not _is_longitudinal(data) and not covariate_sources(data)
 
 
+def method_note(statement: str, effect: IdentifiedEffect) -> str | None:
+    """The note code that states ``statement`` in plain words, when it describes how the
+    method reads the data rather than a condition on it.
+
+    Parameters
+    ----------
+    statement : str
+        An identification statement.
+    effect : IdentifiedEffect
+        The identified question, whose design says whether the outcome can be missing.
+
+    Returns
+    -------
+    str or None
+        The note code, or ``None`` for a statement that is a condition.
+    """
+    for prefix, (complete, incomplete) in vocabulary.METHOD_STATEMENTS:
+        if statement.startswith(prefix):
+            return incomplete if _outcome_missing(effect) else complete
+    return None
+
+
+def _outcome_missing(effect: IdentifiedEffect) -> bool:
+    """Whether any outcome is unrecorded: read from the data, as the estimator reads it, and
+    from the declared response column only for a question bound to no data."""
+    data = getattr(effect._study, "data", None)
+    if data is None or not hasattr(data, "has_missing_outcome"):
+        return effect.functional.missingness is not None
+    return bool(data.has_missing_outcome)
+
+
+def _as_treated_text(code: str, effect: IdentifiedEffect) -> str:
+    """The as-treated note, naming the weights of a weighted design."""
+    data = getattr(effect._study, "data", None)
+    weights = getattr(data, "weights_name", None)
+    average = vocabulary.AS_TREATED_AVERAGE.format(Y=effect.functional.outcome)
+    if weights is not None:
+        average += vocabulary.AS_TREATED_WEIGHTED.format(weights=weights)
+    return _fill(vocabulary.NOTE_TEXTS[code].replace("{average}", average), effect)
+
+
 def _fill(text: str, effect: IdentifiedEffect) -> str:
     functional = effect.functional
     held = functional.intermediate
@@ -703,16 +744,21 @@ def question_summary(effect: IdentifiedEffect, detail: Detail) -> Summary:
         notes.append(note("unbound_effect", texts["unbound_effect"]))
     if not any(record.available for record in records):
         notes.append(note("no_method", texts["no_method"]))
-    if others:
+    codes = [method_note(item, effect) for item in others]
+    method_codes = [code for code in codes if code is not None]
+    further = [item for item, code in zip(others, codes, strict=True) if code is None]
+    if further:
         notes.append(
             note(
                 "further_conditions",
                 texts["further_conditions"].format(
-                    count=len(others),
-                    conditions="condition" if len(others) == 1 else "conditions",
+                    count=len(further),
+                    conditions="condition" if len(further) == 1 else "conditions",
                 ),
             )
         )
+    for code in dict.fromkeys(method_codes):
+        notes.append(note(code, _as_treated_text(code, effect)))
     if any(checkable == "partly" for _, _, checkable, _ in rows):
         notes.append(note("checkable", texts["checkable"]))
     identification = effect.identification
