@@ -712,7 +712,9 @@ class TestThePerGroupCovariateLeverageIsReported:
 class TestTruncationCurve:
     def test_the_curve_is_flat_when_overlap_is_good(self, good_overlap) -> None:
         curve = nw.from_native(
-            good_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05], estimands=["ate"]),
+            good_overlap.diagnostics.truncation_curve(
+                [0.001, 0.01, 0.05], estimands=["ate"]
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -722,7 +724,9 @@ class TestTruncationCurve:
     def test_the_curve_moves_when_overlap_is_poor(self, poor_overlap) -> None:
         headline = poor_overlap.psi("ate")
         curve = nw.from_native(
-            poor_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05, 0.15], estimands=["ate"]),
+            poor_overlap.diagnostics.truncation_curve(
+                [0.001, 0.01, 0.05, 0.15], estimands=["ate"]
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -742,7 +746,7 @@ class TestTruncationCurve:
 
     def test_the_fitted_bound_is_marked(self, good_overlap) -> None:
         curve = nw.from_native(
-            good_overlap.diagnostics.truncation_curve(estimands=["ate"]), eager_only=True
+            good_overlap.diagnostics.truncation_curve(estimands=["ate"]).to_frame(), eager_only=True
         )
         assert sum(curve["is_fitted_bound"].to_list()) >= 1
 
@@ -811,7 +815,7 @@ class TestTruncationCurve:
                 .single()
             )
             curve = nw.from_native(
-                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]), eager_only=True
+                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]).to_frame(), eager_only=True
             )
 
         assert result.nuisance.propensity.values.shape == (300, 0)
@@ -1989,7 +1993,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         curve = nw.from_native(
             strained.diagnostics.truncation_curve(
                 [0.01, 0.1, 0.25], estimands=["ate"], mechanism=True
-            ),
+            ).to_frame(),
             eager_only=True,
         )
         truncated = np.array(curve["truncated_fraction"].to_list())
@@ -2004,7 +2008,9 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         smallest = float(np.min(strained.nuisance.missingness))
         grid = [smallest / 8.0, smallest / 4.0, smallest / 2.0]
         curve = nw.from_native(
-            strained.diagnostics.truncation_curve(grid, estimands=["ate"], mechanism=True),
+            strained.diagnostics.truncation_curve(
+                grid, estimands=["ate"], mechanism=True
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())

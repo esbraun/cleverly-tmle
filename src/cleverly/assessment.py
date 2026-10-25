@@ -115,6 +115,7 @@ __all__ = [
     "Replayability",
     "SensitivityFacade",
     "SensitivityRoute",
+    "TruncationCurve",
     "ValidationReport",
     "assessment_capabilities",
     "replayability",
@@ -866,12 +867,95 @@ class AssessmentItem:
     @property
     def report(self) -> Any:
         """Return the retained payload, or None when this operation did not run."""
-        return None if self._report is _AbsentReport.TOKEN else _unpack_cached(self._report)
+        if self._report is _AbsentReport.TOKEN:
+            return None
+        payload = _unpack_cached(self._report)
+        # The row keeps the frame, which the cache packs; the caller gets the curve.
+        return TruncationCurve(payload) if self.name == "truncation_curve" else payload
 
     def __repr__(self) -> str:
         from ._assessment_summary import item_repr
 
         return item_repr(self)
+
+
+@dataclass(frozen=True, eq=False)
+class TruncationCurve:
+    """The estimate re-computed at other limits on the probabilities that weight it.
+
+    ``result.diagnostics.truncation_curve()`` returns one. It holds the frame the curve
+    computes and reads like it: attribute access, ``[]``, ``len`` and iteration go to the
+    frame, so ``curve["psi"]`` and ``curve.columns`` work. Pass :meth:`to_frame` where a
+    dataframe itself is needed, such as ``isinstance`` or a frame comparison. Two curves
+    compare by identity.
+
+    Parameters
+    ----------
+    frame : dataframe
+        One row per limits pair and estimand. A point-treatment curve carries the estimate,
+        its spread, the share of units capped and the fitted reference; a longitudinal curve
+        carries the estimate, the fitted reference and the capped score-cell counts.
+
+    See Also
+    --------
+    cleverly.sensitivity.positivity.truncation_curve : The frame of a point-treatment fit.
+    """
+
+    frame: Any
+
+    def to_frame(self) -> Any:
+        """Return the curve's frame.
+
+        Returns
+        -------
+        dataframe
+            The frame, in the fit's backend.
+        """
+        return self.frame
+
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the curve.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per estimand and limits, with the change from the
+            fitted estimate and how much the limits capped. ``"full"`` adds every limits
+            pair to six significant figures.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._truncation_summary import curve_summary
+
+        return curve_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._truncation_summary import curve_repr
+
+        return curve_repr(self)
+
+    def __getattr__(self, name: str) -> Any:
+        # Dunder lookups (copy, pickle, numpy protocols) stay on the curve, and ``frame``
+        # is absent only while an unpickled curve is being rebuilt.
+        if name.startswith("__") or name == "frame":
+            raise AttributeError(name)
+        return getattr(self.frame, name)
+
+    def __getitem__(self, key: Any) -> Any:
+        return self.frame[key]
+
+    def __len__(self) -> int:
+        return len(self.frame)
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self.frame)
 
 
 def _item_columns(items: Sequence[AssessmentItem], **extra: Any) -> dict[str, Any]:
@@ -2181,6 +2265,9 @@ class _CapabilityFacade:
                         report = getattr(self, capability.operation)(**operation_arguments)
                     finally:
                         _RETAIN_PACKED.reset(token)
+                    # The row keeps the curve's frame, as the cache does.
+                    if isinstance(report, TruncationCurve):
+                        report = report.to_frame()
                 except CapabilityError as error:
                     # A capability refusal is an expected result of asking a broad battery to
                     # inspect one fitted object.  Keep it visible as an omission and continue to
@@ -2959,7 +3046,8 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        dataframe
+        TruncationCurve
+            The curve, whose frame :meth:`TruncationCurve.to_frame` returns.
             Point-treatment output contains retargeted estimates and uncertainty at each
             requested bound. Longitudinal output is descriptive only: replayed point
             estimates, the exact fitted reference and movement from it, and score-cell
@@ -3019,12 +3107,16 @@ class DiagnosticsFacade(_CapabilityFacade):
         # One call with the family branch inside ``compute``, as ``nuisance_models`` and
         # ``score_equations`` are: two calls were two key shapes for one operation, and the
         # longitudinal one omitted ``mechanism`` from a key whose caller can pass it.
-        return _cached(
-            self._result,
-            "diagnostics.truncation_curve",
-            (bounds,),
-            {"estimands": estimands, "mechanism": mechanism},
-            compute,
+        # The cache holds the frame, which it packs by backend; the curve wraps it on the
+        # way out.
+        return TruncationCurve(
+            _cached(
+                self._result,
+                "diagnostics.truncation_curve",
+                (bounds,),
+                {"estimands": estimands, "mechanism": mechanism},
+                compute,
+            )
         )
 
     def refute(self, **kwargs: Any) -> Any:

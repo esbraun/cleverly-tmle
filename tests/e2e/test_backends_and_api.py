@@ -169,8 +169,8 @@ class TestBackendParity:
         pandas_curve = from_pandas.diagnostics.truncation_curve([0.02], estimands=["ate", "att"])
         polars_curve = from_polars.diagnostics.truncation_curve([0.02], estimands=["ate", "att"])
 
-        assert isinstance(pandas_curve, pd.DataFrame)
-        assert isinstance(polars_curve, pl.DataFrame)
+        assert isinstance(pandas_curve.to_frame(), pd.DataFrame)
+        assert isinstance(polars_curve.to_frame(), pl.DataFrame)
         assert pandas_curve.to_dict(orient="list") == polars_curve.to_dict(as_series=False)
         assert not pandas_curve["is_fitted_bound"].any()
         assert set(pandas_curve["upper_bound"]) == {0.98}
