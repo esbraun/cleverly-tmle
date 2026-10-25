@@ -227,8 +227,13 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     assert round(-engagement.max(), 2) == 0.69 and round(-engagement.min(), 2) == 2.28
     # "Dropping tenure moves the effects up by at most 0.83".
     assert (tenure > 0).all() and round(tenure.max(), 2) == 0.83
+    # "Even the largest move leaves every effect positive."
+    result = namespace["result"]
+    for (plan, week), shift in engagement.items():
+        estimate = result[_key(plan, week)]
+        assert estimate.psi + shift * estimate.std_error > 0
     # The refusals the Details dropdown names.
-    result, nudge_result = namespace["result"], namespace["nudge_result"]
+    nudge_result = namespace["nudge_result"]
     estimand = _key("always", 3)
     grid = sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1))
     with pytest.raises(CapabilityError, match="repeated outcome"):
