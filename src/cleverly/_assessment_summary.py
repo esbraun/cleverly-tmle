@@ -50,7 +50,7 @@ __all__ = [
 ]
 
 _SENTENCE_END = re.compile(r"(?<=[.;])\s")
-_READING_END = re.compile(r"(?<=\.)\s")
+_READING_END = re.compile(r"(?<=\.)\s(?=[A-Z])")
 
 
 def check_name(name: str) -> str:
