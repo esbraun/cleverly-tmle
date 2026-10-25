@@ -1,0 +1,7 @@
+draws 400, seeds 30000 to 30399, n = 2,000
+learned rule: mean error 0.0010, SD 0.0136, mean SE 0.0135, SE over SD 0.9918, coverage 0.9475
+best rule minus true value of the fold rules: mean 0.0013, largest 0.0087
+in-sample score minus true value, logistic: mean 0.0036, SD 0.0127, share above zero 0.6100
+in-sample score minus true value, forest: mean 0.0871, SD 0.0121, share above zero 1.0000
+lottery minus none: mean error 0.0005, SD 0.0080, mean SE 0.0077, SE over SD 0.9585, coverage 0.9375
+elapsed 208 seconds
