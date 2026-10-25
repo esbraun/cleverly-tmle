@@ -187,6 +187,7 @@ QUESTIONS: dict[str, Callable[[], Any]] = {
         "dose_policy": lambda: _dose().identify(ModifiedTreatmentPolicy(policies=SHIFTS)),
         "missing_ate": lambda: _missing_outcome().identify(ATE()),
         "missing_natural_course": lambda: _missing_outcome().identify(NaturalCourseMean()),
+        "missing_par": lambda: _missing_outcome().identify(PopulationAttributableRisk(reference=1)),
         "direct_effect": lambda: _intermediate().identify(ControlledDirectEffect(intermediate=0.0)),
         "randomized_ate": lambda: _randomized().identify(ATE()),
         "uncensored_regime": lambda: _uncensored_panel().identify(
