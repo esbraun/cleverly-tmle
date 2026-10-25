@@ -39,14 +39,16 @@ from :math:`\int \operatorname{expit}(c + s x)\,dx = \log(1 + e^{c + s x}) / s`.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 
 from .._typing import Backend
 from ..utils.bounds import expit
 from ..utils.frames import frame_from_dict
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 __all__ = ["learned_rule_truth", "make_treatment_rules", "treatment_rule_value"]
 
@@ -139,6 +141,8 @@ def treatment_rule_value(
     """
     if grid_points < 3:
         raise ValueError("grid_points must be at least 3")
+    import pandas as pd  # the policy reads a pandas frame; pandas is an optional dependency
+
     need = np.linspace(-1.0, 1.0, grid_points)
     total = 0.0
     for alone, mass in ((1.0, _LAW["lives_alone"]), (0.0, 1.0 - _LAW["lives_alone"])):
