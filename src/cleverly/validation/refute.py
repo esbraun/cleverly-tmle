@@ -2481,9 +2481,11 @@ def _validate_hazard_process(data: Any, process: Any, name: str) -> None:
     competing = bool(data.is_competing)
     expected = MultinomialHazardOutcome if competing else LogisticHazardOutcome
     if type(process) is not expected:
+        # The plasmode has no keyword of its own: it reads the simulated_outcome declaration.
+        keyword = "simulated_outcome" if name == "plasmode" else name
         raise CapabilityError(
             f"{name} on a {'competing-risk' if competing else 'survival'} fit draws its "
-            f"events from a declared hazard; pass {name}={expected.__name__}(...)",
+            f"events from a declared hazard; pass {keyword}={expected.__name__}(...)",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     if name == "dummy_outcome" and not process.independent:

@@ -173,6 +173,21 @@ def _check_teams(namespace: dict[str, Any]) -> None:
     assert clustered.ci[0] < low and high < clustered.ci[1]
 
 
+def _check_evalue(namespace: dict[str, Any]) -> None:
+    bound, result, risk = namespace["bound"], namespace["result"], namespace["risk"]
+    offered, not_offered = (result[risk(plan, 90.0)].psi for plan in ("offered", "not offered"))
+    # "the offered risk is 0.714 times the not-offered risk"; "2.15 ... and 1.87".
+    assert bound.scale == "risk ratio" and not bound.approximate
+    assert bound.risk_ratio == pytest.approx(offered / not_offered, rel=1e-9)
+    assert round(bound.risk_ratio, 3) == 0.714
+    assert round(bound.point, 2) == 2.15 and round(bound.limit, 2) == 1.87
+    # The limit is the interval end nearest no effect, which a ratio below 1 puts at the top.
+    assert bound.risk_ratio_ci[1] < 1.0 and bound.limit < bound.point
+    # "the missing confounder does not change who leaves follow-up"; "read it as a description".
+    assert "does not affect censoring" in bound.note
+    assert "read it as descriptive" in str(bound.summary())
+
+
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
     moves = namespace["moves"]
     by_name = {(move["fit"], move["left out"]): move["move in SEs"] for move in moves}
@@ -193,6 +208,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_association(namespace)
     _check_first_fit(namespace)
     _check_assessment(namespace)
+    _check_evalue(namespace)
     _check_teams(namespace)
     _check_sensitivity(namespace)
 
