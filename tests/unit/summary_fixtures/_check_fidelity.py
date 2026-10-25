@@ -20,6 +20,7 @@ __all__ = [
     "read_corrections",
     "read_equations",
     "read_influence",
+    "read_models",
     "read_refutation",
     "read_weights",
     "sci_close",
@@ -536,3 +537,105 @@ def read_weights(report: Any, text: str) -> None:
             assert math.isclose(float(shown), value, rel_tol=5e-3), (label, shown, value)
         else:
             assert close(shown, value), (label, shown, value)
+
+
+#: Plain model names, report name stem to printed words, written out here so a row paired
+#: with the wrong model fails.
+_MODEL_WORDS = {
+    "propensity": "treatment model",
+    "outcome": "outcome model",
+    "missingness": "recording model",
+    "intermediate": "intermediate model",
+    "treatment_observation": "treatment-recording model",
+}
+_PROBABILITY_KEYS = {
+    "AUC": "auc",
+    "Brier score": "brier",
+    "log loss": "log_loss",
+    "calib. slope": "calibration_slope",
+    "slope SE": "calibration_slope_se",
+}
+_REGRESSION_KEYS = {"R2": "r2", "MSE": "mse", "regression slope": "regression_slope"}
+
+
+def _model_words(name: str) -> str:
+    stem, _, arm = name.partition("[")
+    words = _MODEL_WORDS.get(stem, stem)
+    return words if not arm else f"{words} (arm {arm.rstrip(']')})"
+
+
+def read_models(check: Any, text: str) -> None:
+    """Assert that every number a model-check summary prints equals the check's.
+
+    Parameters
+    ----------
+    check : NuisanceDiagnostics
+        The check.
+    text : str
+        Its short summary.
+    """
+    frame = check.to_frame()
+    records = [
+        dict(zip(frame.columns, values, strict=True)) for values in frame.itertuples(index=False)
+    ]
+    facts = header_values(text)
+    assert int(facts[vocabulary.MODELS]) == len(records)
+    assert facts[vocabulary.PREDICTIONS] == check.evaluation.replace("_", " ")
+    result = "warning" if check.findings else "descriptive"
+    assert facts[vocabulary.RESULT] == vocabulary.CHECK_RESULTS[result]
+    if check.n_repeats > 1:
+        assert (
+            facts[vocabulary.SPLIT_SHOWN] == f"split {check.reported_repeat} of {check.n_repeats}"
+        )
+    tables = {title: (labels, rows) for title, labels, rows in text_tables(text)}
+    if not records and not check.repeat_spread:
+        assert list(tables.values()) == [(["models"], [["none reported"]])], tables
+        return
+    probability = [r for r in records if r["kind"] == "probability"]
+    regression = [r for r in records if r["kind"] != "probability"]
+    expected_titles = []
+    for title, wanted, keys in (
+        (vocabulary.PROBABILITY_TABLE, probability, _PROBABILITY_KEYS),
+        (vocabulary.REGRESSION_TABLE, regression, _REGRESSION_KEYS),
+    ):
+        if not wanted:
+            continue
+        expected_titles.append(title)
+        labels, rows = tables[title]
+        assert labels == ["model", *keys], labels
+        assert len(rows) == len(wanted), rows
+        for row, record in zip(rows, wanted, strict=True):
+            assert row[0] == _model_words(str(record["model"])), (row, record)
+            for shown, key in zip(row[1:], keys.values(), strict=True):
+                assert close(shown, float(record.get(key, math.nan))), (key, shown, record)
+    weights = [
+        (model.name, learner, weight)
+        for model in check.models
+        for learner, weight in model.learner_weights.items()
+        if weight > 1e-3
+    ]
+    if weights:
+        expected_titles.append(vocabulary.LEARNER_TABLE)
+        labels, rows = tables[vocabulary.LEARNER_TABLE]
+        assert labels == ["model", "learner", "weight"], labels
+        assert len(rows) == len(weights), rows
+        for row, (name, learner, weight) in zip(rows, weights, strict=True):
+            assert row[0] == _model_words(name) and row[1] == learner, row
+            assert close(row[2], weight), (row, weight)
+    if check.repeat_spread:
+        expected_titles.append(vocabulary.SPREAD_TABLE)
+        spread = check.repeat_spread_frame()
+        spread_records = [
+            dict(zip(spread.columns, values, strict=True))
+            for values in spread.itertuples(index=False)
+        ]
+        labels, rows = tables[vocabulary.SPREAD_TABLE]
+        assert labels[:3] == ["estimate", "splits", "SD between splits"], labels
+        assert len(rows) == len(spread_records), rows
+        for row, record in zip(rows, spread_records, strict=True):
+            values = list(record.values())
+            assert row[0] == record["estimand"], (row, record)
+            assert int(row[1]) == record["n_repeats"], (row, record)
+            for shown, value in zip(row[2:], values[2:], strict=True):
+                assert close(shown, float(value)), (shown, record)
+    assert list(tables) == expected_titles, (list(tables), expected_titles)

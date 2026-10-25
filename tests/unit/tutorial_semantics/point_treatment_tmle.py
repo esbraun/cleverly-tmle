@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from tests.documents import ROOT
@@ -355,7 +356,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert tuple(item.name for item in assessment.attention) == ()
     ledger = assessment.to_frame()
     assert set(ledger.loc[ledger["check"] == "score_equations", "status"]) == {"passed"}
-    assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
+    assert namespace["nuisance"].summary().reading == vocabulary.MODEL_READINGS["clear"]
     (propensity,) = (m for m in namespace["nuisance"].models if m.name == "propensity")
     assert abs(propensity.metrics["calibration_slope"] - 1.0) < 0.1
     # "no unit sits at the truncation bound".

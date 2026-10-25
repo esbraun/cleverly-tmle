@@ -331,9 +331,11 @@ class TestEverySpreadIsNamedByItsStatus:
             spread_name("ratio_to_standard_error", DIAGNOSTIC),
         ]
         assert "reported_standard_error" not in columns
-        summary = report.summary()
-        assert spread_name("sd/se", DIAGNOSTIC) in summary
-        assert "reported se" not in summary
+        (table,) = [
+            table for table in report.summary().tables if table.title == vocabulary.SPREAD_TABLE
+        ]
+        assert vocabulary.SPREAD_LABELS[spread_name("std_err", DIAGNOSTIC)] in table.columns
+        assert vocabulary.SPREAD_LABELS["std_err"] not in table.columns
 
     def test_the_split_noise_share_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
         summary = repeated_selector_fit.summary()
@@ -345,11 +347,12 @@ class TestEverySpreadIsNamedByItsStatus:
         assert "std. error" not in summary.note("repeated_splits").text
 
     def test_the_nuisance_note_keeps_its_capitals(self, repeated_selector_fit: Any) -> None:
-        """``str.capitalize`` printed "f18". Only the first letter may change."""
+        """``str.capitalize`` printed "f18". The summary's note quotes the status's plain
+        reason as written."""
         report = repeated_selector_fit.diagnostics.nuisance_models()
         assert report.inference_note == WORKING_MECHANISM.assessment_note
-        note = WORKING_MECHANISM.assessment_note
-        assert note[0].upper() + note[1:] + "." in report.summary()
+        text = report.summary().note("fit_status").text
+        assert text == f"{vocabulary.NO_INTERVAL} {WORKING_MECHANISM.plain_reason}"
 
     def test_an_ordinary_report_has_no_note(self, ordinary_fit: Any) -> None:
         assert ordinary_fit.diagnostics.nuisance_models().inference_note is None
