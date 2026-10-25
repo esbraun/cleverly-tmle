@@ -6,6 +6,7 @@ standards behind this process.
 
 ## Release history
 
+- [cleverly 0.1.7](release-notes-0.1.7.md)
 - [cleverly 0.1.6](release-notes-0.1.6.md)
 - [cleverly 0.1.5](release-notes-0.1.5.md)
 - [cleverly 0.1.4](release-notes-0.1.4.md)
@@ -15,6 +16,7 @@ standards behind this process.
 ```{toctree}
 :hidden:
 
+release-notes-0.1.7
 release-notes-0.1.6
 release-notes-0.1.5
 release-notes-0.1.4
