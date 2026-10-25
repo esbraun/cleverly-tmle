@@ -86,7 +86,10 @@ _METHODS: dict[str, Any] = {
     "collaborative_tmle": _collaborative_method,
     "drtmle": lambda: DRTMLEMethod(
         reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
         reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        # The shared fit uses two folds, and the fold-wise default needs three.
+        reduced_crossfit="pooled",
     ),
     "adaptive_iptw": _adaptive_iptw_method,
 }
