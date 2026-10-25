@@ -730,9 +730,9 @@ SCORE_LOAD_EMPTY_MASK = "the fitted score mask contains no rows"
 #: produces.  Refusing it is what keeps ``total_ratio`` from being published above one.
 SCORE_LOAD_MASK_TOO_LARGE = "the fitted score mask size is outside the fitted data"
 
-#: How :meth:`~cleverly.sensitivity.PositivityReport.summary` states a score-load Kish ratio
-#: in its overlap verdict.  A whole percent, because that sentence names which target group
-#: is the most concentrated one rather than sizing the ratio it quotes.
+#: How the overlap check (:meth:`~cleverly.sensitivity.PositivityReport.summary`) states a
+#: score-load Kish ratio in its equation note.  A whole percent, because that note names which
+#: target group is the most concentrated one rather than sizing the ratio it quotes.
 SCORE_LOAD_VERDICT_RATIO_FORMAT = ".0%"
 
 #: Which rendering of a score-load row a reader wants.  ``"cell"`` is a fixed-width table

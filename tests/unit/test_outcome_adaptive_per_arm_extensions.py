@@ -45,12 +45,14 @@ from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 
 import cleverly
+from cleverly._summary import vocabulary
 from cleverly.estimators import CTMLE
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.exceptions import CapabilityError
 from cleverly.learners import ParametricMechanism, ParametricOutcome
 from cleverly.learners.crossfit import _POST_DRAW_REMEDY, SplitPlan, random_partition
 from cleverly.sensitivity import missingness as missingness_module
+from cleverly.sensitivity._positivity_summary import mechanism_words
 from tests import discrete_law_oat as law
 from tests.studies.oat_per_arm_laws import (
     BINARY_ACTIVE,
@@ -1043,7 +1045,8 @@ def test_the_support_report_names_the_design_product() -> None:
         raw = [value for value in fitted_factors(result).values() if value is not None]
         product = np.prod(np.stack(raw), axis=0)
         assert report.mechanisms[label]["min"] == pytest.approx(float(product.min()), abs=1e-12)
-        assert f"{label} truncated to [" in report.summary()
+        details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
+        assert f"The {mechanism_words(label)} is capped at [" in "\n".join(details)
 
 
 def parametric_estimator() -> CTMLE:
