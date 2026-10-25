@@ -270,7 +270,10 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert bias.lower < bias.band[0] and bias.band[1] < bias.upper
         assert abs(test.mean - test.declared_effect) < 0.01
     assert generated["dummy_outcome"].declared_effect == 0.0
-    # "A verdict needs at least 400 refits, so with 20 it reads `descriptive`".
+    # "A verdict needs at least 400 refits, and no simulation study yet backs one for a fit with
+    # several checks, so even 400 would read `descriptive`".
     from cleverly.validation import EquivalenceBands
 
     assert EquivalenceBands().minimum_draws == 400
+    for test in generated.values():
+        assert "no simulation study backs a verdict for this kind of fit" in test.evidence

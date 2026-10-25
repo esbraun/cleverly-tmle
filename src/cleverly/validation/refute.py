@@ -4055,10 +4055,18 @@ def _generated_outcome_test(
                 f"{bands.minimum_draws}, so the readings state no verdict."
             )
             resolved.add(sentences[-1])
-            evidence = (
-                f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} its "
-                "simulation study needs, so it gives no pass or fail."
-            )
+            if licensed_plain:
+                evidence = (
+                    f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} its "
+                    "simulation study needs, so it gives no pass or fail."
+                )
+            else:
+                # No study row covers this fit, so more repeats would not give a verdict either.
+                evidence = (
+                    f"Its {len(values)} repeats are fewer than the {bands.minimum_draws} a "
+                    "verdict needs, and no simulation study backs a verdict for this kind of "
+                    "fit at any count, so it gives no pass or fail."
+                )
             if licensed_plain:
                 withheld = (
                     f"its {len(values):,} repeats are fewer than the "
