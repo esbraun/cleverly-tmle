@@ -530,7 +530,7 @@ class TestDerivedBootstrap:
             warnings.simplefilter("ignore")
             left = plain.diagnostics.truncation_curve(bounds)
             right = bootstrapped.diagnostics.truncation_curve(bounds)
-        pd.testing.assert_frame_equal(left, right)
+        pd.testing.assert_frame_equal(left.to_frame(), right.to_frame())
 
     def test_a_study_routes_the_bootstrap_and_narrows_it(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=8)

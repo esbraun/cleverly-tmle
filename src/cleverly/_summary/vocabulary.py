@@ -2159,6 +2159,68 @@ T3_ACCESS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_ACCESS_NOTE_TEXTS})
 
+#: The estimate under other caps on extreme weights (``truncation_curve()``).
+CURVE_TITLE: Final = "Estimate under other caps on extreme weights"
+CURVE_ESTIMATE: Final = "Estimate"
+CURVE_ESTIMATES: Final = "Estimates"
+CURVE_FITTED_LIMITS: Final = "Fitted limits"
+CURVE_FITTED_ESTIMATE: Final = "Fitted estimate"
+CURVE_LIMITS_TRIED: Final = "Limits tried"
+HEADER_LABELS = HEADER_LABELS | {
+    CURVE_ESTIMATE,
+    CURVE_ESTIMATES,
+    CURVE_FITTED_LIMITS,
+    CURVE_FITTED_ESTIMATE,
+    CURVE_LIMITS_TRIED,
+}
+CURVE_COLUMNS: Final[tuple[str, ...]] = (
+    "estimand",
+    "limits",
+    "estimate",
+    "change from fitted",
+    "capped",
+)
+CURVE_FITTED_MARK: Final = "*"
+CURVE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "spread": (
+            "Across these caps the estimate moves by at most {change} ({ratio} std. errors)."
+        ),
+        "plain": "Across these caps the estimate moves by at most {change}.",
+        "spread_named": (
+            "Across these caps {name} moves the most: by {change} ({ratio} std. errors)."
+        ),
+        "plain_named": "Across these caps {name} moves the most: by {change}.",
+    }
+)
+CURVE_GRID_LINE: Final = "{name}: lower {lower}, upper {upper}{fitted}"
+CURVE_FITTED_WORDS: Final = " (the fitted limits)"
+T3_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "fitted_limits": "note",
+        "units_capped": "note",
+        "cells_capped": "note",
+        "no_spread": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_CURVE_NOTE_CODES})
+T3_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "fitted_limits": "* marks the limits the fit used.",
+        "units_capped": (
+            "capped is the share of units whose probability the limits replaced at that cap."
+        ),
+        "cells_capped": (
+            "capped counts the probabilities, one per time point and row, that the correction "
+            "step read and the lower limit replaced, of all it read."
+        ),
+        "no_spread": (
+            "This curve carries no standard error, so the change is not measured in std. errors."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_CURVE_NOTE_TEXTS})
+
 #: Code that a summary may print whole, though it holds a word the house style keeps out of
 #: prose: a public call such as ``result.diagnostics.nuisance_models()``, or the attribute
 #: path that counts the DR-TMLE reduction's hard steps, which no check prints. The contract
