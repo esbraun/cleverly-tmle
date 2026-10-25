@@ -45,12 +45,11 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._refusal import Refusal, RefusalReason
+from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray
 from ..data.known_mechanism import moved_known_values_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..data.weighting import (
-    REPORTED_DRAW,
-    SCORE_LOAD_VERDICT_RATIO_FORMAT,
     ScoreLoadRow,
     effective_sample_size,
     score_load_row,
@@ -67,20 +66,57 @@ from ..targets import TARGETS, parameter_stem
 from ..targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
-from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators._nuisance import NuisanceEstimates
     from ..estimators.base import TMLEResult
     from ..fluctuation.submodel import Submodel
 
-__all__ = ["PositivityReport", "positivity_report", "truncation_curve"]
+__all__ = ["OverlapGrade", "PositivityReport", "positivity_report", "truncation_curve"]
 
 #: Quantiles reported for the propensity distribution in each arm.
 _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 
 #: Thresholds at which the mass of extreme propensity scores is reported.
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
+
+#: The truncated share above which the overlap tier reads ``strain``.
+STRAIN_SHARE = 0.01
+#: The truncated share above which the overlap tier reads ``serious``.
+SERIOUS_SHARE = 0.05
+#: The effective share below which another probability in the weights earns the reading.
+#: It reports and never grades.
+MECHANISM_ESS_SHARE = 0.6
+
+
+@dataclass(frozen=True)
+class OverlapGrade:
+    """The tier of an overlap check and the branch whose sentence reports it.
+
+    Parameters
+    ----------
+    tier : {"adequate", "strain", "serious"}
+        The graded tier, :attr:`PositivityReport.severity`.
+    branch : str
+        Which sentence reports it: the tier's own, or ``"mechanism_capped"`` or
+        ``"mechanism_concentrated"`` when another probability in the weights fired.
+    fraction : float
+        The truncated share of the treatment probability the tier read, the marginal one
+        or a group's when that group's is larger.
+    limits : tuple of float
+        The limits that share was capped at.
+    group : str or None
+        The group whose limits these are, or ``None`` for the fit's own.
+    mechanism : str or None
+        The other probability that fired, on a mechanism branch.
+    """
+
+    tier: Literal["adequate", "strain", "serious"]
+    branch: str
+    fraction: float
+    limits: tuple[float, float]
+    group: str | None
+    mechanism: str | None = None
 
 
 class GroupScoreLoadRow(ScoreLoadRow):
@@ -424,213 +460,25 @@ class PositivityReport:
             return f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x {tail}, factor by factor"
         return f"[{self.nuisance_bound:.4g}, 1]"
 
-    def summary(self) -> str:
-        """A printable overlap report.
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the overlap check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints the tables, the notes and the reading. ``"full"`` adds the
+            equation names, the largest correction-step weights and the limits of each
+            other probability.
 
         Returns
         -------
-        str
-            A printable report, one line per reported quantity.
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``, ``notes``
+            and ``reading`` hold the same content as data.
         """
-        lines = [
-            "Positivity / overlap diagnostics",
-            "-" * 32,
-            f"n = {self.n}; propensity truncated to [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]"
-            + (
-                "; treatment mechanism known (declared)"
-                if self.treatment_mechanism == "known"
-                else ""
-            ),
-        ]
-        if self.n_repeats > 1:
-            lines.append(
-                f"describing {format_draw(REPORTED_DRAW, self.n_repeats)}: overlap is a "
-                "property of one fitted mechanism, not of the median-combined estimate"
-            )
-        lines.append("")
-        quantiles = sorted(next(iter(self.propensity_quantiles.values())))
-        lines.append(
-            format_table(
-                ["g(W) quantile", *[f"{q:.0%}" for q in quantiles]],
-                [
-                    [group, *[f"{values[q]:.4f}" for q in quantiles]]
-                    for group, values in self.propensity_quantiles.items()
-                ],
-            )
-        )
-        lines.append("")
-        lines.append(
-            format_table(
-                ["arm", "n", "effective n", "ESS / n", "top 1% weight", "top 5% weight"],
-                [
-                    [
-                        arm,
-                        f"{ess['n']:.0f}",
-                        f"{ess['effective']:.1f}",
-                        f"{ess['ratio']:.3f}",
-                        f"{self.weight_share[arm]['top_1pct']:.3f}",
-                        f"{self.weight_share[arm]['top_5pct']:.3f}",
-                    ]
-                    for arm, ess in self.effective_sample_size.items()
-                ],
-            )
-        )
-        lines.append("")
-        lines.append(
-            format_table(
-                ["threshold", "P(g < t)", "P(g > 1-t)"],
-                [
-                    [f"{threshold:.3g}", f"{mass['below']:.4f}", f"{mass['above']:.4f}"]
-                    for threshold, mass in sorted(self.tail_mass.items())
-                ],
-            )
-        )
-        lines.append("")
-        lines.append(
-            f"truncated: {self.truncated['count']:.0f} unit(s) "
-            f"({self.truncated['fraction']:.2%}); most extreme untruncated g(W) = "
-            f"{self.truncated['most_extreme']:.5g}"
-        )
-        if self.group_score_load:
-            lines.append("")
-            lines.append(
-                format_table(
-                    [
-                        "group",
-                        "equation",
-                        "target rows",
-                        "Kish-equivalent rows",
-                        "Kish / target",
-                        "Kish / total",
-                        "top 1% load",
-                        "top 5% load",
-                        "max |w h|",
-                        "zero load",
-                        "g bound",
-                        "clipped",
-                    ],
-                    [
-                        [
-                            group,
-                            str(load["equation"]),
-                            f"{load['n_targeted']:.0f}/{load['n_total']:.0f}",
-                            f"{load['effective']:.1f}",
-                            f"{load['targeted_ratio']:.3f}",
-                            f"{load['total_ratio']:.3f}",
-                            f"{load['top_1pct']:.3f}",
-                            f"{load['top_5pct']:.3f}",
-                            f"{load['max_load']:.4g}",
-                            f"{load['zero_load']:.0f}",
-                            (
-                                f"[{load['lower_bound']:.4g}, {load['upper_bound']:.4g}]"
-                                if np.isfinite(load["lower_bound"])
-                                else "not applicable"
-                            ),
-                            (
-                                f"{load['clipped_count']:.0f} ({load['clipped_fraction']:.2%})"
-                                if np.isfinite(load["clipped_fraction"])
-                                else "unavailable"
-                            ),
-                        ]
-                        for group, load in self.group_score_load.items()
-                    ],
-                )
-            )
-            lines.append(
-                "(absolute residual-multiplier load from the fitted equation; Kish values describe "
-                "residual-multiplier concentration, not residual contributions or estimator "
-                "information, influence, or precision; target rows are score-mask rows and "
-                "include structural zeros)"
-            )
-        if self.clever_covariate_max:
-            for group, value in self.clever_covariate_max.items():
-                lines.append(f"max |clever covariate| ({group}): {value:.4g}")
-        if self.group_score_load_omissions:
-            lines.append("")
-            for group, reason in self.group_score_load_omissions.items():
-                lines.append(f"group diagnostic omitted ({group}): {reason}")
-        if self.mechanisms:
-            lines.append("")
-            lines.append(
-                format_table(
-                    [
-                        "mechanism",
-                        "min",
-                        "1%",
-                        "5%",
-                        "median",
-                        "ESS / n",
-                        "top 1% weight",
-                        "top 5% weight",
-                        "clipped",
-                    ],
-                    [
-                        [
-                            name,
-                            f"{stats['min']:.4f}",
-                            f"{stats['q01']:.4f}",
-                            f"{stats['q05']:.4f}",
-                            f"{stats['median']:.4f}",
-                            f"{stats['ess_ratio']:.3f}",
-                            f"{stats['top_1pct']:.3f}",
-                            f"{stats['top_5pct']:.3f}",
-                            f"{stats['clipped']:.0f} ({stats['clipped_fraction']:.2%})",
-                        ]
-                        for name, stats in self.mechanisms.items()
-                    ],
-                )
-            )
-            truncations = "; ".join(
-                f"{name} truncated to {self._bound_label(name)}" for name in self.mechanisms
-            )
-            lines.append(f"({truncations}; each row counts both arms)")
-            for name in sorted(_COMPOSITE_ROWS & self.mechanisms.keys()):
-                stats = self.mechanisms[name]
-                lines.append(
-                    f"{name}: minimum {stats['min']:.4g}; "
-                    f"{stats['below_g_lower_fraction']:.2%} of unit-arm cells below the "
-                    f"propensity floor {self.bounds[0]:.4g}. The composite is tilted inside "
-                    f"[{stats['composite_lower']:.4g}, {self.bounds[1]:.4g}], the product of "
-                    "the factor floors."
-                )
-        note = self._composed_note()
-        if note is not None:
-            lines.append("")
-            lines.append(note)
-        lines.append("")
-        lines.append(self.verdict())
-        return "\n".join(lines)
+        from ._positivity_summary import positivity_summary
 
-    def _composed_note(self) -> str | None:
-        """The sentence a fit gets when a derived row does not cover what it targeted.
-
-        Returns ``None`` when there is nothing to say: every targeted group forms the
-        product, or no fitted factor stands beside ``g`` so there is no derived row at
-        all.  Otherwise it names the groups and what each divides by instead, because an
-        omission that does not explain itself reads exactly like a clean bill of health.
-
-        The refusal stands, and the note now says where those groups *are* covered.  The
-        per-group score-load table reads each covariate as built rather than a denominator
-        it never forms, so an excluded group has a load measure even though it has no
-        derived row.  Naming it keeps the sentence from reading as "nothing here for you".
-        """
-        if not self.composed_excluded:
-            return None
-        excluded = "; ".join(
-            f"{group}, which divides by "
-            + _COMPOSED_EXCLUSIONS.get(group, "a denominator this row does not form")
-            for group in self.composed_excluded
-        )
-        composed = sorted(_COMPOSED_MECHANISMS & self.mechanisms.keys())
-        lead = (
-            f"{composed[0]} does not describe"
-            if composed
-            else "no derived denominator row is reported for"
-        )
-        pointer = (
-            " Their score-weight load is in the group table above." if self.group_score_load else ""
-        )
-        return f"({lead} {excluded}. Read the factor rows above for those estimands.{pointer})"
+        return positivity_summary(self, check_detail(detail))
 
     @property
     def severity(self) -> Literal["adequate", "strain", "serious"]:
@@ -641,20 +489,22 @@ class PositivityReport:
         {"adequate", "strain", "serious"}
             The tier behind :meth:`verdict`, for a caller that must branch on it.
         """
-        return self._verdict_parts()[0]
+        return self.grade().tier
 
     def verdict(self) -> str:
-        """A one-line reading of the diagnostics.
+        """The reading of the check: one sentence on what the cap means for the estimate.
 
         Returns
         -------
         str
-            One line saying whether the overlap supports the reported estimate.
+            The summary's reading.
         """
-        return self._verdict_parts()[1]
+        reading = self.summary().reading
+        assert reading is not None
+        return reading
 
-    def _verdict_parts(self) -> tuple[Literal["adequate", "strain", "serious"], str]:
-        """Decide the tier and the sentence that reports it, in one place.
+    def grade(self) -> OverlapGrade:
+        """Decide the tier and the branch that reports it, in one place.
 
         A reader reads :meth:`verdict`; the combined assessment row reads
         :attr:`severity`.  Both come from here because the alternative is what shipped:
@@ -665,7 +515,7 @@ class PositivityReport:
         **The effective-sample-size ratio is reported and never graded.**  A Kish ratio
         is a descriptive quantity with no derived cutoff, so a tier keyed on it would be
         a house convention presented as a finding, and a reader would take ``passed`` as
-        a positivity clearance this package cannot give.  Every branch states the share
+        a positivity clearance this package cannot give.  The summary states the share
         instead, and the analyst judges it against the question.  What is graded is the
         truncated fraction, which is not a judgement about the data: it counts the rows
         the fit clipped at a bound the caller configured, and therefore identifies where
@@ -674,59 +524,24 @@ class PositivityReport:
         The **group** quantity from :attr:`group_score_load` is a different descriptive
         object: concentration of ``abs(w_i * h_ij)`` in one fitted score equation.  It is
         stated separately, never pooled with arm or mechanism ESS, and adds no tier or
-        threshold.  In particular it is not estimator effective sample size, information,
-        actual influence, precision, or itself a positivity test.
+        threshold.
+
+        Returns
+        -------
+        OverlapGrade
+            The tier, the branch whose sentence reports it, and the numbers it read.
         """
-        # Non-finite ratios are dropped rather than compared.  An arm with no rows stores
-        # NaN here by construction, and `min` over a sequence containing NaN returns
-        # whichever value it met first, so an unfiltered comparison made this report's
-        # reading depend on arm order.
-        ratios = [
-            float(ess["ratio"])
-            for ess in self.effective_sample_size.values()
-            if np.isfinite(ess["ratio"])
-        ]
         fraction = float(self.truncated["fraction"])
-        clip_label = (
-            f"the marginal treatment-mechanism bound [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]"
-        )
-        for group, load in self.group_score_load.items():
+        limits = (float(self.bounds[0]), float(self.bounds[1]))
+        group: str | None = None
+        for name, load in self.group_score_load.items():
             group_fraction = float(load["clipped_fraction"])
             if np.isfinite(group_fraction) and group_fraction > fraction:
                 fraction = group_fraction
-                clip_label = (
-                    f"group {group!r}'s treatment-mechanism bound "
-                    f"[{load['lower_bound']:.4g}, {load['upper_bound']:.4g}]"
-                )
-        share = (
-            (
-                f"The narrowest arm has a Kish-equivalent weight count of {min(ratios):.0%} "
-                "of its nominal rows. This is concentration, not estimator information, and "
-                "no threshold is applied because none is derived."
-            )
-            if ratios
-            else "No arm reports a finite effective sample size."
-        )
-        group_rows = [
-            (group, load)
-            for group, load in self.group_score_load.items()
-            if np.isfinite(load["targeted_ratio"])
-        ]
-        if group_rows:
-            group, load = min(group_rows, key=lambda item: item[1]["targeted_ratio"])
-            share += (
-                f" Absolute-load concentration is greatest for group {group!r}, equation "
-                f"{load['equation']!r}: {load['effective']:.1f} Kish-equivalent rows out of "
-                f"{load['n_targeted']:.0f} score-mask rows "
-                f"({load['targeted_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}}; "
-                f"{load['total_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}} of "
-                f"{load['n_total']:.0f} total rows). This is a "
-                "descriptive residual-multiplier concentration index. It excludes the residual "
-                "and is not estimator effective sample size, information, actual influence, "
-                "precision, or a positivity test."
-            )
+                limits = (float(load["lower_bound"]), float(load["upper_bound"]))
+                group = name
         for name, stats in self.mechanisms.items():
-            # Checked before the propensity verdict, because this is the failure a reader
+            # Checked before the propensity tier, because this is the failure a reader
             # is least likely to be looking for: overlap in `g` can be immaculate while
             # the estimate rests on a few rows that were very unlikely to be observed.
             # Two triggers, one of which only reports.  A clipped fraction is truncation
@@ -734,74 +549,44 @@ class PositivityReport:
             # earns the *sentence*, because a reader who never sees the number cannot
             # weigh it, but it does not move the tier -- grading it would be the invented
             # cutoff this report refuses to apply to the propensity.
-            composed = name in _COMPOSED_MECHANISMS
+            #
             # A derived row's clipped cells are the union over its factors, and its
             # propensity factor is the one the branch below already reports -- accurately,
-            # and against the curve that can move it. Triggering here on that union put a
-            # mechanism's name on a verdict whose every number came from `g`, and sent the
-            # reader to `mechanism=True`, which sweeps `nuisance_bound` alone. So a derived
-            # row earns its sentence on joint leverage only, which is the one thing neither
-            # its factor rows nor the propensity branch can show. Each factor's own
-            # clipping still triggers on that factor's own row.
-            clipped = not composed and stats["clipped_fraction"] > 0.01
-            if clipped or stats["ess_ratio"] < 0.6:
-                leverage = (
-                    "It is the whole denominator of the clever covariate for this fit's "
-                    "marginal-mean estimands, so those rows carry outsized leverage "
-                    "however each factor looks on its own."
-                    if composed
-                    else "It divides the clever covariate exactly as g(W) does, so those "
-                    "rows carry outsized leverage whatever the propensity overlap looks like."
-                )
-                # Either bound can have moved a derived row's cells, so naming one curve
-                # would send the reader to a knob that cannot move what they were shown.
-                advice = (
-                    "Check truncation_curve() and truncation_curve(mechanism=True); this "
-                    "row is clipped by either bound."
-                    if composed
-                    else "Check truncation_curve(mechanism=True)."
-                )
-                return (
+            # and against the curve that can move it.  So a derived row earns its sentence
+            # on joint leverage only, which is the one thing neither its factor rows nor
+            # the propensity branch can show.  Each factor's own clipping still triggers
+            # on that factor's own row.
+            composed = name in _COMPOSED_MECHANISMS
+            clipped = not composed and stats["clipped_fraction"] > STRAIN_SHARE
+            if clipped or stats["ess_ratio"] < MECHANISM_ESS_SHARE:
+                tier: Literal["adequate", "strain", "serious"] = (
                     "serious"
-                    if fraction > 0.05
+                    if fraction > SERIOUS_SHARE
                     else "strain"
-                    if fraction > 0.01 or clipped
-                    else "adequate",
-                    f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
-                    f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
-                    f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
-                    # `share` is carried onto this branch too, so that "every verdict
-                    # states the arm share and the group share" holds on the tier that
-                    # is already flagging strain rather than only on the three below.
-                    f"{self._bound_label(name)}). Maximum treatment-mechanism clipping is "
-                    f"{fraction:.2%} at {clip_label}. {leverage} {advice} {share}",
+                    if fraction > STRAIN_SHARE or clipped
+                    else "adequate"
                 )
-        if fraction > 0.05:
-            return (
-                "serious",
-                f"VERDICT: truncation is carrying this estimate. {fraction:.1%} of units were "
-                f"clipped at {clip_label}, so the fitted score used bounded rather than fitted "
-                "mechanism values for those units. Treat "
-                "the estimate as sensitive to this finite-sample regularisation. The bound "
-                "does not change the requested estimand. Check "
-                f"truncation_curve() before drawing conclusions. {share}",
-            )
-        if fraction > 0.01:
-            return (
-                "strain",
-                f"VERDICT: some truncation. {fraction:.1%} of units were clipped at "
-                f"{clip_label}. "
-                "Report truncation_curve() alongside the estimate so readers can see how much "
-                f"the answer depends on it. {share}",
-            )
-        return (
-            "adequate",
-            f"VERDICT: no truncation-driven fragility detected ({fraction:.1%} of units "
-            f"clipped at {clip_label}). {share}",
-        )
+                return OverlapGrade(
+                    tier,
+                    "mechanism_capped" if clipped else "mechanism_concentrated",
+                    fraction,
+                    limits,
+                    group,
+                    name,
+                )
+        if fraction > SERIOUS_SHARE:
+            return OverlapGrade("serious", "serious", fraction, limits, group)
+        if fraction > STRAIN_SHARE:
+            return OverlapGrade("strain", "strain", fraction, limits, group)
+        return OverlapGrade("adequate", "adequate", fraction, limits, group)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._positivity_summary import positivity_repr
+
+        return positivity_repr(self)
 
 
 def positivity_report(result: TMLEResult) -> PositivityReport:

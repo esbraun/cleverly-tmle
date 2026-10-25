@@ -1549,6 +1549,207 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
 MODEL_NOTHING_OMITTED: Final = "The fit reported every model this check reads."
 
 
+# ------------------------------------------------------- checks (T3): overlap of the weights
+
+#: Header labels of the overlap check.
+UNITS_CAPPED: Final = "Units capped"
+HEADER_LABELS = HEADER_LABELS | {UNITS_CAPPED}
+
+#: The notes of the overlap check. None is a warning: the reading carries the graded tier.
+T3_OVERLAP_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "effective_share": "note",
+        "equation_concentration": "note",
+        "simplex": "note",
+        "composed_excluded": "note",
+        "group_omitted": "note",
+        "first_split": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_OVERLAP_NOTE_CODES})
+
+T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "effective_share": (
+            "The smallest arm keeps an effective {share} of its rows after weighting. That "
+            "share describes how concentrated the weights are; it is not a test, and no "
+            "threshold applies. Effective rows count how many equally weighted rows would "
+            "carry the same weight, and the top shares are the part of the total weight "
+            "that the largest {top_small} and {top_large} of the weights hold."
+        ),
+        "equation_concentration": (
+            "In the estimating equation the weights concentrate most for {group}: {effective} "
+            "effective rows of {rows} ({share}). This describes how unevenly rows are "
+            "weighted; it is not the estimator's sample size, its precision or a test of "
+            "overlap."
+        ),
+        "simplex": (
+            "With more than two arms each arm's probability is capped on its own and not "
+            "rescaled, so a row's capped probabilities can sum to other than one, here by up "
+            "to {deviation}. A large value means the limits bind hard."
+        ),
+        "composed_excluded": (
+            "{lead} {groups}. Read the single-probability rows for those estimates.{pointer}"
+        ),
+        "group_omitted": "No equation row for {group}: {reason}.",
+        "first_split": (
+            "Overlap is shown for split {split} of {total}; each split fits its own "
+            "treatment model."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_OVERLAP_NOTE_TEXTS})
+
+#: Pieces of the ``composed_excluded`` note.
+COMPOSED_LEAD: Final = "The {name} row does not describe"
+COMPOSED_LEAD_NONE: Final = "No joint-probability row is reported for"
+COMPOSED_GROUP: Final = "{group}, which divides by {what}"
+COMPOSED_POINTER: Final = " Their weights in the estimating equation are in the equation table."
+
+#: What each estimand the joint-probability row leaves out divides by instead.
+COMPOSED_EXCLUSION_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "att": (
+            "the share treated rather than each row's treatment probability, and reweights "
+            "the comparison arm by the odds of treatment"
+        ),
+        "atc": (
+            "the share untreated rather than each row's treatment probability, and "
+            "reweights the other arm by the odds of treatment"
+        ),
+        "ipsi": "a tilted treatment probability that drops the fitted one",
+        "mtp": "a density ratio rather than a treatment probability",
+    }
+)
+COMPOSED_EXCLUSION_OTHER: Final = "a quantity this row does not form"
+
+#: Plain names of the other probabilities the weights divide by. A name not listed prints
+#: as written.
+MECHANISM_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "P(Delta=1|A,W)": "probability that the outcome is recorded",
+        "P(Z=z|A,W)": "probability of the held intermediate value",
+        "P(Delta_A=1|W)": "probability that the treatment is recorded",
+        "P(A=a,Delta=1|W)": "joint probability of the treatment and a recorded outcome",
+        "P(A=a,Z=z|W)": "joint probability of the treatment and the held intermediate value",
+        "P(A=a,Delta=1,Z=z|W)": (
+            "joint probability of the treatment, a recorded outcome and the held intermediate value"
+        ),
+        "P(A=a,Delta_A=1|W)": "joint probability of the treatment and its recording",
+        "P(A=a,Delta_A=1,Delta=1|W)": (
+            "joint probability of the treatment, its recording and a recorded outcome"
+        ),
+    }
+)
+#: Short row labels of the same probabilities, for the table, completing "probability of".
+MECHANISM_LABELS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "P(Delta=1|A,W)": "outcome recorded",
+        "P(Z=z|A,W)": "intermediate value",
+        "P(Delta_A=1|W)": "treatment recorded",
+        "P(A=a,Delta=1|W)": "arm and outcome recorded",
+        "P(A=a,Z=z|W)": "arm and intermediate value",
+        "P(A=a,Delta=1,Z=z|W)": "arm, outcome recorded, intermediate value",
+        "P(A=a,Delta_A=1|W)": "arm and treatment recorded",
+        "P(A=a,Delta_A=1,Delta=1|W)": "arm, treatment and outcome recorded",
+    }
+)
+#: The condition a per-arm outcome-adaptive design puts in place of the covariates.
+MECHANISM_DESIGN: Final = "{name}, given the fitted outcome means"
+MECHANISM_DESIGN_STRATA: Final = "{name}, given the fitted outcome means and the strata"
+
+#: The ``Result`` fact of the overlap check, worded from the branch that fired. The shares
+#: come from the constants the tiers read. On a branch another probability fired, the
+#: reading names it; the fact stays short enough for its half of the header.
+OVERLAP_RESULTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "adequate": "at most {strain} of units capped",
+        "strain": "{strain} to {serious} of units capped",
+        "serious": "over {serious} of units capped",
+        "mechanism_capped": "another probability capped",
+        "mechanism_concentrated": "weights concentrated",
+    }
+)
+
+#: The reading of the overlap check, by branch.
+OVERLAP_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "adequate": (
+            "{share} of units were capped at {limits}, so the estimate does not lean on "
+            "the cap. This check grades the cap only; the tables show the overlap itself."
+        ),
+        "strain": (
+            "{share} of units were capped at {limits}. Report {curve} beside the estimate "
+            "so readers see how much the answer depends on the cap."
+        ),
+        "serious": (
+            "{share} of units were capped at {limits}, so the estimate leans on the cap "
+            "rather than the fitted model for those units. The cap does not change the "
+            "question, but treat the estimate as sensitive to it and check {curve} before "
+            "you draw conclusions."
+        ),
+        "mechanism_capped": (
+            "The {name} was capped on {share} of the rows at {limits}. It divides the "
+            "weights as the treatment probability does, so those rows carry outsized weight "
+            "whatever the treatment overlap looks like. Check {curve}."
+        ),
+        "mechanism_concentrated": (
+            "The {name} falls to {low} and leaves an effective {effective} of the rows it "
+            "weights, below the {threshold} share at which this check reports it, so a few "
+            "rows carry much of the weight. Check {curve}."
+        ),
+        "mechanism_treatment": " {share} of units were capped at the treatment limits {limits}.",
+    }
+)
+#: The limits a tier read, when they are one group's rather than the fit's.
+GROUP_LIMITS: Final = "{limits}, the limits of {group}"
+#: The curves a reading points to.
+CURVE_TREATMENT: Final = "result.diagnostics.truncation_curve()"
+CURVE_MECHANISM: Final = "result.diagnostics.truncation_curve(mechanism=True)"
+CURVE_BOTH: Final = (
+    "result.diagnostics.truncation_curve() and "
+    "result.diagnostics.truncation_curve(mechanism=True), since either cap moves this row"
+)
+
+#: Table titles and columns of the overlap check.
+OVERLAP_TITLE: Final = "Overlap check"
+QUANTILE_TABLE: Final = "Treatment probabilities by group"
+ARM_TABLE: Final = "Weights by arm"
+TAIL_TABLE: Final = "Rows near 0 or 1"
+EQUATION_TABLE: Final = "Weight concentration in the estimating equation"
+MECHANISM_TABLE: Final = "Other probabilities in the weights"
+WEIGHT_SHARE_COLUMNS: Final[tuple[str, ...]] = (
+    "effective rows",
+    "eff. share",
+    "top 1%",
+    "top 5%",
+)
+TAIL_COLUMNS: Final[tuple[str, ...]] = ("threshold t", "share below t", "share above 1 - t")
+#: The ``Treatment model`` fact when the data declares the treatment probabilities.
+KNOWN_TREATMENT: Final = "known (declared)"
+#: A group's limits or cap count when the fit does not report them.
+NOT_APPLICABLE: Final = "does not apply"
+
+#: Titles and lines of the overlap check's full detail.
+OVERLAP_DETAILS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "extreme": "Most extreme uncapped treatment probability: {value}.",
+        "largest": "Largest weight in the correction step for {group}: {value}.",
+        "equation": (
+            "{group}: equation {equation}, {zero} of its rows carry zero weight, limits {limits}."
+        ),
+        "mechanism_limits": "The {name} is capped at {limits}.",
+        "factor_by_factor": "{limits}, factor by factor",
+        "composite": (
+            "{name}: smallest value {low}; {share} of unit-arm cells fall below the "
+            "treatment floor {floor}. The joint probability is adjusted inside [{lower}, "
+            "{upper}], the product of the factor floors."
+        ),
+    }
+)
+OVERLAP_NOTHING_MORE: Final = "The tables above report everything this check measured."
+
+
 # ----------------------------------------------------------------- study setup (T5)
 
 #: The header labels of the study-setup and simulation summaries.

@@ -21,6 +21,7 @@ __all__ = [
     "read_equations",
     "read_influence",
     "read_models",
+    "read_overlap",
     "read_refutation",
     "read_weights",
     "sci_close",
@@ -639,3 +640,140 @@ def read_models(check: Any, text: str) -> None:
             for shown, value in zip(row[2:], values[2:], strict=True):
                 assert close(shown, float(value)), (shown, record)
     assert list(tables) == expected_titles, (list(tables), expected_titles)
+
+
+#: The ``Result`` of the overlap check on the treatment branch, written out here so a tier
+#: paired with the wrong words fails.
+_OVERLAP_RESULTS = {
+    "adequate": "at most 1% of units capped",
+    "strain": "1% to 5% of units capped",
+    "serious": "over 5% of units capped",
+}
+
+
+def _limits_close(shown: str, lower: float, upper: float) -> bool:
+    low, _, high = shown.strip("[]").partition(", ")
+    return close(low, lower) and close(high, upper)
+
+
+def _capped_close(shown: str, count: float, fraction: float) -> bool:
+    if shown == vocabulary.MISSING:
+        return not math.isfinite(fraction)
+    number, _, percent = shown.partition(" (")
+    return close(number, count) and close(percent.rstrip("%)"), 100 * fraction)
+
+
+def read_overlap(report: Any, text: str) -> None:
+    """Assert that every number an overlap-check summary prints equals the report's.
+
+    Parameters
+    ----------
+    report : PositivityReport
+        The report.
+    text : str
+        Its short summary.
+    """
+    facts = header_values(text)
+    assert int(facts[vocabulary.ROWS].replace(",", "")) == report.n
+    assert _limits_close(facts[vocabulary.PROBABILITY_LIMITS], *report.bounds), facts
+    assert _capped_close(
+        facts[vocabulary.UNITS_CAPPED], report.truncated["count"], report.truncated["fraction"]
+    ), facts
+    if report.grade().mechanism is None:
+        assert facts[vocabulary.RESULT] == _OVERLAP_RESULTS[report.severity], facts
+    else:
+        stats = report.mechanisms[report.grade().mechanism]
+        capped = stats["clipped_fraction"] > 0.01
+        wanted = "another probability capped" if capped else "weights concentrated"
+        assert facts[vocabulary.RESULT] == wanted, facts
+    if report.treatment_mechanism == "known":
+        assert facts[vocabulary.TREATMENT_MODEL] == "known (declared)"
+    else:
+        assert vocabulary.TREATMENT_MODEL not in facts
+    if report.n_repeats > 1:
+        assert facts[vocabulary.SPLIT_SHOWN] == f"split 1 of {report.n_repeats}"
+    tables = text_tables(text)
+    titles = [title for title, _, _ in tables]
+    expected = [vocabulary.QUANTILE_TABLE, vocabulary.ARM_TABLE, vocabulary.TAIL_TABLE]
+    if report.group_score_load:
+        expected.append(vocabulary.EQUATION_TABLE)
+    if report.mechanisms:
+        expected.append(vocabulary.MECHANISM_TABLE)
+    assert titles == expected, titles
+    found = {title: (labels, rows) for title, labels, rows in tables}
+
+    frame = report.to_frame()
+    quantiles: dict[str, list[tuple[float, float]]] = {}
+    for group, quantile, value in frame.itertuples(index=False):
+        quantiles.setdefault(str(group), []).append((float(quantile), float(value)))
+    labels, rows = found[vocabulary.QUANTILE_TABLE]
+    assert [row[0] for row in rows] == list(quantiles), rows
+    for row in rows:
+        values = sorted(quantiles[row[0]])
+        assert labels[1:] == [f"{quantile:.0%}" for quantile, _ in values], labels
+        for shown, (_, value) in zip(row[1:], values, strict=True):
+            assert close(shown, value), (row, values)
+
+    labels, rows = found[vocabulary.ARM_TABLE]
+    assert labels == ["arm", "rows", "effective rows", "eff. share", "top 1%", "top 5%"]
+    assert [row[0] for row in rows] == [str(arm) for arm in report.effective_sample_size]
+    for row, (arm, ess) in zip(rows, report.effective_sample_size.items(), strict=True):
+        share = report.weight_share[arm]
+        wanted = (ess["n"], ess["effective"], ess["ratio"], share["top_1pct"], share["top_5pct"])
+        for shown, value in zip(row[1:], wanted, strict=True):
+            assert close(shown, value), (row, wanted)
+
+    labels, rows = found[vocabulary.TAIL_TABLE]
+    assert labels == ["threshold t", "share below t", "share above 1 - t"], labels
+    tails = sorted(report.tail_mass.items())
+    assert len(rows) == len(tails), rows
+    for row, (threshold, mass) in zip(rows, tails, strict=True):
+        assert math.isclose(float(row[0]), threshold, rel_tol=1e-3), (row, threshold)
+        assert close(row[1], mass["below"]) and close(row[2], mass["above"]), (row, mass)
+
+    if report.group_score_load:
+        labels, rows = found[vocabulary.EQUATION_TABLE]
+        assert labels == [
+            "group",
+            "rows",
+            "effective rows",
+            "eff. share",
+            "top 1%",
+            "top 5%",
+            "largest",
+            "capped",
+        ], labels
+        assert [row[0] for row in rows] == list(report.group_score_load), rows
+        for row, load in zip(rows, report.group_score_load.values(), strict=True):
+            wanted = (
+                load["n_targeted"],
+                load["effective"],
+                load["targeted_ratio"],
+                load["top_1pct"],
+                load["top_5pct"],
+                load["max_load"],
+            )
+            for shown, value in zip(row[1:7], wanted, strict=True):
+                assert close(shown, value), (row, wanted)
+            assert _capped_close(row[7], load["clipped_count"], load["clipped_fraction"]), row
+
+    if report.mechanisms:
+        labels, rows = found[vocabulary.MECHANISM_TABLE]
+        assert labels == [
+            "probability of",
+            "min",
+            "5%",
+            "median",
+            "eff. share",
+            "top 1%",
+            "top 5%",
+            "capped",
+        ], labels
+        assert [row[0] for row in rows] == [
+            vocabulary.MECHANISM_LABELS[name] for name in report.mechanisms
+        ], rows
+        for row, stats in zip(rows, report.mechanisms.values(), strict=True):
+            keys = ("min", "q05", "median", "ess_ratio", "top_1pct", "top_5pct")
+            for shown, key in zip(row[1:7], keys, strict=True):
+                assert close(shown, stats[key]), (row, key, stats)
+            assert _capped_close(row[7], stats["clipped"], stats["clipped_fraction"]), row
