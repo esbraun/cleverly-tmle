@@ -23,7 +23,6 @@ This module deliberately does not import :mod:`cleverly.estimators.base`, so
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
@@ -39,6 +38,7 @@ from .._typing import (
     StoppingRule,
     TargetingMethod,
 )
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError, Refusal, RefusalReason
 from ..fluctuation._score import (
@@ -322,7 +322,7 @@ def _capped_failure(
     if exit_reason != "cap" or converged:
         return unsolved
     if warn:
-        warnings.warn(
+        _warn(
             f"the doubly-robust alternation of the {group!r} targeting step ran out of its "
             f"{max_outer} rounds without meeting its tolerance. The closing scores can still "
             "look solved while the state has not settled, so the standard errors may not "

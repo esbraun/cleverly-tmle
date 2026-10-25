@@ -128,7 +128,8 @@ def test_a_bootstrap_refits_every_stratum(name: str, rows: pd.DataFrame) -> None
 
 @pytest.mark.parametrize("name", list(COMPOSITIONS))
 def test_a_cross_fitted_pooled_fit_reports_every_stratum(name: str, rows: pd.DataFrame) -> None:
-    result = fit(name, rows, cross_fit=True, n_folds=2)
+    # Three folds: the fewest that DR-TMLE's default fold-wise reduced regressions accept.
+    result = fit(name, rows, cross_fit=True, n_folds=3)
     assert len(stratum_names(result)) >= 3
     assert all(np.isfinite(result[n].std_error) for n in stratum_names(result))
 
