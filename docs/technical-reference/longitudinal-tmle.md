@@ -2427,8 +2427,9 @@ One reporting row is red. In the `sdr_categorical_k5_switch` scenario, the Wald 
 ### Refutation and sensitivity checks
 
 `refute()` runs on `LTMLE`, `SDR` and `IPSI` fits, survival, competing-risk, repeated-outcome and
-MSM fits included. [Longitudinal refutation](validation-methods.md#longitudinal-refutation) gives
-each test and the scope inside which it prints a verdict. The
+MSM fits included. The "Longitudinal refutation" part of
+[refutation operations](validation-methods.md#refutation-operations) gives each test and the scope
+inside which it prints a verdict. The
 [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) and the
 [band-rank placebo study](method-evidence/refuter-calibration-band.md) calibrate those verdicts.
 
