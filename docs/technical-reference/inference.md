@@ -188,10 +188,11 @@ rename a number on a non-inferential status.
 | `LongitudinalResult.curve()` | `std_err`, `ci_lower`, `ci_upper` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column |
 | `LongitudinalResult.incidence_total()` | `std_err` | `plugin_std_err` |
 | `to_frame()` of a fit with `n_bootstrap` | `bootstrap_std_err`, `bootstrap_ci_lower`, `bootstrap_ci_upper` | `bootstrap_sd`, `bootstrap_range_lower`, `bootstrap_range_upper` |
-| the bootstrap rows of `summary()` | `bootstrap se`, `percentile CI` | `bootstrap sd`, `percentile range` |
+| the bootstrap table of `summary()` | `bootstrap SE`, `percentile <level> CI` | `bootstrap SD (diagnostic)`, `percentile range (diagnostic)` |
 
 The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
-is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
+is an inference claim, so a non-inferential status publishes that number as `bootstrap_sd`, which
+`summary()` labels `bootstrap SD (diagnostic)`.
 `BootstrapSummary.diagnostic` is `True` when the bootstrap columns take the diagnostic names. A
 bootstrap is a diagnostic when its estimate supplies no inference, when the fit reads fewer
 clusters than the interval floor (10, or 20 for `LTMLE`), or when the summary says so. The cluster
@@ -202,7 +203,7 @@ bootstrap sets the field, because no reviewed theorem covers a selector path.
 `BootstrapSummary.support` records whether a support row lists the `bootstrap` kind for the fit.
 A bootstrap interval with no such row keeps the inferential names and carries the label
 `experimental`. The `to_dict()` key `bootstrap_support` and the `[experimental]` marker on the
-`percentile CI` line show it. A derived bootstrap takes the combined support of its inputs.
+`percentile <level> CI` column show it. A derived bootstrap takes the combined support of its inputs.
 `BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
 the replicate distribution, and the status decides only the published name.
 `TestTheBootstrapPublishesUnderTheStatusName` in
