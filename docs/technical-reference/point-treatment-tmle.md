@@ -1284,10 +1284,13 @@ correct treatment model. When cluster sizes depend on the outcome, the fold-eval
 the ratio bias that [CV-TMLE](cv-tmle.md) measures. For an unweighted fit the bias vanishes at
 equal sizes. A weighted fold mean is a ratio of weighted sums at any sizes.
 
-Until a registered study covers these settings, each fit carries the experimental label. The
-study draws equal cluster sizes, so its key marks a learned-rule fit with unequal sizes
-(`unequal_clusters`), and such a fit keeps the label. Weights declared estimated
-(`weights_estimated=True`) refuse.
+The [compositions study](method-evidence/learned-rule-compositions.md) measures each setting at
+n = 2,000, and its fits read supported. Coverage is 0.9427 under fold targeting, 0.9537 with
+known weights at `misspecified_limit`, and 0.9445 at 200 equal clusters of 10. At 30 clusters the
+t interval covers 0.9400 to 0.9528. The study draws equal cluster sizes only, so its key marks a
+learned-rule fit with unequal sizes (`unequal_clusters`), and such a fit reads experimental. A
+fit with both weights and clusters also reads experimental, because no cell measures it. Weights
+declared estimated (`weights_estimated=True`) refuse.
 
 The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat and no full-refit
 bootstrap. `refuse_learned_rule_composition` in

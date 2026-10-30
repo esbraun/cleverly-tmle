@@ -434,29 +434,49 @@ class TestClusters:
 
 
 class TestTheLabelAndTheReference:
-    """Until the learned-rule-compositions study registers, every lifted fit is experimental.
+    """The settings that ``learned-rule-compositions`` measured read supported with their rows.
 
-    When the study registers its rows, the label test is meant to fail and be inverted for the
-    covered settings.
+    The study draws equal cluster sizes, known weights and no weighted clustered fit, so a fit
+    outside those settings stays experimental.
     """
 
-    def test_each_lifted_setting_reads_experimental(self) -> None:
+    def test_each_covered_setting_reads_supported_with_its_row(self) -> None:
         fits = {
-            "fold targeting": support.fit(support.law_frame(300, 1), targeting_scheme="fold"),
-            "weights": support.learned_tmle()
+            "T37.fold_targeted": support.fit(support.law_frame(300, 1), targeting_scheme="fold"),
+            "T37.weighted": support.learned_tmle()
             .fit(_misspecified_limit_frame(300, 1), weights="w", **FIT)
             .single(),
-            "clusters": support.learned_tmle()
+            "T37.clustered": support.learned_tmle()
             .fit(_clustered_frame(60, 5, 1, 1.5), id="cluster", **FIT)
+            .single(),
+            "T37.few_cluster": support.learned_tmle()
+            .fit(_clustered_frame(30, 10, 1, 1.5), id="cluster", **FIT)
+            .single(),
+        }
+        for row, result in fits.items():
+            label = result[support.NAME].support
+            assert label.label == "supported", row
+            assert label.row == row, row
+
+    def test_unequal_sizes_and_weighted_clusters_stay_experimental(self) -> None:
+        frame = _clustered_frame(60, 5, 1, 1.5)
+        unequal_ids = frame["cluster"].where(frame.index % 5 != 0, frame["cluster"] + 1)
+        fits = {
+            "unequal sizes": support.learned_tmle()
+            .fit(frame.assign(cluster=unequal_ids), id="cluster", **FIT)
+            .single(),
+            "weights and clusters": support.learned_tmle()
+            .fit(frame.assign(w=1.0 + 1.5 * (frame["W1"] > 0.0)), id="cluster", weights="w", **FIT)
             .single(),
         }
         for setting, result in fits.items():
             label = result[support.NAME].support
             assert label.label == "experimental", setting
             assert label.row is None, setting
-        # The weighted fit is near the learned-rule row and differs from it on the weights.
-        assert "T24" in fits["weights"][support.NAME].support.reason
-        assert "weighting" in fits["weights"][support.NAME].support.reason
+        # The unequal-size fit is near the clustered row and differs from it on the qualifier.
+        reason = fits["unequal sizes"][support.NAME].support.reason
+        assert "T37.clustered" in reason
+        assert "qualifiers" in reason
 
     def test_unequal_cluster_sizes_carry_their_own_qualifier(self) -> None:
         """A learned-rule row for equal sizes never covers a fit with unequal sizes."""

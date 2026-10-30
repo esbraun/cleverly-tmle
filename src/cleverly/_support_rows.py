@@ -670,6 +670,71 @@ def _t_rows() -> tuple[SupportRow, ...]:
             limits=["The exceptional and weak-blip laws are red."],
         )
     )
+    # X11 (h), (k) and (l): the learned-rule value with fold targeting, known weights and
+    # clusters. Unequal cluster sizes key the qualifier ``unequal_clusters``, which no row
+    # declares, and a weighted clustered fit has no row either.
+    equal_sizes = (
+        "The study draws equal cluster sizes only. A fit with unequal sizes is experimental, "
+        "because sizes that depend on the outcome put a ratio bias in the fold-evaluated point."
+    )
+    rows.append(
+        point_row(
+            "T37.fold_targeted",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            splitting=("fold_targeted_evaluated",),
+            cells=["fold_targeted"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures coverage with a logistic outcome learner at one law. An "
+                "outcome learner that omits W1 is measured for bias only."
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T37.weighted",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            weighting="fixed",
+            splitting=("fold_evaluated",),
+            cells=["weighted"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures a known observation weight only. Estimated weights refuse.",
+                "A weighted fit with clusters is experimental.",
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T37.clustered",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            dependence="clustered",
+            cells=["clustered"],
+            # Roadmap: X11.
+            limits=[equal_sizes],
+        )
+    )
+    rows.append(
+        point_row(
+            "T37.few_cluster",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            dependence="t",
+            kinds=_WALD_T,
+            cells=["clustered_few__declared"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures 30 clusters of 34 rows in 10 folds, with 20 degrees of "
+                "freedom.",
+                equal_sizes,
+            ],
+        )
+    )
     rows.append(
         point_row(
             "T25",

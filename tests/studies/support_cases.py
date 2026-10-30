@@ -2257,6 +2257,33 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _learned_rule_composition_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-compositions`` (X11 PR A).
+
+    Each runs the study's own fit on a draw of its scenario at the declared size, up to the
+    classifier, with the study's outcome learner.
+    """
+    module, slug = "_learned_rule_compositions_law", "learned-rule-compositions"
+
+    def case(row: str, cell: str, scenario: str, n: int) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            cell,
+            f"{module}.py:148",
+            module,
+            lambda study: study.draw(scenario, n, 0),
+            lambda study, frame: study.fit(frame, scenario, study.base.outcome_learner(), 0),
+        )
+
+    return (
+        case("T37.fold_targeted", "fold_targeted", "fold_targeted", 2_000),
+        case("T37.weighted", "weighted", "weighted", 2_000),
+        case("T37.clustered", "clustered", "clustered", 2_000),
+        case("T37.few_cluster", "clustered_few__declared", "clustered_few", 1_020),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2573,6 +2600,7 @@ CASES: tuple[RowCase, ...] = (
     *_long_cases(),
     *_vector_cases(),
     *_categorical_incremental_cases(),
+    *_learned_rule_composition_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

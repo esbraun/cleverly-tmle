@@ -73,6 +73,7 @@ point-treatment-msm-projection
 deterministic-point-treatment-regimes
 learned-rule-cvtmle
 learned-rule-cvtmle-boundary
+learned-rule-compositions
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies

@@ -1010,9 +1010,10 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 | (n) the omitted-variable bound | the bound on a learned-rule fit | the bound of the frozen fold rules after [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part G. Its limits need $\sigma^2$ and $\nu^2$ asymptotically linear under C3, or the row ships the point bound only | natural extension |
 
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
-clusters, labelled experimental until their study registers
-([learned rules](technical-reference/point-treatment-tmle.md#fold-targeting-weights-and-clusters)).
-Part (k2) is what remains of the weights part.
+clusters ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
+The [compositions study](technical-reference/method-evidence/learned-rule-compositions.md)
+measures each setting, so these fits read supported. A fit with unequal cluster sizes, or with
+both weights and clusters, reads experimental. Part (k2) is what remains of the weights part.
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
