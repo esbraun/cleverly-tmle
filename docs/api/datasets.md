@@ -86,7 +86,7 @@ Three functions serve the [treatment-rules tutorial](../examples/treatment-rules
 | function | what it returns |
 | --- | --- |
 | `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, and by the best rule |
-| `treatment_rule_value` | the exact share who stay home under any rule or lottery, written as the chance of an offer for each patient |
+| `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
 ```{eval-rst}
