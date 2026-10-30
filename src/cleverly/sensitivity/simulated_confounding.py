@@ -1696,7 +1696,8 @@ def simulated_confounding(
     observed-law contrasts, so it offers neither C-TMLE nor DR-TMLE for them.
 
     A binary fit replays under an estimator whose class declares
-    ``simulated_confounding_replay = True``: ``TMLE``, ``CTMLE`` and ``DRTMLE``.
+    ``simulated_confounding_replay = True``: ``TMLE``, ``CTMLE``, ``DRTMLE`` and
+    ``AdaptiveIPTW``.
     Binary ordinary TMLE supports a fixed regime of any class whose density is declared
     known, such as Static, Rule, and Stochastic. The operation validates declared policy
     arrays against every stored cross-fitting draw and freezes those arrays on the original
