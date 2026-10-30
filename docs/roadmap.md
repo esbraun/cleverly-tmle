@@ -129,7 +129,7 @@ not change the package version.
 | BP | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
-| B5 | Learned-policy follow-ups | published support for part (g); natural extension for parts (i), (k2), (m) and (n); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Learned-policy follow-ups | published support for part (g); natural extension for parts (i2), (k2), (m) and (n); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -1004,7 +1004,6 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
-| (i) the mean over a fixed number of splits | `repeats` above 1 | linearity over a common limit. Under the fold-average target that the package reports, the median of split estimates estimates no defined parameter, so it stays refused | natural extension |
 | (j) a learned rule with a controlled intermediate | `intermediate=` | a two-time-point rule pair: the learned rule at $A$ and the static $Z = z$ | source audit, with part (b) |
 | (m) baseline strata | `strata=` | a finite partition, after [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) | natural extension |
 | (n) the omitted-variable bound | the bound on a learned-rule fit | the bound of the frozen fold rules after [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part G. Its limits need $\sigma^2$ and $\nu^2$ asymptotically linear under C3, or the row ships the point bound only | natural extension |
@@ -1012,11 +1011,15 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
 clusters, labelled experimental until their study registers
 ([learned rules](technical-reference/point-treatment-tmle.md#fold-targeting-weights-and-clusters)).
-Part (k2) is what remains of the weights part.
+With `repeats` above 1 on rows it reports the mean over the splits, labelled experimental too
+([the mean over splits](technical-reference/point-treatment-tmle.md#the-mean-over-splits)). The
+median of split estimates estimates no defined parameter, so no setting reaches it. Parts (k2)
+and (i2) are what remains of the weights part and the splits part.
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
 | (k2) estimated observation weights | `weights_estimated=True` | the variance of a fit that also estimates its weights | natural extension |
+| (i2) the mean over splits with clusters | `repeats` above 1 with `id=` | a variance for the mean of cluster curves centred on different partitions, which lose about $2V - V/R - 1$ cluster degrees of freedom. No finite-sample correction is derived | natural extension |
 
 ### X28. Fold-evaluated CV-TMLE with baseline strata
 
@@ -2474,7 +2477,7 @@ The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-
 request below before any learner, except the exceptional-law row. The
 [boundary study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) measures the
 exceptional-law row and the `weak_blip` row. F27 owns every red cell of the boundary study.
-[X11](#x11-learned-policy-follow-ups) parts (c) and (i) to (n), and [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, hold the
+[X11](#x11-learned-policy-follow-ups) parts (c) and (i2) to (n), and [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, hold the
 compositions that moved.
 
 | kept claim | kind | missing argument |

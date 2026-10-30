@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 
@@ -278,7 +278,8 @@ class CVTargeting:
         carries the ordinary influence-curve one.  The two agree when the folds are
         balanced and the score equation is solved, so a gap between them is itself
         informative. Over ``R`` draws, the median aggregation adds each point's squared
-        displacement before taking the median across draws. :attr:`std_error` returns
+        displacement before taking the median across draws, and the mean aggregation of
+        a learned-rule fit is the second moment of the mean curve. :attr:`std_error` returns
         the square root at ``"influence_curve"`` and refuses at every other status;
         :attr:`plugin_std_error` returns it at every status.
     std_error : dict of str to float
@@ -294,10 +295,15 @@ class CVTargeting:
         Per-targeting-group tuple of fold-specific fluctuation coefficients, from the
         first draw. Empty for common pooled-validation targeting.
     pooled, fold_evaluated:
-        The two reports, per estimand, combined by their median over every draw.
+        The two reports, per estimand, combined over every draw by :attr:`aggregate`.
     repeats:
         How many cross-fitting draws :attr:`pooled`, :attr:`fold_evaluated` and
         :attr:`variance` cover.
+    aggregate : {"median", "mean"}
+        How the draws combine. ``"median"`` is the rule above. A learned-rule fit takes
+        ``"mean"``: the mean point, and each report's own variance rule applied to the
+        mean of the draws' curves, because each draw defines its own target and the median
+        of the draw estimates estimates no defined parameter.
     inference : str
     plugin_std_error : dict of str to float
     """
@@ -311,6 +317,7 @@ class CVTargeting:
     pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
     fold_evaluated: dict[str, ParameterEstimate] = field(default_factory=dict)
     repeats: int = 1
+    aggregate: Literal["median", "mean"] = "median"
     #: Name of the dataframe backend the fit's data arrived in, as on every other
     #: report here.
     backend: str | None = None

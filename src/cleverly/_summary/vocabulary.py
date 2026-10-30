@@ -568,6 +568,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "{spread} includes the spread between splits. Rows are combined one at a time, "
             "so a difference of two rows need not equal a third."
         ),
+        "repeated_splits_mean": (
+            "Each row is the mean over {repeats} random splits into folds. Each split learns "
+            "its own rules, so the row estimates the mean of the {repeats} split values, and "
+            "its {spread} reads the splits together."
+        ),
         "simultaneous_bands": (
             "The bands cover all {count} rows at once with {level} probability; use them "
             "when you read several rows together."
@@ -3682,6 +3687,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "cv_first_split": (
             "Both estimates combine {repeats} splits by their median; the fold columns "
+            "describe the first split only."
+        ),
+        "cv_first_split_mean": (
+            "Both estimates combine {repeats} splits by their mean; the fold columns "
             "describe the first split only."
         ),
         "left_out": (

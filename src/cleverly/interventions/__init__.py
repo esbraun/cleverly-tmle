@@ -25,7 +25,7 @@ from .incremental import (
     IPSISet,
     check_incremental_support,
 )
-from .learned import LearnedRule, LearnedRuleRecord
+from .learned import LearnedRule, LearnedRuleRecord, LearnedRuleSplit
 from .policy import (
     POLICY_TYPES,
     JointPolicy,
@@ -54,6 +54,7 @@ __all__ = [
     "JointPolicy",
     "LearnedRule",
     "LearnedRuleRecord",
+    "LearnedRuleSplit",
     "ModifiedPolicy",
     "Piece",
     "Piecewise",

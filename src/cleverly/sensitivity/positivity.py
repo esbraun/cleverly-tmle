@@ -1285,6 +1285,25 @@ def _refuse_natural_course(result: TMLEResult, axis: bool) -> Refusal | None:
     )
 
 
+def _refuse_learned_rule_splits(result: TMLEResult, axis: bool) -> Refusal | None:
+    """Refuse a learned-rule fit of several splits, whose sweep would take their median.
+
+    The curve combines the retargeted draws by the median rule, and a learned-rule fit
+    reports their mean: the median of the split values estimates no defined parameter.
+    """
+    del axis
+    if result.config.parameter_axis != "learned_rule":
+        return None
+    from ..interventions.learned import learned_rule_splits_refusal
+
+    return learned_rule_splits_refusal(
+        "truncation_curve",
+        result.n_repeats,
+        reads="combines the retargeted splits by their median",
+        instead="The median of the split values estimates no defined parameter.",
+    )
+
+
 #: Every refusal of a point-treatment truncation curve that the requested axis decides, in
 #: the one order the module call and the capability row both use.  Each rule reads the
 #: resolved axis from :func:`truncation_axis`.  The names are the introspection contract,
@@ -1293,6 +1312,7 @@ _TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], Refusal | None]
     ("observation_axis", _refuse_observation_axis),
     ("incremental", _refuse_incremental),
     ("natural_course", _refuse_natural_course),
+    ("learned_rule_splits", _refuse_learned_rule_splits),
 )
 
 

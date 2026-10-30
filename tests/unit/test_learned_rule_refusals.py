@@ -1,7 +1,7 @@
 """Every learned-rule composition outside the RM30 contract refuses, in order, before a learner.
 
 The refusal table of the learned-rule contract in
-``docs/technical-reference/point-treatment-tmle.md`` lists fourteen rows.  Each row raises
+``docs/technical-reference/point-treatment-tmle.md`` lists the rows in order.  Each row raises
 :class:`~cleverly.exceptions.CapabilityError` with its item before any learner is fitted, at the engine and at ``CausalStudy``, with one
 exception: ``CrossFitting(n_folds=1)`` refuses at construction, before it sees the
 estimand, with a :class:`~cleverly.exceptions.MethodConfigurationError` that ends with the
@@ -62,7 +62,6 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 ENGINE_REMEDY = (
     "cross_fit=True",
     "cv_evaluation=True",
-    "repeats=1",
     "n_bootstrap=0",
 )
 
@@ -92,6 +91,8 @@ def _frame(kind: str = "binary") -> Any:
         frame["Z"] = (np.arange(len(frame)) % 2).astype(float)
     if kind == "estimated_weights":
         frame["w"] = 1.0 + 0.5 * frame["W2"]
+    if kind == "clusters":
+        frame["c"] = np.arange(len(frame)) % 20
     return frame
 
 
@@ -104,6 +105,7 @@ _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "intermediate": {"intermediate": "Z"},
     "estimated_weights": {"weights": "w", "weights_estimated": True},
     "strata": {"strata": ("W2",)},
+    "clusters": {"id": "c"},
 }
 
 
@@ -135,11 +137,10 @@ DATA_ROWS: dict[str, str] = {
     "strata": "X11 (m)",
 }
 
-#: The setting rows, each with its item.
+#: The fold-policy setting rows, each with its item.  Each names the configuration that fits.
 SCHEME_ROWS: dict[str, tuple[dict[str, Any], str]] = {
     "in_sample": ({"cross_fit": False, "cv_evaluation": False}, "X11 (a)"),
     "stacked": ({"cv_evaluation": False}, "X11 (e)"),
-    "repeats": ({"repeats": 2}, "X11 (i)"),
     "bootstrap": ({"n_bootstrap": 10}, "F27"),
 }
 
@@ -533,7 +534,6 @@ class TestTheStudyRefusesTheSameRows:
             "X11 (a)",
         ),
         "stacked": ({}, {}, CapabilityError, "X11 (e)"),
-        "repeats": ({"fold_evaluation": True, "repeats": 2}, {}, CapabilityError, "X11 (i)"),
         "bootstrap": ({"fold_evaluation": True}, {"n_bootstrap": 10}, CapabilityError, "F27"),
     }
 

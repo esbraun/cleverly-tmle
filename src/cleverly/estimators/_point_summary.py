@@ -655,9 +655,11 @@ def _fit_notes(
         notes.append(
             note(
                 "repeated_splits",
-                vocabulary.NOTE_TEXTS["repeated_splits"].format(
-                    repeats=result.n_repeats, spread=spread
-                ),
+                vocabulary.NOTE_TEXTS[
+                    "repeated_splits_mean"
+                    if result.config.parameter_axis == "learned_rule"
+                    else "repeated_splits"
+                ].format(repeats=result.n_repeats, spread=spread),
             )
         )
     if config.cross_fit and config.crossfit.n_folds != config.n_folds:

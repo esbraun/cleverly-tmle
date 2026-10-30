@@ -13,16 +13,16 @@ where :math:`\bar Q_{nv}` is the outcome regression fitted on the training rows 
 fold :math:`v`.  Van der Laan and Luedtke (2015), Section 7 and Appendix B, define the
 target and its cross-validated TMLE.  The estimator reuses the regime fluctuation with one
 pooled :math:`\varepsilon`, the fold-evaluated report and the cross-validated variance
-(``TMLE(cv_evaluation=True)``).  This module adds the fold-local rule, the result record and
-the refusals.  No new submodel, fluctuation, influence curve, variance or learner protocol
-enters.
+(``TMLE(cv_evaluation=True)``).  This module adds the fold-local rule, the result record,
+the mean over a fixed number of splits (:func:`mean_over_splits`) and the refusals.  No new
+submodel, fluctuation, influence curve or learner protocol enters.
 """
 
 from __future__ import annotations
 
 import copy
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -33,6 +33,7 @@ from .base import RegimeSet
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
     from ..estimators._nuisance import NuisanceEstimates
+    from ..inference.influence import ParameterEstimate
 
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
@@ -46,11 +47,14 @@ __all__ = [
     "FrozenLearnedRule",
     "LearnedRule",
     "LearnedRuleRecord",
+    "LearnedRuleSplit",
     "freeze_learned_rule",
     "frozen_rule_replay",
     "learned_rule_configuration_refusal",
-    "learned_rule_record",
     "learned_rule_scheme_refusal",
+    "learned_rule_split",
+    "learned_rule_splits_refusal",
+    "mean_over_splits",
     "refuse_learned_rule_composition",
 ]
 
@@ -74,7 +78,7 @@ BLIP_QUANTILE_LEVELS: tuple[float, ...] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 LEARNED_RULE_CONFIGURATION = (
     "cross_fit=True, cv_evaluation=True on the engine, or "
     "CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least "
-    "2, repeats=1 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)"
+    "2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)"
 )
 
 #: The way out of a shared refusal that a drawn split raises.  The learned-rule value has
@@ -229,20 +233,75 @@ class FrozenLearnedRule(LearnedRule):
         return FrozenLearnedRule(self.name, self.treat[np.asarray(rows, dtype=int)])
 
 
+def learned_rule_splits_refusal(
+    operation: str,
+    n_splits: int,
+    *,
+    reads: str = "reads one learned rule per row",
+    instead: str = "One rule per row would answer for the target of one split instead.",
+) -> Refusal | None:
+    """Return the refusal of a surface that reads one split of a learned-rule fit, or ``None``.
+
+    A learned-rule fit with ``repeats=R`` above 1 reports the mean over ``R`` splits.  Each
+    split learns its own fold rules, so a row has ``R`` rules, not one.  A surface that
+    freezes, reports or replays one rule per row would answer for the target of one split,
+    and a surface that combines the splits by their median would answer for no defined
+    parameter.
+
+    Parameters
+    ----------
+    operation : str
+        The surface, named as the caller writes it.
+    n_splits : int
+        How many splits the fit combines.
+    reads : str
+        What the surface reads, after its name.
+    instead : str
+        The sentence that names what the surface would answer for.
+
+    Returns
+    -------
+    Refusal or None
+        A ``DIFFERENT_ESTIMAND`` record whose remedy is a refit with ``repeats=1``, or
+        ``None`` for a fit of one split.
+    """
+    if n_splits == 1:
+        return None
+    return Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
+        f"{operation} {reads}, and this learned-rule fit reports the mean over {n_splits} "
+        f"splits (repeats={n_splits}). Each split learns its own fold rules, so each row has "
+        f"{n_splits} rules, and the reported target is the mean of the {n_splits} split "
+        f"targets. {instead}",
+        alternative=(
+            "Refit with repeats=1 (CrossFitting(repeats=1) on the method), and run "
+            f"{operation} on that fit, which reads the rules of its one split."
+        ),
+    )
+
+
 def freeze_learned_rule(result: Any) -> FrozenLearnedRule:
     """Return the realized fold rules of a learned-rule fit, one value per row.
 
     Parameters
     ----------
     result : TMLEResult
-        A learned-rule fit.
+        A learned-rule fit of one split.
 
     Returns
     -------
     FrozenLearnedRule
         The rule of the fit under its own name. ``treat`` is ``True`` where the row's fold
         rule assigns the higher arm code.
+
+    Raises
+    ------
+    CapabilityError
+        If the fit combines more than one split (:func:`learned_rule_splits_refusal`).
     """
+    refusal = learned_rule_splits_refusal("freeze_learned_rule", result.n_repeats)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
     values = np.asarray(result.nuisance.regimes.values[:, 1, 0], dtype=float) > 0.5
     return FrozenLearnedRule(result.estimator.learned_rule.name, values)
 
@@ -283,17 +342,15 @@ def _rule_treat(nuisance: NuisanceEstimates, rule: LearnedRule) -> np.ndarray:
 
 
 @dataclass(frozen=True)
-class LearnedRuleRecord:
-    """Record what a learned-rule fit estimated, under ``result.extra["learned_rule"]``.
-
-    The fitted fold models are not kept.  The realized rule of each row is
-    ``result.nuisance.regimes.values[:, 1, 0]``, and the folds, the learner templates and
-    the seeds replay the fit.
+class LearnedRuleSplit:
+    """Record one split of a learned-rule fit: its rules and its fold estimates.
 
     Parameters
     ----------
-    name : str
-        The label of the rule.
+    seed : int
+        The seed of the split's folds and learners, as ``result.repeats`` records it.
+    estimate : float
+        The split's fold-evaluated value, :math:`(1/V)\\sum_v \\psi^*_{nv}`.
     fold_sizes : tuple of int
         The validation rows of each outer fold.
     fold_estimates : tuple of float
@@ -303,19 +360,17 @@ class LearnedRuleRecord:
         arm code.
     blip_quantiles : tuple of tuple of float
         For each fold, quantiles of the estimated blip ``Qbar_v(1, W) - Qbar_v(0, W)`` on
-        its validation rows, at :attr:`quantile_levels`, on the scale the outcome
+        its validation rows, at :data:`BLIP_QUANTILE_LEVELS`, on the scale the outcome
         regression is fitted on.
 
     Attributes
     ----------
     n_folds : int
     fold_weights : tuple of float
-    rule : str
-    target : str
-    quantile_levels : tuple of float
     """
 
-    name: str
+    seed: int
+    estimate: float
     fold_sizes: tuple[int, ...]
     fold_estimates: tuple[float, ...]
     treated_shares: tuple[float, ...]
@@ -323,13 +378,86 @@ class LearnedRuleRecord:
 
     @property
     def n_folds(self) -> int:
-        """Return the number of outer folds."""
+        """Return the number of outer folds of the split."""
         return len(self.fold_sizes)
 
     @property
     def fold_weights(self) -> tuple[float, ...]:
-        """Return the weight of each fold in the reported average, ``1/V`` for every fold."""
+        """Return the weight of each fold in the split's average, ``1/V`` for every fold."""
         return tuple(1.0 / self.n_folds for _ in self.fold_sizes)
+
+
+@dataclass(frozen=True)
+class LearnedRuleRecord:
+    """Record what a learned-rule fit estimated, under ``result.extra["learned_rule"]``.
+
+    The fitted fold models are not kept.  The realized rule of each row in split ``r`` is
+    ``result.repeats[r].nuisance.regimes.values[:, 1, 0]``, and the folds, the learner
+    templates and the seeds replay the fit.  A fit of ``repeats=R`` holds one
+    :class:`LearnedRuleSplit` per split, and reports the mean of their estimates.
+
+    The fold attributes describe the first split, as the fold fields of
+    :class:`~cleverly.CVTargeting` do: fold 3 of one split is not fold 3 of another.  On a
+    fit of one split they describe the whole fit.
+
+    Parameters
+    ----------
+    name : str
+        The label of the rule.
+    splits : tuple of LearnedRuleSplit
+        One record per split, in the order of ``result.repeats``.
+
+    Attributes
+    ----------
+    n_splits : int
+    n_folds : int
+    fold_sizes : tuple of int
+    fold_estimates : tuple of float
+    treated_shares : tuple of float
+    blip_quantiles : tuple of tuple of float
+    fold_weights : tuple of float
+    rule : str
+    target : str
+    quantile_levels : tuple of float
+    """
+
+    name: str
+    splits: tuple[LearnedRuleSplit, ...]
+
+    @property
+    def n_splits(self) -> int:
+        """Return the number of splits the reported mean combines."""
+        return len(self.splits)
+
+    @property
+    def n_folds(self) -> int:
+        """Return the number of outer folds of the first split."""
+        return self.splits[0].n_folds
+
+    @property
+    def fold_sizes(self) -> tuple[int, ...]:
+        """Return the validation rows of each fold of the first split."""
+        return self.splits[0].fold_sizes
+
+    @property
+    def fold_estimates(self) -> tuple[float, ...]:
+        """Return the targeted plug-in value of each fold of the first split."""
+        return self.splits[0].fold_estimates
+
+    @property
+    def treated_shares(self) -> tuple[float, ...]:
+        """Return the treated share of each fold of the first split."""
+        return self.splits[0].treated_shares
+
+    @property
+    def blip_quantiles(self) -> tuple[tuple[float, ...], ...]:
+        """Return the blip quantiles of each fold of the first split."""
+        return self.splits[0].blip_quantiles
+
+    @property
+    def fold_weights(self) -> tuple[float, ...]:
+        """Return the weight of each fold of the first split, ``1/V`` for every fold."""
+        return self.splits[0].fold_weights
 
     @property
     def rule(self) -> str:
@@ -353,15 +481,98 @@ class LearnedRuleRecord:
         -------
         str
             The target, the fold count, the source of the definition, and the range of the
-            treated share over the folds.
+            treated share over the folds.  A fit of several splits also names the split
+            count, and gives both ranges over every split.
         """
-        low, high = min(self.treated_shares), max(self.treated_shares)
-        return (
-            f"Target: the average value of the {self.n_folds} rules learned on the training "
-            "folds, each estimated on the fold it did not train on. The target depends on the "
-            "data, because the rules do (van der Laan and Luedtke 2015, Section 7). Unweighted "
-            f"share of rows the rules treat, by fold: {low:.3g} to {high:.3g}."
+        shares = [share for split in self.splits for share in split.treated_shares]
+        low, high = min(shares), max(shares)
+        source = (
+            "The target depends on the data, because the rules do (van der Laan and Luedtke "
+            "2015, Section 7)."
         )
+        if self.n_splits == 1:
+            return (
+                f"Target: the average value of the {self.n_folds} rules learned on the "
+                "training folds, each estimated on the fold it did not train on. "
+                f"{source} Unweighted share of rows the rules treat, by fold: "
+                f"{low:.3g} to {high:.3g}."
+            )
+        estimates = [split.estimate for split in self.splits]
+        return (
+            f"Target: the mean over {self.n_splits} random splits of the average value of "
+            "the rules learned on the training folds of each split, each estimated on the "
+            f"fold it did not train on. {source} Estimate of each split: "
+            f"{min(estimates):.4g} to {max(estimates):.4g}. Unweighted share of rows the "
+            f"rules treat, by fold over every split: {low:.3g} to {high:.3g}."
+        )
+
+
+def mean_over_splits(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+    *,
+    variance: Callable[[np.ndarray], float],
+) -> dict[str, ParameterEstimate]:
+    r"""Combine the split reports of a learned-rule fit by their mean.
+
+    Each split :math:`r` estimates its own target :math:`\tilde\psi^{(r)}_{0n}` with
+    :math:`\hat\psi_r - \tilde\psi^{(r)}_{0n} = n^{-1}\sum_i \phi_{r,i} + o_P(n^{-1/2})`,
+    where :math:`\phi_{r,i}` is the split's stored curve (van der Laan and Luedtke 2015,
+    Theorem 6, per split).  The reported target is the mean of the split targets, and by
+    linearity over a fixed :math:`R`,
+
+    .. math::
+
+        \hat\psi = \frac1R\sum_r \hat\psi_r, \qquad
+        \bar\phi_i = \frac1R\sum_r \phi_{r,i}.
+
+    The variance is ``variance(phibar)``, the split's own rule applied to the averaged
+    curve: :math:`n^{-2}\sum_i \bar\phi_i^2` for the fold-evaluated report.  The median of
+    the split estimates estimates no defined parameter, so it is never used here.
+
+    Parameters
+    ----------
+    per_repeat : sequence of mappings
+        One estimate mapping per split, each stamped by its own fit.
+    variance : callable
+        The variance rule of one split, applied to the averaged curve.
+
+    Returns
+    -------
+    dict
+        The mean estimate of each name, with the averaged curve and its variance. Every
+        other field is the first split's.
+
+    Raises
+    ------
+    ValueError
+        When the splits report different names, statuses or support records, or an
+        estimate on a ratio or transformed scale, which the mean does not cover.
+    """
+    names = list(per_repeat[0])
+    if any(list(report) != names for report in per_repeat):
+        raise ValueError("the splits of a learned-rule fit report different estimates")
+    out: dict[str, ParameterEstimate] = {}
+    for name in names:
+        parts = [report[name] for report in per_repeat]
+        first = parts[0]
+        if (
+            len({part.inference for part in parts}) != 1
+            or len({part.support for part in parts}) != 1
+        ):
+            raise ValueError(
+                f"{name} declares different inference statuses or support records across "
+                "splits; a mean over splits estimates one configuration"
+            )
+        if first.transform is not None or first.scale == "ratio":
+            raise ValueError(f"{name} is not on a level scale, which the mean over splits needs")
+        curve = np.mean([np.asarray(part.influence_curve, dtype=float) for part in parts], axis=0)
+        out[name] = replace(
+            first,
+            psi=float(np.mean([part.psi for part in parts])),
+            influence_curve=curve,
+            variance=float(variance(curve)),
+        )
+    return out
 
 
 def _blip(nuisance: NuisanceEstimates) -> np.ndarray:
@@ -405,30 +616,40 @@ def _learned_rule_regimes(nuisance: NuisanceEstimates, rule: LearnedRule) -> Reg
     return RegimeSet((rule.name,), values, 0.0)
 
 
-def learned_rule_record(
-    rule: LearnedRule, nuisance: NuisanceEstimates, fold_estimates: Sequence[float]
-) -> LearnedRuleRecord:
-    """Build the record of a learned-rule fit from its nuisances and its fold estimates.
+def learned_rule_split(
+    rule: LearnedRule,
+    nuisance: NuisanceEstimates,
+    fold_estimates: Sequence[float],
+    *,
+    seed: int,
+    estimate: float,
+) -> LearnedRuleSplit:
+    """Build the record of one split of a learned-rule fit.
 
     Parameters
     ----------
     rule : LearnedRule
         The declared rule.
     nuisance : NuisanceEstimates
-        The cross-fitted nuisances, whose folds and regimes the record reads.
+        The split's cross-fitted nuisances, whose folds and regimes the record reads.
     fold_estimates : sequence of float
         The fold plug-in values, in the order of ``nuisance.folds``.
+    seed : int
+        The split's seed.
+    estimate : float
+        The split's fold-evaluated value.
 
     Returns
     -------
-    LearnedRuleRecord
-        The per-fold summaries of the fit.
+    LearnedRuleSplit
+        The per-fold summaries of the split.
     """
     blip = _blip(nuisance)
     treat = _rule_treat(nuisance, rule)
     tests = [np.asarray(test) for _, test in nuisance.folds]
-    return LearnedRuleRecord(
-        name=rule.name,
+    return LearnedRuleSplit(
+        seed=int(seed),
+        estimate=float(estimate),
         fold_sizes=tuple(int(test.size) for test in tests),
         fold_estimates=tuple(float(value) for value in fold_estimates),
         treated_shares=tuple(float(np.mean(treat[test])) for test in tests),
@@ -591,17 +812,25 @@ def _data_refusal(data: CausalData) -> Refusal | None:
     return None
 
 
-def learned_rule_scheme_refusal(estimator: Any) -> Refusal | None:
-    """Return the refusal of a learned-rule fit whose remedy is a configuration, or ``None``.
+def learned_rule_scheme_refusal(estimator: Any, data: CausalData | None = None) -> Refusal | None:
+    """Return the refusal of a learned-rule fit whose remedy is a setting, or ``None``.
 
     The setting rows of the learned-rule refusal table in
-    ``docs/technical-reference/point-treatment-tmle.md``.  Each one names the configuration
-    that fits, :data:`LEARNED_RULE_CONFIGURATION`.
+    ``docs/technical-reference/point-treatment-tmle.md``.  Each fold-policy row names the
+    configuration that fits, :data:`LEARNED_RULE_CONFIGURATION`.  The row of
+    ``repeats`` above 1 with clusters names ``repeats=1``, and it needs the data, so a
+    caller without them skips it.
+
+    ``repeats=R`` above 1 on rows is no refusal: the fit reports the mean over the ``R``
+    splits (:func:`mean_over_splits`).  The median over splits estimates no defined
+    parameter, so no setting reaches it.
 
     Parameters
     ----------
     estimator : TMLE
         The estimator, with ``learned_rule`` set.
+    data : CausalData or None
+        The prepared data, or ``None`` before the data exist.
 
     Returns
     -------
@@ -628,13 +857,15 @@ def learned_rule_scheme_refusal(estimator: Any) -> Refusal | None:
             remedy,
             "X11",
         )
-    if estimator.repeats != 1:
+    if estimator.repeats != 1 and data is not None and data.cluster is not None:
         return _gap(
-            "the learned-rule value needs one split (repeats=1). Each split defines a "
-            "different target. The mean over a fixed number of splits targets the mean of "
-            f"those targets and is not implemented ({_X11.format(part='i')}), and the median "
-            "has no defined target.",
-            remedy,
+            f"the mean over {estimator.repeats} splits (repeats={estimator.repeats}) of a "
+            "learned-rule value with clusters (id=) is refused. The averaged curve is centred "
+            "on different cluster partitions, and it loses about 2V - V/R - 1 cluster degrees "
+            "of freedom, for which no finite-sample correction is derived "
+            f"({_X11.format(part='i2')}).",
+            "Fit the clustered learned-rule value with repeats=1 (CrossFitting(repeats=1) on "
+            "the method).",
             "X11",
         )
     if estimator.n_bootstrap:
@@ -670,7 +901,7 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     8       ``strata=``                                          X11 (m)
     9       ``cross_fit=False``, or one fold                     X11 (a)
     10      ``cv_evaluation=False``                              X11 (e)
-    11      ``repeats`` above 1                                  X11 (i)
+    11      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
     12      ``n_bootstrap`` above 0                              F27
     ======  ===================================================  ===================
 
@@ -693,6 +924,6 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     if refusal is None:
         refusal = _data_refusal(data)
     if refusal is None and estimator is not None:
-        refusal = learned_rule_scheme_refusal(estimator)
+        refusal = learned_rule_scheme_refusal(estimator, data)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)

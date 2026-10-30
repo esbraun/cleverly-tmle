@@ -148,7 +148,9 @@ def test_the_summary_states_the_fixed_rule_reading() -> None:
 
 def test_inconsistent_fold_metadata_is_refused() -> None:
     result = _fit()
-    record = replace(result.extra["learned_rule"], fold_sizes=(80, 81, 81, 81, 80))
+    original = result.extra["learned_rule"]
+    split = replace(original.splits[0], fold_sizes=(80, 81, 81, 81, 80))
+    record = replace(original, splits=(split,))
     tampered = replace(result, extra={**result.extra, "learned_rule": record})
     with pytest.raises(CapabilityError, match="inconsistent learned-rule parameter metadata"):
         simulated_confounding(tampered, estimand=support.NAME, grid=_GRID)

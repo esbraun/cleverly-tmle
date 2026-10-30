@@ -688,6 +688,24 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
+    if family == "point" and getattr(result.config, "parameter_axis", None) == "learned_rule":
+        # The support report reads one rule per row, and a learned-rule fit of several
+        # splits has one rule per row in each split.
+        from .interventions.learned import learned_rule_splits_refusal
+
+        splits = learned_rule_splits_refusal("diagnostics.support()", result.n_repeats)
+        if splits is not None:
+            rows = tuple(
+                replace(
+                    row,
+                    available=False,
+                    status=AssessmentStatus.UNAVAILABLE,
+                    refusal=splits,
+                )
+                if row.operation == "support"
+                else row
+                for row in rows
+            )
     if family == "point" and _method(result) == "adaptive_iptw":
         # AdaptiveIPTW retargets no cached propensity, so this row carries the record the
         # operation function raises.

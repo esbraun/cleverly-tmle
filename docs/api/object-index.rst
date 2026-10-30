@@ -120,6 +120,7 @@ categorized API tables.
    cleverly.longitudinal.NodeRule
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
+   cleverly.interventions.LearnedRuleSplit
    cleverly.interventions.RegimeSet
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet
