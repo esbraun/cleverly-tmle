@@ -119,7 +119,7 @@ def treatment_rule_value(
     ----------
     policy : callable
         Takes a frame with the columns ``need`` and ``lives_alone`` and returns, for each row,
-        the probability of an offer: 0 or 1 for a rule, a value in between for a lottery.
+        the probability of an offer: 0 or 1 for a rule, a value in between for a random offer.
     grid_points : int, default=40001
         The points of the trapezoid rule over ``need``, for each value of ``lives_alone``.
 
