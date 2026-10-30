@@ -50,10 +50,21 @@ LAWS = ("non_exceptional", "misspecified_limit")
 #: guard only stops a run that would measure a different estimator.
 MEAN_TOLERANCE = 1e-12
 
-#: The columns a row carries beside the harness columns. ``median_estimate`` is the median of
-#: the split estimates and ``split_se_mean`` the mean of the split standard errors. Both are
-#: descriptive, and no rule reads them.
-SPLIT_COLUMNS = ("median_estimate", "split_se_mean")
+#: The relative tolerance of the guard that the reported variance is at most the mean of the
+#: split variances, which Jensen's inequality guarantees for ``n^-2 sum_i phibar_i^2``.
+VARIANCE_TOLERANCE = 1e-12
+
+#: The descriptive columns of what the mean over splits changes against one split, carried by
+#: every primary row and every calibration-positive property row. ``first_split_estimate`` and
+#: ``first_split_truth`` are the first split's own estimate and its own target (the per-split
+#: harness value), and ``split_estimate_sd`` is the sample SD (ddof 1) of the ``R`` split
+#: estimates within the draw. No rule reads them.
+FIRST_SPLIT_COLUMNS = ("first_split_estimate", "first_split_truth", "split_estimate_sd")
+
+#: The columns a property row carries beside the harness columns. ``median_estimate`` is the
+#: median of the split estimates and ``split_se_mean`` the mean of the split standard errors.
+#: They and :data:`FIRST_SPLIT_COLUMNS` are descriptive, and no rule reads them.
+SPLIT_COLUMNS = ("median_estimate", "split_se_mean", *FIRST_SPLIT_COLUMNS)
 
 
 def estimator(learner: Any, fold_seed: int) -> TMLE:
@@ -186,14 +197,34 @@ def measured(frame: pd.DataFrame, law: str, learner: Any, fold_seed: int) -> tup
             f"the reported point {float(estimate.psi)!r} is not the mean {mean!r} of the "
             "split points"
         )
+    # Jensen: the variance of the mean curve, n^-2 sum_i phibar_i^2, is at most the mean of the
+    # split variances n^-2 sum_i phi_ri^2. A larger one means the study measures another variance.
+    variance = float(estimate.std_error) ** 2
+    split_variance = float(np.mean(split_std_errors(result) ** 2))
+    if variance > split_variance * (1.0 + VARIANCE_TOLERANCE):
+        raise RuntimeError(
+            f"the reported variance {variance!r} exceeds the mean {split_variance!r} of the "
+            "split variances, which the mean of the split curves cannot do"
+        )
     return result, truth, count[0]
 
 
-def split_columns(result: Any) -> dict[str, float]:
-    """The descriptive :data:`SPLIT_COLUMNS` of one fit."""
+def first_split_columns(result: Any, truth: Truth) -> dict[str, float]:
+    """The descriptive :data:`FIRST_SPLIT_COLUMNS` of one fit and its harness truth."""
+    estimates = split_estimates(result)
+    return {
+        "first_split_estimate": float(estimates[0]),
+        "first_split_truth": float(truth.split_values[0]),
+        "split_estimate_sd": float(np.std(estimates, ddof=1)),
+    }
+
+
+def split_columns(result: Any, truth: Truth) -> dict[str, float]:
+    """The descriptive :data:`SPLIT_COLUMNS` of one fit and its harness truth."""
     return {
         "median_estimate": median_estimate(result),
         "split_se_mean": float(np.mean(split_std_errors(result))),
+        **first_split_columns(result, truth),
     }
 
 

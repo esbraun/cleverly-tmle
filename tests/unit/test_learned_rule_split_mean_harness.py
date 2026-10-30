@@ -107,6 +107,20 @@ class TestTheTruth:
         with pytest.raises(RuntimeError, match="not the mean"):
             law.measured(frame, "misspecified_limit", base.outcome_learner(), THROWAWAY + 1)
 
+    def test_a_variance_above_the_mean_split_variance_stops_the_replication(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Jensen guard of :func:`law.measured`: the reported variance cannot exceed it."""
+        frame, result = _repeated()
+        reported = float(result.estimates[law.ESTIMAND].std_error)
+        # Nonzero: the honest fit sits strictly below the mean split variance, and a
+        # split SE of 0.9 of it would put the mean above the reported variance.
+        assert reported**2 < float(np.mean(law.split_std_errors(result) ** 2))
+        honest = law.split_std_errors
+        monkeypatch.setattr(law, "split_std_errors", lambda r: 0.9 * honest(r))
+        with pytest.raises(RuntimeError, match="split variances"):
+            law.measured(frame, "misspecified_limit", base.outcome_learner(), THROWAWAY + 1)
+
 
 class TestTheSplitQuantities:
     def test_the_split_estimates_and_errors_are_the_single_split_fits(self) -> None:
@@ -137,6 +151,36 @@ class TestTheSplitQuantities:
         points = [float(fit.estimates[law.ESTIMAND].psi) for fit in _singles()]
         assert law.median_estimate(result) == float(np.median(points))
         assert law.median_estimate(result) != float(result.estimates[law.ESTIMAND].psi)
+
+    def test_the_first_split_columns_are_the_first_single_split_fit(self) -> None:
+        _, result = _repeated()
+        truth = law.harness(result, base.outcome_learner(), "misspecified_limit")
+        singles = _singles()
+        points = [float(fit.estimates[law.ESTIMAND].psi) for fit in singles]
+        columns = law.first_split_columns(result, truth)
+        assert tuple(columns) == law.FIRST_SPLIT_COLUMNS
+        assert columns["first_split_estimate"] == points[0]
+        assert (
+            columns["first_split_truth"]
+            == base.harness(singles[0], base.outcome_learner(), "misspecified_limit").truth
+        )
+        assert columns["split_estimate_sd"] == pytest.approx(np.std(points, ddof=1), rel=1e-12)
+        # Nonzero: the splits differ, so the spread is positive, and the first split's target
+        # is not the mean target.
+        assert columns["split_estimate_sd"] > 0.0
+        assert columns["first_split_truth"] != truth.truth
+        assert set(law.split_columns(result, truth)) == set(law.SPLIT_COLUMNS)
+
+    def test_a_primary_row_carries_the_first_split_columns(self) -> None:
+        frame, _ = _repeated()
+        record = base.smoke_record(study.STUDY)
+        (row,) = study._primary(record, ("misspecified_limit", 0, N), frame)
+        assert set(law.FIRST_SPLIT_COLUMNS) <= set(row)
+        # The primary fold seed is the record's, not the throwaway one, so the values are those
+        # of its own fit: the first split's estimate is one of its split estimates.
+        assert np.isfinite([row[c] for c in law.FIRST_SPLIT_COLUMNS]).all()
+        assert row["split_estimate_sd"] > 0.0
+        assert row["first_split_truth"] != row["truth"]
 
     def test_the_initial_estimate_is_the_mean_of_the_single_split_plug_ins(self) -> None:
         _, result = _repeated()
@@ -172,9 +216,24 @@ class TestThePropertyPath:
         summary = properties.summarize_properties(rows).set_index("cell")
         assert set(summary.index) == set(study.PROPERTY_CELLS["interval_calibration"])
         positives = [f"{label}__declared" for label in properties.CALIBRATION_LABELS]
-        for column in properties.MEDIAN_COLUMNS:
+        for column in properties.DESCRIPTIVE_COLUMNS:
             assert summary.loc[positives, column].notna().all()
             assert summary.loc[~summary.index.isin(positives), column].isna().all()
+
+    def test_the_positive_rows_carry_the_first_split_columns(self) -> None:
+        rows = _property_rows()
+        positives = rows.loc[rows["cell"].str.endswith("__declared")]
+        for column in law.FIRST_SPLIT_COLUMNS:
+            assert positives[column].notna().all(), column
+        assert (positives["split_estimate_sd"] > 0.0).all()
+        assert (positives["first_split_truth"] != positives["truth"]).all()
+        summary = properties.summarize_properties(rows).set_index("cell")
+        for label in properties.CALIBRATION_LABELS:
+            group = positives.loc[positives["cell"] == f"{label}__declared"]
+            error = group["first_split_estimate"] - group["first_split_truth"]
+            assert summary.loc[f"{label}__declared", "first_split_error_sd"] == pytest.approx(
+                float(np.std(error, ddof=1)), rel=1e-12
+            )
 
     def test_the_control_reads_the_positive_estimate_with_its_own_se(self) -> None:
         rows = _property_rows()

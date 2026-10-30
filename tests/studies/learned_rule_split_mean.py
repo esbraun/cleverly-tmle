@@ -168,6 +168,7 @@ def _primary(
             "oracle_se": truth.oracle_se,
             "rule_rows_checked": truth.rows_checked,
             "solver_warnings": solver_warnings,
+            **law.first_split_columns(result, truth),
         }
     ]
 
@@ -195,7 +196,9 @@ def draw_and_fit(
         seed_of=lambda key: replicate_seed(record, key[0], key[1]),
     )
     rows = pd.DataFrame([row for fitted in outcomes.kept for row in fitted])
-    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *base.HARNESS_COLUMNS]])
+    return replication.result(
+        outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *base.HARNESS_COLUMNS, *law.FIRST_SPLIT_COLUMNS]]
+    )
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, Any]:

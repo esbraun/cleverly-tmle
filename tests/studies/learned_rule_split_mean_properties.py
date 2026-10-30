@@ -15,13 +15,19 @@ One family, ``interval_calibration``, on each RM30 law at n = 2,000.
     The declared fit's estimate with the deliberately invalid SE that treats the five splits
     as independent samples, the mean single-split SE over ``sqrt(5)``. The splits reuse every
     row, so it is too small by about ``sqrt(5)`` and must fall below the SE-ratio band
-    (``SE_CONTROL_SIDES``).
+    (``SE_CONTROL_SIDES``). It fails by construction: its SE is about 0.45 of the reported SE
+    on every draw, so it can reach 0.93 only where the positive has already failed. It is a
+    sanity control that shows the size of the independent-splits mistake. The evidence that the
+    reported variance handles the correlation between splits is the positive passing its band.
 
 The median of the five split estimates is descriptive only. Each row carries it in
 ``median_estimate``, and the summary publishes ``median_aggregate_bias`` and
 ``median_aggregate_empirical_se`` on each positive cell, both on the error ``median - truth``.
 No verdict reads them: the median estimates no defined parameter, so no band could be declared
-for it.
+for it. They are what the refused median would have reported against the mean target. Each
+row also carries the descriptive ``first_split_estimate``, ``first_split_truth`` and
+``split_estimate_sd``, and the summary publishes ``first_split_error_sd`` on each positive cell,
+the SD of the first split's own error; no verdict reads those either.
 
 Every statistic reads the error ``estimate - truth`` of each row, because the record declares
 ``truth_varies_by_replicate``. A property draw's sample seed is
@@ -74,6 +80,13 @@ INDEPENDENT_SPLITS = "independent_splits_control"
 #: The descriptive summary columns of the median aggregate. No verdict reads them.
 MEDIAN_COLUMNS = ("median_aggregate_bias", "median_aggregate_empirical_se")
 
+#: The descriptive summary column of the first split alone, the SD of ``first_split_estimate -
+#: first_split_truth``. No verdict reads it.
+FIRST_SPLIT_SUMMARY = "first_split_error_sd"
+
+#: Every descriptive summary column of a positive cell.
+DESCRIPTIVE_COLUMNS = (*MEDIAN_COLUMNS, FIRST_SPLIT_SUMMARY)
+
 PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = tuple(
     base.PropertyDraw("interval_calibration", f"{label}__{POSITIVE}", CALIBRATION_REPLICATES, label)
     for label in CALIBRATION_LABELS
@@ -120,7 +133,7 @@ def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
         "oracle_se": truth.oracle_se,
         "rule_rows_checked": truth.rows_checked,
         "solver_warnings": warnings,
-        **law.split_columns(result),
+        **law.split_columns(result, truth),
     }
     positive = replicate_row(
         property_name=family,
@@ -217,9 +230,10 @@ def generate_property_rows(
 
 
 def median_aggregate(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Fill the descriptive :data:`MEDIAN_COLUMNS` of each positive cell; no verdict reads them.
+    """Fill the descriptive :data:`DESCRIPTIVE_COLUMNS` of each positive cell; no verdict reads them.
 
-    Both read the error ``median_estimate - truth``: its mean, and its SD.
+    The two median columns read the error ``median_estimate - truth``: its mean, and its SD.
+    ``first_split_error_sd`` is the SD of the first split's own error.
     """
     for label in CALIBRATION_LABELS:
         cell = f"{label}__{POSITIVE}"
@@ -228,6 +242,10 @@ def median_aggregate(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         mask = (summary["property"] == "interval_calibration") & (summary["cell"] == cell)
         summary.loc[mask, "median_aggregate_bias"] = float(np.mean(error))
         summary.loc[mask, "median_aggregate_empirical_se"] = float(np.std(error, ddof=1))
+        first = group["first_split_estimate"].to_numpy(float) - group["first_split_truth"].to_numpy(
+            float
+        )
+        summary.loc[mask, FIRST_SPLIT_SUMMARY] = float(np.std(first, ddof=1))
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -236,7 +254,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     The study has one size, so it publishes no rate rows (``rate_labels=()``).
     """
     summary, rates = apply_shared_verdicts(
-        rows, STUDY, extra_columns=MEDIAN_COLUMNS, rate_labels=()
+        rows, STUDY, extra_columns=DESCRIPTIVE_COLUMNS, rate_labels=()
     )
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=POSITIVE)
     median_aggregate(summary, rows)
