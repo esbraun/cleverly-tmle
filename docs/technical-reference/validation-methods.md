@@ -798,7 +798,7 @@ $$
 
 with $\sigma^2 = E[R (Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer.
 $R$ is the indicator of the rows the representer reads. On complete data $R$ is one on every row.
-[Second mechanisms and strata of the bound](#second-mechanisms-and-strata-of-the-bound) defines $R$ for the other
+[Second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
 fits. The two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
@@ -2449,7 +2449,7 @@ A bare `tipping_gamma()` on a fit with several tiltable parameters reads `deferr
 
 The omitted-variable bound also answers on a fit with a response mechanism, with a joint strength
 over the treatment and response mechanisms
-([second mechanisms and strata of the bound](#second-mechanisms-and-strata-of-the-bound)). The two analyses
+([second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours), under the omitted-variable bounds). The two analyses
 answer different questions. The tilt moves the recording of the outcome away from missing at
 random. The bound measures an omitted confounder. `TestTheTiltRowsReadTheCallsPredicate` in
 `tests/unit/test_capability_row_predicates.py` checks the tilt rows.
@@ -3302,7 +3302,7 @@ check the conditions in the table before the operation refits a point fit. The b
 budget row are the `generated_rule` and `generated_budget` checks of the request table above,
 which `refute()` runs itself. Each row is a `CapabilityError`, and each message names what is
 missing. A longitudinal fit takes the rules of
-[generated outcomes on the held history](#generated-outcomes-on-the-held-history) instead.
+"Generated outcomes on the held history" under [refutation operations](#refutation-operations) instead.
 
 | what the operation refuses | what it requires instead |
 | --- | --- |
