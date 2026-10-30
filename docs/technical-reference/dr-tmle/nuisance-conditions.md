@@ -66,5 +66,5 @@ Practical consequences:
   scalar by default and two for bivariate `g_r`, so their bias is a low-dimensional smoothing
   question independent of how well the primary fit adjusted for `W`.
 - **A random-forest reduction is outside the entropy condition** of
-  [section 3](targeting.md#reduced-regression-cross-fitting), and is not warned about at runtime. The automatic
+  [reduced-regression cross-fitting](targeting.md#reduced-regression-cross-fitting), and is not warned about at runtime. The automatic
   Super Learner includes a forest, so choose explicit reduced learners when claiming that condition.
