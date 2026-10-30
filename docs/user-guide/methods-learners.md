@@ -44,11 +44,10 @@ functional. It fits no outcome regression. Its `reduced_outcome_learner` fits th
 the outcome on the fitted propensity, and it falls back to `models.outcome_learner`. The estimator
 reports a point estimate for every supported fit.
 
-A standard error, an interval and a p-value need a known treatment mechanism for every reported
-estimate: the design declares `treatment_probabilities=`, no outcome is missing, the fit sets no
-`treatment_covariates=`, and the fit reports no estimate that reads an estimated mechanism, such
-as a composite target. Any
-other fit takes the status `estimated_mechanism_plugin` and keeps its point estimates.
+A standard error, an interval and a p-value need a known treatment mechanism: the design declares
+`treatment_probabilities=`, and no outcome or treatment value is missing. Other fits keep their
+point estimates and report no interval, with the status `estimated_mechanism_plugin` in most
+cases.
 [When an interval is reported](../technical-reference/adaptive-iptw.md#when-an-interval-is-reported)
 states the rule and the reason.
 
@@ -93,18 +92,19 @@ same three accessors, and so does `"oat"` with a flexible learner. Each estimate
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
 
-`strategy="oat"` fits, for each arm, a treatment model on that arm's predicted outcome. It reports
-an interval when the outcome learner is exactly `ParametricOutcome` and the treatment learner
-exactly `ParametricMechanism`, both from `cleverly.learners`. The fit may be in sample or
-cross-fitted with at most 20 folds of at least 30 rows each. It may have three or more arms, fixed
-weights, and the targets `ey_obs`, `par` and `paf`, and its band covers the reported estimates.
-A treatment with $K$ arms needs `ParametricOutcome(arm_columns=K - 1)`.
+`strategy="oat"` fits, for each arm, a treatment model on that arm's predicted outcome. It can
+report an interval when the outcome learner is exactly `ParametricOutcome` and the treatment
+learner exactly `ParametricMechanism`, both from `cleverly.learners`. The data must be complete,
+with no strata and no clusters, and the outcome binary or continuous with declared `q_bounds`. The
+fit may be in sample or cross-fitted with at most 20 folds of at least 30 rows each. It may have
+three or more arms, fixed weights, and the targets `ey_obs`, `par` and `paf`. A treatment with $K$
+arms needs `ParametricOutcome(arm_columns=K - 1)`.
 
-A fit outside these
-conditions, for example one with `split_plan=`, keeps its point estimates and reports no interval.
-`cleverly.estimators.ctmle.per_arm_parametric_support(estimator, data)` names the first condition
-that a configuration misses. Studies cover two and three arms at `n_folds=5`, and other fits print
-their interval under the `experimental` label.
+A fit outside these conditions, for example one with `split_plan=`, keeps its point estimates and
+reports no interval. `cleverly.estimators.ctmle.per_arm_parametric_support(estimator, data)` names
+the first condition that a configuration misses. Studies cover in-sample fits and five-fold
+cross-fitted fits with two or three arms. Other fold counts, and four or more arms, print the
+interval under the `experimental` label.
 [Parametric per-arm intervals](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals)
 gives each condition and the support table.
 

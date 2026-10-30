@@ -14,10 +14,9 @@ at a node of `IPSI`. The registered study [categorical incremental policies](../
 A point-treatment functional also has the adaptive-propensity IPTW estimator, `AdaptiveIPTW`.
 It reads the treatment and missingness mechanisms and a reduced regression of the outcome on the
 fitted propensity, and it fits no outcome regression. It reports a point estimate for every
-supported fit. It reports an interval only when every reported estimate reads a known treatment
-mechanism: the design declares the treatment probabilities, no outcome is missing, and the fit
-sets no `treatment_covariates=`. A fit with an estimated mechanism takes the status
-`estimated_mechanism_plugin`.
+supported fit. It reports an interval only when the treatment mechanism is known: the design declares the
+treatment probabilities, and no outcome or treatment value is missing. A fit with an estimated
+mechanism takes the status `estimated_mechanism_plugin`.
 
 [Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract. Its
 evidence label is "Python property evidence, with comparator runs pending". An estimate reads

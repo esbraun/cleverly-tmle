@@ -200,11 +200,14 @@ use an unhashable key, raises `DataError`.
 ## Write down the study description
 
 `StudyProtocol` stores the study description in words. It records who is in the study, when
-follow-up starts, what each option means, and how the outcome is measured. Three of its fields are easy to misread.
+follow-up starts, what each option means, and how the outcome is measured. Three of its fields are
+easy to misread.
+
 `treatment_versions` says what each option delivers in practice, such as "a bedside plan and two
 scheduled calls", because two programs with one name can differ. `intercurrent_event_handling`
 says how the analysis treats events after the start that change what the outcome means, such as a
-readmission before the score is measured. A "composite strategy" folds such an event into the
+readmission before the score is measured.
+A "composite strategy" folds such an event into the
 outcome, for example by counting a death as the worst score. `interference_unit` names the group
 within which one person's treatment can change another's outcome, such as a household. The
 [workflow page](../workflow.md) shows a complete description and the sources of these terms.

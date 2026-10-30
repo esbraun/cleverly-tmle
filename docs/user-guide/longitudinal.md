@@ -703,7 +703,7 @@ on a design with one baseline treatment:
 [five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
 The first two await their R comparator runs (`survtmle` and `tmle3`), and the cross-fitted one has
 no comparator, because no package fits that construction. The one-step study also holds one cell
-with the default survival fit and `isotonic=True`, on a two-node law. Its curve rises steeply
+that fits the default iterated-mean model with `isotonic=True` on a law with treatment at two nodes. Its curve rises steeply
 enough that the projection never moved a level, so no study yet measures an interval at a level
 that the projection moved.
 
@@ -1086,8 +1086,7 @@ rule, the seeds and the refusals.
 ## Weight trimming, shorter histories, and node bounds
 
 Four settings change how `LTMLE` and `SDR` fit their models. None of them changes the quantity
-being estimated. Each paragraph names the argument of the estimator and the object that carries it
-through `CausalStudy.estimate`.
+being estimated.
 
 `ratio_trim=q` caps each node's weight at the `q` quantile of all the node weights, the rule of
 R `lmtp`. Through a study, pass `Targeting(ratio_trim=q)`. The cap tames extreme weights, but no
@@ -1103,7 +1102,7 @@ be recorded somewhere in it. The estimate stays on target in large samples when 
 models, the outcome models or the treatment and censoring models, is right on the window. The
 interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the declaration.
 
-`hazard_pooling="pooled"` fits one censoring model over every node, with the time as a column,
+`LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
 in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.
 Through a study, pass `ModelSpec(hazard_pooling="pooled")`. The option needs one baseline
 treatment and no covariate measured after baseline.
@@ -1111,7 +1110,7 @@ treatment and no covariate measured after baseline.
 `LTMLE(node_bounds={t: (lower, upper)})` declares the known range of the outcome regression at chosen
 nodes, keyed by grid time. Through a study, pass `Targeting(node_bounds=...)`. The node's
 regression and its correction step then stay inside the range. When the weighted mean outcome of
-the followers at a node lies outside the declared range, the node runs no correction, and the fit
+the units still following the plan at a node lies outside the declared range, the node runs no correction, and the fit
 warns with `ConvergenceWarning` and names the node. `SDR` refuses the option, because it runs no
 correction step.
 

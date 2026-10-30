@@ -284,12 +284,13 @@ states both routes.
 A cap can also come from the data. `Shift(1.0, cap=DoseQuantile(0.9), target="population")` holds
 every dose whose shift would pass the 90th percentile of the observed doses.
 `SupportBoundary(LinearQuantileRegression(features=...), q=0.9)` sets the cap from a quantile
-regression of the dose on the named covariates, so the cap varies by row. All three classes come
-from `cleverly.interventions`. `target="population"` estimates the mean under the cap that the
-whole population would give, and the interval includes the error of estimating that cap. It needs
-an outcome model that is accurate near the cap. `target="fold_average"` averages the means under
-each fold's own cap.
-The [tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) checks the
+regression of the dose on the named covariates, so the cap varies by row. `DoseQuantile`,
+`SupportBoundary` and `LinearQuantileRegression` come from `cleverly.interventions`.
+
+A tuned cap needs `target=`, and the fit refuses one without it. `target="population"` estimates
+the mean under the cap that the whole population would give, and the interval includes the error
+of estimating that cap. It needs an outcome model that is accurate near the cap.
+`target="fold_average"` averages the means under each fold's own cap. The [tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) checks the
 population target over two decisions. A tuned cap at one decision rests on exact-law tests only
 (`tests/unit/test_point_tuned_caps.py`).
 

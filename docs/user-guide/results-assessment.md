@@ -671,12 +671,12 @@ measures the rule's false-warning rate and its detection rate for a binary prope
 
 An estimate is causal only if the adjustment set holds every common cause of the treatment and the
 outcome, and no data can check that. A sensitivity analysis asks how strong a confounder that the
-data do not record would have to be to change the conclusion. `result.sensitivity` answers on four
-scales:
+data do not record would have to be to change the conclusion. `result.sensitivity` offers four
+analyses:
 
 - `omitted_confounding()` gives the range of estimates that a missing confounder of declared
   strength allows. One strength is its link to the outcome (`cf_y`), the other its link to the
-  treatment (`cf_d`), each a share between 0 and 1. `benchmark()` measures those shares for a
+  treatment (`cf_d`), each a share between 0 and 1. `benchmark()` measures the strengths of a
   recorded covariate, and `robustness_value()` finds the strength that would move the estimate to 0.
 - `evalue()` gives how strongly a missing confounder would need to be linked to both the treatment
   and the outcome, on the risk-ratio scale, to explain the effect away.
