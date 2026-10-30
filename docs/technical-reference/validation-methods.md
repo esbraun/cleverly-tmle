@@ -104,12 +104,7 @@ The public `diagnostics.support()` route provides group rows as follows.
 | incremental | intervention-specific incremental report | one row per outcome equation |
 | longitudinal | `LongitudinalDiagnostics` from `support()` | no. A longitudinal fluctuation retains no absolute score weights |
 
-The longitudinal row is a disclosed limitation and not an oversight. A longitudinal result returns
-per-node leverage through `diagnostics.support()`.
-
-The route reaches neither `positivity_report` nor an intervention report. A longitudinal
-fluctuation also retains no `absolute_score_weights`. No fitted artifact therefore exists for a
-generic or intervention load row.
+A longitudinal result returns per-node leverage through `diagnostics.support()` instead.
 
 The intervention-specific reports keep their ratio and support fields. Their `score_load` field
 adds the fitted equation load without replacing those quantities. The report matches columns to
@@ -250,8 +245,10 @@ An incremental fit with missing outcomes reads `deferred` on `mechanism`, becaus
 
 A declared known treatment mechanism adds a refusal per grid pair, after the axis rules. A `g(W)`
 pair that moves a declared probability is a pair the fit itself refuses, so an explicit one raises
-`CapabilityError` with the `invalid_declaration` code and the default grid omits it. Longitudinal
-TMLE applies the same rule to the cumulative product of declared node factors.
+`CapabilityError` with the `invalid_declaration` code, and the point-treatment default grid omits
+it. Longitudinal TMLE, whose grid is always explicit, applies the same refusal to the cumulative
+product of declared node factors. `tests/unit/test_known_treatment_mechanism.py` and
+`tests/unit/test_known_node_mechanisms.py` pin both refusals.
 [Known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism) and
 [known node mechanisms](longitudinal-tmle.md#known-node-mechanisms) state each fit's check.
 
@@ -616,10 +613,10 @@ exact returned state and compares it with the score the solver recorded
 ([`validation/drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/drtmle.py)).
 It reports the two residuals and a clipping bias term separately.
 
-This instrument found a defect: one clipped row in six hundred left the reported curve uncentred at
-`2e-04` while all three fluctuation rows reported `1e-11`.
-`TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` pins the
-corrected fixture, reading both numbers.
+This instrument found a defect: on a draw where the bound clipped 5 rows of 600, the reported
+curve was uncentred at `2.3e-04` while the fluctuation rows reported `1e-11`.
+`TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` keeps a
+draw where the bound binds and checks that the centring identity now holds on it.
 
 ### Intervention support
 
@@ -693,9 +690,7 @@ reads every printed count and row of the combined-report fixtures back against t
 **The summary leads with returned results, and that order is a recorded decision.** A completed
 analysis carries the numbers a reader interprets, so it prints first. A `failed` check therefore
 prints below the result rows, and the header's `Need attention` count and the reading name it.
-[Pull request 198](https://github.com/esbraun/cleverly-tmle/pull/198) records the decision. Two
-independent reviews found that its first draft over-prioritized warnings, and the result-first
-revision resolved their findings.
+[Pull request 198](https://github.com/esbraun/cleverly-tmle/pull/198) records the decision.
 
 `AssessmentReport.to_frame()` remains the complete row ledger, including warning and refusal
 details. The three report surfaces retain the original rows. `next_steps()` retains follow-up
@@ -2760,7 +2755,7 @@ the placebo, subset and negative-control rules on seven configurations.
 | `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
 | `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
 | `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
-| `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
+| `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value. A level or a policy mean refuses the control |
 | `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
 | `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
 | `plasmode` | resampled baselines, and a history drawn from frozen node models | the g-formula value of the frozen law |
@@ -3303,15 +3298,20 @@ of about 0.20 standard deviations at 400 draws, which is why 400 is the calibrat
 
 `refute()` and its `_validate_generated_eligibility` helper in
 [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-check every condition in the table before the operation refits a point fit. Each row is one
-`CapabilityError` branch, in the order the helper runs them, and each message names what is
+check the conditions in the table before the operation refits a point fit. The bands row and the
+budget row are the `generated_rule` and `generated_budget` checks of the request table above,
+which `refute()` runs itself. Each row is a `CapabilityError`, and each message names what is
 missing. A longitudinal fit takes the rules of
 [generated outcomes on the held history](#generated-outcomes-on-the-held-history) instead.
 
 | what the operation refuses | what it requires instead |
 | --- | --- |
+| bands of any other type | the exact registered `EquivalenceBands` declaration |
+| a process declaration of an unregistered type, or a `dummy_outcome` process with an effect or a covariate term | a registered process declaration, independent of `W` and `A` for `dummy_outcome` |
+| a plasmode on a weighted fit, or on a fit with two of the three observation processes | an unweighted fit with at most one observation process |
 | a fit that carries no identification metadata | identification metadata on the result |
 | a functional that is not `BackdoorMeanContrast` | a backdoor-identified effect |
+| a longitudinal functional on a point result | a point-treatment functional |
 | a provider that is not `ExplicitAdjustmentProvider` | registered backdoor provider provenance |
 | a process whose family differs from the fit's outcome family | a Gaussian or bounded process for a continuous outcome, a Bernoulli process for a binary one |
 | an estimator configured with a family other than `"auto"` or the process family | a configured family that accepts the declared process |
@@ -3410,7 +3410,7 @@ follows.
 | `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
 
 A clustered status depends on the draw, so the replicates of one study can take different
-statuses. A cluster count that straddles 4 gives that mix. Every record measures the plug-in
+statuses. A cluster count that straddles 10 gives that mix. Every record measures the plug-in
 numbers, and on an inferential fit those numbers equal `ci` and `std_error`. So
 `summarize_replications` summarizes a mix under the status that `precedent_status` gives. The
 table gives what the summary adds.
@@ -3421,7 +3421,7 @@ table gives what the summary adds.
 | `to_dict()` and `to_frame()` | a `mixed_statuses` column, for example `few_cluster_plugin in 4, influence_curve in 4` |
 | `summary()` | the line above the table says that the estimator "supplies no interval on some replicates". One more line per mixed estimand names its statuses and counts |
 
-`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 4. It holds
+`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 10. It holds
 the mixed witness, a mutation that labels the mix `influence_curve`, and a uniform control.
 
 The generators live in

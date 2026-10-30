@@ -70,7 +70,8 @@ The [point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-con
 defines the curve. The estimator is scalar, so its rule applies to a one-name `covariance()` and
 to a one-input smooth contrast.
 
-Five selections raise `ValueError`. No fit produces any of these five inputs. The only
+Six selections are refused. The five helper selections raise `ValueError`, and
+`simultaneous_bands` raises `CapabilityError`. No fit produces any of these inputs. The only
 `"second_moment"` estimate is scalar, its fit refuses clusters and `repeats` above one, and a fit
 builds bands only
 over two or more estimates. A direct call to `simultaneous_bands` can still receive that estimate.
@@ -322,8 +323,8 @@ this package at unequal sizes.
 A clustered fit that reads $J$ clusters with positive weight mass, with $3 \le J < 40$, reports
 its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. A fit with
 $J$ below 10 ($20$ for `LTMLE`) carries the experimental label and the status
-`"few_cluster_plugin"`. Nugent et
-al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
+`"few_cluster_plugin"`.
+Nugent et al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
 reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
 normal reference.
 
@@ -480,8 +481,9 @@ for that configuration. The rows `T01.binary`, `T31`, `G01` and `G11.nodes4` lis
 on any other fit keeps the interval names and carries the label `experimental`. This covers a
 cross-fitted point fit, whose replicates redraw the split ([F2](../roadmap.md#f2-targeted-bootstrap-inference)),
 a clustered fit, a competing-event fit, and every `DRTMLE` fit. Of these, the study measured only
-the in-sample clustered `LTMLE` bootstrap (cell `boot_ey_clustered`), and its support row
-`G05.in_sample` lists the point kind alone.
+the in-sample clustered `LTMLE` bootstrap, in cells `boot_ey_clustered` and `boot_ate_clustered`.
+The contrast cell failed calibration, so its support row `G05.in_sample` lists the point kind
+alone.
 
 Every `CTMLE` bootstrap prints as a diagnostic, because no reviewed theorem covers the bootstrap
 of a selector path. A fit with a data-adaptive learner is experimental by learner class. The
