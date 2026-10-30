@@ -1673,7 +1673,7 @@ surface rule in [the architecture invariants](../architecture-invariants.md).
 
 **Evidence class.** The estimator is validated by Python property evidence: exact-law checks of
 the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
-[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment, in sample or cross-fitted, and cross-fitted with a declared mechanism or with `strata=` (`_categorical_point_rows` in `src/cleverly/_support_rows.py`). The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
+[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment with a continuous outcome, complete data, no weights and independent units, in sample or cross-fitted, and cross-fitted with a declared mechanism or with `strata=` (`_categorical_point_rows` in `src/cleverly/_support_rows.py`). The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
 those rows has the support label `experimental`. No external comparator exists for the categorical
 tilt. The [schedules and service doses example](../examples/schedules-and-intensity.ipynb)
 fits two tilts of a three-level schedule with parametric learners, in sample.
@@ -1723,7 +1723,7 @@ stratum's mechanism is tilted along its own covariate. A stratum that holds no r
 refuses before any learner, because its mechanism equation may then have no finite root. The root is
 missing only if some direction separates: every observed level maximises the covariate in its row.
 That condition depends on the fitted outcome regression, so the guard reads the data alone and is
-conservative, as the binary guard was.
+conservative, as the binary guard is.
 
 Kennedy (2019),
 arXiv v3, Section 6, lists "how mean outcomes under different interventions vary with covariates" as future

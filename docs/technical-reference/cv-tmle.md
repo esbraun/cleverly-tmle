@@ -391,7 +391,7 @@ Each row gives the shipped remedy in the message's own words.
 | an outcome class held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that class and no fold count or seed can fit the outcome regression; collect more observations with outcome 1". Under `id=` the message says "clusters" in place of "rows" |
 | a drawn split whose training complement lacks an arm, a row with an observed outcome, an observed outcome class, or two rows of a Super Learner class | `DataError` before the first learner | "The split is drawn from the seed alone and reads no treatment or outcome, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Either fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), or collect more observations at the rare level." |
 | a drawn longitudinal split that leaves a node level or a regimen unsupported | `LongitudinalError` before the first learner | "The split reads no treatment, outcome or covariate, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect more observations at the rare level." The tail changes with the shortfall |
-| a generated-outcome refutation with an unbounded Gaussian process on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Declare a BoundedAdjustmentOutcome, which draws inside the fit's q_bounds, or refute a fit with q_bounds=None (Targeting(q_bounds=None)) and cross_fit=False (CrossFitting(enabled=False))" |
+| a generated-outcome refutation with a `GaussianAdjustmentOutcome` on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Declare a BoundedAdjustmentOutcome, which draws inside the fit's q_bounds, or refute a fit with q_bounds=None (Targeting(q_bounds=None)) and cross_fit=False (CrossFitting(enabled=False))" |
 | `learned_rule=` with `cross_fit=False`, `cv_evaluation=False`, `targeting_scheme="fold"`, `repeats` above 1, or `n_bootstrap` above 0 | `CapabilityError` before any learner | "To estimate the learned-rule value, fit it with cross_fit=True, cv_evaluation=True on the engine, or CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least 2, repeats=1, targeting_scheme='pooled' and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)". The message names [X11](../roadmap.md#x11-learned-policy-follow-ups) part (a), (e), (h) or (i), or [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions). A data declaration that no setting repairs refuses first |
 | `TMLE(learned_rule=...)` with fewer than two folds, or with `repeats` above 1 and `cross_fit=False` | `CapabilityError` at construction | the same sentence as the row above, with X11 (a). The engine raises it before the shared sentence, so it names no in-sample fit |
 | `CrossFitting(n_folds=1)`, `CrossFitting(enabled=False, repeats=2)`, or a stratified `CrossFitting`, for any estimand | `MethodConfigurationError` at construction, before the estimand is known | the shared sentence, which offers an in-sample fit to other estimands, and then the learned-rule clause: "LearnedRuleValue has no in-sample fit (X11 (a) in docs/roadmap.md), so for it use CrossFitting(enabled=True, fold_evaluation=True) with n_folds of at least 2." |
@@ -606,7 +606,10 @@ A fit records `scheme="supplied"` for the fact that nothing was generated. It re
 
 [Scope and refusals](scope-and-refusals.md) indexes what a supplied plan refuses. The refutation
 battery is the entry worth reading here. A refutation refits, and a supplied plan labels rows by
-position, so it can label a refit only when each refit row keeps a label it had.
+position. `subset` refits on the original labels of the rows it keeps.
+`bootstrap_measurement_error` would place resampled units at positions the plan labelled for other
+units. `bootstrap_stability` keeps each unit's fold for its copies, but carrying the plan into
+that refit is not implemented, so it refuses too.
 
 | refutation | what its refit does to the rows | under a supplied plan |
 | --- | --- | --- |
@@ -616,10 +619,10 @@ position, so it can label a refit only when each refit row keeps a label it had.
 | `random_common_cause` | adds a covariate column | runs |
 
 `refute()` raises `CapabilityError` for the two refused operations before it refits anything.
-The refusal reads the requested operation rather than the row count. A bootstrap draw holds the
-declared number of rows, so a count check cannot see it. The default tests (`placebo`,
-`random_common_cause` and `subset`) all run, so the `refute` capability row reads `available`
-(`_PLAN_REFUSING_TESTS` in `src/cleverly/validation/refute.py`).
+The refusal reads the requested operation rather than the row count, because a bootstrap draw
+holds the declared number of rows. The default tests (`placebo`, `random_common_cause` and
+`subset`) all run, so the `refute` capability row reads `available` for an estimand that admits
+`placebo` (`_PLAN_REFUSING_TESTS` in `src/cleverly/validation/refute.py`).
 
 A result from `cross_fit=False` still records a one-fold plan. Passing that plan back through
 `split_plan=` is refused. `random_partition` draws two folds at least, so a one-fold plan records

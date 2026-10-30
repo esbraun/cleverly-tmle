@@ -174,15 +174,14 @@ influence. The counter then reads the risk of `k`.
 | a risk that is not finite | counts as worse |
 | selection | the position of the smallest scored risk, the first of ties |
 
-The count is not a run length. A worse risk after a reset adds one, and a later worse risk adds
-another. This matches the counter in `functions_discrete.R` of R `ctmle`.
+The count is the number of positions since the smallest risk so far. A position below its
+predecessor but above that minimum still adds one. This matches the counter in `functions_discrete.R` of R `ctmle`.
 
 The path is lazy under `patience`. The fit builds each fold's path one position at a time, in step
 over the folds. So the stop is a function of the summed fold risk. No position after the stop is
 scored, and one stop position applies to the full-sample path too. Every stored array
 ends at the stop. `CTMLESelection.patience` records the setting. `CTMLESelection.stopped_at`
-records the index where the counter fired. The summary prints one line that states which case
-occurred.
+records the index where the counter fired.
 
 Under `greedy`, `ordered` and `discrete`, no position after the stop is fitted. Under `lasso` and
 `learners` the later positions are fitted. `lasso` fits its whole penalty grid before the path
@@ -314,9 +313,9 @@ package fits it on the same rows a covariate-set candidate uses.
 `"lambda=0.0123"`, `"lambda=0"`, `"LogisticRegression[2]"`, or `"arrays[1]"`. `final` is the
 final-step candidate, or `None` when no final step ran. `selected` stays the cross-validated index.
 The reported mechanism is `final` when it is set, and `selected` otherwise. Under `lasso`,
-`path[k]` holds the covariates with a nonzero coefficient in some fit of candidate `k`. `summary()`
-also reports whether the treatment risk decreases along the declared order, which the template
-requires. A fit does not refuse when it does not.
+`path[k]` holds the covariates with a nonzero coefficient in some fit of candidate `k`. Under
+`learners`, the summary notes each candidate at which the treatment risk rises, against the order
+the template requires. The fit does not refuse.
 
 **R `ctmle` differs in these ways.** The package does not reproduce them.
 
@@ -651,7 +650,8 @@ as a diagnostic. Ordinary TMLE conditions alone do not establish validity after 
 The full-refit bootstrap reruns each adaptive construction. No reviewed theorem validates it for a
 selector path or for either outcome-adaptive design. On those paths, `summary()` therefore prints
 the standard deviation of the replicate estimates as `bootstrap SD (diagnostic)`, and a
-`percentile range (diagnostic)`, with a note that the range is not a confidence interval. It prints no percentile confidence interval. `to_frame()` emits
+`percentile range (diagnostic)`, with a note that the range is not a confidence interval.
+`to_frame()` emits
 `bootstrap_sd`, `bootstrap_range_lower` and `bootstrap_range_upper` in place of
 `bootstrap_std_err`, `bootstrap_ci_lower` and `bootstrap_ci_upper`. The targeted-HAL bootstrap
 result cited in the audit fixes its data-adaptive complexity bound rather than reselecting it.
@@ -1067,7 +1067,7 @@ The positivity report names the design as the condition of the product row, for 
 **Small strata.** Before you read `plugin_std_error`, count the smaller class of each factor's
 binary target in each stratum, arm and fold cell. The study found that class, not the row count,
 limits the factor fit. The fit regresses each factor on the rows of one stratum and one arm, and
-a cross-fitted fit uses only the training complement of each fold. With few rows, a flexible or
+a cross-fitted fit uses only the training complement of each fold. With a small class, a flexible or
 unpenalized treatment learner can extrapolate the design toward zero. The term of one row then
 dominates `plugin_std_error`. The point estimate does not move.
 
