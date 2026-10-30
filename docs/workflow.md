@@ -136,17 +136,28 @@ Common keyword shortcuts normalize into the same objects. Unknown or inapplicabl
 The example above fits a binary outcome. A cross-fitted fit of a *continuous* outcome also needs
 `Targeting(q_bounds=(lower, upper))`, holding the outcome's known support. Without it the fit
 would read its scale off every observed outcome, held-out rows included, and `cleverly` refuses it
-before any learner runs. The narrated transition score is bounded by its own maximum, so declare
-that range. An unbounded outcome has no such range, so fit it in sample with
+before any learner runs. The patient-reported transition score of the protocol has a fixed scale,
+so declare its minimum and maximum. An unbounded outcome has no such range, so fit it in sample with
 `CrossFitting(enabled=False)` instead.
 [Fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
 gives the messages.
 
 ## 6. Assess estimation quality
 
-Inspect support, nuisance performance, targeting scores, and sensitivity in the context of the
-identified estimand. A solved score is evidence about the targeting step, not proof that nuisance
-models are consistent or that identification assumptions hold.
+`result.assess()` runs the default checks in one call: overlap, the nuisance models, the
+estimating equations, and the sensitivity analyses that refit nothing. Its summary has a header with the count of
+findings that need attention, then tables. Only the Checks table passes or fails. The Results table
+reports findings that have no pass or fail rule. The Not run table names each check the default
+skips, and a note gives the call that runs it. `include_refits=True` adds the checks that refit the
+models, such as the refutation tests, and `include_retargets=True` adds the truncation curve.
+
+```python
+print(result.assess().summary())
+```
+
+A solved estimating equation is evidence about the targeting step, not proof that the nuisance
+models are consistent or that the identification assumptions hold. Each check also has its own
+call, with a longer report:
 
 ```python
 print(result.diagnostics.support().summary())
@@ -159,11 +170,12 @@ print(result.sensitivity.run_all().summary())
 
 Report the parameter definition, population, identification assumptions, learner and cross-fitting
 configuration, estimate and interval, support diagnostics, sensitivity analysis, and package
-version or commit. This page's fit is weighted and cross-fitted by household, and the
-households differ in size. Below 40 households the interval uses a Student t reference. Below 10
-households the fit reports no interval, and `result.inference_status` names the status. Then
-report the point estimate and the reason of the status in place of the interval
-([clusters](technical-reference/inference.md#clusters)).
+version or commit. This page's fit is weighted and clustered by household, every fold keeps a
+household whole, and the households differ in size. From 3 to 39 households the interval uses a
+Student t reference. From 3 to 9 households the fit still reports the interval, labelled
+experimental, and `result.inference_status` is `"few_cluster_plugin"`. Below 3 households it
+withholds the interval: report the point estimate and the reason of the status in its place
+([few clusters](technical-reference/inference.md#few-clusters)).
 
 Save structured results when an audit trail matters:
 

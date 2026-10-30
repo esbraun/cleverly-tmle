@@ -98,7 +98,8 @@ ate      1.513        0.046   [1.422, 1.603]    <0.0001
 Both nuisance functions of `make_linear_ate` are linear, so these learners are correctly specified.
 A correctly specified parametric learner needs no cross-fitting, so this fit uses none. Cross-fitting
 a continuous outcome needs its support declared, because `q_bounds=None` reads the held-out rows to
-set the scale. The identified effect states its functional and assumptions before any learner is fit.
+set the scale. `effect.summary()` lists the conditions the answer rests on, and the methods that can
+fit it, before any learner is fit.
 
 Continue with the
 [full quickstart](https://esbraun.github.io/cleverly-tmle/getting-started/quickstart.html) or the
@@ -131,19 +132,20 @@ is the authoritative inventory, and it names the evidence for each row.
 | family | what `cleverly` ships |
 | --- | --- |
 | point-treatment effects | counterfactual means, ATE, ATT, ATC, risk and odds ratios, natural-course means, population-attributable effects, multi-valued treatments, declared missing outcomes and treatments, and controlled direct effects |
-| interventions | static, dynamic, and stochastic regimes; continuous modified treatment policies; incremental propensity-score interventions; and point and longitudinal MSM projections |
-| longitudinal outcomes | regimen means and contrasts for end-of-study, survival, and competing-risk outcomes |
+| interventions | static, dynamic, and stochastic regimes; the value of a learned treatment rule; continuous modified treatment policies; incremental propensity-score interventions; and point and longitudinal MSM projections |
+| longitudinal outcomes | regimen means and contrasts for end-of-study, repeated, survival, and competing-risk outcomes |
+| longitudinal baselines | sequential g-computation, sequential inverse probability weighting, the parametric g-formula, and a structural nested mean model |
 | design and inference | observation weights, strata, cluster-robust inference, cross-fitting, repeated cross-fitting, CV-TMLE, simultaneous intervals, and bootstrap inference |
-| estimator variants | ordinary TMLE, collaborative TMLE, and DR-TMLE, each over its documented compatible estimands |
-| post-fit work | positivity, nuisance, and score diagnostics; omitted-variable, E-value, and missingness sensitivity analyses; refutation; variable importance; and trusted whole-result persistence |
+| estimator variants | ordinary TMLE, collaborative TMLE, DR-TMLE, and adaptive-propensity IPTW for a point treatment; longitudinal TMLE and the sequentially doubly robust (SDR) estimator over time; each over its documented compatible estimands |
+| post-fit work | positivity, nuisance, and score diagnostics; omitted-variable, E-value, marginal sensitivity model, simulated-confounder, and missingness sensitivity analyses; refutation; variable importance; and trusted whole-result persistence |
 
 ## Roadmap
 
-- Validate sequential-decision analyses over three to five decisions, and add pre-fit support
-  checks for price policies.
-- Add a long-panel adapter, sequential g-computation and IPW baselines, and two applied tutorials.
-- Add an experimental status.
-- After the beta, add EP learning and the nested Riesz engine where an analysis needs them.
+- Before the first beta, review the documentation against the methods that ship.
+- In later beta releases, evaluate learned treatment policies honestly.
+- After the beta, extend the shipped methods, for example to mediation effects, continuous-time
+  survival, and two-phase sampling. Add EP learning and the nested Riesz engine where an analysis
+  needs them.
 
 These are accepted directions, not implemented release claims. The
 [roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) orders them by
@@ -167,7 +169,7 @@ method = TMLEMethod(
 result = effect.estimate(method=method)
 ```
 
-`CrossFitting(enabled=False)` here for the reason the quickstart gives. To cross-fit this fit
+This fit sets `CrossFitting(enabled=False)` for the reason the quickstart gives. To cross-fit this fit
 instead, declare the outcome support with `Targeting(q_bounds=(lower, upper))`, or use a law whose
 outcome is bounded.
 

@@ -8,9 +8,10 @@
 python -m pip install cleverly
 ```
 
-The core install includes NumPy, SciPy, scikit-learn, narwhals, joblib, and threadpoolctl. Install
-the `all` extra for pandas, polars, and plotting support. Install third-party nuisance estimators
-such as XGBoost or LightGBM separately and pass their sklearn-compatible objects directly:
+The core install includes NumPy, SciPy, scikit-learn, narwhals, joblib, cloudpickle, and
+threadpoolctl. Install the `all` extra for pandas, polars, and plotting support. Install
+third-party nuisance estimators such as XGBoost or LightGBM separately and pass their
+sklearn-compatible objects directly:
 
 ```bash
 python -m pip install "cleverly[all]"
@@ -19,7 +20,7 @@ python -m pip install "cleverly[all]"
 Pin the complete version for a reproducible analysis:
 
 ```bash
-python -m pip install "cleverly[all]==0.1.0"
+python -m pip install "cleverly[all]==0.1.7"
 ```
 
 `cleverly` uses `0.1.N` versions while it remains alpha software. A later patch can contain a
