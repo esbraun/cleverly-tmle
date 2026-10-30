@@ -340,7 +340,9 @@ def recovery_score_protocol() -> StudyProtocol:
         assumption_rationale=(
             "The navigator reads only the recorded discharge risk, living situation, symptom "
             "flags and earlier offers, which supports no hidden confounding at each decision",
-            "Version records support consistency at all three navigation decisions",
+            "Version records support that the navigation contact at each of the three decisions "
+            "is one well-defined action, so a patient's recorded score is the score they would "
+            "have had under the offers they got",
             program.assumption_rationale[2],
         ),
     )
