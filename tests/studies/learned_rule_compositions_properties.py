@@ -298,7 +298,9 @@ TARGETING_NECESSITY = property_verdicts.Necessity(
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The verdict of each cell, every statistic on the error of each row."""
-    summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=("targeting_displacement",))
+    summary, rates = apply_shared_verdicts(
+        rows, STUDY, extra_columns=("targeting_displacement",), rate_labels=()
+    )
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=POSITIVE)
     necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     return finish(summary, rates)
