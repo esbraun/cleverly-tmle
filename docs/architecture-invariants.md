@@ -251,11 +251,15 @@ one.
 A reader of `std_error`, `ci`, or `pvalue` must branch on each estimate's `supplies_inference`.
 The `inference_status` of a result is the fit status, so it alone does not say that every
 estimate supplies inference. A reader that decides columns from it must also handle the estimates
-that do not. In a summary, `cleverly._summary.estimates_table` is the one place this rule
-applies: it stars a row whose estimate supplies no inference, prints its spread under the
-diagnostic label from `spread_name`, and adds a `no_inference` note whose text reads the
-status's `plain_reason` from `STATUS_RECORDS`. `curve()` and `incidence_total()` add an `inference` column and the plug-in columns, and
-`to_frame()` holds the union of the columns.
+that do not. `curve()` and `incidence_total()` add an `inference` column and the plug-in
+columns, and `to_frame()` holds the union of the columns.
+
+In a summary, `cleverly._summary._estimates.estimates_table` is the one place this rule applies.
+When no estimate supplies inference, it prints each spread under the diagnostic label from
+`spread_name`. Otherwise it stars each row that supplies none and leaves that row's inference
+cells empty. Either way it adds a `no_inference` note that reads the status's `plain_reason` from
+`STATUS_RECORDS`, and in a mixed table the note gives each starred row's spread under the
+diagnostic label.
 
 A frame or label that
 publishes a spread must take its names from `spread_columns()` or `spread_name`, which raises

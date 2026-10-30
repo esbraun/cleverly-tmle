@@ -257,9 +257,13 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
 | `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
 
-The job runs 5,892 cases in about 7,600 CPU-seconds, about 35 minutes on four workers. So it does not run in the fast tier, and its timeout is 105 minutes, three times the measured run. It runs on every pull
-request that touches `tests/studies/`, `tests/canonical/`, `src/cleverly/`, `pyproject.toml`,
-`uv.lock` or the workflow. A failed `git diff` fails the job instead of skipping it. Make it a
+The job ran 5,892 cases in about 7,600 CPU-seconds when it was measured, about 35 minutes on four
+workers. So it does not run in the fast tier. Later studies brought main to 91% of the former
+105-minute timeout, so the timeout is now 180 minutes.
+
+It runs on every pull request that touches
+`tests/studies/`, `tests/canonical/`, `src/cleverly/`, `pyproject.toml`, `uv.lock`, the workflow
+or `.github/actions/`. A failed `git diff` fails the job instead of skipping it. Make it a
 required check. It always reports, and it skips its steps on other pull requests.
 
 ### Choose the comparator before you write the runner
