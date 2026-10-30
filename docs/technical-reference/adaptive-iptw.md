@@ -274,7 +274,7 @@ reason of the status. `plugin_std_error` and `plugin_interval` return the spread
 curve. That spread is a diagnostic. It is not valid inference here, for the reasons in the table
 above.
 
-The summary prints the column `estimated-mechanism se`, and the fit builds no simultaneous
+The summary prints the column `plug-in SE (diagnostic)`, and the fit builds no simultaneous
 band. [Inference status](inference.md#inference-status) lists the status beside its siblings.
 The roadmap item [X36](../roadmap.md#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism)
 holds the projected variance for a declared parametric mechanism.

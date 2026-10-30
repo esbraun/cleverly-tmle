@@ -1539,6 +1539,11 @@ probabilities, and no source read here defines a trim of them.
 | (c) | `truncation_curve` | a retargeting of the IPTW propensity at each bound. The base result is Lemma 2 of WP302 for the loop at that bound |
 | (d) | `simulated_confounding` of a regime or an MSM | the frozen-regime replay of the ordinary TMLE, refitting the targeted propensity in each cell |
 
+One cost item changes no result. `fit_fold_mechanisms` in `estimators/_nuisance.py` fits `K * K`
+extra mechanism models, and `K` of them repeat a production fit. A cache keyed by the unordered
+pair of held-out folds, as DR-TMLE's foldwise fits use, would need `K (K - 1) / 2`: 45 in place
+of 100 at `K = 10`.
+
 Acceptance: a pre-fit refusal test for each request that stays refused; a registered study for
 each request that ships.
 

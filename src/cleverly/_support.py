@@ -288,12 +288,12 @@ class SupportKey:
         ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key on the policy axis holds the policy density ``ratio``. A longitudinal key
-        holds ``multiplier_kind``, the inverse-probability ``normalization``, the policy density
-        ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm, the
-        ``isotonic`` projection, whether the fit declares ``node_bounds``, the
-        ``hazard_pooling``, whether it declares a ``ratio_trim`` and the data's
-        ``markov_order``.
+        point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
+        policy has a cap tuned on the data. A longitudinal key holds ``multiplier_kind``, the
+        inverse-probability ``normalization``, the policy density ``ratio``, the
+        ``survival_model``, the hazard ``targeting`` algorithm, the ``isotonic`` projection,
+        whether the fit declares ``node_bounds``, the ``hazard_pooling``, whether it declares a
+        ``ratio_trim`` and the data's ``markov_order``.
     """
 
     kind: str
@@ -384,6 +384,24 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, type):
         return f"{value.__module__}.{value.__qualname__}"
     return repr(value)
+
+
+def interval_floor(key: SupportKey) -> int:
+    """The cluster count below which ``key`` reads ``below_floor``: 10 for a point fit, else 20.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The fit's key.
+
+    Returns
+    -------
+    int
+        The interval floor of the fit's kind.
+    """
+    if key.kind == "point":
+        return MINIMUM_INTERVAL_CLUSTERS
+    return MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
 
 
 def _dependence(clusters: int | None, floor: int) -> str:
@@ -632,6 +650,13 @@ def point_key(
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
         options["ratio"] = estimator.ratio
+        from .estimators._tuned_policies import declares_tuned
+
+        if declares_tuned(tuple(getattr(estimator, "policies", None) or ())):
+            # A cap tuned on the data adds a derivative term to the curve. No point study fits
+            # one (the tuned-cap study, mtp-tuning, is longitudinal), so a row of declared caps
+            # never covers it.
+            options["tuned_cap"] = True
 
     key = SupportKey(
         kind="point",

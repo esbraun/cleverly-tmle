@@ -2682,9 +2682,11 @@ def fit_fold_mechanisms(
     ``treatment_learner=None`` skips the treatment mechanism (the natural-course key reads
     none).  A mechanism the fit did not estimate gets no slab.
 
-    **Cost is ``K`` times the mechanism fitting**: ``K (K - 1)`` further models of each
-    estimated mechanism, paid once at the initial fit.  The targeting loop tilts the slabs
-    and refits no mechanism.
+    **Cost is ``K`` times the mechanism fitting**: ``K * K`` further models of each
+    estimated mechanism, paid once at the initial fit.  ``K`` of them, the fit that leaves
+    out fold ``k`` inside slab ``k``, repeat a production fit, and a cache of unordered fold
+    pairs would cut the rest to ``K (K - 1) / 2`` (roadmap X81).  The targeting loop tilts
+    the slabs and refits no mechanism.
 
     Parameters
     ----------

@@ -489,7 +489,7 @@ The point estimate, the selection path, and the curve remain. Two accessors repo
 diagnostic. `plugin_std_error` gives the plug-in standard error of that curve. `plugin_interval`
 gives its Wald interval. Both are a diagnostic. Neither is a confidence statement.
 
-The reports follow the accessors. `summary()` prints the diagnostic in a `working-mechanism se`
+The reports follow the accessors. `summary()` prints the diagnostic in a `plug-in SE (diagnostic)`
 column, and prints no interval column. `to_frame()` emits `inference`, `plugin_std_err`,
 `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`, `ci_lower`, `ci_upper`,
 and `p_value`.
@@ -634,8 +634,8 @@ outcome-adapted AutoDML prove sample-split results with a representation learned
 independent sample.
 
 Every `oat_design="shared"` fit takes the `"generated_design_plugin"` status.
-`ci`, `pvalue` and `std_error` raise `CapabilityError` with the reason of the status, and the
-`summary()` column is `generated-design se`.
+`ci`, `pvalue` and `std_error` raise `CapabilityError` with the reason of the status, and
+`summary()` prints the spread in a `plug-in SE (diagnostic)` column.
 
 At `n = 1,000`, the registered point-treatment pair
 resolves a finite-sample deficit in the standard-error ratio without invalid coverage. The

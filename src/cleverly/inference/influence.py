@@ -299,9 +299,10 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
 
     One body for both result summaries. The labels come from
     :func:`~cleverly.inference.influence.bootstrap_column` under
-    :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, an
-    estimate with a t reference, or a bootstrap not licensed as inference prints
-    ``bootstrap sd`` and a range.
+    :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, a fit
+    below the cluster floor, or a fit that declares its bootstrap a diagnostic prints
+    ``bootstrap sd`` and a range. A fit with a t reference at or above the floor prints
+    ``bootstrap se`` and a confidence interval.
 
     Parameters
     ----------
@@ -1227,6 +1228,9 @@ class BootstrapSummary:
         (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
         their diagnostic names at every status, because no registered study measures a
         bootstrap interval below the floor.
+    cluster_floor : int or None, default=None
+        The floor a below-floor fit fell short of, which the summary note names. ``None``
+        when ``below_floor`` is ``False``.
     support : Support, default=UNCLASSIFIED
         Whether a registered row measures the interval of the fit that produced it. A row
         that lists the interval's kind (``bootstrap`` or ``bootstrap_bca``) makes it
@@ -1251,6 +1255,7 @@ class BootstrapSummary:
     draws: FloatArray
     diagnostic: bool = False
     below_floor: bool = False
+    cluster_floor: int | None = None
     support: Support = UNCLASSIFIED
     interval: BootstrapInterval = "percentile"
     z0: float | None = None
