@@ -392,8 +392,7 @@ The options `stopping=`, `step_bound=`, `step_search=`, `iterate=`, `outcome_by_
 `patience=` and `treatment_adjustment=` have no registered study. A fluctuation coefficient is
 zero at the truth, so an exact-law check cannot see a stopping rule or a step. Each option
 therefore rests on a hand computation, a nonzero witness and a deliberate-mutation control. The
-Python tests below gate the change. The R comparators of these seven options have run, and the
-fixture table below names each one.
+Python tests below gate the change.
 
 | part | exact test | witness | mutation controls |
 | --- | --- | --- | --- |
