@@ -5,9 +5,9 @@ assignments. Run the matching support check before you interpret an estimate.
 
 A modified treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` with
 declared pieces, or a `RiskRatioTilt`. Pass the policy to a `ModifiedTreatmentPolicy` or
-`ModifiedTreatmentPolicyEffect` estimand, or as a node of a longitudinal plan. Both estimands
-refuse a `RiskRatioTilt`, which `cleverly.estimators.TMLE(policies=...)` fits. A vector treatment
-takes a `JointPolicy`, which declares one policy for each component.
+`ModifiedTreatmentPolicyEffect` estimand, or as a node of a longitudinal plan. Both estimands refuse
+a `RiskRatioTilt`, which `cleverly.estimators.TMLE(policies=...)` fits. A vector treatment takes a
+`JointPolicy`, which declares one policy for each component.
 
 A `DoseQuantile` or a `SupportBoundary` tunes the cap of a `Shift` or a `Scale` from the treatment
 law, and `LinearQuantileRegression` is the linear boundary learner of a `SupportBoundary`. A

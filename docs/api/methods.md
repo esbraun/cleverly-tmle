@@ -42,8 +42,8 @@ the column roles, as the [longitudinal guide](../user-guide/longitudinal.md) doe
 | `IPWMethod` | `SequentialIPW` |
 | `ParametricGFormulaMethod` | `ParametricGFormula` |
 
-`StructuralNestedMean` has no method object, so it is called only directly. Its `fit()` and the
-one-call `snmm()` return a `StructuralNestedMeanResult`, whose `check_model()` returns a
+`StructuralNestedMean` has no method object, so you construct it directly or call `snmm()`. Its
+`fit()` and `snmm()` return a `StructuralNestedMeanResult`, whose `check_model()` returns a
 `StructuralModelCheck`.
 
 ```{eval-rst}

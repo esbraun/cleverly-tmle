@@ -1219,7 +1219,7 @@ def _extreme_share(own: FloatArray, weights: FloatArray, margin: float) -> float
 # ----------------------------------------------------------------------- the estimator
 
 
-class StructuralNestedMean:  # numpydoc ignore=PR01
+class StructuralNestedMean:
     """G-estimation of a linear structural nested mean model over treatment nodes.
 
     The estimator reports the blip coefficients of each node, the mean outcome with every
@@ -1285,6 +1285,8 @@ class StructuralNestedMean:  # numpydoc ignore=PR01
         Refused.  The estimator fits an end-of-study outcome with no censoring.
     horizons : None
         Refused.  The outcome is one end-of-study value.
+    **refused : Any
+        A point-treatment keyword, refused by name.
 
     Raises
     ------

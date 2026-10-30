@@ -1,11 +1,13 @@
 # Sensitivity and validation
 
-Use these objects after estimation. `result.sensitivity` is a `SensitivityFacade`, whose methods
-vary assumptions that the data cannot check, such as no unmeasured confounding, and report how the
-estimate moves. `result.diagnostics` is a `DiagnosticsFacade`, whose methods check the fit itself;
-its `run_all()` runs every supported check that needs no further arguments. Each facade's
-`capabilities` lists the analyses that the fit supports. The functions in `cleverly.sensitivity` and
-`cleverly.validation` take the result as their first argument. [Results and
+Use these objects after estimation. `result.sensitivity` is a `SensitivityFacade`. Its methods vary
+assumptions that the data cannot check, such as no unmeasured confounding, and report how the
+estimate moves. `result.diagnostics` is a `DiagnosticsFacade`, whose methods check the fit itself.
+Each facade's `run_all()` runs the analyses that need no further arguments, and skips refits and
+moderate retargets unless you ask for them. Each facade's `capabilities` lists every analysis,
+whether the fit supports it, and why not.
+
+The functions listed below take the result as their first argument. [Results and
 assessment](../user-guide/results-assessment.md) shows the common calls, and [validation
 methods](../technical-reference/validation-methods.md) states the conditions of each.
 
@@ -86,7 +88,8 @@ measures bias and coverage over repeated draws from a law you declare.
 
 ## Inference primitives
 
-These functions build intervals, bands, and tests from influence curves or bootstrap draws.
+These functions compute influence-curve variances and covariances, delta-method influence curves,
+simultaneous bands, and full-refit bootstrap replicates.
 `Transform` is a monotone map on whose scale a contrast's interval and test are computed.
 
 ```{eval-rst}
