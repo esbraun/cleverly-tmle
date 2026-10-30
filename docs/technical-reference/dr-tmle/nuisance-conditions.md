@@ -36,7 +36,7 @@ Practical consequences:
   [the theorem page](theorem.md#the-conditioning-terms-are-linear-in-one-error) names. No fit can check either. Declare a known mechanism where the
   design gives one.
 - **Choose the reduction learners deliberately.** Each reduced regression has its own keyword.
-  The table below gives the routing. A `None` slot uses the primary specification of its side.
+  A `None` slot uses the primary specification of its side.
 
   | regression | target, on design | task | keyword | `None` resolves to |
   | --- | --- | --- | --- | --- |

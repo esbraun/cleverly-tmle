@@ -9,7 +9,7 @@ In cost order. The first two are free.
 | `res.validate()` | the default assessment; reports `warning` when equation (10) had numerically difficult inner solves even if the returned score equations pass, with the affected round count and fraction |
 | `res.diagnostics.corrections()` | the low-level doubly-robust rows: per arm, per equation. The method requires a guarded `DRTMLE` fit. Other fits raise `CapabilityError`. |
 | `res.diagnostics.nuisance_models()` | the primary fits' held-out risk and diagnostics |
-| `res.diagnostics.support()` | the overlap report. Its group score-load row `mean` describes the outcome block of the closing joint solve, one absolute score-weight column per reported outcome equation, with a fitted or a declared mechanism. `tests/unit/test_drtmle_score_loads.py` pins one column per equation under each `guard` |
+| `res.diagnostics.support()` | the overlap report. Its group score-load row `mean` gives the Kish concentration of `abs(w_i h_ij)` for the most concentrated outcome score equation of the last fluctuation. It is descriptive and ungraded. `tests/unit/test_drtmle_score_loads.py` pins one load column per equation for each `guard`, for a fitted and a declared mechanism, and for missing outcomes |
 | `res.diagnostics.refute()` | negative controls; costs refits |
 
 `correction_check()` recomputes each arm's `P_n[w D*_g]` and `P_n[w D*_Q]` **from the exact
@@ -46,8 +46,8 @@ about*.
 ## Solved scores do not establish nuisance consistency
 
 The score equations being solved is a statement about **numerical targeting**. It says nothing
-about whether the method-specific functions of
-[what the nuisances must satisfy](nuisance-conditions.md) are adequately estimated. The two are independent,
+about whether the method-specific nuisance functions are estimated well enough to meet
+[what the nuisances must satisfy](nuisance-conditions.md). The two are independent,
 and the independence is easy to get backwards. A fit with badly wrong reductions returns a `psi`,
 an `se` and a confidence interval formatted exactly like a good one, with every score green.
 
