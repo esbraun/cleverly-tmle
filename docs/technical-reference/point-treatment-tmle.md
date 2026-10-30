@@ -1255,7 +1255,7 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 | C3 | a limiting rule: the fold curves converge to the curve of one fixed rule |
 | C4 | the fold-average remainder is $o_P(n^{-1/2})$. Alternatively, Corollary 3 requires Theorem 6 with $g=g_0$, negligible remainder replacement, and the linearization in Equation (14). Under these conditions, each fold's maximum-likelihood mechanism fit in a correct model gives a conservative interval |
 | C5 | no Donsker condition, so the learners can be flexible |
-| C6 | iid rows, with no weights, clusters, missing outcomes or intermediate variable |
+| C6 | iid rows, or iid clusters under `id=` with bounded cluster sizes; known, fixed observation weights under `weights=`; no missing outcomes or intermediate variable |
 
 C3 fails at an exceptional law, where the effect is zero for a share of units and the learner is
 consistent. The fold rules then have no fixed limit, and the interval can under-cover. Two
@@ -1266,8 +1266,25 @@ registered studies measure the interval. The table gives their readings.
 | [gated study](method-evidence/learned-rule-cvtmle.md) | `non_exceptional` and `misspecified_limit`, which meet C3 | every primary test and every property cell passes. Coverage is 0.9465 and 0.9413 over 6,000 replications at n = 2,000 |
 | [boundary study](method-evidence/learned-rule-cvtmle-boundary.md) | `exceptional`, where C3 fails, and `weak_blip`, within C3 | the interval under-covers at each law. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314 |
 
-The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat, pooled targeting and
-no full-refit bootstrap. `refuse_learned_rule_composition` in
+#### Fold targeting, weights and clusters
+
+Three settings of the fold-evaluated engine also apply to the learned-rule value. Each reuses the
+construction that the engine ships for arm and regime targets, with the fold-local rule as the
+regime.
+
+| setting | what changes | source |
+| --- | --- | --- |
+| `targeting_scheme="fold"` | each validation fold fits its own $\varepsilon_v$ on its own rows, so each fold's score is solved exactly. The estimate and the variance keep the form above | Montoya (2023b), Section 3.2, Step 2(c), and Section 4.2. That each fold's remainder is then its own second-order term under C3 and C4 is this package's step |
+| `weights=` | the target is the fold-average value in the weighted population of [weights, strata, and clusters](#weights-strata-and-clusters). The rule is the plug-in of the weighted outcome regression, so it is the rule of the weighted population. Each validation fold normalises its weights, and its curve term is $(w_i/\bar w_v) D_i$ | the shipped weighted fold-evaluated fit. Weighted and unweighted rules differ in the limit only when the outcome regression is misspecified or the weight depends on the outcome |
+| `id=` | the cluster is the unit. Folds move whole clusters, so each rule is learned on training clusters. Each fold term is the centred variance of the fold's cluster totals, with the few-cluster $t$ reference of [CV-TMLE](cv-tmle.md) | the shipped clustered fold-evaluated fit |
+
+Equal cluster sizes keep the fold-evaluated point free of the ratio bias that
+[CV-TMLE](cv-tmle.md) measures when cluster sizes depend on the outcome. A fit with unequal sizes
+therefore carries the experimental label. Weights declared estimated (`weights_estimated=True`)
+refuse.
+
+The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat and no full-refit
+bootstrap. `refuse_learned_rule_composition` in
 [`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
 refuses every other composition before any learner, in the order that the table gives. A refusal
 that no setting repairs comes before a refusal whose remedy is a setting, as the
@@ -1283,18 +1300,16 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 4 | a treatment with more than two arms | X11 (d) |
 | 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |
 | 6 | `intermediate=` | X11 (j) |
-| 7 | `weights=` | X11 (k) |
-| 8 | `id=` | X11 (l) |
-| 9 | `strata=` | X11 (m) |
-| 10 | `cross_fit=False`, or one fold | X11 (a) |
-| 11 | `cv_evaluation=False` | X11 (e) |
-| 12 | `targeting_scheme="fold"` | X11 (h) |
-| 13 | `repeats` above 1 | X11 (i) |
-| 14 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
+| 7 | estimated weights, `weights_estimated=True` | X11 (k2) |
+| 8 | `strata=` | X11 (m) |
+| 9 | `cross_fit=False`, or one fold | X11 (a) |
+| 10 | `cv_evaluation=False` | X11 (e) |
+| 11 | `repeats` above 1 | X11 (i) |
+| 12 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
 
-Rows 1 and 2 run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
+The first two rows run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
 constructor also refuse a fold policy that the shared rules forbid, before the data exist. On a
-learned-rule `TMLE`, rows 10 to 14 replace such a refusal where one of them applies.
+learned-rule `TMLE`, the setting rows replace such a refusal where one of them applies.
 [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy.
 
 The result records the fit under `result.extra["learned_rule"]`, a `LearnedRuleRecord`. The

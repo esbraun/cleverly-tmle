@@ -1132,7 +1132,7 @@ class TMLE:
                     "learned_rule= takes a cleverly.interventions.LearnedRule; got "
                     f"{type(self.learned_rule).__name__}"
                 )
-            # Rows 1 and 2 of the learned-rule refusal table read the configuration alone, and
+            # The first two rows of the learned-rule refusal table read the configuration alone, and
             # they come first in its order, so they refuse where they were written.  The
             # preflight asks them again for a copied or modified estimator.
             refusal = learned_rule_configuration_refusal(self)
@@ -1281,7 +1281,7 @@ class TMLE:
         # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
         reason = self._cross_fit_policy_reason()
         if reason is not None:
-            # A learned-rule fit hears rows 10 to 14 of its refusal table before a shared policy
+            # A learned-rule fit hears the setting rows of its refusal table before a shared policy
             # sentence.  Their remedy is the configuration that fits, and the shared remedies
             # (enable cross-fitting, or set repeats=1) meet one of those rows next.  The rows raise
             # ``CapabilityError``, as every row of that table does.  A policy that passes the shared

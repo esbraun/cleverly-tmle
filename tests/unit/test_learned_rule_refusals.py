@@ -63,7 +63,6 @@ ENGINE_REMEDY = (
     "cross_fit=True",
     "cv_evaluation=True",
     "repeats=1",
-    "targeting_scheme='pooled'",
     "n_bootstrap=0",
 )
 
@@ -91,10 +90,8 @@ def _frame(kind: str = "binary") -> Any:
         frame["Delta"] = (np.arange(len(frame)) % 5 != 0).astype(float)
     if kind == "intermediate":
         frame["Z"] = (np.arange(len(frame)) % 2).astype(float)
-    if kind == "weights":
+    if kind == "estimated_weights":
         frame["w"] = 1.0 + 0.5 * frame["W2"]
-    if kind == "id":
-        frame["cluster"] = np.arange(len(frame)) // 4
     return frame
 
 
@@ -105,8 +102,7 @@ _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "multi_arm": {},
     "delta": {"delta": "Delta"},
     "intermediate": {"intermediate": "Z"},
-    "weights": {"weights": "w"},
-    "id": {"id": "cluster"},
+    "estimated_weights": {"weights": "w", "weights_estimated": True},
     "strata": {"strata": ("W2",)},
 }
 
@@ -129,29 +125,27 @@ def _refused(call: Any, item: str) -> str:
     return message
 
 
-#: Rows 3 to 9: the data declarations that no setting repairs.
+#: The data rows: the declarations that no setting repairs.
 DATA_ROWS: dict[str, str] = {
     "continuous": "F27",
     "multi_arm": "X11 (d)",
     "delta": "F27",
     "intermediate": "X11 (j)",
-    "weights": "X11 (k)",
-    "id": "X11 (l)",
+    "estimated_weights": "X11 (k2)",
     "strata": "X11 (m)",
 }
 
-#: Rows 10 to 14: the settings, each with its item.
+#: The setting rows, each with its item.
 SCHEME_ROWS: dict[str, tuple[dict[str, Any], str]] = {
     "in_sample": ({"cross_fit": False, "cv_evaluation": False}, "X11 (a)"),
     "stacked": ({"cv_evaluation": False}, "X11 (e)"),
-    "fold_targeting": ({"targeting_scheme": "fold"}, "X11 (h)"),
     "repeats": ({"repeats": 2}, "X11 (i)"),
     "bootstrap": ({"n_bootstrap": 10}, "F27"),
 }
 
 
 class TestEachRowRefusesBeforeAnyLearner:
-    """Rows 1 to 14 at the engine."""
+    """Every row at the engine."""
 
     @pytest.mark.parametrize("variant", [CTMLE, DRTMLE])
     @pytest.mark.parametrize("fold_evaluation", [False, True])
@@ -179,22 +173,22 @@ class TestEachRowRefusesBeforeAnyLearner:
         _refused(lambda: _engine(**overrides), item)
 
     @pytest.mark.parametrize("kind", list(DATA_ROWS))
-    def test_rows_3_to_9_the_data(self, kind: str) -> None:
+    def test_the_data_rows(self, kind: str) -> None:
         _refused(lambda: _fit(_engine(), kind), DATA_ROWS[kind])
 
     @pytest.mark.parametrize("row", list(SCHEME_ROWS))
-    def test_rows_10_to_14_the_settings(self, row: str) -> None:
+    def test_the_setting_rows(self, row: str) -> None:
         overrides, item = SCHEME_ROWS[row]
         message = _refused(lambda: _fit(_engine(**overrides)), item)
         assert "cv_evaluation=True" in message and "fold_evaluation=True" in message
 
-    def test_row_10_one_fold_refuses_at_construction(self) -> None:
+    def test_one_fold_refuses_at_construction(self) -> None:
         """The shared fold-policy sentence offers an in-sample fit, and this one does not."""
         message = _refused(lambda: _engine(n_folds=1), "X11 (a)")
         assert not any(route in message for route in FORBIDDEN)
 
     def test_a_copied_estimator_meets_the_same_rows(self) -> None:
-        """The preflight asks rows 1 and 2 again, for a configuration no constructor saw."""
+        """The preflight asks the first two rows again, for a configuration no constructor saw."""
         estimator = _engine()
         estimator.interventions = (Static(1),)
         _refused(lambda: _fit(estimator), "X11 (c)")
@@ -215,7 +209,7 @@ class TestTheOrder:
         assert "fold_evaluation=True" not in message
 
     def test_a_continuous_treatment_is_not_told_to_declare_a_shift(self) -> None:
-        """``_check_shifts`` would suggest ``policies=``, which row 2 then refuses."""
+        """``_check_shifts`` would suggest ``policies=``, which the contrast row then refuses."""
         message = _refused(lambda: _fit(_engine(), "continuous"), "F27")
         # ``policies=[`` appears once, as the route of a separate fit without ``learned_rule=``.
         assert not any(route in message for route in FORBIDDEN if route != "policies=[")
@@ -236,7 +230,6 @@ class TestEachRemedyRunsAsWritten:
             cv_evaluation=True,
             n_folds=5,
             repeats=1,
-            targeting_scheme="pooled",
             n_bootstrap=0,
         )
         assert set(result.estimates) == {support.NAME}
@@ -329,11 +322,11 @@ class TestEachSharedRefusalRemedyRunsAsWritten:
         [{"cross_fit": False, "cv_evaluation": False, "repeats": 2}, {"n_folds": 1}],
         ids=["in_sample_with_repeats", "one_fold"],
     )
-    def test_the_engine_meets_row_10_before_the_shared_sentence(
+    def test_the_engine_meets_the_one_fold_row_before_the_shared_sentence(
         self, overrides: dict[str, Any]
     ) -> None:
-        """The shared sentences offer "set repeats=1" and an in-sample fit, which row 10
-        refuses, and "enable cross-fitting", which row 11 refuses."""
+        """The shared sentences offer "set repeats=1" and an in-sample fit, which the one-fold
+        row refuses, and "enable cross-fitting", which the stacked row refuses."""
         message = _refused(lambda: _engine(**overrides), "X11 (a)")
         assert LEARNED_RULE_CONFIGURATION in message
         assert not any(route in message for route in FORBIDDEN)
@@ -493,7 +486,7 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
 
 
 class TestTheStudyRefusesTheSameRows:
-    """``CausalStudy.identify`` refuses rows 3 to 9, and ``estimate`` rows 10 to 14.
+    """``CausalStudy.identify`` refuses the data rows, and ``estimate`` the setting rows.
 
     One fold refuses earlier, in ``CrossFitting`` itself.
     """
@@ -511,8 +504,7 @@ class TestTheStudyRefusesTheSameRows:
                 "continuous": {"treatment_kind": "continuous"},
                 "delta": {"missingness": "Delta"},
                 "intermediate": {"intermediate": "Z"},
-                "weights": {"weights": "w"},
-                "id": {"cluster": "cluster"},
+                "estimated_weights": {"weights": "w", "weights_estimated": True},
                 "strata": {"strata": ("W2",)},
             }.get(kind, {})
         )
@@ -529,7 +521,7 @@ class TestTheStudyRefusesTheSameRows:
         )
         assert "CrossFitting(enabled=True, fold_evaluation=True)" in message
 
-    #: Rows 10 to 14 on the method, each with its exception and item.  One fold refuses in
+    #: The setting rows on the method, each with its exception and item.  One fold refuses in
     #: ``CrossFitting`` itself, before the estimand is known, so it raises the configuration
     #: error and ends with the learned-rule clause.
     METHOD_ROWS: ClassVar[dict[str, tuple[dict[str, Any], dict[str, Any], type, str]]] = {
@@ -541,12 +533,6 @@ class TestTheStudyRefusesTheSameRows:
             "X11 (a)",
         ),
         "stacked": ({}, {}, CapabilityError, "X11 (e)"),
-        "fold_targeting": (
-            {"fold_evaluation": True, "targeting_scheme": "fold"},
-            {},
-            CapabilityError,
-            "X11 (h)",
-        ),
         "repeats": ({"fold_evaluation": True, "repeats": 2}, {}, CapabilityError, "X11 (i)"),
         "bootstrap": ({"fold_evaluation": True}, {"n_bootstrap": 10}, CapabilityError, "F27"),
     }

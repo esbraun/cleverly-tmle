@@ -215,7 +215,11 @@ class TestAGoldenCopy:
         for column, values in golden["frame"].items():
             if column == "support":
                 continue
-            assert list(frame[column]) == pytest.approx(values, rel=1e-10)
+            # pytest 9 refuses ``approx`` of a string, so text columns compare exactly.
+            if all(isinstance(value, str) for value in values):
+                assert list(frame[column]) == values
+            else:
+                assert list(frame[column]) == pytest.approx(values, rel=1e-10)
 
     def test_deleting_the_row_turns_the_label_experimental(
         self, monkeypatch: pytest.MonkeyPatch

@@ -59,7 +59,8 @@ __all__ = [
 RULE_CLASS = (
     "the plug-in rule 1{Qbar_v(1, W) - Qbar_v(0, W) > 0} of the outcome regression fitted "
     "on the training rows of each outer fold, where 1 is the higher arm code and 0 the "
-    "lower; a tie assigns the lower arm code"
+    "lower; a tie assigns the lower arm code. Under weights= the regression is the "
+    "weighted one, so the rule is the plug-in rule of the weighted population"
 )
 
 #: What the reported value is.  The record and the summary quote it.
@@ -73,8 +74,7 @@ BLIP_QUANTILE_LEVELS: tuple[float, ...] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 LEARNED_RULE_CONFIGURATION = (
     "cross_fit=True, cv_evaluation=True on the engine, or "
     "CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least "
-    "2, repeats=1, targeting_scheme='pooled' and n_bootstrap=0 (Inference(n_bootstrap=0) on "
-    "the method)"
+    "2, repeats=1 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)"
 )
 
 #: The way out of a shared refusal that a drawn split raises.  The learned-rule value has
@@ -368,8 +368,8 @@ def _blip(nuisance: NuisanceEstimates) -> np.ndarray:
     """The out-of-fold blip ``Qbar_v(1, W_i) - Qbar_v(0, W_i)`` at every row.
 
     Row ``i`` of fold ``v`` carries the prediction of the outcome regression fitted on the
-    training complement of ``v``, so the blip at a row never reads that row.  Row 4 of
-    the refusal table refuses a treatment with more than two arms first.
+    training complement of ``v``, so the blip at a row never reads that row.  The refusal
+    table refuses a treatment with more than two arms first.
     """
     control, treated = nuisance.outcome.levels
     return np.asarray(nuisance.outcome.arms[treated], dtype=float) - np.asarray(
@@ -454,7 +454,7 @@ def _arm_estimands(estimands: Any) -> tuple[str, ...]:
 def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
     """Return the refusal of a learned-rule estimator that no data can change, or ``None``.
 
-    Rows 1 and 2 of the learned-rule refusal table in
+    The first two rows of the learned-rule refusal table in
     ``docs/technical-reference/point-treatment-tmle.md``: a collaborative or doubly robust
     estimator, and ``learned_rule=`` beside another axis keyword, ``reference=`` or an arm
     estimand.  The engine asks it at construction and again first in its preflight.
@@ -531,7 +531,7 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
 
 
 def _data_refusal(data: CausalData) -> Refusal | None:
-    """Rows 3 to 9 of the learned-rule refusal table: the data declarations no setting repairs.
+    """The data rows of the learned-rule refusal table: the declarations no setting repairs.
 
     ``docs/technical-reference/point-treatment-tmle.md``, "Learned rules", holds the table.
     """
@@ -570,20 +570,14 @@ def _data_refusal(data: CausalData) -> Refusal | None:
             f"{_FIXED_RULE} takes intermediate= for a fixed rule.",
             "X11",
         )
-    if data.weights_name is not None or data.is_weighted:
+    if data.declares_estimated_weights:
         return _gap(
-            "a learned rule with observation weights (weights=) is refused. Van der Laan "
-            "and Luedtke (2015) treat unweighted iid rows, and the chain rule with a known "
-            f"weight is not implemented ({_X11.format(part='k')}).",
-            f"{_FIXED_RULE} takes weights= for a fixed rule.",
-            "X11",
-        )
-    if data.cluster is not None:
-        return _gap(
-            "a learned rule with clusters (id=) is refused. Van der Laan and Luedtke (2015) "
-            "treat iid rows, and a cluster as the unit with whole-cluster folds is not "
-            f"implemented ({_X11.format(part='l')}).",
-            f"{_FIXED_RULE} takes id= for a fixed rule.",
+            "a learned rule with estimated observation weights (weights_estimated=True) is "
+            "refused. The learned-rule value covers known, fixed weights, and the variance "
+            "of a fit that also estimates its weights is not implemented "
+            f"({_X11.format(part='k2')}).",
+            "Declare the weights known (weights_estimated=False) when they are fixed by the "
+            f"design, or use {_FIXED_RULE}, which takes estimated weights for a fixed rule.",
             "X11",
         )
     if data.has_strata:
@@ -600,7 +594,7 @@ def _data_refusal(data: CausalData) -> Refusal | None:
 def learned_rule_scheme_refusal(estimator: Any) -> Refusal | None:
     """Return the refusal of a learned-rule fit whose remedy is a configuration, or ``None``.
 
-    Rows 10 to 14 of the learned-rule refusal table in
+    The setting rows of the learned-rule refusal table in
     ``docs/technical-reference/point-treatment-tmle.md``.  Each one names the configuration
     that fits, :data:`LEARNED_RULE_CONFIGURATION`.
 
@@ -612,8 +606,8 @@ def learned_rule_scheme_refusal(estimator: Any) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The refusal, or ``None``. Rows 10 to 13 are ``IMPLEMENTATION_GAP`` records, and
-        row 14 is an ``INFERENCE_GAP`` record.
+        The refusal, or ``None``. The bootstrap row is an ``INFERENCE_GAP`` record, and
+        the others are ``IMPLEMENTATION_GAP`` records.
     """
     remedy = f"To estimate the learned-rule value, fit it with {LEARNED_RULE_CONFIGURATION}."
     if not estimator.cross_fit or estimator.n_folds < 2:
@@ -631,14 +625,6 @@ def learned_rule_scheme_refusal(estimator: Any) -> Refusal | None:
             "The stacked report weights the folds by n_v / n and centres the curve at the "
             "pooled estimate, which is a different construction "
             f"({_X11.format(part='e')}).",
-            remedy,
-            "X11",
-        )
-    if estimator.targeting_scheme != "pooled":
-        return _gap(
-            "the learned-rule value needs one pooled fluctuation (targeting_scheme="
-            "'pooled'). A fluctuation fitted inside each validation fold is published for "
-            f"this target and is not implemented ({_X11.format(part='h')}).",
             remedy,
             "X11",
         )
@@ -680,18 +666,16 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     4       more than two arms                                   X11 (d)
     5       missing outcomes, ``delta=``                         F27
     6       ``intermediate=``                                    X11 (j)
-    7       ``weights=``                                         X11 (k)
-    8       ``id=``                                              X11 (l)
-    9       ``strata=``                                          X11 (m)
-    10      ``cross_fit=False``, or one fold                     X11 (a)
-    11      ``cv_evaluation=False``                              X11 (e)
-    12      ``targeting_scheme="fold"``                          X11 (h)
-    13      ``repeats`` above 1                                  X11 (i)
-    14      ``n_bootstrap`` above 0                              F27
+    7       estimated weights, ``weights_estimated=True``        X11 (k2)
+    8       ``strata=``                                          X11 (m)
+    9       ``cross_fit=False``, or one fold                     X11 (a)
+    10      ``cv_evaluation=False``                              X11 (e)
+    11      ``repeats`` above 1                                  X11 (i)
+    12      ``n_bootstrap`` above 0                              F27
     ======  ===================================================  ===================
 
     ``TMLE`` runs it first in its preflight, before any learner.
-    ``CausalStudy.identify`` runs it with no estimator, so rows 3 to 9 refuse there.
+    ``CausalStudy.identify`` runs it with no estimator, so the data rows refuse there.
 
     Parameters
     ----------
