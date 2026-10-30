@@ -104,12 +104,7 @@ The public `diagnostics.support()` route provides group rows as follows.
 | incremental | intervention-specific incremental report | one row per outcome equation |
 | longitudinal | `LongitudinalDiagnostics` from `support()` | no. A longitudinal fluctuation retains no absolute score weights |
 
-The longitudinal row is a disclosed limitation and not an oversight. A longitudinal result returns
-per-node leverage through `diagnostics.support()`.
-
-The route reaches neither `positivity_report` nor an intervention report. A longitudinal
-fluctuation also retains no `absolute_score_weights`. No fitted artifact therefore exists for a
-generic or intervention load row.
+A longitudinal result returns per-node leverage through `diagnostics.support()` instead.
 
 The intervention-specific reports keep their ratio and support fields. Their `score_load` field
 adds the fitted equation load without replacing those quantities. The report matches columns to
@@ -144,11 +139,9 @@ The table order is the guard order. A caller can be in the first two states at o
 `check_support`, `check_policy_support`, and `check_incremental_support` all default to no artifact
 and no equation names. That caller reads `SCORE_LOAD_MISSING`.
 
-Two of those rows are behavior changes. The empty-mask and oversized-mask conditions were one reason
-before, and they say opposite things: a fit that targeted nothing, and a malformed block. The
-generic group path also had no size refusal at all. A mask taller than the fitted data was described
-rather than omitted, and the row published a `total_ratio` above one. A direct-call table in
-`tests/unit/test_intervention_load_diagnostics.py` reaches each condition, under
+The empty-mask and oversized-mask conditions say opposite things: a fit that targeted nothing, and
+a malformed block. A direct-call table in `tests/unit/test_intervention_load_diagnostics.py`
+reaches each condition, under
 `test_every_refused_score_artifact_names_the_one_condition_it_failed`.
 
 Every generic group row and intervention `score_load` row carries these concentration keys.
@@ -249,6 +242,15 @@ request.
 An incremental fit with missing outcomes reads `deferred` on `mechanism`, because
 `mechanism=True` runs. `TestTheTruncationRowResolvesEachRequest` in
 `tests/unit/test_capability_row_predicates.py` checks each request on five kinds of fit.
+
+A declared known treatment mechanism adds a refusal per grid pair, after the axis rules. A `g(W)`
+pair that moves a declared probability is a pair the fit itself refuses, so an explicit one raises
+`CapabilityError` with the `invalid_declaration` code, and the point-treatment default grid omits
+it. Longitudinal TMLE, whose grid is always explicit, applies the same refusal to the cumulative
+product of declared node factors. `tests/unit/test_known_treatment_mechanism.py` and
+`tests/unit/test_known_node_mechanisms.py` pin both refusals.
+[Known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism) and
+[known node mechanisms](longitudinal-tmle.md#known-node-mechanisms) state each fit's check.
 
 The facade returns a `TruncationCurve`. It holds the frame, which `to_frame()` returns, and it
 forwards attribute access, indexing, `len` and iteration to that frame. `summary()` prints one row
@@ -611,8 +613,10 @@ exact returned state and compares it with the score the solver recorded
 ([`validation/drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/drtmle.py)).
 It reports the two residuals and a clipping bias term separately.
 
-This instrument found a real defect. One clipped row in six hundred left the reported curve
-uncentred at `2e-04` while all three fluctuation rows reported `1e-11`.
+This instrument found a defect: on a draw where the bound clipped 5 rows of 600, the reported
+curve was uncentred at `2.3e-04` while the fluctuation rows reported `1e-11`.
+`TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` keeps a
+draw where the bound binds and checks that the centring identity now holds on it.
 
 ### Intervention support
 
@@ -686,9 +690,7 @@ reads every printed count and row of the combined-report fixtures back against t
 **The summary leads with returned results, and that order is a recorded decision.** A completed
 analysis carries the numbers a reader interprets, so it prints first. A `failed` check therefore
 prints below the result rows, and the header's `Need attention` count and the reading name it.
-[Pull request 198](https://github.com/esbraun/cleverly-tmle/pull/198) records the decision. Two
-independent reviews found that its first draft over-prioritized warnings, and the result-first
-revision resolved their findings.
+[Pull request 198](https://github.com/esbraun/cleverly-tmle/pull/198) records the decision.
 
 `AssessmentReport.to_frame()` remains the complete row ledger, including warning and refusal
 details. The three report surfaces retain the original rows. `next_steps()` retains follow-up
@@ -796,7 +798,7 @@ $$
 
 with $\sigma^2 = E[R (Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer.
 $R$ is the indicator of the rows the representer reads. On complete data $R$ is one on every row.
-[Second mechanisms and strata](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
+[Second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
 fits. The two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
@@ -1939,7 +1941,7 @@ below gives all twelve in contract order.
 | `result_type` | an artifact that is not exactly a point-treatment `TMLEResult` |
 | `missing_estimator` | a result that stores no replay estimator |
 | `repeat_provenance` | a stored draw count, a `config.crossfit.repeats`, and a replay estimator `repeats` that disagree |
-| `binary_estimator` | a binary fit made by an estimator other than `TMLE`, `CTMLE`, or `DRTMLE` |
+| `binary_estimator` | a binary fit made by an estimator whose class does not declare `simulated_confounding_replay = True` (`TMLE`, `CTMLE`, `DRTMLE` and `AdaptiveIPTW` declare it) |
 | `continuous_estimator` | a continuous fit made by anything but exact ordinary `TMLE` |
 | `outcome_family` | an outcome family other than `gaussian` or `binomial` |
 | `weight_kind` | a weight kind other than `probability` |
@@ -2020,11 +2022,13 @@ malformed too. The call reports a malformed name before any parameter or calibra
 `TestTheSimulatedConfoundingRowResolvesEachRequest` in
 `tests/unit/test_capability_row_predicates.py` checks four study fits.
 
-`test_fit_wide_refusals_have_one_order_and_match_assessment` checks the shared order and exact
-capability reasons. `test_real_mar_fit_refuses_before_calibration_draw_or_refit` uses a fitted
-ordinary MAR estimator. `test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_work`
-uses the separate randomized DR-TMLE construction. Both tests fail if refusal reaches calibration,
-the latent draw, or a refit.
+`test_the_fit_wide_rule_table_declares_one_documented_order` in
+`tests/unit/test_simulated_confounding.py` pins the order of the fit-wide table. In the same file,
+`test_real_mar_fit_refuses_a_moved_treatment_before_calibration_draw_or_refit` fits an ordinary
+MAR estimator, finds no fit-wide stop, and checks that a moved treatment without
+`observation_reads=` refuses. `test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_work`
+in `tests/unit/test_drtmle_missing.py` runs the same request on the randomized DR-TMLE
+construction. Both tests fail if refusal reaches calibration, the latent draw, or a refit.
 
 `tests/unit/test_simulated_confounding.py::test_weight_refusals_and_provenance_tampering_precede_draws_and_refits`
 pins the three weight stops before the first draw and refit. It also tampers with stored
@@ -2082,7 +2086,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | two reported risks at one horizon of a `TimeToEvent` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator, kind="rr")` and mark the result exact. Both regimens must be static |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
+| two-arm contrast on a fit whose status withholds its interval, such as a selector-path or generated-design collaborative fit, or a clustered fit under `"no_cluster_variance_plugin"` ([inference status](inference.md#inference-status)) | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | take the path of the same request without the intermediate variable, then invert the per-arm product below. A result that names only the column or only the level reports `unavailable` |
 | a `TimeToEvent` fit without an explicit pair | report `deferred` and name the reported risks |
@@ -2445,7 +2449,7 @@ A bare `tipping_gamma()` on a fit with several tiltable parameters reads `deferr
 
 The omitted-variable bound also answers on a fit with a response mechanism, with a joint strength
 over the treatment and response mechanisms
-([second mechanisms and strata](#omitted-variable-bounds-robustness-value-benchmark-and-contours)). The two analyses
+([second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours), under the omitted-variable bounds). The two analyses
 answer different questions. The tilt moves the recording of the outcome away from missing at
 random. The bound measures an omitted confounder. `TestTheTiltRowsReadTheCallsPredicate` in
 `tests/unit/test_capability_row_predicates.py` checks the tilt rows.
@@ -2460,10 +2464,14 @@ because it returns one float and a float carries no column name.
 
 ### The scope rule
 
-A point-treatment sensitivity formula is not reused on longitudinal data. `LTMLE` reports these
-operations `unavailable` with the reason its own capability row declares, rather than borrowing a
-derivation. Stagewise support, scores, and nuisance loss are supported longitudinally, because each
-has its own derivation.
+A point-treatment sensitivity formula is not reused on longitudinal data. A longitudinal fit runs
+a sensitivity operation only where a longitudinal derivation exists: the
+[E-value](#e-value) of two static-regimen risks of a `TimeToEvent` fit, and the
+[simulated common-cause surface](#simulated-common-cause-stress-surface) under its time-fixed
+latent. The omitted-variable bound, the marginal sensitivity model bounds and the missingness tilt
+report `unavailable` with the reason the fit's capability row declares, and the E-value of any
+other longitudinal fit does the same. Stagewise support, scores, and nuisance loss are supported
+longitudinally, because each has its own derivation.
 
 Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
 no sample estimator for them. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation)
@@ -2747,8 +2755,7 @@ the placebo, subset and negative-control rules on seven configurations.
 | `random_common_cause` | one baseline noise column; with `noise_nodes=True`, also one noise column per node | the paired shift against the original fit |
 | `subset` | units drawn without replacement, with their original fold labels | `SE * sqrt((n/m - 1) * n/(n - 1))` |
 | `bootstrap_stability` | units drawn with replacement; each copy keeps the unit's fold | no reference |
-| `negative_control_outcome` | the control in place of the outcome. The refit keeps the original split and the fit seed | 0 for a blip coefficient and for a regimen contrast. A level refuses the control |
-| `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value |
+| `negative_control_outcome` | the control in place of the outcome, with the original folds and seeds | the no-effect value. A level or a policy mean refuses the control |
 | `future_treatment` | a point-treatment TMLE of a control on the treatment at node `t + 1` | 0 |
 | `dummy_outcome`, `simulated_outcome` | a generated outcome on the held history | the sample-conditional truth |
 | `plasmode` | resampled baselines, and a history drawn from frozen node models | the g-formula value of the frozen law |
@@ -3289,35 +3296,38 @@ draws are few. An equivalence band asks the question that the user needs answere
 interval of the reading lie inside a stated tolerance? The 95% interval of the bias has a width
 of about 0.20 standard deviations at 400 draws, which is why 400 is the calibrated minimum.
 
-The first process catalog covers Gaussian outcomes and additive `ate`, `att`, or `atc` contrasts.
 `refute()` and its `_validate_generated_eligibility` helper in
 [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-check every condition in the table before the operation refits anything. Each row is one
-`CapabilityError` branch, and each message names what is missing.
+check the conditions in the table before the operation refits a point fit. The bands row and the
+budget row are the `generated_rule` and `generated_budget` checks of the request table above,
+which `refute()` runs itself. Each row is a `CapabilityError`, and each message names what is
+missing. A longitudinal fit takes the rules of
+"Generated outcomes on the held history" under [refutation operations](#refutation-operations) instead.
 
 | what the operation refuses | what it requires instead |
 | --- | --- |
 | bands of any other type | the exact registered `EquivalenceBands` declaration |
-| a process declaration of any other type | the exact registered `GaussianIndependentOutcome` or `GaussianAdjustmentOutcome` |
-| a process whose family is not `"gaussian"` | the Gaussian family, which is the one with an implemented effect derivation |
+| a process declaration of an unregistered type, or a `dummy_outcome` process with an effect or a covariate term | a registered process declaration, independent of `W` and `A` for `dummy_outcome` |
+| a plasmode on a weighted fit, or on a fit with two of the three observation processes | an unweighted fit with at most one observation process |
 | a fit that carries no identification metadata | identification metadata on the result |
-| a functional that is not `BackdoorMeanContrast` | a backdoor-identified additive mean contrast |
+| a functional that is not `BackdoorMeanContrast` | a backdoor-identified effect |
+| a longitudinal functional on a point result | a point-treatment functional |
 | a provider that is not `ExplicitAdjustmentProvider` | registered backdoor provider provenance |
-| an original outcome family that is not `"gaussian"` | an original family equal to the process family, so a binomial fit is refused |
-| an estimator configured with a family other than `"auto"` or `"gaussian"` | a configured family that accepts the declared process |
-| a saved outcome learner with no regression-capable route | a regression-capable outcome learner |
-| a longitudinal functional | a point-treatment functional |
-| a treatment that is not binary | code one against code zero |
-| an intermediate node or a controlled direct effect | no intermediate node |
-| a fit with missing outcomes | complete outcomes |
-| a modified-policy, risk-ratio-tilt or learned-rule axis | the `arm`, `regime`, `ipsi` or `msm` axis |
+| a process whose family differs from the fit's outcome family | a Gaussian or bounded process for a continuous outcome, a Bernoulli process for a binary one |
+| an estimator configured with a family other than `"auto"` or the process family | a configured family that accepts the declared process |
+| a Gaussian process on a fit that declares `q_bounds`, or a `BoundedAdjustmentOutcome` on a fit without them | a `BoundedAdjustmentOutcome` inside the fit's `q_bounds`, or a Gaussian process on a fit with `q_bounds=None` |
+| a Gaussian process with an outcome learner that only classifies | a regression-capable outcome learner |
+| on a continuous treatment: a target off the `policy` axis, the plasmode, or `arm_effects` | a policy target in the held design, with the scalar `effect` |
+| a nonzero `history_effect`, an `intermediate_effect` on a fit with no intermediate, or a `cluster_sd` outside the plasmode of a clustered fit | each at 0 where the fit cannot read it |
+| an axis outside `arm`, `regime`, `ipsi`, `policy` and `msm`, such as a risk-ratio tilt or a learned rule | one of those five axes |
 | an `ipsi` target in the held design | the plasmode |
-| an MSM with a link other than identity, log or logit | one of those three links |
+| a policy target on a fit with a missing treatment, in the held design | the plasmode, or a fit with recorded treatments |
 | a parameter key that is not a structured `ParameterKey` | a structured key for the selected estimand |
-| a ratio estimand, or any other non-additive contrast | `ate`, `att`, or `atc` |
+| an estimand with no generated truth | an arm contrast, arm level, ratio, natural-course target, regime, incremental, policy or MSM target |
+| `att` or `atc` on a fit with a missing treatment | a fit with recorded treatments |
 | disagreement between the functional target, the identified estimand, and the parameter key | one estimand named by all three |
 | a missing registered identification artifact | the artifact `TARGETS` records for that target |
-| an arm contrast that does not resolve to two distinct arms | a resolvable contrast of two distinct arms |
+| an intermediate on the data and none on the functional | a functional that names the intermediate |
 | a draw budget below 10 | `n_replicates` of at least 10 |
 
 ```python
@@ -3400,7 +3410,7 @@ follows.
 | `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
 
 A clustered status depends on the draw, so the replicates of one study can take different
-statuses. A cluster count that straddles 4 gives that mix. Every record measures the plug-in
+statuses. A cluster count that straddles 10 gives that mix. Every record measures the plug-in
 numbers, and on an inferential fit those numbers equal `ci` and `std_error`. So
 `summarize_replications` summarizes a mix under the status that `precedent_status` gives. The
 table gives what the summary adds.
@@ -3411,7 +3421,7 @@ table gives what the summary adds.
 | `to_dict()` and `to_frame()` | a `mixed_statuses` column, for example `few_cluster_plugin in 4, influence_curve in 4` |
 | `summary()` | the line above the table says that the estimator "supplies no interval on some replicates". One more line per mixed estimand names its statuses and counts |
 
-`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 4. It holds
+`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 10. It holds
 the mixed witness, a mutation that labels the mix `influence_curve`, and a uniform control.
 
 The generators live in
@@ -3432,11 +3442,12 @@ reports the target-relevant change with multiplicity-adjusted p-values
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
 
-An estimator whose status supplies no inference is refused with `CapabilityError` before the
-first fit. That includes a collaborative estimator at any `strategy`, and a `DRTMLE` with a
-`guard` and varying weights declared estimated. It also includes a clustered `TMLE` or `DRTMLE`
-under `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
-Benjamini and Hochberg, and those fits report no p-value. The check prepares each candidate's data
+An estimator whose status withholds its interval is refused with `CapabilityError` before the
+first fit. That includes a selector-path or generated-design collaborative estimator, and a
+clustered `TMLE` or `DRTMLE` under `"no_cluster_variance_plugin"`. A status that shows its
+interval, such as `"few_cluster_plugin"` or `"estimated_weight_plugin"`, runs. The procedure
+adjusts one p-value per candidate with Benjamini and Hochberg, and a withheld status reports no
+p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 
 ## How the library certifies itself

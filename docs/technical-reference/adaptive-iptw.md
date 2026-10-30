@@ -152,9 +152,11 @@ restricted to that finite-dimensional path. This page does not prove it, so it s
 open. A key with an estimated mechanism reports a point only. Point consistency needs the
 mechanism and $Q_r$ to converge.
 
-The leave-two-out designs cost $K(K - 1)$ further fits of each estimated mechanism factor, one for
-each ordered pair of folds. The default `n_folds=10` gives 90. The construction needs at least
-three folds, so a cross-fitted fit with `n_folds=2` is refused (R21).
+The leave-two-out designs cost $K^2$ further fits of each estimated mechanism factor.
+`fit_fold_mechanisms` (`src/cleverly/estimators/_nuisance.py`) runs one full $K$-fold cross-fit
+for each fold $k$, with fold $k$ removed from every training set. That gives $K(K - 1)$
+leave-two-out models, plus $K$ refits of production models that the construction does not read.
+The default `n_folds=10` gives 100. The construction needs at least three folds, so a cross-fitted fit with `n_folds=2` is refused (R21).
 
 A drawn split in which two
 folds hold every trainable row of a class that an estimated factor needs is refused with a
@@ -184,7 +186,7 @@ the untargeted $g_n$, so its error is first order in $\lVert g_n - g_0 \rVert$.
 the default regression Super Learner. A selecting learner is outside conditions (E) and (S) under
 the default `cross_fit=True`. Use a fixed-basis learner of the one-dimensional covariate $g$. A
 cross-fitted fit refits $Q_r$ once per fold, round and key. With an estimated mechanism, it also
-fits the $K(K - 1)$ leave-two-out mechanism models of S5 once per fit.
+fits the $K^2$ further mechanism models of S5 once per fit.
 
 The support key reads the family of each learner. A selecting reduced regression, or an adaptive
 mechanism learner under an estimated mechanism, matches no support row. Such a fit carries the
