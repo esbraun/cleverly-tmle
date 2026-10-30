@@ -50,6 +50,7 @@ development environment and reproducible version-pinned installs.
 Declare the design and the estimand separately, inspect identification, estimate, then assess:
 
 ```python
+import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate
@@ -67,7 +68,7 @@ effect = study.identify(ATE(reference=0))
 print(effect.summary())
 result = effect.estimate(
     outcome_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(C=np.inf, max_iter=1000),
     cross_fit=False,
     random_state=7,
 )
@@ -135,6 +136,7 @@ is the authoritative inventory, and it names the evidence for each row.
 | interventions | static, dynamic, and stochastic regimes; the value of a learned treatment rule; continuous modified treatment policies; incremental propensity-score interventions; and point and longitudinal MSM projections |
 | longitudinal outcomes | regimen means and contrasts for end-of-study, repeated, survival, and competing-risk outcomes |
 | longitudinal baselines | sequential g-computation, sequential inverse probability weighting, the parametric g-formula, and a structural nested mean model |
+| known mechanisms and options | known treatment probabilities, modified treatment policies on a vector treatment, point-treatment survival, and targeting options such as stopping rules and per-arm outcome regressions |
 | design and inference | observation weights, strata, cluster-robust inference, cross-fitting, repeated cross-fitting, CV-TMLE, simultaneous intervals, and bootstrap inference |
 | estimator variants | ordinary TMLE, collaborative TMLE, DR-TMLE, and adaptive-propensity IPTW for a point treatment; longitudinal TMLE and the sequentially doubly robust (SDR) estimator over time; each over its documented compatible estimands |
 | post-fit work | positivity, nuisance, and score diagnostics; omitted-variable, E-value, marginal sensitivity model, simulated-confounder, and missingness sensitivity analyses; refutation; variable importance; and trusted whole-result persistence |
@@ -160,7 +162,8 @@ from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 
 method = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(C=np.inf, max_iter=1000),
     ),
     cross_fitting=CrossFitting(enabled=False, learner_folds=3),
     inference=Inference(alpha=0.05, simultaneous=False),
@@ -169,11 +172,12 @@ method = TMLEMethod(
 result = effect.estimate(method=method)
 ```
 
-This fit sets `CrossFitting(enabled=False)` for the reason the quickstart gives. To cross-fit this fit
-instead, declare the outcome support with `Targeting(q_bounds=(lower, upper))`, or use a law whose
+This fit sets `CrossFitting(enabled=False)` for the reason the quickstart gives. To cross-fit instead,
+declare the outcome support with `Targeting(q_bounds=(lower, upper))`, or use a law whose
 outcome is bounded.
 
-`CollaborativeTMLEMethod` and `DRTMLEMethod` select estimator variants without changing the
+`CollaborativeTMLEMethod`, `DRTMLEMethod`, `AdaptiveIPTWMethod`, and the longitudinal presets such
+as `SDRMethod` select estimator variants without changing the
 identified causal question. `effect.available_methods()` reports support and refusal reasons.
 
 ## Development

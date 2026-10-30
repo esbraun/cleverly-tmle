@@ -136,8 +136,8 @@ Common keyword shortcuts normalize into the same objects. Unknown or inapplicabl
 The example above fits a binary outcome. A cross-fitted fit of a *continuous* outcome also needs
 `Targeting(q_bounds=(lower, upper))`, holding the outcome's known support. Without it the fit
 would read its scale off every observed outcome, held-out rows included, and `cleverly` refuses it
-before any learner runs. The patient-reported transition score of the protocol has a fixed scale,
-so declare its minimum and maximum. An unbounded outcome has no such range, so fit it in sample with
+before any learner runs. If the transition score has a fixed scale, declare its minimum and
+maximum. An unbounded outcome has no such range, so fit it in sample with
 `CrossFitting(enabled=False)` instead.
 [Fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
 gives the messages.
@@ -145,10 +145,10 @@ gives the messages.
 ## 6. Assess estimation quality
 
 `result.assess()` runs the default checks in one call: overlap, the nuisance models, the
-estimating equations, and the sensitivity analyses that refit nothing. Its summary has a header with the count of
+estimating equations, and the sensitivity analyses that need no extra argument and refit nothing. Its summary has a header with the count of
 findings that need attention, then tables. Only the Checks table passes or fails. The Results table
 reports findings that have no pass or fail rule. The Not run table names each check the default
-skips, and a note gives the call that runs it. `include_refits=True` adds the checks that refit the
+skips and why, and for a deferred check the first note gives the call that runs it. `include_refits=True` adds the checks that refit the
 models, such as the refutation tests, and `include_retargets=True` adds the truncation curve.
 
 ```python
@@ -171,10 +171,11 @@ print(result.sensitivity.run_all().summary())
 Report the parameter definition, population, identification assumptions, learner and cross-fitting
 configuration, estimate and interval, support diagnostics, sensitivity analysis, and package
 version or commit. This page's fit is weighted and clustered by household, every fold keeps a
-household whole, and the households differ in size. From 3 to 39 households the interval uses a
+household whole, and the households differ in size. The rule below counts households with
+positive weight, and this page's 40 keep the normal reference. From 3 to 39 households the interval uses a
 Student t reference. From 3 to 9 households the fit still reports the interval, labelled
 experimental, and `result.inference_status` is `"few_cluster_plugin"`. Below 3 households it
-withholds the interval: report the point estimate and the reason of the status in its place
+withholds the interval: report the point estimate and the reason the status gives in its place
 ([few clusters](technical-reference/inference.md#few-clusters)).
 
 Save structured results when an audit trail matters:

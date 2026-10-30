@@ -17,7 +17,7 @@ sklearn-compatible objects directly:
 python -m pip install "cleverly[all]"
 ```
 
-Pin the complete version for a reproducible analysis:
+Pin the complete version you analysed with, for example 0.1.7:
 
 ```bash
 python -m pip install "cleverly[all]==0.1.7"

@@ -160,7 +160,7 @@ print(f"population ATE: {truth['ate']:.3f}")
 ```
 
 The header names the two models and shows the limits on the predicted offer probabilities,
-[0.01471, 0.9853]. The package keeps $g$ away from 0 and 1. The assessment below reports that no
+[0.01471, 0.9853], which the assessment rounds to [0.015, 0.985]. The package keeps $g$ away from 0 and 1. The assessment below reports that no
 patient was capped at a limit. The package also maps the score to $[0, 1]$ for the
 logistic update, and maps the estimate back. The TMLE estimate is 1.513, with a 95% interval from 1.422 to 1.603. The
 interval contains the true value of 1.5.
@@ -178,7 +178,7 @@ interval comes from repeated sampling.
 | the [canonical point-treatment TMLE study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md) | the ATE interval covers the true ATE in 94.81% of 1,600 replications at n = 1,000, with GLM nuisances and no cross-fitting | coverage on this law. The study law has a bounded outcome and effect modification |
 | the omitted-variable sensitivity analysis | the confounder strength that would move the estimate to zero | whether such a confounder exists |
 
-`assess()` runs the overlap, equations-solved, and sensitivity checks on the fitted result. It
+`assess()` runs the overlap, model, equations-solved, and sensitivity checks on the fitted result. It
 refits no nuisance model unless you opt in.
 
 ```python
@@ -188,7 +188,7 @@ print(assessment.summary())
 
 Only the Checks table passes or fails. The Results rows report findings that have no pass or fail
 rule, so a row there is not a pass. The Not run table names each check the default call skips and
-why; the first note gives the call that runs it. `assessment.to_frame()` lists every row with its
+why; for a deferred check, the first note gives the call that runs it. `assessment.to_frame()` lists every row with its
 status, and the [status contract](../technical-reference/validation-methods.md#the-status-contract) defines
 each one.
 
