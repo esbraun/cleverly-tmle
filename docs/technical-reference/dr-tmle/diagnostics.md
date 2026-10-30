@@ -9,6 +9,7 @@ In cost order. The first two are free.
 | `res.validate()` | the default assessment; reports `warning` when equation (10) had numerically difficult inner solves even if the returned score equations pass, with the affected round count and fraction |
 | `res.diagnostics.corrections()` | the low-level doubly-robust rows: per arm, per equation. The method requires a guarded `DRTMLE` fit. Other fits raise `CapabilityError`. |
 | `res.diagnostics.nuisance_models()` | the primary fits' held-out risk and diagnostics |
+| `res.diagnostics.support()` | the overlap report. Its group score-load row `mean` gives the Kish concentration of `abs(w_i h_ij)` for the most concentrated outcome score equation of the last fluctuation. It is descriptive and ungraded. `tests/unit/test_drtmle_score_loads.py` pins one load column per equation for each `guard`, for a fitted and a declared mechanism, and for missing outcomes |
 | `res.diagnostics.refute()` | negative controls; costs refits |
 
 `correction_check()` recomputes each arm's `P_n[w D*_g]` and `P_n[w D*_Q]` **from the exact
@@ -44,16 +45,13 @@ about*.
 
 ## Solved scores do not establish nuisance consistency
 
-This is the one thing to take away from the page.
-
 The score equations being solved is a statement about **numerical targeting**. It says nothing
-about whether the method-specific functions of
-[section 4](nuisance-conditions.md) are adequately estimated. The two are independent,
+about whether the method-specific nuisance functions are estimated well enough to meet
+[what the nuisances must satisfy](nuisance-conditions.md). The two are independent,
 and the independence is easy to get backwards. A fit with badly wrong reductions returns a `psi`,
 an `se` and a confidence interval formatted exactly like a good one, with every score green.
 
-**The evidence is `tests/unit/test_oracle_reductions.py`**, and it is worth stating as a result
-rather than a caveat. On a law where the consistent nuisance separates every cell, with
+**The evidence is `tests/unit/test_oracle_reductions.py`**. On a law where the consistent nuisance separates every cell, with
 **exact** reduced regressions handed to a real alternation, the estimator recovers the truth
 *despite misspecified primary nuisances*. On a continuous law the exact reduction conditions on
 less than `W`, and a conditioning term remains ([theorem](theorem.md#the-conditioning-terms-are-linear-in-one-error)). With **wrong** reductions, the estimate moves, and **every score
@@ -78,7 +76,7 @@ Three consequences for practice:
    interval is conservative. With one nuisance wrong and a data-adaptive learner for the other, the
    interval is not established.
 
-The same distinction, once more, in the theorem's own terms: Theorem 1 licenses an interval
+In the theorem's terms, Theorem 1 licenses an interval
 *conditional on* the three empirical scores being `o_p(n^(−1/2))` **and** the two appendix
 remainder terms being `o_p(n^(−1/2))`. A fit can report on the first. Nothing reports on the
 second.
