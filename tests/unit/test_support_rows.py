@@ -345,6 +345,7 @@ class TestLongitudinalControls:
             ("hazard_pooling", "pooled"),
             ("ratio_trim", True),
             ("markov_order", 1),
+            ("tuned_cap", True),
         ],
     )
     def test_an_x33_option_leaves_a_default_row(self, name: str, value: Any) -> None:
@@ -355,6 +356,22 @@ class TestLongitudinalControls:
             assert classify_key(built.key, built.learners).row.id == row  # type: ignore[union-attr]
             options = tuple((key, value if key == name else old) for key, old in built.key.options)
             assert classify_key(replace(built.key, options=options), built.learners).row is None
+
+    @pytest.mark.parametrize(
+        "row",
+        ["G41.ltmle", "G41.sdr", "G41.ltmle_cross_fitted", "G41.ltmle_cross_fitted_classifier"],
+    )
+    def test_only_a_tuned_cap_fit_reads_a_tuned_cap_row(self, row: str) -> None:
+        # The fits of mtp-tuning tune their cap on the data. The same design with a declared
+        # cap is a different curve, which no G41 cell measured.
+        tuned = self.observed(row)
+        assert ("tuned_cap", True) in tuned.key.options
+        assert classify_key(tuned.key, tuned.learners).row.id == row  # type: ignore[union-attr]
+        options = tuple(
+            (key, False if key == "tuned_cap" else old) for key, old in tuned.key.options
+        )
+        declared = classify_key(replace(tuned.key, options=options), tuned.learners)
+        assert declared.row is None or not declared.row.id.startswith("G41")
 
     def test_a_hazard_fit_with_no_row_is_experimental(self) -> None:
         # A hazard fit with estimated weights has no registered row, and the iterated-mean row

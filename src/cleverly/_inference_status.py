@@ -151,13 +151,9 @@ class StatusRecord:
     reason : str
         The sentences that say what the fit reports, what result is missing, and which
         roadmap item reopens it. They open with a capital letter. Every refusal of a withheld
-        status ends with them, and ``summary()`` prints them under the table.
+        status ends with them. ``summary()`` prints :attr:`plain_reason` instead.
     assessment_note : str
         The clause the nuisance report and the assessment's nuisance-model item add.
-    summary_label : str
-        The header of the spread column in ``TMLEResult.summary()`` and
-        ``LongitudinalResult.summary()``, and the label in ``ParameterEstimate.__repr__``,
-        for a withheld status.
     bootstrap_note : str
         The parenthesis ``summary()`` prints beside a bootstrap percentile range under a
         withheld status. A shown status prints the note of ``"few_cluster_plugin"`` when the fit
@@ -195,7 +191,6 @@ class StatusRecord:
 
     reason: str
     assessment_note: str
-    summary_label: str
     bootstrap_note: str
     diagnostic_noun: str
     reopened_by: str
@@ -210,29 +205,6 @@ class StatusRecord:
             raise ValueError("a shown status states a shown_reason, and a withheld one states none")
         if not self.plain_reason:
             raise ValueError("a status states its plain_reason, the sentences a summary prints")
-
-    def summary_note(self) -> str:
-        """The paragraph a result summary prints under its table of diagnostics.
-
-        The refusal's own reason rather than a paraphrase of it, so the summary and every
-        raise say one thing. Only the pointer to the table's spread column is the
-        summary's own. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
-        print it for a withheld status. A shown status prints :attr:`shown_reason` as its
-        label note instead.
-
-        Returns
-        -------
-        str
-            :attr:`reason`, then :attr:`alternative` when one exists, then a sentence that
-            names :attr:`summary_label` as that diagnostic.
-        """
-        alternative = "" if self.alternative == NO_ALTERNATIVE else f" {self.alternative}"
-        return (
-            self.reason
-            + alternative
-            + f' The "{self.summary_label}" column above is that diagnostic, and it '
-            "is not a standard error for this estimate."
-        )
 
 
 #: One record per labelled status. The insertion order is the precedence inside a tier: when a
@@ -266,7 +238,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "interval or p-value is available for this path, and F18 in the roadmap is "
                 "the condition that reopens it"
             ),
-            summary_label="working-mechanism se",
             bootstrap_note=(
                 "a diagnostic; the full-refit bootstrap reruns the selection, and no result "
                 "validates its coverage for this path"
@@ -305,7 +276,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "or p-value is available for this path, and F19 in the roadmap is the "
                 "condition that reopens it"
             ),
-            summary_label="generated-design se",
             bootstrap_note=(
                 "a diagnostic; the full-refit bootstrap reruns the generated design, and no "
                 "result validates its coverage for this path"
@@ -349,7 +319,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "and the condition of WP302 Theorem 1 cannot be checked; X36 in the roadmap is "
                 "the condition that reopens it"
             ),
-            summary_label="estimated-mechanism se",
             bootstrap_note=(
                 "a diagnostic; AdaptiveIPTW refuses n_bootstrap=, so no bootstrap range is printed"
             ),
@@ -388,7 +357,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "result gives the weight-estimation term, and X50 in the roadmap is the "
                 "condition that reopens it for DRTMLE"
             ),
-            summary_label="fixed-weight se",
             bootstrap_note=("the bootstrap resamples rows and does not estimate the weights again"),
             diagnostic_noun="fixed-weight plug-in interval",
             reopened_by="X50",
@@ -426,7 +394,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "p-value is available for a fit that trims its ratios, and F30 in the roadmap "
                 "is the condition that reopens it"
             ),
-            summary_label="trimmed-ratio se",
             bootstrap_note=(
                 "a diagnostic; the bootstrap repeats the trim on each resample, and no result "
                 "validates its coverage for a trimmed fit"
@@ -468,7 +435,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "p-value is available for a g-computation or IPW fit with a data-adaptive "
                 "learner, and F35 in the roadmap is the condition that reopens it"
             ),
-            summary_label="baseline diagnostic se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap of a g-computation or IPW "
                 "fit with a data-adaptive learner"
@@ -499,7 +465,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters, and F28 in the roadmap is the "
                 "condition that reopens it"
             ),
-            summary_label="no-df se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap of a clustered fit with fewer "
                 f"than {MINIMUM_T_REFERENCE_CLUSTERS} clusters"
@@ -537,7 +502,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), and X54 in "
                 "the roadmap is the condition that supports it"
             ),
-            summary_label="normal-reference se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of a clustered fit "
                 "with few clusters"
@@ -584,7 +548,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "p-value is available for a parameter whose recursion read a constant node "
                 "regression, and X54 in the roadmap is the condition that reopens it"
             ),
-            summary_label="constant-node se",
             bootstrap_note=(
                 "a diagnostic; a resample can hold an event at the node that the sample "
                 "lacks, and no result validates the bootstrap coverage at a boundary node"
@@ -616,7 +579,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "interval or p-value is available for an estimate whose arm stack failed on "
                 "this sample, and X58 in the roadmap describes the stack"
             ),
-            summary_label="stack-failure se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of the per-arm "
                 "outcome-adaptive fit"

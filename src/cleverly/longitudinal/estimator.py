@@ -4841,6 +4841,7 @@ class _SequentialEstimator:
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans),
                 conditions=stopping_conditions(getattr(self, "stopping", "relative")),
+                tuned_cap=tuned_folds is not None,
             )
             if self._record_support
             else None
