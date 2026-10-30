@@ -7,9 +7,13 @@ a fixed ``R``, the estimate is the mean of the split estimates, and its curve is
 ``n^-2 sum_i phibar_i^2``.  The median of the split estimates estimates no defined parameter.
 
 * W-i1 (identity): the reported point is the mean of ``R`` single-split fits at the same split
-  seeds, bit for bit, and the variance is rebuilt from their curves.
+  seeds, bit for bit, and the variance is rebuilt from their curves.  It runs unweighted, with
+  known weights, with fold targeting, and at unequal folds, where ``n / (V n_v)`` is not 1.
+  A median in place of the mean fails it: the point is then a split estimate, not their mean.
 * W-i2 (nonzero): on the witness draw the mean and the median of the four split estimates
-  differ by more than :data:`MEAN_MEDIAN_GAP`, so a median mutation shows at unit level.
+  differ by more than :data:`MEAN_MEDIAN_GAP`, so the point check above can see a median.
+* The joint operations: ``covariance()``, ``contrast()`` and ``ratio()`` read the mean curve,
+  as they read the curve of one split, and no printed text calls the fit a median.
 * The clusters row: ``repeats`` above 1 with ``id=`` refuses before any learner and cites
   X11 (i2). Its remedy, ``repeats=1``, fits as written.
 * The surfaces that read one rule per row refuse a fit of several splits, and each remedy,
@@ -27,9 +31,8 @@ import pytest
 
 from cleverly import CausalStudy, CrossFitting, LearnedRuleValue, PointTreatment, TMLEMethod
 from cleverly.exceptions import CapabilityError
-from cleverly.inference.influence import median_estimates
 from cleverly.interventions import LearnedRuleRecord
-from cleverly.interventions.learned import freeze_learned_rule
+from cleverly.interventions.learned import freeze_learned_rule, mean_over_splits
 from cleverly.methods import ModelSpec
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.validation.refute import refute, refute_refusal
@@ -48,15 +51,47 @@ MEAN_MEDIAN_GAP = 0.002
 HOLDING_TESTS = ("random_common_cause", "subset", "bootstrap_stability")
 
 
+#: The split count of the identity cases other than the witness fit.
+R_CASES = 3
+
+#: The identity cases: the frame, the ``fit`` keywords and the estimator settings of each.
+CASES: dict[str, tuple[int, dict[str, Any], dict[str, Any]]] = {
+    "rows": (400, {}, {}),
+    "known weights": (400, {"weights": "w"}, {}),
+    "fold targeting": (400, {}, {"targeting_scheme": "fold"}),
+    "unequal folds": (403, {}, {}),
+}
+
+
+def _fit_case(case: str, **settings: Any) -> Any:
+    n, keywords, overrides = CASES[case]
+    # Known weights 1 and 2.5, so the weighted and the unweighted curves differ.
+    frame = support.law_frame(n, 0).assign(w=lambda f: 1.0 + 1.5 * (f["W1"] > 0))
+    estimator = support.learned_tmle(**{**overrides, **settings})
+    return estimator.fit(
+        frame, outcome="Y", treatment="A", covariates=support.COVARIATES, **keywords
+    ).single()
+
+
 @cache
+def _repeated_case(case: str) -> Any:
+    return _fit_case(case, repeats=R if case == "rows" else R_CASES)
+
+
+@cache
+def _singles_case(case: str) -> tuple[Any, ...]:
+    """One single-split fit at each split seed of :func:`_repeated_case`."""
+    return tuple(
+        _fit_case(case, random_state=repeat.seed) for repeat in _repeated_case(case).repeats
+    )
+
+
 def _repeated() -> Any:
-    return support.fit(repeats=R)
+    return _repeated_case("rows")
 
 
-@cache
 def _singles() -> tuple[Any, ...]:
-    """One single-split fit at each split seed of :func:`_repeated`."""
-    return tuple(support.fit(random_state=repeat.seed) for repeat in _repeated().repeats)
+    return _singles_case("rows")
 
 
 def _with_repeats_one(message: str) -> dict[str, Any]:
@@ -68,35 +103,66 @@ def _with_repeats_one(message: str) -> dict[str, Any]:
 class TestTheMeanOverSplits:
     """W-i1 and W-i2."""
 
-    def test_the_point_is_the_mean_of_single_split_fits_bit_for_bit(self) -> None:
-        reported = _repeated().estimates[support.NAME]
-        singles = [fit.estimates[support.NAME] for fit in _singles()]
+    @pytest.mark.parametrize("case", CASES)
+    def test_the_point_is_the_mean_of_single_split_fits_bit_for_bit(self, case: str) -> None:
+        repeated = _repeated_case(case)
+        reported = repeated.estimates[support.NAME]
+        singles = [fit.estimates[support.NAME] for fit in _singles_case(case)]
         assert reported.psi == float(np.mean([single.psi for single in singles]))
-        assert [split.seed for split in _repeated().extra["learned_rule"].splits] == [
-            repeat.seed for repeat in _repeated().repeats
+        assert [split.seed for split in repeated.extra["learned_rule"].splits] == [
+            repeat.seed for repeat in repeated.repeats
         ]
+        # Nonzero: the split estimates differ, so the mean is not any one of them.
+        assert len({single.psi for single in singles}) == len(singles)
 
-    def test_the_variance_is_the_second_moment_of_the_mean_curve(self) -> None:
-        reported = _repeated().estimates[support.NAME]
-        n = _repeated().data.n
+    @pytest.mark.parametrize("case", CASES)
+    def test_the_variance_is_the_second_moment_of_the_mean_curve(self, case: str) -> None:
+        repeated = _repeated_case(case)
+        reported = repeated.estimates[support.NAME]
+        n = repeated.data.n
         phibar = np.mean(
-            [fit.estimates[support.NAME].influence_curve for fit in _singles()], axis=0
+            [fit.estimates[support.NAME].influence_curve for fit in _singles_case(case)], axis=0
         )
         np.testing.assert_array_equal(reported.influence_curve, phibar)
         assert reported.variance == float(np.sum(np.square(phibar)) / n**2)
         # Each single curve is phi_{r,i} = (n / (V n_v)) D_{r,i}: its second moment is the
         # split's own cross-validated variance.
-        for fit in _singles():
+        for fit in _singles_case(case):
             curve = fit.estimates[support.NAME].influence_curve
             assert np.sum(curve**2) / n**2 == pytest.approx(
                 fit.estimates[support.NAME].variance, rel=1e-12
             )
 
+    def test_the_unequal_case_has_unequal_folds(self) -> None:
+        """Nonzero: ``n / (V n_v)`` differs from 1 there, so the stored curve is not ``D``."""
+        record = _repeated_case("unequal folds").extra["learned_rule"]
+        assert all(len(set(split.fold_sizes)) > 1 for split in record.splits)
+
+    def test_the_weighted_case_is_weighted(self) -> None:
+        """Nonzero: the known weights move the estimate, so the weighted path runs."""
+        weighted = _repeated_case("known weights").estimates[support.NAME].psi
+        assert abs(weighted - _repeated_case("rows").estimates[support.NAME].psi) > 1e-3
+        assert _repeated_case("known weights").data.is_weighted
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_a_fit_of_several_splits_is_experimental(self, case: str) -> None:
+        """No registered study covers a fit of several splits, so none is supported."""
+        reported = _repeated_case(case).estimates[support.NAME].support
+        assert reported.label == "experimental" and reported.row is None
+        if case != "known weights":
+            assert "Nearest row: T24" in reported.reason
+            assert "differing on splitting" in reported.reason
+
     def test_the_variance_is_at_most_the_mean_split_variance(self) -> None:
-        """Jensen's inequality, a statement about the two estimates on every draw."""
+        """Jensen's inequality gives the first bound on every draw.
+
+        The second assertion, below every split variance, holds on this draw only. Jensen's
+        inequality does not give it.
+        """
         reported = _repeated().estimates[support.NAME]
         split_variances = [fit.estimates[support.NAME].variance for fit in _singles()]
         assert reported.variance <= float(np.mean(split_variances))
+        # A property of the witness draw, not of the estimator.
         assert reported.variance < min(split_variances)
 
     def test_the_fold_report_takes_the_mean_too(self) -> None:
@@ -109,19 +175,99 @@ class TestTheMeanOverSplits:
         assert detail.pooled[support.NAME].variance == float(np.var(curve, ddof=1) / curve.size)
 
     def test_the_mean_and_the_median_differ_on_the_witness_draw(self) -> None:
-        """W-i2: the median of the split estimates is a different number."""
+        """W-i2: the median of the split estimates is a different number.
+
+        This makes the bit-for-bit point check able to fail under a median: a median in
+        place of the mean in ``TMLE._combine_repeats`` moves the point by more than
+        :data:`MEAN_MEDIAN_GAP` on this draw.
+        """
         splits = [fit.estimates[support.NAME].psi for fit in _singles()]
         reported = _repeated().estimates[support.NAME].psi
         assert abs(reported - float(np.median(splits))) > MEAN_MEDIAN_GAP
-        # Mutation: the median rule over the same split reports leaves the mean.
-        median = median_estimates([fit.estimates for fit in _singles()])[support.NAME].psi
-        assert abs(median - reported) > MEAN_MEDIAN_GAP
+
+    def test_a_split_without_the_value_is_a_package_defect(self) -> None:
+        """The target has no undefined case, so the guard names a defect, not the data."""
+        estimate = _repeated().estimates[support.NAME]
+        with pytest.raises(RuntimeError, match="defect in cleverly, not in the data"):
+            mean_over_splits(
+                [{support.NAME: estimate}, {}], variance=lambda curve: float(np.var(curve))
+            )
 
     def test_one_split_is_bit_for_bit_the_ordinary_fit(self) -> None:
         once = support.fit(repeats=1)
         ordinary = support.fit()
         assert once.estimates[support.NAME].psi == ordinary.estimates[support.NAME].psi
         assert once.extra["learned_rule"].n_splits == 1
+
+
+def _phibar() -> np.ndarray:
+    """The mean curve, rebuilt from the single-split fits."""
+    return np.mean([fit.estimates[support.NAME].influence_curve for fit in _singles()], axis=0)
+
+
+class TestTheJointOperationsReadTheMeanCurve:
+    """``covariance()``, ``contrast()`` and ``ratio()`` run on a fit of several splits.
+
+    The stored curve is the mean curve, which also gives the reported variance, and the mean
+    is linear, so each operation reads it as it reads the curve of one split.
+    """
+
+    def test_the_covariance_is_the_centred_variance_of_the_mean_curve(self) -> None:
+        repeated = _repeated()
+        n = repeated.data.n
+        phibar = _phibar()
+        (covariance,) = repeated.covariance([support.NAME]).ravel()
+        assert covariance == pytest.approx(float(np.var(phibar, ddof=1) / n), rel=1e-12)
+        # The value with itself: the reported variance n^-2 sum phibar^2, centred.
+        reported = repeated.estimates[support.NAME].variance
+        assert covariance == pytest.approx(
+            (n * reported - float(np.mean(phibar)) ** 2) / (n - 1), rel=1e-12
+        )
+        # The same rule as one split, where the operation already ran.
+        for fit in _singles():
+            curve = fit.estimates[support.NAME].influence_curve
+            (single,) = fit.covariance([support.NAME]).ravel()
+            assert single == pytest.approx(float(np.var(curve, ddof=1) / n), rel=1e-12)
+            # Mutation control: one split's curve in place of the mean gives another number.
+            assert abs(single - covariance) > 1e-3 * covariance
+
+    def test_a_contrast_is_the_delta_method_on_the_mean_curve(self) -> None:
+        repeated = _repeated()
+        n = repeated.data.n
+        psi = repeated.estimates[support.NAME].psi
+        squared = repeated.contrast(
+            lambda p: p[0] ** 2, [support.NAME], gradient=lambda p: np.array([2.0 * p[0]])
+        )
+        assert squared.psi == pytest.approx(psi**2, rel=1e-15)
+        np.testing.assert_allclose(squared.influence_curve, 2.0 * psi * _phibar(), rtol=1e-13)
+        assert squared.variance == pytest.approx(
+            float(np.var(2.0 * psi * _phibar(), ddof=1) / n), rel=1e-12
+        )
+        assert squared.supplies_inference
+
+    def test_the_ratio_runs(self) -> None:
+        """The value is the fit's only level, so its ratio to itself is the one ratio."""
+        ratio = _repeated().ratio(support.NAME, support.NAME)
+        assert ratio.psi == pytest.approx(1.0, abs=1e-15)
+
+    def test_no_printed_text_calls_the_fit_a_median(self) -> None:
+        """Every surface describes the mean, except the truncation sweep's own median."""
+        repeated = _repeated()
+        texts = {
+            "summary": str(repeated.summary(detail="full")),
+            "repr": repr(repeated),
+            "plan": repeated.config.crossfit.describe(),
+            "record": repeated.extra["learned_rule"].describe(),
+            "cv report": str(repeated.cv_targeting.summary(detail="full")),
+            "spread": str(repeated.repeat_spread().summary(detail="full")),
+        }
+        for row in (*repeated.diagnostics.capabilities, *repeated.sensitivity.capabilities):
+            if row.operation != "truncation_curve":
+                texts[f"row {row.operation}"] = str(row)
+        for where, text in texts.items():
+            assert "median" not in text.lower(), (where, text)
+        assert texts["plan"] == f"declared: 5-fold vfold, mean over {R} splits"
+        assert "does not add it" in texts["spread"]
 
 
 class TestTheRecord:
@@ -135,7 +281,6 @@ class TestTheRecord:
             (alone,) = single.extra["learned_rule"].splits
             assert split == alone
             assert split.estimate == single.estimates[support.NAME].psi
-        assert record.fold_sizes == record.splits[0].fold_sizes
 
     def test_the_summary_line_gives_the_range_over_splits(self) -> None:
         record = _repeated().extra["learned_rule"]

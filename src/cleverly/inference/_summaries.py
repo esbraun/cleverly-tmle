@@ -671,7 +671,13 @@ def spread_summary(spread: RepeatSpread, detail: Detail) -> Summary:
             "split_spread",
             vocabulary.NOTE_TEXTS["split_spread"].format(
                 repeats=count_text(spread.n_repeats),
-                tail=vocabulary.SPLIT_SPREAD_TAILS["withheld" if none else "inference"],
+                tail=vocabulary.SPLIT_SPREAD_TAILS[
+                    "withheld"
+                    if none
+                    else "inference_mean"
+                    if spread.aggregate == "mean"
+                    else "inference"
+                ],
             ),
         )
     ]

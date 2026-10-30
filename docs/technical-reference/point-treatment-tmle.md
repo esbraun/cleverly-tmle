@@ -1313,10 +1313,17 @@ the fit ignores that loss on rows. With clusters the loss is about $2V - V/R - 1
 of freedom, and no correction is derived, so `repeats` above 1 with `id=` refuses
 ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (i2)).
 
+Known weights and `targeting_scheme="fold"` compose with `repeats`, because the argument needs
+only that each split is asymptotically linear with its stored curve, and both paths store that
+curve. `covariance()`, `contrast()` and `ratio()` read the mean curve $\bar\phi$ as they read the
+curve of one split, since the mean is linear. A fit of several splits carries the experimental
+label until a registered study covers it, and so does each weighted or fold-targeted one.
+
 `tests/unit/test_learned_rule_split_mean.py` checks the point and the variance against single-split
-fits at the same split seeds. On its witness draw the mean and the median of four split estimates
-differ by more than 0.002. A fit of several splits carries the experimental label until a
-registered study covers it.
+fits at the same split seeds, unweighted, with known weights, with fold targeting, and at unequal
+folds ($n = 403$, $V = 5$), where $n / (V n_v)$ differs from 1. It checks the covariance and a
+contrast against the mean curve rebuilt from those fits. On its witness draw the mean and the
+median of four split estimates differ by more than 0.002.
 
 #### Refusals and the result record
 
@@ -1361,9 +1368,8 @@ gives the fields of a split.
 | `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
 | `blip_quantiles` | quantiles of the estimated blip on each fold's validation rows |
 
-The record also reads the fold fields of the first split under the same names, as
-`CVTargeting` does, because fold 3 of one split is not fold 3 of another. `rule`, `target` and
-`quantile_levels` give the rule class, the target kind and the quantile levels.
+The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
+`rule`, `target` and `quantile_levels` give the rule class, the target kind and the quantile levels.
 `result.summary()` prints the target line of `LearnedRuleRecord.describe()`, which gives the range
 of the split estimates and of the treated shares over every split. The rule of each row in split
 $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model,

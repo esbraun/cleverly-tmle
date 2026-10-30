@@ -769,9 +769,11 @@ class TMLE:
         variance :math:`n^{-2}\\sum_i \\bar\\phi_i^2` of the mean of the split curves:
         each split defines its own target, and the median estimates no defined parameter.
         The median's marginal interval follows the established within-plus-between rule.
-        Joint covariance, post-fit contrasts,
-        and simultaneous bands are refused. The retained central-draw curve does not
-        represent the split-adjusted median estimator that a multiplier band would need.
+        Under the median, joint covariance, post-fit contrasts and simultaneous bands are
+        refused. The retained central-draw curve does not represent the split-adjusted
+        median estimator that a multiplier band would need. The mean of a learned-rule fit
+        is linear, so its covariance and contrasts read the mean curve as they read the
+        curve of one split.
 
         ``result.repeats`` holds the per-draw nuisance fits, fluctuations and point
         estimates, and ``result.repeat_spread()`` reports how far the draws moved --
@@ -4788,6 +4790,9 @@ class TMLE:
         only the splits this version draws for the same reason: ``"stratified"`` and
         ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
         them, and they were deleted.
+
+        ``aggregate`` is ``"mean"`` on a learned-rule fit, which reports the mean over its
+        splits (:meth:`_combine_repeats`), and ``"median"`` on every other fit.
         """
         cross_fit = self.cross_fit
         supplied = self.split_plan
@@ -4814,6 +4819,7 @@ class TMLE:
             stratify_by=stratify_by,
             random_state=self.random_state,
             repeats=self.repeats,
+            aggregate="median" if self.learned_rule is None else "mean",
         )
 
     def _submodel(

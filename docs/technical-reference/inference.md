@@ -91,7 +91,10 @@ therefore differs from the stored variance on that fit.
 `tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
 `tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and
 the five refusals. A repeated point-treatment fit refuses `covariance()` and `contrast()`
-altogether, as the [CV-TMLE reference](cv-tmle.md) states.
+altogether, as the [CV-TMLE reference](cv-tmle.md) states. A learned-rule fit of several splits is
+the exception: it stores the mean of the split curves, so both read that curve under the
+`"centered"` rule, as on one split
+([the mean over splits](point-treatment-tmle.md#learned-rules)).
 
 A repeated longitudinal fit gives both. `contrast()` runs in every draw and then takes the median
 rule on its inference scale. `covariance(names)` returns the matrix rule of Chernozhukov et al.

@@ -1010,9 +1010,9 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
 clusters, labelled experimental until their study registers
-([learned rules](technical-reference/point-treatment-tmle.md#fold-targeting-weights-and-clusters)).
+([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
 With `repeats` above 1 on rows it reports the mean over the splits, labelled experimental too
-([the mean over splits](technical-reference/point-treatment-tmle.md#the-mean-over-splits)). The
+([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)). The
 median of split estimates estimates no defined parameter, so no setting reaches it. Parts (k2)
 and (i2) are what remains of the weights part and the splits part.
 

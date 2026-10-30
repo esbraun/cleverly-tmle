@@ -570,8 +570,9 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         ),
         "repeated_splits_mean": (
             "Each row is the mean over {repeats} random splits into folds. Each split learns "
-            "its own rules, so the row estimates the mean of the {repeats} split values, and "
-            "its {spread} reads the splits together."
+            "its own treatment rules, so each split has its own target, and the row estimates "
+            "the mean of those targets. Its {spread} is computed from each observation's "
+            "contribution to the estimate, averaged over the splits."
         ),
         "simultaneous_bands": (
             "The bands cover all {count} rows at once with {level} probability; use them "
@@ -3765,10 +3766,15 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T1_NOTE_TEXTS})
 
-#: The end of the ``split_spread`` note, by whether the fit supplies an interval.
+#: The end of the ``split_spread`` note, by whether the fit supplies an interval and, if it
+#: does, whether it combines the splits by their median or, on a learned-rule fit, their mean.
 SPLIT_SPREAD_TAILS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "inference": "The reported std. error already includes it.",
+        "inference_mean": (
+            "The reported std. error does not add it: each split has its own target, and "
+            "each row estimates the mean of those targets."
+        ),
         "withheld": ("The fit gives no interval, so the plug-in SE beside it is a diagnostic too."),
     }
 )

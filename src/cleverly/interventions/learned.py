@@ -396,10 +396,6 @@ class LearnedRuleRecord:
     templates and the seeds replay the fit.  A fit of ``repeats=R`` holds one
     :class:`LearnedRuleSplit` per split, and reports the mean of their estimates.
 
-    The fold attributes describe the first split, as the fold fields of
-    :class:`~cleverly.CVTargeting` do: fold 3 of one split is not fold 3 of another.  On a
-    fit of one split they describe the whole fit.
-
     Parameters
     ----------
     name : str
@@ -410,12 +406,6 @@ class LearnedRuleRecord:
     Attributes
     ----------
     n_splits : int
-    n_folds : int
-    fold_sizes : tuple of int
-    fold_estimates : tuple of float
-    treated_shares : tuple of float
-    blip_quantiles : tuple of tuple of float
-    fold_weights : tuple of float
     rule : str
     target : str
     quantile_levels : tuple of float
@@ -430,36 +420,6 @@ class LearnedRuleRecord:
         return len(self.splits)
 
     @property
-    def n_folds(self) -> int:
-        """Return the number of outer folds of the first split."""
-        return self.splits[0].n_folds
-
-    @property
-    def fold_sizes(self) -> tuple[int, ...]:
-        """Return the validation rows of each fold of the first split."""
-        return self.splits[0].fold_sizes
-
-    @property
-    def fold_estimates(self) -> tuple[float, ...]:
-        """Return the targeted plug-in value of each fold of the first split."""
-        return self.splits[0].fold_estimates
-
-    @property
-    def treated_shares(self) -> tuple[float, ...]:
-        """Return the treated share of each fold of the first split."""
-        return self.splits[0].treated_shares
-
-    @property
-    def blip_quantiles(self) -> tuple[tuple[float, ...], ...]:
-        """Return the blip quantiles of each fold of the first split."""
-        return self.splits[0].blip_quantiles
-
-    @property
-    def fold_weights(self) -> tuple[float, ...]:
-        """Return the weight of each fold of the first split, ``1/V`` for every fold."""
-        return self.splits[0].fold_weights
-
-    @property
     def rule(self) -> str:
         """Return the rule class, in words (:data:`RULE_CLASS`)."""
         return RULE_CLASS
@@ -471,7 +431,7 @@ class LearnedRuleRecord:
 
     @property
     def quantile_levels(self) -> tuple[float, ...]:
-        """Return the levels of ``blip_quantiles`` (:data:`BLIP_QUANTILE_LEVELS`)."""
+        """Return the levels of each split's ``blip_quantiles`` (:data:`BLIP_QUANTILE_LEVELS`)."""
         return BLIP_QUANTILE_LEVELS
 
     def describe(self) -> str:
@@ -492,7 +452,7 @@ class LearnedRuleRecord:
         )
         if self.n_splits == 1:
             return (
-                f"Target: the average value of the {self.n_folds} rules learned on the "
+                f"Target: the average value of the {self.splits[0].n_folds} rules learned on the "
                 "training folds, each estimated on the fold it did not train on. "
                 f"{source} Unweighted share of rows the rules treat, by fold: "
                 f"{low:.3g} to {high:.3g}."
@@ -529,6 +489,14 @@ def mean_over_splits(
     curve: :math:`n^{-2}\sum_i \bar\phi_i^2` for the fold-evaluated report.  The median of
     the split estimates estimates no defined parameter, so it is never used here.
 
+    A parameter status of one split passes to the mean, as it passes to the median
+    (:func:`~cleverly.inference.influence.restamp_parameter_statuses`).  Every other
+    field is fixed before the first learner: the learned-rule target declares no case in
+    which a fold cannot evaluate it, so every split reports it, and the inference status,
+    the support record and the level scale follow from the declaration and the data,
+    which every split shares.  The guard below therefore finds a defect in the package,
+    never a property of the data.
+
     Parameters
     ----------
     per_repeat : sequence of mappings
@@ -544,13 +512,23 @@ def mean_over_splits(
 
     Raises
     ------
-    ValueError
-        When the splits report different names, statuses or support records, or an
-        estimate on a ratio or transformed scale, which the mean does not cover.
+    RuntimeError
+        When the splits report different names, fit statuses or support records, or an
+        estimate on a ratio or transformed scale.  No declaration or data reaches it.
     """
+    from ..inference.influence import restamp_parameter_statuses
+
+    per_repeat = restamp_parameter_statuses(per_repeat)
     names = list(per_repeat[0])
+    defect = (
+        "This is a defect in cleverly, not in the data: the learned-rule value is a level "
+        "that every split reports under one configuration."
+    )
     if any(list(report) != names for report in per_repeat):
-        raise ValueError("the splits of a learned-rule fit report different estimates")
+        raise RuntimeError(
+            f"the splits of a learned-rule fit report different estimates "
+            f"{[sorted(report) for report in per_repeat]}. {defect}"
+        )
     out: dict[str, ParameterEstimate] = {}
     for name in names:
         parts = [report[name] for report in per_repeat]
@@ -558,13 +536,14 @@ def mean_over_splits(
         if (
             len({part.inference for part in parts}) != 1
             or len({part.support for part in parts}) != 1
+            or first.transform is not None
+            or first.scale == "ratio"
         ):
-            raise ValueError(
-                f"{name} declares different inference statuses or support records across "
-                "splits; a mean over splits estimates one configuration"
+            raise RuntimeError(
+                f"{name} has different inference statuses or support records across the "
+                f"splits, or is not on a level scale, so the mean over splits does not "
+                f"apply. {defect}"
             )
-        if first.transform is not None or first.scale == "ratio":
-            raise ValueError(f"{name} is not on a level scale, which the mean over splits needs")
         curve = np.mean([np.asarray(part.influence_curve, dtype=float) for part in parts], axis=0)
         out[name] = replace(
             first,

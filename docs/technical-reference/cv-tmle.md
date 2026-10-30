@@ -140,13 +140,14 @@ partitions. `cleverly` retains its validated complement-trained, stacked pooled 
 mean option, with one exception.
 
 The learned-rule value of
-[learned rules](point-treatment-tmle.md#the-mean-over-splits) reports the mean of the split
+[learned rules](point-treatment-tmle.md#learned-rules) reports the mean of the split
 estimates, with the variance $n^{-2}\sum_i \bar\phi_i^2$ of the mean of the split curves. Each
 split of that fit learns its own rules and so defines its own target, and the median of the
-split estimates estimates no defined parameter.
+split estimates estimates no defined parameter. The mean is linear, so that fit's
+`covariance()`, `contrast()` and `ratio()` read the mean curve as on one split.
 
 Coordinatewise medians do not preserve identities among several estimands. A repeated
-point-treatment fit therefore refuses joint covariance and post-fit contrasts. It also refuses
+point-treatment fit with the median therefore refuses joint covariance and post-fit contrasts. It also refuses
 simultaneous bands, because a multiplier construction would use the retained central-draw curve.
 That curve supports marginal diagnostics. The split-adjusted variance above supplies the pointwise
 interval.

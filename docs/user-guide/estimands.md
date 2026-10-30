@@ -212,7 +212,8 @@ fold_evaluated = TMLEMethod(
 )
 learned = study.estimate(LearnedRuleValue(), method=fold_evaluated, random_state=3)
 record = learned.extra["learned_rule"]
-shares = record.treated_shares
+(split,) = record.splits  # one split into five folds
+shares = split.treated_shares
 ```
 
 The rule of fold $v$ treats a unit when the outcome regression fitted on the other folds predicts
@@ -226,7 +227,7 @@ rule. The table gives what the result holds.
 | where | content |
 | --- | --- |
 | `learned.estimates` | one parameter, `ey_learned_rule[learned rule]` |
-| `learned.extra["learned_rule"]` | the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip |
+| `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip |
 | `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row, `1.0` for treat |
 | `learned.summary()` | a line that states the target |
 

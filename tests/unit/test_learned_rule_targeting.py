@@ -79,8 +79,8 @@ class TestTheEstimate:
     ) -> None:
         folds = [float(np.mean(pieces["q_star_rule"][test])) for test in pieces["tests"]]
         assert planted.estimates[support.NAME].psi == pytest.approx(np.mean(folds), abs=1e-12)
-        record = planted.extra["learned_rule"]
-        np.testing.assert_allclose(record.fold_estimates, folds, atol=1e-12, rtol=0)
+        (split,) = planted.extra["learned_rule"].splits
+        np.testing.assert_allclose(split.fold_estimates, folds, atol=1e-12, rtol=0)
 
     def test_control_the_n_v_over_n_average_differs(
         self, planted: Any, pieces: dict[str, Any]

@@ -750,7 +750,7 @@ class TestOneInputEarnsOneReasonAtBothLayers:
             ),
             (
                 {"enabled": False, "repeats": 2},
-                "repeats takes the median over independent cross-fitting splits, and "
+                "repeats combines independent cross-fitting splits, and "
                 "{switch}=False makes no split to draw or repeat. Enable cross-fitting or "
                 "set repeats=1",
             ),

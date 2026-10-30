@@ -534,6 +534,10 @@ class RepeatSpread(dict[str, float]):
         Whether each estimate supplies inference.
     scales : mapping of str to str
         The scale each spread is taken on: ``"log"`` for a ratio, otherwise ``"original"``.
+    aggregate : {"median", "mean"}, default="median"
+        How the fit combined the splits. The median's standard error includes the spread
+        between splits. The mean of a learned-rule fit does not add it, because each split
+        has its own target and the fit estimates their mean.
     """
 
     def __init__(
@@ -543,17 +547,26 @@ class RepeatSpread(dict[str, float]):
         std_errors: Mapping[str, float],
         inferential: Mapping[str, bool],
         scales: Mapping[str, str],
+        aggregate: Literal["median", "mean"] = "median",
     ) -> None:
         super().__init__(spreads)
         self.n_repeats = int(n_repeats)
         self.std_errors = dict(std_errors)
         self.inferential = dict(inferential)
         self.scales = dict(scales)
+        self.aggregate = aggregate
 
     def __reduce__(self) -> tuple[Any, ...]:
         return (
             RepeatSpread,
-            (dict(self), self.n_repeats, self.std_errors, self.inferential, self.scales),
+            (
+                dict(self),
+                self.n_repeats,
+                self.std_errors,
+                self.inferential,
+                self.scales,
+                self.aggregate,
+            ),
         )
 
     def to_frame(self, backend: str | None = None) -> Any:
@@ -628,6 +641,8 @@ class RepeatSpread(dict[str, float]):
 def repeat_spread(
     estimates: Mapping[str, ParameterEstimate],
     draws: Sequence[Mapping[str, float]],
+    *,
+    aggregate: Literal["median", "mean"] = "median",
 ) -> RepeatSpread:
     """Split spread of each estimate across the draws, on its inference scale.
 
@@ -640,6 +655,8 @@ def repeat_spread(
         The combined estimates, which give each name's reported scale.
     draws : sequence of mappings
         Each draw's point estimates, keyed by name.
+    aggregate : {"median", "mean"}, default="median"
+        How the fit combined the draws, which the summary's note reads.
 
     Returns
     -------
@@ -684,6 +701,7 @@ def repeat_spread(
         scales={
             name: "log" if estimates[name].scale == "ratio" else "original" for name in spreads
         },
+        aggregate=aggregate,
     )
 
 

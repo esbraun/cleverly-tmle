@@ -644,6 +644,18 @@ class TMLEResult:
         return len(self.repeats)
 
     @property
+    def _median_draws(self) -> int:
+        """How many draws the reported estimates combine by their median.
+
+        :attr:`n_repeats` on every fit but a learned-rule one, which reports the mean over
+        its splits and stores the mean of the split curves, the curve that gives its
+        variance (:func:`~cleverly.interventions.learned.mean_over_splits`).  The mean is
+        linear, so the joint operations read that curve as they read the one curve of a
+        single draw, and the operations that refuse a median-combined fit take ``1`` here.
+        """
+        return 1 if self.config.parameter_axis == "learned_rule" else self.n_repeats
+
+    @property
     def split_plan(self) -> SplitPlan:
         """Return immutable assignments for every fitted repeat.
 
@@ -695,7 +707,9 @@ class TMLEResult:
 
         What it must not be used for is inference.  It says nothing about the *sampling*
         variability of the estimand, so it is not an alternative to the reported standard
-        error. The median variance rule already includes between-draw displacement.
+        error. The median variance rule already includes between-draw displacement. The
+        mean of a learned-rule fit does not add it: each split has its own target, and the
+        fit estimates their mean.
 
         Raises when there is only one draw, since the standard deviation of one number is
         not a diagnostic but an artefact.
@@ -707,7 +721,11 @@ class TMLEResult:
             inference scale of that estimand: a ``dict`` whose ``summary()`` sets each
             spread beside the standard error it is read against.
         """
-        return shared_repeat_spread(self.estimates, [repeat.psi for repeat in self.repeats])
+        return shared_repeat_spread(
+            self.estimates,
+            [repeat.psi for repeat in self.repeats],
+            aggregate="mean" if self.config.parameter_axis == "learned_rule" else "median",
+        )
 
     # ------------------------------------------------------------- accessors
 
@@ -826,6 +844,11 @@ class TMLEResult:
         plug-in covariance of the reported curves. It is a diagnostic and it licenses no
         interval, for the reason that status records.
 
+        A fit of several cross-fitting draws refuses, because its median report is no
+        draw's report. A learned-rule fit of several splits is the exception: it reports the
+        mean over its splits and stores the mean of their curves, so the matrix reads that
+        curve as it reads the curve of one split.
+
         Parameters
         ----------
         names : sequence of str or None
@@ -837,7 +860,7 @@ class TMLEResult:
             Covariance matrix in the requested order.
         """
         refuse_after_repeats(
-            self.n_repeats,
+            self._median_draws,
             operation="covariance()",
             text=(
                 "The marginal variance includes between-draw displacement, but no "
@@ -876,6 +899,10 @@ class TMLEResult:
         It inherits the inference status of the estimates it reads, so a contrast of
         non-inferential estimates refuses an interval exactly as they do.
 
+        A fit of several cross-fitting draws refuses, because a coordinatewise median does
+        not preserve algebraic identities. A learned-rule fit of several splits runs: its
+        estimate and curve are the mean over the splits, and the mean is linear.
+
         ``scale="ratio"`` reports a positive contrast with its interval on the log scale.
         ``transform=`` computes the interval and the test on the scale of a declared
         monotone map and maps the interval back with the inverse, as
@@ -904,7 +931,7 @@ class TMLEResult:
             Derived estimate with influence-curve inference.
         """
         refuse_after_repeats(
-            self.n_repeats,
+            self._median_draws,
             operation="contrast()",
             text=(
                 "A coordinatewise median does not preserve algebraic identities across estimands."
@@ -946,7 +973,8 @@ class TMLEResult:
         The interval is computed on the log scale and exponentiated, as
         ``lmtp_contrast(type = "rr")`` and ``type = "or"`` in R ``lmtp`` 1.5.4 compute
         it. The p-value tests a ratio of one. :meth:`ParameterEstimate.wald_test` tests
-        any positive null. The ratio inherits the inference status of its inputs.
+        any positive null. The ratio inherits the inference status of its inputs. A fit of
+        several cross-fitting draws refuses or runs as :meth:`contrast` does.
 
         Parameters
         ----------
@@ -1000,7 +1028,7 @@ class TMLEResult:
         ('rr', 'ratio', True)
         """
         refuse_after_repeats(
-            self.n_repeats,
+            self._median_draws,
             operation="ratio()",
             text=(
                 "A coordinatewise median does not preserve algebraic identities across estimands."
