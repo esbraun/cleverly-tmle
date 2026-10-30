@@ -27,14 +27,30 @@ doubly_robust = effect.estimate(
 Call `effect.available_methods()` before fitting when method availability matters. An unavailable
 method comes with a capability reason.
 
+Neither variant fits a fixed number of models. Collaborative TMLE fits one treatment model for
+each candidate along its search. DR-TMLE refits its reduced regressions, which regress on the
+current outcome and treatment predictions, on every round of the loop that solves its extra
+equations. On a cross-fitted fit each fold refits its own reduced regressions so that the fold's
+own data never reach them (`reduced_crossfit="foldwise"`, the default).
+[Reduced-regression cross-fitting](../technical-reference/dr-tmle/targeting.md#reduced-regression-cross-fitting)
+states the fold rule.
+
+The cross-fitting folds and the size of the learner library multiply each of those fits. With the
+default library the same data can take hours instead of seconds, so choose the learners for these
+two variants yourself.
+
 `AdaptiveIPTWMethod` selects the adaptive-propensity IPTW estimator for a point-treatment
 functional. It fits no outcome regression. Its `reduced_outcome_learner` fits the regression of
 the outcome on the fitted propensity, and it falls back to `models.outcome_learner`. The estimator
-reports a point estimate for every supported fit. The arm means and the targets built from them
-report a standard error, an interval and a p-value only when the treatment probabilities are
-declared and the data are complete.
-[Adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) states the contract and the
-reason.
+reports a point estimate for every supported fit.
+
+A standard error, an interval and a p-value need a known treatment mechanism for every reported
+estimate: the design declares `treatment_probabilities=`, no outcome is missing, the fit sets no
+`treatment_covariates=`, and the fit reports no estimate that reads an estimated mechanism, such
+as a composite target. Any
+other fit takes the status `estimated_mechanism_plugin` and keeps its point estimates.
+[When an interval is reported](../technical-reference/adaptive-iptw.md#when-an-interval-is-reported)
+states the rule and the reason.
 
 A cross-fitted fit refits each estimated mechanism once for each ordered pair of folds, so
 `n_folds=10` adds 90 fits per estimated factor. With the default learner library, a fit takes 30 to
@@ -70,11 +86,27 @@ node the treatment mechanism defines the plan, and the estimator is not doubly r
 its contract.
 
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
-`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"`, `"learners"`, and `"oat"`
-refuse the same three accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as
-a diagnostic. For an interval, use `TMLEMethod` or `strategy="derivative"`.
+`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` refuse the
+same three accessors, and so does `"oat"` with a flexible learner. Each estimate keeps
+`plugin_std_error` and `plugin_interval` as a diagnostic. For an interval, use `TMLEMethod`,
+`strategy="derivative"`, or the outcome-adaptive strategy with two parametric models.
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
+
+`strategy="oat"` fits, for each arm, a treatment model on that arm's predicted outcome. It reports
+an interval when the outcome learner is exactly `ParametricOutcome` and the treatment learner
+exactly `ParametricMechanism`, both from `cleverly.learners`. The fit may be in sample or
+cross-fitted with at most 20 folds of at least 30 rows each. It may have three or more arms, fixed
+weights, and the targets `ey_obs`, `par` and `paf`, and its band covers the reported estimates.
+A treatment with $K$ arms needs `ParametricOutcome(arm_columns=K - 1)`.
+
+A fit outside these
+conditions, for example one with `split_plan=`, keeps its point estimates and reports no interval.
+`cleverly.estimators.ctmle.per_arm_parametric_support(estimator, data)` names the first condition
+that a configuration misses. Studies cover two and three arms at `n_folds=5`, and other fits print
+their interval under the `experimental` label.
+[Parametric per-arm intervals](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals)
+gives each condition and the support table.
 
 ### C-TMLE0: a derivative covariate with an interval
 
@@ -157,14 +189,6 @@ by sampling noise under the propensity bounds. The 1% threshold separates the tw
 instrument law. There the nested terminal rises by about 0.2%, and the `W1` candidate by about 19%.
 `CTMLESelection.treatment_risk_increases` holds the same indices.
 `tests/unit/test_ctmle_candidate_sequences.py::TestLearners` checks the warning.
-
-Both variants are named here with a parametric learner on purpose. Neither fits a fixed number of
-nuisance models: collaborative TMLE fits one per candidate along its selection path, and DR-TMLE
-re-fits its reduced regressions on every round of the alternation that solves its extra score
-equations, because those regressions are regressions *on* the current targeted pair. Each of those
-fits is then multiplied by the cross-fitting folds and again by the learner library. Leaving both
-at the default library is the difference between seconds and hours on the same data, so decide the
-learner deliberately for these two rather than inheriting it.
 
 ## Immutable configuration
 
@@ -416,6 +440,11 @@ adjustment set. That declaration restricts the statistical model.
 [Stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
 and [treatment-mechanism covariates](../technical-reference/point-treatment-tmle.md#treatment-mechanism-covariates)
 state the contracts.
+
+A longitudinal fit has four more settings: a cap on extreme node weights, a shorter history for
+each model, one pooled censoring model, and a declared outcome range at chosen nodes.
+[Weight trimming, shorter histories, and node bounds](longitudinal.md#weight-trimming-shorter-histories-and-node-bounds)
+describes them.
 
 Unknown settings and settings an engine cannot use raise `MethodConfigurationError` before fitting
 rather than being ignored. A longitudinal fit refuses a point-only control such as

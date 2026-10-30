@@ -181,13 +181,9 @@ print(long_result.summary())
 This plan offers at node `t` when the customer's engagement at node `t` is positive. The fit
 raises `DataError` for a rule that names a column from a later node. It raises the same error when
 the column is absent at the node, for example because the node screened it out as constant. It
-never reads an earlier node instead.
-
-| test | what it checks |
-| --- | --- |
-| `test_a_rule_reads_its_own_node_and_never_a_later_one` | `each_node` equals a rule written by hand, a rule that reads the previous node assigns different arms, and a rule that reads a later node raises |
-| `test_a_screened_out_node_raises_rather_than_read_an_earlier_node` | a rule raises when its column is absent at its node |
-| `test_ltmle_on_the_adapted_panel_equals_the_wide_fit` | `LTMLE` on the adapted panel equals the fit on the equivalent wide frame, to a relative difference of 1e-12 |
+never reads an earlier node instead. `tests/unit/test_long_panel.py` checks both refusals, and it
+checks that `LTMLE` on the adapted panel equals the fit on the equivalent wide frame to a relative
+difference of 1e-12.
 
 ### Go back to a long panel
 
@@ -229,8 +225,7 @@ Each refusal raises `DataError` before any learner. A message about one unit nam
 | a treatment that never changes within a customer | that is one baseline decision held over every node. Build the wide frame and declare `treatment="A"` |
 | a column named like a generated name, such as `eng@1` | the name collides with a generated column. Rename it |
 
-The wide layout refuses the same event on a censored row. `LongitudinalData.from_frame` used to
-drop it without a message, and it now raises `DataError`.
+The wide layout raises the same `DataError` for an event on a censored row.
 
 ### Long horizons
 
@@ -239,8 +234,10 @@ five: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longi
 [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and
 [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
 Every $L_t$ block accumulates into the history design, so a long panel adds columns
-at each node and needs more customers. `times=` cannot coarsen a grid. To model fewer decisions,
-aggregate the frame to the coarser decision times before you read it.
+at each node and needs more customers. `markov_order=` limits each model to the most recent nodes,
+as [Weight trimming, shorter histories, and node bounds](#weight-trimming-shorter-histories-and-node-bounds)
+describes. `times=` cannot coarsen a grid. To model fewer decisions, aggregate the frame to the
+coarser decision times before you read it.
 
 ## Declare a dynamic rule
 
@@ -697,8 +694,18 @@ states each claim and its condition.
 The hazard model refuses a treatment at several nodes, a covariate after baseline, a continuous
 treatment, and a modified treatment policy. Each message names the iterated-mean route.
 [Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
-gives the contract, both algorithms, and the evidence. No registered study measures the coverage
-of a hazard fit or a projected fit yet.
+gives the contract, both algorithms, and the evidence.
+
+Three registered studies measure hazard fits
+on a design with one baseline treatment:
+[per-horizon targeting](../technical-reference/method-evidence/point-survival-hazard.md),
+[one-step targeting](../technical-reference/method-evidence/point-survival-curve.md) and
+[five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
+The first two await their R comparator runs (`survtmle` and `tmle3`), and the cross-fitted one has
+no comparator, because no package fits that construction. The one-step study also holds one cell
+with the default survival fit and `isotonic=True`, on a two-node law. Its curve rises steeply
+enough that the projection never moved a level, so no study yet measures an interval at a level
+that the projection moved.
 
 ## Fit the sequentially doubly robust estimator
 
@@ -1076,6 +1083,47 @@ The score report has one row per node and draw. A repeated outcome, `Repeated([.
 [Repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states the
 rule, the seeds and the refusals.
 
+## Weight trimming, shorter histories, and node bounds
+
+Four settings change how `LTMLE` and `SDR` fit their models. None of them changes the quantity
+being estimated. Each paragraph names the argument of the estimator and the object that carries it
+through `CausalStudy.estimate`.
+
+`ratio_trim=q` caps each node's weight at the `q` quantile of all the node weights, the rule of
+R `lmtp`. Through a study, pass `Targeting(ratio_trim=q)`. The cap tames extreme weights, but no
+published result gives an interval for the capped fit. A fit whose cap moves any weight therefore
+reports its point estimate with a diagnostic standard error, under the status
+`trimmed_ratio_plugin`. `RegimenFit.trimmed_share` gives the share of weights the cap moved.
+`IPSI` and a fit with `survival_model="hazard"` refuse the option.
+
+`LongitudinalTreatment(markov_order=k)` lets each model at node `t` read the baseline covariates
+and only the last `k` nodes of history. It assumes that the earlier history adds nothing to those
+models. The causal conditions still need the full history: every confounder of each decision must
+be recorded somewhere in it. The estimate stays on target in large samples when one family of
+models, the outcome models or the treatment and censoring models, is right on the window. The
+interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the declaration.
+
+`hazard_pooling="pooled"` fits one censoring model over every node, with the time as a column,
+in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.
+Through a study, pass `ModelSpec(hazard_pooling="pooled")`. The option needs one baseline
+treatment and no covariate measured after baseline.
+
+`LTMLE(node_bounds={t: (lower, upper)})` declares the known range of the outcome regression at chosen
+nodes, keyed by grid time. Through a study, pass `Targeting(node_bounds=...)`. The node's
+regression and its correction step then stay inside the range. When the weighted mean outcome of
+the followers at a node lies outside the declared range, the node runs no correction, and the fit
+warns with `ConvergenceWarning` and names the node. `SDR` refuses the option, because it runs no
+correction step.
+
+The [survival node-bounds study](../technical-reference/method-evidence/survival-node-bounds.md)
+fits node bounds and pooled censoring in repeated samples. No simulation study covers
+`ratio_trim=` or `markov_order=`, so such fits print `experimental`. Exact-law tests check both,
+and [Ratio trimming](../technical-reference/longitudinal-tmle.md#ratio-trimming),
+[Markov order](../technical-reference/longitudinal-tmle.md#markov-order),
+[Pooled censoring](../technical-reference/longitudinal-tmle.md#pooled-censoring) and
+[Node bounds](../technical-reference/longitudinal-tmle.md#node-bounds) state each rule and its
+refusals.
+
 ## Diagnostics
 
 Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
@@ -1119,10 +1167,22 @@ report = result.diagnostics.run_all(
 )
 ```
 
-Point-only sensitivity formulas remain unavailable unless a longitudinal derivation exists.
+Three checks from the point-treatment toolkit also run on a longitudinal fit.
+`result.diagnostics.refute()` refits the stored estimator with the original folds. Its placebo
+draws a new treatment history for every unit, so every plan contrast should be about zero. A
+[simulation study](../technical-reference/method-evidence/refuter-calibration-longitudinal.md)
+backs a pass or fail for the placebo, subset and negative-control tests on the fits it covers,
+and other fits print their numbers without one.
+[Longitudinal refutation](../technical-reference/validation-methods.md#longitudinal-refutation)
+lists every test.
 
-Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
-no sample estimator for them. The
+`result.sensitivity.simulated_confounding()` covers an uncensored panel with an end-of-study
+outcome and no covariate measured after the first node, as
+[Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows.
+`result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
+`TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
+longitudinal estimator and report `unavailable`. Tan (2025) derives population bounds for binary,
+static longitudinal strategies, but no sample estimator for them. The
 [roadmap](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) records that boundary.
 
 ## Persistence

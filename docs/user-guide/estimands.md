@@ -192,7 +192,7 @@ gives its coverage at each law.
 | --- | --- | --- |
 | no effect for any unit | 0.8938, with a 99% interval of 0.8832 to 0.9038 | `under-covers at the exceptional law`, in the [boundary study](../technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) |
 | a weak effect, $0.15 W_1$ on the logit scale | 0.8948, with a 99% interval of 0.8842 to 0.9048 | `under-covers at the weak_blip law`, in the same study |
-| two laws that meet the published conditions, with the declared logistic outcome learner | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
+| two laws that meet the published conditions, one with a correctly specified outcome learner and one with a misspecified one | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
 
 ```python
 from sklearn.linear_model import LogisticRegression
@@ -273,6 +273,26 @@ A shifted dose above the cap holds the row at its own dose. The example cap of 4
 the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
 observed dose and the policy assigns a dose above that maximum.
 
+The correction step needs the ratio of the density of each policy dose to the density of the
+observed dose. By default the fit estimates the dose density in `density_bins` bins. With
+`ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
+policy copy, and the ratio comes from its predicted odds. The classifier route fits no density,
+so it suits a flexible classifier when the bins are too coarse.
+[Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
+states both routes.
+
+A cap can also come from the data. `Shift(1.0, cap=DoseQuantile(0.9), target="population")` holds
+every dose whose shift would pass the 90th percentile of the observed doses.
+`SupportBoundary(LinearQuantileRegression(features=...), q=0.9)` sets the cap from a quantile
+regression of the dose on the named covariates, so the cap varies by row. All three classes come
+from `cleverly.interventions`. `target="population"` estimates the mean under the cap that the
+whole population would give, and the interval includes the error of estimating that cap. It needs
+an outcome model that is accurate near the cap. `target="fold_average"` averages the means under
+each fold's own cap.
+The [tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) checks the
+population target over two decisions. A tuned cap at one decision rests on exact-law tests only
+(`tests/unit/test_point_tuned_caps.py`).
+
 Other maps of the dose use the same `policies=` axis. The table names each class.
 
 | class | use it for |
@@ -309,7 +329,10 @@ exactly one piece. It also checks that each declared inverse inverts its map, an
 derivative matches the map. In a longitudinal fit, a policy is a node of
 a `DynamicRegimen` plan. The
 [longitudinal reference](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
-gives the details.
+gives the details, and
+[limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)
+lists what the studies do not cover. The [monthly prices](../examples/sequential-pricing.ipynb)
+example raises a price at each of three months.
 
 ## Incremental propensity-score interventions
 

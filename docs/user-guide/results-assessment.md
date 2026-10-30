@@ -207,10 +207,11 @@ if len(names) >= 2:
 ```
 
 Use cluster roles in the study design for cluster-robust variance. Below 40 clusters with
-positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals, and
-the summary prints a `df` column. Below 10 such clusters, or 20 for longitudinal TMLE, it
-reports no interval. For TMLE and
-DR-TMLE, both rules also apply to one reported stratum.
+positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals with
+the cluster count minus 2 degrees of freedom, and the summary prints a `df` column. Below 10 such
+clusters, or 20 for longitudinal TMLE, the interval carries the `experimental` label, and below 3
+the fit reports no interval. For TMLE and DR-TMLE, these rules also apply to one reported
+stratum.
 [Clusters](../technical-reference/inference.md#clusters) gives the rules. Use
 `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
 needs error control.
@@ -496,33 +497,15 @@ The curve records `upper_bound`, the parameter-specific fitted bound pair and es
 keeps the requested grid cardinality and can therefore have no fitted marker. The fitted columns
 still name the configuration the grid omitted.
 
-A longitudinal curve has no default grid. Supply `bounds=` explicitly. A scalar `b` means the
-cumulative lower-only pair `(b, 1)`. An explicit `(lower, upper)` entry keeps both limits. This
-differs from point treatment, where scalar treatment bounds mean `(b, 1 - b)`.
-
-Each longitudinal row is a descriptive ordinary LTMLE point estimate under one fixed cumulative
-mechanism bound. The replay keeps the data, resolved plans, folds, raw mechanism predictions,
-weights, clusters, and estimand structure fixed. It recomputes bounded cumulative probabilities.
-It then refits every bound-dependent outcome or pseudo-outcome regression and targeting update.
-It never reuses an earlier-node outcome fit or prediction.
-
-Before the grid runs, a fitted-bound preflight must exactly reproduce every retained estimate,
-regimen fit, and MSM fit. This check also runs when the requested grid omits the fitted pair.
-A mismatch makes the operation unavailable.
-
-Its frame carries one row per evaluated pair and reported parameter. The row records both
-endpoints, the parameter, the replayed `psi`, the fitted pair, `fitted_psi`, `is_fitted_bound`,
-`delta_from_fitted`, and two score-cell counts. Read the lower endpoint as `lower_bound` here,
-because the point-treatment frame above names the same endpoint `bound`.
-[Truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
+A longitudinal curve has no default grid, so supply `bounds=`. A scalar `b` there means the pair
+`(b, 1)`, not `(b, 1 - b)`. Each row reruns the whole backward recursion under one fixed bound on
+the cumulative treatment and censoring probabilities, and reports no standard error or interval.
+Before the grid runs, a check at the fitted bound must reproduce every reported estimate exactly,
+or the operation is unavailable. The frame names the lower endpoint `lower_bound`, where the
+point-treatment frame names it `bound`.
+[Diagnostics](longitudinal.md#diagnostics) on the longitudinal page gives the rest, and
+[truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
 column table and the two counting rules.
-
-The operation reports no standard error, interval, preferred bound, selected-bound correction, or
-pass threshold. It does not validate positivity or account for uncertainty from choosing a bound.
-It refuses `mechanism=True`, which is a point-treatment option. It also refuses a result without
-its stored replay recipe, and a learner it cannot replay.
-[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
-states the `random_state` rule each learner must satisfy.
 
 `estimands=` restricts the rows to the parameters you name. Name a reported parameter, such as
 `ey[high]`, to select its own row. Name a registered target, such as `ey`, to select one row for
@@ -534,7 +517,7 @@ coefficient. It measures that movement from the parameter's own fitted estimate.
 parameters whose fitted pair the grid skipped. Read the fitted estimate and the fitted pair from the
 retained curve.
 
-Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
+To run every diagnostic, including the refits and the retargets, pass both flags:
 
 ```python
 everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
@@ -686,15 +669,30 @@ measures the rule's false-warning rate and its detection rate for a binary prope
 
 ## Sensitivity analysis
 
+An estimate is causal only if the adjustment set holds every common cause of the treatment and the
+outcome, and no data can check that. A sensitivity analysis asks how strong a confounder that the
+data do not record would have to be to change the conclusion. `result.sensitivity` answers on four
+scales:
+
+- `omitted_confounding()` gives the range of estimates that a missing confounder of declared
+  strength allows. One strength is its link to the outcome (`cf_y`), the other its link to the
+  treatment (`cf_d`), each a share between 0 and 1. `benchmark()` measures those shares for a
+  recorded covariate, and `robustness_value()` finds the strength that would move the estimate to 0.
+- `evalue()` gives how strongly a missing confounder would need to be linked to both the treatment
+  and the outcome, on the risk-ratio scale, to explain the effect away.
+- `marginal_bounds()` gives the range of effects when a missing confounder can multiply each unit's
+  odds of treatment by at most a factor `gamma`, with no limit on its link to the outcome.
+- `simulated_confounding()` plants a confounder of chosen strengths in the data and refits.
+
 ```python
 all_sensitivity = result.sensitivity.run_all()
 print(all_sensitivity.summary())
 ```
 
-Support and truncation stability live under `result.diagnostics`. Point-treatment sensitivity
-methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
-`contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
-simulated surface needs an explicit strength grid, so `run_all()` never starts it.
+`run_all()` runs the cheap analyses. A simulated surface needs an explicit strength grid, so
+`run_all()` never starts it. The other point-treatment methods are `elements()`, `contour()`,
+`missingness()` and `tipping_gamma()`. Support and truncation stability live under
+`result.diagnostics`.
 
 The omitted-variable bound has two estimators of $\nu^2$. The default is doubly robust, and its
 one-sided limits hold for any treatment learner. The plug-in estimator gives the limits for a
@@ -744,6 +742,43 @@ of the standard error of $\nu^2$ (`correction_unstable`). The corrected $\nu^2$ 
 not approach, can clear the refusal. The
 [learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
 lists every key.
+
+To ask what a missing confounder as strong as a recorded covariate could do, hand the benchmark to
+the bound. `benchmark()` refits without the named covariates, and `benchmark=` reads its two
+strengths:
+
+```python
+calibration = plugin_fit.sensitivity.benchmark(covariates=("W1",), random_state=1)
+as_strong_as_w1 = plugin_fit.sensitivity.omitted_confounding(
+    benchmark=calibration, nu2_estimator="plugin"
+)
+print(as_strong_as_w1.summary())
+```
+
+The range then says how far a confounder as strong as `W1` could move the estimate, under the
+bound's assumptions. A record from another fit or another estimand is refused, and so are explicit
+`cf_y=` or `cf_d=` beside it. A treatment-side strength of 1 or more calibrates no finite bound and
+raises `ValueError`. [The benchmark](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+defines the two strengths.
+
+The marginal sensitivity bounds read a grid of `gamma` values. At `gamma=1`, no missing
+confounder, the range shrinks to one value close to the fit's own estimate.
+
+```python
+odds_bounds = plugin_fit.sensitivity.marginal_bounds(gamma=(1.0, 1.5, 2.0))
+print(odds_bounds.summary())
+```
+
+Read the `lower` and `upper` columns at each `gamma`, and the interval for the range beside them.
+`odds_bounds.breakdown` is the smallest grid `gamma` whose range contains 0, or `None` when no grid
+value reaches it. The bounds cover two-arm and multi-arm `TMLE`, `DRTMLE` and `CTMLE` fits with a
+continuous or binary outcome, and longitudinal fits refuse them. A
+[simulation study](../technical-reference/method-evidence/marginal-bound-limit-coverage.md) backs
+the interval for the ATE of a two-arm, five-fold cross-fitted `TMLE` with the study's `GLM` models
+and at least 8,000 rows. Every other
+fit, such as this in-sample one, prints the interval as descriptive.
+[Marginal sensitivity model bounds](../technical-reference/validation-methods.md#marginal-sensitivity-model-bounds)
+gives the estimator, its conditions and each refusal.
 
 The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means and their
 contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away

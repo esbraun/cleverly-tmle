@@ -39,12 +39,13 @@ study = CausalStudy(
 - `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
-  refuses `cluster=` at every setting. Longitudinal TMLE cross-fits with whole-cluster folds.
+  refuses `cluster=` at every setting except `strategy="derivative"`. Longitudinal TMLE
+  cross-fits with whole-cluster folds.
 
   Clusters may differ in size. A TMLE, DR-TMLE, or longitudinal TMLE fit with fewer than 40
   clusters with positive weight mass reports a Student t interval with the cluster count minus 2
-  degrees of freedom. Below 10 such clusters, or 20 for longitudinal TMLE, it reports no
-  interval. For TMLE and DR-TMLE, both
+  degrees of freedom. Below 10 such clusters, or 20 for longitudinal TMLE, the interval carries
+  the `experimental` label, and below 3 the fit reports no interval. For TMLE and DR-TMLE, these
   rules also apply to one reported stratum
   ([clusters](../technical-reference/inference.md#clusters)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
@@ -178,6 +179,35 @@ dose_study = CausalStudy(
 A longitudinal design records one ordered treatment role per node, the history available at each
 node, censoring, and either an end-of-study outcome or event processes. Continue with the
 [longitudinal guide](longitudinal.md).
+
+## Change one field of a design
+
+A design object cannot be changed in place. To try another adjustment set or another known
+mechanism, copy the design with `dataclasses.replace`:
+
+```python
+import dataclasses
+
+narrower = dataclasses.replace(study.design, adjustment=("W1", "W2", "region"))
+```
+
+Pass the copy to a new `CausalStudy`. The copy equals the design built directly from the same
+arguments. This works on
+`PointTreatment`, `TimeToEvent`, `LongitudinalTreatment` and `LongPanel`
+(`tests/unit/test_design_replace.py`). A mapping field passed as pairs that repeat a key, or that
+use an unhashable key, raises `DataError`.
+
+## Write down the study description
+
+`StudyProtocol` stores the study description in words. It records who is in the study, when
+follow-up starts, what each option means, and how the outcome is measured. Three of its fields are easy to misread.
+`treatment_versions` says what each option delivers in practice, such as "a bedside plan and two
+scheduled calls", because two programs with one name can differ. `intercurrent_event_handling`
+says how the analysis treats events after the start that change what the outcome means, such as a
+readmission before the score is measured. A "composite strategy" folds such an event into the
+outcome, for example by counting a death as the worst score. `interference_unit` names the group
+within which one person's treatment can change another's outcome, such as a household. The
+[workflow page](../workflow.md) shows a complete description and the sources of these terms.
 
 ## Observation weights are not estimand weights
 
