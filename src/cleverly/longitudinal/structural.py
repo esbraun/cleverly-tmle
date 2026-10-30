@@ -1285,6 +1285,8 @@ class StructuralNestedMean:
         Refused.  The estimator fits an end-of-study outcome with no censoring.
     horizons : None
         Refused.  The outcome is one end-of-study value.
+    **refused : Any
+        A point-treatment keyword, refused by name.
 
     Raises
     ------
@@ -2133,15 +2135,33 @@ class StructuralNestedMeanResult:
         return len(self.estimates)
 
     def keys(self) -> Any:
-        """The parameter names in report order."""
+        """The parameter names in report order.
+
+        Returns
+        -------
+        KeysView of str
+            The keys of ``estimates``.
+        """
         return self.estimates.keys()
 
     def values(self) -> Any:
-        """The estimates in report order."""
+        """The estimates in report order.
+
+        Returns
+        -------
+        ValuesView of ParameterEstimate
+            The values of ``estimates``.
+        """
         return self.estimates.values()
 
     def items(self) -> Any:
-        """The ``(name, estimate)`` pairs in report order."""
+        """The ``(name, estimate)`` pairs in report order.
+
+        Returns
+        -------
+        ItemsView of (str, ParameterEstimate)
+            The items of ``estimates``.
+        """
         return self.estimates.items()
 
     def __contains__(self, name: object) -> bool:

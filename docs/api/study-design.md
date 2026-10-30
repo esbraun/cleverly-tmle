@@ -1,7 +1,7 @@
 # Study design and identification
 
 Use these objects to declare the observed data, identify a causal quantity, and start estimation.
-`CausalStudy` is the main entry point. The protocols support advanced identification extensions.
+`CausalStudy` is the main entry point.
 
 ```{eval-rst}
 .. autosummary::
@@ -28,8 +28,11 @@ Use these objects to declare the observed data, identify a causal quantity, and 
 trajectory container as `LongitudinalData.from_long_panel`, and `PanelLayout` records the roles
 that the container was built from.
 
-Call `CausalStudy(data, design=...)`, then call `identify()` or `estimate()`. An identification
-provider extends this sequence. It does not waive the identification and evidence requirements.
+Call `CausalStudy(data, design=...)`, then `identify(estimand)` and `estimate()` on the
+`IdentifiedEffect` it returns. `CausalStudy.estimate(estimand)` does both steps in one call.
+`identify()` uses the declared adjustment set or history by default (`ExplicitAdjustmentProvider`).
+A custom `IdentificationProvider`, passed as `provider=`, must return an `IdentifiedEffect` with
+explicit assumptions and nuisance requirements.
 
 Pass `protocol=StudyProtocol(...)` to preserve the scientific context across identification,
 estimation, summaries, and persistence. Sequence inputs normalize to tuples. The constructor
@@ -66,5 +69,5 @@ and concepts from the literature on
 [treatment versions](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/). It is not a complete
 target-trial protocol or a claim of ICH estimand compliance.
 
-Trusted point and longitudinal artifacts written before `StudyProtocol` still load. Their
-full summaries say that no study protocol was recorded, and their protocol fingerprint is `None`.
+A fit without `protocol=` says in its full summary that no study protocol was recorded, and its
+`Provenance.protocol_fingerprint` is `None`.
