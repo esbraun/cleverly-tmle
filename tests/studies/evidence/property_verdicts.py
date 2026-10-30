@@ -1006,6 +1006,8 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     # population target.  Both report an SE below the spread they claim to describe.
     "term_dropped_control": "below",
     "population_truth_control": "below",
+    # X11 PR A: a clustered learned-rule fit read with the row-level SE that ignores the clusters.
+    "row_variance_control": "below",
 }
 
 

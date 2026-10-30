@@ -715,11 +715,12 @@ class TMLE:
         A :class:`~cleverly.interventions.LearnedRule` to estimate the fold-average value of the
         rule learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
         contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
-        ``cross_fit=True``, ``cv_evaluation=True``, ``targeting_scheme="pooled"``, ``repeats=1`` and
-        ``n_bootstrap=0``, and refuses every other scheme before any learner, with that remedy.
-        It also refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
-        ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
-        missing outcomes, ``intermediate=``, ``weights=``, ``id=`` and ``strata=``.
+        ``cross_fit=True``, ``cv_evaluation=True``, ``repeats=1`` and ``n_bootstrap=0``, and
+        refuses every other scheme before any learner, with that remedy.  Either targeting scheme
+        runs, and so do known observation weights and clusters.  It refuses ``interventions=``,
+        ``policies=``, ``incremental=``, ``msm=``, ``reference=`` and an arm estimand beside it,
+        and a continuous or multi-arm treatment, missing outcomes, ``intermediate=``, estimated
+        weights and ``strata=``.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         The result records the fold summaries under ``result.extra["learned_rule"]``.
     n_folds, learner_folds:
@@ -1132,7 +1133,7 @@ class TMLE:
                     "learned_rule= takes a cleverly.interventions.LearnedRule; got "
                     f"{type(self.learned_rule).__name__}"
                 )
-            # Rows 1 and 2 of the learned-rule refusal table read the configuration alone, and
+            # The first two rows of the learned-rule refusal table read the configuration alone, and
             # they come first in its order, so they refuse where they were written.  The
             # preflight asks them again for a copied or modified estimator.
             refusal = learned_rule_configuration_refusal(self)
@@ -1281,7 +1282,7 @@ class TMLE:
         # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
         reason = self._cross_fit_policy_reason()
         if reason is not None:
-            # A learned-rule fit hears rows 10 to 14 of its refusal table before a shared policy
+            # A learned-rule fit hears the setting rows of its refusal table before a shared policy
             # sentence.  Their remedy is the configuration that fits, and the shared remedies
             # (enable cross-fitting, or set repeats=1) meet one of those rows next.  The rows raise
             # ``CapabilityError``, as every row of that table does.  A policy that passes the shared
@@ -3832,6 +3833,9 @@ class TMLE:
             if self.cv_evaluation
             else 'one pooled fluctuation (targeting_scheme="pooled")'
         )
+        # The learned-rule value has no stacked report (X11 (e)), so its remedy is the fold
+        # count alone.
+        or_stacked = "" if self.learned_rule is not None else f", or use {stacked}"
         weights = data.weights if data.is_weighted else None
         for draw in folds:
             if draw.is_single:
@@ -3853,7 +3857,7 @@ class TMLE:
                         reason=RefusalReason.INVALID_DECLARATION,
                         alternative=(
                             f"Request at most {n_clusters // 2} folds "
-                            f"(CrossFitting(n_folds=...)), or use {stacked}."
+                            f"(CrossFitting(n_folds=...)){or_stacked}."
                         ),
                     )
 

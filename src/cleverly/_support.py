@@ -285,7 +285,8 @@ class SupportKey:
         to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
         longitudinal one.
     qualifiers : frozenset of str
-        ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
+        ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
+        sizes, ``unequal_clusters``. A longitudinal key holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
@@ -561,6 +562,17 @@ def _outcome(data: Any, q_bounds: Any) -> tuple[str, ...]:
     return (str(data.family), "bounded" if q_bounds is not None else "unbounded")
 
 
+def _unequal_clusters(data: Any) -> bool:
+    """Whether ``data`` declares clusters whose sizes are not all equal."""
+    import numpy as np
+
+    cluster = getattr(data, "cluster", None)
+    if cluster is None:
+        return False
+    _, sizes = np.unique(np.asarray(cluster), return_counts=True)
+    return bool(sizes.min() != sizes.max())
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -626,6 +638,11 @@ def point_key(
         qualifiers.add("strata")
     if data.known_treatment is not None:
         qualifiers.add("known_mechanism")
+    if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
+        # The learned-rule study draws equal cluster sizes only, and unequal sizes that depend
+        # on the outcome put a ratio bias in the fold-evaluated point, so a learned-rule row
+        # never covers unequal sizes unless it declares them.
+        qualifiers.add("unequal_clusters")
 
     options: dict[str, Any] = {
         "fluctuation": estimator.fluctuation,

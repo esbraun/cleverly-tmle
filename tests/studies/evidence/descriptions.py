@@ -911,6 +911,20 @@ _SH_ROWS = {
 }
 ARMS.update(_SH_ROWS)
 
+#: The settings of ``learned-rule-compositions`` (X11 PR A) that no other study names. Its
+#: ``weighted`` and ``clustered`` labels are shared, so :data:`STUDY_ARMS` scopes their words.
+ARMS.update(
+    {
+        "fold_targeted": (
+            "the learned-rule law with the blip 0.1 + W1, fitted with fold targeting"
+        ),
+        "clustered_few": (
+            "the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 30 clusters "
+            "of 34 rows (n = 1,020), with the t reference at 20 degrees of freedom"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -5623,3 +5637,54 @@ def _long_horizon_study_text() -> None:
 
 
 _long_horizon_study_text()
+
+
+#: ``learned-rule-compositions`` (X11 PR A): the learned-rule value with fold targeting, known
+#: weights and clusters. The laws are those of ``tests/studies/_learned_rule_compositions_law.py``.
+_COMPOSITIONS_SLUG = "learned-rule-compositions"
+IMPLEMENTATIONS["cleverly-learned-rule-compositions"] = (
+    "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, with fold targeting, known "
+    "weights or clusters"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_COMPOSITIONS_SLUG, "fold_targeted"): (
+            "learned-rule law with the blip 0.1 + W1, fold targeting"
+        ),
+        (_COMPOSITIONS_SLUG, "weighted"): (
+            "learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight "
+            "1 + 1.5 * 1{W1 > 0}, a misspecified outcome learner"
+        ),
+        (_COMPOSITIONS_SLUG, "clustered"): (
+            "learned-rule law with the blip 0.1 + W1 and a cluster effect of SD 1.5 on the logit "
+            "scale, 200 clusters of 10 rows"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_COMPOSITIONS_SLUG, "weighted"): (
+            "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight "
+            "1 + 1.5 * 1{W1 > 0}"
+        ),
+        (_COMPOSITIONS_SLUG, "clustered"): (
+            "the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters "
+            "of 10 rows"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_COMPOSITIONS_SLUG, "interval_calibration", label, "declared"): (
+            "the declared fit with the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("fold_targeted", "weighted", "clustered", "clustered_few")
+    }
+)
+STUDY_ARM_CELLS[
+    (_COMPOSITIONS_SLUG, "interval_calibration", "clustered", "row_variance_control")
+] = (
+    "the same estimate with the row-level standard error that ignores the clusters",
+    "the SE-ratio interval must fall below the calibration band",
+)

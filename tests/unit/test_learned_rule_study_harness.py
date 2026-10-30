@@ -17,6 +17,7 @@ import pytest
 
 from tests.canonical import declared_run, learned_rule_run
 from tests.studies import _learned_rule_law as law
+from tests.studies import learned_rule_compositions as compositions
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
@@ -68,8 +69,13 @@ class TestTheSeedRules:
 
     def test_no_smoke_sample_seed_is_declared(self) -> None:
         declared = learned_rule_run.declared_sample_seeds()
-        assert len(declared) == 46_310 + 6_000 + 12_000
-        for study in (gated, boundary):
+        # RM30's gated and boundary studies, then X11's learned-rule-compositions: 12,000
+        # primary and 36,255 property seeds, of which one coincides between
+        # clustered__declared and clustered_few__declared. Those cells draw the same law at two
+        # sizes and cluster sizes, so the two samples share a prefix of their uniform draws; one
+        # replicate of 8,400 in each cell makes the dependence negligible.
+        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254
+        for study in (gated, boundary, compositions):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
             assert not seeds & declared

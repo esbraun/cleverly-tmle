@@ -1172,10 +1172,13 @@ class TestPublishedVerdicts:
                 suffix = row.cell.rsplit("__", 1)[-1]
                 # ``mtp-tuning`` declares two more below-band controls: the curve without the
                 # tuning term, and the fold-average rows scored on the population target.
+                # ``learned-rule-compositions`` declares the row-level SE that ignores the
+                # clusters.
                 if suffix in (
                     "shrunken_se_control",
                     "term_dropped_control",
                     "population_truth_control",
+                    "row_variance_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
