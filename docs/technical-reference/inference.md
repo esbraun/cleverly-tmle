@@ -148,9 +148,12 @@ table, the `InferenceStatus` type, and the rows above list the same statuses.
 
 A fit has one fit status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
 return it. The estimator decides the fit status from its configuration and the prepared data. The
-one fitted quantity it reads is the trimmed share of a `ratio_trim=` fit. When more than one
-non-inferential status applies, the fit takes the first one in the table above. The rows are in
-that order.
+one fitted quantity it reads is the trimmed share of a `ratio_trim=` fit.
+
+When more than one labelled status applies, `precedent_status` in `cleverly._inference_status`
+picks one in two tiers. The first withheld status in table order wins. When none is withheld, the
+first shown status wins. A fit that loses its interval for one reason therefore never regains it for another.
+`tests/unit/test_inference_status_registry.py` pins the table order and the two tiers.
 
 A parameter status can sit beside the fit status on some estimates. Two statuses are parameter
 statuses. `LTMLE` stamps `"constant_node_plugin"` on a parameter whose recursion read a constant
@@ -242,7 +245,7 @@ A selection that mixes statuses either takes the parameter status or raises `Val
 
 | function | selection | result |
 | --- | --- | --- |
-| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes `"constant_node_plugin"`, the earlier status in the table. It reports no interval |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes the status `precedent_status` picks. `"constant_node_plugin"` withholds its interval, so it wins over any fit status, and the derived estimate reports no interval |
 | the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
 | a longitudinal fit with `repeats` above 1, and its `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and band | one name with different statuses in different draws | each draw's estimate first takes the precedent status of the name's draws (`with_precedent_status`), so `median_estimates` sees one status. A `constant_node_plugin` in one draw withholds the interval of the report |
@@ -363,9 +366,8 @@ the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster 
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
 
-From 3 to 9 clusters with positive weight mass, in the fit or in one reported baseline stratum,
-the fit takes `"few_cluster_plugin"` and shows its interval on $t_{J-2}$ under the experimental
-label. An `LTMLE` fit takes it from 3 to 19. Each upper bound is
+The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
+reported baseline stratum. Its upper bound, 9 (19 for `LTMLE`), is
 one below the smallest count that the registered few-cluster study measures for that fit
 (`MINIMUM_INTERVAL_CLUSTERS` and `MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`).
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds
@@ -381,7 +383,7 @@ the in-sample and the cross-fitted `LTMLE` fit too, whose data hold no baseline 
 
 The rule counts contributing clusters, and it reads no row count. So 30 rows with `id=` and one
 row in each cluster report $t_{28}$ intervals, and the same rows without `id=` use the normal
-reference. This is a known conservative reference.
+reference. The $t_{28}$ reference is the more conservative of the two.
 
 The threshold is a reporting policy, not a coverage guarantee at 40 clusters. It counts clusters
 with positive weight mass but does not measure weight concentration. A fit with 40 such clusters
@@ -476,7 +478,9 @@ A support row lists the `bootstrap` kind when a registered cell measured the per
 for that configuration. The rows `T01.binary`, `T31`, `G01` and `G11.nodes4` list it. A bootstrap
 on any other fit keeps the interval names and carries the label `experimental`. This covers a
 cross-fitted point fit, whose replicates redraw the split ([F2](../roadmap.md#f2-targeted-bootstrap-inference)),
-a clustered fit, a competing-event fit, and every `DRTMLE` fit. The study measured none of them.
+a clustered fit, a competing-event fit, and every `DRTMLE` fit. Of these, the study measured only
+the in-sample clustered `LTMLE` bootstrap (cell `boot_ey_clustered`), and its support row
+`G05.in_sample` lists the point kind alone.
 
 Every `CTMLE` bootstrap prints as a diagnostic, because no reviewed theorem covers the bootstrap
 of a selector path. A fit with a data-adaptive learner is experimental by learner class. The
