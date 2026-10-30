@@ -2086,7 +2086,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | two reported risks at one horizon of a `TimeToEvent` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator, kind="rr")` and mark the result exact. Both regimens must be static |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
+| two-arm contrast on a fit whose status withholds its interval, such as a selector-path or generated-design collaborative fit, or a clustered fit under `"no_cluster_variance_plugin"` ([inference status](inference.md#inference-status)) | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | take the path of the same request without the intermediate variable, then invert the per-arm product below. A result that names only the column or only the level reports `unavailable` |
 | a `TimeToEvent` fit without an explicit pair | report `deferred` and name the reported risks |
@@ -3442,11 +3442,12 @@ reports the target-relevant change with multiplicity-adjusted p-values
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
 
-An estimator whose status supplies no inference is refused with `CapabilityError` before the
-first fit. That includes a collaborative estimator at any `strategy`, and a `DRTMLE` with a
-`guard` and varying weights declared estimated. It also includes a clustered `TMLE` or `DRTMLE`
-under `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
-Benjamini and Hochberg, and those fits report no p-value. The check prepares each candidate's data
+An estimator whose status withholds its interval is refused with `CapabilityError` before the
+first fit. That includes a selector-path or generated-design collaborative estimator, and a
+clustered `TMLE` or `DRTMLE` under `"no_cluster_variance_plugin"`. A status that shows its
+interval, such as `"few_cluster_plugin"` or `"estimated_weight_plugin"`, runs. The procedure
+adjusts one p-value per candidate with Benjamini and Hochberg, and a withheld status reports no
+p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 
 ## How the library certifies itself
