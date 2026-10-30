@@ -1172,8 +1172,9 @@ draws a new treatment history for every unit, so every plan contrast should be a
 [simulation study](../technical-reference/method-evidence/refuter-calibration-longitudinal.md)
 backs a pass or fail for the placebo, subset and negative-control tests on the fits it covers,
 and other fits print their numbers without one.
-[Longitudinal refutation](../technical-reference/validation-methods.md#longitudinal-refutation)
-lists every test.
+The "Longitudinal refutation" part of
+[refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
+every test.
 
 `result.sensitivity.simulated_confounding()` covers an uncensored panel with an end-of-study
 outcome and no covariate measured after the first node, as
