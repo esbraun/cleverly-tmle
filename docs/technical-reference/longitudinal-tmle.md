@@ -1169,8 +1169,7 @@ level, and the identity check fails.
 
 The `isotonic_t2` cell of the [point survival curve study](method-evidence/point-survival-curve.md)
 fits `isotonic=True` on a curve that rises by about nine standard errors, so the projection moved
-no level in its 4,800 replications. It shows that the projection leaves the interval of a strictly
-increasing curve unchanged. No registered study measures an interval after a projection that moves
+no level in its 4,800 replications. On that law the projection left the interval unchanged. No registered study measures an interval after a projection that moves
 a level.
 
 ### Known node mechanisms
@@ -1328,7 +1327,7 @@ sums no risk curve.
 | the interval | `bootstrap_interval="percentile"` (default) takes `np.quantile` of the draws. `"bca"` reads bias-corrected and accelerated limits as order statistics, with the acceleration from each estimate's own influence curve. With `id=` the bootstrap resamples clusters, so the acceleration reads the cluster sums of the curve. A derived estimate reads its own curve on the scale of its draws, with a ratio's log and a decreasing `transform=` undone. A draw equal to the estimate counts for half in $z_0$. `"bca"` without `n_bootstrap` raises `ValueError` |
 | the band | with `simultaneous=True` and two or more estimates that supply inference, `result.bootstrap_band` holds the studentized sup-t band. Its critical value is the $\lceil (1-\alpha)(B+1) \rceil$-th order statistic of $\max_j \lvert\psi^*_{bj}-\hat\psi_j\rvert / SE^*_{bj}$. The multiplier band in `result.simultaneous` does not change |
 | a failed replicate | it is dropped and counted in `n_failed`, and it is not drawn again. A resample that leaves a regimen with no followers fails |
-| status | a replicate carries no status. The fit's status names the bootstrap columns. When the status withholds the interval, as `few_cluster_plugin` does below 20 clusters, the summary's bootstrap table reads `bootstrap SD (diagnostic)` and `percentile range (diagnostic)`, with a `bootstrap_diagnostic` note. A fit with a Student $t$ reference, at 20 to 39 clusters, prints `bootstrap SE` and a percentile CI |
+| status | a replicate carries no status. The fit's status names the bootstrap columns. Below 20 clusters the bootstrap is a diagnostic whatever the status, and so it is under a status that withholds the interval: the summary's bootstrap table reads `bootstrap SD (diagnostic)` and `percentile range (diagnostic)`, or `BCa range (diagnostic)`, with a `bootstrap_diagnostic` note. A fit with a Student $t$ reference, at 20 to 39 clusters, prints `bootstrap SE` and a percentile CI |
 | replay | `truncation_curve()` does not rerun the bootstrap. Its check at the fitted bound compares the estimates without their bootstrap summaries |
 | random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
 | parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
@@ -1629,8 +1628,8 @@ its own split. The expansion
 $\hat\psi_r - \psi_0 = P_n D^* + \mathrm{Rem}_r + o_P(n^{-1/2})$ with
 $\mathrm{Rem}_r = o_P(n^{-1/2})$ holds under the conditions that the single-draw row of the
 estimator states. For `LTMLE` that is the product rate over the outcome and mechanism errors, or a
-known mechanism. `SDR` has no interval when only one nuisance is consistent, and a boundary or
-few-cluster fit has no interval at all. Under those conditions, for a fixed `R`, the median lies
+known mechanism. `SDR` has no interval when only one nuisance is consistent, a boundary fit has no
+interval, and a few-cluster fit has an `experimental` $t$ interval that no study measures. Under those conditions, for a fixed `R`, the median lies
 between the smallest and the largest draw. Its remainder is therefore at most
 $\max_r |\mathrm{Rem}_r|$, which is $o_P(n^{-1/2})$. The displacement term is $o_P(n^{-1})$, so it
 is a finite-sample split adjustment.
@@ -1650,7 +1649,7 @@ estimates, `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `co
 the band. A name that withholds inference in one draw withholds it in the report. The stored
 `result.repeats[r].estimates` keep their own statuses.
 
-**Seeds.** The fold assignment, the learners and the multiplier band read these seeds.
+**Seeds.**
 
 | part | `repeats=1` | `repeats` above 1 |
 | --- | --- | --- |
@@ -1661,7 +1660,7 @@ the band. A name that withholds inference in one draw withholds it in the report
 At one draw a `random_state=None` fit sends `None` to its learners, as before. The point-treatment
 engine sends the fresh fold seed to its learners at one draw. The two engines differ there.
 
-**Diagnostics and replay.** On a repeated fit, each report reads these draws.
+**Diagnostics and replay.** Some reports of a repeated fit read draw 1 only.
 
 | report | what it reads |
 | --- | --- |
@@ -1746,7 +1745,7 @@ node is included too. [`IPSI`](#incremental-interventions-over-time) uses the sa
 tilt.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
-it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node
+it reduces `n_folds` to the cluster count, and a fit with fewer than 20 takes `"few_cluster_plugin"`: its $t$ interval is shown under the `experimental` label. At few clusters a training fold can lack a first-node
 level. The fit then raises `LongitudinalError` after the draw, and the message names the
 in-sample fit. A training fold whose followers all hold one outcome value reads that value, as
 [a node with no event](#a-node-with-no-event) states.
@@ -1768,7 +1767,7 @@ Two registered studies measure the fit, and both publish under `reporting`. The
 [clustered cross-fitted study](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) pairs
 the fit with R `lmtp` 1.5.4 at 100 clusters of 40 rows. Its four cluster-robust pairs and five
 paired comparisons pass. Its band covers 0.933, and the lower end of that coverage's 99% interval,
-0.919, falls below the 0.92 floor. The `band-finite-sample` owner holds that cell. The
+0.919, falls below 0.92, the lower edge of the calibration band. The `band-finite-sample` owner holds that cell. The
 [few-cluster study](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) measures the
 $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 
@@ -1778,7 +1777,7 @@ $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 | no informative-size cell | the size enters no longitudinal study law. `clustered-unequal-cvtmle` measures the row-weighted target for point treatment |
 | no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
 | the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
-| 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (b) holds it |
+| 4 to 19 clusters | the fit takes `"few_cluster_plugin"`, and its $t$ interval is shown under the `experimental` label. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (b) holds it |
 
 [Discharge to readmission](../examples/discharge-to-readmission.ipynb) fits a clustered
 two-decision program at 100 teams, and compares its interval with the fit that leaves `cluster=`
@@ -2254,7 +2253,7 @@ stays exact to $10^{-12}$. The Taylor remainder along a path is second order and
 | survival horizons | one backward pass per horizon, with the survival target above | the survival exact law |
 | competing risks | one cause at a time, with the all-cause survival factor | the competing exact law |
 | observation weights | every regression and mechanism is weighted, and the estimate is the weighted mean of $\varphi$ | the weighted exact law. A second test shows that the weights move $\pi_t$ by more than 0.05 |
-| clusters, `id=` | whole-cluster folds and a cluster-summed curve. The few-cluster rules of `LTMLE` apply: below 20 clusters the fit reports no interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
+| clusters, `id=` | whole-cluster folds and a cluster-summed curve. The few-cluster rules of `LTMLE` apply: below 20 clusters the fit takes `"few_cluster_plugin"` and shows an `experimental` $t$ interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
 | contrasts and bands | a fixed-dimension stack of the plan and horizon curves. The multiplier band covers the declared plans and horizons | `tests/unit/test_ipsi_e2e.py` |
 | `msm=` | each cell's $\varphi$ is projected onto the working model. The identity link is supported. A logit or log link is accepted only when its projection converges | the exact-law projection linear in $\log\delta$; the logit refusal in `tests/unit/test_ipsi_e2e.py` |
 | known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$ for every level of the node. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law; for three levels, `tests/unit/test_categorical_ipsi_declaration.py` |
@@ -2407,25 +2406,23 @@ Three registered studies measure fits of three, four and five decisions:
 [binary `LTMLE`](method-evidence/long-horizon-longitudinal-tmle.md),
 [three-level `LTMLE`](method-evidence/long-horizon-categorical-longitudinal-tmle.md) and
 [`SDR`](method-evidence/long-horizon-sequentially-doubly-robust-estimation.md). Their laws are the
-$(B, s, c_0)$ family of `tests/discrete_law_longitudinal_horizon.py`, with binary or three-level
-nodes and no continuous covariate or outcome. Each fit declares the exact treatment and
-censoring mechanisms and regresses the outcome with a quasibinomial GLM. `SDR` regresses its
-earlier transforms by least squares. The support rows `G46.tmle.*` and `G46.sdr.*` cite the
+family of `tests/discrete_law_longitudinal_horizon.py`, with binary or three-level treatment nodes
+and no continuous covariate or outcome. Apart from the reported `learned_mechanism` cells, each fit
+declares the exact treatment and censoring mechanisms and regresses the outcome with a
+quasibinomial GLM. `SDR` regresses its earlier transforms by least squares. The fits are in sample,
+except one five-fold scenario in the three-level `LTMLE` study and one in the `SDR` study, and the binary study adds a working model
+over treatment duration at five decisions. The support rows `G46.tmle.*` and `G46.sdr.*` cite the
 studies.
 
-The Wald interval gates a quantity only where $n$ is at least twice its exact-law tail size
-$n_\kappa$. Below that size the BCa interval at $B = 199$ gates instead. At three and four decisions
-the studies gate BCa on plans without a known stochastic node only. A row checks the plan family
-and not $n$, so the first note of each row states the sizes at which the study gates each interval.
-The "BCa and band scope" row of [the full-refit bootstrap](#the-full-refit-bootstrap) lists the
-licence of each row. The learned-mechanism cells report and gate nothing, so the learned rows
-license the point estimate only.
+The "BCa and band scope" row of [the full-refit bootstrap](#the-full-refit-bootstrap) gives the
+licence of each row and the rule that decides whether the Wald or the BCa interval gates. The cross-fitted and
+working-model scenarios write Wald rows only. `G46.sdr.sdr_categorical_k3` and `sdr_categorical_k4`
+rest on calibration cells only. The two learned rows rest on a bias check of the third arm's
+learned treatment, which states no interval, so they license the point estimate only.
 
 One reporting row is red. In the `sdr_categorical_k5_switch` scenario, the Wald interval of
 `ey_regimen[switch]` covers 0.9133 at $n$ = 72,000, below its $n_\kappa$ of 134,244. The owner
-`X39-below-tail-size` holds it. The R comparators (`ltmle`, `lmtp`) are pending under
-[X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the evidence is Python
-property evidence.
+`X39-below-tail-size` holds it.
 
 ### Refutation and sensitivity checks
 
