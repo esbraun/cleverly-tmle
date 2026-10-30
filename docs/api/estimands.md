@@ -28,5 +28,6 @@ that reading adds.
    cleverly.IncrementalMean
    cleverly.IncrementalEffect
    cleverly.MSMProjection
+   cleverly.msm.MSM
    cleverly.ControlledDirectEffect
 ```

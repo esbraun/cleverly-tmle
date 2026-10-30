@@ -1,10 +1,8 @@
 # Synthetic datasets
 
-Generators return data together with known population quantities and are intended for examples,
-tests, and method studies.
-
-Each generator accepts a sample size, random seed, and dataframe backend. Its return value contains
-the generated frame and a mapping of known population quantities.
+The `make_*` generators draw synthetic data with known population quantities, for examples, tests,
+and method studies. Each takes a size argument, a `seed`, and a dataframe `backend`, and returns the
+frame with a dictionary of the known quantities.
 
 Three functions serve the navigation program that the [examples](../examples/index.md) share.
 
@@ -36,10 +34,10 @@ Eight names serve the subscription-retailer program of the [offers tutorial](../
 | `win_back`, `win_back_then_ship` | the two dynamic rules, as functions of the week's engagement |
 | `OFFER_PLANS`, `OFFER_LEVELS`, `OFFER_WEEKS` | the five plans by name, the three offer levels, and the number of weekly sends |
 
-`make_sequential_offers` returns a long panel and takes the keyword `policy`. It is not in `GENERATORS`,
-which holds generators of one wide frame with the columns `Y` and `A`.
+`make_sequential_offers` is not in `GENERATORS`, which holds generators of one wide frame with the
+columns `Y` and `A`.
 
-Seven names serve the pricing tutorial of the same program.
+Seven names serve the [pricing tutorial](../examples/sequential-pricing.ipynb) of the same program.
 
 | name | what it holds |
 | --- | --- |

@@ -1,7 +1,13 @@
 # Sensitivity and validation
 
-Use these objects after estimation. Diagnostics inspect fitted artifacts, sensitivity methods vary
-assumptions, and inference primitives construct derived uncertainty summaries.
+Use these objects after estimation. `result.sensitivity` is a `SensitivityFacade`, whose methods
+vary assumptions that the data cannot check, such as no unmeasured confounding, and report how the
+estimate moves. `result.diagnostics` is a `DiagnosticsFacade`, whose methods check the fit itself;
+its `run_all()` runs every supported check that needs no further arguments. Each facade's
+`capabilities` lists the analyses that the fit supports. The functions in `cleverly.sensitivity` and
+`cleverly.validation` take the result as their first argument. [Results and
+assessment](../user-guide/results-assessment.md) shows the common calls, and [validation
+methods](../technical-reference/validation-methods.md) states the conditions of each.
 
 ## Sensitivity
 
@@ -37,6 +43,10 @@ assumptions, and inference primitives construct derived uncertainty summaries.
 ```
 
 ## Validation
+
+`refute()` reads the outcome laws below (`GaussianAdjustmentOutcome` and the rest) for its
+generated-outcome tests, and judges each reading against its `EquivalenceBands`. `CoverageStudy`
+measures bias and coverage over repeated draws from a law you declare.
 
 ```{eval-rst}
 .. autosummary::
@@ -76,12 +86,16 @@ assumptions, and inference primitives construct derived uncertainty summaries.
 
 ## Inference primitives
 
+These functions build intervals, bands, and tests from influence curves or bootstrap draws.
+`Transform` is a monotone map on whose scale a contrast's interval and test are computed.
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
 
    cleverly.inference.BootstrapResult
    cleverly.inference.SimultaneousBands
+   cleverly.inference.Transform
    cleverly.inference.delta_method
    cleverly.inference.influence_covariance
    cleverly.inference.influence_variance

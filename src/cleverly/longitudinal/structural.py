@@ -1219,7 +1219,7 @@ def _extreme_share(own: FloatArray, weights: FloatArray, margin: float) -> float
 # ----------------------------------------------------------------------- the estimator
 
 
-class StructuralNestedMean:
+class StructuralNestedMean:  # numpydoc ignore=PR01
     """G-estimation of a linear structural nested mean model over treatment nodes.
 
     The estimator reports the blip coefficients of each node, the mean outcome with every
@@ -2133,15 +2133,33 @@ class StructuralNestedMeanResult:
         return len(self.estimates)
 
     def keys(self) -> Any:
-        """The parameter names in report order."""
+        """The parameter names in report order.
+
+        Returns
+        -------
+        KeysView of str
+            The keys of ``estimates``.
+        """
         return self.estimates.keys()
 
     def values(self) -> Any:
-        """The estimates in report order."""
+        """The estimates in report order.
+
+        Returns
+        -------
+        ValuesView of ParameterEstimate
+            The values of ``estimates``.
+        """
         return self.estimates.values()
 
     def items(self) -> Any:
-        """The ``(name, estimate)`` pairs in report order."""
+        """The ``(name, estimate)`` pairs in report order.
+
+        Returns
+        -------
+        ItemsView of (str, ParameterEstimate)
+            The items of ``estimates``.
+        """
         return self.estimates.items()
 
     def __contains__(self, name: object) -> bool:
