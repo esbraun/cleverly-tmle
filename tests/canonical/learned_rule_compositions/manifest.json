@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule value with fold targeting, weights and clusters",
+  "slug": "learned-rule-compositions",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-compositions",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "0fb26096aeeb3d804f9a61e57a95240a6f484e86",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 4000,
+    "n": 2000,
+    "seed": 20263011,
+    "resampling_seed": 20263012,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-compositions": 0.01
+    },
+    "scenarios": {
+      "fold_targeted": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "weighted": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "clustered": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme='fold' (fold_targeted) or 'pooled', g_bounds='auto', random_state=<fold seed>) at n = 2000; weights='w' (weighted); id='cluster' (clustered)",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": {
+      "fold_targeted": "RM30 non_exceptional",
+      "weighted": "RM30 misspecified_limit, weight w = 1 + 1.5 * 1{W1 > 0}",
+      "clustered": "RM30 non_exceptional plus u ~ N(0, 1.5^2) shared by 10 rows per cluster; Qbar0 marginal over u by 64-node Gauss-Hermite quadrature"
+    },
+    "truth": "per replication: refit each fold's outcome learner on the fit's own training rows with its weights, require the fit's rule on every validation row, and average the fold rules' values E[w Qbar0(d, W)] / E[w] by the trapezoid rule on 4001 points of W1 for each W2",
+    "oracle_se": "the row-level curve's SD at each fold rule, by the same quadrature; descriptive, and row-level for clustered",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_compositions.py": "eb08f70cab02b0c42e15267972d13b2803ba795a082ccacfdc994607a24324f5",
+    "tests/studies/learned_rule_compositions_properties.py": "e94c4050bd4d248ef07e8799e0231f7022ebeb761f370d8b42f66b95def385d4",
+    "tests/studies/_learned_rule_compositions_law.py": "e902d710039f83906540a22363e07de32a10ecaaaeac7d20063c9bc49bb681d3",
+    "tests/studies/_learned_rule_law.py": "c8afd96bc3bc930ba06cb0148c0b8c8c02f745b3c015ecee3b3c75c7d61924df",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "d5f81abcfbff73e986a487c1807e1a446d2899615021622c513ee191c5609a1f",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "2ed3647742446e881aab28afcacea5bb626857bed12ab23c54b6930e00e64d14",
+    "summary.csv": "81c216fed5df5e1a9d10cb91c3db5665e22f74ce0d6044f410c26f81edf67356",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "fefdd029dfebd5413bb18bb07f36ea39dd6f7106498e62d57184c8d359360d2b",
+    "property-replicates.parquet": "3cb2665b58c8ac39a3862c27b9bda4710d389ffda073c8d362c756618bda8657",
+    "properties.csv": "b42c6ff57bf108809fac3484bffe0a6896fcfd31a1a71769c1c1507785d1df82",
+    "harness.csv.gz": "759cfeb4351c2424358db9f17df88582e942575592b044f9c6a6c2b52bcd6948"
+  }
+}

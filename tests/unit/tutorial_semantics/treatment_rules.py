@@ -68,8 +68,8 @@ def _check_probe_log() -> None:
     for literal, line in _PROBE_LINES.items():
         assert literal in UNPRINTED_DECIMALS
         assert line in text, f"{line!r} is not in {_PROBE_NAME}"
-    # The learned rule's coverage and SE ratio come from the learned-rule line, and the lottery's
-    # coverage from the lottery line.
+    # The learned rule's coverage and SE ratio come from the learned-rule line, and the random
+    # offer's coverage from its line, which the committed probe log labels "lottery".
     rule_line = next(line for line in text.splitlines() if line.startswith("learned rule:"))
     assert "SE over SD 0.9918" in rule_line and "coverage 0.9475" in rule_line
     lottery_line = next(line for line in text.splitlines() if line.startswith("lottery minus"))
@@ -180,32 +180,32 @@ def _check_failure(namespace: dict[str, Any]) -> None:
     assert abs(float(logistic["true value"]) - namespace["true_target"]) < 0.001
 
 
-def _check_lottery(namespace: dict[str, Any]) -> None:
+def _check_random_offer(namespace: dict[str, Any]) -> None:
     options, gain = namespace["options"], namespace["gain"]
     for name in options.to_frame()["estimand"]:
         support = options[name].support
         assert support.label == "supported" and support.row == "T20"
-    # "With no offers, 0.668 ...; under the lottery, 0.694".
+    # "0.668 with no offers and 0.694 under the random offer".
     assert round(options["ey_regime[offer to none]"].psi, 3) == 0.668
-    assert round(options["ey_regime[lottery]"].psi, 3) == 0.694
+    assert round(options["ey_regime[random offer]"].psi, 3) == 0.694
     # At a glance: the gain's interval contains the true gain, and is clear of zero.
     true_gain, truth = namespace["true_gain"], namespace["truth"]
     assert covers(gain, true_gain) and gain.ci[0] > 0.0
     # "so it gains more than offering navigation to everyone would".
     assert true_gain > truth["ate"]
-    # The lottery offers navigation to about a quarter of patients.
+    # The random offer reaches about a quarter of patients.
     frame = namespace["frame"]
-    chance = namespace["lottery_chances"](frame)[:, 1]
+    chance = namespace["random_chances"](frame)[:, 1]
     assert 0.2 < chance.mean() < 0.3
-    assert np.allclose(namespace["lottery_chances"](frame).sum(axis=1), 1.0)
+    assert np.allclose(namespace["random_chances"](frame).sum(axis=1), 1.0)
     # "nothing that needs attention, and the largest weight is 3.19".
     assert not namespace["options_assessment"].attention
-    weights = namespace["lottery_overlap"]["max_ratio"]
+    weights = namespace["random_overlap"]["max_ratio"]
     assert round(float(weights.max()), 2) == 3.19
 
 
 def check(namespace: dict[str, Any]) -> None:
-    """Pin the readings of the learned-rule and lottery fits on their seeded draw."""
+    """Pin the readings of the learned-rule and random-offer fits on their seeded draw."""
     _check_probe_log()
     _check_study_pages()
     _check_data(namespace)
@@ -214,16 +214,16 @@ def check(namespace: dict[str, Any]) -> None:
     _check_learned(namespace)
     _check_assessment(namespace)
     _check_failure(namespace)
-    _check_lottery(namespace)
+    _check_random_offer(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The sensitivity, refutation and generated-outcome refits of the lottery's gain."""
-    lottery_fit, gain = namespace["lottery_fit"], namespace["gain"]
-    name = namespace["LOTTERY"]
+    """The sensitivity, refutation and generated-outcome refits of the random offer's gain."""
+    random_fit, gain = namespace["random_fit"], namespace["gain"]
+    name = namespace["RANDOM_OFFER"]
     # The named contrast that the checks read is the `options.contrast` difference.
-    assert lottery_fit[name].psi == pytest.approx(gain.psi, abs=1e-6)
-    assert lottery_fit[name].std_error == pytest.approx(gain.std_error, abs=1e-6)
+    assert random_fit[name].psi == pytest.approx(gain.psi, abs=1e-6)
+    assert random_fit[name].std_error == pytest.approx(gain.std_error, abs=1e-6)
 
     robustness, bound = namespace["robustness"], namespace["bound"]
     # "The robustness value, 0.076 ... 0.039 on both sides".
@@ -232,14 +232,14 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert round(bound.bias, 4) == 0.0008 and bound.ci_lower > 0.0
     assert round(bound.ci_lower, 4) == 0.0124 and round(bound.ci_upper, 4) == 0.0400
     # "They are one-sided, which is why they sit inside the two-sided interval".
-    low, high = lottery_fit[name].ci
+    low, high = random_fit[name].ci
     assert low < bound.ci_lower and bound.ci_upper < high
     # "Living alone has strengths of only 0.003 and 0.002".
     benchmark = namespace["benchmark"]
     assert round(benchmark.cf_y, 3) == 0.003 and round(benchmark.cf_d, 3) == 0.002
 
     reports = namespace["refutations"]
-    assert list(reports) == ["lottery's gain", "learned rule's value"]
+    assert list(reports) == ["random offer's gain", "learned rule's value"]
     scatter = {}
     for label, report in reports.items():
         tests = {test.name: test for test in report.tests}
@@ -251,11 +251,11 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert abs(tests["random_common_cause"].statistic) < 0.05
         scatter[label] = round(tests["subset"].statistic, 2)
     # "the scatter ratio ... is near 1 for both" (0.94 and 0.91).
-    assert scatter == {"lottery's gain": 0.94, "learned rule's value": 0.91}
+    assert scatter == {"random offer's gain": 0.94, "learned rule's value": 0.91}
     placebo = {label: report.tests[0] for label, report in reports.items()}
-    # "the lottery's gain averages 0.0013, near zero, and the rules are worth 0.6692 on average,
+    # "the random offer's gain averages 0.0013, near zero, and the rules are worth 0.6692 on average,
     # near the plain share of 0.6695".
-    assert round(placebo["lottery's gain"].mean, 4) == 0.0013
+    assert round(placebo["random offer's gain"].mean, 4) == 0.0013
     # "the `t` column ... is below 1 for both".
     assert all(abs(test.statistic) < 1.0 for test in placebo.values())
     share = float(namespace["frame"]["home_30"].mean())

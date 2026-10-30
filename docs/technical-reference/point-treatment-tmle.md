@@ -591,8 +591,7 @@ counts, so each arm must appear in two distinct clusters. See
 | `treatment_adjustment=` | the adjustment columns the treatment mechanism reads | **yes.** It restricts the statistical model. See [treatment-mechanism covariates](#treatment-mechanism-covariates) |
 | `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
 
-`submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level. The
-two are separate keywords because they once shared a name and a fit read one as the other.
+`submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level.
 
 ### Stopping rules, step bound and best iterate
 
@@ -706,8 +705,9 @@ value on every fit.
 
 | output | content |
 | --- | --- |
-| `res.summary()` | one pinned line: "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage." |
-| `res.summary()`, rule missed | the pinned line "the targeting did not meet the {rule} stopping rule; {detail}" |
+| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors of bias (on {name}). If the standard error is right, a {level} interval with that bias still covers the truth at least {bound} of the time." It names the estimand with the largest residual and rounds the bound down to 0.01 percentage points. A residual below 0.001 prints as "less than 0.001" |
+| `res.summary()`, rule missed | the warning "The fit did not meet its declared stopping rule for {names}, so the {spread} may be off by more than the rule allows. result.diagnostics.score_equations() gives the numbers." |
+| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
 | `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one. The rule also judges the `(strata)` row of a stratified working model and the `(reduced)` row of a `DRTMLE` fit, because the rule stops those outcome solves too. A `(mechanism)` row keeps the default bar |
 | `score_check()`, `DRTMLE` correction rows | under a declared rule, a `D*_Q` or `D*_Y` row is a `"diagnostic"`, because it restates the outcome columns that the `(reduced)` row judges. A `D*_g`, `D*_A` or `D*_M` row and every identity row keep their bars |
 | `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se`, `coverage_bound` and, under `scaled_var`, `rule_bound_se` |
@@ -927,7 +927,8 @@ the full set.
 
 The declaration restricts the observed-data model, and it does not change the estimand. The
 design carries a pinned text in `Identification.model_restrictions`. Every estimator on the design
-prints it after the assumptions, and a low-level fit prints the same text from the data. The text
+prints it as the first item under Assumptions in `summary(detail="full")`, and a low-level fit
+prints the same text from the data. The text
 reads, with $W_g$ written as `{name, name}`:
 
 > statistical-model restriction, treatment-mechanism covariates {Wg}: the treatment mechanism
@@ -1168,7 +1169,7 @@ rows.
 | a second declaration of the mechanism | `ValueError` | declare it once, on the data or at fit |
 
 The result records the choice. `TMLEConfig.treatment_mechanism` reads `"known"`, the summary
-prints `treatment mechanism: known (declared)`, and `to_frame()` adds a `treatment_mechanism`
+header prints `Treatment model: known (declared)`, and `to_frame()` adds a `treatment_mechanism`
 column. A saved result keeps the record.
 
 ### Known regimes
@@ -1201,7 +1202,7 @@ refuses an undeclared density, and a density declared `"estimated"`, when the re
 the [scope page](scope-and-refusals.md#wrong-by-construction) gives the omitted variance term on
 one exact law. A realized learned density defines a different target. Its inference needs
 conditions that the `Stochastic` API does not check. The
-[treatment-rules example](../examples/treatment-rules.ipynb) fits a known lottery in sample.
+[treatment-rules example](../examples/treatment-rules.ipynb) fits a random offer with known chances in sample.
 
 `Static`, `Rule`, and `Stochastic` implement the intervention protocol. `RegimeMean` and
 `RegimeContrast` define the levels and the contrasts. See Robins (2004), Diaz Munoz and van der
@@ -1284,10 +1285,13 @@ correct treatment model. When cluster sizes depend on the outcome, the fold-eval
 the ratio bias that [CV-TMLE](cv-tmle.md) measures. For an unweighted fit the bias vanishes at
 equal sizes. A weighted fold mean is a ratio of weighted sums at any sizes.
 
-Until a registered study covers these settings, each fit carries the experimental label. The
-study draws equal cluster sizes, so its key marks a learned-rule fit with unequal sizes
-(`unequal_clusters`), and such a fit keeps the label. Weights declared estimated
-(`weights_estimated=True`) refuse.
+The [compositions study](method-evidence/learned-rule-compositions.md) measures each setting at
+n = 2,000, and its fits read supported. Coverage is 0.9427 under fold targeting, 0.9537 with
+known weights at `misspecified_limit`, and 0.9445 at 200 equal clusters of 10. At 30 clusters the
+t interval covers 0.9400 to 0.9528. The study draws equal cluster sizes only, so its key marks a
+learned-rule fit with unequal sizes (`unequal_clusters`), and such a fit reads experimental. A
+fit with both weights and clusters also reads experimental, because no cell measures it. Weights
+declared estimated (`weights_estimated=True`) refuse.
 
 #### The mean over splits
 
@@ -1370,10 +1374,10 @@ gives the fields of a split.
 
 The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
 `rule`, `target` and `quantile_levels` give the rule class, the target kind and the quantile levels.
-`result.summary()` prints the target line of `LearnedRuleRecord.describe()`, which gives the range
-of the split estimates and of the treated shares over every split. The rule of each row in split
-$r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model,
-and the saved folds, learner templates and seeds replay it.
+`result.summary(detail="full")` prints the target line of `LearnedRuleRecord.describe()` under
+Method details, which gives the range of the split estimates and of the treated shares over every
+split. The rule of each row in split $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`.
+The fit keeps no fitted fold model, and the saved folds, learner templates and seeds replay it.
 
 A refit relearns the rules, so the full-refit bootstrap refuses.
 `simulated_confounding` and the `refute` tests `subset`, `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` hold each row's realized rule fixed. `placebo` relearns the rules, because the placebo law gives every rule the value `E[Y]`.
@@ -1739,7 +1743,7 @@ surface rule in [the architecture invariants](../architecture-invariants.md).
 
 **Evidence class.** The estimator is validated by Python property evidence: exact-law checks of
 the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
-[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment, in sample or cross-fitted. The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
+[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment with a continuous outcome, complete data, no weights and independent units, in sample or cross-fitted, and cross-fitted with a declared mechanism or with `strata=` (`_categorical_point_rows` in `src/cleverly/_support_rows.py`). The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
 those rows has the support label `experimental`. No external comparator exists for the categorical
 tilt. The [schedules and service doses example](../examples/schedules-and-intensity.ipynb)
 fits two tilts of a three-level schedule with parametric learners, in sample.
@@ -1789,7 +1793,7 @@ stratum's mechanism is tilted along its own covariate. A stratum that holds no r
 refuses before any learner, because its mechanism equation may then have no finite root. The root is
 missing only if some direction separates: every observed level maximises the covariate in its row.
 That condition depends on the fitted outcome regression, so the guard reads the data alone and is
-conservative, as the binary guard was.
+conservative, as the binary guard is.
 
 Kennedy (2019),
 arXiv v3, Section 6, lists "how mean outcomes under different interventions vary with covariates" as future

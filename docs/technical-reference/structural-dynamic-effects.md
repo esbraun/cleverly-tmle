@@ -142,7 +142,7 @@ s_t(\psi) = \tilde Z_{t,t}\Big(\tilde Y_t - \sum_{j \ge t} \tilde Z_{j,t}^\top \
 $$
 
 The estimator solves $E_n[s_t] = 0$ from the last node to the first. Node $t$ uses the solved
-$\psi_j$ for $j > t$. The validity argument is short. At the true $\psi$, the quantity
+$\psi_j$ for $j > t$. At the true $\psi$, the quantity
 $Y - \sum_{j \ge t} Z_j^\top \psi_j$ has mean $E[Y(\bar A_{t-1}, 0) \mid H_t, A_t]$. By
 exchangeability that mean does not depend on $A_t$. The centered score therefore has mean zero
 given $(H_t, A_t)$, and $\tilde Z_{t,t}$ is a function of $(H_t, A_t)$.
@@ -397,9 +397,10 @@ differences.
 
 The library and the test suite never install EconML. `tests/canonical/econml_dynamic_dml/` holds a
 container, a hash-pinned `requirements.txt`, the generator, and a committed fixture of seven
-cases. The fixture came from a virtual environment whose installed distributions equal those pins,
-not from the container. It records that route under `environment`. Nobody has built the container. `tests/unit/test_structural_econml_parity.py` (W2) refits each case on the folds and
-nuisances that EconML used.
+cases. The committed fixture came from the container, and records that route under
+`environment` (`"route": "container"`). The directory README reports that two container builds on
+two hosts gave fixtures that agree within 8.9e-16. `tests/unit/test_structural_econml_parity.py`
+(W2) refits each case on the folds and nuisances that EconML used.
 
 | quantity | result |
 | --- | --- |

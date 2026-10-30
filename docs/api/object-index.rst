@@ -49,6 +49,7 @@ categorized API tables.
    cleverly.IncrementalMean
    cleverly.IncrementalEffect
    cleverly.MSMProjection
+   cleverly.msm.MSM
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod
@@ -68,6 +69,16 @@ categorized API tables.
    cleverly.Runtime
    cleverly.MethodAvailability
    cleverly.MethodAvailabilities
+   cleverly.longitudinal.LTMLE
+   cleverly.longitudinal.SDR
+   cleverly.longitudinal.IPSI
+   cleverly.longitudinal.SequentialGComputation
+   cleverly.longitudinal.SequentialIPW
+   cleverly.longitudinal.ParametricGFormula
+   cleverly.longitudinal.StructuralNestedMean
+   cleverly.longitudinal.StructuralNestedMeanResult
+   cleverly.longitudinal.StructuralModelCheck
+   cleverly.longitudinal.snmm
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
@@ -97,6 +108,7 @@ categorized API tables.
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
+   cleverly.learners.GLM
    cleverly.learners.ParametricOutcome
    cleverly.learners.ParametricMechanism
    cleverly.learners.ParametricFitDiagnostics
@@ -201,6 +213,7 @@ categorized API tables.
    cleverly.validation.refute
    cleverly.inference.BootstrapResult
    cleverly.inference.SimultaneousBands
+   cleverly.inference.Transform
    cleverly.inference.delta_method
    cleverly.inference.influence_covariance
    cleverly.inference.influence_variance

@@ -28,7 +28,9 @@ from cleverly._inference_status import (
     precedent_status,
     status_record,
 )
+from cleverly._summary.vocabulary import SPREAD_LABELS
 from cleverly.inference import influence
+from cleverly.inference.influence import spread_name
 
 ROOT = Path(__file__).resolve().parents[2]
 INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
@@ -95,7 +97,6 @@ class TestEachRecordIsComplete:
         for text in (
             record.reason,
             record.assessment_note,
-            record.summary_label,
             record.bootstrap_note,
             record.diagnostic_noun,
             record.reopened_by,
@@ -144,12 +145,6 @@ class TestEachRecordIsComplete:
         heading = re.compile(rf"^#{{2,4}} {re.escape(record.reopened_by)}\. ", re.MULTILINE)
         assert heading.search(ROADMAP.read_text(encoding="utf-8")), record.reopened_by
 
-    def test_the_summary_labels_are_distinct(self) -> None:
-        labels = [record.summary_label for record in STATUS_RECORDS.values()]
-        assert len(set(labels)) == len(labels)
-        # No label is the inferential header, so a diagnostic column never reads as one.
-        assert not {"std_err", "se", "standard error"} & set(labels)
-
     def test_the_diagnostic_nouns_are_distinct(self) -> None:
         nouns = [record.diagnostic_noun for record in STATUS_RECORDS.values()]
         assert len(set(nouns)) == len(nouns)
@@ -171,8 +166,8 @@ class TestTheDocumentedTable:
         rows = dict(zip(_documented_statuses(), _status_table(), strict=True))
         for status, record in STATUS_RECORDS.items():
             cells = " | ".join(rows[status])
-            # A shown status keeps the ordinary column. A withheld one names its own label.
-            label = "std_err" if record.interval == "shown" else record.summary_label
+            # A shown status keeps the ordinary column. A withheld one prints the plug-in SE.
+            label = SPREAD_LABELS[spread_name("std_err", status)]
             assert f"`{label}`" in cells
             assert f"[{record.reopened_by}](" in cells
 

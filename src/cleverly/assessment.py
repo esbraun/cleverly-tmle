@@ -2699,9 +2699,9 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         :func:`~cleverly.validation.refute.refute_refusal` is what the call raises from, and
         :func:`_argument_resolved` applies the request rule to ``tests``.  An omitted
-        ``tests`` means the default tests.  A fit given ``split_plan=`` defers on
-        ``tests``, because the default tests include ``subset`` and ``placebo`` still
-        runs.  So does the natural-course mean, which refuses ``placebo``.
+        ``tests`` means the default tests.  The natural-course mean defers on ``tests``:
+        it refuses ``placebo``, and the other default tests still run.  A fit given
+        ``split_plan=`` runs every default test, since ``subset`` keeps its own folds.
 
         The row resolves for the estimand the call would refit, which is the signature
         default when the request names none.  The estimand gate runs before this one and

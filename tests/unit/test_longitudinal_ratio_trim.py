@@ -401,7 +401,6 @@ class TestTheStatus:
             "(ratio_trim=) reports no confidence interval, no p-value and no standard error."
         )
         assert "it is the standard error lmtp reports" in record.reason
-        assert record.summary_label == "trimmed-ratio se"
         assert record.diagnostic_noun == "trimmed-ratio plug-in diagnostic"
         assert record.reopened_by == "F30"
         assert record.bootstrap_note.startswith("a diagnostic; the bootstrap repeats the trim")

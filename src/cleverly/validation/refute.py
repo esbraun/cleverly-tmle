@@ -1621,15 +1621,15 @@ def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> Refus
 
 
 def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a test that refits on another row set when the fit was given a split plan.
+    """Refuse a resampling test when the fit was given a split plan.
 
-    A fit that was given a :class:`~cleverly.SplitPlan` cannot refit on a different row
-    set: the plan holds one fold label per row of the original data, and there is no rule
-    here for which labels a resampled row inherits.  Left to the refit, ``subset`` gives the
-    caller a row-count ``DataError`` naming a "split plan" they did not mention in this
-    call, after paying for the tests that ran first, and ``bootstrap_measurement_error``
-    gives no error at all: its draw keeps the row count, so the labels land on resampled
-    units and the refutation silently reports a split the fit never ran.
+    A fit that was given a :class:`~cleverly.SplitPlan` cannot refit on rows drawn with
+    replacement: the plan holds one fold label per row of the original data, and there is
+    no rule here for which label a resampled row inherits.  Left to the refit,
+    ``bootstrap_measurement_error`` and ``bootstrap_stability`` give no error at all: a
+    draw keeps the row count, so the labels land on resampled units and the refutation
+    silently reports a split the fit never ran.  ``subset`` runs, because it refits on the
+    original fold labels of the units it keeps.
 
     ``getattr`` because ``TMLEResult.estimator`` is annotated ``Any`` and :func:`refute`
     reads it as a refit *seam*: anything with the ``refit`` signature serves, and
@@ -1647,9 +1647,9 @@ def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> R
     return _invalid(
         f"refutation test(s) {resampled} refit on rows this fit did not run, and "
         f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
-        "the rows it was realised on, by position, so it cannot label a refit that "
-        "drops rows or draws them with replacement, and dropping the plan for those "
-        "refits would refute a different split from the one the fit ran. Drop "
+        "the rows it was realised on, by position, so it cannot label a refit on rows "
+        "drawn with replacement, and dropping the plan for those refits would refute a "
+        "different split from the one the fit ran. Drop "
         f"{resampled} from tests=, or refit the result without split_plan= to refute "
         "a fit whose folds are drawn from the data each time"
     )
@@ -4830,17 +4830,16 @@ def refute(
     estimand : str
         Alias the tests are run for.
     tests : sequence of str
-        Which refutations to run. Parameters without a fixed reported-scale no-effect
-        value refuse ``placebo`` and ``negative_control_outcome`` before any refit.
-        Differences use zero; risk and odds ratios use one. A fit
-        given ``split_plan=`` refuses ``bootstrap_measurement_error``
-        before any refit. ``refute_refusal`` holds these refusals, and every refusal of a
-        generated-outcome or measurement-error request. The ``refute`` capability row
-        reads it for the same request, and defers on ``tests`` when the default tests meet
-        one and a smaller set runs. ``random_common_cause`` adds a column of independent
-        noise. A :class:`~cleverly.CTMLE` with an explicit ``ordering=`` places that column
-        after the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
-        ``evaluation=`` companion that lacks it.
+        Which refutations to run. Parameters without a fixed reported-scale no-effect value refuse
+        ``placebo`` and ``negative_control_outcome`` before any refit. Differences use zero; risk
+        and odds ratios use one. A fit given ``split_plan=`` refuses ``bootstrap_measurement_error``
+        and ``bootstrap_stability`` before any refit, and runs ``subset`` on its own folds.
+        ``refute_refusal`` holds these refusals, and every refusal of a generated-outcome or
+        measurement-error request. The ``refute`` capability row reads it for the same request, and
+        defers on ``tests`` when the default tests meet one and a smaller set runs.
+        ``random_common_cause`` adds a column of independent noise. A :class:`~cleverly.CTMLE` with
+        an explicit ``ordering=`` places that column after the declared ordering, and a
+        :class:`~cleverly.DRTMLE` refits without an ``evaluation=`` companion that lacks it.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses 20 for ``placebo``, ``subset`` and
         ``random_common_cause`` (``t`` with 19 degrees of freedom for the placebo), 100 for

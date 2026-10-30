@@ -202,7 +202,7 @@ test that pins it, and which settings the source audit refuses. The default
 
 `reduced_crossfit` sets where fold `k`'s reduced regressions (`Q_r`, `g_{r,1}`, `g_{r,2}`) train.
 On a cross-fitted fit, fold `k`'s empirical-process term has conditional mean zero only when those
-regressions are functions of the fold-`k` complement. The table defines the two settings.
+regressions are functions of the fold-`k` complement.
 
 | setting | fold `k`'s reduced regressions train on | fold `k`'s data reach them |
 | --- | --- | --- |
@@ -313,7 +313,7 @@ folds. One fit serves both slabs of the pair. With `n_folds=K` that is `K(K − 
 each primary learner. `TestThreeArms` in `tests/unit/test_drtmle_crossfit.py` counts the fits.
 Pass explicit learners and fewer folds when the default learner library is too slow.
 
-The table gives one measurement. The setting is the `both_correct` law of
+One measurement used the `both_correct` law of
 `tests/studies/canonical_drtmle.py` at n = 500, the default learner library, the default 10 folds,
 and one core. The measurement ran before the pair cache. That implementation made `K²` extra
 fits of each learner: it fitted each pair twice and refitted each production model. At `K = 10`
@@ -321,7 +321,7 @@ the extra fits now number 45 per learner in place of 100. The time was not measu
 
 | phase | `"pooled"` | `"foldwise"` |
 | --- | --- | --- |
-| initial nuisance fits | about 80 s | about 910 s (100 leave-two-out fits per learner) |
+| initial nuisance fits | about 80 s | about 910 s (100 extra fits per learner, before the pair cache) |
 | first refit of the reduced regressions | 192 s | 195 s |
 | one outer round after the first | not measured | about 200 s |
 

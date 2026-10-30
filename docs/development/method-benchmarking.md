@@ -209,7 +209,7 @@ rule never infers a pair from a cell name.
 | `known_mechanism_accuracy`, `ordinary_targeting`, `treatment_complete_case` | S1, S2, S4 as the verdict applies them | `row` |
 | `bootstrap_coverage` | S2 floor | `row` |
 | `randomizer_projection` | S1 on each arm, S9 on the pair of projections | `family` |
-| `repeat_stability` | S9 on the three-draw ratio (positive rows) and on the second-draw ratio (control, upper endpoint at or above the boundary); the longitudinal study adds the share clause | `family`, or `label` in `longitudinal-repeated-crossfit` |
+| `repeat_stability` | S9 on the three-draw ratio (positive rows) and on the second-draw ratio (control, upper endpoint at or above the boundary); the longitudinal study adds the one-draw spread-share floor (`STABILITY_SPREAD_FLOOR`) | `family`, or `label` in `longitudinal-repeated-crossfit` |
 | `single_robustness` | S14 over the two sizes | `family` |
 | `sequential_double_robustness` | S14 over the two sizes, with S1, S2, S4 on the both-correct pattern | `pair`, `row` |
 | `clustered_calibration`, `weighted_calibration` | S5 and S2 in the band | `row` |
@@ -257,9 +257,13 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
 | `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
 
-The job runs 5,892 cases in about 7,600 CPU-seconds, about 35 minutes on four workers. So it does not run in the fast tier, and its timeout is 105 minutes, three times the measured run. It runs on every pull
-request that touches `tests/studies/`, `tests/canonical/`, `src/cleverly/`, `pyproject.toml`,
-`uv.lock` or the workflow. A failed `git diff` fails the job instead of skipping it. Make it a
+The job ran 5,892 cases in about 7,600 CPU-seconds when measured, about 35 minutes on four
+workers, so it does not run in the fast tier. Its timeout is 180 minutes, because later studies
+brought main to 91% of the earlier 105.
+
+It runs on every pull request that touches
+`tests/studies/`, `tests/canonical/`, `src/cleverly/`, `pyproject.toml`, `uv.lock`, the workflow
+or `.github/actions/`. A failed `git diff` fails the job instead of skipping it. Make it a
 required check. It always reports, and it skips its steps on other pull requests.
 
 ### Choose the comparator before you write the runner

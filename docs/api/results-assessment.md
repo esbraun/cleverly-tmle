@@ -1,7 +1,8 @@
 # Results and assessment
 
 Use result objects to read estimates, uncertainty, influence curves, diagnostics, and provenance.
-Reports provide stable summaries and dataframe output for downstream analysis.
+Each result and report prints a readable summary with `summary()`, and `to_frame()` returns its
+rows as a dataframe.
 
 ```{eval-rst}
 .. autosummary::
