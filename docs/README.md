@@ -16,12 +16,9 @@ ordinary Markdown that is readable on GitHub.
 ## The examples contract
 
 [Examples](examples/index.md) carries sixteen tutorials and the TWINS notebook. Every method entry
-in the technical reference links to at least one tutorial, and the table lists the tutorials each
-entry links to. Three tutorials do not yet link back. Point-treatment-tmle and survey-nonresponse
-link to the CV-TMLE entry instead of the point-treatment entry, and sequential-offers links to the
-sequential-baselines simulation study instead of its entry. A new method entry needs a new
-tutorial, or a new section in a tutorial that fits its question, and the entry and the tutorial
-link to each other in both directions.
+in the technical reference has at least one tutorial, and each entry and its tutorials link to each
+other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
+that fits its question.
 
 | method entry | tutorials |
 | --- | --- |
