@@ -275,9 +275,10 @@ evaluation rows. No derivation here covers its interval. Balkus, Laith and Hejaz
 split correlated units can still remove an empirical-process term under their conditions. Their
 result does not establish the variance of this package's estimators.
 
-Collaborative TMLE refuses `cluster=` at every setting rather than draw that split. The
-[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and the
-message. Longitudinal TMLE draws whole-cluster folds, and
+Collaborative TMLE refuses `cluster=` at every `strategy` except `"derivative"` (C-TMLE0), whose
+clustered fit takes the cluster statuses above. The refusal (`CTMLE.fit` in
+`src/cleverly/estimators/ctmle.py`) names roadmap items X51 and F22, and the
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit. Longitudinal TMLE draws whole-cluster folds, and
 [longitudinal clusters](longitudinal-tmle.md#clusters) states its step.
 
 The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li (2024), Section 2,
