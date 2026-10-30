@@ -1006,12 +1006,17 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 | --- | --- | --- | --- |
 | (i) the mean over a fixed number of splits | `repeats` above 1 | linearity over a common limit. Under the fold-average target that the package reports, the median of split estimates estimates no defined parameter, so it stays refused | natural extension |
 | (j) a learned rule with a controlled intermediate | `intermediate=` | a two-time-point rule pair: the learned rule at $A$ and the static $Z = z$ | source audit, with part (b) |
-| (k2) estimated observation weights | `weights_estimated=True` | the variance of a fit that also estimates its weights. Known, fixed weights ship | natural extension |
 | (m) baseline strata | `strata=` | a finite partition, after [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) | natural extension |
 | (n) the omitted-variable bound | the bound on a learned-rule fit | the bound of the frozen fold rules after [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part G. Its limits need $\sigma^2$ and $\nu^2$ asymptotically linear under C3, or the row ships the point bound only | natural extension |
 
-The learned-rule value now also ships with fold-specific targeting, known observation weights and
-clusters ([learned rules](technical-reference/point-treatment-tmle.md#fold-targeting-weights-and-clusters)).
+The learned-rule value now also runs with fold-specific targeting, known observation weights and
+clusters, labelled experimental until their study registers
+([learned rules](technical-reference/point-treatment-tmle.md#fold-targeting-weights-and-clusters)).
+Part (k2) is what remains of the weights part.
+
+| part | the request that the contract refuses | step | readiness |
+| --- | --- | --- | --- |
+| (k2) estimated observation weights | `weights_estimated=True` | the variance of a fit that also estimates its weights | natural extension |
 
 ### X28. Fold-evaluated CV-TMLE with baseline strata
 

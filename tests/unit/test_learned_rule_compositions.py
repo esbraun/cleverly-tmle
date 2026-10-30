@@ -123,6 +123,50 @@ def _rule_of(frame: pd.DataFrame, weights: np.ndarray | None) -> np.ndarray:
     return support.blip(model, frame[["W1", "W2"]].to_numpy(dtype=float)) > 0.0
 
 
+#: The population shares of the ``misspecified_limit`` law, declared from :func:`_projection` at
+#: 4,001 points of ``W1``: the rule of the weighted projection treats 48.15% of the covariate
+#: law, the unweighted one 49.84%, and the two disagree on 1.69%.
+WEIGHTED_TREATED_SHARE = 0.4815
+UNWEIGHTED_TREATED_SHARE = 0.4984
+DECLARED_DISAGREEMENT = 0.0169
+
+#: How far a 400,000-row fit may sit from a declared population share. It is less than half
+#: the disagreement, so a rule learned without the weights cannot pass.
+SHARE_TOLERANCE = 0.0075
+
+
+def _projection(weighted: bool, points: int = 4_001) -> tuple[np.ndarray, np.ndarray]:
+    """The population rule of the learner's model on ``misspecified_limit``, by quadrature.
+
+    Each grid point of ``(W1, W2)`` carries its trapezoid mass, each arm its propensity and each
+    outcome its probability, so the weighted log-likelihood is the population one. Returns the
+    rule and the covariate mass on the grid.
+    """
+    w1 = np.linspace(-1.0, 1.0, points)
+    trapezoid = np.full(points, 2.0 / (points - 1))
+    trapezoid[[0, -1]] /= 2.0
+    mass = 0.25 * trapezoid
+    design, sample_weight, outcome = [], [], []
+    for w2 in (0.0, 1.0):
+        g = expit(0.3 * w1 - 0.2 * w2)
+        weight = 1.0 + 1.5 * (w1 > 0.0) if weighted else np.ones(points)
+        for a in (0.0, 1.0):
+            q = expit(0.2 + 0.5 * w1 - 0.3 * w2 + a * (0.8 * w1 + w1**2 - 0.3))
+            for y, p_y in ((1.0, q), (0.0, 1.0 - q)):
+                design.append(np.column_stack([np.full(points, a), w1, np.full(points, w2)]))
+                sample_weight.append(mass * (g if a else 1.0 - g) * p_y * weight)
+                outcome.append(np.full(points, y))
+    model = support.outcome_learner().set_params(fit__C=1e10, fit__max_iter=10_000, fit__tol=1e-12)
+    weights = np.concatenate(sample_weight)
+    model.fit(
+        np.vstack(design), np.concatenate(outcome), fit__sample_weight=weights / weights.mean()
+    )
+    rule = np.concatenate(
+        [support.blip(model, np.column_stack([w1, np.full(points, w2)])) > 0.0 for w2 in (0.0, 1.0)]
+    )
+    return rule, np.concatenate([mass, mass])
+
+
 class TestWeights:
     """X11 (k): known observation weights; the rule reads them."""
 
@@ -130,15 +174,31 @@ class TestWeights:
     def large(self) -> pd.DataFrame:
         return _misspecified_limit_frame(400_000, 11)
 
-    def test_the_weighted_and_unweighted_limits_differ(self, large: pd.DataFrame) -> None:
-        """The nonzero witness: the two population projections give different rules.
+    def test_the_population_projections_give_the_declared_shares(self) -> None:
+        """The nonzero witness, W-k1: the weighted and the unweighted limit rules differ."""
+        weighted, mass = _projection(True)
+        unweighted, _ = _projection(False)
+        assert float(np.sum(mass * weighted)) == pytest.approx(WEIGHTED_TREATED_SHARE, abs=5e-4)
+        assert float(np.sum(mass * unweighted)) == pytest.approx(UNWEIGHTED_TREATED_SHARE, abs=5e-4)
+        disagreement = float(np.sum(mass * (weighted != unweighted)))
+        assert disagreement == pytest.approx(DECLARED_DISAGREEMENT, abs=5e-4)
 
-        The rev 2 re-review measured a disagreement of about 1.7% of rows.
-        """
+    def test_the_sample_projections_disagree_on_the_declared_share(
+        self, large: pd.DataFrame
+    ) -> None:
         weighted = _rule_of(large, large["w"].to_numpy())
         unweighted = _rule_of(large, None)
         disagreement = float(np.mean(weighted != unweighted))
-        assert 0.005 < disagreement < 0.05
+        assert disagreement == pytest.approx(DECLARED_DISAGREEMENT, abs=SHARE_TOLERANCE)
+
+    def test_the_fit_treats_the_weighted_share_at_400k_rows(self, large: pd.DataFrame) -> None:
+        """W-k5: the fit's rules treat the weighted limit's share; the unweighted rule does not."""
+        result = support.learned_tmle().fit(large, weights="w", **FIT).single()
+        treated = float(np.mean(np.asarray(result.nuisance.regimes.values[:, 1, 0]) > 0.5))
+        assert treated == pytest.approx(WEIGHTED_TREATED_SHARE, abs=SHARE_TOLERANCE)
+        # The mutation, a rule learned without the weights, misses the weighted share.
+        unweighted = float(np.mean(_rule_of(large, None)))
+        assert abs(unweighted - WEIGHTED_TREATED_SHARE) > SHARE_TOLERANCE
 
     def test_the_fit_rule_is_the_weighted_rule_of_each_training_fold(self) -> None:
         frame = _misspecified_limit_frame(2_000, 3)
@@ -249,7 +309,7 @@ class TestFoldLocalWeightNormalisation:
         plain = support.fit(frame, **settings)
         weights = np.ones(len(frame))
         for index, (_, test) in enumerate(plain.nuisance.folds):
-            weights[np.asarray(test)] = 1.0 + index
+            weights[np.asarray(test)] = 1.0 + 0.5 * index
         result = (
             support.learned_tmle(**settings)
             .fit(frame.assign(w=weights), weights="w", **FIT)
@@ -326,7 +386,15 @@ class TestClusters:
             assert not set(clusters[np.asarray(train)]) & set(clusters[np.asarray(test)])
 
     def test_the_clustered_variance_exceeds_the_row_variance(self) -> None:
-        """The nonzero witness: a strong cluster effect inflates the variance."""
+        """The nonzero witness: a strong cluster effect inflates the variance.
+
+        This is the ``clustered`` law of the learned-rule-compositions study, whose
+        within-cluster correlation of the row curve is 0.144 by quadrature
+        (``test_learned_rule_compositions_design.py``), so the clustered SE should be about
+        ``sqrt(1 + 9 * 0.144) = 1.51`` times the row SE. With 100 clusters the relative SD of the
+        clustered SE is near ``sqrt(1 / (2 * 100)) = 0.07``, so the floor 1.2 sits more than four
+        SDs below the expected ratio and well above 1. This draw gives 1.44.
+        """
         frame = _clustered_frame(100, 10, 2, 1.5)
         clustered = support.learned_tmle().fit(frame, id="cluster", **FIT).single()
         rows = support.learned_tmle().fit(frame.drop(columns="cluster"), **FIT).single()
@@ -362,6 +430,41 @@ class TestClusters:
         assert rows[support.NAME].std_error != pytest.approx(
             clustered[support.NAME].std_error, rel=1e-6
         )
+
+
+class TestTheLabelAndTheReference:
+    """Until the learned-rule-compositions study registers, every lifted fit is experimental.
+
+    When the study registers its rows, the label test is meant to fail and be inverted for the
+    covered settings.
+    """
+
+    def test_each_lifted_setting_reads_experimental(self) -> None:
+        fits = {
+            "fold targeting": support.fit(support.law_frame(300, 1), targeting_scheme="fold"),
+            "weights": support.learned_tmle()
+            .fit(_misspecified_limit_frame(300, 1), weights="w", **FIT)
+            .single(),
+            "clusters": support.learned_tmle()
+            .fit(_clustered_frame(60, 5, 1, 1.5), id="cluster", **FIT)
+            .single(),
+        }
+        for setting, result in fits.items():
+            label = result[support.NAME].support
+            assert label.label == "experimental", setting
+            assert label.row is None, setting
+        # The weighted fit is near the learned-rule row and differs from it on the weights.
+        assert "T24" in fits["weights"][support.NAME].support.reason
+        assert "weighting" in fits["weights"][support.NAME].support.reason
+
+    def test_few_clusters_take_the_t_reference(self) -> None:
+        """J = 30 clusters in V = 5 folds: ``df = min(J - 2, J - V) = 25``."""
+        result = (
+            support.learned_tmle()
+            .fit(_clustered_frame(30, 10, 1, 1.5), id="cluster", **FIT)
+            .single()
+        )
+        assert result[support.NAME].reference_df == 25
 
 
 class TestRefusalsThatStay:

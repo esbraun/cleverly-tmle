@@ -39,7 +39,7 @@ from cleverly import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
-from cleverly.interventions import Incremental, LearnedRule, Shift, Static
+from cleverly.interventions import Incremental, LearnedRule, Rule, Shift, Static
 from cleverly.interventions.learned import (
     LEARNED_RULE_BOUND_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
@@ -641,3 +641,42 @@ class TestALearnedRuleIsNotARegime:
             design=PointTreatment(outcome="Y", treatment="A", adjustment=support.COVARIATES),
         )
         _refused(lambda: study.identify(RegimeMean(regimens=(LearnedRule(),))), "LearnedRuleValue")
+
+
+class TestTheCompositionRemediesRunAsWritten:
+    """The remedies of the refusals that the X11 compositions reach fit as written."""
+
+    def _weighted(self) -> pd.DataFrame:
+        return support.law_frame(200, 4).assign(w=lambda f: 1.0 + 0.5 * f["W2"])
+
+    def test_the_estimated_weights_remedies_fit(self) -> None:
+        frame = self._weighted()
+        fit = {"outcome": "Y", "treatment": "A", "covariates": support.COVARIATES}
+        message = _refused(
+            lambda: _engine().fit(frame, weights="w", weights_estimated=True, **fit), "X11 (k2)"
+        )
+        assert "weights_estimated=False" in message
+        assert "TMLE(interventions=[Rule(..., rule_kind='known')])" in message
+        known = support.learned_tmle().fit(frame, weights="w", weights_estimated=False, **fit)
+        assert np.isfinite(known.single().estimates[support.NAME].psi)
+        rule = Rule(lambda w: (w["W1"] > 0).astype(int), name="w1", rule_kind="known")
+        fixed = TMLE(
+            interventions=[rule],
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+        ).fit(frame, weights="w", weights_estimated=True, **fit)
+        assert np.isfinite(fixed.single().estimates["ey_regime[w1]"].psi)
+
+    def test_one_cluster_in_a_fold_offers_the_fold_count_alone(self) -> None:
+        """The stacked report that arm fits are offered is refused for a learned rule."""
+        frame = support.law_frame(120, 3).assign(c=np.arange(120) % 6)
+        fit = {"outcome": "Y", "treatment": "A", "covariates": support.COVARIATES}
+        with pytest.raises(CapabilityError) as caught:
+            support.learned_tmle().fit(frame, id="c", **fit)
+        message = str(caught.value)
+        assert "Request at most 3 folds" in message
+        assert "cv_evaluation=False" not in message
+        assert "stacked" not in message
+        assert not any(route in message for route in FORBIDDEN)
+        result = support.learned_tmle(n_folds=3).fit(frame, id="c", **fit).single()
+        assert np.isfinite(result.estimates[support.NAME].psi)

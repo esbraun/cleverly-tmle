@@ -2299,8 +2299,8 @@ default="greedy"
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
-            # Row 1 of the learned-rule refusal table comes before the fold-evaluation refusal
-            # below: its remedy, cv_evaluation=False, would meet this refusal next.
+            # The first row of the learned-rule refusal table comes before the fold-evaluation
+            # refusal below: its remedy, cv_evaluation=False, would meet this refusal next.
             refusal = learned_rule_configuration_refusal(self)
             assert refusal is not None
             raise CapabilityError.from_refusal(refusal)

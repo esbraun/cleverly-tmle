@@ -359,8 +359,8 @@ class LearnedRuleRecord:
         return (
             f"Target: the average value of the {self.n_folds} rules learned on the training "
             "folds, each estimated on the fold it did not train on. The target depends on the "
-            "data, because the rules do (van der Laan and Luedtke 2015, Section 7). Share of "
-            f"units the rules treat, by fold: {low:.3g} to {high:.3g}."
+            "data, because the rules do (van der Laan and Luedtke 2015, Section 7). Unweighted "
+            f"share of rows the rules treat, by fold: {low:.3g} to {high:.3g}."
         )
 
 

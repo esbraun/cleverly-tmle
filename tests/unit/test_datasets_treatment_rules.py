@@ -191,3 +191,21 @@ def test_the_fold_truth_refuses_a_learner_that_learns_another_rule() -> None:
     main_effects = LogisticRegression(C=1e6, max_iter=5000)
     with pytest.raises(ValueError, match="differs"):
         learned_rule_truth(result, main_effects)
+
+
+def test_the_fold_truth_refuses_a_weighted_fit() -> None:
+    """A weighted fit targets the weighted population, which this helper does not integrate."""
+    frame, _ = make_treatment_rules(n=400, seed=3)
+    frame = frame.assign(w=1.0 + 0.5 * frame["lives_alone"])
+    outcome = LogisticRegression(C=1e6, max_iter=5000)
+    method = TMLEMethod(
+        models=ModelSpec(outcome_learner=outcome, treatment_learner=LogisticRegression()),
+        cross_fitting=CrossFitting(n_folds=5, fold_evaluation=True),
+        runtime=Runtime(random_state=1, n_jobs=1),
+    )
+    design = PointTreatment(
+        outcome="home_30", treatment="offer", adjustment=("need", "lives_alone"), weights="w"
+    )
+    result = CausalStudy(frame, design=design).estimate(LearnedRuleValue(), method=method)
+    with pytest.raises(ValueError, match="unweighted"):
+        learned_rule_truth(result, outcome)

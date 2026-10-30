@@ -1,4 +1,4 @@
-"""The run form of the two RM30 learned-rule studies: rules L6 to L9.
+"""The run form of the learned-rule studies (RM30 and X11): rules L6 to L9.
 
 Both ``regenerate.py`` drivers call :func:`run`.  The regeneration itself is the shared
 :func:`tests.canonical.regenerate.main`.  This module adds the run form in front of it.
@@ -52,17 +52,26 @@ PACKAGES = {
 
 
 def declared_sample_seeds() -> set[int]:
-    """Every sample seed a declared run of either study draws."""
+    """Every sample seed a declared run of any learned-rule study draws."""
+    from tests.studies import learned_rule_compositions as compositions
+    from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
 
-    return law.declared_sample_seeds(
+    seeds = law.declared_sample_seeds(
         gated.STUDY,
         gated.PRIMARY_REPLICATES,
         properties.PROPERTY_DRAWS,
         properties.suffixes(gated.STUDY),
     ) | law.declared_sample_seeds(boundary.STUDY, boundary.PRIMARY_REPLICATES, (), {})
+    seeds |= law.declared_sample_seeds(
+        compositions.STUDY,
+        compositions.PRIMARY_REPLICATES,
+        composition_properties.PROPERTY_DRAWS,
+        composition_properties.suffixes(compositions.STUDY),
+    )
+    return seeds
 
 
 def runtime_refusals() -> list[str]:
