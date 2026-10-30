@@ -293,7 +293,7 @@ class SupportKey:
         inverse-probability ``normalization``, the policy density ``ratio``, the
         ``survival_model``, the hazard ``targeting`` algorithm, the ``isotonic`` projection,
         whether the fit declares ``node_bounds``, the ``hazard_pooling``, whether it declares a
-        ``ratio_trim`` and the data's ``markov_order``.
+        ``ratio_trim``, the data's ``markov_order``, and whether a regimen has a ``tuned_cap``.
     """
 
     kind: str
@@ -720,6 +720,7 @@ def longitudinal_key(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
+    tuned_cap: bool = False,
 ) -> tuple[SupportKey, dict[str, type | None]]:
     """The key and the learner classes of a longitudinal fit.
 
@@ -739,6 +740,9 @@ def longitudinal_key(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
+    tuned_cap : bool, default False
+        Whether a regimen has a policy cap tuned on the data. The cap adds a derivative term to
+        the curve, so only a row of a tuned-cap study covers it.
 
     Returns
     -------
@@ -787,6 +791,7 @@ def longitudinal_key(
             ("hazard_pooling", _option(getattr(estimator, "hazard_pooling", "node"))),
             ("ratio_trim", getattr(estimator, "ratio_trim", None) is not None),
             ("markov_order", _option(getattr(data, "markov_order", None))),
+            ("tuned_cap", tuned_cap),
         ),
     )
     learners = {
@@ -1430,6 +1435,7 @@ def classify_longitudinal_fit(
     has_msm: bool,
     regimen_kinds: Iterable[str],
     conditions: Sequence[Refusal] = (),
+    tuned_cap: bool = False,
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1456,6 +1462,8 @@ def classify_longitudinal_fit(
     conditions : sequence of Refusal, default ()
         The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
         experimental.
+    tuned_cap : bool, default False
+        Whether a regimen has a policy cap tuned on the data.
 
     Returns
     -------
@@ -1471,6 +1479,7 @@ def classify_longitudinal_fit(
             known_factors=known_factors,
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
+            tuned_cap=tuned_cap,
         )
         classification = classify_key(key, learners, conditions)
     except Exception as error:
