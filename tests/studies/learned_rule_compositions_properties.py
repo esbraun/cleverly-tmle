@@ -8,7 +8,8 @@ Two families, in the order the declaration reads them.
     the SE shrunken by 0.70, and noise of one efficiency-bound unit added to each estimate. The
     ``clustered`` draws also carry ``clustered__row_variance_control``, the same estimate with the
     row-level SE that ignores the clusters, which must under-cover. ``clustered_few__declared``
-    fits 30 clusters of 34 rows (n = 1,020), where the fit takes the few-cluster t reference.
+    fits 30 clusters of 34 rows (n = 1,020), where the fit takes the few-cluster t reference, with
+    the same two derived controls at its own noise scale.
 ``targeting_necessity``
     Fold targeting with the outcome learner that drops ``W1``. The positive arm is the fit; the
     control is the same fit without its fluctuations, the fold average of the initial plug-ins at
@@ -25,6 +26,7 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+from scipy.stats import t as student_t
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import _learned_rule_compositions_law as law
@@ -89,8 +91,19 @@ def suffixes(record: StudyRecord) -> dict[tuple[str, str], tuple[Any, ...]]:
     return base.seed_labels(record, PRIMARY_REPLICATES, PROPERTY_DRAWS)
 
 
+#: The few-cluster cell's noise scale: ``sqrt(Var D + 33 Cov)`` for clusters of 34, by the
+#: quadrature of :func:`~tests.studies._learned_rule_compositions_law.cluster_covariance`.
+FEW_CLUSTER_BOUND = 1.616137
+
+#: The few-cluster fit's own critical value: the t reference with ``min(J - 2, J - V) = 20``
+#: degrees of freedom at 30 clusters in 10 folds, so a control interval is the fit's form.
+FEW_CLUSTER_DF = 20
+FEW_CLUSTER_CRITICAL = float(student_t.ppf(1.0 - STUDY.margins.alpha / 2.0, FEW_CLUSTER_DF))
+
 #: The calibration positive arms to the controls derived from their rows.
-DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS, positive_suffix=POSITIVE)
+DERIVED_CELLS = calibration_derived(
+    (*CALIBRATION_LABELS, "clustered_few"), positive_suffix=POSITIVE
+)
 
 #: The control a ``clustered`` calibration draw writes beside its positive arm.
 ROW_VARIANCE_CELL = "interval_calibration/clustered__row_variance_control"
@@ -255,7 +268,17 @@ def generate_property_rows(
         critical=base.CRITICAL,
         positive_suffix=POSITIVE,
     )
-    rows = pd.concat([rows, controls], ignore_index=True)
+    few = calibration_controls(
+        rows,
+        record,
+        labels=("clustered_few",),
+        efficiency_bounds={"clustered_few": FEW_CLUSTER_BOUND},
+        calibration_n=FEW_CLUSTER_N,
+        shrunken_se_factor=SHRUNKEN_SE_FACTOR,
+        critical=FEW_CLUSTER_CRITICAL,
+        positive_suffix=POSITIVE,
+    )
+    rows = pd.concat([rows, controls, few], ignore_index=True)
     for family, declared in PROPERTY_CELLS.items():
         cells = set(rows.loc[rows["property"] == family, "cell"])
         if cells != set(declared):

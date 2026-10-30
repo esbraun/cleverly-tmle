@@ -62,6 +62,8 @@ PROPERTY_CELLS = {
         ),
         "clustered__row_variance_control",
         "clustered_few__declared",
+        "clustered_few__shrunken_se_control",
+        "clustered_few__noise_control",
     ),
     "targeting_necessity": ("fold_targeted__targeted", "fold_targeted__untargeted"),
 }

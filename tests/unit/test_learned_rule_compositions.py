@@ -25,6 +25,7 @@ import pytest
 from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from cleverly import _support
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import LearnedRule, Rule
@@ -456,6 +457,28 @@ class TestTheLabelAndTheReference:
         # The weighted fit is near the learned-rule row and differs from it on the weights.
         assert "T24" in fits["weights"][support.NAME].support.reason
         assert "weighting" in fits["weights"][support.NAME].support.reason
+
+    def test_unequal_cluster_sizes_carry_their_own_qualifier(self) -> None:
+        """A learned-rule row for equal sizes never covers a fit with unequal sizes."""
+        frame = _clustered_frame(60, 5, 1, 1.5)
+        equal = support.learned_tmle().fit(frame, id="cluster", **FIT).single()
+        unequal_ids = frame["cluster"].where(frame.index % 5 != 0, frame["cluster"] + 1)
+        unequal = (
+            support.learned_tmle()
+            .fit(frame.assign(cluster=unequal_ids), id="cluster", **FIT)
+            .single()
+        )
+        keys = [
+            _support.point_key(support.learned_tmle(), result.data, (support.NAME,))[0]
+            for result in (equal, unequal)
+        ]
+        assert "unequal_clusters" not in keys[0].qualifiers
+        assert "unequal_clusters" in keys[1].qualifiers
+        # An arm fit with the same unequal clusters keeps the shipped key.
+        arm, _ = _support.point_key(
+            TMLE(cross_fit=True, cv_evaluation=True), unequal.data, ("ate",)
+        )
+        assert "unequal_clusters" not in arm.qualifiers
 
     def test_few_clusters_take_the_t_reference(self) -> None:
         """J = 30 clusters in V = 5 folds: ``df = min(J - 2, J - V) = 25``."""

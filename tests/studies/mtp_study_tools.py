@@ -177,6 +177,43 @@ def replicates_from_pilot(ratios: Sequence[float], pilot: int, c: float = C_FIT)
     }
 
 
+def per_arm_pass(
+    ratios: Sequence[float], pilot: int, replicates: int, c: float = C_FIT
+) -> tuple[float, ...]:
+    """Each cell's pass probability at ``replicates``, predictive over its own pilot error.
+
+    Each cell's true SE ratio is read as normal about its pilot ratio with SD
+    :func:`pilot_sigma`, and :func:`cell_pass` is averaged over that law.
+    """
+    sigma = pilot_sigma(pilot, c)
+    return tuple(
+        float(np.sum(_GH_W * cell_pass(float(ratio) + sigma * _GH_X, replicates, c)))
+        for ratio in ratios
+    )
+
+
+def per_arm_replicates(ratios: Sequence[float], pilot: int, c: float = C_FIT) -> dict[str, Any]:
+    """``R`` for calibration cells that are distinct settings, each with its own pilot.
+
+    :func:`replicates_from_pilot` pools arms of one estimator, which are exchangeable, and reads
+    their spread as the between-arm ``tau``. Cells that are different settings (fold targeting,
+    weights, clusters) have different true ratios, and that model would size them for a spread
+    no one of them has. This rule predicts each cell from its own pilot ratio and takes the
+    smallest multiple of :data:`R_STEP` whose product over the cells reaches
+    :data:`FAMILY_TARGET` with every cell at :data:`CELL_TARGET`. Returns ``R`` (``None`` when no
+    ``R`` up to :data:`R_MAX` passes), the per-cell probabilities and the family-wise product.
+    The constant ``c`` is the model's; a bootstrap of a pilot's rows gives a smaller one when the
+    errors are close to normal, so the rule errs toward more replicates.
+    """
+    for replicates in range(R_STEP, R_MAX + 1, R_STEP):
+        cells = per_arm_pass(ratios, pilot, replicates, c)
+        family = float(np.prod(cells))
+        if family >= FAMILY_TARGET and min(cells) >= CELL_TARGET:
+            return {"R": replicates, "per_cell": cells, "family_wise": family}
+    cells = per_arm_pass(ratios, pilot, R_MAX, c)
+    return {"R": None, "per_cell": cells, "family_wise": float(np.prod(cells))}
+
+
 def screen_half_width(pilot: int, c: float = C_FIT) -> float:
     """The per-arm screen's half-width, ``2.576 sigma_P + 0.01``."""
     return Z * pilot_sigma(pilot, c) + SCREEN_SLACK
