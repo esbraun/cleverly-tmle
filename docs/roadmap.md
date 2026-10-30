@@ -123,12 +123,10 @@ not change the package version.
 
 | milestone | item | readiness | dependency | details |
 | --- | --- | --- | --- | --- |
-| B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
-| BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
-| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
-| BP | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
-| BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
-| BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
+| after beta | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
+| after beta | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | the shipped support rows and per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| after beta | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
+| BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; the reviewed worked examples | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (n); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
@@ -163,9 +161,7 @@ not change the package version.
 | after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
-| beta | Refutation and sensitivity checks in every tutorial notebook | no new theory; documentation of the shipped X82 checks | X82 parts A, C, E, F, G; the study follow-ups SP and SG for the point notebooks | [X86](#x86-refutation-and-sensitivity-checks-in-every-tutorial-notebook) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
-| beta | Plain-language rewrite of the example notebooks | no new theory; documentation only | X86 for each notebook. It runs before X68 and X69 | [X88](#x88-plain-language-rewrite-of-the-example-notebooks) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -386,8 +382,8 @@ It does not require an exact comparator method.
 A supported point estimate does not make its confidence interval supported. Track support by the
 combination of target, estimator, outcome, weighting, splitting, and inference. A configuration that
 passed does not certify another configuration of the same method. The package reports the
-`experimental` label on every estimate, and [RM42](#rm42-experimental-status-and-support-rows)
-owns it.
+`experimental` label on every estimate, and the support rows of `cleverly._support_rows` decide
+it.
 
 The readiness labels rate method support, not programming effort:
 
@@ -565,32 +561,6 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### RM42. Experimental status and support rows
-
-The [Eligibility](#eligibility) rule classifies each analysis as supported, experimental, or
-unavailable. The package labels each estimate `supported` or `experimental`, with no opt-in. Each
-refusal carries a reason code, and
-[How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal) defines
-the five codes. This row implements the label and the support rows.
-
-| part | what it delivers |
-| --- | --- |
-| (a) the experimental label | a label with no opt-in, for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. A shown status in `cleverly._inference_status` and a configuration that no support row covers both give it. Each estimate, bootstrap interval and band carries the label and its reason, and an interval with no computable plug-in curve is withheld |
-| (c) configuration support rows | a support row for each combination of target, estimator, outcome, weighting, splitting, and inference, whose status matches the output |
-| (d) persistence | the experimental status, its configuration key, the support row, and the inference assumptions survive `result.save()` and `cleverly.load()` |
-
-Each inherited refusal keeps its intervention-specific support checks, the estimator-specific
-requirements for policy followers, the invalid-event checks, and the identification declarations.
-A test can detect an observed support failure and check a declared support restriction. It cannot
-establish population positivity or the absence of unmeasured confounding. A new refusal does not
-call a stochastic or continuous policy an inappropriate question.
-
-Acceptance:
-
-- a test that an experimental fit carries its label through the summary, the tables, and a
-  save-and-load round trip, and withholds an interval that has no computable plug-in curve;
-- a test that each support row matches the status that the fit reports.
-
 ### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
 
 This item gives the per-arm outcome-adaptive design a corrected interval in a restricted scope. It
@@ -733,8 +703,7 @@ compositions that the stacked theory covers. A fit that no support row covers re
 interval with the `experimental` label. Each part adds its support rows with its registered study.
 
 The corrected status, the covariance and the method declaration survive `result.save()`,
-`cleverly.load()`, contrasts and summaries. [RM42](#rm42-experimental-status-and-support-rows)
-part (c) supplies the support rows. `plugin_std_error`, `plugin_interval` and the bootstrap spread
+`cleverly.load()`, contrasts and summaries. Its support rows sit in `cleverly._support_rows`. `plugin_std_error`, `plugin_interval` and the bootstrap spread
 stay diagnostics. Ordinary TMLE stays the inference alternative under its own assumptions.
 
 **Acceptance for each part.**
@@ -764,34 +733,11 @@ removes the generated-design contribution, and neither resolves the irregularity
 When the acceptance passes, close the supported part of F19 only. F19 keeps its other claims and
 its red cells.
 
-### X68. Worked examples for the shipped methods
-
-Review every worked example in `docs/examples/` against the methods that ship when every row
-of milestones B0 to B4 and BP has merged. Start this item only then, so that it covers each method
-that exists then.
-A method here means one implementation family of the
-[implementation matrix](technical-reference/index.md#implementation-matrix).
-
-| task | required content |
-| --- | --- |
-| inventory | a table that maps each implementation family to the example page or section that shows it, or records that no example shows it |
-| update | each notebook runs on the current API. Replace removed and renamed calls, refresh the stored output, and correct each claim that the current code no longer supports |
-| add | an example for each family that the inventory shows without one. The [sequential offers](examples/sequential-offers.ipynb) and [sequential pricing](examples/sequential-pricing.ipynb) tutorials count as coverage. After the deletion of the health longitudinal tutorial, no example shows a cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) |
-| index | each new page has a row in the [examples index](examples/index.md), with its evaluation question, its method entry, and the failure mode it shows. The page and its method entry link to each other, as the examples contract in `docs/README.md` requires |
-
-Use the shared program and study design of the [examples index](examples/index.md) when the method
-can answer a question in that program. Otherwise, use a synthetic law with a known truth. Use
-compact data and explicit learners. An example shows normal use of a method. It does not assert a
-statistical guarantee from one sample.
-
-Acceptance: the inventory shows an example for each implementation family, and every notebook
-executes in the documentation build.
-
 ### X69. Documentation review for new and changed methods
 
 Update the reader-facing documentation for each method that the rows of milestones B0 to B4 and BP
-add or change. Then review all of it for quality. Start this item after X68, so that the review includes the new
-example pages. The scope is `README.md` and every reader-facing source in `docs/`. This item is
+add or change. Then review all of it for quality. The worked examples were reviewed first, so the
+review includes the new example pages. The scope is `README.md` and every reader-facing source in `docs/`. This item is
 the broad review that step 1 of the documentation procedure otherwise excludes.
 
 | check | required result |
@@ -1756,31 +1702,6 @@ refuses a tilt fit.
 Acceptance: the typed requests reproduce the direct fit; the replay at zero strength reproduces the
 estimate; on a finite law, a cell equals a hand application of the rule to the perturbed treatment.
 
-### X86. Refutation and sensitivity checks in every tutorial notebook
-
-Each notebook under `docs/examples/` shows the X82 checks that fit its design and estimand, and only
-those. A check that the fit refuses is not run. The notebook states the limit in one sentence with
-its roadmap id, as `docs/development/example-notebooks.md` requires. No cell prints a refusal.
-Each item is one pull request that edits one notebook and its
-`tests/unit/tutorial_semantics/` module.
-
-| item | notebook | what it adds | waits on |
-| --- | --- | --- | --- |
-| (0) | none | the sensitivity table of the notebook guide, this entry, and a test that each test name a refusal suggests is a known `refute` test | nothing |
-| (a) | `point-treatment-tmle.ipynb` | placebo, subset, `random_common_cause`, the bounded generated outcome, the point plasmode, `evalue`, and `simulated_confounding` with named benchmark covariates | shipped |
-| (a2) | `point-treatment-tmle.ipynb` | the marginal sensitivity model bounds of X82 part H beside the omitted-variable bound | (a), H, SH |
-| (i2) | `sequential-pricing.ipynb` | the band-rank placebo of X82 part J in Step 11. It reads descriptively: the rows of study SJ need five-fold cross-fitting and 20 draws, and this fit runs in sample at 10 draws | shipped |
-| (d) | `interventions.ipynb` | regime placebos, held-design truths, the nudge plasmode, and the contrast bounds | (0), SP, SG |
-
-SP and SG are the X82 short-study follow-ups. A verdict prints only where a registry row covers
-the fit, so a notebook that runs before SP or SG lands would commit readings that the registry
-later changes.
-
-Acceptance: every new call runs and no cell prints a refusal; every verdict, limit and scope
-sentence in the prose matches the committed output; the notebook executes; the fast suite and the
-docs build pass; the fast-tier cell time stays within 1.5 times its time before the item, or the
-pull request states the increase; an implementation review approves.
-
 ### X87. Marginal sensitivity model bounds that need a second sensitivity parameter
 
 `sensitivity.marginal_sensitivity_bounds` refuses the requests below. The marginal sensitivity
@@ -1796,37 +1717,6 @@ second mechanism, and no read source defines it. A longitudinal fit is refused u
 
 Acceptance: a read source for each bound; the linear program of the joint model solved on a finite
 law; a registered coverage study for each interval.
-
-### X88. Plain-language rewrite of the example notebooks
-
-Each notebook under `docs/examples/` is rewritten for a data scientist who is new to causal
-inference and to `cleverly`, and who wants to run the analysis and explain the result.
-[Writing for readers](development/writing-for-readers.md) holds the rules, the library words to
-replace, the machine-writing tells to remove, and the reader review. Statistical content does not
-change: the fits, learners, seeds, and estimates stay the same.
-
-| item | what | waits on |
-| --- | --- | --- |
-| (0a) | the writing guide, `scripts/render_for_reader_review.py`, the documentation rules in `CLAUDE.md` and `contributing.md`, and the page outline in `example-notebooks.md` | nothing |
-| (0b) | a baseline reader review of each notebook whose X86 item has merged | (0a) |
-| (P) | the pilot rewrite of `point-treatment-tmle.ipynb`, which may amend the guide | (0a); X86 (a) |
-| (B) | the other nine notebooks, one pull request each | (P); (0b) for the notebook; the notebook's own X86 item |
-| (z) | `docs/examples/index.md` as a landing page, toctree captions, and a check across all pages for template sameness | every (B) item |
-| (L) | only if (0b) recommends it: plain wording of the summary strings that the notebooks print, such as the `refute(...).summary()` lines `rung`, `ok`, and `Covered:` | X82 parts H and J; (z); X86 (a2) and (i2) |
-
-Each rewrite keeps every scientific claim, in plain words, in a Details dropdown, or on a linked
-page. It drops a claim only when the claim is redundant or no longer true, and it records the fate
-of each claim. The notebook headings become landmarks such as "Why a
-simple comparison misleads" and "What we can and can't conclude", and the main path comes before
-theory and comparisons.
-
-The guide and the reader review apply to any page. Later phases, each started by the maintainer,
-apply them to `README.md` and the getting-started pages, then the user guide, then the technical
-reference with the statistician as its reader.
-
-Acceptance: for each notebook, the reader review of the guide passes; the fits and estimates do
-not move; the fast suite, the link test, and the documentation build pass; an implementation
-review approves.
 
 ### P1. EP learner
 
