@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
-from .._support import Classification, Kind, combine_support, support_for
+from .._support import Classification, Kind, combine_support, interval_floor, support_for
 from .._typing import FloatArray, IntArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
@@ -968,6 +968,7 @@ def derived_bootstrap(
         summary,
         diagnostic=any(item.diagnostic for item in kept),
         below_floor=any(item.below_floor for item in kept),
+        cluster_floor=next((item.cluster_floor for item in kept if item.below_floor), None),
         support=combine_support([item.support for item in kept], kind="derived"),
     )
 
@@ -1165,6 +1166,9 @@ def attach_bootstrap(
     """
     alpha = result.config.alpha_sig
     below_floor = classification is not None and classification.key.dependence == "below_floor"
+    cluster_floor = (
+        interval_floor(classification.key) if classification is not None and below_floor else None
+    )
     kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
     # A cluster bootstrap resamples clusters, so its acceleration reads the cluster sums.
     unit = (
@@ -1188,6 +1192,7 @@ def attach_bootstrap(
             drawn,
             diagnostic=diagnostic,
             below_floor=below_floor,
+            cluster_floor=cluster_floor,
             support=support_for(
                 classification, estimate.inference, estimate.reference_df, kind=kind
             ),

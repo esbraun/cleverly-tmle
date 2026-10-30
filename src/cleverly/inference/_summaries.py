@@ -456,7 +456,8 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
             note(
                 "bootstrap_diagnostic",
                 vocabulary.BOOTSTRAP_DIAGNOSTIC[reason].format(
-                    names="this row", clusters=MINIMUM_INTERVAL_CLUSTERS
+                    names="this row",
+                    clusters=summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS,
                 ),
             )
         ]

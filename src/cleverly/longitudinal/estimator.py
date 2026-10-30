@@ -4841,6 +4841,7 @@ class _SequentialEstimator:
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans),
                 conditions=stopping_conditions(getattr(self, "stopping", "relative")),
+                tuned_cap=tuned_folds is not None,
             )
             if self._record_support
             else None
@@ -7307,7 +7308,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             raise CapabilityError(refusal=BASELINE_TILT_REFUSAL) from error
 
 
-class SequentialGComputation(_Baseline):
+class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     r"""Sequential g-computation of a treatment regimen over time.
 
     The iterated conditional expectation form of the longitudinal g-formula (Bang and Robins
@@ -7520,7 +7521,7 @@ class SequentialGComputation(_Baseline):
         return max(horizons) == 1 or isinstance(pseudo_learner, GLM)
 
 
-class SequentialIPW(_Baseline):
+class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     r"""Inverse probability weighting of a treatment regimen over time.
 
     The estimate reweights the units that follow a regimen by the cumulative ratio of the

@@ -196,8 +196,7 @@ pattern.
 
 With `strata=`, a stratum's coefficients $\beta_s$ are the projection on the law given $S=s$.
 The projection loss separates by stratum, so $(\beta_s)_s$ are the coefficients of one working
-model with the expanded design $(I(S=s)\varphi)_s$. The table gives where each estimate comes
-from.
+model with the expanded design $(I(S=s)\varphi)_s$.
 
 | link | stratum coefficients | marginal coefficients |
 | --- | --- | --- |
@@ -224,7 +223,7 @@ design under the identity and logit links. The
 stratum coefficients against exact laws.
 
 The package cannot inspect a callable, so it reads the declarations of the design and of the
-projection weight. The table gives each place that checks both declarations.
+projection weight. These places check both declarations.
 
 | checked by | when |
 | --- | --- |

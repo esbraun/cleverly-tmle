@@ -2176,18 +2176,20 @@ HAZARD_BOUNDS_RARELY_BIND: Final[str] = (
 
 
 def _x33_options(
-    *, node_bounds: bool = False, hazard_pooling: str = "node"
+    *, node_bounds: bool = False, hazard_pooling: str = "node", tuned_cap: bool = False
 ) -> tuple[tuple[str, Any], ...]:
     """The fitting options of a longitudinal key that change the fit's arithmetic.
 
     No row declares ``ratio_trim=`` or a Markov order: no registered study fits either one,
-    so a fit that declares one matches no row.
+    so a fit that declares one matches no row. Only the ``mtp-tuning`` rows (``G41``) declare
+    a cap tuned on the data.
     """
     return (
         ("node_bounds", node_bounds),
         ("hazard_pooling", hazard_pooling),
         ("ratio_trim", False),
         ("markov_order", None),
+        ("tuned_cap", tuned_cap),
     )
 
 
@@ -2214,6 +2216,7 @@ def long_row(
     ratio: str = "density",
     node_bounds: bool = False,
     hazard_pooling: str = "node",
+    tuned_cap: bool = False,
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -2266,6 +2269,8 @@ def long_row(
         Whether the row's fits declare ``node_bounds=``.
     hazard_pooling : {"node", "pooled"}, default "node"
         How the row's fits pool the censoring and hazard regressions over the nodes.
+    tuned_cap : bool, default False
+        Whether the row's fits declare a policy cap tuned on the data.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -2307,7 +2312,9 @@ def long_row(
             ("survival_model", survival_model),
             ("targeting", targeting),
             ("isotonic", isotonic),
-            *_x33_options(node_bounds=node_bounds, hazard_pooling=hazard_pooling),
+            *_x33_options(
+                node_bounds=node_bounds, hazard_pooling=hazard_pooling, tuned_cap=tuned_cap
+            ),
         ),
     )
     return SupportRow(
@@ -3225,8 +3232,9 @@ def _long_rows() -> tuple[SupportRow, ...]:
 def _continuous_dose_rows() -> list[SupportRow]:
     """The rows of the continuous-policy studies (X40): ``G39`` to ``G41``.
 
-    The key reads the node count, the engine, the splitting, the outcome scale and the ratio
-    route. It does not read a declared support, an atom, a branch or a tuned cap. The two-node
+    The key reads the node count, the engine, the splitting, the outcome scale, the ratio
+    route and whether a cap is tuned on the data. It does not read a declared support, an
+    atom or a branch. The two-node
     density rows of ``mtp-boundaries`` therefore stand on ``G10.continuous`` and
     ``G24.mtp.in_sample``. These rows hold the keys that no earlier row covers.
 
@@ -3374,6 +3382,7 @@ def _continuous_dose_rows() -> list[SupportRow]:
                 splitting=splitting,
                 outcome=BOUNDED,
                 ratio=ratio,
+                tuned_cap=True,
                 cells=cells,
             )
         )

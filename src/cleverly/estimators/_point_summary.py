@@ -429,6 +429,7 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
     assert bootstrap is not None
     rows: list[tuple[Cell, ...]] = []
     diagnostic: dict[str, list[str]] = {}
+    floor = MINIMUM_INTERVAL_CLUSTERS
     experimental: list[str] = []
     interval_name = ""
     for name, estimate in result.estimates.items():
@@ -443,6 +444,7 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
                 reason = "withheld"
             elif summary.below_floor:
                 reason = "below_floor"
+                floor = summary.cluster_floor or floor
             else:
                 reason = "declared"
             diagnostic.setdefault(reason, []).append(name)
@@ -486,7 +488,7 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
                 "bootstrap_diagnostic",
                 " ".join(
                     vocabulary.BOOTSTRAP_DIAGNOSTIC[reason].format(
-                        names=", ".join(names), clusters=MINIMUM_INTERVAL_CLUSTERS
+                        names=", ".join(names), clusters=floor
                     )
                     for reason, names in diagnostic.items()
                 ),

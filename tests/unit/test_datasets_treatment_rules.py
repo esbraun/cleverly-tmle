@@ -4,8 +4,8 @@
 best rule in closed form, and :func:`cleverly.datasets.treatment_rule_value` integrates any policy
 on a grid.  A Monte Carlo draw of the intervened law checks both.  Exact-law checks are blind to a
 term that vanishes at the truth, so each comparison also has a wrong value that must fail it: the
-value of the best rule with the sign of the offer's effect reversed, and a lottery value that
-ignores the lottery's chance.
+value of the best rule with the sign of the offer's effect reversed, and a random-offer value that
+ignores the offer's chance.
 """
 
 from __future__ import annotations
@@ -77,12 +77,12 @@ def test_a_reversed_effect_fails_the_comparison() -> None:
     assert truth["ey_best_rule"] - worst > 0.05
 
 
-def test_a_lottery_value_reads_the_chance_of_the_offer() -> None:
-    def lottery(data):
+def test_a_random_offer_value_reads_the_chance_of_the_offer() -> None:
+    def random_offer(data):
         return np.where(data["need"] > 0, 0.5, 0.0)
 
-    value = treatment_rule_value(lottery)
-    draws = _intervened(lottery, MONTE_CARLO_N, seed=103)
+    value = treatment_rule_value(random_offer)
+    draws = _intervened(random_offer, MONTE_CARLO_N, seed=103)
     assert _agrees(value, draws)
     # The value is linear in the chance: half of offering to every patient above 0.
     eligible = treatment_rule_value(lambda data: (data["need"] > 0).astype(float))

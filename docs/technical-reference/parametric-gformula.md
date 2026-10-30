@@ -379,8 +379,9 @@ the law with complex-step arithmetic, so it does not share code with the simulat
 | order, node 1 | the simulation uses the fit order and the observed node-1 covariates | `TestOrderAndNodeOne` |
 | refusals | each refusal arrives before any learner | `TestRefusals` |
 
-Each mutation control changes one source line of `gformula.py` in a copy of the tree. The named
-witness fails.
+Pull request #352 records 35 one-line mutation controls of `gformula.py`, run by hand before the
+estimator merged: 34 killed and one survivor, accepted in planning notes outside this repository.
+No committed test reruns them. The named witness killed each mutation in the table.
 
 | mutation | witness that fails |
 | --- | --- |
