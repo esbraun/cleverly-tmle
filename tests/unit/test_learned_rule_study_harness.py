@@ -70,9 +70,9 @@ class TestTheSeedRules:
     def test_no_smoke_sample_seed_is_declared(self) -> None:
         declared = learned_rule_run.declared_sample_seeds()
         # RM30's gated and boundary studies, then X11's learned-rule-compositions: 12,000
-        # primary and 59,655 property seeds, of which two pairs coincide across scenarios that
+        # primary and 36,255 property seeds, of which one pair coincides across scenarios that
         # draw different laws (rule L3 judges a seed within its own law).
-        assert len(declared) == 46_310 + 6_000 + 12_000 + 71_653
+        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254
         for study in (gated, boundary, compositions):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
