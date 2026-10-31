@@ -3853,6 +3853,7 @@ T4_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "population_moves": "note",
         "incremental_reading": "note",
         "learned_rule_reading": "note",
+        "learned_rule_bound": "note",
         "observation_reads": "note",
         "bounded_rows": "note",
         "redrawn_folds": "note",
@@ -4078,6 +4079,10 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "Each cell keeps every unit's learned rule fixed, so it reads confounding of "
             "those fixed rules, not of the procedure that learned them."
         ),
+        "learned_rule_bound": (
+            "The bound keeps each fold's learned rule fixed, so it reads confounding of the "
+            "value of those fixed rules, not of the procedure that learned them."
+        ),
         "observation_reads": (
             "The cells that move the treatment are valid only if whether a value is recorded "
             "depends on {reads} alone, as declared."
@@ -4116,6 +4121,12 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "No one-sided limits or limit robustness value: with "
             "assume_consistent_mechanism=True the bound is a point bound, and no cited "
             "source gives its standard error. {alternative}"
+        ),
+        "limits_withheld_learned_rule": (
+            "No one-sided limits or limit robustness value: the bound of a learned rule's "
+            "value is a point bound, because the estimate of the average squared weight "
+            "applies each fold's rule to rows that rule was learned on, and no standard "
+            "error is derived for that. {alternative}"
         ),
         "limits_withheld_zero": (
             "No one-sided limits or limit robustness value: the bias scale is zero on this "

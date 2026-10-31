@@ -63,6 +63,7 @@ T4_CODES = {
     "population_moves",
     "incremental_reading",
     "learned_rule_reading",
+    "learned_rule_bound",
     "observation_reads",
     "bounded_rows",
     "redrawn_folds",
@@ -85,6 +86,7 @@ LITERAL_CODES = {
     "per_arm_conditions",  # test_evalue_part_g.py, the controlled direct effect
     "incremental_reading",  # test_simulated_confounding_off_axis.py
     "learned_rule_reading",  # test_simulated_confounding_learned_rule.py
+    "learned_rule_bound",  # test_learned_rule_bound.py
 }
 
 

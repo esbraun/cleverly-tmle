@@ -696,6 +696,14 @@ class NuisanceEstimates:
     #: which is every fit but a cross-fitted :class:`~cleverly.AdaptiveIPTW`.  See
     #: :class:`FoldMechanisms` and :meth:`at_fold`.
     fold_mechanisms: FoldMechanisms | None = None
+    #: ``(n, V)`` booleans, or ``None`` for every fit that did not ask for them: entry
+    #: ``[i, v]`` is ``True`` where the outcome regression fitted on fold ``v``'s training
+    #: rows predicts a positive blip :math:`\bar Q_v(1, W_i) - \bar Q_v(0, W_i)` at row ``i``,
+    #: with ``1`` the higher arm code.  :func:`fit_nuisances` fills it under
+    #: ``fold_plug_in_rules=True`` from the fold models that made the out-of-fold
+    #: predictions.  A plug-in learned-rule fit moves it into its regime set
+    #: (:func:`~cleverly.interventions.learned.learned_rule_treat`) and clears it here.
+    fold_plug_in_rules: BoolArray | None = None
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
         """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
@@ -1692,6 +1700,11 @@ def _arm_key(arm: float) -> str:
     return f"arm@{arm}"
 
 
+def _rule_key(arm: float) -> str:
+    """Name of the design at which every fold's outcome model predicts ``arm`` at every row."""
+    return f"rule@{arm}"
+
+
 def _design_key(arm: float, level: float | None) -> str:
     """Name of the counterfactual design for one arm at one intermediate level.
 
@@ -1906,6 +1919,7 @@ def fit_nuisances(
     probe_doses: Mapping[str, FloatArray] | None = None,
     outcome_by_arm: bool = False,
     fit_outcome: bool = True,
+    fold_plug_in_rules: bool = False,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1984,7 +1998,25 @@ def fit_nuisances(
     route: the map at the tuner fitted on that fold's training rows.  ``probe_doses`` asks
     for the outcome regression at further ``(n,)`` doses, returned on
     :attr:`NuisanceEstimates.outcome_probes` under the same keys.
+
+    ``fold_plug_in_rules=True`` also evaluates each fold's outcome regression at both arms
+    of every row, in the same fold loop, and returns the sign of each fold's blip on
+    :attr:`NuisanceEstimates.fold_plug_in_rules`: the plug-in rule of every fold at every
+    row, as booleans.  A plug-in learned-rule fit asks for it, so the omitted-variable
+    bound can read every fold's rule without a refit.  It needs a binary arm-coded
+    treatment and no intermediate variable or companion, which the learned-rule refusal
+    table guarantees.
     """
+    if fold_plug_in_rules and (
+        not fit_outcome
+        or not data.is_binary_treatment
+        or data.has_intermediate
+        or companion is not None
+    ):
+        raise ValueError(
+            "fold_plug_in_rules=True reads the blip of a binary arm-coded treatment, and needs "
+            "a fitted outcome regression, no intermediate variable and no companion"
+        )
     if data.composite_view:
         raise ValueError(
             "fit_nuisances was given a composite-indicator view. The view is for targeting "
@@ -2290,6 +2322,7 @@ def fit_nuisances(
     outcome_out: dict[str, FloatArray]
     probes = dict(probe_doses or {})
     companion_estimates: CompanionEstimates | None = None
+    fold_rules: BoolArray | None = None
     if not fit_outcome:
         # The outcome-free path of an estimator that weights the observed outcomes
         # (`AdaptiveIPTW`): no outcome learner runs, and every outcome accessor raises.
@@ -2346,6 +2379,11 @@ def fit_nuisances(
                     arm
                 )
 
+        if fold_plug_in_rules:
+            # Every fold's model at both arms of every row, from the model object that made
+            # the out-of-fold predictions (``cross_fit_companion``).
+            for arm in arms:
+                companion_designs[_rule_key(arm)] = designs[_design_key(arm, levels[0])]
         outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
@@ -2360,6 +2398,9 @@ def fit_nuisances(
                 }
                 for arm in arms:
                     by_arm_companion[_design_key(arm, levels[0])] = ArmQuery(arm)
+            if fold_plug_in_rules:
+                # Each fold's per-arm models at both arms of every row of ``data`` itself.
+                by_arm_companion = {_rule_key(arm): ArmQuery(arm) for arm in arms}
             outcome_out, outcome_companion, outcome_diagnostics = _fit_outcome_by_arm(
                 outcome_learner,
                 data,
@@ -2371,6 +2412,7 @@ def fit_nuisances(
                 companion=companion,
                 companion_queries=by_arm_companion,
                 n_jobs=n_jobs,
+                companion_rows=np.arange(data.n) if fold_plug_in_rules else None,
             )
         else:
             outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
@@ -2398,6 +2440,13 @@ def fit_nuisances(
             for level in levels
         }
         primary = by_level[levels[0]]
+
+        if fold_plug_in_rules:
+            control, treated = arms
+            fold_rules = np.asarray(
+                (outcome_companion[_rule_key(treated)] - outcome_companion[_rule_key(control)])
+                > 0.0
+            ).T
 
         companion_estimates = None
         if companion is not None:
@@ -2440,6 +2489,7 @@ def fit_nuisances(
         msm=msm,
         companion=companion_estimates,
         outcome_probes={key: outcome_out[f"probe:{key}"] for key in probes},
+        fold_plug_in_rules=fold_rules,
     )
 
 

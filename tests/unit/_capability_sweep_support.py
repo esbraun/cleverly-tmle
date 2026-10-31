@@ -1014,8 +1014,9 @@ KINDS: dict[str, Kind] = {
     "ctmle_oat+missing": _kind(fit_ctmle_oat_missing, *_LIVE, *_TILT),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
-    # A refit relearns the rules, so no refutation or bound row answers.
-    "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve"),
+    # The point bound holds the fold rules fixed (X11 part (n)). A refit relearns the
+    # rules, so the benchmark row refuses; the E-value reads no regime contrast.
+    "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
@@ -1402,8 +1403,12 @@ MUTATIONS: dict[str, Mutation] = {
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
-        frozenset({"split_plan", "regime", "regime+missing"}),
-        _RAISED.format("benchmark") + "benchmark cannot drop every covariate",
+        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
+        frozenset({"split_plan", "regime", "regime+missing", "learned_rule"}),
+        "("
+        + _RAISED.format("benchmark")
+        + "benchmark cannot drop every covariate"
+        + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule)",
     ),
     "M9": Mutation(
         "the simulated-confounding row ignores the predicate",

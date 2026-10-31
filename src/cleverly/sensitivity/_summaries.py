@@ -185,6 +185,13 @@ def _joint_note(features: Sequence[str]) -> Note | None:
     return note("joint_strength", TEXTS["joint_strength"].format(mechanisms=named))
 
 
+def _learned_rule_note(features: Sequence[str]) -> Note | None:
+    """What a bound of a learned-rule value holds fixed, or ``None`` on any other bound."""
+    if "learned_rule" not in features:
+        return None
+    return note("learned_rule_bound", TEXTS["learned_rule_bound"])
+
+
 def _status_note(status: str, names: str, label: str) -> Note:
     """The shared note of a table with a diagnostic spread column."""
     record = status_record(status)
@@ -211,6 +218,8 @@ def _limits_withheld(refusal: MechanismRefusal | None) -> Note:
         return note("limits_withheld", TEXTS["limits_withheld_zero"])
     if refusal.key == "consistent_mechanism":
         key = "limits_withheld_consistent"
+    elif refusal.key == "learned_rule":
+        key = "limits_withheld_learned_rule"
     elif refusal.key == "configuration":
         key = "limits_withheld_configuration"
     elif refusal.key in _CORRECTION_KEYS:
@@ -381,6 +390,9 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
     joint = _joint_note(bounds.features)
     if joint is not None:
         notes.append(joint)
+    learned = _learned_rule_note(bounds.features)
+    if learned is not None:
+        notes.append(learned)
     if bounds.assumption is not None:
         notes.append(note("consistent_mechanism", TEXTS["consistent_mechanism"]))
 
@@ -488,6 +500,8 @@ def robustness_summary(value: RobustnessValue, detail: Detail) -> Summary:
         notes.append(_limit_status_note(status, value.estimand, V.SPREAD_LABELS[limit_key]))
     if not derived:
         notes.append(_limits_withheld(value.refusal))
+        if value.refusal is not None and value.refusal.key == "learned_rule":
+            notes.append(note("learned_rule_bound", TEXTS["learned_rule_bound"]))
     elif value.get("limit_licensed") is False:
         notes.append(_descriptive("limit robustness value"))
     sections: list[SummarySection] = []
@@ -563,6 +577,9 @@ def elements_summary(elements: SensitivityElements, detail: Detail) -> Summary:
     joint = _joint_note(elements.features)
     if joint is not None:
         notes.append(joint)
+    learned = _learned_rule_note(elements.features)
+    if learned is not None:
+        notes.append(learned)
     sections: list[SummarySection] = []
     if detail == "full":
         settings = [

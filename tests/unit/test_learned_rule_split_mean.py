@@ -34,6 +34,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.interventions import LearnedRuleRecord
 from cleverly.interventions.learned import freeze_learned_rule, mean_over_splits
 from cleverly.methods import ModelSpec
+from cleverly.sensitivity import omitted_variable_bounds
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.validation.refute import refute, refute_refusal
 from tests.unit import _learned_rule_support as support
@@ -448,7 +449,14 @@ class TestTheSurfacesThatReadOneRulePerRow:
         curve = support.fit(repeats=1).diagnostics.truncation_curve()
         assert len(curve.to_frame()) > 0
 
-    def test_the_omitted_variable_bound_refuses_every_learned_rule_fit(self) -> None:
-        """X11 (n) holds the bound, so a fit of several splits meets that refusal too."""
-        row = _repeated().sensitivity.capability("omitted_confounding")
-        assert not row.available and "X11 (n) in docs/roadmap.md" in (row.reason or "")
+    def test_the_omitted_variable_bound(self) -> None:
+        """The bound holds one split's fold rules fixed, and the median over draws has no target."""
+        for operation in ("omitted_confounding", "robustness_value", "elements", "contour"):
+            row = _repeated().sensitivity.capability(operation)
+            assert not row.available
+            _remedy_names_repeats_one(row.reason or "", "the omitted-variable bound")
+        with pytest.raises(CapabilityError) as caught:
+            omitted_variable_bounds(_repeated(), support.NAME)
+        _remedy_names_repeats_one(str(caught.value), "the omitted-variable bound")
+        once = support.fit(repeats=1)
+        assert omitted_variable_bounds(once, support.NAME).lower < once[support.NAME].psi

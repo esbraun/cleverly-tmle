@@ -43,9 +43,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
-    "LEARNED_RULE_BOUND_REFUSAL",
+    "LEARNED_RULE_BENCHMARK_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
     "LEARNED_RULE_EVALUE_REFUSAL",
+    "LEARNED_RULE_LIMITS",
     "LEARNED_RULE_REMEDY",
     "LEARNED_RULE_TILT_REFUSAL",
     "LOSSES",
@@ -55,6 +56,7 @@ __all__ = [
     "LearnedRule",
     "LearnedRuleRecord",
     "LearnedRuleSplit",
+    "fold_rules",
     "freeze_learned_rule",
     "frozen_rule_replay",
     "learned_rule_configuration_refusal",
@@ -122,6 +124,9 @@ LEARNED_RULE_REMEDY = (
     "(X11 (a) in docs/roadmap.md)"
 )
 
+#: The roadmap part that holds the limits and the benchmark of the learned-rule bound.
+_X11_N2 = "X11 (n2) in docs/roadmap.md"
+
 #: The reason every sensitivity analysis of a learned-rule fit shares.  Each analysis
 #: appends the roadmap row that holds its own missing work.
 _LEARNED_RULE_TARGET = (
@@ -130,11 +135,30 @@ _LEARNED_RULE_TARGET = (
     "rules, so a refitted or perturbed fit estimates a different target"
 )
 
-#: Why the omitted-variable bound refuses a learned-rule fit.  With the fold rules frozen,
-#: the value is a linear functional, and the bound of a known regime is X82 part G's open work.
-LEARNED_RULE_BOUND_REFUSAL = (
-    f"{_LEARNED_RULE_TARGET}. X11 (n) in docs/roadmap.md tracks the bound of the frozen "
-    "fold rules, after X82 part G covers a known regime"
+#: Why ``benchmark`` refuses a learned-rule fit.  The omitted-variable bound itself reads
+#: the fit's own fold rules, held fixed, and needs no refit.
+LEARNED_RULE_BENCHMARK_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "benchmark refits the model without the named covariates, and on a learned-rule fit the "
+    "refit relearns the rule inside each training fold, so the short model would estimate "
+    "the value of other rules. A short model that holds the fit's rules fixed needs every "
+    "fold's rule at every row, and the frozen-rule replay holds one realized rule per row "
+    f"({_X11_N2}).",
+    alternative=(
+        "Read omitted_variable_bounds() and robustness_value() at declared strengths, which "
+        "hold the fit's fold rules fixed and refit nothing."
+    ),
+    roadmap="X11",
+)
+
+#: Why the omitted-variable bound of a learned-rule fit publishes no confidence limit.
+LEARNED_RULE_LIMITS = (
+    "a learned-rule fit: the omitted-variable bound of its value is a point bound. Its estimate of "
+    "nu^2 evaluates every fold's rule at every row, so V - 1 of the V rules read rows they "
+    "were learned on, and a standard error would need a Donsker-type condition on the rule "
+    "learners, which condition C5 of the learned-rule contract does not make. Replacing the "
+    "fold rules by their common limit would instead need a margin rate, which condition C3 "
+    f"does not give ({_X11_N2})."
 )
 
 #: Why the E-value refuses a learned-rule fit.  No E-value of a regime contrast ships.
@@ -502,13 +526,19 @@ def learned_rule_treat(
     fit_inner: InnerFit,
     g_bounds: tuple[float, float],
     seed: int,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    """Return the rule of every row of a learned-rule fit, and its rule learner's margin.
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Return the rule of every row of a learned-rule fit, its margin, and every fold's rule.
 
     A frozen rule returns its values.  The plug-in rule reads the out-of-fold blip of the
     cross-fitted outcome regression.  A pseudo-outcome loss fits its rule learner inside
     each outer training fold (:func:`~cleverly.interventions._rule_learners.rule_learner_treat`),
     and never reads the outer out-of-fold predictions.
+
+    Each fold's rule is also evaluated at every row while its fitted model is in memory: the
+    plug-in rule by the outcome regression of the fold
+    (:attr:`~cleverly.estimators._nuisance.NuisanceEstimates.fold_plug_in_rules`), and a
+    rule learner by its fitted learner.  The omitted-variable bound reads that matrix, so it
+    never refits a rule.
 
     Parameters
     ----------
@@ -535,12 +565,18 @@ def learned_rule_treat(
         For a pseudo-outcome loss, the score of the row's fold rule minus its threshold,
         :math:`\\hat b_v(W_i)` or :math:`\\hat P_v(\\tilde D > 0 \\mid W_i) - 1/2`.
         ``None`` for the plug-in rule, whose score is the blip, and for a frozen rule.
+    fold_rules : numpy.ndarray or None
+        ``(n, V)`` booleans: column ``v`` is fold ``v``'s rule at every row.  ``None`` for
+        a frozen rule, which holds one realized rule per row and no fold rule.
 
     Raises
     ------
     DataError
         If a frozen rule holds another number of rows than the refit, or if an inner
         training complement of a pseudo-outcome loss lacks an arm or an outcome class.
+    RuntimeError
+        If a plug-in rule meets nuisances fitted without every fold's rule.  No
+        declaration reaches it.
     """
     if isinstance(rule, FrozenLearnedRule):
         n = np.asarray(nuisance.outcome.arms[nuisance.outcome.levels[0]]).shape[0]
@@ -548,9 +584,14 @@ def learned_rule_treat(
             raise DataError(
                 f"the frozen learned rule holds {rule.treat.size} rows, and the refit has {n}"
             )
-        return rule.treat, None
+        return rule.treat, None, None
     if rule.loss == "plug_in":
-        return _blip(nuisance) > 0.0, None
+        if nuisance.fold_plug_in_rules is None:
+            raise RuntimeError(
+                "a plug-in learned-rule fit reached its rule without every fold's rule at "
+                "every row. This is a defect in cleverly: TMLE asks the nuisance fit for them."
+            )
+        return _blip(nuisance) > 0.0, None, np.asarray(nuisance.fold_plug_in_rules, dtype=bool)
     return rule_learner_treat(
         data,
         nuisance.folds,
@@ -831,27 +872,80 @@ def _blip(nuisance: NuisanceEstimates) -> np.ndarray:
 
 @dataclass(frozen=True)
 class _LearnedRuleRegimes(RegimeSet):
-    """The regime set of a learned-rule fit, with the margin of its rule learner.
+    """The regime set of a learned-rule fit, with every fold's rule and the rule learner's margin.
 
     Parameters
     ----------
     names : tuple of str
         The one regime label.
     values : numpy.ndarray
-        ``(n, 2, 1)`` one-hot densities.
+        ``(n, 2, 1)`` one-hot densities of each row's own fold rule.
     reference : float
         The code of the one regime.
     margin : numpy.ndarray or None
         The score of each row's fold rule minus its threshold, for a pseudo-outcome loss
         (:func:`learned_rule_treat`), or ``None``.  :func:`learned_rule_split` records its
         quantiles.
+    fold_rules : numpy.ndarray or None
+        ``(n, V)`` booleans, ``True`` where fold ``v``'s rule assigns row ``i`` the higher
+        arm code, or ``None`` for a frozen rule.  Row ``i``'s entry at its own fold is the
+        realized rule ``values[i, 1, 0]``.  The omitted-variable bound reads every column
+        (:func:`fold_rules`).
     """
 
     margin: np.ndarray | None = None
+    fold_rules: np.ndarray | None = None
+
+
+def fold_rules(nuisance: NuisanceEstimates) -> np.ndarray | None:
+    """Return the rule of every fold at every row of one split of a learned-rule fit.
+
+    Parameters
+    ----------
+    nuisance : NuisanceEstimates
+        The nuisances of one split, whose regime set the fit built.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        ``(n, V)`` booleans in the order of ``nuisance.folds``, or ``None`` when the split
+        stores none: a frozen rule's replay, which holds one realized rule per row.
+
+    Raises
+    ------
+    RuntimeError
+        If the entry of some row at its own fold differs from the row's realized rule.  The
+        fit evaluates both from one fitted model, so this is a defect in cleverly.
+    """
+    regimes = nuisance.regimes
+    rules = getattr(regimes, "fold_rules", None)
+    if rules is None:
+        return None
+    assert regimes is not None
+    rules = np.asarray(rules, dtype=bool)
+    assignment = np.asarray(nuisance.folds.assignment, dtype=int)
+    if rules.shape != (assignment.size, nuisance.folds.n_folds):
+        raise RuntimeError(
+            f"the stored fold rules have shape {rules.shape}, and the split has "
+            f"{assignment.size} rows and {nuisance.folds.n_folds} folds. This is a defect in "
+            "cleverly."
+        )
+    realized = np.asarray(regimes.values[:, 1, 0], dtype=float) > 0.5
+    own = rules[np.arange(assignment.size), assignment]
+    if not np.array_equal(own, realized):
+        raise RuntimeError(
+            f"the stored rule of {int(np.sum(own != realized))} rows at their own fold differs "
+            "from the realized rule. The fit evaluates both from one fitted model, so this is "
+            "a defect in cleverly; report it."
+        )
+    return rules
 
 
 def _learned_rule_regimes(
-    treat: np.ndarray, name: str, margin: np.ndarray | None = None
+    treat: np.ndarray,
+    name: str,
+    margin: np.ndarray | None = None,
+    fold_rules: np.ndarray | None = None,
 ) -> RegimeSet:
     """The fold-local rule of every row, as a one-regime :class:`RegimeSet`.
 
@@ -868,6 +962,8 @@ def _learned_rule_regimes(
         The name of the regime, the rule's label.
     margin : numpy.ndarray or None
         The rule learner's score minus its threshold at every row, or ``None``.
+    fold_rules : numpy.ndarray or None
+        Every fold's rule at every row, ``(n, V)`` booleans, or ``None`` for a frozen rule.
 
     Returns
     -------
@@ -878,9 +974,15 @@ def _learned_rule_regimes(
     values = np.zeros((treat.size, 2, 1), dtype=float)
     values[:, 1, 0] = treat
     values[:, 0, 0] = ~treat
-    if margin is None:
+    if margin is None and fold_rules is None:
         return RegimeSet((name,), values, 0.0)
-    return _LearnedRuleRegimes((name,), values, 0.0, np.asarray(margin, dtype=float))
+    return _LearnedRuleRegimes(
+        (name,),
+        values,
+        0.0,
+        None if margin is None else np.asarray(margin, dtype=float),
+        None if fold_rules is None else np.asarray(fold_rules, dtype=bool),
+    )
 
 
 def learned_rule_split(
