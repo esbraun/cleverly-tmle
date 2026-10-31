@@ -269,6 +269,10 @@ from ._strata import (
     absent_arm_error,
     check_stratified_targets,
     embed_stratum_curve,
+    fold_evaluated_strata_refusal,
+    fold_evaluated_stratum_weights,
+    refuse_empty_stratum_folds,
+    stratum_mixture,
     stratum_probabilities,
     stratum_source,
     unscale_block,
@@ -1812,15 +1816,10 @@ class TMLE:
                 alternative="Use the default pooled targeting scheme.",
                 roadmap="X61",
             )
-        if data.has_strata and self.cv_evaluation:
-            raise CapabilityError(
-                "baseline strata are not implemented with cv_evaluation=True: the "
-                "fold-evaluated estimate needs stratum shares and a stratum-indexed fold "
-                "average inside every validation fold.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="Use cv_evaluation=False.",
-                roadmap="X28",
-            )
+        if self.cv_evaluation:
+            refusal = fold_evaluated_strata_refusal(data, estimands)
+            if refusal is not None:
+                raise refusal
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -3824,6 +3823,9 @@ class TMLE:
         Every realized draw also passes :meth:`_preflight_missing_outcome_folds` and
         :meth:`_preflight_training_support`, so each fit path that draws folds checks what
         its nuisances need from every training complement before its first learner fit.
+        A fold-evaluated fit with baseline strata also passes
+        :func:`~cleverly.estimators._strata.refuse_empty_stratum_folds`, which needs every
+        stratum and every arm inside it in every validation fold.
 
         The supplied path first asks :meth:`SplitPlan.verify` whether the plan's generator
         record draws exactly these labels on these rows.  It then asks
@@ -3876,6 +3878,10 @@ class TMLE:
                 source_fingerprint=data_fingerprint(data),
             )
         self._preflight_cluster_validation_folds(data, folds)
+        if self.cv_evaluation:
+            # The fold-evaluated stratum estimate needs every stratum, and every arm inside
+            # it, in every validation fold of every draw (X28).
+            refuse_empty_stratum_folds(data, folds)
         self._preflight_missing_outcome_folds(data, estimands, folds)
         self._preflight_training_support(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))
@@ -4499,6 +4505,12 @@ class TMLE:
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=f"{route}.",
             )
+        if self.cv_evaluation and not nuisance.folds.is_single:
+            # The fit refuses these before any learner; a direct call can still name a
+            # target outside the fold-evaluated stratum construction (X28).
+            refusal = fold_evaluated_strata_refusal(data, requested)
+            if refusal is not None:
+                raise refusal
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
         reference = self._reference_arm(data, regimes, nuisance.policies)
@@ -4660,6 +4672,7 @@ class TMLE:
                 natural_course=natural_course if group == "mean" else None,
             )
             pooled_report.update(pooled)
+            marginal_names = tuple(pooled)
             if data.has_strata:
                 assert targeting_submodel is not None
                 stratified, codes = self._stratum_estimates(
@@ -4696,6 +4709,27 @@ class TMLE:
             # produced: a target reports one parameter per arm, and `targets_for` selects
             # by target name. A target that a fold cannot evaluate is dropped there by
             # `drop_undefined`, which is what `_average_over_folds` then reconciles.
+            if data.has_strata and self.cv_evaluation:
+                # X28: the stratum estimates average the fold plug-ins of each stratum, and
+                # the marginal estimates are their share mixtures.
+                assert targeting_submodel is not None
+                fold_evaluated, per_fold_values = self._fold_evaluated_strata(
+                    data,
+                    targeted,
+                    group,
+                    submodel,
+                    targeting_submodel,
+                    fluctuation,
+                    requested,
+                    level,
+                    reference,
+                    indices,
+                    marginal_names,
+                )
+                fold_evaluated_report.update(fold_evaluated)
+                fold_estimates.update(per_fold_values)
+                estimates.update(fold_evaluated)
+                continue
             per_fold = [
                 self._fold_estimates(
                     data, targeted, group, submodel, fluctuation, requested, level, index
@@ -5105,12 +5139,20 @@ class TMLE:
         that objective as one stacked regression, including when folds have unequal row
         counts or unequal sampling-weight mass.
 
+        With baseline strata the normalisation is inside each fold and stratum
+        (:func:`~cleverly.estimators._strata.fold_evaluated_stratum_weights`), because each
+        reported stratum estimate averages the fold plug-ins of its stratum.
+
         A fold-specific update is invariant to multiplying all of its weights by a
         constant and never calls this helper.  A non-cross-fitted fit has no validation
         risks to average and likewise keeps the original empirical measure.
         """
         if not self.cv_evaluation or not self.cross_fit or nuisance.folds.is_single:
             return data.weights
+        if data.has_strata:
+            # Each reported stratum estimate averages fold plug-ins over the fold's rows in
+            # the stratum, so its score normalises inside each fold and stratum (X28).
+            return fold_evaluated_stratum_weights(data, [test for _, test in nuisance.folds])
         weights = np.array(data.weights, dtype=float, copy=True)
         n_folds = len(nuisance.folds)
         for _, test in nuisance.folds:
@@ -5780,6 +5822,110 @@ class TMLE:
                 )
                 codes[name] = code
         return out, codes
+
+    def _fold_evaluated_strata(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        marginal_submodel: Submodel,
+        targeting_submodel: Submodel,
+        fluctuation: Fluctuation,
+        requested: Sequence[str],
+        alpha_sig: float,
+        reference: float,
+        indices: Sequence[IntArray],
+        marginal_names: Sequence[str],
+    ) -> tuple[dict[str, ParameterEstimate], dict[str, tuple[float, ...]]]:
+        r"""The fold-evaluated report of a stratified fit (X28), and its fold values.
+
+        Stratum :math:`s` of fold :math:`v` reports :math:`\psi_{s,v}`, the plug-in over the
+        fold's rows in the stratum, read from the stratum's own block as
+        :meth:`_stratum_estimates` reads it. Its fold curve is :math:`I(S = s) D_{s,v} /
+        P_{n,v}(S = s)`, with the fold's own stratum share: the stratum's curve on its
+        :math:`n_{v,s}` rows times :math:`n_v / n_{v,s}`. :func:`_average_over_folds` then
+        reports :math:`V^{-1}\sum_v \psi_{s,v}` with the cross-validated variance. The update
+        solves each of these scores, through
+        :func:`~cleverly.estimators._strata.fold_evaluated_stratum_weights`. Each marginal
+        estimate is the share mixture of its stratum estimates
+        (:func:`~cleverly.estimators._strata.stratum_mixture`), not the fold average of the
+        marginal plug-ins, whose score the stratum weights leave unsolved.
+
+        A stratum estimate that some fold cannot evaluate is dropped with the warning of
+        :func:`_average_over_folds`, and so is every marginal mixture that reads it.
+
+        Returns
+        -------
+        tuple of dict
+            The marginal estimates and then the stratum estimates, as the stacked report
+            orders them, and the fold values of each.
+        """
+        assert data.strata is not None
+        strata = np.asarray(data.strata)
+        stratum_fluctuation = stratum_source(fluctuation)
+        width = marginal_submodel.dim
+        per_fold: list[dict[str, ParameterEstimate]] = [{} for _ in indices]
+        names: dict[str, tuple[str, int]] = {}
+        for code, probability in enumerate(stratum_probabilities(data)):
+            block = slice(code * width, (code + 1) * width)
+            conditional_submodel = Submodel(
+                unscale_block(targeting_submodel.observed[:, block], probability),
+                {
+                    arm: unscale_block(values[:, block], probability)
+                    for arm, values in targeting_submodel.arms.items()
+                },
+                marginal_submodel.names,
+                group,
+                dict(marginal_submodel.arm_columns),
+                dict(marginal_submodel.contrast_columns),
+            )
+            label = data.stratum_label(code)
+            for fold, index in enumerate(indices):
+                inside = strata[index] == code
+                rows = index[inside]
+                estimates = self._estimates_for(
+                    data,
+                    nuisance,
+                    group,
+                    conditional_submodel,
+                    stratum_fluctuation,
+                    requested,
+                    alpha_sig,
+                    reference,
+                    index=rows,
+                )
+                for estimate in estimates.values():
+                    name = stratum_alias(estimate.name, label)
+                    names[name] = (estimate.name, code)
+                    # The stratum's curve on its n_{v,s} rows, embedded in the fold with the
+                    # fold's own share: n_v / n_{v,s} on the stratum's rows, zero elsewhere.
+                    curve = np.zeros(index.size, dtype=float)
+                    curve[inside] = estimate.influence_curve * (index.size / rows.size)
+                    per_fold[fold][name] = replace(
+                        estimate, name=name, influence_curve=curve, n=int(index.size)
+                    )
+        stratum_report = _average_over_folds(
+            per_fold, tuple(names), indices, n=data.n, cluster=None, alpha=alpha_sig
+        )
+        values = {name: tuple(fold[name].psi for fold in per_fold) for name in stratum_report}
+        report: dict[str, ParameterEstimate] = {}
+        for marginal in marginal_names:
+            labels = [
+                stratum_alias(marginal, data.stratum_label(code)) for code in range(data.n_strata)
+            ]
+            if not all(name in stratum_report for name in labels):
+                continue
+            estimate, folds = stratum_mixture(
+                data,
+                marginal,
+                [stratum_report[name] for name in labels],
+                [values[name] for name in labels],
+                alpha=alpha_sig,
+            )
+            report[marginal] = estimate
+            values[marginal] = folds
+        report.update(stratum_report)
+        return report, values
 
     def _stratum_natural_course(
         self,

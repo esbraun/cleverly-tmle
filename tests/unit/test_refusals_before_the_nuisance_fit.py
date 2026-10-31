@@ -9,7 +9,8 @@ target one block per stratum, so this module pins these things:
 * each formerly refused stratified request reaches a learner, on the estimator, on
   ``CausalStudy.identify`` and ``estimate``, and through the refit replay slot;
 * each stratified refusal that remains refuses before any learner with its own reason: fold-wise
-  targeting, fold evaluation, and a DR-TMLE stratum with no trainable rows in some training
+  targeting, fold evaluation of a target outside the X28 construction (the default list holds
+  the ATT and the ATC), and a DR-TMLE stratum with no trainable rows in some training
   complement.  The incremental and MSM data refusals are pinned in their exact-law modules;
 * a stratified ``DRTMLE`` request that ``guard=()`` does not repair, with ``att`` or with a
   cross-fitted ``delta=``, meets its own refusal;
@@ -313,7 +314,7 @@ REMAINING: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]]
             strata_frame(),
             treatment="A",
         ),
-        ("cv_evaluation=True", "stratum-indexed fold average", "X28 in docs/roadmap.md"),
+        ("cv_evaluation=True with baseline strata", "Fold evaluation of", "X28 in docs/roadmap.md"),
         CapabilityError,
     ),
     "a DR-TMLE stratum with no trainable rows": (
