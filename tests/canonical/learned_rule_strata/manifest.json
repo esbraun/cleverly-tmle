@@ -1,0 +1,120 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule value inside baseline strata",
+  "slug": "learned-rule-strata",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-strata",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "c2286cfc931f1a491aa5dd55828d11d6d2d7200a",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 1000,
+    "seed": 20263061,
+    "resampling_seed": 20263062,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-strata": 0.01
+    },
+    "scenarios": {
+      "unweighted": [
+        "ey_learned_rule[learned rule][S=0]",
+        "ey_learned_rule[learned rule][S=1]",
+        "ey_learned_rule[learned rule][S=2]",
+        "ey_learned_rule[learned rule]"
+      ],
+      "weighted": [
+        "ey_learned_rule[learned rule][S=0]",
+        "ey_learned_rule[learned rule][S=1]",
+        "ey_learned_rule[learned rule][S=2]",
+        "ey_learned_rule[learned rule]"
+      ],
+      "binary_steep": [
+        "ey_learned_rule[learned rule][S=0]",
+        "ey_learned_rule[learned rule][S=1]",
+        "ey_learned_rule[learned rule][S=2]",
+        "ey_learned_rule[learned rule]"
+      ],
+      "binary_steep_weighted": [
+        "ey_learned_rule[learned rule][S=0]",
+        "ey_learned_rule[learned rule][S=1]",
+        "ey_learned_rule[learned rule][S=2]",
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(outcome_learner=<outcome learner>, treatment_learner=<treatment learner>, learned_rule=LearnedRule(), cross_fit=True, n_folds=5, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', q_bounds=<(0.0, 1.0) on the beta outcome, None on the binary one>, simultaneous=False, random_state=<fold seed>).fit(frame, outcome='Y', treatment='A', covariates=['W1', 'W2', 'S'], strata=['S'], weights=<'w' in a weighted setting>); n = 1000, rows only, complete data, repeats=1",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), QuasiBinomialGLM(tol=1e-10)) on (A, W1, W2, S) for the beta outcome; the same products with LogisticRegression(C=1e6, max_iter=5000, tol=1e-10) for the binary one",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2, S)",
+    "targeting_control_learner": "E1's drop_w1_learner(): columns 0 and 2 of (A, W1, W2, S), so A and W2 only, and their product, quasibinomial; it learns a rule of W2 alone, and the truth is refit with it",
+    "law": "the law of tests/studies/_fold_evaluated_strata_law.py: W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5), logit g0 = 0.3 W1 - 0.2 W2, Y | A, W ~ Beta(12 m, 12 (1 - m)) with blip b = 0.1 + 1.5 W1 (unweighted, weighted; rule boundary W1 = -1/15 in stratum 1) or Bernoulli(m) with b = -1.2 + 3.0 W1 (binary_steep, binary_steep_weighted; boundary W1 = 0.4 in stratum 2), m = Qbar0(A, W), logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + a b; S = 0, 1, 2 on W1 in [-1, -0.6), [-0.6, 0.1), [0.1, 1] (shares 0.2, 0.35, 0.45); weighted settings w = 1 + 1.5 W2",
+    "truth": "per replication: refit each fold's plug-in rule on the fold's training rows with the fit's outcome learner, task and scaled outcome; require it on every validation row (rule L4) and the stored fold rule on every row; integrate Qbar0(d_v(W), W) over each stratum's interval of W1 by the trapezoid rule on 4001 points for each W2, weighted by w(W2); each stratum truth is the mean over the 5 folds, and the marginal truth is the share mixture",
+    "weak_margin_diagnostic": "binary rows-only laws with the blips 0.1 - 0.3 W1 (E1's binary_unweighted, drawn by E1's draw) and -0.6 + 1.5 W1, n = 1000: the declared fit and the same estimator without strata= (same learner and fold seed, so the same folds and fold rules) on each sample, each with its harness; role diagnostic, no verdict",
+    "margin_measures": "boundary_disagreement: share of the boundary stratum's rows on which the stored fold rules disagree; boundary_treated_share: share of them the fit's rule treats; descriptive",
+    "oracle_se": "sqrt(V^-2 sum_v Var D_{s,v} / n_v) at each fold's rule, by the same quadrature; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_strata.py": "825145621c7a5907cbfb42f34a13789ff3a80a13f63e2c0faf024704c1c1dfd3",
+    "tests/studies/learned_rule_strata_properties.py": "5dddb0c8db5c748d7d17839815d6305929cefab396e765790423198cbaf4927f",
+    "tests/studies/_learned_rule_strata_law.py": "44a19286809afe234f89adb0a68dc638eba0b097f58c28233f82fe11f13c4073",
+    "tests/studies/_fold_evaluated_strata_law.py": "44dafa5f8ccee4c2e19ae397fc62b9713afec03e56590a92a886561860974234",
+    "tests/studies/_learned_rule_law.py": "190f9827d9787081034a2ae067a9998891ea8cfdfb108d3337a25ed36b4af5cb",
+    "src/cleverly/estimators/_strata.py": "eb5279bf896041b551c01e2d8b36cee5e2455b2884c33d5a3f84afe3c808ecca",
+    "src/cleverly/estimators/tmle.py": "c72e305facb406a5168cf1f78fd631d0697b0f279e9697a8f1f374fde5e7345b",
+    "src/cleverly/estimators/_nuisance.py": "a4f592ecd4785ec0849b4c0871cea3e65944f01ceb0285cacb651201b8fa13b7",
+    "src/cleverly/interventions/learned.py": "8e7a5ef81bd54b564ef3cb10cb57f44f9507b27965737883c9cd51cd596e5630",
+    "src/cleverly/learners/crossfit.py": "6bed58dff3c1ae52760de15c447154dc42560ec828efda14d20577351ff185fa",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "f0d27c519b183c4ce4975b87fc0a609aeed7c7e92ff3bf078a3560415ede3f0e",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "08b94c601dd7209c087a105d58d14a3681604a978b6ca03abdfc88750c7fb21f",
+    "summary.csv": "bb3504f89d1cdcbb953bdd306be7c673b93448b27febb65809544b3b1696fb5a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "286bf2cc5ac7eb34548b03a490f80f4c4f533186486b8b27a3223b979e213ec1",
+    "property-replicates.parquet": "f8f34240b3c48f55158e4c4044bd4b70207e35c42722f57350f79f90aa8a9e8b",
+    "properties.csv": "0205081af6d7a28e72cab237f30374082d5d461dea1ed34ee4147753a2eb1bbe",
+    "strata-harness.csv.gz": "ee3f2bb8ea5acc5be56881279332864737a6322d4ec5dcd2b91f66d404c74ddd"
+  }
+}
