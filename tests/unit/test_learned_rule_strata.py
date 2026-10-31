@@ -504,9 +504,16 @@ class TestTheAdmittedCompositions:
             {"learned_rule": LearnedRule(loss="blip", learner=LinearRegression())},
         ),
     }
+    #: The support row of each case: ``learned-rule-strata`` measures the plug-in rule on rows
+    #: and with a known weight (T41). A rule-learner loss with strata matches no row.
+    ROWS: dict[str, str | None] = {  # noqa: RUF012
+        "rows": "T41.binary",
+        "known weights": "T41.binary_weighted",
+        "blip learner": None,
+    }
 
     @pytest.mark.parametrize("case", list(CASES))
-    def test_each_stratum_is_the_fold_average_and_reads_experimental(self, case: str) -> None:
+    def test_each_stratum_is_the_fold_average_and_reads_its_row(self, case: str) -> None:
         keywords, settings = self.CASES[case]
         fit = _fit(keywords=keywords, **settings)
         assert set(fit.estimates) == set(_names(fit))
@@ -515,7 +522,9 @@ class TestTheAdmittedCompositions:
             folds = fit.cv_targeting.fold_estimates[name]
             assert estimate.psi == pytest.approx(float(np.mean(folds)), abs=1e-12)
             assert np.isfinite(estimate.std_error) and estimate.std_error > 0.0
-            assert estimate.support.label == "experimental"
+            row = self.ROWS[case]
+            assert estimate.support.label == ("experimental" if row is None else "supported")
+            assert estimate.support.row == row
 
     def test_the_weights_move_the_stratum_values(self, result: Any) -> None:
         weighted = _fit(keywords={"weights": "w"})

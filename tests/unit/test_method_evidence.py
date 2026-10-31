@@ -1777,6 +1777,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR E1 (``fold-evaluated-strata``): the fold-evaluated and stacked stratified fits
         # on a binary law with few events in one stratum-arm, reported with no verdict.
         "sparse_event_diagnostic",
+        # X11 PR E2 (``learned-rule-strata``): the stratified and unstratified learned-rule fits
+        # on binary laws with a weak margin at the rule boundary, reported with no verdict.
+        "weak_margin_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
@@ -2764,6 +2767,8 @@ _FAMILY = {
     "reference_score_failures": "fit_diagnostics",
     "mean_oracle_se": "harness",
     "value_gain_": "harness",
+    "boundary_disagreement_mean": "harness",
+    "boundary_treated_share_mean": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
     "subject_failures": "failures",

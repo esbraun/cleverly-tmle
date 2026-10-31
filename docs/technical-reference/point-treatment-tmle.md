@@ -558,7 +558,9 @@ keeps the identity.
 [stratified fold-evaluated study](method-evidence/fold-evaluated-strata.md) calibrates the arm
 means and the ATE at n = 1,000 with five folds and three strata, so that fit reads supported with
 `repeats=1` and pointwise intervals. The regime means, `repeats` above 1 and the simultaneous band
-read experimental, and so does the learned-rule value within strata ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)).
+read experimental ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). The
+learned-rule value within strata has its own study
+([baseline strata of a learned rule](#learned-rules)).
 
 These requests with `strata=` refuse before any learner:
 
@@ -1487,7 +1489,8 @@ fit has no stacked report.
 
 | request with `strata=` | result |
 | --- | --- |
-| `weights=`, a rule learner, `repeats` above 1, the simultaneous band | admitted, experimental |
+| rows or a known weight (`weights=`), with the plug-in rule, `repeats=1` and pointwise intervals | admitted, supported by [the learned-rule strata study](method-evidence/learned-rule-strata.md) |
+| a rule learner, `repeats` above 1, the simultaneous band | admitted, experimental |
 | `id=` | refused before any learner, [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata): the clustered stratum fold variance and its $t$ reference are unchecked |
 | `targeting_scheme="fold"` | refused before any learner, [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b), as for every stratified fit |
 | the omitted-variable bound | refused, [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2): a stratum value needs the combined representer restricted to each fold's stratum rows, and no witness checks the marginal mixture's bias against the combined representer |
@@ -1505,8 +1508,18 @@ A mutation of the fit fails these checks: the full-sample rule in place of the f
 perturbations of the reported curve show that the checks have power: the global stratum share
 in place of the fold's (a nonzero curve mean), another fold's rule in the derivative, and a
 curve without the stratum share. On the support law, a placebo that reads every stratum against
-the marginal outcome mean fails. No registered study covers the fit, so its estimates carry the
-experimental label.
+the marginal outcome mean fails.
+
+The registered [learned-rule strata study](method-evidence/learned-rule-strata.md) calibrates the
+interval of each stratum value and of the marginal value at n = 1,000 with five folds and three
+strata whose smallest share is 0.2, on a bounded and a binary outcome, rows only and with a known
+weight. Its laws give the blip a nonzero slope at the rule boundary, which lies in a stratum of
+share 0.35 or 0.45 and never in the smallest. The five fold rules disagreed on about 8% (bounded)
+and 14% (binary) of the boundary stratum's rows. With a weaker margin the fold rules disagree on
+more rows and the interval under-covers in every stratum, as the unstratified learned-rule fit does
+on the same draws. That is the finite-sample limit of
+[F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions), not of the
+stratified construction.
 
 #### Refusals and the result record
 

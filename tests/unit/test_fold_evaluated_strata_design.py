@@ -451,6 +451,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_split_mean as split_mean
     from tests.studies import learned_rule_split_mean_properties as split_mean_properties
+    from tests.studies import learned_rule_strata as e2
+    from tests.studies import learned_rule_strata_properties as e2_properties
 
     seeds = base.declared_sample_seeds(boundary.STUDY, boundary.PRIMARY_REPLICATES, (), {})
     for record, primary, module in (
@@ -458,6 +460,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (compositions, compositions.PRIMARY_REPLICATES, composition_properties),
         (split_mean, split_mean.PRIMARY_REPLICATES, split_mean_properties),
         (learners, learners.PRIMARY_REPLICATES, learner_properties),
+        (e2, e2.PRIMARY_REPLICATES, e2_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY, primary, module.PROPERTY_DRAWS, module.suffixes(record.STUDY)

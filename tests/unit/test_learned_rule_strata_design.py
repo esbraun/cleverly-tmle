@@ -23,7 +23,7 @@ from tests.studies import fold_evaluated_strata as e1
 from tests.studies import learned_rule_strata as study
 from tests.studies import learned_rule_strata_properties as properties
 from tests.studies import mtp_study_tools as tools
-from tests.studies.evidence.registry import registered
+from tests.studies.evidence.registry import StudyRecord, registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 # ------------------------------------------------------------------------------ the law
@@ -289,12 +289,17 @@ def test_the_manifest_lists_the_fit_path() -> None:
 # --------------------------------------------------------------------------- the seeds
 
 
+def _other_studies() -> list[StudyRecord]:
+    """Every registered study but this one, which the register now holds too."""
+    return [record for record in registered() if record.slug != study.STUDY.slug]
+
+
 def test_the_record_seeds_are_unused() -> None:
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_split_mean as split_mean
 
-    others = {record.seed for record in registered()} | {
-        record.resampling_seed for record in registered() if record.resampling_seed is not None
+    others = {record.seed for record in _other_studies()} | {
+        record.resampling_seed for record in _other_studies() if record.resampling_seed is not None
     }
     for module in (e1, learners, split_mean):
         others |= {module.SEED, module.RESAMPLING_SEED}
@@ -313,7 +318,7 @@ def test_the_named_streams_are_distinct_from_every_registered_study() -> None:
         ("performance", "cleverly", "binary", "ate"),
         ("equivalence", "binary", "ate"),
     ]
-    records = [*registered(), study.STUDY]
+    records = [*_other_studies(), study.STUDY]
     seeds = [stream_seed(record, *label) for record in records for label in labels]
     assert len(set(seeds)) == len(seeds)
 
@@ -397,25 +402,55 @@ def test_the_sample_seeds_are_distinct_but_one_declared_pair() -> None:
     )
 
 
-def test_no_sample_seed_is_another_x11_studys() -> None:
-    """The study shares no sample seed with another X11 study.
+def _other_x11_sample_seeds() -> set[int]:
+    """Every sample seed a declared run of the RM30 and the other X11 studies draws."""
+    from tests.studies import fold_evaluated_strata_properties as e1_properties
+    from tests.studies import learned_rule_compositions as compositions
+    from tests.studies import learned_rule_compositions_properties as composition_properties
+    from tests.studies import learned_rule_cvtmle as gated
+    from tests.studies import learned_rule_cvtmle_boundary as boundary
+    from tests.studies import learned_rule_cvtmle_properties as gated_properties
+    from tests.studies import learned_rule_learners as learners
+    from tests.studies import learned_rule_learners_properties as learner_properties
+    from tests.studies import learned_rule_split_mean as split_mean
+    from tests.studies import learned_rule_split_mean_properties as split_mean_properties
 
-    ``learned_rule_run.declared_sample_seeds()`` covers every other X11 study, E1 among them.
-    It does not yet list this study: the run form is a file of E1's, which is frozen while E1
-    runs, so this study joins it in the change that registers it (design record, D2). This test
-    and :func:`test_the_smoke_record_draws_no_declared_seed` check the union in the meantime.
+    seeds = base.declared_sample_seeds(boundary.STUDY, boundary.PRIMARY_REPLICATES, (), {})
+    for record, module in (
+        (gated, gated_properties),
+        (compositions, composition_properties),
+        (split_mean, split_mean_properties),
+        (learners, learner_properties),
+        (e1, e1_properties),
+    ):
+        seeds |= base.declared_sample_seeds(
+            record.STUDY,
+            record.PRIMARY_REPLICATES,
+            module.PROPERTY_DRAWS,
+            module.suffixes(record.STUDY),
+        )
+    return seeds
+
+
+def test_no_sample_seed_is_another_x11_studys() -> None:
+    """The study shares no sample seed with another X11 study, and the run form lists it.
+
+    ``learned_rule_run.declared_sample_seeds()`` is the union of this study's seeds and every
+    other X11 study's, E1's among them (design record, D2), so a smoke run of any of them
+    avoids this study's seeds.
     """
     own = _own_sample_seeds()
-    others = learned_rule_run.declared_sample_seeds()
+    others = _other_x11_sample_seeds()
     assert own & others == {_seed_of(*key) for key in SHARED_SEEDS} == set()
+    assert learned_rule_run.declared_sample_seeds() == own | others
 
 
 def test_the_smoke_record_draws_no_declared_seed() -> None:
     smoke = base.smoke_record(study.STUDY)
     seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
-    assert not seeds & (learned_rule_run.declared_sample_seeds() | _own_sample_seeds())
+    assert not seeds & learned_rule_run.declared_sample_seeds()
     # The deliberate mutation: the declared record run as a smoke would draw a declared seed.
-    assert replicate_seed(study.STUDY, "unweighted", 0) in _own_sample_seeds()
+    assert replicate_seed(study.STUDY, "unweighted", 0) in learned_rule_run.declared_sample_seeds()
 
 
 # ---------------------------------------------------------------------------- the sizing

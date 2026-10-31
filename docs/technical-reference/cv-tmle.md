@@ -153,6 +153,16 @@ and the fit then refuses with a `DataError`. On a binary outcome with few events
 stratum-arm the Wald interval of that stratum under-covers, and the stacked stratified fit does
 alike.
 
+The registered [learned-rule strata study](method-evidence/learned-rule-strata.md) calibrates the
+learned-rule value inside each stratum and marginally under the same construction, with the
+plug-in rule, at n = 1,000 with five folds and three strata, rows only and with a known weight.
+Such a fit with `repeats=1` and pointwise intervals reads supported. The study's laws put a
+margin at the rule boundary, where the five fold rules disagreed on about 8% (bounded) and 14%
+(binary) of the boundary stratum's rows. With a weaker margin the interval under-covers in every
+stratum, as the unstratified learned-rule fit does on the same draws
+([F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)). A rule
+learner, `repeats` above 1 and the band with strata read experimental.
+
 The omitted-variable bound of a marginal target reads the fit's mixture estimate and curve under
 the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as
 descriptive and its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,

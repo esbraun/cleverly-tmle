@@ -881,6 +881,94 @@ def _t_rows() -> tuple[SupportRow, ...]:
                     limits=[*strata_limits, *outcome_limits[kind], *weight_limits],
                 )
             )
+    # X11 (m) (X11 PR E2): the learned-rule value inside baseline strata, E1's construction
+    # with the fold rule as the regime. The qualifier ``strata`` keys it, so T24 never covers
+    # it. A rule learner keys ``rule_learner_<loss>`` beside ``strata``, fold targeting and
+    # clusters key other axes and ``repeats`` above 1 keys ``repeated``, so each of those
+    # compositions matches no row. The rows run over the outcome kind and the weighting,
+    # because each outcome has a weighted cell. The numbers are the committed results of the
+    # study (``tests/canonical/learned_rule_strata``).
+    learned_strata_limits = [
+        "The study measures the plug-in rule learner (LearnedRule()) on rows or with a known "
+        "weight, with pooled targeting, complete data, no id and repeats=1. A rule-learner "
+        "loss, fold targeting, clusters or repeats above 1 with strata matches no row.",
+        "The target is data-adaptive: the boundary stratum's value varies with the learned "
+        "rules, and a stratum the rules treat alike has a fixed target. Intervals are "
+        "pointwise (simultaneous=False); the band and repeats > 1 are not measured. The rule "
+        "boundary was never placed in the smallest stratum.",
+        "Every outcome learner of the study is a correctly specified parametric model on "
+        "(A, W1, W2, S). A flexible learner rests on the theory alone.",
+        "The unnormalised-curve control and, on the bounded outcome, the share-dropped "
+        "control show that the instrument resolves a gross normalisation error and a missing "
+        "share term. The fold-local stratum share rests on the unit witnesses.",
+        "The targeting control's learner sees neither W1 nor the stratum, and each of its "
+        "truths is the harness refit with that learner. It shows that targeting repairs a "
+        "stratum-blind initial fit at a learned rule, not a subtle misspecification within a "
+        "stratum.",
+    ]
+    learned_outcome_limits = {
+        "binary": [
+            "Measured at n = 1,000 with 5 folds and three strata whose smallest share is 0.2, "
+            "on laws whose blip has a nonzero slope at the rule boundary: 1.5 on a bounded "
+            "outcome and 3.0 on the logit scale on a binary outcome. The boundary fell in a "
+            "stratum of share 0.35 (bounded) or 0.45 (binary), and the five fold rules "
+            "disagreed on about 8% and 14% of that stratum's rows. With a weaker margin the "
+            "fold rules disagree on more of the sample, the target moves with them, and the "
+            "interval under-covers because the variance of learning the rule is not yet "
+            "negligible. At the binary blip 0.1 - 0.3 W1 the study's diagnostic cell reads "
+            "coverage 0.915 to 0.939 in every stratum and marginally, with the fold rules "
+            "disagreeing on 44% of the boundary stratum. At -0.6 + 1.5 W1 the boundary "
+            "stratum reads an SE ratio of 0.968 while the other strata are calibrated. The "
+            "unstratified learned-rule fit under-covers alike on the same draws, so this is "
+            "the finite-sample weak-margin limit of the learned-rule value (roadmap F27, the "
+            "weak_blip row of the learned-rule boundary study), not of the stratified "
+            "construction.",
+            "The share term of the marginal curve carries too little of the variance on the "
+            "binary outcome to be resolved there. It is tested on the bounded outcome.",
+        ],
+        "continuous": [
+            "Measured at n = 1,000 with 5 folds and three strata whose smallest share is 0.2, "
+            "on a beta law on (0, 1) with q_bounds=(0, 1) whose blip has slope 1.5 at the rule "
+            "boundary. The boundary fell in a stratum of share 0.35, and the five fold rules "
+            "disagreed on about 8% of that stratum's rows. With a weaker margin the fold rules "
+            "disagree on more of the sample and the interval under-covers, as the "
+            "unstratified learned-rule fit does (roadmap F27, the weak_blip row of the "
+            "learned-rule boundary study).",
+        ],
+    }
+    for weighted in (False, True):
+        for kind, outcome in (("binary", BINARY), ("continuous", BOUNDED)):
+            scenario = ("binary_steep" if kind == "binary" else "") + (
+                ("_weighted" if kind == "binary" else "weighted")
+                if weighted
+                else ("" if kind == "binary" else "unweighted")
+            )
+            weight_limits = (
+                [
+                    "The study measures the known weight 1 + 1.5 W2, which varies inside every "
+                    "stratum."
+                ]
+                if weighted
+                else []
+            )
+            rows.append(
+                point_row(
+                    f"T41.{kind}_weighted" if weighted else f"T41.{kind}",
+                    ["learned-rule-strata"],
+                    families=("P11",),
+                    outcome=outcome,
+                    weighting="fixed" if weighted else "none",
+                    splitting=("fold_evaluated",),
+                    qualifiers=["strata"],
+                    cells=[scenario],
+                    # Roadmap: X11, F27.
+                    limits=[
+                        *learned_strata_limits,
+                        *learned_outcome_limits[kind],
+                        *weight_limits,
+                    ],
+                )
+            )
     rows.append(
         point_row(
             "T25",

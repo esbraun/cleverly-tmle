@@ -135,7 +135,7 @@ not change the package version.
 | after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
-| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); delivered for the arm means and the ATE, with exact tests and a [gated study](technical-reference/method-evidence/fold-evaluated-strata.md); the regime means and the [learned-rule value](#x11-learned-policy-follow-ups) are implemented and read experimental | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); delivered for the arm means and the ATE, with exact tests and a [gated study](technical-reference/method-evidence/fold-evaluated-strata.md), and for the [learned-rule value](#x11-learned-policy-follow-ups) with its own [gated study](technical-reference/method-evidence/learned-rule-strata.md); the regime means are implemented and read experimental | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | after beta | Further DR-TMLE compositions | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (d) | the shipped `DRTMLE` | [X50](#x50-further-dr-tmle-compositions) |
 | after beta | C-TMLE point estimates for further targets | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector and outcome-adaptive paths | [X51](#x51-c-tmle-point-estimates-for-further-targets) |
 | after beta | Parametric C-TMLE intervals | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path; X58 for part (b) | [X52](#x52-parametric-c-tmle-intervals) |
@@ -976,9 +976,18 @@ With `strata=` the fit also reports the value inside each baseline stratum
 ([baseline strata of a learned rule](technical-reference/point-treatment-tmle.md#learned-rules)).
 One rule is learned per fold and read stratum by stratum with the fold-evaluated stratum
 construction of [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata). Known weights, the rule
-learners and `repeats` above 1 compose with it. Its estimates read experimental until a
-registered study covers them. Strata with `id=` keep the X28 cluster refusal, and strata with
-fold targeting keep [X61](#x61-fold-targeting-and-fold-evaluation) part (b).
+learners and `repeats` above 1 compose with it. The
+[strata study](technical-reference/method-evidence/learned-rule-strata.md) (part (m)) calibrates
+the plug-in rule's value in three strata and marginally at n = 1,000 with five folds, on a
+bounded and a binary outcome, rows only and with a known weight, so such a fit with `repeats=1`
+and pointwise intervals reads supported. Its laws put a margin at the rule boundary, and its
+`weak_margin_diagnostic` cells show that with a weaker margin the interval under-covers in every
+stratum as the unstratified fit does
+([F27](#f27-learned-policy-value-outside-the-published-conditions)). A stratified fit with a
+rule learner, `repeats` above 1 or the band reads experimental.
+
+Strata with `id=` keep the X28 cluster refusal, and strata with fold targeting keep
+[X61](#x61-fold-targeting-and-fold-evaluation) part (b).
 
 The [omitted-variable bound](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 of a learned-rule value ships as a point bound. It holds the fold rules fixed, so the value is the
@@ -1034,12 +1043,14 @@ neither the learner class, the fold count nor the stratum shares, so a fit with 
 learners, more folds or smaller strata reads supported, and the rows state the measured setting
 as limits.
 
-A registered calibration cell for the learned-rule value of
-[X11](#x11-learned-policy-follow-ups) with 3 strata remains pending. Its truth refits each fold's
-rule, its targeting control is the untargeted stratum plug-in with an outcome learner that drops
-$W_1$ (it changes the rule as well as the regression, so it shows repair of a stratum-blind fit),
-and its invalid-inference control is the stratum curve without the $1/P_{n,v}(S=s)$
-normalisation. `tests/unit/test_learned_rule_strata.py` holds its exact-law tests.
+The learned-rule value of [X11](#x11-learned-policy-follow-ups) with strata has its own gated
+[study](technical-reference/method-evidence/learned-rule-strata.md), whose rows `T41` cover the
+plug-in rule on rows and with a known weight, with `repeats=1` and pointwise intervals. Its truth
+refits each fold's rule, its targeting control is the untargeted stratum plug-in with an outcome
+learner that drops $W_1$ (it changes the rule as well as the regression, so it shows repair of a
+stratum-blind fit), and its construction controls are the stratum curve without the
+$1/P_{n,v}(S=s)$ normalisation and the marginal curve without its share term.
+`tests/unit/test_learned_rule_strata.py` holds its exact-law tests.
 
 Every other target group refuses with this item's id: the ATT and the ATC, the
 population-intervention targets, incremental and policy targets, and a fit with a missing
@@ -2445,7 +2456,12 @@ compositions that moved.
 
 The `weak_blip` row has no missing result. That law is within C3, and Theorem 6 of van der Laan and
 Luedtke (2015) covers it. A red cell there is a finite-sample limit at n = 2,000, and F27 holds it
-as the owner of the reporting study.
+as the owner of the reporting study. The `weak_margin_diagnostic` cells of the
+[learned-rule strata study](technical-reference/method-evidence/learned-rule-strata.md) are a
+second measurement of that row, at n = 1,000 with baseline strata: at the blip $0.1 - 0.3 W_1$
+the fold rules disagree on 44% of the boundary stratum's rows, the stratified fit covers 0.915 to
+0.939 in every stratum and marginally, and the unstratified fit on the same draws covers 0.922.
+The cells carry no verdict, so F27 gains no red cell from them.
 
 ### F28. Finite-sample limits of clustered intervals
 
