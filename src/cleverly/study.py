@@ -2566,10 +2566,19 @@ class BackdoorMeanContrast:
         support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
         if self.axis == "learned_rule":
             treated, control = self.treatment_levels[1], self.treatment_levels[0]
+            blip = f"{regression(repr(treated))} - {regression(repr(control))}"
+            loss = getattr(next(iter(self.interventions), None), "loss", "plug_in")
+            learned = {
+                "plug_in": f"{blip} > 0 as learned",
+                "blip": f"a regression of a doubly robust pseudo-outcome for {blip} is "
+                "positive, fitted",
+                "weighted_classification": "a classifier of the sign of a doubly robust "
+                f"pseudo-outcome for {blip}, weighted by its size, predicts a positive sign "
+                "with probability above 1/2, fitted",
+            }[loss]
             return (
                 f"(1/V) sum_v E_W[{regression('d_v(W)')}], where d_v(W) = 1 when "
-                f"{regression(repr(treated))} - {regression(repr(control))} > 0 as learned "
-                "on the training rows of outer fold v"
+                f"{learned} on the training rows of outer fold v"
             )
         if self.axis == "arm":
             reference = self.reference_arm

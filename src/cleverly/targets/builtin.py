@@ -164,8 +164,9 @@ _LEARNED_RULE_ID = Identification(
         "g_bounds regularizes the fitted denominator only",
         "C3, a limiting rule: the fold curves converge in L2(P0) to the curve of one fixed "
         "rule d1 (van der Laan and Luedtke 2015, Theorem 6). It holds when the limit blip "
-        "of the outcome learner is zero on a set of probability zero, and it fails at an "
-        "exceptional law with a consistent learner, where the interval can under-cover",
+        "of the outcome learner, or the limit score of a declared rule learner, sits at "
+        "its threshold on a set of probability zero, and it fails at an exceptional law "
+        "with a consistent learner, where the interval can under-cover",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
         "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
         "with g = g0, a negligible remainder-replacement error, and the remainder "

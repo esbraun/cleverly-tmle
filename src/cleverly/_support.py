@@ -286,7 +286,9 @@ class SupportKey:
         longitudinal one.
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
-        sizes, ``unequal_clusters``. A longitudinal key holds the known factors.
+        sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
+        ``rule_learner_blip`` or ``rule_learner_weighted_classification``. A longitudinal key
+        holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
@@ -643,6 +645,11 @@ def point_key(
         # on the outcome put a ratio bias in the fold-evaluated point, so a learned-rule row
         # never covers unequal sizes unless it declares them.
         qualifiers.add("unequal_clusters")
+    loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
+    if loss != "plug_in":
+        # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the
+        # plug-in rule never covers a fit whose rule a blip or classification learner sets.
+        qualifiers.add(f"rule_learner_{loss}")
 
     options: dict[str, Any] = {
         "fluctuation": estimator.fluctuation,

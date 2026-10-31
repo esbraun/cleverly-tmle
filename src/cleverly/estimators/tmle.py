@@ -204,11 +204,12 @@ from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
     LearnedRule,
-    LearnedRuleRecord,
     _learned_rule_regimes,
     learned_rule_configuration_refusal,
+    learned_rule_record,
     learned_rule_scheme_refusal,
     learned_rule_split,
+    learned_rule_treat,
     mean_over_splits,
     refuse_learned_rule_composition,
 )
@@ -730,6 +731,10 @@ class TMLE:
         and a continuous or multi-arm treatment, missing outcomes, ``intermediate=``, estimated
         weights and ``strata=``.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
+        ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
+        rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
+        treatment fits are cross-fitted inside the fold's training rows with this estimator's
+        own learners; the fluctuation, estimate and variance do not change.
         The result records the fold summaries under ``result.extra["learned_rule"]``.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
@@ -2151,8 +2156,7 @@ class TMLE:
                         estimate=report[name].psi,
                     )
                 )
-            record = LearnedRuleRecord(name=self.learned_rule.name, splits=tuple(splits))
-            extra = {**extra, "learned_rule": record}
+            extra = {**extra, "learned_rule": learned_rule_record(self.learned_rule, splits)}
         result = TMLEResult(
             estimates=estimates,
             repeats=tuple(repeats),
@@ -4040,26 +4044,84 @@ class TMLE:
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
         # caller's rules or its design.
-        return replace(estimates, regimes=self._regimes(data, estimates), msm=msm)
+        return replace(estimates, regimes=self._regimes(data, estimates, seed=seed), msm=msm)
 
     def _msm(self, data: CausalData) -> MSMSet | None:
         """The declared working model evaluated on ``data``, or ``None`` if none was."""
         return None if self.msm is None else MSMSet.evaluate(self.msm, data)
 
-    def _regimes(self, data: CausalData, estimates: NuisanceEstimates) -> RegimeSet | None:
+    def _regimes(
+        self, data: CausalData, estimates: NuisanceEstimates, *, seed: int | None = None
+    ) -> RegimeSet | None:
         """The regimes of this fit on ``data``, or ``None`` for an arm-indexed fit.
 
-        A learned-rule fit reads its fold-local plug-in rule off the cross-fitted outcome
-        regression in ``estimates``: row ``i`` of fold ``v`` carries the prediction of the
-        model fitted on the complement of ``v``.  Every other fit evaluates its declared
-        regimes on ``data`` and ignores ``estimates``.
+        A learned-rule fit learns its fold-local rule here
+        (:func:`~cleverly.interventions.learned.learned_rule_treat`).  The plug-in rule reads
+        the cross-fitted outcome regression in ``estimates``: row ``i`` of fold ``v`` carries
+        the prediction of the model fitted on the complement of ``v``.  A pseudo-outcome
+        loss fits its rule learner inside each training fold, from an inner cross-fit
+        (:meth:`_inner_rule_nuisances`) seeded from the draw's ``seed``.  Every other fit
+        evaluates its declared regimes on ``data`` and ignores ``estimates``.
         """
         if self.learned_rule is not None:
-            return _learned_rule_regimes(estimates, self.learned_rule)
+            if seed is None:
+                seed = self.random_state
+            if seed is None and self.learned_rule.loss != "plug_in":
+                raise RuntimeError(
+                    "a learned-rule fit with a rule learner reached its rule without a draw "
+                    "seed. This is a defect in cleverly: every draw of TMLE carries one."
+                )
+            treat = learned_rule_treat(
+                data,
+                estimates,
+                self.learned_rule,
+                fit_inner=partial(self._inner_rule_nuisances, scaler=estimates.scaler),
+                g_bounds=self._rule_g_bounds(data),
+                seed=0 if seed is None else int(seed),
+            )
+            return _learned_rule_regimes(treat, self.learned_rule.name)
         if not self.interventions:
             return None
         reference = None if self.reference is None else str(self.reference)
         return RegimeSet.evaluate(self.interventions, data, reference=reference)
+
+    def _rule_g_bounds(self, data: CausalData) -> tuple[float, float]:
+        """The truncation bounds of the rule learner's pseudo-outcome: the fit's ``g_bounds``.
+
+        The same resolution as :meth:`_config`'s ``g_bounds``, which ``result.config``
+        records, at the fit's own effective sample size.
+        """
+        return resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
+
+    def _inner_rule_nuisances(
+        self, data: CausalData, folds: Folds, seed: int, *, scaler: OutcomeScaler
+    ) -> NuisanceEstimates:
+        """The inner cross-fit of a rule learner's pseudo-outcome, inside one training fold.
+
+        ``data`` holds the training rows of one outer fold, and ``folds`` their inner split.
+        The outcome regression and the treatment mechanism use the fit's own learner
+        templates, screening and per-arm setting, and the inner ``seed`` reaches any learner
+        that draws folds of its own.  A declared known mechanism is read, not fitted.
+        """
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        return fit_nuisances(
+            data,
+            outcome_learner=self._resolve_learner(
+                self.outcome_learner, task=outcome_task, seed=seed
+            ),
+            treatment_learner=self._resolve_learner(
+                self.treatment_learner, task="classification", seed=seed
+            ),
+            missingness_learner=None,
+            intermediate_learner=None,
+            folds=folds,
+            scaler=scaler,
+            screen_treatment=self.screen_treatment,
+            screen_threshold=self.screen_threshold,
+            min_retain=self.min_retain,
+            n_jobs=self.n_jobs,
+            outcome_by_arm=self.outcome_by_arm,
+        )
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""
