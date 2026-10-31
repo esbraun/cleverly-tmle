@@ -1425,7 +1425,10 @@ the full history.
 A static node adds no block, because its arm is one constant among the rows that follow the plan.
 A rule node in the window adds its arm. The rule reads the full history, so the window's
 covariates do not determine the arm. The arm blocks start at $t-k-1$, as the mechanism's arms
-do and as `LmtpVars$history` in `lmtp` does. Indices below 1 are dropped.
+do, so the outcome regression conditions on every arm the mechanism reads. `lmtp`'s
+`LmtpVars$history` starts the mechanism's arms at $t-k-1$ too, but its outcome history starts
+them at $t-k$, so `markov_order=k` holds one more arm in the outcome regression than `lmtp` at
+the same $k$. Indices below 1 are dropped.
 
 When the restriction is false, the nuisance fits converge to projections on the window. The fit
 is consistent when one nuisance family, fitted on the window, is consistent. That family needs the

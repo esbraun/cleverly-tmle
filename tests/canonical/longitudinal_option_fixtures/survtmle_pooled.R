@@ -133,6 +133,9 @@ for (t in seq_len(K - 1L)) {
   open <- open & !dropped
 }
 adjust <- data.frame(W1 = W1, W2 = W2)
+# makeDataList numbers the long rows by the rank of the observed time, so the per-visit
+# formula's visit k is visit k only when every visit 1..K is an observed time.
+stopifnot(identical(sort(unique(as.integer(ftime))), seq_len(K)))
 
 per_visit <- paste(
   "-1 +",
@@ -154,8 +157,9 @@ hazard_at <- function(model, visit) {
 
 # The law has no event at t0 by design (see above), so survtmle notes that t0 lies past the last
 # event, and its node-t0 outcome regression, whose outcome is zero on every row, is rank
-# deficient (speedglm and its predict say so in two texts).  The glm notice of fitted probabilities at 0 or 1 is muffled too.  Any other
-# warning stops the script: no stage records it here.
+# deficient (speedglm and its predict say so in two texts).  The glm notice of fitted
+# probabilities at 0 or 1 is muffled too.  Any other warning stops the script: no stage
+# records it here.
 EXPECTED <- c(
   "t0 larger than last observed endpoint",
   "fitted probabilities numerically 0 or 1",
@@ -188,7 +192,10 @@ fit_setting <- function(name) {
     rank = model$rank,
     # Visit s's censoring hazard at each unit's (trt, W1, W2): the retention of node s + 1 is
     # one minus it.
-    censoring_hazard = lapply(seq_len(K - 1L), function(visit) hazard_at(model, visit)),
+    censoring_hazard = withCallingHandlers(
+      lapply(seq_len(K - 1L), function(visit) hazard_at(model, visit)),
+      warning = expected_only
+    ),
     estimate = as.numeric(fitted$est[, 1]),
     estimate_rows = rownames(fitted$est)
   )

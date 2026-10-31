@@ -4,24 +4,32 @@ Each ``compare_*`` function reads one fixture payload (the schema of the R scrip
 it), repeats the R side's computation with ``cleverly`` on the exported data, and returns the
 findings.  An empty list is parity.
 
-Tolerances (``X22-plan.md`` II-3.3):
+Tolerances.  The trim is a pmin against one quantile, so both sides compute the same floats
+and 1e-15 allows only the last bit of the quantile's interpolation.  The pooled retention is
+two logistic fits of the same rows, by R's IRLS and by ``cleverly``'s solver, so they agree to
+the solvers' tolerance: the stand-in's gaps are 2.7e-15 per node and 3.3e-9 pooled, and 1e-6
+keeps a 300-fold margin while a 1e-5 shift of one hazard fails.
 
 ===================  =====================================================  =============
 fixture              quantity                                               tolerance
 ===================  =====================================================  =============
 lmtp_history         mechanism and outcome-regression column sets           equal
 lmtp_trim            threshold and trimmed matrix (fixed and lmtp's own)    1e-15
-lmtp_trim            zero pattern of the per-node ratios                    equal
+lmtp_trim            zero pattern of the per-node ratios                    exact
 survtmle_pooled      retention at every at-risk row, per node and pooled    1e-6
 ===================  =====================================================  =============
 
-Two conventions are compared as declared, not as equal:
+Three conventions are compared as declared, not as equal:
 
 * ``lmtp`` fits each outcome regression on every at-risk row, so its design holds the
   treatments of the window.  ``LTMLE`` fits the followers.  A static node's treatment is
   constant among them and is left out, and a rule node's assigned arm enters.
   :data:`RULE_ARM_LAG` states the one further difference: ``LTMLE`` starts the outcome's arm
   blocks one node before ``lmtp``, at ``t - k - 1``, as both start the mechanism's.
+* ``survtmle`` sets ``G_dC = 1`` at the first visit and fits its censoring rows from visit 2.
+  The comparison declares node 1's retention known, and a declared-known node stays out of
+  ``LTMLE``'s pooled fit.  Without that declaration the pooled fit would also read node 1's
+  rows, where nobody is censored, and retention would differ by up to 0.05.
 * ``survtmle`` keeps an event row at ``t0`` in its censoring fit.  The fixture's law has no
   event at ``t0``, so the fitted rows are the at-risk rows of the pooled fit.
 """
@@ -46,7 +54,6 @@ from cleverly.longitudinal.sequential import fit_mechanism, outcome_design
 __all__ = [
     "COMPARATORS",
     "HISTORY_ORDERS",
-    "NUMERICAL_ZERO",
     "POOLED_RETENTION",
     "RULE_ARM_LAG",
     "TRIM_TOLERANCE",
@@ -58,8 +65,6 @@ __all__ = [
 Payload = Mapping[str, Any]
 
 TRIM_TOLERANCE = 1e-15
-#: An lmtp ratio below this is an off-plan entry: its classifier leaves about 1e-9 there.
-NUMERICAL_ZERO = 1e-6
 POOLED_RETENTION = 1e-6
 #: The orders the history fixture prints; ``"Inf"`` is ``markov_order=None``.
 HISTORY_ORDERS = ("0", "1", "2", "Inf")
@@ -283,20 +288,18 @@ def compare_lmtp_trim(payload: Payload) -> list[str]:
         folds=Folds.single(data.n),
     )
     entries = ratio_trim_module.node_ratio_entries(data, plans[0], mechanism)
-    # lmtp's classifier gives an off-plan unit a ratio near 1e-9 rather than an exact zero
-    # (the stacked fit separates the two copies), and a censored one an exact zero.
-    lmtp_zero = untrimmed < NUMERICAL_ZERO
+    # With mtp = FALSE, lmtp multiplies each ratio by the rule indicator, so an off-plan or a
+    # censored unit has an exact zero, and so does cleverly's entry.
+    lmtp_zero = untrimmed == 0.0
     disagree = int(np.sum((entries == 0.0) != lmtp_zero))
     if disagree:
         findings.append(
             f"the per-node ratios' zero pattern differs from lmtp's in {disagree} of "
             f"{entries.size} entries"
         )
-    positive = untrimmed[~lmtp_zero]
-    if positive.size and not positive.min() > 1e3 * NUMERICAL_ZERO:
+    if not lmtp_zero.any() or lmtp_zero.all():
         findings.append(
-            f"lmtp's smallest positive ratio is {positive.min():.3g}, too near the zero "
-            f"cut {NUMERICAL_ZERO:g} for the pattern to be read"
+            "lmtp's ratio matrix has no zero or no positive entry; the pattern checks nothing"
         )
     return findings
 

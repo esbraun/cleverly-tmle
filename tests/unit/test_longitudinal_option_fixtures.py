@@ -23,7 +23,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pytest
 
 from tests.canonical.longitudinal_option_fixtures import parity
@@ -61,6 +60,37 @@ def mutated(payload: dict[str, Any], change: Callable[[dict[str, Any]], None]) -
     copied = copy.deepcopy(payload)
     change(copied)
     return copied
+
+
+def test_the_readme_shows_the_registry_commands() -> None:
+    readme = (HERE / "README.md").read_text(encoding="utf-8")
+    for entry in REGISTRY:
+        assert build_command(entry) in readme, entry.name
+        assert run_command(entry) in readme, entry.name
+
+
+#: The comparator call each script must make.
+COMPARATOR_CALLS = {
+    "lmtp_trim": (
+        "lmtp::lmtp_tmle(",
+        "mtp = FALSE",
+        "folds = 2",
+        'getFromNamespace("trim", "lmtp")',
+    ),
+    "lmtp_history": (
+        'getFromNamespace("LmtpVars", "lmtp")',
+        'vars$history("A", t)',
+        'vars$history("L", t + 1L)',
+    ),
+    "survtmle_pooled": ("survtmle::survtmle(", "glm.ctime = FORMULAS[[name]]"),
+}
+
+
+@pytest.mark.parametrize("entry", REGISTRY, ids=ids)
+def test_the_script_calls_its_comparator(entry: FixtureEntry) -> None:
+    script = (HERE / entry.script).read_text(encoding="utf-8")
+    for call in COMPARATOR_CALLS[entry.name]:
+        assert call in script, (entry.name, call)
 
 
 class TestTheRegistry:
@@ -137,6 +167,25 @@ def _node(payload: dict[str, Any], order: str, node: int) -> dict[str, Any]:
     return found
 
 
+#: The finding each mutation must produce, so a control fails for its own reason.
+EXPECTED_FINDING = {
+    "mechanism drops its oldest arm": "order 1, node 3: mechanism columns",
+    "mechanism adds an older covariate": "order 0, node 3: mechanism columns",
+    "outcome adds an older covariate": "order 1, node 4: static outcome columns",
+    "outcome drops a window arm": "order 2, node 4: rule outcome columns",
+    "a trimmed entry moved": "lmtp fit q=0.9: the trimmed matrix differs",
+    "a fixed threshold moved": "fixed q=0.65: threshold",
+    "a positive ratio set to zero": "zero pattern differs from lmtp's in 1 of",
+    "the settings swapped": "hazard_pooling='node': retention at node 2 differs",
+    "a pooled hazard moved by 1e-5": "hazard_pooling='pooled': retention at node 3 differs",
+    "an event at t0": "the sample has an event at t0",
+}
+
+
+def assert_fails_for(findings: list[str], mutation: str) -> None:
+    assert any(EXPECTED_FINDING[mutation] in item for item in findings), (mutation, findings)
+
+
 HISTORY_MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
     # The window one node too short or too long, on each side.
     "mechanism drops its oldest arm": lambda p: _node(p, "1", 3)["mechanism"].remove("A1"),
@@ -149,7 +198,7 @@ HISTORY_MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
 @pytest.mark.parametrize("mutation", sorted(HISTORY_MUTATIONS))
 def test_a_changed_history_window_fails(mutation: str) -> None:
     payload = mutated(stand_in("lmtp_history"), HISTORY_MUTATIONS[mutation])
-    assert parity.compare_lmtp_history(payload), mutation
+    assert_fails_for(parity.compare_lmtp_history(payload), mutation)
 
 
 def test_the_rule_arm_lag_is_what_the_comparison_reads() -> None:
@@ -175,9 +224,12 @@ def _threshold(payload: dict[str, Any]) -> None:
 
 
 def _zero(payload: dict[str, Any]) -> None:
-    column = payload["fit"]["untrimmed"][0]
-    index = int(np.argmax(np.asarray(column, dtype=float)))
-    column[index] = 0.0
+    # One positive ratio below the trim threshold set to zero in both matrices, so only the
+    # zero pattern can catch it.
+    untrimmed = payload["fit"]["untrimmed"][0]
+    trimmed = payload["fit"]["trimmed"][0]
+    index = next(i for i, (u, t) in enumerate(zip(untrimmed, trimmed, strict=True)) if u and u == t)
+    untrimmed[index] = trimmed[index] = 0.0
 
 
 TRIM_MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
@@ -190,7 +242,7 @@ TRIM_MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
 @pytest.mark.parametrize("mutation", sorted(TRIM_MUTATIONS))
 def test_a_changed_trim_fails(mutation: str) -> None:
     payload = mutated(stand_in("lmtp_trim"), TRIM_MUTATIONS[mutation])
-    assert parity.compare_lmtp_trim(payload), mutation
+    assert_fails_for(parity.compare_lmtp_trim(payload), mutation)
 
 
 def _swap_settings(payload: dict[str, Any]) -> None:
@@ -220,4 +272,4 @@ POOLED_MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
 @pytest.mark.parametrize("mutation", sorted(POOLED_MUTATIONS))
 def test_a_changed_pooled_fit_fails(mutation: str) -> None:
     payload = mutated(stand_in("survtmle_pooled"), POOLED_MUTATIONS[mutation])
-    assert parity.compare_survtmle_pooled(payload), mutation
+    assert_fails_for(parity.compare_survtmle_pooled(payload), mutation)

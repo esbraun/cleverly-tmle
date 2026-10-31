@@ -39,7 +39,7 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         packages=("lmtp",),
         status="pending",
         reason=QUEUED,
-        script_sha256="1c81cd20fb6891820da9e9e4740e6e457df160a0d96249c25a6bfbf3c103d94d",
+        script_sha256="ff38fde3a0a584134d2171523ce4b0972743695ebd40acd01ce26ee8adf3dee7",
     ),
     FixtureEntry(
         name="lmtp_history",
@@ -63,7 +63,7 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         packages=("survtmle",),
         status="pending",
         reason=QUEUED,
-        script_sha256="e5db0d9291612d051f939282a0ebf30f4efe47d90fe0a8a089b75b40d1c70ed5",
+        script_sha256="0d9adbe8920a8c17bf48eea13077e6c5c1b22affa8c55a5d05d9944b5ed2ed5f",
     ),
 )
 
@@ -90,4 +90,6 @@ def run_command(entry: FixtureEntry) -> str:
 
 if __name__ == "__main__":
     for item in REGISTRY:
-        print(f"{item.name} {script_sha256(HERE / item.script)}")
+        print(f"# {item.name} {script_sha256(HERE / item.script)}")
+        print(build_command(item))
+        print(run_command(item))

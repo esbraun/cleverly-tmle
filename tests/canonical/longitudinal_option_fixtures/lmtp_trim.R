@@ -93,20 +93,28 @@ fixture_write <- function(payload, path) {
 # X33 part (d), the comparator side.  `ratio_trim = q` replaces every per-node density ratio by
 # min(r, Q_q), with Q_q R's type-7 quantile over all n x T entries, zeros and ties included,
 # as lmtp's `.trim` does.  The script prints two things: lmtp's trim on a fixed matrix with
-# zeros and ties, and the ratio matrices of one lmtp fit at `.trim = 1` and `.trim = q`, so the
-# trim is read where lmtp applies it, after the fold recombination.
+# zeros and ties, and the ratio matrices of one two-fold lmtp fit at `.trim = 1` and
+# `.trim = q`, so the trim is read where lmtp applies it, once on the recombined matrix and not
+# per fold.  The fit passes `mtp = FALSE`, lmtp's setting for a binary treatment: lmtp's
+# `followed_rule` then gives an off-plan unit an exact zero (density_ratios.R), the zero
+# pattern cleverly's per-node ratios have.  With the default `mtp = TRUE` every unit counts as
+# following the rule, and the off-plan ratios come from a separating stacked glm near 1e-9.
 #
 # Sources read at lmtp 1.5.4, commit f04a2b47f46debc515ce4ae778e05ebfde922c44:
 #   utils.R: trim <- function(x, trim) pmin(x, quantile(x, trim, na.rm = TRUE))
 #   density_ratios.R, cf_density_ratios: `ans$density_ratios <- trim(ans$density_ratios,
 #     control$.trim)` on the recombined n x tau matrix of per-node ratios.
+#   density_ratios.R, estimate_density_ratios: `ratios * followed_rule(...)` when mtp = FALSE.
 #   estimators.R, lmtp_tmle: returns that matrix as `density_ratios`.
 
 output <- fixture_arguments("usage: lmtp_trim.R OUTPUT.json")
 provenance <- fixture_provenance("lmtp_trim.R", "lmtp")
 
 SEED <- 20263304L
-QUANTILES <- c(0.5, 0.8, 0.9, 0.975)
+# The zeros count toward every quantile, so dropping them would move each threshold.  0.8 lands
+# on the tie at 2, and the other three interpolate between two distinct values, where the
+# quantile rules differ.  Each case is checked to trim at least one entry.
+QUANTILES <- c(0.3, 0.5, 0.65, 0.8)
 TRIM <- 0.9
 N <- 400L
 TAU <- 3L
@@ -115,13 +123,19 @@ trim <- getFromNamespace("trim", "lmtp")
 RNGkind("Mersenne-Twister", "Inversion", "Rejection")
 set.seed(SEED)
 
-# A fixed matrix: a fifth of the entries zero, the rest drawn from four values, so every
-# quantile above lands on a tie or between two tied runs.
+# A fixed matrix: a fifth of the entries zero, half drawn from four tied values and the rest
+# continuous, so a quantile can land on a tie or between two distinct values.
 matrix_values <- matrix(
-  sample(c(0, 0.5, 1.25, 2, 4), 60L * TAU, replace = TRUE, prob = c(0.2, 0.2, 0.3, 0.2, 0.1)),
+  ifelse(
+    stats::runif(60L * TAU) < 0.5,
+    sample(c(0, 0.5, 1.25, 2), 60L * TAU, replace = TRUE, prob = c(0.4, 0.2, 0.2, 0.2)),
+    stats::rexp(60L * TAU) + 0.6
+  ),
   nrow = 60L
 )
 fixed <- lapply(QUANTILES, function(q) {
+  threshold <- as.numeric(stats::quantile(matrix_values, q, na.rm = TRUE))
+  if (!any(matrix_values > threshold)) stop(sprintf("the fixed case q = %g trims nothing", q))
   list(
     quantile = q,
     threshold = as.numeric(stats::quantile(matrix_values, q, na.rm = TRUE)),
@@ -144,11 +158,20 @@ for (t in seq_len(TAU)) {
   alive <- alive & stay == 1L
   previous <- A
 }
-frame$Y <- ifelse(alive, rbinom(N, 1L, plogis(-0.5 + 0.4 * W + 0.3 * frame$L3 + 0.5 * frame$A3)), NA)
+# The outcome is drawn for every unit from the last node's values, so rbinom never meets an NA.
+frame$Y <- ifelse(alive, rbinom(N, 1L, plogis(-0.5 + 0.4 * W + 0.3 * L + 0.5 * A)), NA)
+
+expected_only <- function(condition) {
+  # The treatment glm can separate on a sparse fold.  Any other warning stops the script.
+  if (grepl("fitted probabilities numerically 0 or 1", conditionMessage(condition), fixed = TRUE)) {
+    invokeRestart("muffleWarning")
+  }
+  stop(sprintf("unexpected lmtp warning: %s", conditionMessage(condition)))
+}
 
 fit <- function(trim_level) {
   set.seed(SEED + 1L)
-  lmtp::lmtp_tmle(
+  withCallingHandlers(lmtp::lmtp_tmle(
     data = frame,
     trt = sprintf("A%d", seq_len(TAU)),
     outcome = "Y",
@@ -159,10 +182,11 @@ fit <- function(trim_level) {
     outcome_type = "binomial",
     learners_outcome = "SL.glm",
     learners_trt = "SL.glm",
-    folds = 1,
+    mtp = FALSE,
+    folds = 2,
     control = lmtp::lmtp_control(.trim = trim_level, .learners_outcome_folds = 2,
                                  .learners_trt_folds = 2)
-  )
+  ), warning = expected_only)
 }
 untrimmed <- fit(1)
 trimmed <- fit(TRIM)
