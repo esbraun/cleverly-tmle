@@ -470,7 +470,8 @@ def _other_x11_sample_seeds() -> set[int]:
 
 #: The two sample seeds this study shares with another X11 study, each a draw at n = 1,000 here
 #: against an RM30-law draw at n = 2,000 there: (this study's draw, the other draw). Seeds are
-#: 32-bit, and about 48,000 against 152,000 seeds expect one or two coincidences by chance.
+#: 32-bit, and about 48,000 against the other X11 studies' 231,000 seeds expect two or three
+#: coincidences by chance. ``learned-rule-strata`` shares none.
 SHARED_SEEDS = {
     ("primary", "binary_weighted", 541): ("learned-rule-split-mean", "misspecified_limit", 1_507),
     ("interval_calibration", "weighted", 8_646): (
