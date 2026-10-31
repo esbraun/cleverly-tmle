@@ -353,10 +353,28 @@ class TestTheRecord:
         assert (frozen.loss, frozen.learner) == ("blip", result.estimator.learned_rule.learner)
         np.testing.assert_array_equal(frozen.treat, law.rule_of(result))
 
-    def test_a_fit_with_a_rule_learner_reads_experimental(self) -> None:
-        label = _blip_fit().estimates[support.NAME].support
+    @pytest.mark.parametrize(
+        "rule",
+        [blip_rule(), LearnedRule(loss="weighted_classification", learner=classifier())],
+        ids=["blip", "weighted_classification"],
+    )
+    def test_an_unweighted_pooled_fit_with_a_rule_learner_reads_supported(
+        self, rule: LearnedRule
+    ) -> None:
+        """``learned-rule-learners`` measures unweighted rows with pooled targeting, one split."""
+        label = support.fit(learned_rule=rule).estimates[support.NAME].support
+        assert label.label == "supported"
+        assert label.row == f"T39.{rule.loss}"
+
+    @pytest.mark.parametrize("setting", [{"targeting_scheme": "fold"}, {"repeats": 2}])
+    def test_fold_targeting_and_repeats_with_a_rule_learner_stay_experimental(
+        self, setting: dict[str, Any]
+    ) -> None:
+        """No cell measures a rule learner with either setting, so no row covers the fit."""
+        label = support.fit(learned_rule=blip_rule(), **setting).estimates[support.NAME].support
         assert label.label == "experimental"
         assert label.row is None
+        assert "Nearest row: T" in label.reason
 
 
 def law_levels() -> tuple[float, ...]:
@@ -908,7 +926,7 @@ def _weighted_frame() -> pd.DataFrame:
 
 
 class TestTheCompositions:
-    """Weights, clusters, fold targeting and repeats run, and read experimental."""
+    """Weights, clusters, fold targeting and repeats run, and no study covers them."""
 
     def test_weights_reach_the_inner_fits_and_the_rule_learner(self) -> None:
         SpyRegressor.calls = []

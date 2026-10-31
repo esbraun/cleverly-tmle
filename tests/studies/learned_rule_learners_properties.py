@@ -376,3 +376,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     value_gain(summary, rows)
     report_small_sample(summary, rows)
     return finish(summary, rates)
+
+
+#: The declared rules of the failure accounting.  The n = 1,000 diagnostic writes its verdict
+#: columns without reading a margin, so only the calibration family has a rule.
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=None),)
