@@ -1,13 +1,28 @@
 """Repeated-sampling properties of the learned-rule value with a rule learner.
 
-One family, ``interval_calibration``, for each loss on the RM30 ``misspecified_limit`` law at
-n = 4,000 (:data:`CALIBRATION_N`), twice the primary size. At n = 2,000 the error of a rule
-learner's fit spreads 3% to 5% more than its reported SE, and than its oracle SE (pilot SE ratios
-0.954 and 0.971): each fold's rule is learned from a noisy pseudo-outcome, and its own sampling
-variability, which the fixed-rule variance omits, has not yet vanished. That ratio leaves the
-band's lower end within the pilot's noise, so the band is read where the rule has settled (pilot
-ratio 1.009 at n = 4,000), and the primary phase at n = 2,000 publishes the smaller size's ratio
-under the framework's SE sanity band.
+The gated family, ``interval_calibration``, fits each loss on the RM30 ``misspecified_limit``
+law at n = 4,000 (:data:`CALIBRATION_N`), twice the primary size. A second family,
+``small_sample_diagnostic``, fits each loss at n = 1,000 and states no verdict.
+
+Why n = 4,000 (deviation D1 of the design record). At n = 1,000 and 2,000 the error variance of a
+rule-learner fit exceeds the fixed-rule variance of its realized rules by about 7% to 13%, so the
+SE ratio reads 0.95 to 0.97 and the oracle SE shows the same deficit (design review pilots at
+three sizes, SE ratio blip 0.946, 0.955, 1.001 and weighted classification 0.959, 0.971, 0.993 at
+n = 1,000, 2,000, 4,000). The paired plug-in fit on the same draws separates the excess from draw
+noise: the error-variance ratio of the rule learner to the plug-in is about 1.05 at n = 1,000,
+1.03 to 1.06 at n = 2,000 and 0.97 to 0.99 at n = 4,000. The mechanism is covariance between
+folds, because fold ``u``'s rule is fitted on fold ``v``'s validation rows and the reverse. It is
+a second-order remainder of relative order about 1/n that is larger for a pseudo-outcome learner
+than for the plug-in rule. The excess declines with n and is within about 3% of zero at
+n = 4,000 (blip pooled ratio 1.001 on 4,000 draws). The data do not pin a rate. The primary
+phase at n = 2,000 reports the deficit under the framework's SE sanity band, and the size
+diagnostic reports n = 1,000.
+
+The calibration size is fixed. ``CALIBRATION_N`` stays 4,000 whatever the result. A red
+``__declared`` cell is diagnosed under the red-cell table, a finite-sample diagnosis goes to
+``reporting`` with an owner row, and the size never moves again. ``CALIBRATION_REPLICATES`` stays
+7,200: the pooled pilot would allow 4,400 per arm, and 7,200 passes per cell with probability
+0.998 and 0.979.
 
 ``<loss>__declared``
     The declared fit. Its SE-ratio interval must lie inside 0.93 to 1.07 and its coverage
@@ -26,11 +41,25 @@ under the framework's SE sanity band.
     rules it learned (rule L4 on the validation rows). The rows that evaluate each rule also
     chose it, so its estimate is optimistic, and its coverage interval must lie wholly below
     the band floor 0.92 (``COVERAGE_CONTROLS``). A validation fold whose weighted rows carry one
-    sign gives the constant rule of that sign, the package's own convention.
+    sign gives the constant rule of that sign, the package's own convention. Resolving below the
+    floor shows that the instrument sees a gross fold-locality violation. It is no evidence about
+    the subtle hazard of pseudo-outcome nuisances read from the outer cross-fitted predictions at
+    the rows of ``T_v``, whose leak is of order 1/n and invisible to any calibration cell; that
+    hazard rests on the unit witnesses W-g3 and W-g4, and the declared fit passing its band is
+    the evidence that it is fold-local.
 
-Each positive row and each control row also carries the descriptive ``plug_in_estimate`` and
-``plug_in_truth``: the plug-in rule's fit of the same sample with the same fold seed, which
-draws the same outer folds, and its own harness truth. The summary publishes, on each positive
+``small_sample_diagnostic/<loss>__n1000``
+    The declared fit and the paired plug-in fit at n = 1,000, :data:`DIAGNOSTIC_REPLICATES` =
+    2,000 replications per loss from their own sample and fold streams, with no control. The cell
+    carries the role ``diagnostic``: no margin is read and no verdict forms, and the summary
+    publishes the SE ratio with its interval (a 2,000-draw bootstrap reads it to about 0.02),
+    the coverage and the bias with their intervals. It exists so that the page states a size
+    below 2,000 from an artifact.
+
+Each positive row, each control row and each diagnostic row also carries the descriptive
+``plug_in_estimate``, ``plug_in_std_error`` and ``plug_in_truth``: the plug-in rule's fit of the
+same sample with the same fold seed, which draws the same outer folds, its reported standard
+error, and its own harness truth. The summary publishes, on each positive
 cell, ``value_gain_mean`` and ``value_gain_sd``, the mean and SD of ``truth - plug_in_truth``,
 and ``value_gain_positive_share``, the share of replications where it is positive. No verdict
 reads them: the population gain is about 0.0054, near half an SE at n = 4,000, so the study
@@ -57,9 +86,11 @@ from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     payload_cell,
     payload_replicate,
+    ratio_intervals,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
+    DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
     calibration_derived,
@@ -70,6 +101,8 @@ from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.learned_rule_learners import (
+    DIAGNOSTIC_FAMILY,
+    DIAGNOSTIC_KIND,
     EFFICIENCY_BOUNDS,
     PRIMARY_REPLICATES,
     PROPERTY_CELLS,
@@ -79,6 +112,8 @@ from tests.studies.learned_rule_learners import (
 CALIBRATION_LABELS = law.LOSSES
 CALIBRATION_N = 4_000
 CALIBRATION_REPLICATES = 7_200
+DIAGNOSTIC_N = 1_000
+DIAGNOSTIC_REPLICATES = 2_000
 SHRUNKEN_SE_FACTOR = 0.70
 POSITIVE = "declared"
 VALIDATION_RULE = "validation_rule_control"
@@ -87,10 +122,27 @@ VALIDATION_RULE = "validation_rule_control"
 #: positive cell. No verdict reads them.
 VALUE_GAIN_SUMMARY = ("value_gain_mean", "value_gain_sd", "value_gain_positive_share")
 
-PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = tuple(
-    base.PropertyDraw("interval_calibration", f"{label}__{POSITIVE}", CALIBRATION_REPLICATES, label)
-    for label in CALIBRATION_LABELS
+PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = (
+    *(
+        base.PropertyDraw(
+            "interval_calibration", f"{label}__{POSITIVE}", CALIBRATION_REPLICATES, label
+        )
+        for label in CALIBRATION_LABELS
+    ),
+    *(
+        base.PropertyDraw(
+            DIAGNOSTIC_FAMILY, f"{label}__{DIAGNOSTIC_KIND}", DIAGNOSTIC_REPLICATES, label
+        )
+        for label in CALIBRATION_LABELS
+    ),
 )
+
+
+def size_of(family: str) -> int:
+    """The sample size of a property family's draws."""
+    if family == DIAGNOSTIC_FAMILY:
+        return DIAGNOSTIC_N
+    return CALIBRATION_N
 
 
 def suffixes(record: StudyRecord) -> dict[tuple[str, str], tuple[Any, ...]]:
@@ -115,6 +167,8 @@ def _draw(key: _Key) -> pd.DataFrame:
 def _cells_of(key: _Key) -> list[str]:
     family, label = key[0][:2]
     name = f"{family}/{label}"
+    if family == DIAGNOSTIC_FAMILY:
+        return [name]
     stem = label.removesuffix(f"__{POSITIVE}")
     return [name, f"{family}/{stem}__{VALIDATION_RULE}", *DERIVED_CELLS.get(name, ())]
 
@@ -154,12 +208,26 @@ def _row(
 
 def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     family, label, replicate, n, requested, _, fold_seed, scenario = key[0]
+    where = (replicate, n, requested)
+    if family == DIAGNOSTIC_FAMILY:
+        fitted = law.measured(frame, scenario, fold_seed)
+        return [
+            _row(
+                family,
+                label,
+                DIAGNOSTIC_ROLE,
+                where,
+                fitted.truth,
+                fitted.result.estimates[law.ESTIMAND],
+                fitted.warnings,
+                law.value_gain_columns(fitted),
+            )
+        ]
     if family != "interval_calibration":
         raise ValueError(f"unknown property family {family!r}")
     fitted = law.measured(frame, scenario, fold_seed, control=True)
     assert fitted.control is not None and fitted.control_truth is not None
     gain = law.value_gain_columns(fitted)
-    where = (replicate, n, requested)
     return [
         _row(
             family,
@@ -203,7 +271,7 @@ def _payloads(record: StudyRecord, cap: int | None) -> list[_Key]:
                         draw.family,
                         draw.label,
                         replicate,
-                        CALIBRATION_N,
+                        size_of(draw.family),
                         replicates,
                         sample_seed,
                         fold_seed,
@@ -267,6 +335,35 @@ def value_gain(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.loc[mask, "value_gain_positive_share"] = float(np.mean(gain > 0.0))
 
 
+def report_small_sample(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Report the SE ratio of each n = 1,000 diagnostic cell with its interval; state no verdict.
+
+    The summary already holds the coverage and bias intervals of every cell. This adds the
+    bootstrap interval of the SE ratio, read on the error ``estimate - truth``, and writes
+    ``passed`` and ``property_passed`` ``True`` on every diagnostic row, meaning the numbers were
+    computed and are published; the published role says that no margin was read.
+    """
+    family = summary["property"] == DIAGNOSTIC_FAMILY
+    roles = set(summary.loc[family, "role"].astype(str))
+    if family.any() and roles != {DIAGNOSTIC_ROLE}:
+        raise ValueError(f"{DIAGNOSTIC_FAMILY} publishes roles {sorted(roles)}, not diagnostic")
+    margins = STUDY.margins
+    for cell in sorted(summary.loc[family, "cell"]):
+        group = rows.loc[(rows["property"] == DIAGNOSTIC_FAMILY) & (rows["cell"] == cell)]
+        ratio = ratio_intervals(
+            group,
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=stream_seed(STUDY, DIAGNOSTIC_FAMILY, cell),
+            truth_varies=STUDY.truth_varies_by_replicate,
+        )["se_ratio"]
+        mask = family & (summary["cell"] == cell)
+        summary.loc[mask, "se_ratio_ci_lower"] = ratio.low
+        summary.loc[mask, "se_ratio_ci_upper"] = ratio.high
+        summary.loc[mask, "passed"] = True
+        summary.loc[mask, "property_passed"] = True
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The verdict of each cell, every statistic on the error of each row.
 
@@ -277,4 +374,5 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=POSITIVE)
     value_gain(summary, rows)
+    report_small_sample(summary, rows)
     return finish(summary, rates)

@@ -77,11 +77,12 @@ class TestTheSeedRules:
         # sizes and cluster sizes, so the two samples share a prefix of their uniform draws; one
         # replicate of 8,400 in each cell makes the dependence negligible. X11's
         # learned-rule-split-mean adds 4,000 primary and 12,800 property seeds, none shared.
-        # X11's learned-rule-learners adds 4,000 primary and 14,400 property seeds, of which one
+        # X11's learned-rule-learners adds 4,000 primary and 18,400 property seeds (14,400 gated
+        # at n = 4,000 and 4,000 of the n = 1,000 diagnostic cells), of which one
         # (weighted_classification__declared replicate 732, n = 4,000) equals the sample seed of
         # learned-rule-compositions' clustered replicate 2,444 (n = 2,000). The two draws share
         # their first 2,000 values of W1 and nothing else (``test_learned_rule_learners_design``).
-        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 18_399
+        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399
         for study in (gated, boundary, compositions, split_mean, learners):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}

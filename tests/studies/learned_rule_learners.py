@@ -7,8 +7,10 @@ blip pseudo-outcome, whose outcome and treatment nuisances are cross-fitted in f
 of those rows. The outer fluctuation, estimate and variance are the plug-in rule's. The scenarios
 are the two losses on the RM30 ``misspecified_limit`` law with the main-terms outcome learner,
 rows only: no weights, no clusters, pooled targeting and one split. The primary phase fits
-n = 2,000; the calibration cells fit n = 4,000, where the rule's own sampling variability has
-settled (:mod:`tests.studies.learned_rule_learners_properties`).
+n = 2,000; the calibration cells fit n = 4,000, where the pilot's error-variance excess of a
+rule-learner fit over the fixed-rule variance is within about 3% of zero
+(:mod:`tests.studies.learned_rule_learners_properties`). A diagnostic cell per loss at n = 1,000
+reports the smaller size, and no verdict reads it.
 
 ``blip``
     ``LearnedRule(loss="blip")`` with ``PolynomialFeatures(2)`` and ``LinearRegression()``.
@@ -63,10 +65,15 @@ CALIBRATION_KINDS = (
     "validation_rule_control",
 )
 
+#: The diagnostic family: one cell per loss at n = 1,000, role ``diagnostic``, no verdict.
+DIAGNOSTIC_FAMILY = "small_sample_diagnostic"
+DIAGNOSTIC_KIND = "n1000"
+
 PROPERTY_CELLS = {
     "interval_calibration": tuple(
         f"{loss}__{kind}" for loss in law.LOSSES for kind in CALIBRATION_KINDS
     ),
+    DIAGNOSTIC_FAMILY: tuple(f"{loss}__{DIAGNOSTIC_KIND}" for loss in law.LOSSES),
 }
 
 HARNESS_ARTIFACT = "harness.csv.gz"
@@ -93,6 +100,7 @@ STUDY = StudyRecord(
         "tests/studies/_learned_rule_law.py",
         "src/cleverly/interventions/_rule_learners.py",
         "src/cleverly/interventions/learned.py",
+        "src/cleverly/estimators/tmle.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
         "tests/studies/evidence/property_verdicts.py",
@@ -113,7 +121,7 @@ CONFIGURATION = {
     "fit": (
         "TMLE(learned_rule=LearnedRule(loss=<scenario>, learner=<rule learner>), n_folds=10, "
         "cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', "
-        "random_state=<fold seed>); primary n = 2000, interval_calibration n = 4000; rows "
+        "random_state=<fold seed>); primary n = 2000, interval_calibration n = 4000, small_sample_diagnostic n = 1000; rows "
         "only (no weights, no clusters), repeats=1"
     ),
     "rule_learners": {
@@ -137,8 +145,9 @@ CONFIGURATION = {
     ),
     "oracle_se": "the row-curve oracle SE of the fit's fold rules; descriptive",
     "value_gain": (
-        "plug_in_estimate and plug_in_truth: the plug-in rule's fit of the same sample with the "
-        "same fold seed and its harness truth; descriptive"
+        "plug_in_estimate, plug_in_std_error and plug_in_truth: the plug-in rule's fit of the "
+        "same sample with the same fold seed, its reported standard error and its harness truth; "
+        "descriptive"
     ),
     "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate); "
     "the inner seeds derive from it by SeedSequence([split_seed, v])",
@@ -220,8 +229,9 @@ def draw_and_fit(
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, Any]:
     """The harness and value-gain columns of every primary replication.
 
-    ``replicates.parquet`` keeps the shared schema, so the paired plug-in fit's estimate and
-    truth of each primary replication are published here beside the harness columns.
+    ``replicates.parquet`` keeps the shared schema, so the paired plug-in fit's estimate,
+    standard error and truth of each primary replication are published here beside the harness
+    columns.
     """
     columns = ["scenario", "replicate", "truth", *base.HARNESS_COLUMNS, *law.VALUE_GAIN_COLUMNS]
     return {

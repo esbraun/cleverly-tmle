@@ -26,7 +26,12 @@ on the unit witnesses W-g2 and W-g4.
 Two quantities sit beside the declared fit. The fold-locality control is the deliberate mutation
 :class:`~tests.studies._learned_rule_law.ValidationRowRule`: fold ``v``'s rule learner is fitted
 on fold ``v``'s *validation* rows, to the pseudo-outcome of the fit's outer cross-fitted
-nuisances, so the rows that evaluate the rule also chose it, and the estimate is optimistic.
+nuisances, so the rows that evaluate the rule also chose it, and the estimate is optimistic. The control
+resolving below its band shows that the instrument sees a gross fold-locality violation. It is no
+evidence about the subtle hazard of pseudo-outcome nuisances read from the outer cross-fitted
+predictions at the rows of ``T_v``, whose leak is of order 1/n and invisible to any calibration
+cell; that hazard rests on the unit witnesses W-g3 and W-g4, and the declared fit passing its
+band is the evidence that it is fold-local.
 The value gain is the descriptive paired comparison with the plug-in rule: the plug-in fit of the
 same sample with the same fold seed, which draws the same outer folds, and its own harness truth.
 
@@ -51,6 +56,7 @@ from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly.interventions import LearnedRule
 from tests.studies import _learned_rule_law as base
+from tests.studies.evidence.schema import reported_inference
 
 #: The RM30 law every draw comes from.
 LAW = "misspecified_limit"
@@ -68,9 +74,11 @@ ESTIMAND = base.ESTIMAND
 CLASSIFIER_C = 1e6
 
 #: The descriptive columns of the paired comparison with the plug-in rule, carried by every
-#: primary row and every calibration-positive property row: the plug-in fit's estimate and its
-#: own harness truth, on the same sample and the same outer folds. No rule reads them.
-VALUE_GAIN_COLUMNS = ("plug_in_estimate", "plug_in_truth")
+#: primary row, every calibration-positive property row and every row of the diagnostic cells:
+#: the plug-in fit's estimate, its reported standard error and its own harness truth, on the same
+#: sample and the same outer folds. The standard error lets a page read the plug-in's SE ratio
+#: on the same draws as the rule learner's. No rule reads any of them.
+VALUE_GAIN_COLUMNS = ("plug_in_estimate", "plug_in_std_error", "plug_in_truth")
 
 #: The range of ``g0(1 | W)`` on the support, ``expit(-0.5)`` to ``expit(0.3)``. Every
 #: ``g0(a | W)`` is at least ``expit(-0.5)``, far above the ``g_bounds="auto"`` floor
@@ -129,6 +137,8 @@ class Measured:
         The solver warnings of the control and its refits.
     plug_in_estimate : float
         The plug-in fit's estimate on the same sample and outer folds.
+    plug_in_std_error : float
+        The plug-in fit's reported standard error.
     plug_in_truth : float
         The plug-in fit's harness truth.
     """
@@ -140,6 +150,7 @@ class Measured:
     control_truth: base.Truth | None
     control_warnings: int
     plug_in_estimate: float
+    plug_in_std_error: float
     plug_in_truth: float
 
 
@@ -180,13 +191,18 @@ def measured(frame: pd.DataFrame, loss: str, fold_seed: int, *, control: bool = 
         control_truth=mutated_truth,
         control_warnings=mutated_warnings,
         plug_in_estimate=float(plug_in.estimates[ESTIMAND].psi),
+        plug_in_std_error=reported_inference(plug_in.estimates[ESTIMAND])[0],
         plug_in_truth=plug_truth.truth,
     )
 
 
 def value_gain_columns(fitted: Measured) -> dict[str, float]:
     """The descriptive :data:`VALUE_GAIN_COLUMNS` of one measured sample."""
-    return {"plug_in_estimate": fitted.plug_in_estimate, "plug_in_truth": fitted.plug_in_truth}
+    return {
+        "plug_in_estimate": fitted.plug_in_estimate,
+        "plug_in_std_error": fitted.plug_in_std_error,
+        "plug_in_truth": fitted.plug_in_truth,
+    }
 
 
 def propensity_floor(result: Any) -> float:

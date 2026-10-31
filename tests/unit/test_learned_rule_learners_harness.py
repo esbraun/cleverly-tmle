@@ -25,7 +25,9 @@ from tests.studies import _learned_rule_law as base
 from tests.studies import _learned_rule_learners_law as law
 from tests.studies import learned_rule_learners as study
 from tests.studies import learned_rule_learners_properties as properties
-from tests.studies.evidence import property_failures, replication
+from tests.studies.evidence import claims, property_failures, replication
+from tests.studies.evidence.properties import summarize_cells
+from tests.studies.evidence.schema import reported_inference
 
 #: Throwaway seeds, far from every declared and pilot seed.
 THROWAWAY = 9_993_000
@@ -58,8 +60,10 @@ class TestThePairedFits:
         assert law._same_folds(fitted.result, plug_in)
         assert law.value_gain_columns(fitted) == {
             "plug_in_estimate": float(plug_in.estimates[law.ESTIMAND].psi),
+            "plug_in_std_error": reported_inference(plug_in.estimates[law.ESTIMAND])[0],
             "plug_in_truth": truth.truth,
         }
+        assert fitted.plug_in_std_error > 0.0
         assert tuple(law.value_gain_columns(fitted)) == law.VALUE_GAIN_COLUMNS
         # Nonzero: the rule learner's basis holds W1**2, so its rules and their value differ
         # from the plug-in's on the same folds.
@@ -202,11 +206,12 @@ class TestThePropertyPath:
 
     def test_every_declared_cell_is_summarized(self) -> None:
         rows = _property_rows()
-        assert set(rows["cell"]) == set(study.PROPERTY_CELLS["interval_calibration"])
+        declared = {cell for cells in study.PROPERTY_CELLS.values() for cell in cells}
+        assert set(rows["cell"]) == declared
         assert (rows.groupby("cell").size() == CAP).all()
         assert (rows["rule_rows_checked"] == rows["n"]).all()
         summary = properties.summarize_properties(rows).set_index("cell")
-        assert set(summary.index) == set(study.PROPERTY_CELLS["interval_calibration"])
+        assert set(summary.index) == declared
         positives = [f"{label}__declared" for label in properties.CALIBRATION_LABELS]
         for column in properties.VALUE_GAIN_SUMMARY:
             assert summary.loc[positives, column].notna().all()
@@ -244,9 +249,80 @@ class TestThePropertyPath:
         ctx = property_failures.module_context(study.STUDY, rows, summary, {}, properties)
         verdicts = property_failures.rule_verdicts(rule, summary, ctx).set_index("cell")
         own = summary.set_index("cell")
-        assert set(verdicts.index) == set(own.index)
+        calibration = own.loc[own["property"] == "interval_calibration"]
+        assert set(verdicts.index) == set(calibration.index)
         for cell in verdicts.index:
             assert bool(verdicts.loc[cell, "passed"]) == bool(own.loc[cell, "passed"]), cell
+
+    def test_the_diagnostic_cell_is_one_unverdicted_fit_at_its_own_size(self) -> None:
+        """One fit and no control per draw at n = 1,000, under the diagnostic role."""
+        rows = _property_rows()
+        summary = properties.summarize_properties(rows).set_index("cell")
+        for label in properties.CALIBRATION_LABELS:
+            cell = f"{label}__{study.DIAGNOSTIC_KIND}"
+            group = rows.loc[rows["cell"] == cell]
+            assert (group["property"] == study.DIAGNOSTIC_FAMILY).all()
+            assert (group["role"] == "diagnostic").all()
+            assert properties.DIAGNOSTIC_N == 1_000
+            assert (group["n"] == 1_000).all()
+            assert (group["requested_replicates"] == CAP).all()
+            assert group["plug_in_std_error"].gt(0).all()
+            assert group["truth"].ne(group["plug_in_truth"]).all()
+            row = summary.loc[cell]
+            assert (
+                row["role"] == "diagnostic" and bool(row["passed"]) and bool(row["property_passed"])
+            )
+            assert not np.isnan(row["se_ratio"])
+            for column in ("coverage_ci_lower", "bias_ci_lower", "bias_ci_upper"):
+                assert np.isfinite(row[column]), column
+            # The calibration cells keep the size and the verdict rules of the declaration.
+            positive = summary.loc[f"{label}__declared"]
+            assert positive["n"] == properties.CALIBRATION_N == 4_000
+
+    def test_the_diagnostic_se_ratio_interval_brackets_the_ratio(self) -> None:
+        """On 400 synthetic draws with SE 0.9 of the error SD, the interval holds 0.9 and no more."""
+        rng = np.random.default_rng(9_993_500)
+        n = 400
+        error = rng.normal(0.0, 0.01, n)
+        cell = f"blip__{study.DIAGNOSTIC_KIND}"
+        rows = pd.DataFrame(
+            {
+                "property": study.DIAGNOSTIC_FAMILY,
+                "cell": cell,
+                "role": "diagnostic",
+                "replicate": np.arange(n),
+                "n": 1_000,
+                "requested_replicates": n,
+                "failed_replicates": 0,
+                "truth": 0.5,
+                "estimate": 0.5 + error,
+                "std_error": 0.009,
+                "covered": (np.abs(error) <= 1.96 * 0.009).astype(int),
+                "rejected": (np.abs(error) > 1.96 * 0.009).astype(int),
+            }
+        )
+        summary = summarize_cells(
+            rows,
+            margin=0.25,
+            confidence_level=0.99,
+            alpha=0.05,
+            truth_varies=True,
+        )
+        summary[["se_ratio_ci_lower", "se_ratio_ci_upper"]] = np.nan
+        summary["passed"] = False
+        summary["property_passed"] = pd.Series([None] * len(summary), dtype=object)
+        properties.report_small_sample(summary, rows)
+        row = summary.iloc[0]
+        assert row["se_ratio_ci_lower"] < row["se_ratio"] < row["se_ratio_ci_upper"]
+        assert row["se_ratio_ci_upper"] - row["se_ratio_ci_lower"] < 0.2
+        assert bool(row["passed"]) and bool(row["property_passed"])
+
+    def test_a_diagnostic_cell_published_under_another_role_is_refused(self) -> None:
+        """The deliberate mutation: a diagnostic published as a positive would read as a verdict."""
+        rows = _property_rows().copy()
+        rows.loc[rows["property"] == study.DIAGNOSTIC_FAMILY, "role"] = "positive"
+        with pytest.raises(ValueError, match="not diagnostic"):
+            properties.summarize_properties(rows)
 
     def test_a_lost_fit_costs_every_cell_it_writes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """One failed fit is stamped on its positive, its control and both derived controls."""
@@ -258,10 +334,12 @@ class TestThePropertyPath:
             if (family, label, replicate) == lost:
                 raise np.linalg.LinAlgError("singular matrix")
             stem = label.removesuffix("__declared")
-            mine = cached.loc[
-                (cached["replicate"] == replicate)
-                & cached["cell"].isin([label, f"{stem}__validation_rule_control"])
-            ]
+            cells = (
+                [label]
+                if family == study.DIAGNOSTIC_FAMILY
+                else [label, f"{stem}__validation_rule_control"]
+            )
+            mine = cached.loc[(cached["replicate"] == replicate) & cached["cell"].isin(cells)]
             return mine.to_dict("records")
 
         monkeypatch.setattr(properties, "_replication", worker)
@@ -293,6 +371,46 @@ class TestThePropertyPath:
         read = set(accounting.loc[accounting["reason"] == property_failures.BOUND_EXCEEDED, "cell"])
         assert read == hit
 
+    def test_a_lost_diagnostic_fit_costs_only_its_own_cell(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The diagnostic cell has no control and no derived cell, and no accounting row."""
+        cached = _property_rows()
+        lost = (study.DIAGNOSTIC_FAMILY, f"blip__{study.DIAGNOSTIC_KIND}", 1)
+
+        def worker(key: Any, frame: pd.DataFrame) -> list[dict[str, Any]]:
+            family, label, replicate = key[0][:3]
+            if (family, label, replicate) == lost:
+                raise np.linalg.LinAlgError("singular matrix")
+            stem = label.removesuffix("__declared")
+            cells = (
+                [label]
+                if family == study.DIAGNOSTIC_FAMILY
+                else [label, f"{stem}__validation_rule_control"]
+            )
+            return cached.loc[
+                (cached["replicate"] == replicate) & cached["cell"].isin(cells)
+            ].to_dict("records")
+
+        monkeypatch.setattr(properties, "_replication", worker)
+        with replication.recording(study.STUDY.implementation) as recorded:
+            rows = properties.generate_property_rows(
+                n_jobs=1, record=base.smoke_record(study.STUDY), cap=CAP
+            )
+        records = property_failures.frame(recorded)
+        assert records is not None and len(records) == 1
+        rows = property_failures.stamp(rows, records)
+        property_failures.reconcile(rows, records, derived=properties.DERIVED_CELLS)
+        stamped = rows.groupby("cell")["failed_replicates"].max()
+        assert {cell for cell, count in stamped.items() if count} == {
+            f"blip__{study.DIAGNOSTIC_KIND}"
+        }
+        summary = properties.summarize_properties(rows)
+        accounting = property_failures.property_accounting(
+            rows, records, summary, record=study.STUDY, module=properties, n_jobs=1
+        )
+        assert not accounting["cell"].astype(str).str.contains(study.DIAGNOSTIC_KIND).any()
+
 
 def test_a_primary_row_carries_the_value_gain_columns() -> None:
     frame, _ = _measured("weighted_classification")
@@ -302,3 +420,28 @@ def test_a_primary_row_carries_the_value_gain_columns() -> None:
     assert np.isfinite([row[column] for column in law.VALUE_GAIN_COLUMNS]).all()
     assert row["plug_in_truth"] != row["truth"]
     assert row["rule_rows_checked"] == N
+
+
+def test_the_primary_value_gain_is_quotable_from_the_harness(tmp_path: Any) -> None:
+    """``claims`` reads the mean, SD and positive share of ``truth - plug_in_truth`` per scenario."""
+    from dataclasses import replace
+
+    gain = np.array([0.004, 0.006, -0.001, 0.003])
+    harness = pd.DataFrame(
+        {
+            "scenario": ["blip"] * 4 + ["weighted_classification"] * 4,
+            "truth": np.concatenate([0.55 + gain, 0.55 + 2.0 * gain]),
+            "plug_in_truth": [0.55] * 8,
+        }
+    )
+    harness.to_csv(tmp_path / "harness.csv.gz", index=False)
+    record = replace(study.STUDY, artifacts=tmp_path)
+    data = {claims.HARNESS: harness.assign(oracle_se=0.1)}
+    for scenario, scale in (("blip", 1.0), ("weighted_classification", 2.0)):
+        read = {
+            name: claims.value(record, f"value_gain_{name}_{scenario}", data)
+            for name in ("mean", "sd", "positive_share")
+        }
+        assert read["mean"] == pytest.approx(np.mean(scale * gain))
+        assert read["sd"] == pytest.approx(np.std(scale * gain, ddof=1))
+        assert read["positive_share"] == 0.75

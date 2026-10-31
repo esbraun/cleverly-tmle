@@ -178,12 +178,28 @@ PILOT_CONTROL_COVERAGE = (0.2620, 0.2735)
 #: The pilot at the primary size n = 2,000: 4,000 draws of each positive from
 #: ``SeedSequence([20263299, cell, draw])``. SE ratios, coverages and standardized biases, in
 #: the order of :data:`law.LOSSES`. The SE ratio sits below one, and the oracle SE's ratio
-#: with it (0.951 and 0.967): the rule's own sampling variability adds spread that the
-#: fixed-rule variance omits at this size. Two solver warnings in 8,000 fits, no failure.
+#: with it (0.951 and 0.967): the error spreads more than the fixed-rule variance of the
+#: realized rules, through the covariance between folds whose rules are fitted on each other's
+#: validation rows. Two solver warnings in 8,000 fits, no failure.
 PRIMARY_PILOT_RATIO = (0.9544, 0.9708)
 PRIMARY_PILOT_COVERAGE = (0.94175, 0.94375)
 PRIMARY_PILOT_STANDARDIZED_BIAS = (0.0201, 0.0005)
 PRIMARY_PILOT_DRAWS = 4_000
+
+#: The design review's paired pilot at three sizes (label 20263297 for n = 1,000 and the extra
+#: blip draws at n = 4,000): SE ratios, in the order of :data:`law.LOSSES`, and the paired
+#: error-variance ratio of the rule learner to the plug-in rule on the same draws. The excess
+#: declines with n and is within about 3% of zero at n = 4,000; the data pin no rate.
+REVIEW_PILOT_SE_RATIO = {
+    1_000: (0.946, 0.959),
+    2_000: (0.955, 0.971),
+    4_000: (1.001, 0.993),
+}
+REVIEW_PILOT_VARIANCE_RATIO = {
+    1_000: (1.051, 1.051),
+    2_000: (1.059, 1.031),
+    4_000: (0.993, 0.973),
+}
 
 
 def test_the_calibration_replicates_follow_the_per_arm_rule() -> None:
@@ -211,7 +227,59 @@ def test_no_budget_sizes_the_band_at_the_primary_size() -> None:
     rule = tools.per_arm_replicates(PRIMARY_PILOT_RATIO, PRIMARY_PILOT_DRAWS)
     assert rule["R"] is None
     assert rule["per_cell"][0] < 0.88
-    assert properties.CALIBRATION_N == 2 * study.PRIMARY_N
+    assert properties.CALIBRATION_N == 2 * study.PRIMARY_N == 4_000
+
+
+def test_the_three_size_pilot_supports_a_declining_excess_and_no_rate() -> None:
+    """The record's D1 rationale: an excess at 1,000 and 2,000 that is near zero at 4,000.
+
+    The SE ratio rises with n, the paired error-variance ratio of the rule learner to the
+    plug-in rule is above one at 1,000 and 2,000 and within 3% of one at 4,000. The pooled blip
+    ratio 1.001 at 4,000 (4,000 draws) sits below the declared pilot's 1.009, which sized R. The
+    sizing at the declared n is conservative against it: the pooled blip ratio with the
+    classification ratio would allow 4,400 per arm (taking both on 4,000 draws), and the
+    declared 7,200 passes per cell with probability 0.998 (blip, 4,000 draws) and 0.979
+    (classification, 2,000 draws).
+    """
+    for loss in range(2):
+        ratios = [REVIEW_PILOT_SE_RATIO[n][loss] for n in (1_000, 2_000, 4_000)]
+        assert ratios == sorted(ratios)
+        assert REVIEW_PILOT_VARIANCE_RATIO[1_000][loss] > 1.03
+        assert REVIEW_PILOT_VARIANCE_RATIO[2_000][loss] > 1.03
+        assert abs(REVIEW_PILOT_VARIANCE_RATIO[4_000][loss] - 1.0) < 0.03
+    pooled = (REVIEW_PILOT_SE_RATIO[4_000][0], CALIBRATION_PILOT[1])
+    assert tools.per_arm_replicates(pooled, 4_000)["R"] == 4_400
+    assert properties.CALIBRATION_REPLICATES == 7_200
+    blip = tools.per_arm_pass((pooled[0],), 4_000, properties.CALIBRATION_REPLICATES)
+    classification = tools.per_arm_pass((pooled[1],), 2_000, properties.CALIBRATION_REPLICATES)
+    assert (round(float(blip[0]), 3), round(float(classification[0]), 3)) == (0.998, 0.979)
+
+
+def test_the_diagnostic_cell_is_declared_apart_from_the_gated_cells() -> None:
+    """One n = 1,000 cell per loss, 2,000 replicates, its own seed streams, and no verdict.
+
+    A 2,000-draw bootstrap reads the SE ratio with a standard deviation of about
+    ``1 / sqrt(2 R)`` = 0.016, so its 99% interval is about 0.04 wide on each side and its 80%
+    interval about 0.02. The cell reports the size; no band reads it.
+    """
+    assert properties.DIAGNOSTIC_N == 1_000
+    assert properties.DIAGNOSTIC_REPLICATES == 2_000
+    assert study.DIAGNOSTIC_FAMILY not in {"interval_calibration"}
+    assert study.PROPERTY_CELLS[study.DIAGNOSTIC_FAMILY] == (
+        "blip__n1000",
+        "weighted_classification__n1000",
+    )
+    draws = {(d.family, d.label): d for d in properties.PROPERTY_DRAWS}
+    for loss in law.LOSSES:
+        draw = draws[study.DIAGNOSTIC_FAMILY, f"{loss}__n1000"]
+        assert draw.replicates == properties.DIAGNOSTIC_REPLICATES
+        assert properties.size_of(draw.family) == 1_000
+    assert properties.size_of("interval_calibration") == properties.CALIBRATION_N
+    sd = 1.0 / np.sqrt(2.0 * properties.DIAGNOSTIC_REPLICATES)
+    assert 0.015 < sd < 0.017
+    assert 0.038 < tools.Z * sd < 0.043
+    assert "tests/studies/evidence/property_verdicts.py" in study.STUDY.modules
+    assert "src/cleverly/estimators/tmle.py" in study.STUDY.modules
 
 
 def test_the_coverage_band_is_not_binding_at_the_declared_size() -> None:
@@ -282,7 +350,11 @@ def test_no_dataset_or_partition_seed_is_shared_with_another_learned_rule_study(
     suffixes = properties.suffixes(record)
     assert all(suffix == () for suffix in suffixes.values())
     mine = _seeds(record, study.PRIMARY_REPLICATES, properties.PROPERTY_DRAWS, suffixes)
-    size = 2 * study.PRIMARY_REPLICATES + 2 * properties.CALIBRATION_REPLICATES
+    size = (
+        2 * study.PRIMARY_REPLICATES
+        + 2 * properties.CALIBRATION_REPLICATES
+        + 2 * properties.DIAGNOSTIC_REPLICATES
+    )
     assert len(mine["sample"]) == len(mine["fold"]) == size
     assert not mine["sample"] & mine["fold"]
     others = [
