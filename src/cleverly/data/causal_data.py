@@ -266,7 +266,8 @@ class CausalData:
     added_covariates: tuple[str, ...] = ()
     encodings: tuple[CategoricalEncoding, ...] = ()
     #: Optional finite baseline partition used for conditional target parameters.  Codes
-    #: are ``0..S-1`` and :attr:`strata_levels` maps them back to the caller's labels.
+    #: are ``0..S-1`` in order of first appearance in the rows, not sorted by value, and
+    #: :attr:`strata_levels` maps each code to the caller's label.
     #: The raw columns remain in the adjustment set; this is target metadata, not a
     #: replacement for confounding control.
     strata: IntArray | None = None

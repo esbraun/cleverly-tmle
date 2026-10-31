@@ -6,28 +6,44 @@ plug-ins over the rows of each validation fold in the stratum, each fold's strat
 by the fold's own stratum share, and the marginal estimate is the share mixture of the stratum
 estimates with its delta-method curve.
 
-The law is the RM30 family of :mod:`tests.studies._learned_rule_law` with a steeper blip and a
-proportion outcome: ``W1 ~ U(-1, 1)``, ``W2 ~ Bernoulli(0.5)``, ``logit g0(1 | W) = 0.3 W1 -
-0.2 W2``, and ``Y | A, W ~ Beta(phi m, phi (1 - m))`` with mean
-``m = Qbar0(A, W)``, ``logit Qbar0(a, W) = 0.2 + 0.5 W1 - 0.3 W2 + a (0.1 + 1.5 W1)`` and the
-concentration ``phi = 12`` of :mod:`tests.studies.bounded_cv_laws`. The outcome regression is
-the RM30 form; only the outcome's law around it changes, from Bernoulli to beta, so that its
-conditional variance ``m (1 - m) / (1 + phi)`` leaves the share term of the marginal curve
-about a quarter of the marginal variance (deviation D1 of the design record: with a Bernoulli
-outcome the share term of the ``ate`` stays under 8% and a stronger blip puts stratum means
-near 0 and 1, where the pilot's Wald intervals under-cover). The baseline stratum cuts ``W1``
-at ``-0.6`` and ``0.1``, so the shares are 0.2, 0.35 and 0.45, unequal, and the stratum
-effects are heterogeneous in sign. The ``weighted`` setting adds the known observation weight
-``w = 1 + 1.5 W2``, which varies inside every stratum, so the fold's stratum weight mass
-``W_{v,s}`` and its row count ``n_{v,s}`` are not proportional. The target of a weighted fit is
-the parameter of the weight-tilted law.
+The law is the RM30 family of :mod:`tests.studies._learned_rule_law` with the blip
+``0.1 + 1.5 W1``: ``W1 ~ U(-1, 1)``, ``W2 ~ Bernoulli(0.5)``, ``logit g0(1 | W) = 0.3 W1 -
+0.2 W2`` and the outcome regression ``logit Qbar0(a, W) = 0.2 + 0.5 W1 - 0.3 W2 + a (0.1 +
+1.5 W1)``. Two outcome laws share that mean model, one per pair of settings:
+
+``unweighted``, ``weighted``
+    The bounded outcome ``Y | A, W ~ Beta(phi m, phi (1 - m))`` with ``m = Qbar0(A, W)`` and
+    the concentration ``phi = 12`` of :mod:`tests.studies.bounded_cv_laws`, fitted with the
+    quasibinomial learner and ``q_bounds=(0, 1)``.
+``binary_unweighted``, ``binary_weighted``
+    The RM30 outcome ``Y | A, W ~ Bernoulli(m)``, fitted with RM30's logistic learner and
+    ``q_bounds=None`` (the package refuses ``q_bounds`` on a binary outcome).
+
+The beta law exists for the share-dropped control (deviation D1 of the design record). Its
+conditional variance ``m (1 - m) / (1 + phi)`` leaves the share term about 27% of the marginal
+``ate`` variance, so a fit that dropped the share term would read an SE ratio of 0.854 and fail
+the band. Under the Bernoulli outcome the residual variance ``m (1 - m)`` swamps the share term
+(SE ratios without it 0.974, 0.996 and 0.941), so no binary setting carries that control. The
+binary settings cover alike at this mean model: the design review's pilot (label 20264731)
+read 0.942 to 0.952 on every binary cell. Its sparse-event deficit at the steeper blip
+``0.1 + 3.0 W1`` (0.918 for ``ey[1]`` in stratum 0, about six events) is generic Wald behaviour
+that the stacked stratified fit shares (0.919 on the same draws), so the ``binary_sparse``
+setting reports it as a diagnostic with no verdict.
+
+The baseline stratum cuts ``W1`` at ``-0.6`` and ``0.1``, so the shares are 0.2, 0.35 and
+0.45, unequal, and the stratum effects are heterogeneous in sign. The weighted settings add the
+known observation weight ``w = 1 + 1.5 W2``, which varies inside every stratum, so the fold's
+stratum weight mass ``W_{v,s}`` and its row count ``n_{v,s}`` are not proportional. The target
+of a weighted fit is the parameter of the weight-tilted law.
 
 The target is fixed and known, so the truth needs no refit. Each stratum mean
 ``E_w[Qbar0(a, W) | S = s]`` integrates ``Qbar0`` over ``W1`` on the stratum's interval by the
 trapezoid rule on :data:`POINTS` points for each value of ``W2``, weighted by ``w(W2)``. The
 marginal truth is the share mixture, and ``S`` is independent of ``W2``, so the weight leaves the
-shares at the interval lengths. The same quadrature gives each parameter's efficient influence
-curve SD (the noise-control scale) and the asymptotic SE ratio of the share-term control.
+shares at the interval lengths. The truth reads the mean model only, so a binary setting's
+truths are its bounded twin's. The same quadrature, with each outcome law's conditional variance,
+gives each parameter's efficient influence curve SD (the noise-control scale) and the asymptotic
+SE ratio of the share-term control.
 """
 
 from __future__ import annotations
@@ -65,6 +81,9 @@ SHARES = (0.2, 0.35, 0.45)
 INTERCEPT = 0.1
 SLOPE = 1.5
 
+#: The steeper slope of the ``binary_sparse`` diagnostic, the design record's first pilot law.
+SPARSE_SLOPE = 3.0
+
 #: The beta concentration ``phi`` of the outcome, and the outcome support the fit declares.
 #: Both equal :mod:`tests.studies.bounded_cv_laws`'s ``CONCENTRATION`` and ``Q_BOUNDS``, which
 #: sample the same kind of proportion. The smallest beta shape ``phi min(m, 1 - m)`` of this law
@@ -75,8 +94,43 @@ OUTCOME_BOUNDS = (0.0, 1.0)
 #: The quadrature points of ``W1`` on each stratum's interval.
 POINTS = 4001
 
-#: The settings: rows only, and the known weight ``1 + 1.5 W2``.
-SETTINGS = ("unweighted", "weighted")
+
+@dataclass(frozen=True)
+class Setting:
+    """One setting's outcome law and weight.
+
+    Parameters
+    ----------
+    outcome : str
+        ``"beta"`` for the bounded outcome, ``"binary"`` for the Bernoulli one.
+    weighted : bool
+        Whether the fit reads the known weight ``1 + 1.5 W2``.
+    slope : float
+        The slope of the blip.
+    """
+
+    outcome: str
+    weighted: bool
+    slope: float = SLOPE
+
+
+#: The calibration settings: the bounded outcome rows only and weighted, then the binary one.
+SETTING_LAWS = {
+    "unweighted": Setting("beta", False),
+    "weighted": Setting("beta", True),
+    "binary_unweighted": Setting("binary", False),
+    "binary_weighted": Setting("binary", True),
+}
+SETTINGS = tuple(SETTING_LAWS)
+
+#: The settings of the bounded outcome, the only ones whose share term the controls can resolve.
+BOUNDED_SETTINGS = ("unweighted", "weighted")
+
+#: The descriptive sparse-event setting: binary, rows only, blip ``0.1 + 3.0 W1``.
+SPARSE = "binary_sparse"
+
+#: Every setting a sample is drawn for, by name.
+LAWS = {**SETTING_LAWS, SPARSE: Setting("binary", False, SPARSE_SLOPE)}
 
 #: The weight column of every sample. The ``unweighted`` fit does not read it.
 WEIGHT = "w"
@@ -118,16 +172,16 @@ PARAMETERS = tuple(parameter(label) for label in PARAMETER_LABELS)
 # --------------------------------------------------------------------------- the law
 
 
-def blip(w1: Any) -> np.ndarray:
-    """The blip ``0.1 + 1.5 W1`` on the logit scale."""
-    return np.asarray(INTERCEPT + SLOPE * np.asarray(w1, dtype=float), dtype=float)
+def blip(w1: Any, slope: float = SLOPE) -> np.ndarray:
+    """The blip ``0.1 + slope W1`` on the logit scale; the declared slope is 1.5."""
+    return np.asarray(INTERCEPT + slope * np.asarray(w1, dtype=float), dtype=float)
 
 
-def qbar0(a: Any, w1: Any, w2: Any) -> np.ndarray:
+def qbar0(a: Any, w1: Any, w2: Any, slope: float = SLOPE) -> np.ndarray:
     """``E[Y | A = a, W]``, from ``logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + a b(W1)``."""
     w1 = np.asarray(w1, dtype=float)
     return np.asarray(
-        expit(0.2 + 0.5 * w1 - 0.3 * np.asarray(w2, dtype=float) + np.asarray(a) * blip(w1)),
+        expit(0.2 + 0.5 * w1 - 0.3 * np.asarray(w2, dtype=float) + np.asarray(a) * blip(w1, slope)),
         dtype=float,
     )
 
@@ -142,19 +196,24 @@ def stratum_of(w1: Any) -> np.ndarray:
     return np.digitize(np.asarray(w1, dtype=float), EDGES[1:-1]).astype(np.int64)
 
 
-def draw(n: int, seed: int) -> pd.DataFrame:
-    """One sample of ``n`` rows with columns ``W1, W2, S, A, Y, w``.
+def draw(setting: str, n: int, seed: int) -> pd.DataFrame:
+    """One sample of ``setting`` with ``n`` rows and columns ``W1, W2, S, A, Y, w``.
 
     The draws are the RM30 draws in the RM30 order (``W1``, ``W2``, ``A``, then ``Y``), with
-    this law's outcome regression and a beta outcome around it; ``S`` and ``w`` are functions
-    of ``W``.
+    the setting's outcome regression and its outcome law around it, beta or Bernoulli; ``S``
+    and ``w`` are functions of ``W``. Every setting's weight column is filled, and only a
+    weighted fit reads it.
     """
+    spec = LAWS[setting]
     rng = np.random.default_rng(seed)
     w1 = rng.uniform(-1.0, 1.0, n)
     w2 = rng.binomial(1, 0.5, n).astype(float)
     a = rng.binomial(1, base.g0(w1, w2)).astype(float)
-    mean = qbar0(a, w1, w2)
-    y = rng.beta(PHI * mean, PHI * (1.0 - mean))
+    mean = qbar0(a, w1, w2, spec.slope)
+    if spec.outcome == "binary":
+        y = rng.binomial(1, mean).astype(float)
+    else:
+        y = rng.beta(PHI * mean, PHI * (1.0 - mean))
     return pd.DataFrame(
         {"W1": w1, "W2": w2, "S": stratum_of(w1), "A": a, "Y": y, WEIGHT: weight(w2)}
     )
@@ -163,17 +222,22 @@ def draw(n: int, seed: int) -> pd.DataFrame:
 # ------------------------------------------------------------------------ the truth
 
 
-def _target_parts(target: str, w1: np.ndarray, w2: float) -> tuple[np.ndarray, np.ndarray]:
+def _target_parts(
+    target: str, w1: np.ndarray, w2: float, setting: str = "unweighted"
+) -> tuple[np.ndarray, np.ndarray]:
     """The regression functional and the conditional residual variance of the curve.
 
-    With ``v(a) = Qbar0(a)(1 - Qbar0(a)) / (1 + phi)``, the beta outcome's conditional variance:
-    for ``ate`` they are ``Qbar0(1) - Qbar0(0)`` and ``sum_a v(a) / g0(a)``; for ``ey[a]``
-    they are ``Qbar0(a)`` and ``v(a) / g0(a)``.
+    With ``v(a)`` the outcome's conditional variance, ``Qbar0(a)(1 - Qbar0(a)) / (1 + phi)``
+    for the beta outcome and ``Qbar0(a)(1 - Qbar0(a))`` for the Bernoulli one: for ``ate`` they
+    are ``Qbar0(1) - Qbar0(0)`` and ``sum_a v(a) / g0(a)``; for ``ey[a]`` they are ``Qbar0(a)``
+    and ``v(a) / g0(a)``.
     """
-    q1, q0 = qbar0(1.0, w1, w2), qbar0(0.0, w1, w2)
+    spec = LAWS[setting]
+    q1, q0 = qbar0(1.0, w1, w2, spec.slope), qbar0(0.0, w1, w2, spec.slope)
     g1 = base.g0(w1, w2)
-    r1 = q1 * (1.0 - q1) / (1.0 + PHI) / g1
-    r0 = q0 * (1.0 - q0) / (1.0 + PHI) / (1.0 - g1)
+    scale = 1.0 if spec.outcome == "binary" else 1.0 / (1.0 + PHI)
+    r1 = scale * q1 * (1.0 - q1) / g1
+    r0 = scale * q0 * (1.0 - q0) / (1.0 - g1)
     if target == "ate":
         return q1 - q0, r1 + r0
     if target == "ey0":
@@ -184,10 +248,9 @@ def _target_parts(target: str, w1: np.ndarray, w2: float) -> tuple[np.ndarray, n
 
 
 def _weights(setting: str) -> dict[float, float]:
-    """``w(W2)`` at each ``W2``; 1 for the rows-only setting."""
-    if setting not in SETTINGS:
-        raise KeyError(setting)
-    return {w2: float(weight(w2)) if setting == "weighted" else 1.0 for w2 in base.W2_LEVELS}
+    """``w(W2)`` at each ``W2``; 1 for a rows-only setting."""
+    weighted = LAWS[setting].weighted
+    return {w2: float(weight(w2)) if weighted else 1.0 for w2 in base.W2_LEVELS}
 
 
 def _grid(code: int) -> np.ndarray:
@@ -235,7 +298,7 @@ def moments(setting: str, target: str) -> Moments:
         grid = _grid(code)
         length = EDGES[code + 1] - EDGES[code]
         numerator = sum(
-            0.5 * w * np.trapezoid(_target_parts(target, grid, w2)[0], grid) / length
+            0.5 * w * np.trapezoid(_target_parts(target, grid, w2, setting)[0], grid) / length
             for w2, w in weights.items()
         )
         values.append(float(numerator / (0.5 * sum(weights.values()))))
@@ -248,7 +311,7 @@ def moments(setting: str, target: str) -> Moments:
         inside = 0.0
         for w2, w in weights.items():
             tilt = w / mean_weight
-            f, residual = _target_parts(target, grid, w2)
+            f, residual = _target_parts(target, grid, w2, setting)
             # The density of W1 is 1/2 and each W2 has probability 1/2.
             mass = 0.5 * tilt**2 / 2.0
             inside += mass * float(np.trapezoid(residual + (f - values[code]) ** 2, grid))
@@ -288,10 +351,13 @@ def share_term_ratio(setting: str, target: str) -> float:
 
 
 def outcome_learner() -> Pipeline:
-    """The declared outcome learner: every pairwise product of ``(A, W1, W2, S)``, quasibinomial.
+    """The bounded settings' outcome learner: every pairwise product of ``(A, W1, W2, S)``,
+    quasibinomial.
 
     It contains the law's linear predictor, so it is correctly specified. The quasibinomial
-    score solver fits a proportion, which scikit-learn's logistic classifier refuses.
+    score solver fits a proportion, which scikit-learn's logistic classifier refuses. The
+    binary settings fit RM30's :func:`~tests.studies._learned_rule_law.outcome_learner`, the
+    logistic classifier on the same products (:func:`learner_of`).
     """
     return Pipeline(
         [
@@ -317,17 +383,40 @@ def drop_w1_learner() -> Pipeline:
     )
 
 
-def estimator(fold_seed: int, *, learner: Any = None, n_folds: int = N_FOLDS) -> TMLE:
-    """The declared estimator, with the fold seed as its ``random_state``."""
+def learner_of(setting: str) -> Pipeline:
+    """The declared outcome learner of ``setting``: quasibinomial on a proportion, logistic on
+    a binary outcome, each on the pairwise products of ``(A, W1, W2, S)``."""
+    return base.outcome_learner() if LAWS[setting].outcome == "binary" else outcome_learner()
+
+
+def q_bounds_of(setting: str) -> tuple[float, float] | None:
+    """The declared outcome support: ``(0, 1)`` for a proportion, none for a binary outcome."""
+    return None if LAWS[setting].outcome == "binary" else OUTCOME_BOUNDS
+
+
+def estimator(
+    fold_seed: int,
+    setting: str = "unweighted",
+    *,
+    learner: Any = None,
+    n_folds: int = N_FOLDS,
+    cv_evaluation: bool = True,
+) -> TMLE:
+    """The declared estimator of ``setting``, with the fold seed as its ``random_state``.
+
+    ``cv_evaluation=False`` is the stacked stratified fit the ``binary_sparse`` diagnostic
+    pairs with the declared one: the same learners, the same folds, and the stratum plug-ins
+    over the stacked out-of-fold predictions.
+    """
     return TMLE(
-        outcome_learner=outcome_learner() if learner is None else learner,
+        outcome_learner=learner_of(setting) if learner is None else learner,
         treatment_learner=base.treatment_learner(),
         cross_fit=True,
         n_folds=n_folds,
-        cv_evaluation=True,
+        cv_evaluation=cv_evaluation,
         targeting_scheme="pooled",
         g_bounds="auto",
-        q_bounds=OUTCOME_BOUNDS,
+        q_bounds=q_bounds_of(setting),
         estimands=("ate", "ey"),
         simultaneous=False,
         random_state=fold_seed,
@@ -341,13 +430,12 @@ def fit(
     *,
     learner: Any = None,
     n_folds: int = N_FOLDS,
+    cv_evaluation: bool = True,
 ) -> Any:
     """Fit the declared estimator to one sample of ``setting`` and return the single result."""
-    if setting not in SETTINGS:
-        raise KeyError(setting)
-    columns: dict[str, Any] = {"weights": WEIGHT} if setting == "weighted" else {}
+    columns: dict[str, Any] = {"weights": WEIGHT} if LAWS[setting].weighted else {}
     return (
-        estimator(fold_seed, learner=learner, n_folds=n_folds)
+        estimator(fold_seed, setting, learner=learner, n_folds=n_folds, cv_evaluation=cv_evaluation)
         .fit(
             frame,
             outcome="Y",
@@ -376,7 +464,14 @@ class Measured:
     warnings: int
 
 
-def measured(frame: pd.DataFrame, setting: str, fold_seed: int, *, learner: Any = None) -> Measured:
+def measured(
+    frame: pd.DataFrame,
+    setting: str,
+    fold_seed: int,
+    *,
+    learner: Any = None,
+    cv_evaluation: bool = True,
+) -> Measured:
     """Fit one sample and count its solver warnings.
 
     A non-finite estimate or standard error stops the run with a ``RuntimeError``. A recordable
@@ -384,12 +479,67 @@ def measured(frame: pd.DataFrame, setting: str, fold_seed: int, *, learner: Any 
     ``DataError`` among them, is one lost replication, which the failure bound counts.
     """
     with base.solver_warning_count() as count:
-        result = fit(frame, setting, fold_seed, learner=learner)
+        result = fit(frame, setting, fold_seed, learner=learner, cv_evaluation=cv_evaluation)
     for name in PARAMETERS:
         estimate = result.estimates[name]
         if not (np.isfinite(estimate.psi) and np.isfinite(estimate.std_error)):
             raise RuntimeError(f"a non-finite estimate or standard error of {name}: {estimate}")
     return Measured(result, count[0])
+
+
+@dataclass(frozen=True)
+class Paired:
+    """The declared fit and the stacked stratified fit of one sample, on the same folds.
+
+    Parameters
+    ----------
+    declared : Measured
+        The fold-evaluated fit (``cv_evaluation=True``).
+    stacked : Measured
+        The stacked fit (``cv_evaluation=False``) with the same learners and fold seed.
+    """
+
+    declared: Measured
+    stacked: Measured
+
+
+def paired(frame: pd.DataFrame, setting: str, fold_seed: int) -> Paired:
+    """Fit one sample twice, fold-evaluated and stacked, with the same fold seed.
+
+    The fold seed draws the same outer folds for both fits, which ``fold_index`` of each checks;
+    a mismatch stops the run.
+    """
+    declared = measured(frame, setting, fold_seed)
+    stacked = measured(frame, setting, fold_seed, cv_evaluation=False)
+    if not np.array_equal(fold_index(declared.result), fold_index(stacked.result)):
+        raise RuntimeError("the stacked fit drew other folds than the declared one")
+    return Paired(declared, stacked)
+
+
+def stratum_arm_events(frame: pd.DataFrame, label: str) -> int:
+    """The fewest rows with the rarer outcome value in any stratum-arm ``label`` reads.
+
+    A stratum label reads its stratum, and a marginal label every stratum; ``ate`` reads both
+    arms and ``ey[a]`` arm ``a``. In each such stratum-arm the count is the smaller of the rows
+    with ``Y = 1`` and with ``Y = 0``, because a Wald interval for a mean near 0 or 1 rests on
+    the rarer value. The ``binary_sparse`` diagnostic reports it on each row.
+    """
+    target, stratum = label.split("_")
+    code = STRATUM_KEYS[stratum]
+    strata = STRATA if code is None else (code,)
+    arms = {"ate": (0.0, 1.0), "ey0": (0.0,), "ey1": (1.0,)}[target]
+    s = frame["S"].to_numpy()
+    a = frame["A"].to_numpy(dtype=float)
+    y = frame["Y"].to_numpy(dtype=float)
+    if not np.all((y == 0.0) | (y == 1.0)):
+        raise ValueError("an event count needs a binary outcome")
+    counts = []
+    for stratum_code in strata:
+        for arm in arms:
+            cell = y[(s == stratum_code) & (a == arm)]
+            events = int(np.sum(cell))
+            counts.append(min(events, cell.size - events))
+    return min(counts)
 
 
 # ---------------------------------------------------------------------- the controls

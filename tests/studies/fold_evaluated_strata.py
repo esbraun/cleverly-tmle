@@ -1,23 +1,29 @@
 """Registered evidence for fold-evaluated CV-TMLE with baseline strata (X28, X11 PR E1).
 
 The subject is ``TMLE(cross_fit=True, n_folds=5, cv_evaluation=True, estimands=("ate", "ey"),
-g_bounds="auto", q_bounds=(0, 1), simultaneous=False)`` fitted with ``strata=["S"]`` on complete data with rows
-as the unit, and ``repeats=1``. Each stratum estimate is the ``1/V`` average of the fold
+g_bounds="auto", simultaneous=False)`` fitted with ``strata=["S"]`` on complete data with rows
+as the unit, and ``repeats=1``: with ``q_bounds=(0, 1)`` on a proportion outcome and without
+``q_bounds`` on a binary one. Each stratum estimate is the ``1/V`` average of the fold
 plug-ins over the rows of each validation fold in the stratum, each fold's stratum curve divides
 by the fold's own stratum share, and the marginal estimate is the share mixture of the stratum
 estimates with its delta-method curve. Each fit reports 12 parameters: ``ate``, ``ey[0]`` and
 ``ey[1]``, in each of the three strata and marginally.
 
 ``unweighted``
-    Rows only.
+    The bounded (beta) outcome, rows only.
 ``weighted``
-    The known observation weight ``w = 1 + 1.5 W2``, which varies inside every stratum. The
-    target is the parameter of the weight-tilted law.
+    The bounded outcome with the known observation weight ``w = 1 + 1.5 W2``, which varies
+    inside every stratum. The target is the parameter of the weight-tilted law.
+``binary_unweighted``, ``binary_weighted``
+    The same two settings with the RM30 binary outcome, fitted with RM30's logistic outcome
+    learner and no ``q_bounds``.
 
-Both settings draw the law of :mod:`tests.studies._fold_evaluated_strata_law`: the RM30 family
-with the blip ``0.1 + 1.5 W1``, a beta outcome of concentration 12 around the RM30 outcome
-regression, and a stratum cut from ``W1`` at shares 0.2, 0.35 and 0.45. The
-target is fixed, so every row's truth is the quadrature value of its parameter. The X11 plan
+Every setting draws the law of :mod:`tests.studies._fold_evaluated_strata_law`: the RM30 family
+with the blip ``0.1 + 1.5 W1``, a beta outcome of concentration 12 or a Bernoulli outcome around
+the RM30 outcome regression, and a stratum cut from ``W1`` at shares 0.2, 0.35 and 0.45. The
+beta outcome is what lets the share-dropped control fail (deviation D1 of the design record);
+the binary settings license the binary outcome. The target is fixed, so every row's truth is
+the quadrature value of its parameter. The X11 plan
 (``X11-plan.md`` rev 2.1 in the plans repository, sections 2.5 and 3), the study design inputs of
 ``reviews/x11/X11-E1-impl-review.md`` and the study design record
 ``reviews/x11/X11-E1-study-design.md`` declare every quantity here before any run.
@@ -44,14 +50,19 @@ RESAMPLING_SEED = 20263052
 
 SCENARIOS = dict.fromkeys(law.SETTINGS, law.PARAMETERS)
 
-#: The calibration labels: one per setting and parameter, ``<setting>_<target>_<stratum>``.
-CALIBRATION_LABELS = tuple(
-    f"{setting}_{label}" for setting in law.SETTINGS for label in law.PARAMETER_LABELS
-)
+#: The calibration labels of each setting: one per parameter, ``<setting>_<target>_<stratum>``.
+SETTING_LABELS = {
+    setting: tuple(f"{setting}_{label}" for label in law.PARAMETER_LABELS)
+    for setting in law.SETTINGS
+}
+
+#: Every calibration label, setting by setting.
+CALIBRATION_LABELS = tuple(label for labels in SETTING_LABELS.values() for label in labels)
 
 #: The SD of ``sqrt(n)`` times each calibration label's estimate: the efficient influence curve
 #: SD of its parameter by the quadrature of :func:`~tests.studies._fold_evaluated_strata_law.
-#: moments`. They size the noise controls only, at one unit each, and no verdict reads an
+#: moments`, with the beta outcome's conditional variance ``m (1 - m) / 13`` in the bounded
+#: settings and the Bernoulli ``m (1 - m)`` in the binary ones. They size the noise controls only, at one unit each, and no verdict reads an
 #: efficiency ratio (``calibration_efficiency_ratio=False``). ``test_fold_evaluated_strata_design``
 #: recomputes them.
 EFFICIENCY_BOUNDS = {
@@ -79,6 +90,30 @@ EFFICIENCY_BOUNDS = {
     "weighted_ey1_s1": 0.409567,
     "weighted_ey1_s2": 0.314792,
     "weighted_ey1_all": 0.330274,
+    "binary_unweighted_ate_s0": 1.979953,
+    "binary_unweighted_ate_s1": 1.666671,
+    "binary_unweighted_ate_s2": 1.367470,
+    "binary_unweighted_ate_all": 0.949693,
+    "binary_unweighted_ey0_s0": 1.441609,
+    "binary_unweighted_ey0_s1": 1.145316,
+    "binary_unweighted_ey0_s2": 1.056406,
+    "binary_unweighted_ey0_all": 0.688568,
+    "binary_unweighted_ey1_s0": 1.362109,
+    "binary_unweighted_ey1_s1": 1.219494,
+    "binary_unweighted_ey1_s2": 0.877871,
+    "binary_unweighted_ey1_all": 0.681307,
+    "binary_weighted_ate_s0": 2.113835,
+    "binary_weighted_ate_s1": 1.807760,
+    "binary_weighted_ate_s2": 1.505181,
+    "binary_weighted_ate_all": 1.033928,
+    "binary_weighted_ey0_s0": 1.528730,
+    "binary_weighted_ey0_s1": 1.222094,
+    "binary_weighted_ey0_s2": 1.137282,
+    "binary_weighted_ey0_all": 0.737211,
+    "binary_weighted_ey1_s0": 1.463648,
+    "binary_weighted_ey1_s1": 1.339879,
+    "binary_weighted_ey1_s2": 0.995399,
+    "binary_weighted_ey1_all": 0.753536,
 }
 
 #: The positive arm's cell suffix.
@@ -88,22 +123,33 @@ POSITIVE = "declared"
 #: ``1 / P_{n,v}(S = s)`` normalisation.
 UNNORMALISED = "unnormalised_curve_control"
 
-#: The invalid-inference control of the marginal ``ate`` and ``ey[1]`` labels: the marginal
-#: curve without its share term. Its asymptotic SE ratio is 0.854 and 0.656 rows only, 0.854 and
-#: 0.660 weighted. ``ey[0]`` carries none: its share term moves the ratio to 0.948 and 0.945 only,
-#: which the declared count cannot resolve below the band floor 0.93.
+#: The invalid-inference control of the marginal ``ate`` and ``ey[1]`` labels of the bounded
+#: settings: the marginal curve without its share term. Its asymptotic SE ratio is 0.854 and
+#: 0.656 rows only, 0.854 and 0.660 weighted. ``ey[0]`` carries none: its share term moves the
+#: ratio to 0.948 and 0.945 only, which the declared count cannot resolve below the band floor
+#: 0.93. No binary label carries one: the Bernoulli residual variance leaves the ratio at 0.985,
+#: 0.995 and 0.943 (``ate``, ``ey[0]``, ``ey[1]``), above the floor, so it could not fail.
 SHARE_DROPPED = "share_dropped_control"
 
 #: The marginal labels whose share-term control is declared.
 SHARE_DROPPED_LABELS = tuple(
-    f"{setting}_{target}_all" for setting in law.SETTINGS for target in ("ate", "ey1")
+    f"{setting}_{target}_all" for setting in law.BOUNDED_SETTINGS for target in ("ate", "ey1")
 )
 
 #: The labels of the stratum parameters, which carry :data:`UNNORMALISED`.
 STRATUM_LABELS = tuple(label for label in CALIBRATION_LABELS if not label.endswith("_all"))
 
-#: The targeting-control labels: every stratum parameter of the rows-only setting.
-NECESSITY_LABELS = tuple(label for label in STRATUM_LABELS if label.startswith("unweighted_"))
+#: The targeting-control labels: every stratum parameter of the bounded rows-only setting.
+NECESSITY_LABELS = tuple(
+    label for label in SETTING_LABELS["unweighted"] if not label.endswith("_all")
+)
+
+#: The descriptive sparse-event family: the binary outcome at the blip ``0.1 + 3.0 W1``, rows
+#: only, one cell per parameter with the role ``diagnostic``. No margin is read and no verdict
+#: forms; each row carries the paired stacked stratified fit and the stratum-arm event count.
+SPARSE_FAMILY = "sparse_event_diagnostic"
+SPARSE_KIND = "diagnostic"
+SPARSE_LABELS = tuple(f"{law.SPARSE}_{label}" for label in law.PARAMETER_LABELS)
 
 
 def calibration_cells() -> tuple[str, ...]:
@@ -125,6 +171,7 @@ PROPERTY_CELLS = {
     "targeting_necessity": tuple(
         f"{label}__{arm}" for label in NECESSITY_LABELS for arm in ("targeted", "untargeted")
     ),
+    SPARSE_FAMILY: tuple(f"{label}__{SPARSE_KIND}" for label in SPARSE_LABELS),
 }
 
 STUDY = StudyRecord(
@@ -169,25 +216,34 @@ CONFIGURATION = {
     "fit": (
         "TMLE(outcome_learner=<outcome learner>, treatment_learner=<treatment learner>, "
         "cross_fit=True, n_folds=5, cv_evaluation=True, targeting_scheme='pooled', "
-        "g_bounds='auto', q_bounds=(0.0, 1.0), estimands=('ate', 'ey'), simultaneous=False, "
+        "g_bounds='auto', q_bounds=<(0.0, 1.0) on the beta outcome, None on the binary one>, "
+        "estimands=('ate', 'ey'), simultaneous=False, "
         "random_state=<fold seed>).fit(frame, outcome='Y', treatment='A', "
-        "covariates=['W1', 'W2', 'S'], strata=['S'], weights=<'w' in the weighted setting>); "
+        "covariates=['W1', 'W2', 'S'], strata=['S'], weights=<'w' in a weighted setting>); "
         "n = 1000, rows only, complete data, repeats=1"
     ),
     "outcome_learner": (
         "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), "
-        "QuasiBinomialGLM(tol=1e-10)) on (A, W1, W2, S)"
+        "QuasiBinomialGLM(tol=1e-10)) on (A, W1, W2, S) for the beta outcome; the same "
+        "products with LogisticRegression(C=1e6, max_iter=5000, tol=1e-10) for the binary one"
     ),
     "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2, S)",
     "targeting_control_learner": (
         "RM30's drop_w1_learner() with the quasibinomial solver: columns 0 and 2 of "
         "(A, W1, W2, S), so A and W2 only, and their product"
     ),
+    "sparse_event_diagnostic": (
+        "binary rows-only law with the blip 0.1 + 3.0 W1, n = 1000: the declared fit and the "
+        "stacked stratified fit (cv_evaluation=False, the same learners and fold seed, so the "
+        "same folds) on each sample; role diagnostic, no verdict"
+    ),
     "law": (
         "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5), logit g0 = 0.3 W1 - 0.2 W2, Y | A, W ~ "
-        "Beta(12 m, 12 (1 - m)) with m = Qbar0(A, W), logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + "
+        "Beta(12 m, 12 (1 - m)) (unweighted, weighted) or Bernoulli(m) (binary_unweighted, "
+        "binary_weighted) with m = Qbar0(A, W), logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + "
         "a (0.1 + 1.5 W1); S = 0, 1, 2 on W1 in [-1, -0.6), [-0.6, 0.1), "
-        "[0.1, 1] (shares 0.2, 0.35, 0.45); weighted setting w = 1 + 1.5 W2"
+        "[0.1, 1] (shares 0.2, 0.35, 0.45); weighted settings w = 1 + 1.5 W2; the "
+        "sparse_event_diagnostic draws the binary rows-only law with the blip 0.1 + 3.0 W1"
     ),
     "truth": (
         "fixed: each stratum mean E_w[f(W) | S = s] by the trapezoid rule on 4001 points of W1 "
@@ -201,7 +257,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     """One primary sample from an explicit seed, with the truth of every parameter."""
     if scenario not in SCENARIOS:
         raise KeyError(f"{STUDY.slug} has no scenario {scenario!r}")
-    return law.draw(n, seed), law.truths(scenario)
+    return law.draw(scenario, n, seed), law.truths(scenario)
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -245,7 +301,7 @@ def primary_rows(
 
 def _sample(record: StudyRecord, key: tuple[str, int, int]) -> pd.DataFrame:
     scenario, replicate, size = key
-    return law.draw(size, replicate_seed(record, scenario, replicate))
+    return law.draw(scenario, size, replicate_seed(record, scenario, replicate))
 
 
 def draw_and_fit(

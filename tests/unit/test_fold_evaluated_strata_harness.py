@@ -35,12 +35,19 @@ CAP = 3
 
 @cache
 def _measured(setting: str, learner: str = "declared") -> tuple[pd.DataFrame, law.Measured]:
-    frame = law.draw(N, THROWAWAY + law.SETTINGS.index(setting))
+    frame = law.draw(setting, N, THROWAWAY + law.SETTINGS.index(setting))
     chosen = law.drop_w1_learner() if learner == "drop_w1" else None
     return frame, law.measured(frame, setting, THROWAWAY + 10, learner=chosen)
 
 
+@cache
+def _paired() -> tuple[pd.DataFrame, law.Paired]:
+    frame = law.draw(law.SPARSE, N, THROWAWAY + 20)
+    return frame, law.paired(frame, law.SPARSE, THROWAWAY + 10)
+
+
 SETTINGS = pytest.mark.parametrize("setting", law.SETTINGS)
+BOUNDED = pytest.mark.parametrize("setting", law.BOUNDED_SETTINGS)
 
 
 def _frame_folds(frame: pd.DataFrame, result: Any) -> np.ndarray:
@@ -54,7 +61,8 @@ def _frame_folds(frame: pd.DataFrame, result: Any) -> np.ndarray:
 
 
 def _frame_weights(frame: pd.DataFrame, setting: str) -> np.ndarray:
-    return frame[law.WEIGHT].to_numpy(float) if setting == "weighted" else np.ones(len(frame))
+    weighted = law.LAWS[setting].weighted
+    return frame[law.WEIGHT].to_numpy(float) if weighted else np.ones(len(frame))
 
 
 class TestTheFit:
@@ -71,8 +79,29 @@ class TestTheFit:
                 law.curve_se(estimate.influence_curve), rel=1e-10
             )
         weights = np.asarray(result.data.weights, dtype=float)
-        assert bool(np.ptp(weights) > 0) is (setting == "weighted")
+        assert bool(np.ptp(weights) > 0) is law.LAWS[setting].weighted
         assert result.config.cv_evaluation and result.config.n_folds == law.N_FOLDS
+
+    @SETTINGS
+    def test_each_setting_draws_its_outcome_and_fits_its_learner(self, setting: str) -> None:
+        """A binary setting draws ``Y`` in {0, 1} and fits the logistic learner without
+        ``q_bounds``; a bounded one draws a proportion strictly inside (0, 1)."""
+        frame, _ = _measured(setting)
+        y = frame["Y"].to_numpy()
+        binary = law.LAWS[setting].outcome == "binary"
+        if binary:
+            assert set(np.unique(y)) == {0.0, 1.0}
+        else:
+            assert y.min() > 0.0 and y.max() < 1.0 and len(np.unique(y)) == N
+        estimator = law.estimator(5, setting)
+        assert estimator.q_bounds == (None if binary else (0.0, 1.0))
+        model = estimator.outcome_learner.named_steps["model"]
+        assert type(model).__name__ == ("LogisticRegression" if binary else "QuasiBinomialGLM")
+        # The binary twin draws the bounded setting's covariates and treatment from one seed.
+        twin = law.draw("unweighted", 50, 3)
+        np.testing.assert_array_equal(
+            law.draw(setting, 50, 3)[["W1", "W2", "A"]], twin[["W1", "W2", "A"]]
+        )
 
     def test_the_stratum_column_is_the_declared_cut(self) -> None:
         frame, fitted = _measured("unweighted")
@@ -184,8 +213,10 @@ class TestTheShareDroppedControl:
 
     @SETTINGS
     def test_the_share_term_is_load_bearing_for_ate_and_ey1(self, setting: str) -> None:
-        """On one sample each ratio sits near its asymptotic value: about 0.85 for ``ate``, 0.66
-        for ``ey[1]``, and 0.95 for ``ey[0]``, which carries no control."""
+        """On one sample each ratio sits near its asymptotic value: in a bounded setting about
+        0.85 for ``ate``, 0.66 for ``ey[1]``, and 0.95 for ``ey[0]``, which carries no control;
+        in a binary setting all three sit above the band floor, so no binary label carries
+        one."""
         _, fitted = _measured(setting)
 
         def ratio(target: str) -> float:
@@ -195,7 +226,11 @@ class TestTheShareDroppedControl:
 
         for target in law.TARGETS:
             assert ratio(target) == pytest.approx(law.share_term_ratio(setting, target), abs=0.06)
-        assert ratio("ey1") < ratio("ate") < 0.93 < ratio("ey0")
+        if setting in law.BOUNDED_SETTINGS:
+            assert ratio("ey1") < ratio("ate") < 0.93 < ratio("ey0")
+        else:
+            assert min(ratio(target) for target in law.TARGETS) > 0.9
+            assert not any(label.startswith(setting) for label in study.SHARE_DROPPED_LABELS)
 
     def test_a_stratum_label_is_refused(self) -> None:
         _, fitted = _measured("unweighted")
@@ -265,7 +300,7 @@ class TestTheEmptyCellRefusal:
     def test_the_frame_check_is_the_fits_refusal(self) -> None:
         """A sample whose stratum 0 holds no treated row in one fold refuses with a DataError, and
         the pilot's frame check flags it."""
-        frame = law.draw(N, THROWAWAY + 7)
+        frame = law.draw("unweighted", N, THROWAWAY + 7)
         folds = make_folds(N, law.N_FOLDS, random_state=THROWAWAY + 10)
         (_, test), *_ = folds
         test = np.asarray(test)
@@ -276,6 +311,59 @@ class TestTheEmptyCellRefusal:
         assert law.empty_cell(emptied, "unweighted", folds)
         with pytest.raises(DataError, match="inside baseline stratum"):
             law.fit(emptied, "unweighted", THROWAWAY + 10)
+
+
+class TestTheSparseEventDiagnostic:
+    def test_the_stacked_fit_is_the_paired_fit_on_the_same_folds(self) -> None:
+        """Both fits read the same sample and the same folds; only the evaluation differs, so
+        the estimates are close but not equal."""
+        _, fitted = _paired()
+        declared, stacked = fitted.declared.result, fitted.stacked.result
+        assert declared.config.cv_evaluation and not stacked.config.cv_evaluation
+        np.testing.assert_array_equal(law.fold_index(declared), law.fold_index(stacked))
+        gaps = [
+            abs(float(declared.estimates[name].psi) - float(stacked.estimates[name].psi))
+            for name in law.PARAMETERS
+        ]
+        assert 0.0 < max(gaps) < 0.05
+
+    def test_a_mismatched_fold_draw_stops_the_draw(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        frame, _ = _paired()
+        calls: list[int] = []
+        real = law.fold_index
+
+        def shifted(result: Any) -> np.ndarray:
+            calls.append(1)
+            index = real(result)
+            return np.roll(index, len(calls) - 1)
+
+        monkeypatch.setattr(law, "fold_index", shifted)
+        with pytest.raises(RuntimeError, match="other folds"):
+            law.paired(frame, law.SPARSE, THROWAWAY + 10)
+
+    def test_the_event_count_is_the_rarer_value_of_each_stratum_arm(self) -> None:
+        """Rebuilt from the frame; ``ey[1]`` in stratum 0 has few events, the nonzero witness
+        that the cell reads the sparse regime."""
+        frame, _ = _paired()
+        s, a, y = (frame[c].to_numpy() for c in ("S", "A", "Y"))
+
+        def rarer(code: int, arm: float) -> int:
+            cell = y[(s == code) & (a == arm)]
+            return int(min(cell.sum(), cell.size - cell.sum()))
+
+        assert law.stratum_arm_events(frame, "ey1_s0") == rarer(0, 1.0) < 15
+        assert law.stratum_arm_events(frame, "ey0_s2") == rarer(2, 0.0)
+        assert law.stratum_arm_events(frame, "ate_s1") == min(rarer(1, 0.0), rarer(1, 1.0))
+        assert law.stratum_arm_events(frame, "ate_all") == min(
+            rarer(code, arm) for code in law.STRATA for arm in (0.0, 1.0)
+        )
+        with pytest.raises(ValueError, match="binary outcome"):
+            law.stratum_arm_events(law.draw("unweighted", 50, 3), "ate_s0")
+
+    def test_the_sparse_law_is_the_steeper_blip(self) -> None:
+        truth = law.truths(law.SPARSE)
+        assert truth["ey[1][S=0]"] == pytest.approx(0.0710, abs=5e-4)
+        assert truth["ey[0][S=0]"] == law.truths("unweighted")["ey[0][S=0]"]
 
 
 @cache
@@ -333,10 +421,51 @@ class TestThePropertyPath:
         for cell in verdicts.index:
             assert bool(verdicts.loc[cell, "passed"]) == bool(own.loc[cell, "passed"]), cell
 
-    def test_a_lost_fit_costs_every_cell_it_writes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """One empty stratum-fold refusal is one lost draw of all 12 positives and their controls."""
+    def test_the_sparse_cells_report_both_fits_and_state_no_verdict(self) -> None:
+        rows = _property_rows()
+        sparse = rows.loc[rows["property"] == study.SPARSE_FAMILY]
+        assert set(sparse["role"]) == {"diagnostic"}
+        assert sparse[list(properties.SPARSE_COLUMNS)].notna().all().all()
+        others = rows.loc[rows["property"] != study.SPARSE_FAMILY]
+        assert others[list(properties.SPARSE_COLUMNS)].isna().all().all()
+        assert (sparse["stacked_estimate"] != sparse["estimate"]).any()
+        summary = properties.summarize_properties(rows)
+        reported = summary.loc[summary["property"] == study.SPARSE_FAMILY]
+        assert len(reported) == 12 and set(reported["role"]) == {"diagnostic"}
+        assert reported["passed"].all() and reported["property_passed"].all()
+        # A bootstrap of three draws can resample one value three times, whose spread is zero,
+        # so an upper ratio endpoint may be undefined here; every other column is a number.
+        columns = [
+            *(c for c in properties.SPARSE_SUMMARY if not c.endswith("_ci_upper")),
+            "se_ratio_ci_lower",
+        ]
+        assert reported[columns].notna().all().all()
+        for _, row in reported.iterrows():
+            group = sparse.loc[sparse["cell"] == row["cell"]]
+            assert row["events_mean"] == pytest.approx(group["stratum_arm_events"].mean())
+            covered = np.abs(group["stacked_estimate"] - group["truth"]) <= (
+                law.CRITICAL * group["stacked_std_error"]
+            )
+            assert row["stacked_coverage"] == pytest.approx(covered.mean())
+        # The diagnostic writes verdict columns, so the module declares its rules.
+        assert property_failures.undeclared_verdict_writers(properties) == []
+        assert property_failures.rule_for(study.SPARSE_FAMILY, properties) is None
+
+    @pytest.mark.parametrize(
+        ("lost", "cost"),
+        [
+            (("interval_calibration", "weighted", 1), 12 * 3 + 9 + 2),
+            (("interval_calibration", "binary_weighted", 1), 12 * 3 + 9),
+            ((study.SPARSE_FAMILY, law.SPARSE, 1), 12),
+        ],
+    )
+    def test_a_lost_fit_costs_every_cell_it_writes(
+        self, lost: tuple[str, str, int], cost: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One empty stratum-fold refusal is one lost draw of all 12 parameters' cells: the
+        positives with their controls (no share-dropped control in a binary setting), or the
+        12 diagnostic cells."""
         cached = _property_rows()
-        lost = ("interval_calibration", "weighted", 1)
 
         def worker(key: Any, frame: pd.DataFrame) -> list[dict[str, Any]]:
             family, setting, replicate = key[0][:3]
@@ -364,8 +493,8 @@ class TestThePropertyPath:
         stamped = rows.groupby("cell")["failed_replicates"].max()
         hit = {
             cell.split("/", 1)[1]
-            for cell in properties._cells_of((("interval_calibration", "weighted"),))  # type: ignore[arg-type]
+            for cell in properties._cells_of((lost[:2],))  # type: ignore[arg-type]
         }
-        assert len(hit) == 12 * 3 + 9 + 2
+        assert len(hit) == cost
         assert {cell for cell, count in stamped.items() if count} == hit
         assert (rows.loc[rows["cell"].isin(hit)].groupby("cell").size() == CAP - 1).all()

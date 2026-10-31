@@ -17,9 +17,10 @@ refuses a sample seed that equals a declared sample seed of either study.  The s
 then skips the property study, and a reading says ``smoke run, not the declared budget``.
 
 ``--property-harness-check CAP`` is a smoke-only check of the property path.  It fits at most
-``CAP`` draws of each property cell of the throwaway record and prints the rule agreement (for a
-study whose rows carry ``rule_rows_checked``), the solver warnings and the wall time.  It prints
-no bias, coverage or SE ratio.
+``CAP`` draws of each property cell of the throwaway record and prints the rule agreement, the
+solver warnings and the wall time.  It prints no bias, coverage or SE ratio.  A study whose fits
+learn no rule declares ``LEARNED_RULE = False`` in its property module and gets no rule
+agreement; a learned-rule study whose rows lack ``rule_rows_checked`` stops the check.
 """
 
 from __future__ import annotations
@@ -55,7 +56,11 @@ PACKAGES = {
 
 
 def declared_sample_seeds() -> set[int]:
-    """Every sample seed a declared run of any learned-rule study draws."""
+    """Every sample seed a declared run of any X11 study under this run form draws.
+
+    That is every learned-rule study and ``fold-evaluated-strata``, whose target is not a
+    learned rule: a smoke run of any of them must avoid the declared seeds of all of them.
+    """
     from tests.studies import fold_evaluated_strata as strata
     from tests.studies import fold_evaluated_strata_properties as strata_properties
     from tests.studies import learned_rule_compositions as compositions
@@ -154,7 +159,11 @@ def _property_harness_check(
     )
     warnings = rows.groupby("cell")["solver_warnings"].sum()
     print(f"property harness check, {len(rows)} rows, wall {wall:.1f} s", flush=True)
-    if "rule_rows_checked" in rows:
+    if getattr(properties, "LEARNED_RULE", True):
+        if "rule_rows_checked" not in rows:
+            raise RuntimeError(
+                f"{properties.__name__} learns a rule, but its rows carry no rule_rows_checked"
+            )
         fitted = rows.loc[rows["rule_rows_checked"] > 0]
         # A fit of R splits checks every row once per split (``learned-rule-split-mean``).
         checks = getattr(properties, "RULE_CHECKS_PER_ROW", 1)
