@@ -968,7 +968,10 @@ the splits part.
 The rule learners of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules),
 `LearnedRule(loss="blip")` and `LearnedRule(loss="weighted_classification")`, learn each fold's
 rule from a doubly robust pseudo-outcome with nuisances cross-fitted inside the training rows.
-Their study, `learned-rule-learners`, is not yet registered, so these fits read experimental.
+Their [study](technical-reference/method-evidence/learned-rule-learners.md) calibrates the
+interval at n = 4,000 and reports a standard error about 3.5% to 5% small at n = 1,000 and 2,000, so
+an unweighted fit with pooled targeting, `repeats=1` and no `id=` reads supported. A fit with
+weights, clusters, fold targeting or `repeats` above 1 reads experimental.
 
 The [omitted-variable bound](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 of a learned-rule value ships as a point bound. It holds the fold rules fixed, so the value is the

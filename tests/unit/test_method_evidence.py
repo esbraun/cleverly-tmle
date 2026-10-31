@@ -1767,6 +1767,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
+        # X11 PR C (``learned-rule-learners``): the rule-learner fit at n = 1,000, below its
+        # calibration size, reported with its SE ratio, coverage and bias and no verdict.
+        "small_sample_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
