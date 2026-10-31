@@ -6,7 +6,7 @@ repeats=5)`, the subject of the [gated learned-rule study](learned-rule-cvtmle.m
 independent splits. Each split learns its own fold rules on its training rows, and the fit reports
 the mean of the five split estimates. The variance is $n^{-2} \sum_i \bar\phi_i^2$, the second
 moment of the mean $\bar\phi_i$ of the five split curves.
-[The mean over splits](../point-treatment-tmle.md#the-mean-over-splits) gives the contract and the
+[The mean over splits](../point-treatment-tmle.md#learned-rules) gives the contract and the
 argument that the mean of asymptotically linear splits is asymptotically linear.
 
 The target is data-adaptive, so each replication carries its own truth: the mean over the five

@@ -961,7 +961,7 @@ measures each setting, so these fits read supported. A fit with unequal cluster 
 both weights and clusters, reads experimental.
 
 With `repeats` above 1 on rows the fit reports
-the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#the-mean-over-splits)).
+the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).
 The [split-mean study](technical-reference/method-evidence/learned-rule-split-mean.md) measures
 it, so an unweighted fit with pooled targeting reads supported. A weighted or fold-targeted fit
 at `repeats` above 1 reads experimental. The median of split estimates estimates no defined
