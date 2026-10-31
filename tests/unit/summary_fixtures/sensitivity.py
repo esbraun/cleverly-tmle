@@ -40,6 +40,14 @@ def _linear() -> Any:
 
 
 @functools.cache
+def _learned_rule() -> Any:
+    """A fold-evaluated fit of the value of a learned treatment rule."""
+    from tests.unit import _learned_rule_support as support
+
+    return support.fit(support.law_frame(400, 1))
+
+
+@functools.cache
 def _forest() -> Any:
     """A fit whose treatment learner the plug-in limits do not admit."""
     from sklearn.ensemble import RandomForestClassifier
@@ -159,6 +167,14 @@ FIXTURES = {
     "bounds_plugin": Case(
         lambda: _forest().sensitivity.omitted_confounding(
             cf_y=0.05, cf_d=0.05, nu2_estimator="plugin"
+        ),
+        names=NAMES,
+        fidelity=read.bounds,
+    ),
+    # learned_rule_bound: the point bound of a learned-rule value over its frozen fold rules.
+    "bounds_learned_rule": Case(
+        lambda: _learned_rule().sensitivity.omitted_confounding(
+            "ey_learned_rule[learned rule]", cf_y=0.05, cf_d=0.05
         ),
         names=NAMES,
         fidelity=read.bounds,
