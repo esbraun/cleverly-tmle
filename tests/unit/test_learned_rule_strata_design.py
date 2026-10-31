@@ -303,7 +303,7 @@ def test_the_record_seeds_are_unused() -> None:
 
 def test_the_named_streams_are_distinct_from_every_registered_study() -> None:
     """The labels ``test_every_named_stream_of_every_study_is_distinct`` reads, on this record
-    and on E1's."""
+    and on every registered study, E1's included."""
     labels = [
         ("root_n_rate", "empirical_sd"),
         ("root_n_rate", "reported_se"),
@@ -313,7 +313,7 @@ def test_the_named_streams_are_distinct_from_every_registered_study() -> None:
         ("performance", "cleverly", "binary", "ate"),
         ("equivalence", "binary", "ate"),
     ]
-    records = [*registered(), e1.STUDY, study.STUDY]
+    records = [*registered(), study.STUDY]
     seeds = [stream_seed(record, *label) for record in records for label in labels]
     assert len(set(seeds)) == len(seeds)
 
