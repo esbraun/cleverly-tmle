@@ -623,6 +623,15 @@ fold-evaluated-cvtmle,root_n_and_efficiency,se ratio sanity,se_high
 fold-evaluated-cvtmle,root_n_rate,slope in root-n band,contract
 fold-evaluated-cvtmle,type_i_error,coverage floor,coverage/0.5
 fold-evaluated-cvtmle,type_i_error,rejection ceiling,rejection/0.1
+fold-evaluated-strata,interval_calibration,coverage in calibration band,bias
+fold-evaluated-strata,interval_calibration,noise se ratio below band,se_high
+fold-evaluated-strata,interval_calibration,se ratio below band,se_high
+fold-evaluated-strata,interval_calibration,se ratio in calibration band,affine
+fold-evaluated-strata,interval_calibration,share dropped se ratio below band,se_high
+fold-evaluated-strata,interval_calibration,unnormalised curve se ratio below band,pair_collapse
+fold-evaluated-strata,targeting_necessity,bias discriminated,pair_collapse
+fold-evaluated-strata,targeting_necessity,bias equivalent,bias
+fold-evaluated-strata,targeting_necessity,least displacement over labels,control_concentrated
 fold-targeted-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
 fold-targeted-cvtmle,crossfit_overfitting,coverage gain,shift/3
 fold-targeted-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low

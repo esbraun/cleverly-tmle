@@ -1774,6 +1774,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR C (``learned-rule-learners``): the rule-learner fit at n = 1,000, below its
         # calibration size, reported with its SE ratio, coverage and bias and no verdict.
         "small_sample_diagnostic",
+        # X11 PR E1 (``fold-evaluated-strata``): the fold-evaluated and stacked stratified fits
+        # on a binary law with few events in one stratum-arm, reported with no verdict.
+        "sparse_event_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",

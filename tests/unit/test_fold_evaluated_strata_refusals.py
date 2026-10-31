@@ -15,8 +15,9 @@ its exact-law witnesses are in ``test_fold_evaluated_strata_exact.py``. This mod
   stratum, refuses before any learner with a data error;
 * removing the target check lets a refused request reach a learner, so the check is what
   refuses;
-* the fit carries the experimental label until a registered study covers it, and the
-  stratified stacked report is unchanged by the fold-evaluated weights;
+* an arm-mean fit on rows reads supported from ``fold-evaluated-strata``, a fit with repeats or
+  regime means stays experimental, and the stratified stacked report is unchanged by the
+  fold-evaluated weights;
 * the marginal is each draw's share mixture, and under ``repeats=3`` the median of those
   mixtures departs from the mixture of the stratum medians;
 * the omitted-variable bound, the robustness value, the truncation curve and the default
@@ -352,8 +353,24 @@ class TestWhatTheFitAdmits:
                 float(np.median([repeat.psi["ate"] for repeat in result.repeats])), abs=1e-12
             )
 
-    def test_the_fit_is_experimental(self) -> None:
-        result = fit(TMLE(**fitted(estimands=("ate",)))).single()
+    def test_an_arm_mean_fit_on_rows_reads_supported(self) -> None:
+        """``fold-evaluated-strata`` measures the arm means and the ATE on rows, repeats=1."""
+        result = fit(TMLE(**fitted(estimands=("ate", "ey")))).single()
+        for estimate in result.estimates.values():
+            assert estimate.support.label == "supported"
+            assert estimate.support.row == "T40.continuous"
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"estimands": ("ate",), "repeats": 2},
+            {"interventions": [Static(1.0, name="treat"), Static(0.0, name="control")]},
+        ],
+        ids=["repeats", "regimes"],
+    )
+    def test_repeats_and_regime_means_stay_experimental(self, extra: dict[str, Any]) -> None:
+        """No cell measures either, so no row covers the fit."""
+        result = fit(TMLE(**fitted(**extra))).single()
         for estimate in result.estimates.values():
             assert estimate.support.label == "experimental"
             assert "No registered study covers this configuration" in estimate.support.reason

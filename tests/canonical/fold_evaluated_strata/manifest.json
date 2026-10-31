@@ -1,0 +1,145 @@
+{
+  "schema_version": 2,
+  "study": "Fold-evaluated CV-TMLE with baseline strata",
+  "slug": "fold-evaluated-strata",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-fold-evaluated-strata",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "2e6a983fce8010766d9e356070c0d0c56047ee30",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 1000,
+    "seed": 20263051,
+    "resampling_seed": 20263052,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-fold-evaluated-strata": 0.01
+    },
+    "scenarios": {
+      "unweighted": [
+        "ate[S=0]",
+        "ate[S=1]",
+        "ate[S=2]",
+        "ate",
+        "ey[0][S=0]",
+        "ey[0][S=1]",
+        "ey[0][S=2]",
+        "ey[0]",
+        "ey[1][S=0]",
+        "ey[1][S=1]",
+        "ey[1][S=2]",
+        "ey[1]"
+      ],
+      "weighted": [
+        "ate[S=0]",
+        "ate[S=1]",
+        "ate[S=2]",
+        "ate",
+        "ey[0][S=0]",
+        "ey[0][S=1]",
+        "ey[0][S=2]",
+        "ey[0]",
+        "ey[1][S=0]",
+        "ey[1][S=1]",
+        "ey[1][S=2]",
+        "ey[1]"
+      ],
+      "binary_unweighted": [
+        "ate[S=0]",
+        "ate[S=1]",
+        "ate[S=2]",
+        "ate",
+        "ey[0][S=0]",
+        "ey[0][S=1]",
+        "ey[0][S=2]",
+        "ey[0]",
+        "ey[1][S=0]",
+        "ey[1][S=1]",
+        "ey[1][S=2]",
+        "ey[1]"
+      ],
+      "binary_weighted": [
+        "ate[S=0]",
+        "ate[S=1]",
+        "ate[S=2]",
+        "ate",
+        "ey[0][S=0]",
+        "ey[0][S=1]",
+        "ey[0][S=2]",
+        "ey[0]",
+        "ey[1][S=0]",
+        "ey[1][S=1]",
+        "ey[1][S=2]",
+        "ey[1]"
+      ]
+    },
+    "fit": "TMLE(outcome_learner=<outcome learner>, treatment_learner=<treatment learner>, cross_fit=True, n_folds=5, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', q_bounds=<(0.0, 1.0) on the beta outcome, None on the binary one>, estimands=('ate', 'ey'), simultaneous=False, random_state=<fold seed>).fit(frame, outcome='Y', treatment='A', covariates=['W1', 'W2', 'S'], strata=['S'], weights=<'w' in a weighted setting>); n = 1000, rows only, complete data, repeats=1",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), QuasiBinomialGLM(tol=1e-10)) on (A, W1, W2, S) for the beta outcome; the same products with LogisticRegression(C=1e6, max_iter=5000, tol=1e-10) for the binary one",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2, S)",
+    "targeting_control_learner": "RM30's drop_w1_learner() with the quasibinomial solver: columns 0 and 2 of (A, W1, W2, S), so A and W2 only, and their product",
+    "sparse_event_diagnostic": "binary rows-only law with the blip 0.1 + 3.0 W1, n = 1000: the declared fit and the stacked stratified fit (cv_evaluation=False, the same learners and fold seed, so the same folds) on each sample; role diagnostic, no verdict",
+    "law": "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5), logit g0 = 0.3 W1 - 0.2 W2, Y | A, W ~ Beta(12 m, 12 (1 - m)) with blip b = 0.1 + 1.5 W1 (unweighted, weighted) or Bernoulli(m) with b = 0.1 - 0.3 W1 (binary_unweighted, binary_weighted), m = Qbar0(A, W), logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + a b; S = 0, 1, 2 on W1 in [-1, -0.6), [-0.6, 0.1), [0.1, 1] (shares 0.2, 0.35, 0.45); weighted settings w = 1 + 1.5 W2; the sparse_event_diagnostic draws the binary rows-only law with the blip 0.1 + 3.0 W1",
+    "truth": "fixed: each stratum mean E_w[f(W) | S = s] by the trapezoid rule on 4001 points of W1 per stratum for each W2, weighted by w(W2); the marginal truth is the share mixture",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/fold_evaluated_strata.py": "76e3488218d55c875613d37f5019a420113d1a776ffc74eb250e94ee86cfc922",
+    "tests/studies/fold_evaluated_strata_properties.py": "e47b0bba32d7e4a289fb9f43453a0778ce855c883eb50c7c4eead411a6cf7047",
+    "tests/studies/_fold_evaluated_strata_law.py": "44dafa5f8ccee4c2e19ae397fc62b9713afec03e56590a92a886561860974234",
+    "tests/studies/_learned_rule_law.py": "190f9827d9787081034a2ae067a9998891ea8cfdfb108d3337a25ed36b4af5cb",
+    "src/cleverly/estimators/_strata.py": "ac49064736a67e62bb167002945bc8635f5ad6b9a5813ad2b242231d9234609b",
+    "src/cleverly/estimators/tmle.py": "dfb50f78a83c8b95e39dbbf59e057faae96df3594e99fe1d5239c494ed6906e7",
+    "src/cleverly/learners/crossfit.py": "6bed58dff3c1ae52760de15c447154dc42560ec828efda14d20577351ff185fa",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "f0d27c519b183c4ce4975b87fc0a609aeed7c7e92ff3bf078a3560415ede3f0e",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "ccbad1ace3fa1baf77666471759a96d7fbf7ce161852026a8fc1aeff7e4f17cc",
+    "summary.csv": "7162d1946c161e091c0bfdb5a0cdca623c857cd9fd0a6579e602e138d4a4511e",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "770d127189f5418ace93e279c40b269aceb46db3ea18fa649d9504c46e8dafd4",
+    "property-replicates.parquet": "dfc8e695f975bc2a1ddaa2efbc3c1e388aa44c08562fe0cb1363d20e4bfafe1f",
+    "properties.csv": "98f3efdbf88c86e15b49765fb135843d7fae8e9beaaca1a38e542b93f7616ba0"
+  }
+}

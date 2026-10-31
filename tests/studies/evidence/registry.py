@@ -662,6 +662,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
+    from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
@@ -698,6 +699,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CLUSTERED_CROSSFIT_LTMLE,
         FEW_CLUSTER_CROSSFIT_LTMLE,
         FOLD_EVALUATED_CVTMLE,
+        FOLD_EVALUATED_STRATA,
         FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,
         LONGITUDINAL_REPEATED_CROSSFIT,
