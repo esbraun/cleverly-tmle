@@ -2284,6 +2284,28 @@ def _learned_rule_composition_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _learned_rule_split_mean_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-split-mean`` (X11 PR B).
+
+    Each runs the study's own five-split fit on a draw of its scenario at the declared size, up to
+    the classifier, with the study's outcome learner.
+    """
+    module, slug = "learned_rule_split_mean", "learned-rule-split-mean"
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            "T38.split_mean",
+            slug,
+            scenario,
+            "_learned_rule_split_mean_law.py:85",
+            module,
+            lambda study: study.draw_from_seed(scenario, 2_000, 0)[0],
+            lambda study, frame: study.law.fit(frame, study.base.outcome_learner(), 0),
+        )
+
+    return (case("non_exceptional"), case("misspecified_limit"))
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2601,6 +2623,7 @@ CASES: tuple[RowCase, ...] = (
     *_vector_cases(),
     *_categorical_incremental_cases(),
     *_learned_rule_composition_cases(),
+    *_learned_rule_split_mean_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

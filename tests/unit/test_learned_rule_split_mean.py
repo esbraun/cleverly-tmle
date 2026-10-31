@@ -144,14 +144,21 @@ class TestTheMeanOverSplits:
         assert abs(weighted - _repeated_case("rows").estimates[support.NAME].psi) > 1e-3
         assert _repeated_case("known weights").data.is_weighted
 
-    @pytest.mark.parametrize("case", CASES)
-    def test_a_fit_of_several_splits_is_experimental(self, case: str) -> None:
-        """No registered study covers a fit of several splits, so none is supported."""
+    @pytest.mark.parametrize("case", ["rows", "unequal folds"])
+    def test_an_unweighted_pooled_fit_of_several_splits_reads_supported(self, case: str) -> None:
+        """``learned-rule-split-mean`` measures unweighted rows with pooled targeting."""
+        reported = _repeated_case(case).estimates[support.NAME].support
+        assert reported.label == "supported" and reported.row == "T38.split_mean"
+
+    @pytest.mark.parametrize("case", ["known weights", "fold targeting"])
+    def test_weights_and_fold_targeting_at_several_splits_stay_experimental(
+        self, case: str
+    ) -> None:
+        """No cell measures either composition with ``repeats`` above 1, so none is supported."""
         reported = _repeated_case(case).estimates[support.NAME].support
         assert reported.label == "experimental" and reported.row is None
-        if case != "known weights":
-            assert "Nearest row: T24" in reported.reason
-            assert "differing on splitting" in reported.reason
+        assert "Nearest row: T" in reported.reason
+        assert "differing on splitting" in reported.reason
 
     def test_the_variance_is_at_most_the_mean_split_variance(self) -> None:
         """Jensen's inequality gives the first bound on every draw.

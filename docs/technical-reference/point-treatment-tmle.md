@@ -1320,8 +1320,15 @@ of freedom, and no correction is derived, so `repeats` above 1 with `id=` refuse
 Known weights and `targeting_scheme="fold"` compose with `repeats`, because the argument needs
 only that each split is asymptotically linear with its stored curve, and both paths store that
 curve. `covariance()`, `contrast()` and `ratio()` read the mean curve $\bar\phi$ as they read the
-curve of one split, since the mean is linear. A fit of several splits carries the experimental
-label until a registered study covers it, and so does each weighted or fold-targeted one.
+curve of one split, since the mean is linear.
+
+The [split-mean study](method-evidence/learned-rule-split-mean.md) measures five splits of ten
+folds at n = 2,000, and an unweighted fit with pooled targeting and no `id=` reads supported.
+Coverage is 0.9500 at `non_exceptional` and 0.9440 at `misspecified_limit`, and the SE ratio is
+1.0050 and 0.9753. Its band cannot separate the declared variance from the mean of the split
+variances, so the exact formula rests on the unit tests below. A weighted or fold-targeted fit at
+`repeats` above 1 reads experimental, because no cell measures it. The study draws five splits,
+and the argument covers any fixed $R$.
 
 `tests/unit/test_learned_rule_split_mean.py` checks the point and the variance against single-split
 fits at the same split seeds, unweighted, with known weights, with fold targeting, and at unequal

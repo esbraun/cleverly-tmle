@@ -958,11 +958,15 @@ The learned-rule value now also runs with fold-specific targeting, known observa
 clusters ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
 The [compositions study](technical-reference/method-evidence/learned-rule-compositions.md)
 measures each setting, so these fits read supported. A fit with unequal cluster sizes, or with
-both weights and clusters, reads experimental. With `repeats` above 1 on rows the fit reports
-the mean over the splits, labelled experimental until its study registers
-([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)). The median
-of split estimates estimates no defined parameter, so no setting reaches it. Parts (k2) and (i2)
-are what remains of the weights part and the splits part.
+both weights and clusters, reads experimental.
+
+With `repeats` above 1 on rows the fit reports
+the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#the-mean-over-splits)).
+The [split-mean study](technical-reference/method-evidence/learned-rule-split-mean.md) measures
+it, so an unweighted fit with pooled targeting reads supported. A weighted or fold-targeted fit
+at `repeats` above 1 reads experimental. The median of split estimates estimates no defined
+parameter, so no setting reaches it. Parts (k2) and (i2) are what remains of the weights part and
+the splits part.
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
