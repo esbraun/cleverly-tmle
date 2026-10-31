@@ -35,6 +35,7 @@ from tests.studies.evidence.inference import (
 from tests.studies.evidence.pairing import paired_wide
 from tests.studies.evidence.properties import Rate, rate, require_accounted, summarize_cells
 from tests.studies.evidence.property_verdicts import (
+    COVERAGE_CONTROLS,
     DIAGNOSTIC_ROLE,
     ROOT_N_SLOPE_MARGIN,
     SE_CONTROL_SIDES,
@@ -225,6 +226,39 @@ def test_a_wrong_gamma_control_must_cover_below_the_band() -> None:
     for index, expected in ((0, True), (2, False)):
         row = summary.loc[index]
         assert clause.read(context, row).passed is expected  # type: ignore[arg-type]
+
+
+def test_a_validation_rule_control_must_cover_below_the_band() -> None:
+    """The X11 PR C control: a learned rule fitted on the rows that evaluate it.
+
+    It reads coverage against the band floor exactly as the wrong-gamma control does, through
+    its own accounting clause, and a coverage interval that reaches the floor fails it.
+    """
+    assert COVERAGE_CONTROLS == {
+        "wrong_gamma_control": "wrong-gamma coverage below band",
+        "validation_rule_control": "validation-rule coverage below band",
+    }
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 2,
+            "cell": ["blip__validation_rule_control", "weighted__validation_rule_control"],
+            "se_ratio_ci_lower": [0.98, 0.98],
+            "se_ratio_ci_upper": [1.02, 1.02],
+            "coverage_ci_lower": [0.30, 0.90],
+            "coverage_ci_upper": [0.40, 0.93],
+            "passed": [False, True],
+        }
+    )
+    calibration_verdicts(summary, margins=Margins(), efficiency_band=None)
+    assert list(summary["passed"]) == [True, False]
+    rule = calibration_rule(efficiency_band=None)
+    control = pd.Series({"role": "control", "cell": "blip__validation_rule_control"})
+    clauses = [clause for clause in rule.clauses if clause.applies(None, control)]  # type: ignore[arg-type]
+    assert [clause.name for clause in clauses] == ["validation-rule coverage below band"]
+    (clause,) = clauses
+    context = SimpleNamespace(margins=Margins())
+    for index, expected in ((0, True), (1, False)):
+        assert clause.read(context, summary.loc[index]).passed is expected  # type: ignore[arg-type]
 
 
 def test_an_alternative_target_control_must_recover_the_target_it_claims() -> None:

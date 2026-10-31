@@ -21,6 +21,7 @@ from tests.studies import learned_rule_compositions as compositions
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
+from tests.studies import learned_rule_learners as learners
 from tests.studies import learned_rule_split_mean as split_mean
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -76,8 +77,12 @@ class TestTheSeedRules:
         # sizes and cluster sizes, so the two samples share a prefix of their uniform draws; one
         # replicate of 8,400 in each cell makes the dependence negligible. X11's
         # learned-rule-split-mean adds 4,000 primary and 12,800 property seeds, none shared.
-        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800
-        for study in (gated, boundary, compositions, split_mean):
+        # X11's learned-rule-learners adds 4,000 primary and 14,400 property seeds, of which one
+        # (weighted_classification__declared replicate 732, n = 4,000) equals the sample seed of
+        # learned-rule-compositions' clustered replicate 2,444 (n = 2,000). The two draws share
+        # their first 2,000 values of W1 and nothing else (``test_learned_rule_learners_design``).
+        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 18_399
+        for study in (gated, boundary, compositions, split_mean, learners):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
             assert not seeds & declared

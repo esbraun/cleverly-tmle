@@ -1185,8 +1185,10 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
-                elif suffix == "wrong_gamma_control":
+                elif suffix in ("wrong_gamma_control", "validation_rule_control"):
                     # X82 SH: a smaller Gamma's end read against the declared truth must miss.
+                    # X11 PR C (``learned-rule-learners``): a rule learned on the validation
+                    # rows that evaluate it is optimistic and must miss its own value.
                     expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (

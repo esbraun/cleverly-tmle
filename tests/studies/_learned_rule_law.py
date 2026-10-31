@@ -205,7 +205,8 @@ def validation_rule(
     The plug-in rule is the blip sign of the outcome learner fitted on ``test``.  A rule
     learner is fitted on ``test`` to the pseudo-outcome of the fit's outer cross-fitted
     nuisances, truncated at the fit's ``g_bounds``.  Both read ``test``'s outcomes, which is
-    the mutation.
+    the mutation.  A weighted classifier whose weighted rows on ``test`` carry one sign gives
+    the constant rule of that sign, the package's convention, rather than a scikit-learn error.
     """
     rule = estimator.learned_rule
     assert rule is not None
@@ -227,7 +228,16 @@ def validation_rule(
     if rule.loss == "blip":
         model = fit_learner(rule.learner, covariates, as_target(target, "regression"))
         return lambda rows: FoldRule("blip", model, False, 0, target).treat(rows)
-    labels = as_target((target > 0.0).astype(float), "classification")
+    signs = (target > 0.0).astype(float)
+    held = np.unique(signs[np.abs(target) > 0.0])
+    if held.size < 2:
+        # The package's one-class convention (``fit_fold_rule``): every row with weight carries
+        # one label, so the rule is that label everywhere, and no classifier is fitted.
+        constant = bool(held.size == 1 and held[0] > 0.5)
+        return lambda rows: FoldRule("weighted_classification", None, constant, 0, target).treat(
+            rows
+        )
+    labels = as_target(signs, "classification")
     model = fit_learner(rule.learner, covariates, labels, np.abs(target))
     return lambda rows: FoldRule("weighted_classification", model, False, 0, target).treat(rows)
 
