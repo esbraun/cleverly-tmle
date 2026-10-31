@@ -195,7 +195,7 @@ class Reference:
             raise ValueError("an alternate reference runner requires mount_runner=True")
         # A failure file left by an earlier run in the same scratch would read as this run's.
         failures_path(output).unlink(missing_ok=True)
-        subprocess.run(["docker", "build", "-t", self.image, str(context)], check=True)
+        build_image(self.image, context)
         active = _ACTIVE.get()
         if active is not None and self.interpreter == "Rscript":
             _run_resumable(
@@ -412,7 +412,7 @@ def _repository_name(path: Path) -> str:
 def leaf_key(
     reference: Reference, key: Mapping[str, Any], here: Path, samples: Path, truths: Path
 ) -> dict[str, Any]:
-    """Every resume-key field of one reference run, except the image ID.
+    """Every resume-key field of one reference run, except the image content.
 
     The seeds file is not listed: it is a function of the declaration and the runner name,
     which the key holds.  The group-id list is not listed: it is a function of the runner and
@@ -535,10 +535,39 @@ def _docker_text(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", *arguments], capture_output=True, text=True)
 
 
-def image_id(image: str) -> str | None:
-    """The local image's ID, or ``None`` when Docker has no such image."""
-    completed = _docker_text("image", "inspect", "--format", "{{.Id}}", image)
-    return completed.stdout.strip() if completed.returncode == 0 else None
+def build_image(image: str, context: Path) -> None:
+    """Build ``image`` from ``context`` without the default build attestations.
+
+    BuildKit's default provenance attestation records the build itself, so it gives a rebuild
+    from cached layers a new image ID and leaves the earlier image dangling.  The resume key
+    does not depend on it (:func:`image_content`); turning it off keeps the tag on one image.
+    """
+    env = {**os.environ}
+    env.setdefault("BUILDX_NO_DEFAULT_ATTESTATIONS", "1")
+    subprocess.run(["docker", "build", "-t", image, str(context)], check=True, env=env)
+
+
+def image_content(image: str) -> str | None:
+    """A digest of what a container of ``image`` runs, or ``None`` when Docker has no such image.
+
+    It hashes the platform, the layer chain (``RootFS``: the uncompressed digest of each
+    filesystem layer, in order) and the run configuration (``Config``: environment,
+    entrypoint, command, user, working directory).  Two images with equal digests run the same
+    files under the same settings.  The image ID is not used: under the containerd image store
+    it is the digest of a manifest list that also holds build attestations, so it changes on
+    every rebuild of identical content.  The build date and history are left out for the same
+    reason; neither reaches a container.
+    """
+    completed = _docker_text("image", "inspect", "--format", "{{json .}}", image)
+    if completed.returncode != 0:
+        return None
+    held = json.loads(completed.stdout)
+    content = {
+        "platform": [held.get("Os"), held.get("Architecture"), held.get("Variant")],
+        "rootfs": held.get("RootFS"),
+        "config": held.get("Config"),
+    }
+    return "content:" + digest(content)
 
 
 def clear_stopped_container(name: str) -> None:
@@ -638,7 +667,7 @@ def _run_resumable(
     leaf = f"{stem}__{output.stem}"
     fields = leaf_key(reference, context.key, here, samples, truths)
     key12 = digest(fields)[:12]
-    image = image_id(reference.image)
+    image = image_content(reference.image)
     meta = work / f"{leaf}.meta.json"
     meta.write_text(
         json.dumps({**canonical(fields), "image": image, "leaf": leaf}, sort_keys=True, indent=1)
@@ -1030,7 +1059,7 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
 def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
     """What a cached reference result must have been written under, or ``None``.
 
-    The key is the reference run's resume key and its image ID: equal sources, inputs,
+    The key is the reference run's resume key and its image content: equal sources, inputs,
     declaration, code and versions.  Outside :func:`main` there is no key.
     """
     active = _ACTIVE.get()
@@ -1039,7 +1068,7 @@ def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | Non
     if active is None or samples is None or truths is None or not samples.exists():
         return None
     fields = leaf_key(reference, active.key, here, samples, truths)
-    return f"{digest(fields)[:12]}\n{image_id(reference.image)}\n"
+    return f"{digest(fields)[:12]}\n{image_content(reference.image)}\n"
 
 
 def _reference_rows(

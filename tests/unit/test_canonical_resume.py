@@ -153,7 +153,7 @@ def test_a_cached_reference_result_is_reused_only_under_its_key(
 ) -> None:
     reference, here, samples, truths = _reference_tree(tmp_path)
     reference = dataclasses.replace(reference, interpreter="python")
-    monkeypatch.setattr(regenerate, "image_id", lambda image: "sha256:image")
+    monkeypatch.setattr(regenerate, "image_content", lambda image: "sha256:image")
     cached = samples.parent / "reference-results.csv"
     pd.DataFrame({"replicate": [0], "n": [50]}).to_csv(cached, index=False)
     phase = regenerate._Phase(
@@ -208,6 +208,85 @@ def test_a_lock_held_on_another_host_refuses(tmp_path: Path) -> None:
     (tmp_path / "_lock").write_text("pid=1\nhost=elsewhere\nstart=then\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="elsewhere"), regenerate.host_lock(tmp_path):
         pass
+
+
+# ---- the image content in the key -----------------------------------------------------------
+
+INSPECTED: dict[str, Any] = {
+    "Id": "sha256:4d779eca",
+    "Created": "2026-10-31T20:00:00Z",
+    "Descriptor": {"mediaType": "application/vnd.oci.image.index.v1+json", "digest": "sha256:4d"},
+    "Identity": {"Build": [{"Ref": "first", "CreatedAt": "2026-10-31T20:01:00Z"}]},
+    "Os": "linux",
+    "Architecture": "amd64",
+    "RootFS": {"Type": "layers", "Layers": ["sha256:base", "sha256:packages"]},
+    "Config": {"Env": ["PATH=/usr/bin", "R_LIBS=/opt/r"], "Entrypoint": ["Rscript"]},
+}
+
+
+def _inspect(monkeypatch: pytest.MonkeyPatch, held: dict[str, Any] | None) -> None:
+    def docker_text(*arguments: str) -> subprocess.CompletedProcess[str]:
+        assert arguments[:2] == ("image", "inspect")
+        if held is None:
+            return subprocess.CompletedProcess(arguments, 1, "", "No such image")
+        return subprocess.CompletedProcess(arguments, 0, json.dumps(held) + "\n", "")
+
+    monkeypatch.setattr(regenerate, "_docker_text", docker_text)
+
+
+def _content(monkeypatch: pytest.MonkeyPatch, held: dict[str, Any] | None) -> str | None:
+    _inspect(monkeypatch, held)
+    return regenerate.image_content("image")
+
+
+def test_a_rebuild_of_identical_content_keeps_the_image_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Observed on Docker Desktop: a cached rebuild with the default provenance attestation
+    # changes the ID, the index descriptor and the build identity, and nothing a container runs.
+    rebuilt = {
+        **INSPECTED,
+        "Id": "sha256:e49a3538",
+        "Descriptor": {**INSPECTED["Descriptor"], "digest": "sha256:e4"},
+        "Identity": {"Build": [{"Ref": "second", "CreatedAt": "2026-10-31T21:00:00Z"}]},
+        "Created": "2026-10-31T21:00:00Z",
+    }
+    first = _content(monkeypatch, INSPECTED)
+    assert first is not None and first == _content(monkeypatch, rebuilt)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"RootFS": {"Type": "layers", "Layers": ["sha256:base", "sha256:other-packages"]}},
+        {"RootFS": {"Type": "layers", "Layers": ["sha256:packages", "sha256:base"]}},
+        {"Config": {"Env": ["PATH=/usr/bin", "R_LIBS=/srv/r"], "Entrypoint": ["Rscript"]}},
+        {"Config": {"Env": ["PATH=/usr/bin", "R_LIBS=/opt/r"], "Entrypoint": ["R"]}},
+        {"Architecture": "arm64"},
+    ],
+    ids=["layer", "layer-order", "env", "entrypoint", "platform"],
+)
+def test_other_image_content_changes_the_image_content(
+    monkeypatch: pytest.MonkeyPatch, changed: dict[str, Any]
+) -> None:
+    assert _content(monkeypatch, INSPECTED) != _content(monkeypatch, {**INSPECTED, **changed})
+
+
+def test_a_missing_image_has_no_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _content(monkeypatch, None) is None
+
+
+def test_a_build_turns_the_default_attestations_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+    monkeypatch.delenv("BUILDX_NO_DEFAULT_ATTESTATIONS", raising=False)
+    monkeypatch.setattr(
+        regenerate.subprocess, "run", lambda command, **options: calls.append((command, options))
+    )
+    regenerate.build_image("image", Path("context"))
+    ((command, options),) = calls
+    assert command == ["docker", "build", "-t", "image", "context"]
+    assert options["env"]["BUILDX_NO_DEFAULT_ATTESTATIONS"] == "1"
+    assert options["check"] is True
 
 
 # ---- the resumable run, with a fake Docker --------------------------------------------------
@@ -277,7 +356,7 @@ def resumable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[regenerate.Reference, Path, Path, Path, regenerate.RunContext]]:
     reference, here, samples, truths = _reference_tree(tmp_path)
-    monkeypatch.setattr(regenerate, "image_id", lambda image: "sha256:image")
+    monkeypatch.setattr(regenerate, "image_content", lambda image: "sha256:image")
     monkeypatch.setattr(
         regenerate, "_docker_text", lambda *a: subprocess.CompletedProcess(a, 1, "", "")
     )
