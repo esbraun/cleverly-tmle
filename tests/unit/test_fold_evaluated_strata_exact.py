@@ -18,7 +18,8 @@ exact-law test, and no library code enters it.
 The stratum ``S = 1{W = 2}`` puts two covariate values in stratum 0, so the plug-in term of
 its curve does not vanish. The outcome oracle is wrong, so every block of the fluctuation
 moves and the residual term does not vanish either. The random folds give unequal stratum
-shares, so the fold-local share and the global share differ in every fold.
+shares, so the fold-local share and the global share differ in every fold, and unequal fold
+sizes, so the ``n / (V n_v)`` factor of the stored curves differs from 1.
 
 The module checks:
 
@@ -28,7 +29,9 @@ The module checks:
   ATE and three regimes, unweighted and under a covariate weight;
 * each reported stratum score is solved exactly, while each fold's own stratum score is not;
 * the marginal estimate is the share mixture of the stratum estimates, with the
-  delta-method curve.
+  delta-method curve, whose share term is the Gateaux derivative of
+  :math:`P \mapsto \sum_s P_w(S = s)\,c_s` at the sample's law with the reported stratum
+  estimates held fixed as :math:`c_s`.
 
 Controls that must fail: the global share :math:`P_n(S = s)` in place of the fold's (it leaves
 a nonzero curve mean, the unit witness of the plan), the unstratified fold weights in the
@@ -49,7 +52,9 @@ from tests import regimes as reg
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.unit._declaration_support import tmle_module
 
-N_FOLDS = 4
+#: Three folds of the 1,000 rows hold 334, 333 and 333 rows, so the ``n / (V n_v)`` factor of
+#: the stored stratum curves is not 1.
+N_FOLDS = 3
 SEED = 3
 #: The stratum of each covariate value: ``S = 1{W = 2}``.
 STRATUM_OF_W = np.array([0, 0, 1])
@@ -267,6 +272,11 @@ class TestThePremises:
                 shares = [_share(rows, index, code) for index in _folds(fit)]
                 assert max(shares) - min(shares) > 1e-2, shares
 
+    def test_the_folds_have_unequal_sizes(self, fits: dict[str, Any]) -> None:
+        for fit in fits.values():
+            sizes = {index.size for index in _folds(fit)}
+            assert len(sizes) > 1, sizes
+
     def test_every_stratum_and_contrast_is_reported(self, fits: dict[str, Any]) -> None:
         for fit in fits.values():
             for stem in _stems(fit):
@@ -433,6 +443,41 @@ class TestTheMarginalEstimate:
             assert float(np.mean(fit.cv_targeting.fold_estimates[stem])) == pytest.approx(
                 psi, abs=1e-12
             )
+
+    @pytest.mark.parametrize("which", ["arms", "weighted", "regimes"])
+    def test_its_share_term_is_the_gateaux_derivative_of_the_shares(
+        self, fits: dict[str, Any], which: str
+    ) -> None:
+        r"""An independent check of the share term, under the covariate tilt when weighted.
+
+        With each reported stratum estimate held fixed as :math:`c_s`, the shares'
+        contribution to the marginal is :math:`\Psi(P) = \sum_s P_w(S = s)\,c_s`. Its
+        contamination derivative at the sample's own law, taken by complex step from that
+        longhand statement, must equal the marginal curve less its stratum parts.
+        """
+        fit = fits[which]
+        weights = COVARIATE_WEIGHT if fit.data.is_weighted else None
+        rows = _rows(fit)
+        cells = rows["cell"]
+        everything = np.arange(fit.data.n)
+        shares = np.array([_share(rows, everything, code) for code in STRATA])
+        for stem in _stems(fit):
+            parts = [fit.estimates[_stratum(stem, code)] for code in STRATA]
+            fixed = np.array([part.psi for part in parts])
+
+            def mixture(probs: Any, fixed: np.ndarray = fixed) -> Any:
+                p = probs if weights is None else law.tilt(probs, weights)
+                p_w = p.sum(axis=(1, 2))
+                return sum(p_w[code == STRATUM_OF_W].sum() * fixed[code] for code in STRATA)
+
+            derivative = law.contamination_eif(mixture, law.PROBS, law.SUPPORT)
+            share_term = np.asarray(fit.estimates[stem].influence_curve) - sum(
+                share * np.asarray(part.influence_curve)
+                for share, part in zip(shares, parts, strict=True)
+            )
+            np.testing.assert_allclose(share_term, derivative[cells], rtol=0, atol=1e-10)
+            # Nonzero witness: the stratum estimates differ, so the share term moves.
+            assert float(np.max(np.abs(derivative))) > FLOOR, derivative
 
     def test_it_differs_from_the_fold_average_of_marginal_plug_ins(
         self, fits: dict[str, Any]

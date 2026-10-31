@@ -989,9 +989,14 @@ benchmark and the bound of the mean over splits.
 stratum estimate is the fold average of the stratum plug-ins of the validation folds, each fold
 curve divides by the fold's own stratum share, and the update weights solve each reported stratum
 score ([CV-TMLE](technical-reference/cv-tmle.md#the-algorithm-as-implemented)). The marginal
-estimate is the share mixture of the stratum estimates. No pinned comparator reports a
-fold-averaged stratified estimate. The `tmle3` CV-TMLE evaluates a pooled mean over the
-validation predictions, and the shipped `cross_fit=True` pooled fit is that estimator.
+estimate is the share mixture of the stratum estimates. With `repeats > 1` it is the median of
+the draws' mixtures, which need not equal the mixture of the reported stratum medians. The
+omitted-variable bound of a marginal target carries the feature `fold_evaluated_strata`, so its
+limits print as descriptive.
+
+No pinned comparator reports a fold-averaged stratified estimate. The `tmle3` CV-TMLE evaluates a
+pooled mean over the validation predictions, and the shipped `cross_fit=True` pooled fit is that
+estimator.
 
 | item | contract |
 | --- | --- |
@@ -1010,9 +1015,11 @@ remaining acceptance item lands:
   $1/P_{n,v}(S=s)$ normalisation as the invalid-inference control.
 
 Every other target group refuses with this item's id: the ATT and the ATC, the
-population-intervention targets, ratios, incremental, policy and MSM targets, and a fit with a
-missing outcome, an intermediate variable or `id=`. Each needs its own construction or, for
-clusters, a checked stratum variance and $t$ reference.
+population-intervention targets, incremental and policy targets, and a fit with a missing
+outcome, an intermediate variable or `id=`. Each needs its own construction or, for clusters, a
+checked stratum variance and $t$ reference. Ratios and MSM coefficients keep their
+[X61](#x61-fold-targeting-and-fold-evaluation) refusal under `cv_evaluation=True`, which they meet
+first, with or without strata.
 
 ### X32b. Repeated outcomes for SDR and IPSI
 

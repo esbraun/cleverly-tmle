@@ -1824,6 +1824,25 @@ class TMLE:
                 roadmap="X61",
             )
         if self.cv_evaluation:
+            # The nonlinear aggregates have no fold-evaluated construction with or without
+            # strata (X61), so they meet that refusal before the stratified one (X28).
+            unsupported = [
+                name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
+            ]
+            if unsupported:
+                raise CapabilityError(
+                    "cv_evaluation=True does not yet support "
+                    f"{unsupported}: averaging a nonlinear parameter over folds changes "
+                    "its gradient fold by fold, so the ordinary mean/MSM fluctuation no "
+                    "longer solves that cross-validated score.",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative=(
+                        "The stacked-validation report (cv_evaluation=False) remains "
+                        "supported. Request linear levels/contrasts or ATT/ATC for "
+                        "fold-wise evaluation."
+                    ),
+                    roadmap="X61",
+                )
             refusal = fold_evaluated_strata_refusal(data, estimands)
             if refusal is not None:
                 raise refusal
@@ -1871,24 +1890,6 @@ class TMLE:
                 ),
                 roadmap="X60",
             )
-        if self.cv_evaluation:
-            unsupported = [
-                name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
-            ]
-            if unsupported:
-                raise CapabilityError(
-                    "cv_evaluation=True does not yet support "
-                    f"{unsupported}: averaging a nonlinear parameter over folds changes "
-                    "its gradient fold by fold, so the ordinary mean/MSM fluctuation no "
-                    "longer solves that cross-validated score.",
-                    reason=RefusalReason.IMPLEMENTATION_GAP,
-                    alternative=(
-                        "The stacked-validation report (cv_evaluation=False) remains "
-                        "supported. Request linear levels/contrasts or ATT/ATC for "
-                        "fold-wise evaluation."
-                    ),
-                    roadmap="X61",
-                )
 
         # These checks also run in `_scaler` and `_config` before any nuisance learner.
         # Read the same methods here so copied settings reach the replay slot.
@@ -5858,14 +5859,20 @@ class TMLE:
         (:func:`~cleverly.estimators._strata.stratum_mixture`), not the fold average of the
         marginal plug-ins, whose score the stratum weights leave unsolved.
 
-        A stratum estimate that some fold cannot evaluate is dropped with the warning of
-        :func:`_average_over_folds`, and so is every marginal mixture that reads it.
+        Every whitelisted target is defined in every fold and stratum that
+        :func:`~cleverly.estimators._strata.refuse_empty_stratum_folds` admits, so each
+        marginal finds every stratum estimate it mixes.
 
         Returns
         -------
         tuple of dict
             The marginal estimates and then the stratum estimates, as the stacked report
             orders them, and the fold values of each.
+
+        Raises
+        ------
+        RuntimeError
+            If a marginal misses one of its stratum estimates, which no admitted fit reaches.
         """
         assert data.strata is not None
         strata = np.asarray(data.strata)
@@ -5920,8 +5927,13 @@ class TMLE:
             labels = [
                 stratum_alias(marginal, data.stratum_label(code)) for code in range(data.n_strata)
             ]
-            if not all(name in stratum_report for name in labels):
-                continue
+            missing = [name for name in labels if name not in stratum_report]
+            if missing:
+                # Unreachable: no target of FOLD_EVALUATED_STRATA_TARGETS is undefined in an
+                # admitted fold, so a missing stratum estimate is a bug, not a dropped target.
+                raise RuntimeError(
+                    f"the fold-evaluated mixture {marginal!r} has no stratum estimate {missing}"
+                )
             estimate, folds = stratum_mixture(
                 data,
                 marginal,

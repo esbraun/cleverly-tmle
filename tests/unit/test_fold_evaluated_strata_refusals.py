@@ -7,14 +7,20 @@ its exact-law witnesses are in ``test_fold_evaluated_strata_exact.py``. This mod
 * every other target, a missing outcome or treatment, an intermediate variable and clusters
   refuse before any learner, citing X28, and a direct ``retarget`` that names another target
   refuses before any targeting step;
-* fold targeting with strata keeps its X61 (b) refusal, and a learned rule with strata keeps its
-  X11 (m) refusal;
+* fold targeting with strata keeps its X61 (b) refusal, ratios and MSM coefficients keep the
+  X61 refusal of ``cv_evaluation=True``, and a learned rule with strata keeps its X11 (m)
+  refusal;
+* the X28 refusal function names a missing treatment, which the fit's X53 refusal reaches first;
 * a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a
   stratum, refuses before any learner with a data error;
 * removing the target check lets a refused request reach a learner, so the check is what
   refuses;
 * the fit carries the experimental label until a registered study covers it, and the
-  stratified stacked report is unchanged by the fold-evaluated weights.
+  stratified stacked report is unchanged by the fold-evaluated weights;
+* the marginal is each draw's share mixture, and under ``repeats=3`` the median of those
+  mixtures departs from the mixture of the stratum medians;
+* the omitted-variable bound, the robustness value, the truncation curve and the default
+  simultaneous band run on such a fit, and the bound's limits read descriptive.
 """
 
 from __future__ import annotations
@@ -27,8 +33,10 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.data import CausalData
 from cleverly.datasets import make_cde, make_linear_ate
 from cleverly.estimators import TMLE
+from cleverly.estimators._strata import fold_evaluated_strata_refusal
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, LearnedRule, Shift, Static
 from cleverly.msm import MSM
@@ -94,6 +102,11 @@ def missing_treatment_frame() -> pd.DataFrame:
     )
 
 
+def binary_frame() -> pd.DataFrame:
+    frame = strata_frame()
+    return frame.assign(Y=(frame["Y"] > frame["Y"].median()).astype(float))
+
+
 def cde_frame() -> pd.DataFrame:
     frame, _ = make_cde(n=400, seed=3)
     return frame.assign(S=(frame["W1"] > 0).astype(int))
@@ -131,9 +144,16 @@ REFUSED: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]] =
         ("ey_policy", X28),
         CapabilityError,
     ),
+    # A nonlinear aggregate has no fold-evaluated construction with or without strata, so
+    # it meets the X61 refusal of cv_evaluation=True first.
     "an MSM": (
         lambda: fit(TMLE(**settings(msm=MSM.linear()))),
-        ("['msm']", X28),
+        ("cv_evaluation=True does not yet support", "msm", "X61"),
+        CapabilityError,
+    ),
+    "a risk ratio": (
+        lambda: fit(TMLE(**settings(estimands=("ate", "rr"))), frame=binary_frame()),
+        ("cv_evaluation=True does not yet support ['rr']", "X61"),
         CapabilityError,
     ),
     "a missing outcome": (
@@ -204,6 +224,34 @@ class TestEachRefusal:
         with pytest.raises(AssertionError, match=REACHED):
             build()
         assert NeverFit.calls > 0
+
+    @pytest.mark.parametrize("name", ["an MSM", "a risk ratio"])
+    def test_a_nonlinear_aggregate_does_not_cite_x28(self, name: str) -> None:
+        build, _, _ = REFUSED[name]
+        with pytest.raises(CapabilityError) as caught:
+            build()
+        assert "X28" not in str(caught.value)
+        assert "with baseline strata" not in str(caught.value)
+
+    def test_a_missing_treatment_is_refused_by_the_x28_check_itself(self) -> None:
+        """The fit's X53 refusal comes first, so the branch is read directly."""
+        data = CausalData.from_frame(
+            missing_treatment_frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=COVARIATES,
+            strata=["S"],
+            treatment_delta="DeltaA",
+        )
+        assert data.has_missing_treatment
+        refusal = fold_evaluated_strata_refusal(data, ("ate",))
+        assert refusal is not None
+        assert "A missing treatment beside them" in str(refusal)
+        assert X28 in str(refusal)
+        complete = CausalData.from_frame(
+            strata_frame(), outcome="Y", treatment="A", covariates=COVARIATES, strata=["S"]
+        )
+        assert fold_evaluated_strata_refusal(complete, ("ate",)) is None
 
     def test_a_retarget_of_another_target_refuses(self) -> None:
         result = fit(TMLE(**fitted(estimands=("ate",)))).single()
@@ -282,9 +330,32 @@ class TestWhatTheFitAdmits:
         result = fit(TMLE(**fitted(estimands=("ate",))), frame=frame, weights="weight").single()
         assert abs(float(np.mean(result.estimates["ate[S=1]"].influence_curve))) < 1e-8
 
-    def test_repeated_splits_fit(self) -> None:
-        result = fit(TMLE(**fitted(estimands=("ate",), repeats=2))).single()
+    @pytest.mark.parametrize("repeats", [1, 3])
+    def test_each_draw_reports_the_share_mixture(self, repeats: int) -> None:
+        # At this seed the three draws order the strata differently, so the medians come from
+        # different draws (seed 0 orders them alike, and the gap is then zero).
+        result = fit(TMLE(**fitted(estimands=("ate",), repeats=repeats, random_state=1))).single()
         assert {"ate", "ate[S=0]", "ate[S=1]", "ate[S=2]"} <= set(result.estimates)
+        codes = np.asarray(result.data.strata)
+        shares = np.bincount(codes, minlength=3) / result.data.n
+        strata = [f"ate[{result.data.stratum_label(code)}]" for code in range(3)]
+
+        def mixture(psi: Any) -> float:
+            return float(shares @ np.array([psi[name] for name in strata]))
+
+        assert len(result.repeats) == repeats
+        for repeat in result.repeats:
+            assert repeat.psi["ate"] == pytest.approx(mixture(repeat.psi), abs=1e-12)
+        reported = {name: estimate.psi for name, estimate in result.estimates.items()}
+        gap = abs(reported["ate"] - mixture(reported))
+        if repeats == 1:
+            assert gap < 1e-12
+        else:
+            # The median does not commute with the mixture (docs/technical-reference/cv-tmle.md).
+            assert gap > 1e-3, gap
+            assert reported["ate"] == pytest.approx(
+                float(np.median([repeat.psi["ate"] for repeat in result.repeats])), abs=1e-12
+            )
 
     def test_the_fit_is_experimental(self) -> None:
         result = fit(TMLE(**fitted(estimands=("ate",)))).single()
@@ -303,3 +374,50 @@ class TestWhatTheFitAdmits:
         monkeypatch.setattr(tmle_module, "fold_evaluated_stratum_weights", never)
         result = fit(TMLE(**fitted(estimands=("ate",), cv_evaluation=False))).single()
         assert "ate[S=0]" in result.estimates
+
+
+class TestTheDownstreamSurfaces:
+    """The reports that read a fold-evaluated stratified fit's estimates and curves."""
+
+    @pytest.fixture(scope="class")
+    def result(self) -> Any:
+        return fit(TMLE(**fitted(estimands=("ate", "ey"), simultaneous=True))).single()
+
+    def test_the_default_simultaneous_band_is_built(self, result: Any) -> None:
+        band = result.simultaneous
+        assert band is not None
+        assert band.support.label == "experimental"
+        assert 1.959 < float(band.critical_value) < 10.0
+        for name, estimate in result.estimates.items():
+            lower, upper = band.bands[name]
+            pointwise = 1.959 * estimate.std_error
+            assert lower < estimate.psi - pointwise and estimate.psi + pointwise < upper
+
+    def test_the_omitted_variable_bound_reads_descriptive(self, result: Any) -> None:
+        bound = result.sensitivity.omitted_confounding("ate", cf_y=0.05, cf_d=0.05)
+        assert bound.features == ("fold_evaluated_strata",)
+        assert bound.psi == result.estimates["ate"].psi
+        assert bound.lower < bound.psi < bound.upper
+        assert np.isfinite([bound.ci_lower, bound.ci_upper]).all()
+        assert bound.ci_lower < bound.lower and bound.upper < bound.ci_upper
+        assert bound.limit_reading is not None and not bound.limit_reading.licensed
+        assert bound.limit_descriptive
+
+    def test_the_plug_in_limits_refuse(self, result: Any) -> None:
+        bound = result.sensitivity.omitted_confounding(
+            "ate", cf_y=0.05, cf_d=0.05, nu2_estimator="plugin"
+        )
+        assert bound.limit_refusal is not None
+        assert "fold-evaluated stratum estimates" in bound.limit_refusal.text
+
+    def test_the_robustness_value_reads_descriptive(self, result: Any) -> None:
+        value = result.sensitivity.robustness_value("ate")
+        assert 0.0 < value["rv"] < 1.0
+        assert 0.0 <= value["rva"] <= value["rv"]
+        assert value["limit_licensed"] is False
+
+    def test_the_truncation_curve_runs(self, result: Any) -> None:
+        frame = result.diagnostics.truncation_curve().to_frame()
+        assert len(frame) > 0
+        numeric = frame.select_dtypes("number").to_numpy(dtype=float)
+        assert np.isfinite(numeric[~np.isnan(numeric)]).all()

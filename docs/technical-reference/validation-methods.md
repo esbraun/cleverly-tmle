@@ -1081,6 +1081,9 @@ saturated logistic nuisances of the study. Each event floor lies between the min
 percentile of the smallest arm event count over the cell's 1,600 primary draws.
 `tests/unit/test_sensitivity_limit_coverage_registry.py` recomputes that range from the declared
 seeds. A fit outside a row prints its limits as descriptive.
+
+A fold-evaluated stratified fit adds the feature `fold_evaluated_strata`
+([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)), and no row covers it.
 A joined rule, such as `response+stratum`, has no row. `SensitivityBounds.limit_reading` holds the
 resolution, and `SensitivityBounds.limit_descriptive` is true for a descriptive limit. `to_dict()`
 adds `features`, `limit_rung`, `limit_licensed`, and `limit_sentence`. `robustness_value()` adds

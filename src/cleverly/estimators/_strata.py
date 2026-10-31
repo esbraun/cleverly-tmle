@@ -468,7 +468,9 @@ def fold_evaluated_strata_refusal(
     builds each stratum curve with the fold's own stratum share. The construction is derived
     and checked for :data:`FOLD_EVALUATED_STRATA_TARGETS` on complete data with rows as the
     unit. A missing outcome or treatment, an intermediate variable, clusters, and every other
-    target return a refusal citing X28. The check reads the declaration and the data only,
+    target return a refusal citing X28. Ratios and MSM coefficients never reach it: the fit
+    refuses them under ``cv_evaluation=True`` first, citing X61, with or without strata. The
+    check reads the declaration and the data only,
     so :meth:`~cleverly.TMLE.fit` raises it before any learner and
     :meth:`~cleverly.TMLE.retarget` raises it before any targeting step.
 
@@ -519,9 +521,8 @@ def fold_evaluated_strata_refusal(
     if other:
         return _x28_gap(
             f"Fold evaluation of {other}",
-            "each needs its own fold-evaluated stratum construction (a fold-local arm share, "
-            "a nonlinear aggregate, a second mechanism equation or a working model), and "
-            "none has been derived and checked",
+            "each needs its own fold-evaluated stratum construction (a fold-local arm share "
+            "or a second mechanism equation), and none has been derived and checked",
             "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on "
             f"the arm axis), or use {_STACKED_REPORT}.",
         )
@@ -614,7 +615,9 @@ def fold_evaluated_stratum_weights(data: CausalData, validation: Sequence[IntArr
     The factor :math:`n P_n(S = s)` is constant inside the stratum, and each stratum block
     of the stratified submodel is zero off its stratum, so it moves no root. It keeps the
     weights summing to :math:`n`, as the fold weights of the unstratified fold-evaluated
-    update do. The block's own :math:`1 / P_n(S = s)` cancels the share, so each block's
+    update do. The one-step walk, a step bound and the declared stopping thresholds read the
+    scale, and this one matches the unstratified fold weights (it equals them at one
+    stratum). The block's own :math:`1 / P_n(S = s)` cancels the share, so each block's
     equation is :math:`\sum_i w_i I(S_i = s) H_i (Y_i - \bar Q^*_i) \, n / (V W_{v,s}) = 0`.
 
     Parameters
