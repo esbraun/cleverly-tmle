@@ -135,7 +135,7 @@ not change the package version.
 | after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
-| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); implemented for the arm and regime means, with exact tests; the calibration cell is pending | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); delivered for the arm means and the ATE, with exact tests and a [gated study](technical-reference/method-evidence/fold-evaluated-strata.md); the regime means are implemented and read experimental | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | after beta | Further DR-TMLE compositions | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (d) | the shipped `DRTMLE` | [X50](#x50-further-dr-tmle-compositions) |
 | after beta | C-TMLE point estimates for further targets | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector and outcome-adaptive paths | [X51](#x51-c-tmle-point-estimates-for-further-targets) |
 | after beta | Parametric C-TMLE intervals | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path; X58 for part (b) | [X52](#x52-parametric-c-tmle-intervals) |
@@ -1010,12 +1010,19 @@ estimator.
 
 Delivered: the fold average of the per-fold stratum plug-ins equals each reported stratum
 estimate, and each fold's stratum curve passes an exact-law test
-(`tests/unit/test_fold_evaluated_strata_exact.py`). The fit reads experimental until the
-remaining acceptance item lands:
+(`tests/unit/test_fold_evaluated_strata_exact.py`). The
+[stratified fold-evaluated study](technical-reference/method-evidence/fold-evaluated-strata.md)
+calibrates the interval of the arm means and the ATE in three strata and marginally, at n = 1,000
+with five folds, on a bounded and a binary outcome, rows only and with a known weight. Its
+controls are the untargeted stratum plug-in of a stratum-blind outcome learner, the stratum curve
+without the $1/P_{n,v}(S=s)$ normalisation, and the marginal curve without its share term. The
+rows `T40` cover such a fit with `repeats=1` and pointwise intervals, so it reads supported.
 
-- a registered calibration cell: arm targets with 3 strata, the untargeted stratum plug-in with
-  a misspecified outcome learner as the targeting control, and the stratum curve without the
-  $1/P_{n,v}(S=s)$ normalisation as the invalid-inference control.
+The regime means and their contrasts, `repeats` above 1 and the simultaneous band of a stratified
+fold-evaluated fit run and read experimental, because no cell measures them. The key holds
+neither the learner class, the fold count nor the stratum shares, so a fit with flexible
+learners, more folds or smaller strata reads supported, and the rows state the measured setting
+as limits.
 
 Every other target group refuses with this item's id: the ATT and the ATC, the
 population-intervention targets, incremental and policy targets, and a fit with a missing

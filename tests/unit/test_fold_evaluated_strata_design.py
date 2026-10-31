@@ -19,7 +19,7 @@ from tests.studies import _learned_rule_law as base
 from tests.studies import fold_evaluated_strata as study
 from tests.studies import fold_evaluated_strata_properties as properties
 from tests.studies import mtp_study_tools as tools
-from tests.studies.evidence.registry import registered
+from tests.studies.evidence.registry import StudyRecord, registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 # ------------------------------------------------------------------------------ the truth
@@ -381,9 +381,14 @@ def test_the_manifest_lists_the_fit_path() -> None:
 # --------------------------------------------------------------------------- the seeds
 
 
+def _other_studies() -> list[StudyRecord]:
+    """Every registered study but this one, which the register now holds too."""
+    return [record for record in registered() if record.slug != study.STUDY.slug]
+
+
 def test_the_record_seeds_are_unused() -> None:
-    others = {record.seed for record in registered()} | {
-        record.resampling_seed for record in registered() if record.resampling_seed is not None
+    others = {record.seed for record in _other_studies()} | {
+        record.resampling_seed for record in _other_studies() if record.resampling_seed is not None
     }
     assert study.SEED not in others and study.RESAMPLING_SEED not in others
     from tests.studies import learned_rule_learners as learners
@@ -402,7 +407,7 @@ def test_the_named_streams_are_distinct_from_every_registered_study() -> None:
         ("performance", "cleverly", "binary", "ate"),
         ("equivalence", "binary", "ate"),
     ]
-    records = [*registered(), study.STUDY]
+    records = [*_other_studies(), study.STUDY]
     seeds = [stream_seed(record, *label) for record in records for label in labels]
     assert len(set(seeds)) == len(seeds)
 

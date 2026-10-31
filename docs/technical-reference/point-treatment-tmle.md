@@ -551,9 +551,12 @@ $P_{n,v}(S=s)$, and the update weights solve each reported stratum score
 estimate is $\sum_s P_n(S=s)\hat\psi_s$, whose own score the fold-local stratum weights leave
 unsolved. With `repeats > 1` that identity holds on each draw, and the reported marginal is the
 median of the draws' mixtures.
-`tests/unit/test_fold_evaluated_strata_exact.py` checks the construction on an exact law, and the
-fit carries the experimental label until its calibration cell is registered
-([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)).
+
+`tests/unit/test_fold_evaluated_strata_exact.py` checks the construction on an exact law. The
+[stratified fold-evaluated study](method-evidence/fold-evaluated-strata.md) calibrates the arm
+means and the ATE at n = 1,000 with five folds and three strata, so that fit reads supported with
+`repeats=1` and pointwise intervals. The regime means, `repeats` above 1 and the simultaneous band
+read experimental ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)).
 
 These requests with `strata=` refuse before any learner:
 

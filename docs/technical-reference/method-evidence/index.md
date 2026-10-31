@@ -44,6 +44,7 @@ clustered-few-cluster-tmle
 clustered-cross-fitted-longitudinal-tmle
 few-cluster-cross-fitted-longitudinal-tmle
 fold-evaluated-point-treatment-cv-tmle
+fold-evaluated-strata
 fold-targeted-point-treatment-cv-tmle
 repeated-cross-fitting
 repeated-cross-fitted-longitudinal

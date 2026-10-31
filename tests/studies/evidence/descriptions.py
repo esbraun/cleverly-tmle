@@ -937,6 +937,35 @@ ARMS["misspecified_limit"] = (
 ARMS["blip"] = "the learned-rule law with a blip rule learner"
 ARMS["weighted_classification"] = "the learned-rule law with a weighted-classification rule learner"
 
+#: The parameter labels of ``fold-evaluated-strata`` (X11 PR E1, X28), one arm per setting,
+#: target and stratum, ``<setting>_<target>_<stratum>``. They sit here because the cell-name
+#: pattern below is built from :data:`ARMS` at import. Mirrored from
+#: ``tests.studies._fold_evaluated_strata_law``, which this module cannot import.
+_STRATA_SETTINGS = {
+    "unweighted": "the bounded (beta) outcome law with baseline strata, rows only",
+    "weighted": "the bounded (beta) outcome law with baseline strata and the weight 1 + 1.5 W2",
+    "binary_unweighted": "the binary outcome law with baseline strata, rows only",
+    "binary_weighted": "the binary outcome law with baseline strata and the weight 1 + 1.5 W2",
+    "binary_sparse": (
+        "the binary outcome law with baseline strata and the steeper blip 0.1 + 3.0 W1, rows only"
+    ),
+}
+_STRATA_TARGETS = {"ate": "the ATE", "ey0": "the arm-0 mean", "ey1": "the arm-1 mean"}
+_STRATA_PARTS = {
+    "s0": "in stratum S = 0",
+    "s1": "in stratum S = 1",
+    "s2": "in stratum S = 2",
+    "all": "marginally",
+}
+ARMS.update(
+    {
+        f"{setting}_{target}_{part}": f"{law}, {words} {where}"
+        for setting, law in _STRATA_SETTINGS.items()
+        for target, words in _STRATA_TARGETS.items()
+        for part, where in _STRATA_PARTS.items()
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1710,6 +1739,10 @@ PROPERTIES: dict[str, str] = {
     "small_sample_calibration": (
         "the SE ratio and coverage of the in-sample fits at n = 2,000, where few units follow "
         "the rule to the last node, reported rather than gated"
+    ),
+    "sparse_event_diagnostic": (
+        "the coverage and SE ratio of the fold-evaluated and the stacked stratified fits on a "
+        "binary law with few outcome events in one stratum-arm, reported rather than gated"
     ),
     "small_sample_diagnostic": (
         "the SE ratio, coverage and bias of the declared rule-learner fit at n = 1,000, below "
@@ -5803,5 +5836,113 @@ STUDY_ARM_CELLS.update(
             "none. The cell reports the SE ratio, coverage and bias at the smaller size",
         )
         for label in ("blip", "weighted_classification")
+    }
+)
+
+
+#: ``fold-evaluated-strata`` (X11 PR E1, X28): fold-evaluated CV-TMLE with baseline strata.
+_STRATA_SLUG = "fold-evaluated-strata"
+IMPLEMENTATIONS["cleverly-fold-evaluated-strata"] = (
+    "`cleverly` fold-evaluated CV-TMLE with baseline strata: each stratum estimate is the fold "
+    "average of the stratum plug-ins, and the marginal is their share mixture"
+)
+_STRATA_LAW = (
+    "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5), logit g0 = 0.3 W1 - 0.2 W2, and three strata cut "
+    "from W1 at shares 0.2, 0.35 and 0.45"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_STRATA_SLUG, "unweighted"): (
+            f"{_STRATA_LAW}; a beta outcome with the blip 0.1 + 1.5 W1, rows only"
+        ),
+        (_STRATA_SLUG, "weighted"): (
+            f"{_STRATA_LAW}; a beta outcome with the blip 0.1 + 1.5 W1 and the known weight "
+            "1 + 1.5 W2"
+        ),
+        (_STRATA_SLUG, "binary_unweighted"): (
+            f"{_STRATA_LAW}; a binary outcome with the blip 0.1 - 0.3 W1, rows only"
+        ),
+        (_STRATA_SLUG, "binary_weighted"): (
+            f"{_STRATA_LAW}; a binary outcome with the blip 0.1 - 0.3 W1 and the known weight "
+            "1 + 1.5 W2"
+        ),
+    }
+)
+_STRATA_CALIBRATION = [
+    f"{setting}_{target}_{part}"
+    for setting in ("unweighted", "weighted", "binary_unweighted", "binary_weighted")
+    for target in _STRATA_TARGETS
+    for part in _STRATA_PARTS
+]
+_STRATA_BELOW = "the SE-ratio interval must fall below the calibration band"
+STUDY_ARM_CELLS.update(
+    {
+        (_STRATA_SLUG, "interval_calibration", label, "declared"): (
+            "the declared fold-evaluated stratified fit with correctly specified learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in _STRATA_CALIBRATION
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_STRATA_SLUG, "interval_calibration", label, "unnormalised_curve_control"): (
+            "the same fit with each fold's stratum curve not divided by the fold's own stratum "
+            "share, so its SE is about the stratum share times the reported one",
+            _STRATA_BELOW,
+        )
+        for label in _STRATA_CALIBRATION
+        if not label.endswith("_all")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_STRATA_SLUG, "interval_calibration", label, "share_dropped_control"): (
+            "the same fit with the marginal curve missing its share term, the spread of the "
+            "stratum estimates over the strata",
+            _STRATA_BELOW,
+        )
+        for label in (
+            "unweighted_ate_all",
+            "unweighted_ey1_all",
+            "weighted_ate_all",
+            "weighted_ey1_all",
+        )
+    }
+)
+_STRATA_NECESSITY = [
+    f"unweighted_{target}_{part}" for target in _STRATA_TARGETS for part in ("s0", "s1", "s2")
+]
+STUDY_ARM_CELLS.update(
+    {
+        (_STRATA_SLUG, "targeting_necessity", label, "targeted"): (
+            "the fit with an outcome learner that sees neither W1 nor the stratum, so its "
+            "initial plug-in is nearly the same in every stratum and targeting does the "
+            "stratum adjusting",
+            "bias interval inside the equivalence margin",
+        )
+        for label in _STRATA_NECESSITY
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_STRATA_SLUG, "targeting_necessity", label, "untargeted"): (
+            "the same fit without its fluctuation: the fold average of the stratum-blind "
+            "initial stratum plug-ins",
+            "bias interval must fall entirely outside the margin",
+        )
+        for label in _STRATA_NECESSITY
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_STRATA_SLUG, "sparse_event_diagnostic", f"binary_sparse_{target}_{part}", "diagnostic"): (
+            "the declared fit and the stacked stratified fit (cv_evaluation=False) on the same "
+            "samples and folds at n = 1,000, reported without a verdict",
+            "none. The cell reports both fits' coverage and SE ratio and the stratum-arm event "
+            "count",
+        )
+        for target in _STRATA_TARGETS
+        for part in _STRATA_PARTS
     }
 )

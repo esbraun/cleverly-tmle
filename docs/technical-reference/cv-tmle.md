@@ -135,11 +135,21 @@ derivative of the share mixture with the stratum estimates held fixed. Its contr
 the global share, which leaves a nonzero curve mean, drop the share, and use the unstratified
 fold weights.
 
-No registered study covers the fit yet, so its estimates carry the experimental label
-([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). The omitted-variable
-bound of a marginal target reads the fit's mixture estimate and curve under the feature
-`fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as descriptive and
-its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,
+The registered [stratified fold-evaluated study](method-evidence/fold-evaluated-strata.md) calibrates
+the interval of the arm means and the ATE at n = 1,000 with five folds and three strata, on a
+bounded and a binary outcome, rows only and with a known weight. Such a fit with `repeats=1` and
+pointwise intervals reads supported. A regime mean or contrast, `repeats` above 1 and the
+simultaneous band read experimental, because no cell measures them
+([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). The key holds neither the
+fold count nor the stratum shares, so the row's limits state the measured size: about 17 treated
+rows per stratum-fold. With more folds or smaller strata a validation fold can lose a stratum-arm,
+and the fit then refuses with a `DataError`. On a binary outcome with few events in one
+stratum-arm the Wald interval of that stratum under-covers, and the stacked stratified fit does
+alike.
+
+The omitted-variable bound of a marginal target reads the fit's mixture estimate and curve under
+the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as
+descriptive and its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,
 the robustness value, the truncation curve and the default simultaneous band on such a fit.
 
 Implementation:
