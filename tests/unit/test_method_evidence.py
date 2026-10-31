@@ -1174,13 +1174,17 @@ class TestPublishedVerdicts:
                 # tuning term, and the fold-average rows scored on the population target.
                 # ``learned-rule-compositions`` declares the row-level SE that ignores the
                 # clusters, and ``learned-rule-split-mean`` the mean single-split SE over
-                # sqrt(R), which treats the splits as independent.
+                # sqrt(R), which treats the splits as independent. ``fold-evaluated-strata``
+                # declares the stratum curve without its fold share and the marginal curve
+                # without its share term.
                 if suffix in (
                     "shrunken_se_control",
                     "term_dropped_control",
                     "population_truth_control",
                     "row_variance_control",
                     "independent_splits_control",
+                    "unnormalised_curve_control",
+                    "share_dropped_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
@@ -1770,6 +1774,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR C (``learned-rule-learners``): the rule-learner fit at n = 1,000, below its
         # calibration size, reported with its SE ratio, coverage and bias and no verdict.
         "small_sample_diagnostic",
+        # X11 PR E1 (``fold-evaluated-strata``): the fold-evaluated and stacked stratified fits
+        # on a binary law with few events in one stratum-arm, reported with no verdict.
+        "sparse_event_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",

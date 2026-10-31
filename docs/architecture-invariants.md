@@ -237,8 +237,9 @@ A derived estimate takes the smallest `reference_df` of its inputs at its own `m
 call. Every interval, p-value and sensitivity limit reads the reference
 through `wald_ci`, `wald_statistic`, `reference_quantile` or `one_sided_quantile` in
 `cleverly.inference.delta`, and `tests/unit/test_few_cluster_reference.py` scans the package for
-a second normal quantile. A future fold-evaluated report with baseline strata must carry each
-stratum's row set into `_average_over_folds`, or its stratum estimates read the fit's cluster count.
+a second normal quantile. The fold-evaluated report with baseline strata refuses `id=` (X28). A
+future clustered form must carry each stratum's row set into `_average_over_folds`, or its stratum
+estimates read the fit's cluster count.
 *Reconsider when* a source gives a reference that is not a function of the cluster count.
 
 One fit has one fit status. When more than one non-inferential fit status applies, the fit takes

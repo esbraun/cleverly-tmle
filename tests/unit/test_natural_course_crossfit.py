@@ -221,13 +221,14 @@ def test_a_complete_outcome_fit_with_strata_meets_the_generic_strata_gate(
     stratify_folds: str,
     overrides: dict[str, Any],
 ) -> None:
-    """Pin which refusal a non-natural-course stratified fold-targeted fit receives.
+    """Pin which gate a non-natural-course stratified fold-wise fit meets.
 
     The natural-course contract does not apply without missing outcomes. Under unstratified
     folds no fold policy is reserved either, so the generic strata gate in ``TMLE.fit``
-    refuses, before any learner fits. ``stratify_folds='treatment'`` never reaches that
-    gate: the engine refuses the policy itself at construction, before a frame or strata
-    exist for the gate to read.
+    decides, before any learner fits. It refuses fold targeting (X61 (b)) and admits the
+    fold-evaluated ATE (X28), which then reaches its first learner.
+    ``stratify_folds='treatment'`` never reaches that gate: the engine refuses the policy
+    itself at construction, before a frame or strata exist for the gate to read.
     """
     frame = law.frame().assign(
         Y=lambda value: value["Y"].fillna(0.0), S=(np.arange(law.N) % 2).astype(float)
@@ -250,10 +251,14 @@ def test_a_complete_outcome_fit_with_strata_meets_the_generic_strata_gate(
         **overrides,
     )
 
-    expected = "fold-local update" if "targeting_scheme" in overrides else "stratum-indexed fold"
-    with pytest.raises(CapabilityError, match=expected):
+    if "targeting_scheme" in overrides:
+        with pytest.raises(CapabilityError, match="fold-local update"):
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=("W", "S"), strata="S")
+        assert NeverFit.calls == 0
+        return
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
         estimator.fit(frame, outcome="Y", treatment="A", covariates=("W", "S"), strata="S")
-    assert NeverFit.calls == 0
+    assert NeverFit.calls > 0
 
 
 def test_unstratified_folds_are_accepted_by_an_established_complete_outcome_fit() -> None:

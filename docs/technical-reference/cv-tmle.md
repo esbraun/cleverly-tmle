@@ -96,6 +96,62 @@ The fit keeps the interval. At 10 clusters its coverage lower endpoint is 0.894.
 `tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the measured bias from the law, with no
 fit. At equal sizes the bias vanishes.
 
+**Fold evaluation with baseline strata** averages each stratum's fold plug-ins: with
+`strata=`, stratum $s$ reports $\hat\psi_s = V^{-1}\sum_v \psi_{s,v}$. Here $\psi_{s,v}$ is the plug-in of the targeted
+regression over the rows of fold $v$ in stratum $s$, each weighted by $w_i/W_{v,s}$ with
+$W_{v,s}=\sum_{j\in v,\,S_j=s} w_j$. Fold $v$'s stratum curve is
+$I(S=s)\,D_{s,v}/P_{n,v}(S=s)$, with the fold's own share $P_{n,v}(S=s)=W_{v,s}/W_v$ and with
+$D_{s,v}$ carrying the fold-normalised weight $w_i/\bar w_v$, so that on row $i$ the curve is
+$w_i n_v D_i/W_{v,s}$. Its variance is the display above with that curve.
+
+The pooled update fits one coefficient per stratum block and weights row $i$ of fold $v$ and
+stratum $s$ by $w_i\,n P_n(S=s)/(V W_{v,s})$. Inside a stratum that weight is $w_i/(V W_{v,s})$
+times the constant $nP_n(S=s)$, which moves no root, so the update solves each reported stratum
+score exactly. The constant is $nP_n(S=s)$ and not 1 because the weights then sum to $n$ and, at
+one stratum, equal the unstratified fold weights $w_i n/(VW_v)$. The declared stopping thresholds,
+the one-step walk and a step bound then read the same scale as in the unstratified fit.
+
+The marginal estimate is $\hat\psi = \sum_s P_n(S=s)\hat\psi_s$, with the delta-method curve
+$\phi_i = \sum_s P_n(S=s)\,\phi_{s,i} + (w_i/\bar w)(\hat\psi_{S_i}-\hat\psi)$, where $\phi_s$ is
+the stored stratum curve. The share term sums to zero exactly, and each stratum part to the
+solver's tolerance, because each stratum score is solved. Its variance is $n^{-2}\sum_i\phi_i^2$.
+On each stratum part this equals the cross-validated display above, since $\phi_s$ is stored as
+$n/(Vn_v)$ times the fold curve. The marginal score itself is not solved under the fold-local
+stratum weights, so the report does not use the fold average of the marginal plug-ins, which
+differs from the mixture whenever the folds' stratum shares differ.
+
+With `repeats > 1` each estimate, marginal and stratum, is the median over draws of its own value,
+so the reported marginal is the median of the draws' mixtures and need not equal the mixture of
+the reported stratum medians. Each draw's marginal is that draw's mixture.
+
+The construction covers the arm means and their linear contrasts (`ey`, `ate`) and the regime
+means and their contrasts (`ey_regime`, `ate_regime`), on complete data with rows as the unit. It
+inherits the conditions of the fold-evaluated estimate inside each stratum, positivity inside each
+stratum, and a fixed number of strata. `tests/unit/test_fold_evaluated_strata_exact.py` checks it
+on an exact discrete law. Each stratum estimate is the fold average of its plug-ins, each fold's
+stratum curve is the Gateaux derivative of the stratum functional at the fold's law, and each
+reported stratum score is solved. The share term of the marginal curve is the Gateaux
+derivative of the share mixture with the stratum estimates held fixed. Its controls normalise by
+the global share, which leaves a nonzero curve mean, drop the share, and use the unstratified
+fold weights.
+
+The registered [stratified fold-evaluated study](method-evidence/fold-evaluated-strata.md) calibrates
+the interval of the arm means and the ATE at n = 1,000 with five folds and three strata, on a
+bounded and a binary outcome, rows only and with a known weight. Such a fit with `repeats=1` and
+pointwise intervals reads supported. A regime mean or contrast, `repeats` above 1 and the
+simultaneous band read experimental, because no cell measures them
+([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). The key holds neither the
+fold count nor the stratum shares, so the row's limits state the measured size: about 17 treated
+rows per stratum-fold. With more folds or smaller strata a validation fold can lose a stratum-arm,
+and the fit then refuses with a `DataError`. On a binary outcome with few events in one
+stratum-arm the Wald interval of that stratum under-covers, and the stacked stratified fit does
+alike.
+
+The omitted-variable bound of a marginal target reads the fit's mixture estimate and curve under
+the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as
+descriptive and its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,
+the robustness value, the truncation curve and the default simultaneous band on such a fit.
+
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
 [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py),
@@ -392,6 +448,8 @@ Each row gives the shipped remedy in the message's own words.
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
 | `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." Under fold targeting the second remedy reads "one pooled fluctuation (targeting_scheme="pooled")". A learned-rule fit, which has no stacked report, reads the first remedy alone. The message names the setting, the cluster count, the fold count and the fold. Each fold's variance compares cluster totals inside the fold |
+| `cv_evaluation=True` with `strata=` and a target outside the arm and regime means and their contrasts, a missing outcome, an intermediate variable, or `id=` | `CapabilityError` before any learner | for a target, "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on the arm axis), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." For the others, "Use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). A cross-fitted missing treatment meets the composite refusal of X53 first, and a ratio or an MSM coefficient meets the `cv_evaluation=True` refusal of X61 first |
+| `cv_evaluation=True` with `strata=` and a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a stratum | `DataError` before the first learner | "Either use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False)), declare fewer baseline strata, or collect more observations at the rare level." The message names the fold, the stratum and the arm |
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
 | a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
 | a treatment arm held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that arm and no fold count or seed can fit the treatment mechanism; fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". Under `id=` the message says "clusters" in place of "rows" |

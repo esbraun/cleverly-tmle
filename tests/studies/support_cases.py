@@ -2330,6 +2330,34 @@ def _learned_rule_learners_cases() -> tuple[RowCase, ...]:
     return (case("blip"), case("weighted_classification"))
 
 
+def _fold_evaluated_strata_cases() -> tuple[RowCase, ...]:
+    """The cases of ``fold-evaluated-strata`` (X11 PR E1, X28).
+
+    Each runs the study's own declared fit of one setting on a draw of that setting at the
+    primary size, up to the classifier.
+    """
+    module, slug = "fold_evaluated_strata", "fold-evaluated-strata"
+    rows = {
+        "unweighted": "T40.continuous",
+        "weighted": "T40.continuous_weighted",
+        "binary_unweighted": "T40.binary",
+        "binary_weighted": "T40.binary_weighted",
+    }
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            rows[scenario],
+            slug,
+            scenario,
+            "_fold_evaluated_strata_law.py:451",
+            module,
+            lambda study: study.draw_from_seed(scenario, 1_000, 0)[0],
+            lambda study, frame: study.law.fit(frame, scenario, 0),
+        )
+
+    return tuple(case(scenario) for scenario in rows)
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2649,6 +2677,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_composition_cases(),
     *_learned_rule_split_mean_cases(),
     *_learned_rule_learners_cases(),
+    *_fold_evaluated_strata_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

@@ -1329,6 +1329,7 @@ _FEATURE_MECHANISMS: dict[str, str | None] = {
     "shift": None,
     "msm": None,
     "stratum": None,
+    "fold_evaluated_strata": None,
     "repeats": None,
 }
 
@@ -1336,7 +1337,8 @@ _FEATURE_MECHANISMS: dict[str, str | None] = {
 def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ...]:
     """The X82 part G configurations a bound of ``parameter`` on ``result`` reads.
 
-    Each feature changes the representer or the residual mask of the shipped bound.  The
+    Each feature changes the representer or the residual mask of the shipped bound, or, for
+    ``repeats`` and ``fold_evaluated_strata``, the estimate the bound adjusts.  The
     ``+``-joined tuple is the ``ovb_limit`` rule its confidence limits resolve through, so
     a registered coverage cell licenses exactly the configuration it measured.
 
@@ -1362,6 +1364,9 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
         "shift": parameter.group == "mtp",
         "msm": parameter.group == "msm",
         "stratum": parameter.stratum is not None,
+        # A fold-evaluated stratified fit (X28) reports the share mixture of fold-evaluated
+        # stratum estimates, which no registered limit study measured.
+        "fold_evaluated_strata": bool(data.has_strata) and result.extra.get("cv_tmle") is not None,
         "repeats": result.n_repeats > 1,
     }
     return tuple(name for name in _FEATURE_MECHANISMS if present[name])
@@ -1676,6 +1681,8 @@ def _configuration_phrase(features: tuple[str, ...]) -> str:
     parts.extend(phrase for name, phrase in axes.items() if name in features)
     if "stratum" in features:
         parts.append("is restricted to a baseline stratum and divides by its share")
+    if "fold_evaluated_strata" in features:
+        parts.append("is read against the share mixture of fold-evaluated stratum estimates")
     if "repeats" in features:
         parts.append("is combined over draws of the cross-fitting split by the median rule")
     return " and ".join(parts)
@@ -2504,11 +2511,11 @@ def omitted_variable_bounds(
         ``LogisticRegression`` (docs/roadmap.md F26). A zero bias scale also leaves the point
         bounds available but refuses the limits, whose square-root derivative is undefined.
         An unreachable robustness threshold is ``None``. On a fit with a response mechanism,
-        a missing treatment, an intermediate variable, or a stratum parameter, ``features``
-        names them and ``limit_reading`` marks the limits descriptive until a registered study
-        covers them. With ``repeats`` above one, each bound is the median of the draws'
-        bounds, ``max_bias`` the median of their bias scales, and each limit the median rule
-        of the draws' limits.
+        a missing treatment, an intermediate variable, a stratum parameter, or fold evaluation
+        with baseline strata (X28), ``features`` names them and ``limit_reading`` marks the
+        limits descriptive until a registered study covers them. With ``repeats`` above one,
+        each bound is the median of the draws' bounds, ``max_bias`` the median of their bias
+        scales, and each limit the median rule of the draws' limits.
 
     Raises
     ------

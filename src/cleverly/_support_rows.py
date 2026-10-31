@@ -809,6 +809,78 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 ],
             )
         )
+    # X28 (X11 PR E1): fold-evaluated CV-TMLE with baseline strata. The qualifier ``strata``
+    # and the splitting ``fold_evaluated`` key the fit, so the unstratified T03 never covers it.
+    # The study fits the arm means and the ATE (P1). A regime mean with strata keys P5 and
+    # matches no row, and ``repeats`` above 1 keys ``repeated``. The rows run over the outcome
+    # kind and the weighting, as T03 does, because each outcome has a weighted cell.
+    strata_limits = [
+        "The study measures the arm means and the ATE on rows with pooled targeting, complete "
+        "data, no id and repeats=1. The regime means and their contrasts, which the "
+        "construction also reports, are not measured and match no row.",
+        "Measured at n = 1,000 with 5 folds and three strata whose smallest share is 0.2, so "
+        "about 200 rows and about 17 treated rows per stratum-fold. The key holds neither the "
+        "fold count nor the stratum shares. With 10 folds at n = 500 the fit refuses about 14% "
+        "of samples for an empty stratum-fold arm, and that refusal is an error, never a silent "
+        "estimate. More folds or smaller strata leave fewer rows per fold plug-in and were not "
+        "measured.",
+        "Every learner of the study is a correctly specified parametric model. A flexible "
+        "learner rests on the theory alone.",
+        "The intervals are pointwise (simultaneous=False). The simultaneous band is not "
+        "measured, so the row lists no band.",
+        "With repeats above 1 the marginal estimate is the median of the draws' share "
+        "mixtures, and such a fit matches no row.",
+        "The unnormalised-curve control shows that the instrument resolves a gross "
+        "normalisation error. The fold-local stratum share, against the whole-sample share, "
+        "rests on the unit witnesses of tests/unit/test_fold_evaluated_strata_exact.py.",
+        "The targeting control's learner sees neither W1 nor the stratum. It shows that "
+        "targeting repairs a stratum-blind initial fit, not a subtle misspecification within a "
+        "stratum.",
+    ]
+    outcome_limits = {
+        "binary": [
+            "On the binary outcome the smallest stratum-arm holds about 38 rows of the rarer "
+            "outcome value at n = 1,000 (5th percentile about 30). With fewer, the Wald interval "
+            "misses on the side of the rarer value: with about 6 such rows on average, ey[1] in "
+            "the smallest stratum covered 0.909 and the stacked stratified fit 0.9155 on the same "
+            "draws (sparse_event_diagnostic, no verdict).",
+            "The share term of the marginal curve carries too little of the variance on a "
+            "binary outcome to be resolved there. It is tested on the bounded outcome, and its "
+            "formula does not read the outcome type.",
+        ],
+        "continuous": [
+            "The bounded outcome is a beta law on (0, 1) with q_bounds=(0, 1). The share term "
+            "of the marginal curve carries 27% of the marginal ATE variance there, and a fit "
+            "without it fails its band.",
+        ],
+    }
+    for weighted in (False, True):
+        for kind, outcome in (("binary", BINARY), ("continuous", BOUNDED)):
+            scenario = ("binary_" if kind == "binary" else "") + (
+                "weighted" if weighted else "unweighted"
+            )
+            weight_limits = (
+                [
+                    "The study measures the known weight 1 + 1.5 W2, which varies inside every "
+                    "stratum."
+                ]
+                if weighted
+                else []
+            )
+            rows.append(
+                point_row(
+                    f"T40.{kind}_weighted" if weighted else f"T40.{kind}",
+                    ["fold-evaluated-strata"],
+                    families=("P1",),
+                    outcome=outcome,
+                    weighting="fixed" if weighted else "none",
+                    splitting=("fold_evaluated",),
+                    qualifiers=["strata"],
+                    cells=[scenario],
+                    # Roadmap: X28.
+                    limits=[*strata_limits, *outcome_limits[kind], *weight_limits],
+                )
+            )
     rows.append(
         point_row(
             "T25",

@@ -1243,7 +1243,8 @@ def _data_refusal(data: CausalData) -> Refusal | None:
     if data.has_strata:
         return _gap(
             "a learned rule with baseline strata (strata=) is refused. The value inside each "
-            "of a fixed number of strata needs fold evaluation with strata, which X28 holds "
+            "of a fixed number of strata would read the fold-evaluated stratum estimate of a "
+            "fixed rule at each fold's learned rule, which is not implemented "
             f"({_X11.format(part='m')}).",
             f"{_FIXED_RULE} takes strata= for a fixed rule.",
             "X11",
