@@ -76,7 +76,9 @@ _TIE = "where 1 is the higher arm code and 0 the lower; a tie assigns the lower 
 _PSEUDO = (
     "the doubly robust blip pseudo-outcome D = (2A - 1) / g(A | W) (Y - Qbar(A, W)) + "
     "Qbar(1, W) - Qbar(0, W) of each training row, on the scaled outcome, with Qbar and g "
-    "from a 5-fold cross-fit inside the training rows and g truncated at g_bounds"
+    "from a 5-fold cross-fit inside the training rows (one fold per cluster when they hold "
+    "fewer than 5 clusters) and g truncated at the fit's resolved g_bounds, resolved at the "
+    "full sample's effective size, the value result.config records"
 )
 _WEIGHTED = (
     "Under weights= every fit inside the training rows is weighted, so the rule is the rule "
@@ -264,7 +266,6 @@ def _learner_refusal(loss: str, learner: Any) -> Refusal | None:
     """The refusal of a rule learner that does not suit ``loss``, or ``None``."""
     from sklearn.base import is_classifier, is_regressor
 
-    from ..learners._fitting import supports_sample_weight
     from ..learners.library import _validate_learner
     from ..learners.super_learner import SuperLearner
 
@@ -311,14 +312,36 @@ def _learner_refusal(loss: str, learner: Any) -> Refusal | None:
             f"pseudo-outcome, and {type(learner).__name__} is a regressor.",
             "Pass a classifier, or loss='blip' for a regressor.",
         )
-    if not supports_sample_weight(learner):
+    unweighted = _unweighted_member(learner)
+    if unweighted is not None:
         return invalid(
             "LearnedRule(loss='weighted_classification') weights each row by the absolute "
-            f"pseudo-outcome, and {type(learner).__name__}.fit takes no sample_weight. "
+            f"pseudo-outcome, and {unweighted} takes no sample_weight. "
             "Fitted without the weights, the classifier learns the majority sign of the "
             "pseudo-outcome, which is a different rule.",
-            "Pass a classifier whose fit takes sample_weight, such as LogisticRegression().",
+            "Pass a classifier whose fit takes sample_weight, such as LogisticRegression(), "
+            "and for a SuperLearner a library whose every member's fit takes it.",
         )
+    return None
+
+
+def _unweighted_member(learner: Any) -> str | None:
+    """Name the part of ``learner`` whose ``fit`` takes no ``sample_weight``, or ``None``.
+
+    A ``SuperLearner`` passes ``sample_weight`` to each member that takes it, and fits a
+    member that does not unweighted, with a warning.  So a ``SuperLearner`` with an
+    explicit library is checked member by member.  Its default library takes weights.
+    """
+    from ..learners._fitting import supports_sample_weight
+    from ..learners.super_learner import SuperLearner
+
+    if not supports_sample_weight(learner):
+        return f"{type(learner).__name__}.fit"
+    if isinstance(learner, SuperLearner) and learner.library is not None:
+        for member in learner.library:
+            estimator = member[1] if isinstance(member, tuple) else member
+            if not supports_sample_weight(estimator):
+                return f"the SuperLearner member {type(estimator).__name__}, whose fit"
     return None
 
 
@@ -479,8 +502,8 @@ def learned_rule_treat(
     fit_inner: InnerFit,
     g_bounds: tuple[float, float],
     seed: int,
-) -> np.ndarray:
-    """Return the rule of every row of a learned-rule fit.
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Return the rule of every row of a learned-rule fit, and its rule learner's margin.
 
     A frozen rule returns its values.  The plug-in rule reads the out-of-fold blip of the
     cross-fitted outcome regression.  A pseudo-outcome loss fits its rule learner inside
@@ -505,14 +528,19 @@ def learned_rule_treat(
 
     Returns
     -------
-    numpy.ndarray
+    treat : numpy.ndarray
         One boolean per row: ``True`` where the rule of the row's fold assigns the higher
         arm code.
+    margin : numpy.ndarray or None
+        For a pseudo-outcome loss, the score of the row's fold rule minus its threshold,
+        :math:`\\hat b_v(W_i)` or :math:`\\hat P_v(\\tilde D > 0 \\mid W_i) - 1/2`.
+        ``None`` for the plug-in rule, whose score is the blip, and for a frozen rule.
 
     Raises
     ------
     DataError
-        If a frozen rule holds another number of rows than the refit.
+        If a frozen rule holds another number of rows than the refit, or if an inner
+        training complement of a pseudo-outcome loss lacks an arm or an outcome class.
     """
     if isinstance(rule, FrozenLearnedRule):
         n = np.asarray(nuisance.outcome.arms[nuisance.outcome.levels[0]]).shape[0]
@@ -520,9 +548,9 @@ def learned_rule_treat(
             raise DataError(
                 f"the frozen learned rule holds {rule.treat.size} rows, and the refit has {n}"
             )
-        return rule.treat
+        return rule.treat, None
     if rule.loss == "plug_in":
-        return _blip(nuisance) > 0.0
+        return _blip(nuisance) > 0.0, None
     return rule_learner_treat(
         data,
         nuisance.folds,
@@ -553,10 +581,17 @@ class LearnedRuleSplit:
         The share of each fold's validation rows that its rule assigns to the higher
         arm code.
     blip_quantiles : tuple of tuple of float
-        For each fold, quantiles of the estimated blip ``Qbar_v(1, W) - Qbar_v(0, W)`` on
-        its validation rows, at :data:`BLIP_QUANTILE_LEVELS`, on the scale the outcome
-        regression is fitted on.  Under a pseudo-outcome loss the rule is the rule
-        learner's, and these quantiles describe the outer outcome regression only.
+        For each fold, quantiles of the outer outcome regression's blip
+        ``Qbar_v(1, W) - Qbar_v(0, W)`` on its validation rows, at
+        :data:`BLIP_QUANTILE_LEVELS`, on the scale the outcome regression is fitted on.
+        For the plug-in rule this is the rule's own score, whose mass at 0 speaks to C3.
+        Under a pseudo-outcome loss it describes the outer outcome regression, not the rule.
+    score_quantiles : tuple of tuple of float
+        For a pseudo-outcome loss, for each fold, quantiles of the rule learner's score
+        minus its threshold on the fold's validation rows, at :data:`BLIP_QUANTILE_LEVELS`:
+        :math:`\\hat b_v(w)` for ``loss="blip"`` and :math:`\\hat P_v(\\tilde D > 0 \\mid w) - 1/2`
+        for ``loss="weighted_classification"``.  The rule treats where this is positive, so
+        its mass at 0 speaks to C3.  Empty for the plug-in rule and for a frozen rule.
     inner_seeds : tuple of int
         For a pseudo-outcome loss, the seed of each fold's inner cross-fit and rule learner
         (:func:`~cleverly.interventions._rule_learners.inner_seed`), so that a refit of one
@@ -574,6 +609,7 @@ class LearnedRuleSplit:
     fold_estimates: tuple[float, ...]
     treated_shares: tuple[float, ...]
     blip_quantiles: tuple[tuple[float, ...], ...]
+    score_quantiles: tuple[tuple[float, ...], ...]
     inner_seeds: tuple[int, ...]
 
     @property
@@ -638,7 +674,7 @@ class LearnedRuleRecord:
 
     @property
     def quantile_levels(self) -> tuple[float, ...]:
-        """Return the levels of each split's ``blip_quantiles`` (:data:`BLIP_QUANTILE_LEVELS`)."""
+        """Return the levels of each split's quantiles (:data:`BLIP_QUANTILE_LEVELS`)."""
         return BLIP_QUANTILE_LEVELS
 
     def describe(self) -> str:
@@ -648,7 +684,8 @@ class LearnedRuleRecord:
         -------
         str
             The target, the fold count, the source of the definition, how the rules are
-            learned, and the range of the treated share over the folds.  A fit of several
+            learned, which record field describes a rule learner's score, and the range of
+            the treated share over the folds.  A fit of several
             splits also names the split count, and gives both ranges over every split.
         """
         shares = [share for split in self.splits for share in split.treated_shares]
@@ -665,6 +702,12 @@ class LearnedRuleRecord:
                 "(loss='weighted_classification')."
             ),
         }[self.loss]
+        if self.loss != "plug_in":
+            learned += (
+                " The record's score_quantiles give the rule learner's score minus its "
+                "threshold on each fold's validation rows, and its blip_quantiles describe "
+                "the outer outcome regression, not the rule."
+            )
         source = (
             "The target depends on the data, because the rules do (van der Laan and Luedtke "
             f"2015, Section 7). {learned}"
@@ -786,7 +829,30 @@ def _blip(nuisance: NuisanceEstimates) -> np.ndarray:
     )
 
 
-def _learned_rule_regimes(treat: np.ndarray, name: str) -> RegimeSet:
+@dataclass(frozen=True)
+class _LearnedRuleRegimes(RegimeSet):
+    """The regime set of a learned-rule fit, with the margin of its rule learner.
+
+    Parameters
+    ----------
+    names : tuple of str
+        The one regime label.
+    values : numpy.ndarray
+        ``(n, 2, 1)`` one-hot densities.
+    reference : float
+        The code of the one regime.
+    margin : numpy.ndarray or None
+        The score of each row's fold rule minus its threshold, for a pseudo-outcome loss
+        (:func:`learned_rule_treat`), or ``None``.  :func:`learned_rule_split` records its
+        quantiles.
+    """
+
+    margin: np.ndarray | None = None
+
+
+def _learned_rule_regimes(
+    treat: np.ndarray, name: str, margin: np.ndarray | None = None
+) -> RegimeSet:
     """The fold-local rule of every row, as a one-regime :class:`RegimeSet`.
 
     The density is one-hot: ``values[i, 1, 0]`` is ``1`` when the rule of row ``i``'s fold
@@ -800,6 +866,8 @@ def _learned_rule_regimes(treat: np.ndarray, name: str) -> RegimeSet:
         The rule of every row (:func:`learned_rule_treat`).
     name : str
         The name of the regime, the rule's label.
+    margin : numpy.ndarray or None
+        The rule learner's score minus its threshold at every row, or ``None``.
 
     Returns
     -------
@@ -810,7 +878,9 @@ def _learned_rule_regimes(treat: np.ndarray, name: str) -> RegimeSet:
     values = np.zeros((treat.size, 2, 1), dtype=float)
     values[:, 1, 0] = treat
     values[:, 0, 0] = ~treat
-    return RegimeSet((name,), values, 0.0)
+    if margin is None:
+        return RegimeSet((name,), values, 0.0)
+    return _LearnedRuleRegimes((name,), values, 0.0, np.asarray(margin, dtype=float))
 
 
 def learned_rule_split(
@@ -846,6 +916,7 @@ def learned_rule_split(
     treat = np.asarray(nuisance.regimes.values[:, 1, 0], dtype=float) > 0.5
     tests = [np.asarray(test) for _, test in nuisance.folds]
     learns = rule.loss != "plug_in" and not isinstance(rule, FrozenLearnedRule)
+    margin = getattr(nuisance.regimes, "margin", None) if learns else None
     return LearnedRuleSplit(
         seed=int(seed),
         estimate=float(estimate),
@@ -855,6 +926,14 @@ def learned_rule_split(
         blip_quantiles=tuple(
             tuple(float(value) for value in np.quantile(blip[test], BLIP_QUANTILE_LEVELS))
             for test in tests
+        ),
+        score_quantiles=(
+            ()
+            if margin is None
+            else tuple(
+                tuple(float(value) for value in np.quantile(margin[test], BLIP_QUANTILE_LEVELS))
+                for test in tests
+            )
         ),
         inner_seeds=(tuple(inner_seed(seed, fold) for fold in range(len(tests))) if learns else ()),
     )
@@ -1168,15 +1247,17 @@ def _weighted_learner_refusal(rule: LearnedRule, data: CausalData) -> Refusal | 
     """
     if rule.loss != "blip" or not data.is_weighted:
         return None
-    from ..learners._fitting import supports_sample_weight
-
-    if supports_sample_weight(rule.learner):
+    unweighted = _unweighted_member(rule.learner)
+    if unweighted is None:
         return None
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
         "LearnedRule(loss='blip') with weights= fits a weighted blip regression, so that "
-        "the rule is the rule of the weighted population, and "
-        f"{type(rule.learner).__name__}.fit takes no sample_weight. Fitted without the "
-        "weights, it would learn the rule of the unweighted population.",
-        alternative="Pass a regressor whose fit takes sample_weight, such as LinearRegression().",
+        f"the rule is the rule of the weighted population, and {unweighted} takes no "
+        "sample_weight. Fitted without the weights, it would learn the rule of the "
+        "unweighted population.",
+        alternative=(
+            "Pass a regressor whose fit takes sample_weight, such as LinearRegression(), and "
+            "for a SuperLearner a library whose every member's fit takes it."
+        ),
     )

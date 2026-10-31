@@ -16,7 +16,11 @@ rows the fit learned it from, and it refuses the replication unless the refit gi
 own rule on every validation row (rule L4).  The plug-in rule refits the outcome learner.  A
 rule learner (``LearnedRule(loss="blip")`` or ``loss="weighted_classification"``) refits
 through the package's own ``fit_fold_rule``, with the inner seed that the fit's record holds,
-so the inner cross-fit, the pseudo-outcome and the rule learner are all reproduced.  It then integrates the value
+so the inner cross-fit, the pseudo-outcome and the rule learner are all reproduced.  For a
+rule learner, rule L4 is therefore a reproducibility check of the record through the
+package's code, not an independent check of the construction: the target is the value of
+whatever rule was learned, and the construction's correctness rests on the unit witnesses
+W-g2 and W-g4 in ``tests/unit/test_learned_rule_learners.py``.  It then integrates the value
 of the refit rule by the trapezoid rule on 4,001 points of ``W1`` for each ``W2``, with the known
 ``Qbar0``.  The same quadrature gives the oracle standard error.
 """
@@ -389,8 +393,12 @@ def fold_rule(
     ``source`` names the rows the fit learned the rule on.  The plug-in rule refits
     ``learner``, the fit's outcome learner, through the package's own ``fit_on_rows`` with the
     fit's own weights.  A rule learner on the training rows refits through the package's
-    ``fit_fold_rule`` with the fold's recorded inner seed, which the harness also checks
-    against the split seed; on the validation rows it refits :func:`validation_rule`.
+    ``fit_fold_rule`` with the fold's recorded inner seed; on the validation rows it refits
+    :func:`validation_rule`.  That refit reproduces the fit from its record through the
+    package's own code, so it checks reproducibility, not the construction, which the unit
+    witnesses W-g2 and W-g4 check.  The comparison of the recorded inner seed with
+    ``inner_seed(split_seed, fold)`` is a record-integrity guard: the fit derives both from
+    the same call, so it fails only on a corrupted or hand-edited record.
     """
     data = result.data
     nuisance = result.nuisance

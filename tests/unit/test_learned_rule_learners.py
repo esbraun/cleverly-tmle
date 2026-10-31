@@ -17,7 +17,13 @@ variance do not change.
   do.  The mutation that builds the pseudo-outcome from the outer cross-fitted predictions
   moves it.
 * W-g4 (exact): changing one training outcome by ``dY`` changes that row's pseudo-outcome by
-  exactly ``(2A - 1) dY / g``, because its own inner nuisances did not train on it.
+  exactly ``(2A - 1) dY / g``, because its own inner nuisances did not train on it.  Two
+  nonzero variants pin the components that vanish on the plain draw: at a row where a declared
+  ``g_bounds`` binds the change is ``(2A - 1) dY / max(g, l)``, and on a continuous outcome in
+  ``[a, b]`` it is ``(2A - 1) dY / {(b - a) g}``.
+* The inner fits: under ``weights=`` every inner outcome and treatment fit receives the
+  observation weights of its rows.  A training fold whose positive-weight rows carry one label
+  gives the constant rule of that label, and a score exactly at its threshold assigns control.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
@@ -125,6 +132,50 @@ class SpyClassifier(ClassifierMixin, BaseEstimator):
         return self.model_.predict_proba(X)
 
 
+class WeightSpyOutcome(ClassifierMixin, BaseEstimator):
+    """A logistic regression that records the design and the weights of every outcome fit."""
+
+    calls: ClassVar[list[dict[str, Any]]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> WeightSpyOutcome:
+        type(self).calls.append({"x": np.asarray(X, dtype=float), "weight": sample_weight})
+        self.model_ = LogisticRegression(max_iter=5000).fit(X, y, sample_weight=sample_weight)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        return self.model_.predict_proba(X)
+
+
+class WeightSpyTreatment(WeightSpyOutcome):
+    """The same spy for the treatment fits, with its own record."""
+
+    calls: ClassVar[list[dict[str, Any]]] = []
+
+
+class UnfittableClassifier(ClassifierMixin, BaseEstimator):
+    """A classifier that takes ``sample_weight`` and fails if it is ever fitted."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> UnfittableClassifier:
+        raise AssertionError("a one-class fold must not fit the classifier")
+
+    def predict_proba(self, X: Any) -> Any:  # pragma: no cover - never fitted
+        raise AssertionError("a one-class fold must not read the classifier")
+
+
+class FixedScore(BaseEstimator):
+    """A fitted stub whose score is the first covariate: the prediction or ``P(1)``."""
+
+    classes_ = np.array([0.0, 1.0])
+
+    def predict(self, X: Any) -> Any:
+        return np.asarray(X, dtype=float)[:, 0]
+
+    def predict_proba(self, X: Any) -> Any:
+        p = np.asarray(X, dtype=float)[:, 0]
+        return np.column_stack([1.0 - p, p])
+
+
 # ------------------------------------------------------------------------- the declaration
 
 
@@ -157,6 +208,16 @@ class TestTheDeclaration:
                 {"loss": "weighted_classification", "learner": NoWeightClassifier()},
                 "takes no sample_weight",
             ),
+            (
+                {
+                    "loss": "weighted_classification",
+                    "learner": SuperLearner(
+                        library=[LogisticRegression(), KNeighborsClassifier()],
+                        task="classification",
+                    ),
+                },
+                "SuperLearner member KNeighborsClassifier, whose fit takes no sample_weight",
+            ),
         ],
     )
     def test_a_learner_that_does_not_suit_the_loss_refuses(
@@ -184,6 +245,21 @@ class TestTheDeclaration:
             estimator.fit(
                 frame, outcome="Y", treatment="A", covariates=support.COVARIATES, weights="w"
             )
+        assert NeverFit.calls == 0
+
+    def test_a_weighted_blip_fit_refuses_a_superlearner_member_without_weights(self) -> None:
+        library = SuperLearner(library=[LinearRegression(), KNeighborsRegressor()])
+        LearnedRule(loss="blip", learner=library)  # admitted: unweighted fits need no weights
+        estimator = support.learned_tmle(
+            learned_rule=LearnedRule(loss="blip", learner=library), **never_fit_learners()
+        )
+        frame = support.law_frame(120, 3).assign(w=lambda f: 1.0 + 0.5 * f["W2"])
+        NeverFit.calls = 0
+        with pytest.raises(CapabilityError, match="member KNeighborsRegressor") as caught:
+            estimator.fit(
+                frame, outcome="Y", treatment="A", covariates=support.COVARIATES, weights="w"
+            )
+        assert caught.value.refusal.reason.value == "invalid_declaration"
         assert NeverFit.calls == 0
 
     def test_the_weighted_learner_row_comes_after_the_setting_rows(self) -> None:
@@ -227,6 +303,7 @@ class TestTheRecord:
         plug_in = support.fit().extra["learned_rule"]
         assert (plug_in.loss, plug_in.learner) == ("plug_in", None)
         assert plug_in.splits[0].inner_seeds == ()
+        assert plug_in.splits[0].score_quantiles == ()
         assert "plug-in rule of the fold's outcome regression" in plug_in.describe()
 
     def test_the_inner_seeds_are_recorded_and_derived_from_the_split_seed(self) -> None:
@@ -260,6 +337,15 @@ class TestTheRecord:
             )
             np.testing.assert_array_equal(refit.treat(covariates[test]), rule[test])
             assert np.mean(rule[test]) == split.treated_shares[fold]
+            # The score quantiles describe the rule learner's score, not the outer blip.
+            margin = refit.margin(covariates[test])
+            np.testing.assert_allclose(
+                split.score_quantiles[fold],
+                np.quantile(margin, law_levels()),
+                rtol=0,
+                atol=1e-12,
+            )
+            assert split.score_quantiles[fold] != split.blip_quantiles[fold]
 
     def test_a_frozen_rule_keeps_the_loss_and_the_rule(self) -> None:
         result = _blip_fit()
@@ -271,6 +357,12 @@ class TestTheRecord:
         label = _blip_fit().estimates[support.NAME].support
         assert label.label == "experimental"
         assert label.row is None
+
+
+def law_levels() -> tuple[float, ...]:
+    from cleverly.interventions.learned import BLIP_QUANTILE_LEVELS
+
+    return BLIP_QUANTILE_LEVELS
 
 
 # ------------------------------------------------------------------------------------ W-g1
@@ -662,6 +754,151 @@ class TestWg4OwnRowLeakage:
         # Every other inner fold trained on the row, so its pseudo-outcomes move.
         assert np.min(np.abs(change[~same_fold & (np.arange(train.size) != position)])) > 0.0
 
+    def test_a_binding_truncation_divides_by_the_truncated_mechanism(self) -> None:
+        """At a row where ``g_bounds`` binds, the change is ``(2A - 1) dY / max(g, l)``.
+
+        The witness is nonzero: on this draw the row's fitted ``g(A | W)`` is below the bound,
+        so dividing by the untruncated ``g`` gives another change.
+        """
+        result = _blip_fit()
+        bounds = (0.45, 0.55)
+        train = np.asarray(next(iter(result.nuisance.folds))[0])
+        seed = result.extra["learned_rule"].splits[0].inner_seeds[0]
+        fit_inner = partial(result.estimator._inner_rule_nuisances, scaler=result.nuisance.scaler)
+        inner = result.data.subset(train)
+        folds = crossfit.random_partition(inner.n, INNER_FOLDS, cluster=None, seed=seed)
+        nuisance = fit_inner(inner, folds, seed)
+        arms = np.asarray(inner.treatment, dtype=float)
+        raw = np.where(arms == 1.0, nuisance.propensity.arm(1.0), nuisance.propensity.arm(0.0))
+        position = int(np.flatnonzero(raw < 0.43)[0])
+        g, a = float(raw[position]), float(arms[position])
+        assert g < bounds[0]
+        outcome = np.asarray(result.data.outcome, dtype=float).copy()
+        row = train[position]
+        delta = 1.0 - 2.0 * outcome[row]
+        outcome[row] += delta
+
+        def pseudo(source: Any) -> np.ndarray:
+            return fit_fold_rule(
+                source,
+                train,
+                loss="blip",
+                learner=blip_learner(),
+                fit_inner=fit_inner,
+                scaler=result.nuisance.scaler,
+                g_bounds=bounds,
+                seed=seed,
+            ).pseudo_outcome
+
+        change = pseudo(replace(result.data, outcome=outcome)) - pseudo(result.data)
+        expected = (2.0 * a - 1.0) * delta / bounds[0]
+        assert change[position] == pytest.approx(expected, rel=0, abs=1e-12)
+        assert abs((2.0 * a - 1.0) * delta / g - expected) > 0.05
+
+    def test_a_continuous_outcome_moves_its_pseudo_outcome_on_the_scaled_outcome(self) -> None:
+        """On ``Y`` in ``[a, b]`` with ``q_bounds=(a, b)``, the change is ``(2A - 1) dY / {(b - a) g}``.
+
+        The witness is nonzero: ``b - a = 6``, so the raw outcome gives six times the change.
+        """
+        low, high = 1.0, 7.0
+        frame = support.law_frame(400, 0)
+        rng = np.random.default_rng(5)
+        frame = frame.assign(Y=2.0 + 2.0 * frame["Y"] + rng.uniform(0.0, 2.0, len(frame)))
+        result = (
+            support.learned_tmle(
+                learned_rule=blip_rule(),
+                outcome_learner=LinearRegression(),
+                q_bounds=(low, high),
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=support.COVARIATES)
+            .single()
+        )
+        assert result.data.family != "binomial"
+        train = np.asarray(next(iter(result.nuisance.folds))[0])
+        seed = result.extra["learned_rule"].splits[0].inner_seeds[0]
+        fit_inner = partial(result.estimator._inner_rule_nuisances, scaler=result.nuisance.scaler)
+        bounds = result.config.g_bounds
+
+        def pseudo(source: Any) -> np.ndarray:
+            return fit_fold_rule(
+                source,
+                train,
+                loss="blip",
+                learner=blip_learner(),
+                fit_inner=fit_inner,
+                scaler=result.nuisance.scaler,
+                g_bounds=bounds,
+                seed=seed,
+            ).pseudo_outcome
+
+        position, delta = 11, 0.5
+        outcome = np.asarray(result.data.outcome, dtype=float).copy()
+        outcome[train[position]] += delta
+        change = pseudo(replace(result.data, outcome=outcome)) - pseudo(result.data)
+        inner = result.data.subset(train)
+        folds = crossfit.random_partition(inner.n, INNER_FOLDS, cluster=None, seed=seed)
+        nuisance = fit_inner(inner, folds, seed)
+        a = float(inner.treatment[position])
+        g = nuisance.bounded_propensity(bounds)[position, nuisance.propensity.column_for(a)]
+        expected = (2.0 * a - 1.0) * delta / ((high - low) * g)
+        assert change[position] == pytest.approx(expected, rel=0, abs=1e-12)
+        assert abs((2.0 * a - 1.0) * delta / g - expected) > 0.1
+
+
+# ----------------------------------------------------------------- the rule of a fold, exactly
+
+
+class TestTheFoldRule:
+    """The one-class fold and the tie, which no draw of a continuous law reaches."""
+
+    @pytest.mark.filterwarnings("ignore:targeting step did not drive")
+    @pytest.mark.parametrize(("outcome", "treats"), [("A", True), ("1 - A", False)])
+    def test_a_one_class_fold_gives_the_constant_rule_of_its_label(
+        self, outcome: str, treats: bool
+    ) -> None:
+        """With ``Y = A`` every pseudo-outcome is positive, and with ``Y = 1 - A`` negative.
+
+        Each fold's positive-weight rows then carry one label, so the rule is that label's
+        constant and the classifier is never fitted.
+        """
+        frame = support.law_frame(400, 0)
+        frame = frame.assign(Y=frame["A"] if outcome == "A" else 1.0 - frame["A"])
+        rule = LearnedRule(loss="weighted_classification", learner=UnfittableClassifier())
+        result = (
+            support.learned_tmle(learned_rule=rule)
+            .fit(frame, outcome="Y", treatment="A", covariates=support.COVARIATES)
+            .single()
+        )
+        np.testing.assert_array_equal(law.rule_of(result), treats)
+        for target in (piece for _, _, piece in _fold_pseudo_outcomes(result)):
+            assert np.all(target > 0.0) if treats else np.all(target < 0.0)
+
+    @pytest.mark.parametrize(
+        ("loss", "scores"),
+        [("blip", (-0.2, 0.0, 0.2)), ("weighted_classification", (0.3, 0.5, 0.7))],
+    )
+    def test_a_score_at_the_threshold_assigns_control(
+        self, loss: str, scores: tuple[float, ...]
+    ) -> None:
+        rule = FoldRule(loss, FixedScore(), False, 0, np.zeros(1))
+        covariates = np.array(scores).reshape(-1, 1)
+        np.testing.assert_array_equal(rule.treat(covariates), [False, False, True])
+        np.testing.assert_allclose(rule.margin(covariates), [-0.2, 0.0, 0.2], atol=1e-15)
+
+    @pytest.mark.filterwarnings("ignore::cleverly.exceptions.PositivityWarning")
+    def test_an_inner_fold_without_an_arm_refuses_with_a_remedy(self) -> None:
+        """Three treated rows: the outer split fits, and an inner complement has none."""
+        frame = support.law_frame(60, 0)
+        treated = np.zeros(len(frame))
+        treated[[8, 48, 56]] = 1.0
+        frame = frame.assign(A=treated)
+        support.fit(frame)  # the plug-in rule fits this sample
+        with pytest.raises(DataError, match=r"inner fold \d of outer fold \d") as caught:
+            support.fit(frame, learned_rule=LearnedRule(loss="blip", learner=LinearRegression()))
+        message = str(caught.value)
+        assert "no row in treatment arm" in message
+        assert "or with loss='plug_in'" in message
+
 
 # ---------------------------------------------------------------------------- compositions
 
@@ -689,6 +926,36 @@ class TestTheCompositions:
                 call["weight"] / call["weight"].mean(), expected / expected.mean(), rtol=1e-12
             )
         assert fitted.estimates[support.NAME].support.label == "experimental"
+
+    def test_every_inner_outcome_and_treatment_fit_is_weighted(self) -> None:
+        """The 25 inner fits of each nuisance get their rows' observation weights."""
+        WeightSpyOutcome.calls, WeightSpyTreatment.calls = [], []
+        frame = _weighted_frame()
+        fitted = (
+            support.learned_tmle(
+                learned_rule=LearnedRule(loss="blip", learner=LinearRegression()),
+                outcome_learner=WeightSpyOutcome(),
+                treatment_learner=WeightSpyTreatment(),
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=support.COVARIATES, weights="w")
+            .single()
+        )
+        outer = max(np.asarray(train).size for train, _ in fitted.nuisance.folds)
+        w1 = frame["W1"].to_numpy()
+        for spy in (WeightSpyOutcome, WeightSpyTreatment):
+            inner = [call for call in spy.calls if call["x"].shape[0] < outer]
+            assert len(inner) == 5 * INNER_FOLDS
+            for call in inner:
+                # The design holds W1, and the law's weight is 1 + 1.5 * (W1 > 0).
+                (column,) = [
+                    j for j in range(call["x"].shape[1]) if np.isin(call["x"][:, j], w1).all()
+                ]
+                expected = 1.0 + 1.5 * (call["x"][:, column] > 0.0)
+                assert call["weight"] is not None
+                weight = np.asarray(call["weight"], dtype=float)
+                np.testing.assert_allclose(
+                    weight / weight.mean(), expected / expected.mean(), rtol=1e-12
+                )
 
     def test_weighted_classification_weights_by_the_size_of_the_pseudo_outcome(self) -> None:
         SpyClassifier.calls = []

@@ -173,8 +173,10 @@ _LEARNED_RULE_ID = Identification(
         "linearization in Equation (14). Under these conditions, a maximum-likelihood "
         "mechanism fit in a correctly specified model gives a conservative interval",
         "C5: no Donsker condition is needed, so the learners may be flexible",
-        "C6: iid rows, with no observation weights, clusters, missing outcomes or "
-        "intermediate variable",
+        "C6: iid rows; or, under id=, iid clusters of bounded size whose number grows "
+        "with n, with a fixed number of folds and at least 2 clusters in every validation "
+        "fold; known, fixed and bounded observation weights under weights=; no missing "
+        "outcomes or intermediate variable",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -187,6 +189,7 @@ _LEARNED_RULE_ID = Identification(
     references=(
         "van der Laan & Luedtke (2015)",
         "Montoya, van der Laan, Skeem & Petersen (2023)",
+        "Luedtke & van der Laan (2016)",
     ),
 )
 

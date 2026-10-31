@@ -4071,7 +4071,7 @@ class TMLE:
                     "a learned-rule fit with a rule learner reached its rule without a draw "
                     "seed. This is a defect in cleverly: every draw of TMLE carries one."
                 )
-            treat = learned_rule_treat(
+            treat, margin = learned_rule_treat(
                 data,
                 estimates,
                 self.learned_rule,
@@ -4079,7 +4079,7 @@ class TMLE:
                 g_bounds=self._rule_g_bounds(data),
                 seed=0 if seed is None else int(seed),
             )
-            return _learned_rule_regimes(treat, self.learned_rule.name)
+            return _learned_rule_regimes(treat, self.learned_rule.name, margin)
         if not self.interventions:
             return None
         reference = None if self.reference is None else str(self.reference)
@@ -4089,7 +4089,9 @@ class TMLE:
         """The truncation bounds of the rule learner's pseudo-outcome: the fit's ``g_bounds``.
 
         The same resolution as :meth:`_config`'s ``g_bounds``, which ``result.config``
-        records, at the fit's own effective sample size.
+        records, at the full sample's effective size, not at the size of a training fold or
+        of an inner training complement.  The bound reads no outcome or treatment, so a
+        fold's rule reads nothing of that fold's validation rows through it.
         """
         return resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
 
