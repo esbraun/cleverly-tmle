@@ -1391,9 +1391,25 @@ classifier whose `fit` takes no `sample_weight` refuses too, because it would le
 sign, and so does a `SuperLearner` with a library member whose `fit` takes none. A weighted blip
 fit applies the same check to its regressor (row 13).
 
-No study measures a rule learner yet, so its key carries the qualifier `rule_learner_blip` or
-`rule_learner_weighted_classification`. The fit then reads experimental, alone and with weights,
-clusters, fold targeting or `repeats` above 1.
+The key of a rule-learner fit carries the qualifier `rule_learner_blip` or
+`rule_learner_weighted_classification`, so the plug-in rule's row never covers it. The
+[rule-learner study](method-evidence/learned-rule-learners.md) measures an unweighted fit on rows
+with pooled targeting, `repeats=1` and no `id=`, and that fit reads supported. A fit with weights,
+clusters, fold targeting or `repeats` above 1 reads experimental, because no cell measures it.
+
+The reading has a size. The interval is calibrated at n = 4,000, with SE ratios of 1.0080 for the
+blip and 0.9886 for the classification and coverage of 0.9501 and 0.9456. At n = 2,000 the SE
+ratios are 0.9644 and 0.9525 with coverage 0.9375 and 0.9380, and at n = 1,000 they are 0.9615 and
+0.9557 with coverage 0.9410 and 0.9325, so the SE is about 3.5% to 5% small.
+
+The deficit is the
+covariance between folds whose rules are fitted on each other's validation rows, a second-order
+remainder of relative order about $1/n$ that is larger for a pseudo-outcome learner than for the
+plug-in rule. The study measures a linear regression and a logistic regression on a quadratic
+basis of two covariates at one law, so a more flexible learner rests on the theory alone. Its
+fold-locality control resolves a rule learned on the validation rows, and the subtler reuse of the
+outer nuisances rests on the unit witnesses W-g3 and W-g4. The value gain over the plug-in rule is
+descriptive.
 
 `tests/unit/test_learned_rule_learners.py` holds the witnesses. At `misspecified_limit` with the
 main-terms outcome learner, the population projections put the plug-in rule and a blip rule on a

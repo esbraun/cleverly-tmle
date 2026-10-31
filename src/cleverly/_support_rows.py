@@ -760,6 +760,55 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # X11 (g): the learned-rule value when a blip or a weighted-classification rule learner
+    # sets each fold's rule. The qualifier ``rule_learner_<loss>`` keys the loss, so the plug-in
+    # row T24 never covers these fits and each loss has its own row. The splitting axis reads
+    # ``fold_evaluated`` without ``repeated``, and weights, clusters and fold targeting key
+    # other axes, so a fit that composes a rule learner with any of them matches no row.
+    # SE ratio and coverage of each loss at n = 4,000 (``interval_calibration``), 2,000 (primary)
+    # and 1,000 (``small_sample_diagnostic``), from the committed results of the study.
+    measured = {
+        "blip": (
+            "1.0080 and 0.9501 at n = 4,000, 0.9644 and 0.9375 at n = 2,000, and 0.9615 and "
+            "0.9410 at n = 1,000"
+        ),
+        "weighted_classification": (
+            "0.9886 and 0.9456 at n = 4,000, 0.9525 and 0.9380 at n = 2,000, and 0.9557 and "
+            "0.9325 at n = 1,000"
+        ),
+    }
+    for loss, reading in measured.items():
+        rows.append(
+            point_row(
+                f"T39.{loss}",
+                ["learned-rule-learners"],
+                families=("P11",),
+                splitting=("fold_evaluated",),
+                qualifiers=[f"rule_learner_{loss}"],
+                cells=[loss],
+                # Roadmap: X11.
+                limits=[
+                    "The study measures unweighted rows with pooled targeting, repeats=1 and no "
+                    "id. A rule-learner fit with weights, fold targeting, clusters or repeats "
+                    "above 1 matches no row and is experimental.",
+                    "The interval is calibrated at n = 4,000. At n = 1,000 and 2,000 the "
+                    "standard error is about 3.5% to 5% small and the coverage about 0.93 to "
+                    f"0.94. The SE ratio and the coverage are {reading}. The key holds no sample "
+                    "size, so a smaller fit also reads supported.",
+                    "The deficit is the covariance between folds, because each fold's rule is "
+                    "fitted on the other folds' validation rows. It is a second-order remainder "
+                    "of relative order about 1/n, larger for a pseudo-outcome rule learner than "
+                    "for the plug-in rule, and it grows with the learner's variability.",
+                    "The study measures a linear regression or a logistic regression on a "
+                    "quadratic basis of two covariates, at one law. A more flexible rule learner "
+                    "rests on the theory alone and may need a larger n for the same calibration.",
+                    "The fold-locality control shows that the instrument resolves a rule learned "
+                    "on the validation rows. The subtler leak, outer nuisances reused for the "
+                    "pseudo-outcome, rests on the unit witnesses W-g3 and W-g4.",
+                    "The value gain over the plug-in rule is descriptive and carries no test.",
+                ],
+            )
+        )
     rows.append(
         point_row(
             "T25",

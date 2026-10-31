@@ -2306,6 +2306,30 @@ def _learned_rule_split_mean_cases() -> tuple[RowCase, ...]:
     return (case("non_exceptional"), case("misspecified_limit"))
 
 
+def _learned_rule_learners_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-learners`` (X11 PR C).
+
+    Each runs the study's own declared fit of one rule learner on a draw of its scenario at the
+    primary size, up to the classifier, with the study's outcome learner.
+    """
+    module, slug = "learned_rule_learners", "learned-rule-learners"
+
+    def case(loss: str) -> RowCase:
+        return _observed(
+            f"T39.{loss}",
+            slug,
+            loss,
+            "_learned_rule_law.py:285",
+            module,
+            lambda study: study.draw_from_seed(loss, 2_000, 0)[0],
+            lambda study, frame: study.base.fit(
+                frame, study.base.outcome_learner(), 0, rule=study.law.rule(loss)
+            ),
+        )
+
+    return (case("blip"), case("weighted_classification"))
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2624,6 +2648,7 @@ CASES: tuple[RowCase, ...] = (
     *_categorical_incremental_cases(),
     *_learned_rule_composition_cases(),
     *_learned_rule_split_mean_cases(),
+    *_learned_rule_learners_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

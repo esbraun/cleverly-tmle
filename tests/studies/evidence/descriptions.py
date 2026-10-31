@@ -932,6 +932,11 @@ ARMS["misspecified_limit"] = (
     "has no W1^2 term"
 )
 
+#: The two arms of ``learned-rule-learners`` (X11 PR C), which :data:`STUDY_ARMS` scopes to the
+#: study. They sit here because the cell-name pattern below is built from :data:`ARMS` at import.
+ARMS["blip"] = "the learned-rule law with a blip rule learner"
+ARMS["weighted_classification"] = "the learned-rule law with a weighted-classification rule learner"
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1705,6 +1710,10 @@ PROPERTIES: dict[str, str] = {
     "small_sample_calibration": (
         "the SE ratio and coverage of the in-sample fits at n = 2,000, where few units follow "
         "the rule to the last node, reported rather than gated"
+    ),
+    "small_sample_diagnostic": (
+        "the SE ratio, coverage and bias of the declared rule-learner fit at n = 1,000, below "
+        "the calibration size, reported rather than gated"
     ),
     "repeated_outcome_necessity": (
         "reading the repeated outcome as an absorbing event targets the cumulative maximum "
@@ -5729,5 +5738,70 @@ STUDY_ARM_CELLS.update(
             "the SE-ratio interval must fall below the calibration band",
         )
         for label in ("non_exceptional", "misspecified_limit")
+    }
+)
+
+
+#: ``learned-rule-learners`` (X11 PR C): the learned-rule value when a blip or a
+#: weighted-classification rule learner sets each fold's rule.
+_LEARNERS_SLUG = "learned-rule-learners"
+IMPLEMENTATIONS["cleverly-learned-rule-learners"] = (
+    "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, with a rule learner fitted to "
+    "the blip pseudo-outcome on each fold's training rows"
+)
+_LEARNERS_LAW = "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose logistic outcome learner has no W1^2 term"
+STUDY_ARMS.update(
+    {
+        (_LEARNERS_SLUG, "blip"): (
+            f"{_LEARNERS_LAW}, with `LearnedRule(loss='blip')` on a quadratic basis and linear "
+            "regression"
+        ),
+        (_LEARNERS_SLUG, "weighted_classification"): (
+            f"{_LEARNERS_LAW}, with `LearnedRule(loss='weighted_classification')` on a "
+            "quadratic basis and logistic regression"
+        ),
+    }
+)
+STUDY_SCENARIOS.update(
+    {
+        (_LEARNERS_SLUG, "blip"): (
+            "learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, a misspecified outcome learner, "
+            "and a blip rule learner"
+        ),
+        (_LEARNERS_SLUG, "weighted_classification"): (
+            "learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, a misspecified outcome learner, "
+            "and a weighted-classification rule learner"
+        ),
+    }
+)
+STUDY_ESTIMANDS[_LEARNERS_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold average of the value of the rule that a rule learner fits on each fold's training rows"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNERS_SLUG, "interval_calibration", label, "declared"): (
+            "the declared fit with the study's rule learner and logistic nuisance learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("blip", "weighted_classification")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNERS_SLUG, "interval_calibration", label, "validation_rule_control"): (
+            "the same sample and folds with each fold's rule learner fitted on that fold's own "
+            "validation rows, so the rule has seen the rows that evaluate it",
+            "the coverage interval must fall below the calibration band",
+        )
+        for label in ("blip", "weighted_classification")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNERS_SLUG, "small_sample_diagnostic", label, "n1000"): (
+            "the declared fit at n = 1,000, reported without a verdict",
+            "none. The cell reports the SE ratio, coverage and bias at the smaller size",
+        )
+        for label in ("blip", "weighted_classification")
     }
 )
