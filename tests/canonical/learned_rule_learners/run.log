@@ -1,0 +1,23 @@
+=== learned-rule-learners declared run
+command: /home/user/venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_learners/regenerate.py --jobs 4 --output /tmp/claude-0/decl/out2
+commit: 2d16cb6f25a67e56b5677cbe8b8de6558fde79eb; upstream 2d16cb6f25a67e56b5677cbe8b8de6558fde79eb
+clean tree: True
+cleverly 0.1.7 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 13, sha256 7665e08b785276bc48edb1000065e2596684a3cb56a344d260c5c9653901286b
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-31T08:59:44+00:00
+note: resumed from /root/.cache/cleverly/runs/learned-rule-learners/e0b777bc202f, reused the Python phase
+finished: 2026-10-31T09:40:36+00:00
+wall seconds: 2451.7
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: 194e8646c991c7f59d1042622c7631ba217f62572492ebe75d4d3f98b3f52351
+sha256 manifest.json: 76f39d407bc31b1481cc1dfd3af99ca8c8a160e1cec80d86ee159f0a3794324c
+sha256 performance-tests.csv: a7db842d0f2c0652ae63c3c6b6ef4313fb9cef5bf62f1b8a45550fd95e1eccbd
+sha256 properties.csv: 38e6a76083ceffa7168b3bca36c395819b110dc8258e90e37f46a27d657ace98
+sha256 property-replicates.parquet: 582f013060b7d23c855da9df8161f432cb7068ce42d4bfb36c7320dbae4f05b2
+sha256 replicates.parquet: 792c2ac92c6865d1e1d5d0608fba52a4369f1f504f0c0f1da47084abfa95ae1b
+sha256 summary.csv: 9efe7a2f889d62ff3d30c4c72bb085b4ed21933ae20de4f22f548bf736d9126a
+

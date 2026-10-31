@@ -704,6 +704,11 @@ learned-rule-cvtmle,root_n_rate,slope in root-n band,contract
 learned-rule-cvtmle,targeting_necessity,bias discriminated,pair_collapse
 learned-rule-cvtmle,targeting_necessity,bias equivalent,bias
 learned-rule-cvtmle,targeting_necessity,least displacement over labels,control_concentrated
+learned-rule-learners,interval_calibration,coverage in calibration band,shift/0.7
+learned-rule-learners,interval_calibration,noise se ratio below band,se_high
+learned-rule-learners,interval_calibration,se ratio below band,se_high
+learned-rule-learners,interval_calibration,se ratio in calibration band,se/0.05
+learned-rule-learners,interval_calibration,validation-rule coverage below band,coverage/0.925
 learned-rule-split-mean,interval_calibration,coverage in calibration band,bias
 learned-rule-split-mean,interval_calibration,independent splits se ratio below band,pair_collapse
 learned-rule-split-mean,interval_calibration,noise se ratio below band,se_high

@@ -58,6 +58,8 @@ def declared_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
+    from tests.studies import learned_rule_learners as learners
+    from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_split_mean as split_mean
     from tests.studies import learned_rule_split_mean_properties as split_mean_properties
 
@@ -78,6 +80,12 @@ def declared_sample_seeds() -> set[int]:
         split_mean.PRIMARY_REPLICATES,
         split_mean_properties.PROPERTY_DRAWS,
         split_mean_properties.suffixes(split_mean.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        learners.STUDY,
+        learners.PRIMARY_REPLICATES,
+        learner_properties.PROPERTY_DRAWS,
+        learner_properties.suffixes(learners.STUDY),
     )
     return seeds
 

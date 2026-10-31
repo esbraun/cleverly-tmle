@@ -634,8 +634,10 @@ previous reader had is not a citation; a page number is.
   12(1):305–332, DOI 10.1515/ijb-2015-0052. Read first-hand in the NIH author manuscript PMC6056197
   on 2026-09-26, and its section structure again on 2026-09-28. Sections 4.1 to 4.3 give the blip
   and weighted-classification losses for a rule learner, and Section 6 gives the CV-TMLE of a rule's
-  risk. It gives no interval for the value.
-  [X11](roadmap.md#x11-learned-policy-follow-ups) part (g) cites it.
+  risk. It gives no interval for the value. Appendix A gives the doubly robust versions of the
+  blip losses, read in full text on 2026-10-30. The
+  rule learners of the learned-rule value cite it, in
+  [learned rules](technical-reference/point-treatment-tmle.md#learned-rules).
 - Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
   non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
   Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. Read first-hand on 2026-09-26, 2026-09-27

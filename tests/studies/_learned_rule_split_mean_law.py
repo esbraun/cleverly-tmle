@@ -95,9 +95,17 @@ def split_view(result: Any, split: int) -> SimpleNamespace:
     """Split ``split`` of ``result`` in the shape :func:`base.harness` reads.
 
     The harness reads the data, the folds and the realized rule. A split's folds and rule are
-    its own nuisance's, ``result.repeats[split].nuisance``.
+    its own nuisance's, ``result.repeats[split].nuisance``. A rule learner's refit also reads
+    the estimator, the configuration, the split seed and the split's recorded inner seeds.
     """
-    return SimpleNamespace(data=result.data, nuisance=result.repeats[split].nuisance)
+    return SimpleNamespace(
+        data=result.data,
+        nuisance=result.repeats[split].nuisance,
+        estimator=result.estimator,
+        config=result.config,
+        seed=result.repeats[split].seed,
+        inner_seeds=result.extra["learned_rule"].splits[split].inner_seeds,
+    )
 
 
 @dataclass(frozen=True)

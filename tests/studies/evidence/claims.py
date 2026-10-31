@@ -14,6 +14,7 @@ import math
 import re
 from collections.abc import Callable, Mapping
 
+import numpy as np
 import pandas as pd
 
 from tests.studies.evidence import failures, property_verdicts
@@ -422,6 +423,14 @@ def _mechanism_aggregates(
     }
 
 
+def _harness_columns(record: StudyRecord) -> frozenset[str]:
+    """The header of a study's ``harness.csv.gz``, or nothing before the study has run."""
+    if HARNESS_FILE not in record.extra_artifacts:
+        return frozenset()
+    path = record.artifact(HARNESS_FILE)
+    return frozenset(pd.read_csv(path, nrows=0).columns) if path.exists() else frozenset()
+
+
 def _harness_aggregates(
     record: StudyRecord,
 ) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
@@ -430,6 +439,11 @@ def _harness_aggregates(
     The oracle standard error is a descriptive column that no verdict reads.  A page that
     compares it with the mean reported standard error still quotes it through here, so the
     number it prints is the one the artefact holds.
+
+    A harness that carries ``plug_in_truth`` (a rule-learner study's paired plug-in fit) also
+    gains, per scenario, the mean, the SD and the positive share of ``truth - plug_in_truth``,
+    the primary value gain over the plug-in rule: ``value_gain_mean_<scenario>``,
+    ``value_gain_sd_<scenario>`` and ``value_gain_positive_share_<scenario>``.
 
     Parameters
     ----------
@@ -453,6 +467,20 @@ def _harness_aggregates(
             return float(rows["oracle_se"].mean())
 
         out[f"mean_oracle_se_{scenario}"] = mean_oracle_se
+        if "plug_in_truth" not in _harness_columns(record):
+            continue
+
+        def gain(data: Mapping[str, pd.DataFrame], scenario: str = scenario) -> np.ndarray:
+            rows = _scenario(data[HARNESS], scenario)
+            if rows.empty:
+                raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
+            return rows["truth"].to_numpy(float) - rows["plug_in_truth"].to_numpy(float)
+
+        out[f"value_gain_mean_{scenario}"] = lambda data, gain=gain: float(np.mean(gain(data)))
+        out[f"value_gain_sd_{scenario}"] = lambda data, gain=gain: float(np.std(gain(data), ddof=1))
+        out[f"value_gain_positive_share_{scenario}"] = lambda data, gain=gain: float(
+            np.mean(gain(data) > 0.0)
+        )
     return out
 
 

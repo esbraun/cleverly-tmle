@@ -127,7 +127,7 @@ not change the package version.
 | after beta | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | the shipped support rows and per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | after beta | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; the reviewed worked examples | [X69](#x69-documentation-review-for-new-and-changed-methods) |
-| B5 | Learned-policy follow-ups | published support for part (g); natural extension for parts (i2), (k2), (m) and (n); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Learned-policy follow-ups | natural extension for parts (i2), (k2), (m) and (n); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -923,9 +923,8 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (a) to
-(e), the refusal of the request cites the part. No request reaches parts (f) and
-(g). Each part needs its own contract, witnesses and registered study
-before it ships, as the learned-rule value did.
+(e), the refusal of the request cites the part. No request reaches part (f). Each part needs its
+own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
 | --- | --- | --- | --- |
@@ -935,7 +934,6 @@ before it ships, as the learned-rule value did.
 | (d) categorical treatments | a treatment with more than two arms | Nordland and Holst (2026), Section 3.4, for discrete actions | source audit |
 | (e) the stacked doubly robust score evaluation | `cv_evaluation=False` | Nordland and Holst (2026), Algorithm 4, which pools the scores and centres the variance at the pooled estimate | published support; pending source read |
 | (f) the value of the optimal rule | no request reaches it | van der Laan and Luedtke (2015), Section 7.2, last paragraph; Luedtke and van der Laan (2016), *Annals of Statistics* | published support; pending source read |
-| (g) blip and weighted-classification rule learners | no request reaches it, because the contract has one rule learner | Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 4.1 to 4.3, read first-hand in the author manuscript | published support |
 
 A rule learned on separate training data and frozen before evaluation is a known rule.
 `Rule(..., rule_kind="known")` and `DynamicRegimen(..., rule_kind="known")` evaluate it, and the
@@ -967,6 +965,14 @@ it, so an unweighted fit with pooled targeting reads supported. A weighted or fo
 at `repeats` above 1 reads experimental. The median of split estimates estimates no defined
 parameter, so no setting reaches it. Parts (k2) and (i2) are what remains of the weights part and
 the splits part.
+
+The rule learners of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules),
+`LearnedRule(loss="blip")` and `LearnedRule(loss="weighted_classification")`, learn each fold's
+rule from a doubly robust pseudo-outcome with nuisances cross-fitted inside the training rows.
+Their [study](technical-reference/method-evidence/learned-rule-learners.md) calibrates the
+interval at n = 4,000 and reports a standard error about 3.5% to 5% small at n = 1,000 and 2,000, so
+an unweighted fit with pooled targeting, `repeats=1` and no `id=` reads supported. A fit with
+weights, clusters, fold targeting or `repeats` above 1 reads experimental.
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |

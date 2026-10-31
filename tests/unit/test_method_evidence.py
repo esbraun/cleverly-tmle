@@ -1185,8 +1185,10 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
-                elif suffix == "wrong_gamma_control":
+                elif suffix in ("wrong_gamma_control", "validation_rule_control"):
                     # X82 SH: a smaller Gamma's end read against the declared truth must miss.
+                    # X11 PR C (``learned-rule-learners``): a rule learned on the validation
+                    # rows that evaluate it is optimistic and must miss its own value.
                     expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
@@ -1765,6 +1767,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
+        # X11 PR C (``learned-rule-learners``): the rule-learner fit at n = 1,000, below its
+        # calibration size, reported with its SE ratio, coverage and bias and no verdict.
+        "small_sample_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
@@ -2751,6 +2756,7 @@ _FAMILY = {
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
     "mean_oracle_se": "harness",
+    "value_gain_": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
     "subject_failures": "failures",

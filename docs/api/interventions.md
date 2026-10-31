@@ -23,8 +23,10 @@ against the levels of one treatment or one node.
 plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
 `each_node` writes one rule for every node of a long panel, and it returns one `NodeRule` per node.
 
-`LearnedRule` declares a rule that the fit learns inside each training fold, and
-`LearnedRuleRecord` records that fit, with one `LearnedRuleSplit` for each split of the folds.
+`LearnedRule` declares a rule that the fit learns inside each training fold. By default the rule
+comes from the fit's outcome model, and `loss="blip"` or `loss="weighted_classification"` learns
+it with a learner that you pass. `LearnedRuleRecord` records that fit, with one `LearnedRuleSplit`
+for each split of the folds.
 
 ```{eval-rst}
 .. autosummary::

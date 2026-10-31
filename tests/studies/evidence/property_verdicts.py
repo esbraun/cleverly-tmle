@@ -1013,6 +1013,16 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     "independent_splits_control": "below",
 }
 
+#: The calibration controls whose deliberately invalid interval misses the truth while its
+#: standard error stays honest, so their coverage interval must lie wholly below the band floor,
+#: each with the name of its accounting clause.  X82 SH: a bound at a smaller ``Gamma`` read
+#: against the declared bound's truth.  X11 PR C: a learned rule fitted on the validation rows
+#: that then evaluate it, whose estimate is optimistic for its own value.
+COVERAGE_CONTROLS: dict[str, str] = {
+    "wrong_gamma_control": "wrong-gamma coverage below band",
+    "validation_rule_control": "validation-rule coverage below band",
+}
+
 
 def _se_control_clause(control: str, side: Literal["below", "above"]) -> str:
     # The two generic controls keep the short names that clause-bindings.csv binds; a
@@ -1094,9 +1104,10 @@ def calibration_verdicts(
             passed = se_ratio_leaves_band(
                 ratio, margins.calibration_se_ratio, SE_CONTROL_SIDES[kind]
             )
-        elif kind == "wrong_gamma_control":
-            # The estimate of a bound at a smaller sensitivity parameter, read against the
-            # declared bound's truth: the study must see that it misses.
+        elif kind in COVERAGE_CONTROLS:
+            # An interval that misses the truth with an honest spread: the estimate of a bound
+            # at a smaller sensitivity parameter read against the declared bound's truth, or an
+            # optimistic learned-rule estimate.  The study must see that it misses.
             coverage = summary_interval(summary, index, "coverage")
             passed = coverage.high < margins.calibration_coverage[0]
         elif kind == "noise_control":
@@ -2243,11 +2254,14 @@ def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.Famil
             )
             for control, side in SE_CONTROL_SIDES.items()
         ),
-        pf.proportion_clause(
-            "wrong-gamma coverage below band",
-            statistic="S2",
-            judge=pf.below_judge(lambda ctx: ctx.margins.calibration_coverage[0]),
-            applies=kind("wrong_gamma_control"),
+        *(
+            pf.proportion_clause(
+                clause,
+                statistic="S2",
+                judge=pf.below_judge(lambda ctx: ctx.margins.calibration_coverage[0]),
+                applies=kind(control),
+            )
+            for control, clause in COVERAGE_CONTROLS.items()
         ),
         pf.se_interval_clause(
             "efficiency above band",

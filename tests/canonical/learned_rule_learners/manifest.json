@@ -1,0 +1,100 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule value, rule learners",
+  "slug": "learned-rule-learners",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-learners",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "2d16cb6f25a67e56b5677cbe8b8de6558fde79eb",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20263031,
+    "resampling_seed": 20263032,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-learners": 0.01
+    },
+    "scenarios": {
+      "blip": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "weighted_classification": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(loss=<scenario>, learner=<rule learner>), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>); primary n = 2000, interval_calibration n = 4000, small_sample_diagnostic n = 1000; rows only (no weights, no clusters), repeats=1",
+    "rule_learners": {
+      "blip": "Pipeline(PolynomialFeatures(2), LinearRegression()) on (W1, W2)",
+      "weighted_classification": "Pipeline(PolynomialFeatures(2), LogisticRegression(C=1e6, max_iter=5000)) on (W1, W2), sample weights |D|"
+    },
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "law": "RM30 misspecified_limit",
+    "truth": "per replication: refit each fold's rule through fit_fold_rule with the recorded inner seed and the fit's g_bounds, require the fit's rule on every validation row, and average the fold rules' values E Qbar0(d, W) by the trapezoid rule on 4001 points of W1 for each W2",
+    "oracle_se": "the row-curve oracle SE of the fit's fold rules; descriptive",
+    "value_gain": "plug_in_estimate, plug_in_std_error and plug_in_truth: the plug-in rule's fit of the same sample with the same fold seed, its reported standard error and its harness truth; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate); the inner seeds derive from it by SeedSequence([split_seed, v])",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_learners.py": "e0f3a412516e9aac3bd0bf3d94b3cfe8d83f7acf0d9f4c23dcb50d5a1ec45375",
+    "tests/studies/learned_rule_learners_properties.py": "50931642bfc42a41b7c07c9c00556ebe3ede576e43567036d61df90611b4af97",
+    "tests/studies/_learned_rule_learners_law.py": "b5849f4e556f6b6516a9c4d85d51f5546598c0167ce74ed6a76ced86c0199189",
+    "tests/studies/_learned_rule_law.py": "190f9827d9787081034a2ae067a9998891ea8cfdfb108d3337a25ed36b4af5cb",
+    "src/cleverly/interventions/_rule_learners.py": "f08cad0b58f4eb65c2e9c0ac740ee3f6b9ecb302058c5cc315b6f7d315fcc0ea",
+    "src/cleverly/interventions/learned.py": "179c1224165d369bce4f0f3f4fc8e654cf8963d699c0a237c852754a44e785f1",
+    "src/cleverly/estimators/tmle.py": "5bd566870b1049c0c306900ad64497756af2ca9e5d3d996b8b8a235cd0779367",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "fbb685002d336557225dcda8737034db3918c8c98210eed9cf47ae2129709692",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "792c2ac92c6865d1e1d5d0608fba52a4369f1f504f0c0f1da47084abfa95ae1b",
+    "summary.csv": "9efe7a2f889d62ff3d30c4c72bb085b4ed21933ae20de4f22f548bf736d9126a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "a7db842d0f2c0652ae63c3c6b6ef4313fb9cef5bf62f1b8a45550fd95e1eccbd",
+    "property-replicates.parquet": "582f013060b7d23c855da9df8161f432cb7068ce42d4bfb36c7320dbae4f05b2",
+    "properties.csv": "38e6a76083ceffa7168b3bca36c395819b110dc8258e90e37f46a27d657ace98",
+    "harness.csv.gz": "194e8646c991c7f59d1042622c7631ba217f62572492ebe75d4d3f98b3f52351"
+  }
+}
