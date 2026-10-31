@@ -666,6 +666,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.learned_rule_split_mean import STUDY as LEARNED_RULE_SPLIT_MEAN
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
@@ -721,6 +722,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_CVTMLE,
         LEARNED_RULE_CVTMLE_BOUNDARY,
         LEARNED_RULE_COMPOSITIONS,
+        LEARNED_RULE_SPLIT_MEAN,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

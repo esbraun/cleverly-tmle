@@ -735,6 +735,31 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
+    # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
+    # splitting, weighting and dependence axes, match no row.
+    rows.append(
+        point_row(
+            "T38.split_mean",
+            ["learned-rule-split-mean"],
+            families=("P11",),
+            splitting=("fold_evaluated", "repeated"),
+            cells=["non_exceptional", "misspecified_limit"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures unweighted rows with pooled targeting and no id, at ten "
+                "folds and repeats=5. A fit with weights, fold targeting or clusters at "
+                "repeats above 1 matches no row and is experimental, and clusters refuse.",
+                "The key holds neither the fold count nor the repeat count, so a fit at "
+                "another repeat count reads supported on the linearity argument, which covers "
+                "any fixed repeat count, and no cell measures it.",
+                "The band cannot separate the declared variance from the mean of the split "
+                "variances, which was 1.2% to 1.6% higher in the pilot. The formula and the "
+                "per-split truth rest on the unit witnesses.",
+                "The exceptional and weak-blip laws are not measured.",
+            ],
+        )
+    )
     rows.append(
         point_row(
             "T25",

@@ -1655,6 +1655,31 @@ def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> R
     )
 
 
+#: The tests that hold a learned-rule fit's realized rules fixed on every refit (X82 part F4).
+_RULE_HOLDING_TESTS = (
+    "random_common_cause",
+    "subset",
+    "bootstrap_stability",
+    "bootstrap_measurement_error",
+)
+
+
+def _refuse_learned_rule_splits(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a rule-holding test on a learned-rule fit of several splits.
+
+    Those tests freeze one realized rule per row, and a fit of ``repeats`` above 1 has one
+    rule per row in each split.  ``placebo`` relearns the rules, so it runs.
+    """
+    if not _is_learned_rule_fit(result):
+        return None
+    held = [name for name in request.tests if name in _RULE_HOLDING_TESTS]
+    if not held:
+        return None
+    from ..interventions.learned import learned_rule_splits_refusal
+
+    return learned_rule_splits_refusal(f"refute(tests={held})", result.n_repeats)
+
+
 def _refuse_generated_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a generated-outcome test under bands other than the registered ones."""
     if not request.generated or type(request.outcome_bands) is EquivalenceBands:
@@ -1778,6 +1803,7 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("future_treatment", _refuse_future_treatment),
     ("no_effect_null", _refuse_no_effect_null),
     ("row_set_under_plan", _refuse_row_set_under_plan),
+    ("learned_rule_splits", _refuse_learned_rule_splits),
     ("generated_rule", _refuse_generated_rule),
     ("generated_eligibility", _refuse_generated_eligibility),
     ("measurement_declaration", _refuse_measurement_declaration),
@@ -5010,7 +5036,14 @@ def refute(
 
     from ..interventions.learned import frozen_rule_replay
 
-    frozen_rule = _frozen_rule(result)
+    # Frozen on the first refit that holds the rule: a learned-rule fit of several splits
+    # has no single rule per row, and the request rules refuse every test that holds one.
+    frozen_rules: list[FrozenLearnedRule | None] = []
+
+    def frozen_rule() -> FrozenLearnedRule | None:
+        if not frozen_rules:
+            frozen_rules.append(_frozen_rule(result))
+        return frozen_rules[0]
 
     def refit(
         replacement: Any,
@@ -5030,11 +5063,8 @@ def refute(
             options["frozen_folds"] = frozen_folds
         if frozen_seeds is not None:
             options["frozen_seeds"] = frozen_seeds
-        fitter = (
-            estimator
-            if frozen_rule is None or not hold_rule
-            else frozen_rule_replay(estimator, frozen_rule, rule_rows)
-        )
+        held = frozen_rule() if hold_rule else None
+        fitter = estimator if held is None else frozen_rule_replay(estimator, held, rule_rows)
         refitted = fitter.refit(
             replacement,
             **_intermediate_option(result),

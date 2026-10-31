@@ -408,6 +408,7 @@ class TestTheTruncationRowResolvesEachRequest:
             "observation_axis",
             "incremental",
             "natural_course",
+            "learned_rule_splits",
         ]
 
     @pytest.mark.parametrize("kind", list(TRUNCATION_STATUS_OF))
@@ -609,6 +610,7 @@ class TestTheRefuteRowResolvesEachRequest:
             "future_treatment",
             "no_effect_null",
             "row_set_under_plan",
+            "learned_rule_splits",
             "generated_rule",
             "generated_eligibility",
             "measurement_declaration",

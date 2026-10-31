@@ -61,7 +61,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from numbers import Integral
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
@@ -316,7 +316,7 @@ def _cross_fit_policy_refusal(
     if repeats > 1 and not cross_fit:
         return Refusal(
             invalid,
-            "repeats takes the median over independent cross-fitting splits, and "
+            "repeats combines independent cross-fitting splits, and "
             f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting"
             + _in_sample_offer(" or set repeats=1", learned_rule),
         )
@@ -1427,9 +1427,15 @@ class CrossFitPlan:
         selection folds remain seeded. A seed is not enough to reproduce a generated
         split on its own; see :mod:`cleverly.provenance`.
     repeats : int
-        How many independent draws of the whole split the fit combines by median. ``1`` is
-        an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,
-        not a scheme of its own -- repeating a grouped split gives grouped splits.
+        How many independent draws of the whole split the fit combines, by
+        :attr:`aggregate`. ``1`` is an ordinary fit.  A count layered over whichever
+        ``scheme`` the data resolved to, not a scheme of its own -- repeating a grouped
+        split gives grouped splits.
+    aggregate : {"median", "mean"}
+        How the draws combine.  ``"median"`` on every fit but a learned-rule one, which
+        takes ``"mean"``: each split learns its own rules and so defines its own target,
+        and the reported target is the mean of those targets.  :meth:`describe` prints
+        it, and the one-line ``repr`` leaves it out.
     """
 
     n_folds: int = 10
@@ -1438,6 +1444,8 @@ class CrossFitPlan:
     stratify_by: tuple[str, ...] = ()
     random_state: int | None = None
     repeats: int = 1
+    # Left out of the one-line repr, which must stay short; :meth:`describe` prints it.
+    aggregate: Literal["median", "mean"] = field(default="median", repr=False)
 
     @property
     def cross_fit(self) -> bool:
@@ -1460,7 +1468,8 @@ class CrossFitPlan:
         by = f" stratified on {', '.join(self.stratify_by)}" if self.stratify_by else ""
         if not self.cross_fit:
             return "declared: no cross-fitting (cross_fit=False)"
-        over = f", median over {self.repeats} draws" if self.repeated else ""
+        noun = "splits" if self.aggregate == "mean" else "draws"
+        over = f", {self.aggregate} over {self.repeats} {noun}" if self.repeated else ""
         return f"declared: {self.n_folds}-fold {self.scheme}{by}{over}"
 
     def seeds(self) -> tuple[int | None, ...]:

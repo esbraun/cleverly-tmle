@@ -24,7 +24,7 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
 `each_node` writes one rule for every node of a long panel, and it returns one `NodeRule` per node.
 
 `LearnedRule` declares a rule that the fit learns inside each training fold, and
-`LearnedRuleRecord` records that fit.
+`LearnedRuleRecord` records that fit, with one `LearnedRuleSplit` for each split of the folds.
 
 ```{eval-rst}
 .. autosummary::
@@ -39,6 +39,7 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
    cleverly.longitudinal.NodeRule
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
+   cleverly.interventions.LearnedRuleSplit
    cleverly.interventions.RegimeSet
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet

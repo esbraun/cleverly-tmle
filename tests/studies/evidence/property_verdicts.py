@@ -1008,6 +1008,9 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     "population_truth_control": "below",
     # X11 PR A: a clustered learned-rule fit read with the row-level SE that ignores the clusters.
     "row_variance_control": "below",
+    # X11 PR B: a learned-rule fit of R splits read with the mean single-split SE over
+    # sqrt(R), which treats the splits as independent samples although they share every row.
+    "independent_splits_control": "below",
 }
 
 

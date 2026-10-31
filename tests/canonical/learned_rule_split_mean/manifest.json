@@ -1,0 +1,95 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule value, mean over splits",
+  "slug": "learned-rule-split-mean",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-split-mean",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "43b9d6ddde93b4f79995b69e0ea1599389134933",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20263021,
+    "resampling_seed": 20263022,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-split-mean": 0.01
+    },
+    "scenarios": {
+      "non_exceptional": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "misspecified_limit": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', repeats=5, random_state=<fold seed>) at n = 2000; rows only (no weights, no clusters)",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": {
+      "non_exceptional": "RM30 non_exceptional",
+      "misspecified_limit": "RM30 misspecified_limit"
+    },
+    "truth": "per replication: for each of the 5 splits, refit each fold's outcome learner on the split's training rows, require the split's rule on every validation row, and average the fold rules' values E Qbar0(d, W) by the trapezoid rule on 4001 points of W1 for each W2; the truth is the mean of the 5 split values",
+    "oracle_se": "the mean over the splits of each split's row-curve oracle SE; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate); the engine draws the 5 split seeds from it",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_split_mean.py": "138d7fb932a4dcf5ad2baa8626fbccf6b9c4dee1b11e3a99fa01874f67f0e7d2",
+    "tests/studies/learned_rule_split_mean_properties.py": "ae0529e6704b1be6389a79e1bfc3f9b7f77cdfe98fc1f73749d2a9e1eb0880c3",
+    "tests/studies/_learned_rule_split_mean_law.py": "1345736e6ffc299a5ab2584480de387f6199f2ecb16ec39f97310eab38f77e0e",
+    "tests/studies/_learned_rule_law.py": "c8afd96bc3bc930ba06cb0148c0b8c8c02f745b3c015ecee3b3c75c7d61924df",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "9141f853944bc60fa3a2048c358c90169f80d9cfdaee2ebe4d902f2b599e0785",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e2f0a958f9dbff36940578473398dc21cd64b9f367bf91b157bf2e7de7fdd74f",
+    "summary.csv": "2551e2113d6c69cbdd2c583703305bb5adbb9ea4d17e044681d6f9e587235924",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "787e761b99e15bb75d51c658064dde954d6b2dbe1b5fdadf2b10394154f016e1",
+    "property-replicates.parquet": "e91a8a81f67616274bb557e5d44f7599c63b3941f96a740f2078ec6d4f04abe2",
+    "properties.csv": "9cacbde3743aacdf3d510c9d5ad9384ecb7267fbbbbd0a243b0ae0502a5ef1fc",
+    "harness.csv.gz": "e5d4b23b1c04f7758b51178156444431a188a4ee68dc7df611b226d86d492809"
+  }
+}

@@ -1293,8 +1293,53 @@ learned-rule fit with unequal sizes (`unequal_clusters`), and such a fit reads e
 fit with both weights and clusters also reads experimental, because no cell measures it. Weights
 declared estimated (`weights_estimated=True`) refuse.
 
-The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat and no full-refit
-bootstrap. `refuse_learned_rule_composition` in
+#### The mean over splits
+
+With `repeats=R` above 1, the fit draws $R$ independent splits and reports the mean of the $R$
+split estimates. Each split $r$ learns its own fold rules, so it defines its own target
+$\tilde\psi^{(r)}_{0n}$, and the reported target is
+$\bar\psi_{0n} = R^{-1}\sum_r \tilde\psi^{(r)}_{0n}$. The median of the split estimates
+estimates no defined parameter, so this target never takes the median rule that
+[CV-TMLE](cv-tmle.md) applies to every other target.
+
+| step | what the fit computes | source |
+| --- | --- | --- |
+| estimate | $\hat\psi = R^{-1} \sum_r \hat\psi_r$, where $\hat\psi_r$ is the estimate above on split $r$ | JCI, Theorem 6, for each split |
+| influence curve | $\bar\phi_i = R^{-1} \sum_r \phi_{r,i}$, where $\phi_{r,i} = (n / (V n_{v_r(i)}))\, D_{r,i}$ is the stored curve of split $r$ | linearity over a fixed $R$, this package's step |
+| variance | $n^{-2} \sum_i \bar\phi_i^2$, which is the variance above at $R = 1$ | the same step |
+
+Under C3 every split is asymptotically linear with one limit curve, so the mean is too. The mean
+and the median then differ by $o_P(n^{-1/2})$: the median is refused because it has no defined
+target, not because its interval would under-cover. By Jensen's inequality the variance estimate
+is at most the mean of the split variance estimates on every draw. Curves centred on different
+partitions lose about $(2V - V/R - 1)/n$ of their degrees of freedom when they are averaged, and
+the fit ignores that loss on rows. With clusters the loss is about $2V - V/R - 1$ cluster degrees
+of freedom, and no correction is derived, so `repeats` above 1 with `id=` refuses
+([X11](../roadmap.md#x11-learned-policy-follow-ups) part (i2)).
+
+Known weights and `targeting_scheme="fold"` compose with `repeats`, because the argument needs
+only that each split is asymptotically linear with its stored curve, and both paths store that
+curve. `covariance()`, `contrast()` and `ratio()` read the mean curve $\bar\phi$ as they read the
+curve of one split, since the mean is linear.
+
+The [split-mean study](method-evidence/learned-rule-split-mean.md) measures five splits of ten
+folds at n = 2,000, and an unweighted fit with pooled targeting and no `id=` reads supported.
+Coverage is 0.9500 at `non_exceptional` and 0.9440 at `misspecified_limit`, and the SE ratio is
+1.0050 and 0.9753. Its band cannot separate the declared variance from the mean of the split
+variances, so the exact formula rests on the unit tests below. A weighted or fold-targeted fit at
+`repeats` above 1 reads experimental, because no cell measures it. The study draws five splits,
+and the argument covers any fixed $R$.
+
+`tests/unit/test_learned_rule_split_mean.py` checks the point and the variance against single-split
+fits at the same split seeds, unweighted, with known weights, with fold targeting, and at unequal
+folds ($n = 403$, $V = 5$), where $n / (V n_v)$ differs from 1. It checks the covariance and a
+contrast against the mean curve rebuilt from those fits. On its witness draw the mean and the
+median of four split estimates differ by more than 0.002.
+
+#### Refusals and the result record
+
+The fit needs `CrossFitting(enabled=True, fold_evaluation=True)` and no full-refit bootstrap.
+`refuse_learned_rule_composition` in
 [`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
 refuses every other composition before any learner, in the order that the table gives. A refusal
 that no setting repairs comes before a refusal whose remedy is a setting, as the
@@ -1314,7 +1359,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 8 | `strata=` | X11 (m) |
 | 9 | `cross_fit=False`, or one fold | X11 (a) |
 | 10 | `cv_evaluation=False` | X11 (e) |
-| 11 | `repeats` above 1 | X11 (i) |
+| 11 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
 | 12 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
 
 The first two rows run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
@@ -1322,30 +1367,38 @@ constructor also refuse a fold policy that the shared rules forbid, before the d
 learned-rule `TMLE`, the setting rows replace such a refusal where one of them applies.
 [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy.
 
-The result records the fit under `result.extra["learned_rule"]`, a `LearnedRuleRecord`. The
-table gives its fields.
+The result records the fit under `result.extra["learned_rule"]`, a `LearnedRuleRecord`. Its
+`splits` field holds one `LearnedRuleSplit` per split, in the order of `result.repeats`. The table
+gives the fields of a split.
 
 | field | content |
 | --- | --- |
+| `seed`, `estimate` | the seed of the split, and its estimate $\hat\psi_r$ |
 | `fold_sizes`, `fold_weights` | the validation rows of each fold, and the weight $1/V$ of each fold |
 | `fold_estimates` | $\psi^*_{nv}$ for each fold |
 | `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
-| `blip_quantiles`, `quantile_levels` | quantiles of the estimated blip on each fold's validation rows |
-| `rule`, `target` | the rule class and the target kind, in words |
+| `blip_quantiles` | quantiles of the estimated blip on each fold's validation rows |
 
-`result.summary(detail="full")` prints the target line of `LearnedRuleRecord.describe()` under Method details. The rule of each row
-is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model, and the saved
-folds, learner templates and seeds replay it.
+The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
+`rule`, `target` and `quantile_levels` give the rule class, the target kind and the quantile levels.
+`result.summary(detail="full")` prints the target line of `LearnedRuleRecord.describe()` under
+Method details, which gives the range of the split estimates and of the treated shares over every
+split. The rule of each row in split $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`.
+The fit keeps no fitted fold model, and the saved folds, learner templates and seeds replay it.
 
-A refit relearns the rules, so the full-refit bootstrap and `repeats` above 1 refuse.
+A refit relearns the rules, so the full-refit bootstrap refuses.
 `simulated_confounding` and the `refute` tests `subset`, `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` hold each row's realized rule fixed. `placebo` relearns the rules, because the placebo law gives every rule the value `E[Y]`.
 The [simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface) states that reading.
+A fit of several splits has one rule per row in each split. So `freeze_learned_rule`,
+`simulated_confounding`, the `refute` tests that hold the rules, and the support report refuse it.
+`truncation_curve` refuses it too, because its sweep combines the splits by their median. Each
+refusal names a refit with `repeats=1`, and `placebo` runs on every split.
 
 The other sensitivity analyses read `unavailable`, because the package does not implement them for this target.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n) holds the omitted-variable bound.
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the
-E-value and the missingness tilt. The support report and `truncation_curve` run, because they read the same
-rules.
+E-value and the missingness tilt. On a fit of one split the support report and `truncation_curve`
+run, because they read the same rules.
 
 ### Modified treatment policies
 

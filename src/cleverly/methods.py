@@ -536,7 +536,8 @@ class CrossFitting:
         Inner folds used by ensemble learners.
     repeats : int, default=1
         Independent outer-fold assignments to combine by their median, on a point-treatment
-        or a longitudinal design. A value above one requires ``enabled=True``.
+        or a longitudinal design. A learned-rule value combines them by their mean. A value
+        above one requires ``enabled=True``.
     stratify_by : {"none", "treatment", "treatment+outcome"}, default="none"
         Fold-stratification policy. ``"none"`` draws folds that read neither the
         treatment nor the outcome, and it is the only value a fit that draws a split

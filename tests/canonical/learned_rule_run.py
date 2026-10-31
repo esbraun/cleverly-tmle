@@ -58,6 +58,8 @@ def declared_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
+    from tests.studies import learned_rule_split_mean as split_mean
+    from tests.studies import learned_rule_split_mean_properties as split_mean_properties
 
     seeds = law.declared_sample_seeds(
         gated.STUDY,
@@ -70,6 +72,12 @@ def declared_sample_seeds() -> set[int]:
         compositions.PRIMARY_REPLICATES,
         composition_properties.PROPERTY_DRAWS,
         composition_properties.suffixes(compositions.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        split_mean.STUDY,
+        split_mean.PRIMARY_REPLICATES,
+        split_mean_properties.PROPERTY_DRAWS,
+        split_mean_properties.suffixes(split_mean.STUDY),
     )
     return seeds
 
@@ -126,7 +134,9 @@ def _property_harness_check(
         rows, output / "property-harness-check.csv.gz", compression={"method": "gzip", "mtime": 0}
     )
     fitted = rows.loc[rows["rule_rows_checked"] > 0]
-    agreement = (fitted["rule_rows_checked"] == fitted["n"]).groupby(fitted["cell"]).all()
+    # A fit of R splits checks every row once per split (``learned-rule-split-mean``).
+    checks = getattr(properties, "RULE_CHECKS_PER_ROW", 1)
+    agreement = (fitted["rule_rows_checked"] == checks * fitted["n"]).groupby(fitted["cell"]).all()
     warnings = rows.groupby("cell")["solver_warnings"].sum()
     print(f"property harness check, {len(rows)} rows, wall {wall:.1f} s", flush=True)
     print(f"rule agreement 1 on every fitted row, by cell:\n{agreement.to_string()}", flush=True)

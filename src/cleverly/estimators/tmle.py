@@ -168,7 +168,12 @@ from ..fluctuation.submodel import (
     stratify_columns,
 )
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cluster_inference_status, cross_validated_variance, fewest_clusters
+from ..inference.cluster import (
+    cluster_inference_status,
+    cross_validated_variance,
+    fewest_clusters,
+    influence_variance,
+)
 from ..inference.influence import (
     ArmMean,
     ClusterReference,
@@ -199,10 +204,12 @@ from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
     LearnedRule,
+    LearnedRuleRecord,
     _learned_rule_regimes,
     learned_rule_configuration_refusal,
-    learned_rule_record,
     learned_rule_scheme_refusal,
+    learned_rule_split,
+    mean_over_splits,
     refuse_learned_rule_composition,
 )
 from ..interventions.policy import (
@@ -715,9 +722,10 @@ class TMLE:
         A :class:`~cleverly.interventions.LearnedRule` to estimate the fold-average value of the
         rule learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
         contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
-        ``cross_fit=True``, ``cv_evaluation=True``, ``repeats=1`` and ``n_bootstrap=0``, and
-        refuses every other scheme before any learner, with that remedy.  Either targeting scheme
-        runs, and so do known observation weights and clusters.  It refuses ``interventions=``,
+        ``cross_fit=True``, ``cv_evaluation=True`` and ``n_bootstrap=0``, and refuses every other
+        scheme before any learner, with that remedy.  Either targeting scheme runs, and so do
+        known observation weights and clusters.  ``repeats=R`` above 1 reports the mean over the
+        ``R`` splits, never the median, and refuses beside clusters.  It refuses ``interventions=``,
         ``policies=``, ``incremental=``, ``msm=``, ``reference=`` and an arm estimand beside it,
         and a continuous or multi-arm treatment, missing outcomes, ``intermediate=``, estimated
         weights and ``strata=``.
@@ -755,11 +763,17 @@ class TMLE:
         drawn from the draw's own seed.  Holding those fixed would average over one stage
         of a randomised procedure while pinning the rest.
 
-        The aggregation is the **median**, and only the median. There is no aggregation
-        setting and no arithmetic-mean compatibility path. The marginal interval follows
-        the established within-plus-between rule. Joint covariance, post-fit contrasts,
-        and simultaneous bands are refused. The retained central-draw curve does not
-        represent the split-adjusted median estimator that a multiplier band would need.
+        The aggregation is the **median**, and only the median, for every target but the
+        learned-rule value. There is no aggregation setting. A learned-rule fit
+        (``learned_rule=``) reports the mean of the ``R`` split estimates instead, with the
+        variance :math:`n^{-2}\\sum_i \\bar\\phi_i^2` of the mean of the split curves:
+        each split defines its own target, and the median estimates no defined parameter.
+        The median's marginal interval follows the established within-plus-between rule.
+        Under the median, joint covariance, post-fit contrasts and simultaneous bands are
+        refused. The retained central-draw curve does not represent the split-adjusted
+        median estimator that a multiplier band would need. The mean of a learned-rule fit
+        is linear, so its covariance and contrasts read the mean curve as they read the
+        curve of one split.
 
         ``result.repeats`` holds the per-draw nuisance fits, fluctuations and point
         estimates, and ``result.repeat_spread()`` reports how far the draws moved --
@@ -2027,7 +2041,8 @@ class TMLE:
         intermediate; only the targeting step then runs per level.
 
         With ``repeats=R`` the whole construction below -- split, nuisances, targeting --
-        runs ``R`` times and the reports are combined by their median. The loop sits here, around
+        runs ``R`` times and the reports are combined by their median, or by their mean on a
+        learned-rule fit (:meth:`_combine_repeats`). The loop sits here, around
         :meth:`_nuisances` rather than inside it, which is what makes it free for the
         variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
         selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
@@ -2108,7 +2123,7 @@ class TMLE:
             )
             details.append(detail)
 
-        estimates = median_estimates(per_repeat)
+        estimates = self._combine_repeats(per_repeat)
         cv_detail = self._cv_detail(details, cluster=data.cluster)
         if self.cv_evaluation and cv_detail is None:
             raise DataError(
@@ -2119,11 +2134,24 @@ class TMLE:
         # A learned-rule fit is fold-evaluated, so the check above leaves ``cv_detail`` set.
         # The second test is for the type checker.
         if self.learned_rule is not None and cv_detail is not None:
-            # One draw: ``refuse_learned_rule_composition`` refuses repeats.
+            # One record per split. ``cv_detail.fold_estimates`` describes the first split
+            # only, so each split's fold estimates are read from its own detail.
             (name,) = cv_detail.fold_estimates
-            record = learned_rule_record(
-                self.learned_rule, nuisances[0], cv_detail.fold_estimates[name]
-            )
+            splits = []
+            for nuisance, seed, detail, report in zip(
+                nuisances, draw_seeds, details, per_repeat, strict=True
+            ):
+                assert detail is not None
+                splits.append(
+                    learned_rule_split(
+                        self.learned_rule,
+                        nuisance,
+                        detail.fold_estimates[name],
+                        seed=seed,
+                        estimate=report[name].psi,
+                    )
+                )
+            record = LearnedRuleRecord(name=self.learned_rule.name, splits=tuple(splits))
             extra = {**extra, "learned_rule": record}
         result = TMLEResult(
             estimates=estimates,
@@ -2299,14 +2327,49 @@ class TMLE:
         first = present[0]
         if len(present) == 1:
             return first
-        fold_evaluated = median_estimates([detail.fold_evaluated for detail in present])
+        fold_evaluated = self._combine_repeats([detail.fold_evaluated for detail in present])
+        pooled = (
+            median_estimates([detail.pooled for detail in present])
+            if self.learned_rule is None
+            else mean_over_splits(
+                [detail.pooled for detail in present], variance=influence_variance
+            )
+        )
         return replace(
             first,
             repeats=len(present),
-            pooled=median_estimates([detail.pooled for detail in present]),
+            aggregate="median" if self.learned_rule is None else "mean",
+            pooled=pooled,
             fold_evaluated=fold_evaluated,
             variance={name: value.variance for name, value in fold_evaluated.items()},
         )
+
+    def _combine_repeats(
+        self, per_repeat: Sequence[Mapping[str, ParameterEstimate]]
+    ) -> dict[str, ParameterEstimate]:
+        """Combine the reports of every draw into one.
+
+        The median rule of :func:`~cleverly.inference.influence.median_estimates` for every
+        target but the learned-rule value.  A learned-rule fit reports the mean over its
+        splits (:func:`~cleverly.interventions.learned.mean_over_splits`), with the
+        variance :math:`n^{-2}\\sum_i \\bar\\phi_i^2` of the averaged fold-evaluated
+        curve, because each split defines its own target and the median of the split
+        estimates estimates no defined parameter.  ``refuse_learned_rule_composition``
+        refuses ``repeats`` above 1 with clusters, so the rows here are independent.
+
+        Parameters
+        ----------
+        per_repeat : sequence of mappings
+            One report per draw.
+
+        Returns
+        -------
+        dict
+            The combined report.
+        """
+        if self.learned_rule is None or len(per_repeat) == 1:
+            return median_estimates(per_repeat)
+        return mean_over_splits(per_repeat, variance=_second_moment_over_n_squared)
 
     # ------------------------------------------------------------- internals
 
@@ -4727,6 +4790,9 @@ class TMLE:
         only the splits this version draws for the same reason: ``"stratified"`` and
         ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
         them, and they were deleted.
+
+        ``aggregate`` is ``"mean"`` on a learned-rule fit, which reports the mean over its
+        splits (:meth:`_combine_repeats`), and ``"median"`` on every other fit.
         """
         cross_fit = self.cross_fit
         supplied = self.split_plan
@@ -4753,6 +4819,7 @@ class TMLE:
             stratify_by=stratify_by,
             random_state=self.random_state,
             repeats=self.repeats,
+            aggregate="median" if self.learned_rule is None else "mean",
         )
 
     def _submodel(
@@ -5709,7 +5776,7 @@ class TMLE:
                 intermediate_value=intermediate_value,
             )
             per_repeat.append(estimates)
-        combined = median_estimates(per_repeat)
+        combined = self._combine_repeats(per_repeat)
         # The plug-in standard error is the replicate's own curve at every status, which is
         # what a studentized interval divides by (``RefitFn``).
         return {
@@ -5829,6 +5896,16 @@ def _in_report_order(
         name: estimates[name]
         for name in sorted(estimates, key=lambda n: order.get(parameter_stem(n), fallback))
     }
+
+
+def _second_moment_over_n_squared(curve: FloatArray) -> float:
+    """The fold-evaluated variance of a stored curve, :math:`n^{-2}\\sum_i \\phi_i^2`.
+
+    :func:`_average_over_folds` stores :math:`\\phi_i = (n / (V n_v)) D_i`, so on rows
+    this equals :func:`~cleverly.inference.cross_validated_variance` of the fold curve.
+    """
+    values = np.asarray(curve, dtype=float)
+    return float(np.sum(np.square(values)) / values.size**2)
 
 
 def _average_over_folds(

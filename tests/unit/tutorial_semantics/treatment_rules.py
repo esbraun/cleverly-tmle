@@ -133,7 +133,8 @@ def _check_learned(namespace: dict[str, Any]) -> None:
     learned, value, record = namespace["learned"], namespace["value"], namespace["record"]
     truth, true_target = namespace["truth"], namespace["true_target"]
     assert value.support.label == "supported" and value.support.row == "T24"
-    assert record.n_folds == 10 and set(record.fold_sizes) == {200}
+    (split,) = record.splits
+    assert split.n_folds == 10 and set(split.fold_sizes) == {200}
     # "no patient reached them".
     assert "no row reached a limit" in str(learned.summary(detail="full"))
     # At a glance: "each interval contains its true value"; "the estimate lands on it".

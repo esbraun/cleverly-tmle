@@ -109,10 +109,10 @@ def test_a_cell_averages_the_fold_values_with_equal_weights() -> None:
     result, surface = _fit(), _surface()
     cell = surface.cells[-1]
     data = _replacement(result, surface, cell.treatment_strength, cell.outcome_strength)
-    record = _frozen_refit(result, data).extra["learned_rule"]
-    assert record.fold_sizes == (81, 81, 81, 80, 80)
-    folds = np.asarray(record.fold_estimates)
-    sizes = np.asarray(record.fold_sizes, dtype=float)
+    (split,) = _frozen_refit(result, data).extra["learned_rule"].splits
+    assert split.fold_sizes == (81, 81, 81, 80, 80)
+    folds = np.asarray(split.fold_estimates)
+    sizes = np.asarray(split.fold_sizes, dtype=float)
     assert cell.estimate == pytest.approx(folds.mean(), abs=1e-12)
     # Row weights give another number, so the check separates the two averages.
     assert abs(float(np.average(folds, weights=sizes)) - folds.mean()) > 1e-6
@@ -148,7 +148,9 @@ def test_the_summary_states_the_fixed_rule_reading() -> None:
 
 def test_inconsistent_fold_metadata_is_refused() -> None:
     result = _fit()
-    record = replace(result.extra["learned_rule"], fold_sizes=(80, 81, 81, 81, 80))
+    original = result.extra["learned_rule"]
+    split = replace(original.splits[0], fold_sizes=(80, 81, 81, 81, 80))
+    record = replace(original, splits=(split,))
     tampered = replace(result, extra={**result.extra, "learned_rule": record})
     with pytest.raises(CapabilityError, match="inconsistent learned-rule parameter metadata"):
         simulated_confounding(tampered, estimand=support.NAME, grid=_GRID)

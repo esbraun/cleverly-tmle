@@ -77,7 +77,9 @@ def validate_learned_rule_replay(result: Any, estimand: str, key: Any) -> tuple[
         or np.asarray(regimes.values).shape != (result.data.n, 2, 1)
         or key.value != rule.name
         or record.name != rule.name
-        or tuple(int(np.asarray(test).size) for _, test in nuisance.folds) != record.fold_sizes
+        or record.n_splits != 1
+        or tuple(int(np.asarray(test).size) for _, test in nuisance.folds)
+        != record.splits[0].fold_sizes
     ):
         raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     values = np.asarray(regimes.values, dtype=float)

@@ -1063,7 +1063,9 @@ def cv_summary(report: CVTargeting, detail: Detail) -> Summary:
         notes.append(
             note(
                 "cv_first_split",
-                vocabulary.NOTE_TEXTS["cv_first_split"].format(repeats=count_text(report.repeats)),
+                vocabulary.NOTE_TEXTS[
+                    "cv_first_split_mean" if report.aggregate == "mean" else "cv_first_split"
+                ].format(repeats=count_text(report.repeats)),
             )
         )
     if report.fold_evaluated:

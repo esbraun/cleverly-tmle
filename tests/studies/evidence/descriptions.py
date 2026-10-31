@@ -925,6 +925,13 @@ ARMS.update(
     }
 )
 
+#: The second law of ``learned-rule-split-mean`` (X11 PR B). Its ``non_exceptional`` label is the
+#: shared one, and :data:`STUDY_ARMS` scopes that label's words to the study.
+ARMS["misspecified_limit"] = (
+    "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose logistic outcome learner "
+    "has no W1^2 term"
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -5687,4 +5694,40 @@ STUDY_ARM_CELLS[
 ] = (
     "the same estimate with the row-level standard error that ignores the clusters",
     "the SE-ratio interval must fall below the calibration band",
+)
+
+
+#: ``learned-rule-split-mean`` (X11 PR B): the learned-rule value as the mean over five splits.
+#: It reads the shared RM30 laws, so only its implementation, its estimand and its
+#: independent-splits control need words.
+_SPLIT_MEAN_SLUG = "learned-rule-split-mean"
+STUDY_ARMS[_SPLIT_MEAN_SLUG, "non_exceptional"] = (
+    "the learned-rule law with the blip 0.1 + W1, whose logistic outcome learner is correct"
+)
+IMPLEMENTATIONS["cleverly-learned-rule-split-mean"] = (
+    "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, as the mean over five "
+    "independent ten-fold splits"
+)
+STUDY_ESTIMANDS[_SPLIT_MEAN_SLUG, "ey_learned_rule[learned rule]"] = (
+    "mean over five splits of the fold average of the value of the rule learned on each "
+    "fold's training rows"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_SPLIT_MEAN_SLUG, "interval_calibration", label, "declared"): (
+            "the declared fit with five splits and the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("non_exceptional", "misspecified_limit")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_SPLIT_MEAN_SLUG, "interval_calibration", label, "independent_splits_control"): (
+            "the same estimate with the mean single-split standard error over the square root "
+            "of five, which treats the five splits as independent samples",
+            "the SE-ratio interval must fall below the calibration band",
+        )
+        for label in ("non_exceptional", "misspecified_limit")
+    }
 )
