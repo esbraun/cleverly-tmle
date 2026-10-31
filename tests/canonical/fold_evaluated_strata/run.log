@@ -1,0 +1,21 @@
+=== fold-evaluated-strata declared run
+command: /tmp/claude-0/-home-user/a93f3b29-b0d0-57a2-83af-e7c5dd1c8429/scratchpad/venv/bin/python /home/user/cleverly-tmle/tests/canonical/fold_evaluated_strata/regenerate.py --jobs 4 --output /tmp/claude-0/-home-user/a93f3b29-b0d0-57a2-83af-e7c5dd1c8429/scratchpad/out
+commit: 2e6a983fce8010766d9e356070c0d0c56047ee30; upstream 2e6a983fce8010766d9e356070c0d0c56047ee30
+clean tree: True
+cleverly 0.1.7 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 18, sha256 4b1e5a477319c724393d1514868113e17245859cb42ada7eeb47fb6117b4623e
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-31T15:58:22+00:00
+finished: 2026-10-31T16:19:15+00:00
+wall seconds: 1253.5
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 280af377b9d49a05485476dd409d78dcc8e0cba8f632b6a57443b6f6ab69fa04
+sha256 performance-tests.csv: 770d127189f5418ace93e279c40b269aceb46db3ea18fa649d9504c46e8dafd4
+sha256 properties.csv: 98f3efdbf88c86e15b49765fb135843d7fae8e9beaaca1a38e542b93f7616ba0
+sha256 property-replicates.parquet: dfc8e695f975bc2a1ddaa2efbc3c1e388aa44c08562fe0cb1363d20e4bfafe1f
+sha256 replicates.parquet: ccbad1ace3fa1baf77666471759a96d7fbf7ce161852026a8fc1aeff7e4f17cc
+sha256 summary.csv: 7162d1946c161e091c0bfdb5a0cdca623c857cd9fd0a6579e602e138d4a4511e
+
