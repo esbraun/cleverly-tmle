@@ -93,7 +93,8 @@ representer :math:`g^\star / g` the bound reads from the fit's stored matrix of 
 rule at every row (:func:`_combined_rule_regimes`).  It is a point bound: its estimate of
 ``nu^2`` applies ``V - 1`` of the rules to rows they were learned on, so no limit is derived,
 and ``benchmark`` refuses because its refit would relearn the rules.  A fit of several splits
-and a frozen-rule replay refuse.
+refuses as an implementation gap (X11 (n2)), and a frozen-rule replay refuses because it
+holds no fold rule.
 
 Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for five
 reasons.
@@ -101,9 +102,11 @@ reasons.
 * A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
   Lemma 3 of Chernozhukov et al. and the standard error of their Theorem 4 assume a
   consistently estimated treatment mechanism.
-* A fit indexed by a regime, a shift, or an MSM term is well posed.  Theorem 2 of
-  Chernozhukov et al. covers each one as a linear functional of the outcome regression,
-  and no implementation is registered.
+* A fit indexed by a risk-ratio tilt mean is well posed.  Theorem 2 of Chernozhukov et al.
+  covers it as a linear functional of the outcome regression, and no implementation is
+  registered.  A regime, shift, MSM or learned-rule fit is covered (part G and X11 part
+  (n)), and refuses only on the configurations :func:`_refuse_axis_configuration` and
+  :func:`_refuse_learned_rule_bound` name.
 * An ``ipsi`` fit is outside that theorem, because its estimand contains the treatment
   mechanism.
 * A longitudinal fit has no registered derivation.
@@ -150,7 +153,6 @@ from ..interventions.learned import (
     LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_LIMITS,
     fold_rules,
-    learned_rule_splits_refusal,
 )
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
@@ -373,11 +375,13 @@ def _refuse_selected_mechanism(result: Any) -> Refusal | None:
 def _refuse_non_arm_axis(result: Any) -> Refusal | None:
     """Refuse a fit whose counterfactuals are indexed by anything but an arm.
 
-    Two reasons, not one.  A regime, a shift, and an MSM coefficient are linear
-    functionals of the outcome regression and each has a Riesz representer, so the bound
-    is well posed and unimplemented.  An incremental intervention builds its density out
-    of the estimated mechanism, so the mechanism is part of the estimand rather than a
-    nuisance the bound conditions on, and the regression-only bound does not cover it.
+    A regime, a shift, an MSM coefficient and a learned-rule value are covered, and pass
+    unless their configuration refuses (:func:`_refuse_axis_configuration`,
+    :func:`_refuse_learned_rule_bound`).  A risk-ratio tilt mean is a linear functional of
+    the outcome regression with a Riesz representer, so its bound is well posed and
+    unimplemented.  An incremental intervention builds its density out of the estimated
+    mechanism, so the mechanism is part of the estimand rather than a nuisance the bound
+    conditions on, and the regression-only bound does not cover it.
     """
     axis = result.config.parameter_axis
     if axis == "arm":
@@ -410,28 +414,35 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
 
 
 def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
-    """Refuse a learned-rule fit whose fold rules the bound cannot read as one target.
+    r"""Refuse a learned-rule fit whose fold rules the bound cannot read as one target.
 
-    The bound holds the fold rules of one split fixed.  A fit of several splits has one set
-    of fold rules per split and reports their mean, and part G's median over draws would
-    answer for no defined parameter.  A fit of a :class:`~cleverly.interventions.
+    The bound holds the fold rules of one split fixed.  A fit of ``R`` splits reports the
+    mean :math:`R^{-1}\sum_r \theta_r`, which is still linear in :math:`\bar Q`, with
+    representer :math:`\bar g^\star / g` and
+    :math:`\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}`.  That composition is well
+    posed and not built: it needs a choice of ``g`` and ``sigma^2`` across the splits, so it
+    refuses as an implementation gap (X11 (n2)).  A fit of a :class:`~cleverly.interventions.
     FrozenLearnedRule` holds one realized rule per row and no fold rule, so the stochastic
     regime that averages the fold rules has no value off the realized one.  Weights,
     clusters and fold targeting pass: part G's regime bound admits each of them, and none
     changes the functional or its representer (``docs/technical-reference/
     validation-methods.md``, "The point bound of a learned-rule value").
     """
-    refusal = learned_rule_splits_refusal(
-        "the omitted-variable bound",
-        int(getattr(result, "n_repeats", 1)),
-        reads="holds the fold rules of one split fixed",
-        instead=(
-            "The bound of one split's rules would answer for that split's target, and the "
-            "median over splits answers for no defined parameter."
-        ),
-    )
-    if refusal is not None:
-        return refusal
+    n_splits = int(getattr(result, "n_repeats", 1))
+    if n_splits > 1:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"the omitted-variable bound holds the fold rules of one split fixed, and this "
+            f"learned-rule fit reports the mean over {n_splits} splits (repeats={n_splits}). "
+            "The bound of the mean over splits reads the average of every split's fold rules, "
+            "which is not built (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Refit with repeats=1 (CrossFitting(repeats=1) on the method), and run the "
+                "omitted-variable bound on that fit, which holds the rules of its one split "
+                "fixed."
+            ),
+            roadmap="X11",
+        )
     if getattr(result.repeats[0].nuisance.regimes, "fold_rules", None) is None:
         return Refusal(
             RefusalReason.INVALID_DECLARATION,

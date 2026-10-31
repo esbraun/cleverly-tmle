@@ -23,6 +23,7 @@ stores every fold's rule at every row, and the bound reads that matrix.
 
 from __future__ import annotations
 
+import importlib
 import itertools
 from dataclasses import replace
 from typing import Any
@@ -30,10 +31,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.linear_model import LinearRegression
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly
+import cleverly.interventions._rule_learners as rule_learners
 import cleverly.sensitivity.omitted_variable as ov
 from cleverly.estimators import TMLE, serialize
 from cleverly.exceptions import CapabilityError, RefusalReason
@@ -57,6 +59,94 @@ def _rules(result: Any) -> np.ndarray:
     rules = fold_rules(result.repeats[0].nuisance)
     assert rules is not None
     return rules
+
+
+def _off_diagonal(result: Any) -> np.ndarray:
+    """``(n, V)``: ``True`` where column ``v`` is not the row's own fold."""
+    nuisance = result.repeats[0].nuisance
+    assignment = np.asarray(nuisance.folds.assignment, dtype=int)
+    return assignment[:, None] != np.arange(nuisance.folds.n_folds)[None, :]
+
+
+def _assert_both_values_off_the_diagonal(result: Any) -> None:
+    """The nonzero witness: a column filled only on its own fold's rows cannot pass."""
+    rules = _rules(result)
+    off = _off_diagonal(result)
+    assert np.any(rules[off]) and not np.all(rules[off])
+
+
+class TieAtW2(ClassifierMixin, BaseEstimator):
+    """The outcome learner of :func:`support.outcome_learner`, with a blip of exactly zero.
+
+    At every row with ``W2 = 1`` it predicts one half at both arms, so the plug-in rule there
+    is a tie, which assigns the lower arm.  ``column`` is the position of ``W2`` in the
+    design: 2 on the pooled design ``(A, W1, W2)``, 1 on the per-arm design ``(W1, W2)``.
+    """
+
+    def __init__(self, column: int = 2) -> None:
+        self.column = column
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> TieAtW2:
+        self.model_ = support.outcome_learner().fit(np.asarray(X, dtype=float), y)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        design = np.asarray(X, dtype=float)
+        proba = np.array(self.model_.predict_proba(design), dtype=float)
+        proba[design[:, self.column] == 1.0] = 0.5
+        return proba
+
+
+class TieBlip(RegressorMixin, BaseEstimator):
+    """A blip learner whose fitted blip is exactly zero, the threshold, wherever ``W2 = 1``."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> TieBlip:
+        self.model_ = LinearRegression().fit(np.asarray(X, dtype=float), y, sample_weight)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        design = np.asarray(X, dtype=float)
+        return np.where(design[:, 1] == 1.0, 0.0, self.model_.predict(design))
+
+
+def _spy_fold_rules(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Record every :class:`FoldRule` the rule learner fits, in the order it fits them."""
+    recorded: list[Any] = []
+    original = rule_learners.fit_fold_rule
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        rule = original(*args, **kwargs)
+        recorded.append((kwargs.get("fold"), rule))
+        return rule
+
+    monkeypatch.setattr(rule_learners, "fit_fold_rule", spy)
+    return recorded
+
+
+def _by_hand_by_arm(result: Any, frame: pd.DataFrame, learner: Any) -> np.ndarray:
+    """Refit fold ``v``'s two per-arm outcome regressions by hand and read the sign."""
+    covariates = frame[list(support.COVARIATES)].to_numpy()
+    treatment = frame["A"].to_numpy()
+    outcome = frame["Y"].to_numpy()
+    folds = result.repeats[0].nuisance.folds
+    columns = []
+    for train, _ in folds:
+        rows = np.asarray(train)
+        at = {}
+        for arm in (0.0, 1.0):
+            own = rows[treatment[rows] == arm]
+            model = clone_learner(learner).fit(covariates[own], outcome[own])
+            at[arm] = model.predict_proba(covariates)[:, 1]
+        columns.append(at[1.0] - at[0.0] > 0.0)
+    return np.column_stack(columns)
+
+
+def clone_learner(learner: Any) -> Any:
+    """A fresh copy of ``learner``."""
+    from sklearn.base import clone
+
+    return clone(learner)
 
 
 # --------------------------------------------------------------------- the stored rules
@@ -98,17 +188,80 @@ class TestTheStoredRules:
             model = support.outcome_learner().fit(design[rows], frame["Y"].to_numpy()[rows])
             np.testing.assert_array_equal(rules[:, fold], support.blip(model, covariates) > 0.0)
 
-    def test_a_per_arm_outcome_regression_stores_its_rules(self) -> None:
-        result = support.fit(support.law_frame(400, 1), outcome_by_arm=True)
-        rules = _rules(result)
-        assert rules.shape == (400, 5) and np.any(rules != rules[:, :1])
+        _assert_both_values_off_the_diagonal(result)
 
-    def test_a_rule_learner_stores_its_rules(self) -> None:
-        rule = LearnedRule(loss="blip", learner=LinearRegression())
+    def test_each_column_of_a_per_arm_regression_is_that_fold_s_two_arm_models(self) -> None:
+        """Refit fold ``v``'s per-arm regressions on ``train & (A == a)`` and read the sign."""
+        frame = support.law_frame(400, 1)
+        result = support.fit(frame, outcome_by_arm=True)
+        rules = _rules(result)
+        assert rules.shape == (400, 5) and rules.dtype == bool
+        np.testing.assert_array_equal(
+            rules, _by_hand_by_arm(result, frame, support.outcome_learner())
+        )
+        _assert_both_values_off_the_diagonal(result)
+
+    @pytest.mark.parametrize("outcome_by_arm", [False, True], ids=["pooled", "by_arm"])
+    def test_a_tie_assigns_the_lower_arm_at_every_fold(self, outcome_by_arm: bool) -> None:
+        """The tie witness: a blip of exactly zero at ``W2 = 1`` gives ``False`` in every column.
+
+        A matrix built with ``>=`` in place of ``>`` puts ``True`` there.  The realized rule
+        keeps ``>``, so the diagonal check would also refuse that fit.
+        """
+        frame = support.law_frame(400, 1)
+        learner = TieAtW2(column=1 if outcome_by_arm else 2)
+        result = support.fit(frame, outcome_learner=learner, outcome_by_arm=outcome_by_arm)
+        rules = _rules(result)
+        tied = frame["W2"].to_numpy() == 1.0
+        assert 100 < tied.sum() < 300
+        assert not np.any(rules[tied])
+        # Away from the tie the rules still take both values off the diagonal.
+        off = _off_diagonal(result) & ~tied[:, None]
+        assert np.any(rules[off]) and not np.all(rules[off])
+        if outcome_by_arm:
+            np.testing.assert_array_equal(rules, _by_hand_by_arm(result, frame, learner))
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            LearnedRule(loss="blip", learner=LinearRegression()),
+            LearnedRule(loss="weighted_classification", learner=LogisticRegression(max_iter=1000)),
+        ],
+        ids=["blip", "weighted_classification"],
+    )
+    def test_each_column_of_a_rule_learner_is_that_fold_s_fitted_rule(
+        self, rule: LearnedRule, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Column ``v`` is fold ``v``'s fitted rule at every row, off its own fold too.
+
+        The spy records each fold's :class:`FoldRule` as the fit returns it.  A matrix that
+        evaluates each fold's rule on that fold's own rows only fails here.
+        """
+        recorded = _spy_fold_rules(monkeypatch)
         result = support.fit(support.law_frame(400, 1), learned_rule=rule)
         rules = _rules(result)
         assert rules.shape == (400, 5) and rules.dtype == bool
-        assert np.any(rules != rules[:, :1])
+        assert [fold for fold, _ in recorded] == list(range(5))
+        covariates = result.data.covariates
+        for fold, fold_rule in recorded:
+            np.testing.assert_array_equal(rules[:, fold], fold_rule.treat(covariates))
+        _assert_both_values_off_the_diagonal(result)
+
+    def test_a_rule_learner_tie_assigns_the_lower_arm(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The tie witness of a rule learner: a fitted blip of exactly zero treats no one."""
+        recorded = _spy_fold_rules(monkeypatch)
+        frame = support.law_frame(400, 1)
+        result = support.fit(frame, learned_rule=LearnedRule(loss="blip", learner=TieBlip()))
+        rules = _rules(result)
+        tied = frame["W2"].to_numpy() == 1.0
+        assert not np.any(rules[tied])
+        for fold, fold_rule in recorded:
+            np.testing.assert_array_equal(fold_rule.margin(result.data.covariates)[tied], 0.0)
+            np.testing.assert_array_equal(rules[:, fold], fold_rule.treat(result.data.covariates))
+        off = _off_diagonal(result) & ~tied[:, None]
+        assert np.any(rules[off]) and not np.all(rules[off])
 
     def test_a_corrupted_diagonal_is_a_defect(self, result: Any) -> None:
         """The mutation: one row's entry at its own fold disagrees with its realized rule."""
@@ -119,6 +272,21 @@ class TestTheStoredRules:
         broken = replace(nuisance, regimes=replace(nuisance.regimes, fold_rules=corrupted))
         with pytest.raises(RuntimeError, match="defect in cleverly"):
             fold_rules(broken)
+
+    def test_the_fit_checks_the_diagonal_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The same corruption at fit time raises from the fit, before any bound is asked for."""
+        tmle_module = importlib.import_module("cleverly.estimators.tmle")
+        original = tmle_module.learned_rule_treat
+
+        def corrupting(*args: Any, **kwargs: Any) -> Any:
+            treat, margin, rules = original(*args, **kwargs)
+            rules = np.array(rules)
+            rules[:, :] = ~rules
+            return treat, margin, rules
+
+        monkeypatch.setattr(tmle_module, "learned_rule_treat", corrupting)
+        with pytest.raises(RuntimeError, match="defect in cleverly"):
+            support.fit(support.law_frame(400, 1))
 
     def test_a_frozen_rule_replay_stores_none_and_the_bound_refuses_it(self, result: Any) -> None:
         estimator = frozen_rule_replay(result.estimator, freeze_learned_rule(result))
@@ -403,13 +571,16 @@ class TestTheCombinedRepresenterOnAnExactLaw:
         long, short = theta(star)
         combined = moments(star)
         assert long - short == pytest.approx(combined["product"], rel=1e-12)
-        # The nonzero witness: the omitted U moves the value of the frozen rules.
+        # The nonzero witness: the omitted U moves the value of the frozen rules.  The value
+        # is the one docs/technical-reference/validation-methods.md quotes.
         assert abs(long - short) > 0.02
+        assert long - short == pytest.approx(-0.0284, abs=5e-5)
         # The mutation: fold 0's rule alone gives another product.
         assert abs(moments(one)["product"] - (long - short)) > 0.01
 
         nu2 = ov.sensitivity_elements(exact_fit, ELEMENT).nu2
         assert nu2 == pytest.approx(combined["short2"], rel=1e-12)
+        assert nu2 == pytest.approx(1.823, abs=5e-4)
         residual = sum(
             float(np.sum(law * _g_long(a) * Q_LONG[a] * (1.0 - Q_LONG[a]))) for a in (0, 1)
         )
@@ -429,6 +600,7 @@ class TestTheCombinedRepresenterOnAnExactLaw:
         # The mutation: with the diagonal representer the bound overshoots the bias.
         monkeypatch.setattr(ov, "_combined_rule_regimes", lambda nuisance: nuisance.regimes)
         diagonal = ov.sensitivity_elements(exact_fit, ELEMENT).nu2
+        assert diagonal == pytest.approx(2.078, abs=5e-4)
         assert reach(diagonal) > abs(long - short) * 1.02
 
     def test_the_diagonal_representer_gives_a_larger_nu2(

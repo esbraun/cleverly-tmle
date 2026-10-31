@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
     from ..estimators._nuisance import NuisanceEstimates
     from ..inference.influence import ParameterEstimate
+    from ..learners.crossfit import Folds
 
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
@@ -56,6 +57,7 @@ __all__ = [
     "LearnedRule",
     "LearnedRuleRecord",
     "LearnedRuleSplit",
+    "check_fold_rules",
     "fold_rules",
     "freeze_learned_rule",
     "frozen_rule_replay",
@@ -922,15 +924,46 @@ def fold_rules(nuisance: NuisanceEstimates) -> np.ndarray | None:
     if rules is None:
         return None
     assert regimes is not None
+    realized = np.asarray(regimes.values[:, 1, 0], dtype=float) > 0.5
+    return check_fold_rules(rules, realized, nuisance.folds)
+
+
+def check_fold_rules(rules: np.ndarray, realized: np.ndarray, folds: Folds) -> np.ndarray:
+    """Check every fold's rule at every row against each row's realized rule.
+
+    The fit runs it when it builds the regime set, and :func:`fold_rules` runs it again on
+    every read, because a saved result can be edited.
+
+    Parameters
+    ----------
+    rules : numpy.ndarray
+        ``(n, V)`` booleans, column ``v`` the rule of fold ``v`` at every row.
+    realized : numpy.ndarray
+        ``(n,)`` booleans, the rule of each row's own fold.
+    folds : Folds
+        The split whose folds the columns follow.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``rules`` as booleans.
+
+    Raises
+    ------
+    RuntimeError
+        If the shape does not match the split, or if the entry of some row at its own fold
+        differs from its realized rule.  The fit evaluates both from one fitted model, so
+        this is a defect in cleverly.
+    """
     rules = np.asarray(rules, dtype=bool)
-    assignment = np.asarray(nuisance.folds.assignment, dtype=int)
-    if rules.shape != (assignment.size, nuisance.folds.n_folds):
+    assignment = np.asarray(folds.assignment, dtype=int)
+    if rules.shape != (assignment.size, folds.n_folds):
         raise RuntimeError(
             f"the stored fold rules have shape {rules.shape}, and the split has "
-            f"{assignment.size} rows and {nuisance.folds.n_folds} folds. This is a defect in "
+            f"{assignment.size} rows and {folds.n_folds} folds. This is a defect in "
             "cleverly."
         )
-    realized = np.asarray(regimes.values[:, 1, 0], dtype=float) > 0.5
+    realized = np.asarray(realized, dtype=bool)
     own = rules[np.arange(assignment.size), assignment]
     if not np.array_equal(own, realized):
         raise RuntimeError(

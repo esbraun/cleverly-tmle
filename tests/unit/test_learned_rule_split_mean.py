@@ -18,6 +18,8 @@ a fixed ``R``, the estimate is the mean of the split estimates, and its curve is
   X11 (i2). Its remedy, ``repeats=1``, fits as written.
 * The surfaces that read one rule per row refuse a fit of several splits, and each remedy,
   a refit with ``repeats=1``, runs as written.
+* The omitted-variable bound of the mean over splits is well posed and refuses as an
+  implementation gap (X11 (n2)). Its remedy, ``repeats=1``, runs.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ import numpy as np
 import pytest
 
 from cleverly import CausalStudy, CrossFitting, LearnedRuleValue, PointTreatment, TMLEMethod
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import LearnedRuleRecord
 from cleverly.interventions.learned import freeze_learned_rule, mean_over_splits
 from cleverly.methods import ModelSpec
@@ -449,14 +451,27 @@ class TestTheSurfacesThatReadOneRulePerRow:
         curve = support.fit(repeats=1).diagnostics.truncation_curve()
         assert len(curve.to_frame()) > 0
 
-    def test_the_omitted_variable_bound(self) -> None:
-        """The bound holds one split's fold rules fixed, and the median over draws has no target."""
+
+class TestTheBoundOfTheMeanOverSplits:
+    """The omitted-variable bound of the mean over splits is well posed and not built."""
+
+    def test_the_omitted_variable_bound_is_an_implementation_gap(self) -> None:
+        """The mean over ``R`` splits is linear in ``Qbar``, with representer ``gbar* / g``.
+
+        ``gbar*`` averages all ``R V`` fold rules, so the composition is well posed, and it
+        refuses as an implementation gap that X11 (n2) holds, not as another estimand.
+        """
         for operation in ("omitted_confounding", "robustness_value", "elements", "contour"):
             row = _repeated().sensitivity.capability(operation)
             assert not row.available
             _remedy_names_repeats_one(row.reason or "", "the omitted-variable bound")
+            assert "X11 (n2) in docs/roadmap.md" in (row.reason or "")
         with pytest.raises(CapabilityError) as caught:
             omitted_variable_bounds(_repeated(), support.NAME)
+        refusal = caught.value.refusal
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert refusal.roadmap == "X11"
+        assert "average of every split's fold rules" in str(caught.value)
         _remedy_names_repeats_one(str(caught.value), "the omitted-variable bound")
         once = support.fit(repeats=1)
         assert omitted_variable_bounds(once, support.NAME).lower < once[support.NAME].psi

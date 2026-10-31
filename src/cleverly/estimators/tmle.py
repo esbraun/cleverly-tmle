@@ -206,6 +206,7 @@ from ..interventions.learned import (
     FrozenLearnedRule,
     LearnedRule,
     _learned_rule_regimes,
+    check_fold_rules,
     learned_rule_configuration_refusal,
     learned_rule_record,
     learned_rule_scheme_refusal,
@@ -4101,6 +4102,9 @@ class TMLE:
                 g_bounds=self._rule_g_bounds(data),
                 seed=0 if seed is None else int(seed),
             )
+            if fold_rules is not None:
+                # The diagonal at fit time, so a defect surfaces here and not at the bound.
+                check_fold_rules(fold_rules, treat, estimates.folds)
             return _learned_rule_regimes(treat, self.learned_rule.name, margin, fold_rules)
         if not self.interventions:
             return None
