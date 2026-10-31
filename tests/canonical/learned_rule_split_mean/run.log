@@ -1,0 +1,22 @@
+=== learned-rule-split-mean declared run
+command: /tmp/claude-0/-home-user/9e596db0-279a-51e8-8773-0f94ebea38d1/scratchpad/venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_split_mean/regenerate.py --jobs 4 --output /tmp/claude-0/-home-user/9e596db0-279a-51e8-8773-0f94ebea38d1/scratchpad/out
+commit: 43b9d6ddde93b4f79995b69e0ea1599389134933; upstream 43b9d6ddde93b4f79995b69e0ea1599389134933
+clean tree: True
+cleverly 0.1.7 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 13, sha256 7665e08b785276bc48edb1000065e2596684a3cb56a344d260c5c9653901286b
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-30T23:58:06+00:00
+finished: 2026-10-31T01:00:55+00:00
+wall seconds: 3768.3
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: e5d4b23b1c04f7758b51178156444431a188a4ee68dc7df611b226d86d492809
+sha256 manifest.json: bb02ed2e569e54858f662db554139f4c3a310b8f85466caacafccf61bba5c80f
+sha256 performance-tests.csv: 787e761b99e15bb75d51c658064dde954d6b2dbe1b5fdadf2b10394154f016e1
+sha256 properties.csv: 9cacbde3743aacdf3d510c9d5ad9384ecb7267fbbbbd0a243b0ae0502a5ef1fc
+sha256 property-replicates.parquet: e91a8a81f67616274bb557e5d44f7599c63b3941f96a740f2078ec6d4f04abe2
+sha256 replicates.parquet: e2f0a958f9dbff36940578473398dc21cd64b9f367bf91b157bf2e7de7fdd74f
+sha256 summary.csv: 2551e2113d6c69cbdd2c583703305bb5adbb9ea4d17e044681d6f9e587235924
+
