@@ -5,16 +5,31 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-vector-mtp",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "a7dddb776c9cba77f5ba46444952bb1a6bffae69",
-      "cleverly_worktree_clean": true,
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "40a39a1a124921f1b9e0071d3f71323b42e8dff4",
+      "cleverly_worktree_clean": false,
       "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.0.6",
+      "pandas": "3.1.0",
       "scikit_learn": "1.9.1"
     },
-    "reference": null
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr on an LmtpTask with vector treatment nodes, every shifted component and the per-node ratio this package computed written beside the replicate data (no lmtp density ratio fitted); the ordered classifier scenario fits lmtp's own stacked classifier through cf_density_ratios with mtp = TRUE, one plan per fit, each an unpenalized glm on that plan's log ratio computed inside the learner (SL.logratio.<plan>)",
+      "reference_adapter": "tests/canonical/lmtp_vector_adapter.R",
+      "reference_learners": "tests/canonical/vector_mtp_logratio.R",
+      "pairing": {
+        "longitudinal_vector_mixed": "exact under SMOKE_GATE",
+        "point_vector_mixed": "default margins: the point fluctuations differ by construction",
+        "point_vector_categorical": "default margins: the point fluctuations differ by construction",
+        "longitudinal_vector_ordered_classifier": "exact under SMOKE_GATE: the parity check read every ratio gap below SMOKE_GATE (amendment 2026-10-18)"
+      }
+    }
   },
   "configuration": {
     "replicates": 1000,
@@ -124,7 +139,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_vector_mtp.py": "e22bb14da3232799d734326515c215bafadb65355b4dc39cc9596e89045c9431",
+    "tests/studies/canonical_vector_mtp.py": "2d0b326db58e529a093758b90df36d2ba4c84a9397fc7a859fd96869a4379860",
     "tests/studies/vector_mtp_properties.py": "ca652ebaba89f65cf2fa2d95bbcb74780a38ebd600263f35c1f06c5829883624",
     "tests/studies/vector_mtp_common.py": "697a6655226d863319d38e155af373552f8a534e4daaf58f1847f2e6f332ba73",
     "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
@@ -133,57 +148,36 @@
     "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
     "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
-    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
-    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
-    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
     "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
-    "tests/canonical/lmtp_vector_adapter.R": "426cf19d28d95df296009f689bd6402b01d23bdbc1be1415a6bd098a77506801",
+    "tests/canonical/lmtp_vector_adapter.R": "f66c67bb9986903d6942f408f7319560efcfe6f81a020267d3a2542f5df86453",
     "tests/canonical/vector_mtp_logratio.R": "05474ac5abe6fecb937be0a1f8df2967ad7fa2c8b0e96ddb957386146ef3e265",
     "tests/canonical/vector_mtp_runner.R": "a13bcf21cca762df083ed92a42cd1db9bd512e9db68373b21f94304eecaa701a"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/vector_mtp_runner.R": "a13bcf21cca762df083ed92a42cd1db9bd512e9db68373b21f94304eecaa701a",
+    "tests/canonical/lmtp_vector_adapter.R": "f66c67bb9986903d6942f408f7319560efcfe6f81a020267d3a2542f5df86453",
+    "tests/canonical/vector_mtp_logratio.R": "05474ac5abe6fecb937be0a1f8df2967ad7fa2c8b0e96ddb957386146ef3e265",
+    "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+    "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
   "sha256": {
-    "replicates.csv.gz": "15de5a2fde70bdd1a022080133cb18c276a813512e865bc369c596250c0f3ce4",
-    "summary.csv": "38cbd9609677929ec0f11420978d57853452b4cb310526796f8338d7da5e5c14",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "4517a3b29042a2ef0f13eeeceebbb6b15828924b943f5d5c78c933c557efc641",
+    "replicates.csv.gz": "212efd5b373de8a28001ecb573bc9f8449c3960deb74173dd56d1991a3715386",
+    "summary.csv": "c58171d7b938e2482a46de2bd803f72df11f448e1cb0bce12fe02e897b94e62b",
+    "equivalence.csv": "a2d99895e8169cb44305465ce31a5e17f1d041ead8cd00de8b2456e9b1ee5bb8",
+    "performance-tests.csv": "269ca3eb34d400a82ebed4586654ce5c4170d9f07ef5ec3112d8063c124908ee",
     "property-replicates.csv.gz": "ba2d80f495800a411dab7088fa9288c40e724d9ebcde7b8d1cbf74afa8f73273",
     "properties.csv": "d18f53458057dd07e116e574c6612067dfcff5ba3eed780355a52ef1537dbc91"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "lmtp",
-    "reason": "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this container lacks. The beta plans' Study queue owns them: item 30, the vector_mtp lmtp parity fixture, and then item 31, the R smoke and the declared R run",
-    "metadata": {
-      "lmtp_version": "1.5.4",
-      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
-      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "reference_construction": "lmtp cf_tmle and theta_dr on an LmtpTask with vector treatment nodes, every shifted component and the per-node ratio this package computed written beside the replicate data (no lmtp density ratio fitted); the ordered classifier scenario fits lmtp's own stacked classifier through cf_density_ratios with mtp = TRUE, one plan per fit, each an unpenalized glm on that plan's log ratio computed inside the learner (SL.logratio.<plan>)",
-      "reference_adapter": "tests/canonical/lmtp_vector_adapter.R",
-      "reference_learners": "tests/canonical/vector_mtp_logratio.R",
-      "pairing": {
-        "longitudinal_vector_mixed": "exact under SMOKE_GATE",
-        "point_vector_mixed": "default margins: the point fluctuations differ by construction",
-        "point_vector_categorical": "default margins: the point fluctuations differ by construction",
-        "longitudinal_vector_ordered_classifier": "exact under SMOKE_GATE if the parity check passes; margin-read only for a diagnosed, named numerical cause below PARITY_TOLERANCE; otherwise blocked"
-      }
-    },
-    "declared_sources_sha256": {
-      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
-      "tests/canonical/vector_mtp_runner.R": "a13bcf21cca762df083ed92a42cd1db9bd512e9db68373b21f94304eecaa701a",
-      "tests/canonical/lmtp_vector_adapter.R": "426cf19d28d95df296009f689bd6402b01d23bdbc1be1415a6bd098a77506801",
-      "tests/canonical/vector_mtp_logratio.R": "05474ac5abe6fecb937be0a1f8df2967ad7fa2c8b0e96ddb957386146ef3e265",
-      "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
-      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
-    }
   }
 }
