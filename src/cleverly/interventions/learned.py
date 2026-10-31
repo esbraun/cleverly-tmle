@@ -1240,14 +1240,15 @@ def _data_refusal(data: CausalData) -> Refusal | None:
             f"design, or use {_FIXED_RULE}, which takes estimated weights for a fixed rule.",
             "X11",
         )
-    if data.has_strata:
+    if data.has_strata and data.cluster is not None:
         return _gap(
-            "a learned rule with baseline strata (strata=) is refused. The value inside each "
-            "of a fixed number of strata would read the fold-evaluated stratum estimate of a "
-            "fixed rule at each fold's learned rule, which is not implemented "
-            f"({_X11.format(part='m')}).",
-            f"{_FIXED_RULE} takes strata= for a fixed rule.",
-            "X11",
+            "a learned rule with baseline strata (strata=) and clusters (id=) is refused. "
+            "Each stratum's fold variance would compare the cluster totals of its stratum "
+            "inside every validation fold, and neither that variance nor its Student t "
+            "reference has been checked (X28 in docs/roadmap.md).",
+            "Fit the clustered learned-rule value without strata=, or the stratified "
+            "learned-rule value without id=.",
+            "X28",
         )
     return None
 
@@ -1338,7 +1339,7 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     5       missing outcomes, ``delta=``                         F27
     6       ``intermediate=``                                    X11 (j)
     7       estimated weights, ``weights_estimated=True``        X11 (k2)
-    8       ``strata=``                                          X11 (m)
+    8       ``strata=`` with clusters, ``id=``                   X28
     9       ``cross_fit=False``, or one fold                     X11 (a)
     10      ``cv_evaluation=False``                              X11 (e)
     11      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)

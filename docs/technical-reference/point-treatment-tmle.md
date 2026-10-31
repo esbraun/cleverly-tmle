@@ -543,14 +543,16 @@ each new construction: `tests/unit/test_stratified_incremental_exact.py`,
 [stratified identity-link MSM study](method-evidence/stratified-msm-identity.md), and the
 [stratified DR-TMLE study](method-evidence/stratified-dr-tmle.md).
 
-With `cv_evaluation=True` a stratified fit reports the arm means, their linear contrasts, and the
-regime means and their contrasts. Each stratum estimate is the $1/V$ average of the stratum
+With `cv_evaluation=True` a stratified fit reports the arm means, their linear contrasts, the
+regime means and their contrasts, and the [learned-rule value](#learned-rules).
+Each stratum estimate is the $1/V$ average of the stratum
 plug-ins of the validation folds. Each fold's stratum curve divides by the fold's own share
 $P_{n,v}(S=s)$, and the update weights solve each reported stratum score
 ([fold evaluation with baseline strata](cv-tmle.md#the-algorithm-as-implemented)). The marginal
 estimate is $\sum_s P_n(S=s)\hat\psi_s$, whose own score the fold-local stratum weights leave
 unsolved. With `repeats > 1` that identity holds on each draw, and the reported marginal is the
-median of the draws' mixtures.
+median of the draws' mixtures. The learned-rule value takes the mean over draws instead, which
+keeps the identity.
 `tests/unit/test_fold_evaluated_strata_exact.py` checks the construction on an exact law, and the
 fit carries the experimental label until its calibration cell is registered
 ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)).
@@ -560,7 +562,7 @@ These requests with `strata=` refuse before any learner:
 | request | reason |
 | --- | --- |
 | `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Montoya et al. (2023), Section 3.2, Step 2(c), publish that update, and the package does not implement it with strata. [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b) holds this composition |
-| `cv_evaluation=True` with a target other than the arm or regime means and their contrasts, a missing outcome, an intermediate variable, or `id=` | the fold-evaluated stratum construction is derived and checked for those means on complete data with rows as the unit. The ATT, the ATC, the population-intervention targets, incremental and policy targets each need their own construction, and the clustered stratum variance and its $t$ reference are unchecked ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). Ratios and MSM coefficients keep their [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) refusal under `cv_evaluation=True` |
+| `cv_evaluation=True` with a target other than the arm or regime means and their contrasts or the learned-rule value, a missing outcome, an intermediate variable, or `id=` | the fold-evaluated stratum construction is derived and checked for those means on complete data with rows as the unit. The ATT, the ATC, the population-intervention targets, incremental and policy targets each need their own construction, and the clustered stratum variance and its $t$ reference are unchecked ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). Ratios and MSM coefficients keep their [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) refusal under `cv_evaluation=True` |
 | `cv_evaluation=True` and a drawn validation fold with no row of a stratum, or no row of an arm inside a stratum | the fold has no stratum plug-in or share, or it adds nothing to that arm's stratum score. The check reads the drawn split before any learner and raises `DataError` |
 | an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation may have no finite root. It has none only if some direction of the covariate separates, which depends on the fitted outcome regression, so the guard reads the data alone |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
@@ -1439,6 +1441,61 @@ $(2A - 1)\Delta Y / \{(b - a) g\}$. Under `weights=` a spy confirms that every i
 treatment fit receives its rows' weights. A fold whose positive-weight rows carry one label gives
 that label's constant rule, and a score exactly at its threshold assigns control.
 
+#### Baseline strata of a learned rule
+
+With `strata=` the fit also reports the learned-rule value inside each baseline stratum. One
+rule is learned per fold and read stratum by stratum. The strata are adjustment columns, so the
+plug-in rule $d_{nv}$ already reads $S$. A rule learned separately inside each stratum would be a
+different learner, and no request reaches one. Stratum $s$ reports the data-adaptive target
+
+$$
+\tilde\psi_{s,0n} = \frac1V \sum_{v=1}^V \Psi_{s,d_{nv}}(P_0),\qquad
+\Psi_{s,d}(P) = E_P\bigl[\bar Q_P(d(W), W) \mid S = s\bigr],
+$$
+
+under the tilted law when weighted. The fit applies the
+[fold evaluation with baseline strata](cv-tmle.md#the-algorithm-as-implemented) of the arm and
+regime means, with the fold's one-hot rule density as the regime.
+
+| step | what the fit computes |
+| --- | --- |
+| stratum estimate | $\hat\psi_s = V^{-1}\sum_v \psi^*_{s,v}$, where $\psi^*_{s,v}$ is the weighted mean of $\bar Q^*_{nv}(d_i, W_i)$ over the rows of fold $v$ in stratum $s$ |
+| fold curve | $I(S = s)\,D_{s,v} / P_{n,v}(S = s)$, the curve above restricted to the stratum and divided by the fold's own stratum share |
+| fluctuation | one coefficient per stratum on the pooled validation rows, with row weights $w_i\,n P_n(S = s) / (V W_{v,s})$, so each reported stratum score is solved exactly |
+| marginal estimate | $\sum_s P_n(S = s)\hat\psi_s$, with the delta-method curve of the share mixture. Its own score is not solved under the fold-local stratum weights |
+| record | `LearnedRuleRecord` describes the marginal value. Its `fold_estimates` are the share mixtures $\sum_s P_n(S = s)\psi^*_{s,v}$ |
+
+With `repeats` above 1 each stratum estimate and its curve are the mean over the splits. The
+shares do not depend on the split, so the mean of the splits' mixtures is the mixture of the
+reported stratum means, unlike the median of the other targets. The simultaneous band reads the
+mean curves, as one split's band reads its curves. Known weights and the rule learners compose
+too, because each changes only the rule or the fold weights that the construction reads.
+
+Conditions C1 to C6 apply inside each stratum, with positivity inside each stratum and a fixed
+number of strata. C3 reads that the fold curves of each stratum converge to the curve of one
+fixed rule. A stratum with a zero effect on a share of its units is an exceptional law inside that
+stratum, where the stratum interval can under-cover. Every validation fold must hold every
+stratum and every arm inside it. A drawn split that does not raises `DataError` before any
+learner, and its remedy names fewer strata or a fit without `strata=`, because a learned-rule
+fit has no stacked report.
+
+| request with `strata=` | result |
+| --- | --- |
+| `weights=`, a rule learner, `repeats` above 1, the simultaneous band | admitted, experimental |
+| `id=` | refused before any learner, [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata): the clustered stratum fold variance and its $t$ reference are unchecked |
+| `targeting_scheme="fold"` | refused before any learner, [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b), as for every stratified fit |
+| the omitted-variable bound | refused, [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2): a stratum value needs the combined representer restricted to each fold's stratum rows, and no witness checks the marginal mixture's bias against the combined representer |
+| `freeze_learned_rule`, the frozen-rule replay, `simulated_confounding`, the `refute` tests that hold the rules | admitted on one split, for the marginal and for each stratum |
+
+`tests/unit/test_learned_rule_strata.py` checks the construction on an exact discrete law whose
+folds learn different rules. Each stored fold rule is the sign of its training cell means, each
+stratum estimate is the fold average of the plug-ins at the fold rules, and each fold's stratum
+curve is the Gateaux derivative of $\Psi_{s,d_{nv}}$ at the fold's law, unweighted and under a
+covariate weight. Each reported stratum score is solved, and each fold's own score is not. Four
+controls fail: another fold's rule in the derivative, the full-sample rule in place of the fold
+rules, the global stratum share in the curve (a nonzero curve mean), and a curve without the
+stratum share. No registered study covers the fit, so its estimates carry the experimental label.
+
 #### Refusals and the result record
 
 The fit needs `CrossFitting(enabled=True, fold_evaluation=True)` and no full-refit bootstrap.
@@ -1459,7 +1516,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |
 | 6 | `intermediate=` | X11 (j) |
 | 7 | estimated weights, `weights_estimated=True` | X11 (k2) |
-| 8 | `strata=` | X11 (m) |
+| 8 | `strata=` with clusters, `id=` | [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). The remedy is a fit without one of the two |
 | 9 | `cross_fit=False`, or one fold | X11 (a) |
 | 10 | `cv_evaluation=False` | X11 (e) |
 | 11 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
@@ -1513,9 +1570,12 @@ representer from `fold_rules`
 
 The bound is a point bound: its limits and `benchmark()` refuse. A fit of several splits refuses as
 an implementation gap, because the bound of their mean would read the average of every split's fold
-rules, which is not built. A `FrozenLearnedRule` replay refuses, because it holds no fold rule.
-[X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark and the
-mean over splits.
+rules, which is not built. So does a fit with baseline strata
+([baseline strata of a learned rule](#learned-rules)), and
+[X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, the
+mean over splits and the strata. A `FrozenLearnedRule` replay refuses, because it holds no fold
+rule.
+
 The E-value and the missingness tilt read `unavailable`, because the package does not implement
 them for this target, and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds them. On a

@@ -342,9 +342,7 @@ class TestTheClustersRow:
 
     def test_a_data_row_comes_first(self) -> None:
         estimator = support.learned_tmle(repeats=2, **never_fit_learners())
-        self._refused(
-            lambda: estimator.fit(_clustered(), id="c", strata=("W2",), **_FIT), "X11 (m)"
-        )
+        self._refused(lambda: estimator.fit(_clustered(), id="c", strata=("W2",), **_FIT), "X28")
 
     def test_a_fold_policy_row_comes_first(self) -> None:
         """The stacked row's remedy keeps ``repeats=2``, which then meets this later row."""

@@ -513,7 +513,8 @@ class TestTheLabelAndTheReference:
 class TestRefusalsThatStay:
     """Compositions that PR A does not lift keep their refusals."""
 
-    def test_strata_with_fold_targeting_meets_the_learned_rule_strata_row(self) -> None:
+    def test_strata_with_fold_targeting_meets_the_x61_row(self) -> None:
+        """A learned rule with strata keeps the X61 (b) refusal of fold targeting."""
         frame = support.law_frame(120, 3)
         NeverFit.calls = 0
         with pytest.raises(CapabilityError) as caught:
@@ -521,7 +522,7 @@ class TestRefusalsThatStay:
                 frame, strata=("W2",), **FIT
             )
         assert NeverFit.calls == 0
-        assert "X11 (m)" in str(caught.value)
+        assert "X61" in str(caught.value) and "targeting_scheme='fold'" in str(caught.value)
 
     def test_strata_with_fold_targeting_still_refuses_on_an_arm_fit(self) -> None:
         frame = support.law_frame(120, 3)

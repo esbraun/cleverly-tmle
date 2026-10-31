@@ -1,15 +1,15 @@
 """What a fold-evaluated fit with baseline strata (X28) admits, and what it refuses.
 
-``cv_evaluation=True`` with ``strata=`` reports the arm means, their linear contrasts and the
-regime means and their contrasts, on complete data with rows as the unit. The construction and
+``cv_evaluation=True`` with ``strata=`` reports the arm means, their linear contrasts, the
+regime means and their contrasts, and the learned-rule value, on complete data with rows as the unit. The construction and
 its exact-law witnesses are in ``test_fold_evaluated_strata_exact.py``. This module pins:
 
 * every other target, a missing outcome or treatment, an intermediate variable and clusters
   refuse before any learner, citing X28, and a direct ``retarget`` that names another target
   refuses before any targeting step;
-* fold targeting with strata keeps its X61 (b) refusal, ratios and MSM coefficients keep the
-  X61 refusal of ``cv_evaluation=True``, and a learned rule with strata keeps its X11 (m)
-  refusal;
+* fold targeting with strata keeps its X61 (b) refusal, and ratios and MSM coefficients keep
+  the X61 refusal of ``cv_evaluation=True``. A learned rule with strata has its own
+  module, ``test_learned_rule_strata.py``;
 * the X28 refusal function names a missing treatment, which the fit's X53 refusal reaches first;
 * a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a
   stratum, refuses before any learner with a data error;
@@ -38,7 +38,7 @@ from cleverly.datasets import make_cde, make_linear_ate
 from cleverly.estimators import TMLE
 from cleverly.estimators._strata import fold_evaluated_strata_refusal
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions import Incremental, LearnedRule, Shift, Static
+from cleverly.interventions import Incremental, Shift, Static
 from cleverly.msm import MSM
 from tests.unit._declaration_support import assert_refused_before_any_call, tmle_module
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
@@ -197,11 +197,6 @@ REFUSED: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]] =
     "fold targeting": (
         lambda: fit(TMLE(**settings(estimands=("ate",), targeting_scheme="fold"))),
         ("targeting_scheme='fold'", "fold-local update", "X61"),
-        CapabilityError,
-    ),
-    "a learned rule": (
-        lambda: fit(TMLE(**settings(learned_rule=LearnedRule()))),
-        ("a learned rule with baseline strata", "X11 (m)"),
         CapabilityError,
     ),
 }

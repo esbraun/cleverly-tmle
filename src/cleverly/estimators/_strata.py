@@ -436,12 +436,14 @@ def check_stratified_targets(data: CausalData, *, incremental: bool, msm: object
 # ------------------------------------------------------------------ fold evaluation (X28)
 
 #: The targets a fold-evaluated fit with baseline strata reports: the arm means and their
-#: linear contrasts, and the regime means and their contrasts. Each is a mean of the targeted
-#: regression over the stratum's rows, so its fold plug-in, its fold curve and its solving
-#: weights follow one construction. Every other target keeps the refusal of
-#: :func:`fold_evaluated_strata_refusal`.
+#: linear contrasts, the regime means and their contrasts, and the learned-rule value
+#: (``learned_rule=``). Each is a mean of the targeted regression over the stratum's rows, so its
+#: fold plug-in, its fold curve and its solving weights follow one construction. The
+#: learned-rule value reads each fold's own rule as the one-hot regime density of the fold's
+#: rows, so stratum :math:`s` of fold :math:`v` evaluates the fixed rule :math:`d_v`. Every
+#: other target keeps the refusal of :func:`fold_evaluated_strata_refusal`.
 FOLD_EVALUATED_STRATA_TARGETS: frozenset[str] = frozenset(
-    {"ate", "ey", "ey1", "ey0", "ey_regime", "ate_regime"}
+    {"ate", "ey", "ey1", "ey0", "ey_regime", "ate_regime", "ey_learned_rule"}
 )
 
 _STACKED_REPORT = "the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))"
@@ -450,7 +452,8 @@ _STACKED_REPORT = "the stacked report (cv_evaluation=False, CrossFitting(fold_ev
 def _x28_gap(what: str, why: str, alternative: str) -> CapabilityError:
     return CapabilityError(
         "cv_evaluation=True with baseline strata reports the arm means and their linear "
-        "contrasts (ey, ate) and the regime means and their contrasts (ey_regime, ate_regime), "
+        "contrasts (ey, ate), the regime means and their contrasts (ey_regime, ate_regime), "
+        "and the learned-rule value (ey_learned_rule), "
         f"on complete data with rows as the independent unit. {what} is not implemented: "
         f"{why}.",
         reason=RefusalReason.IMPLEMENTATION_GAP,
@@ -529,7 +532,9 @@ def fold_evaluated_strata_refusal(
     return None
 
 
-def refuse_empty_stratum_folds(data: CausalData, folds: Sequence[Any]) -> None:
+def refuse_empty_stratum_folds(
+    data: CausalData, folds: Sequence[Any], *, learned_rule: bool = False
+) -> None:
     """Refuse a fold-evaluated stratified split with an empty stratum or arm in some fold.
 
     The fold-evaluated stratum estimate is the ``1/V`` average of plug-ins over the rows of
@@ -547,6 +552,9 @@ def refuse_empty_stratum_folds(data: CausalData, folds: Sequence[Any]) -> None:
         The data of the fit. Without baseline strata the check returns at once.
     folds : sequence of Folds
         The drawn or supplied split of every repeat.
+    learned_rule : bool
+        Whether the fit estimates a learned-rule value, whose stacked report is refused
+        (X11 (e)), so the remedy names fewer strata and a fit without ``strata=`` instead.
 
     Raises
     ------
@@ -565,7 +573,11 @@ def refuse_empty_stratum_folds(data: CausalData, folds: Sequence[Any]) -> None:
     arms = tuple(data.arm_codes) if data.has_arms else ()
     positive = " positive-weight" if data.is_weighted else ""
     remedy = _POST_DRAW_REMEDY.format(
-        remedy=f"use {_STACKED_REPORT}, declare fewer baseline strata"
+        remedy=(
+            "declare fewer baseline strata, fit the learned-rule value without strata="
+            if learned_rule
+            else f"use {_STACKED_REPORT}, declare fewer baseline strata"
+        )
     )
     draws = [draw for draw in folds if not draw.is_single]
     # An empty stratum is the more basic shortfall, so every fold is read for it first.
