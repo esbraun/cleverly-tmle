@@ -1225,8 +1225,10 @@ d_{nv}(w) = \mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}.
 $$
 
 Here $\bar Q_{nv}$ is the outcome regression that the fit trains on the training rows of fold
-$v$. A tie assigns control. The target is not the value of one rule fitted on all rows, and it is
-not the value of the optimal rule.
+$v$, and $d_{nv}$ is its plug-in rule, the default `LearnedRule()`. A tie assigns control. Under
+the rule learners described below, a declared learner fits the rule on the same training rows
+instead, and the target keeps its form. The target is not the value of one rule fitted on all
+rows, and it is not the value of the optimal rule.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets. The
 [treatment-rules example](../examples/treatment-rules.ipynb) fits this target end to end.
 
@@ -1234,7 +1236,7 @@ The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table 
 
 | step | what the fit computes | source |
 | --- | --- | --- |
-| rule | $d_i = d_{n,v(i)}(W_i)$ from the out-of-fold outcome regression, so no fit that saw row $i$ sets its rule | JCI, Section 7.1 |
+| rule | $d_i = d_{n,v(i)}(W_i)$ from the out-of-fold outcome regression, or from the fold's rule learner, so no fit that saw row $i$ sets its rule | JCI, Section 7.1 |
 | clever covariate | $H_i = \mathbb 1\{A_i = d_i\} / g_{n,v(i)}(A_i \mid W_i)$, with $g$ truncated at `g_bounds` | JCI, Appendix B |
 | fluctuation | one $\varepsilon$ on the pooled validation rows, with the weights $n / (V n_v)$ | JCI, Appendix B, Equation (21) |
 | estimate | $\psi^*_n = (1/V) \sum_v \psi^*_{nv}$, where $\psi^*_{nv}$ is the mean of $\bar Q^*_{nv}(d_i, W_i)$ over the validation rows of fold $v$ | Montoya (2023b), Section 3.2 |
@@ -1336,6 +1338,65 @@ folds ($n = 403$, $V = 5$), where $n / (V n_v)$ differs from 1. It checks the co
 contrast against the mean curve rebuilt from those fits. On its witness draw the mean and the
 median of four split estimates differ by more than 0.002.
 
+#### Rule learners
+
+`LearnedRule(loss="blip", learner=...)` and `LearnedRule(loss="weighted_classification",
+learner=...)` learn each fold's rule from a pseudo-outcome instead of reading it off the outcome
+regression. Luedtke and van der Laan (2016, *International Journal of Biostatistics*) give the two
+losses: Section 4.1 the blip losses with a known or an estimated mechanism, Section 4.3 the
+weighted classification, and Appendix A the doubly robust versions. The pseudo-outcome below is
+this package's choice of the doubly robust blip pseudo-outcome, written for one time point:
+
+$$
+\tilde D_i = \frac{2A_i - 1}{g(A_i \mid W_i)}\bigl(Y_i - \bar Q(A_i, W_i)\bigr)
+  + \bar Q(1, W_i) - \bar Q(0, W_i),
+$$
+
+with $Y$ and $\bar Q$ on the fit's scaled $[0, 1]$ outcome and $g$ truncated at the fit's
+`g_bounds`. When $\bar Q$ is correct, or $g$ is correct and the truncation does not bind,
+$E[\tilde D \mid W]$ is the blip $\bar Q_0(1, W) - \bar Q_0(0, W)$ on that scale, so its sign is
+the sign of the optimal rule.
+
+| step, inside the training rows $T_v$ of fold $v$ | what the fit computes |
+| --- | --- |
+| inner nuisances | $\bar Q$ and $g$ cross-fitted over 5 random inner folds of $T_v$, with the fit's own outcome and treatment learners. Under `id=` the inner folds move whole clusters, and under `weights=` every inner fit is weighted. The inner seed derives from the split seed and the fold, and the record keeps it |
+| pseudo-outcome | $\tilde D_i$ at every row of $T_v$, from the inner predictions of models that did not train on row $i$ |
+| `loss="blip"` | the learner regresses $\tilde D$ on $W$, with the observation weights under `weights=`, and $d_{nv}(w) = \mathbb 1\{\hat b_v(w) > 0\}$ |
+| `loss="weighted_classification"` | the classifier fits the label $\mathbb 1\{\tilde D > 0\}$ on $W$ with sample weights $\lvert\tilde D\rvert$, times the observation weights under `weights=`, and $d_{nv}(w) = \mathbb 1\{\hat P_v(\tilde D > 0 \mid w) > 1/2\}$ |
+
+The fold rule then enters the construction above unchanged: the fluctuation, the estimate and the
+variance do not move. Theorem 6 of JCI holds for any rule that is a function of $T_v$ with a fixed
+limit, so the inner cross-fit is a choice for the quality of the rule, not a condition of the
+interval. What it excludes is the outer out-of-fold predictions. At a row of $T_v$ those come from
+a model trained on rows that include fold $v$'s validation rows, so a rule built from them would
+read the outcomes that then evaluate it. With saturated learners on a discrete $W$ the two losses
+give the same rule, the sign of each cell's sum of $\tilde D$; an unweighted classifier would
+learn each cell's majority sign instead.
+
+C3 reads, for a rule learner, that the fold rules converge to the rule of the learner's limit fit
+to the limit pseudo-outcome. For the blip loss with $g$ correct, that limit is the least-squares
+projection of the true blip on the learner's class, whatever the outcome regression. So a blip
+learner can improve on the plug-in rule of a misspecified outcome regression. At an exceptional law a consistent learner has
+no fixed limit, as for the plug-in rule. The inner fits multiply the nuisance fits of a fold by
+about six, and a fit at n = 2,000 with logistic learners takes about 5.7 times the plug-in fit.
+
+`LearnedRule` refuses a learner that does not suit its loss when it is built. It refuses a learner
+beside `loss="plug_in"` and a missing learner beside another loss. It also refuses a classifier
+for the blip, a regressor for the classification, and a `SuperLearner` that clips the blip. A
+classifier whose `fit` takes no `sample_weight` refuses too, because it would learn the majority
+sign. No study measures a rule learner yet, so its key carries the qualifier `rule_learner_blip` or
+`rule_learner_weighted_classification`. The fit then reads experimental, alone and with weights,
+clusters, fold targeting or `repeats` above 1.
+
+`tests/unit/test_learned_rule_learners.py` holds the witnesses. At `misspecified_limit` with the
+main-terms outcome learner, the population projections put the plug-in rule and a blip rule on a
+basis with $W_1^2$ apart on 0.147 of the population, and the blip rule's value is higher, 0.5602
+against 0.5547. On a discrete law with saturated learners both losses give the sign of each
+cell's sum, and the majority sign differs on the declared cell. Flipping fold $v$'s validation
+outcomes leaves fold $v$'s rule unchanged, and the mutation that reads the outer predictions moves
+it. Changing one training outcome by $\Delta Y$ moves that row's pseudo-outcome by exactly
+$(2A - 1)\Delta Y / g$.
+
 #### Refusals and the result record
 
 The fit needs `CrossFitting(enabled=True, fold_evaluation=True)` and no full-refit bootstrap.
@@ -1361,6 +1422,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 10 | `cv_evaluation=False` | X11 (e) |
 | 11 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
 | 12 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
+| 13 | `loss="blip"` with `weights=` and a learner whose `fit` takes no `sample_weight` | a declaration error. The unweighted fit would learn the rule of the unweighted population |
 
 The first two rows run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
 constructor also refuse a fold policy that the shared rules forbid, before the data exist. On a
@@ -1377,14 +1439,17 @@ gives the fields of a split.
 | `fold_sizes`, `fold_weights` | the validation rows of each fold, and the weight $1/V$ of each fold |
 | `fold_estimates` | $\psi^*_{nv}$ for each fold |
 | `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
-| `blip_quantiles` | quantiles of the estimated blip on each fold's validation rows |
+| `blip_quantiles` | quantiles of the outer outcome regression's blip on each fold's validation rows. Under a rule learner they describe that regression, not the rule |
+| `inner_seeds` | the seed of each fold's inner cross-fit and rule learner, empty for the plug-in rule |
 
 The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
-`rule`, `target` and `quantile_levels` give the rule class, the target kind and the quantile levels.
+`loss` and `learner` name the rule learner, and `rule`, `target` and `quantile_levels` give the
+rule class of that loss, the target kind and the quantile levels.
 `result.summary(detail="full")` prints the target line of `LearnedRuleRecord.describe()` under
 Method details, which gives the range of the split estimates and of the treated shares over every
 split. The rule of each row in split $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`.
-The fit keeps no fitted fold model, and the saved folds, learner templates and seeds replay it.
+The fit keeps no fitted fold model, and the saved folds, learner templates and seeds, with the
+inner seeds of a rule learner, replay it.
 
 A refit relearns the rules, so the full-refit bootstrap refuses.
 `simulated_confounding` and the `refute` tests `subset`, `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` hold each row's realized rule fixed. `placebo` relearns the rules, because the placebo law gives every rule the value `E[Y]`.
