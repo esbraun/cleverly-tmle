@@ -17,6 +17,7 @@ import pytest
 
 from tests.canonical import declared_run, learned_rule_run
 from tests.studies import _learned_rule_law as law
+from tests.studies import fold_evaluated_strata as strata
 from tests.studies import learned_rule_compositions as compositions
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
@@ -82,8 +83,10 @@ class TestTheSeedRules:
         # (weighted_classification__declared replicate 732, n = 4,000) equals the sample seed of
         # learned-rule-compositions' clustered replicate 2,444 (n = 2,000). The two draws share
         # their first 2,000 values of W1 and nothing else (``test_learned_rule_learners_design``).
-        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399
-        for study in (gated, boundary, compositions, split_mean, learners):
+        # X11's fold-evaluated-strata (X28) adds 4,000 primary and 15,600 property seeds, none
+        # shared (``test_fold_evaluated_strata_design``).
+        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 19_600
+        for study in (gated, boundary, compositions, split_mean, learners, strata):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
             assert not seeds & declared

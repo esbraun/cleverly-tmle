@@ -1011,6 +1011,10 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     # X11 PR B: a learned-rule fit of R splits read with the mean single-split SE over
     # sqrt(R), which treats the splits as independent samples although they share every row.
     "independent_splits_control": "below",
+    # X11 PR E1 (X28): a fold-evaluated stratum curve without its fold-share normalisation, and
+    # a marginal curve without its share term. Both report an SE below the spread.
+    "unnormalised_curve_control": "below",
+    "share_dropped_control": "below",
 }
 
 #: The calibration controls whose deliberately invalid interval misses the truth while its
