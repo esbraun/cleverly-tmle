@@ -1464,7 +1464,9 @@ Method details, which gives the range of the split estimates and of the treated 
 split. The rule of each row in split $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`.
 The regime set also holds `fold_rules`, an $n \times V$ boolean matrix of every fold's rule at
 every row, evaluated while each fold's model was in memory. Its entry at each row's own fold is
-the row's rule. The fit keeps no fitted fold model, and the saved folds, learner templates and
+the row's rule, which the fit checks. A `FrozenLearnedRule` replay holds one realized rule per row
+and its regime set has no `fold_rules` attribute, so read the matrix with
+`cleverly.interventions.learned.fold_rules`, which returns `None` there. The fit keeps no fitted fold model, and the saved folds, learner templates and
 seeds, with the inner seeds of a rule learner, replay it.
 
 A refit relearns the rules, so the full-refit bootstrap refuses.
@@ -1479,8 +1481,12 @@ The omitted-variable bound holds the fold rules of one split fixed. The value is
 functional of the stochastic regime that averages the $V$ rules, and the bound reads its
 representer from `fold_rules`
 ([omitted-variable bounds](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
-It is a point bound: its limits and `benchmark()` refuse, and so does a fit of several splits.
-[X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits and the benchmark.
+
+The bound is a point bound: its limits and `benchmark()` refuse. A fit of several splits refuses as
+an implementation gap, because the bound of their mean would read the average of every split's fold
+rules, which is not built. A `FrozenLearnedRule` replay refuses, because it holds no fold rule.
+[X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark and the
+mean over splits.
 The E-value and the missingness tilt read `unavailable`, because the package does not implement
 them for this target, and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds them. On a
