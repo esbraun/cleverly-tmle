@@ -24,7 +24,8 @@ sensitivity analyses can re-truncate and re-target without refitting anything.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import functools
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -87,6 +88,12 @@ __all__ = [
 #: needs, since fold ``k``'s companion design is fold ``k``'s own primary prediction --
 #: see :func:`~cleverly.estimators.reduced.fit_reduced`.
 CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
+
+#: A reduction of one fold's companion predictions, applied inside the fold worker: it takes
+#: the fold index and the fold model's predictions by companion name, and returns the arrays
+#: the worker hands back in their place.  :func:`fit_nuisances` uses it to turn the two
+#: ``(m,)`` float predictions of a plug-in rule into one ``(m,)`` boolean.
+CompanionReduce: TypeAlias = "Callable[[int, dict[str, FloatArray]], dict[str, np.ndarray]]"
 
 #: How far a two-arm mechanism's rows may depart from summing to one before
 #: :class:`Propensity` refuses to call it a distribution over the arms.  Loose enough for
@@ -696,6 +703,14 @@ class NuisanceEstimates:
     #: which is every fit but a cross-fitted :class:`~cleverly.AdaptiveIPTW`.  See
     #: :class:`FoldMechanisms` and :meth:`at_fold`.
     fold_mechanisms: FoldMechanisms | None = None
+    #: ``(n, V)`` booleans, or ``None`` for every fit that did not ask for them: entry
+    #: ``[i, v]`` is ``True`` where the outcome regression fitted on fold ``v``'s training
+    #: rows predicts a positive blip :math:`\bar Q_v(1, W_i) - \bar Q_v(0, W_i)` at row ``i``,
+    #: with ``1`` the higher arm code.  :func:`fit_nuisances` fills it under
+    #: ``fold_plug_in_rules=True`` from the fold models that made the out-of-fold
+    #: predictions.  A plug-in learned-rule fit moves it into its regime set
+    #: (:func:`~cleverly.interventions.learned.learned_rule_treat`) and clears it here.
+    fold_plug_in_rules: BoolArray | None = None
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
         """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
@@ -1032,7 +1047,8 @@ def cross_fit_companion(
     models: list[Any] | None = None,
     mechanisms: list[MechanismFit] | None = None,
     only: Sequence[int] | None = None,
-) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
+    companion_reduce: CompanionReduce | None = None,
+) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
     The one fold loop, so that a companion prediction comes from the **same fitted model
@@ -1061,6 +1077,11 @@ def cross_fit_companion(
     ``mechanisms``, when given, receives one :class:`MechanismFit` per fold, in fold order.
     :func:`describe_mechanism` runs inside the fold worker, where the fitted model exists,
     so the record survives a process pool.  The predictions do not change.
+
+    ``companion_reduce``, when given, is applied to each fold's companion predictions inside
+    the fold worker (:data:`CompanionReduce`), and the stack holds what it returns.  A
+    reduction that keeps less than the predictions keeps the worker from handing ``K`` full
+    float slabs back to the parent.
 
     Returns ``(predictions, companion, diagnostics)``.  With no companion designs the first
     and last are what :func:`cross_fit_predictions` returns and the middle is empty; that
@@ -1101,11 +1122,12 @@ def cross_fit_companion(
             return _clip(predict_mean(model, matrix, task), clip)
         return _clip(predict_probabilities(model, matrix, classes), clip)
 
-    def companion_at(model: Learner, fold: int) -> dict[str, FloatArray]:
-        return {
+    def companion_at(model: Learner, fold: int) -> dict[str, np.ndarray]:
+        values = {
             name: predict(model, _companion_matrix(matrix, fold))
             for name, matrix in companion_designs.items()
         }
+        return values if companion_reduce is None else companion_reduce(fold, values)
 
     if folds.is_single:
         rows = np.flatnonzero(mask)
@@ -1133,7 +1155,7 @@ def cross_fit_companion(
     def run_fold(
         fold: int, train: IntArray, test: IntArray
     ) -> tuple[
-        int, IntArray, dict[str, FloatArray], dict[str, FloatArray], Any, MechanismFit | None
+        int, IntArray, dict[str, FloatArray], dict[str, np.ndarray], Any, MechanismFit | None
     ]:
         rows = train[mask[train]]
         if rows.size == 0:
@@ -1159,7 +1181,7 @@ def cross_fit_companion(
         name: np.empty(shape, dtype=float) if selected is None else np.full(shape, np.nan)
         for name in predict_designs
     }
-    slabs: dict[str, list[FloatArray]] = {name: [] for name in companion_designs}
+    slabs: dict[str, list[np.ndarray]] = {}
     order: list[int] = []
     diagnostics_list: list[SuperLearnerDiagnostics] = []
     records: dict[int, MechanismFit | None] = {}
@@ -1173,7 +1195,7 @@ def cross_fit_companion(
             out[name][test] = values
         order.append(fold)
         for name, values in companion_values.items():
-            slabs[name].append(values)
+            slabs.setdefault(name, []).append(values)
         if diagnostics is not None:
             diagnostics_list.append(diagnostics)
     # Stacked in **fold** order rather than in completion order: `map_parallel` preserves
@@ -1557,7 +1579,8 @@ def _fit_outcome_by_arm(
     left_out: int | None = None,
     only: Sequence[int] | None = None,
     companion_rows: IntArray | None = None,
-) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
+    fold_plug_in_rules: bool = False,
+) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold outcome regressions with one learner per treatment arm.
 
     Each fold fits one learner per arm on the rows ``fit_mask & (A == a)`` of its training
@@ -1602,6 +1625,13 @@ def _fit_outcome_by_arm(
         Rows of ``data`` itself at which every fitted fold's models are also evaluated, in
         place of an independent ``companion``.  ``companion_queries`` then name the arm of
         each of these rows.
+    fold_plug_in_rules : bool
+        Also return, under :data:`_RULE_SIGN`, the ``(K, n)`` booleans
+        :math:`\bar Q_k(1, W_i) > \bar Q_k(0, W_i)` of every fold's two per-arm models at
+        every row of ``data``.  The higher arm is fitted second, and its fold worker
+        compares against the lower arm's slab of the same fold, so the higher arm hands
+        back no float slab.  It needs a binary treatment, no ``companion``, no
+        ``companion_rows`` and every fold.
 
     Returns
     -------
@@ -1642,6 +1672,13 @@ def _fit_outcome_by_arm(
         companion_designs = {"x": companion.covariates}
     if companion_rows is not None:
         companion_designs = {"x": train_design[np.asarray(companion_rows)]}
+    if fold_plug_in_rules and (
+        companion_designs or only is not None or len(arms) != 2 or companion_queries
+    ):
+        raise ValueError(
+            "fold_plug_in_rules=True reads every fold of a binary treatment, with no companion "
+            "rows and no companion queries"
+        )
 
     eligible = {arm: mask & (treatment == arm) for arm in arms}
     for arm in arms:
@@ -1650,7 +1687,14 @@ def _fit_outcome_by_arm(
     per_arm: dict[float, dict[str, FloatArray]] = {}
     per_arm_companion: dict[float, dict[str, FloatArray]] = {}
     diagnostics: list[SuperLearnerDiagnostics] = []
+    signs: np.ndarray | None = None
+    lower_slab: np.ndarray | None = None
     for arm in arms:
+        reduce: CompanionReduce | None = None
+        if fold_plug_in_rules:
+            companion_designs = {"x": train_design}
+            if lower_slab is not None:
+                reduce = functools.partial(_by_arm_rule_sign, lower=lower_slab)
         predictions, at_companion, arm_diagnostics = cross_fit_companion(
             learner,
             train_design,
@@ -1666,10 +1710,17 @@ def _fit_outcome_by_arm(
             n_jobs=n_jobs,
             remedy=remedy,
             only=only,
+            companion_reduce=reduce,
         )
         per_arm[arm] = predictions
-        per_arm_companion[arm] = at_companion
         diagnostics.extend(arm_diagnostics)
+        if not fold_plug_in_rules:
+            per_arm_companion[arm] = at_companion
+        elif lower_slab is None:
+            lower_slab = at_companion["x"]
+        else:
+            signs = at_companion[_RULE_SIGN]
+    del lower_slab
 
     out = {
         name: _gather_by_arm(
@@ -1677,8 +1728,10 @@ def _fit_outcome_by_arm(
         )
         for name, query in queries.items()
     }
-    at_companion_out: dict[str, FloatArray] = {}
-    if companion_designs:
+    at_companion_out: dict[str, np.ndarray] = {}
+    if signs is not None:
+        at_companion_out[_RULE_SIGN] = signs
+    elif companion_designs:
         where = data if companion is None else companion
         for name, query in companion_queries.items():
             at_companion_out[name] = _gather_by_arm(
@@ -1690,6 +1743,41 @@ def _fit_outcome_by_arm(
 def _arm_key(arm: float) -> str:
     """Name of the counterfactual design for one arm, where no intermediate is involved."""
     return f"arm@{arm}"
+
+
+def _rule_key(arm: float) -> str:
+    """Name of the design at which every fold's outcome model predicts ``arm`` at every row."""
+    return f"rule@{arm}"
+
+
+#: The companion name of every fold's plug-in rule at every row, ``(K, n)`` booleans.
+_RULE_SIGN = "rule_sign"
+
+
+def _pooled_rule_sign(
+    fold: int, values: dict[str, FloatArray], *, lower: float, higher: float
+) -> dict[str, np.ndarray]:
+    """Reduce one fold's pooled model at both arms of every row to its plug-in rule.
+
+    Runs inside the fold worker (:data:`CompanionReduce`), so the worker hands back ``n``
+    booleans in place of ``2n`` floats.  A tie, a blip of exactly zero, assigns the lower arm.
+    """
+    out = dict(values)
+    treated = out.pop(_rule_key(higher))
+    control = out.pop(_rule_key(lower))
+    out[_RULE_SIGN] = np.asarray(treated - control > 0.0, dtype=bool)
+    return out
+
+
+def _by_arm_rule_sign(
+    fold: int, values: dict[str, FloatArray], *, lower: np.ndarray
+) -> dict[str, np.ndarray]:
+    """Compare one fold's higher-arm model at every row with the fold's lower-arm slab.
+
+    Runs inside the fold worker of the higher arm (:func:`_fit_outcome_by_arm`), so that arm
+    hands back booleans.  A tie assigns the lower arm.
+    """
+    return {_RULE_SIGN: np.asarray(values["x"] - lower[fold] > 0.0, dtype=bool)}
 
 
 def _design_key(arm: float, level: float | None) -> str:
@@ -1906,6 +1994,7 @@ def fit_nuisances(
     probe_doses: Mapping[str, FloatArray] | None = None,
     outcome_by_arm: bool = False,
     fit_outcome: bool = True,
+    fold_plug_in_rules: bool = False,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1984,7 +2073,28 @@ def fit_nuisances(
     route: the map at the tuner fitted on that fold's training rows.  ``probe_doses`` asks
     for the outcome regression at further ``(n,)`` doses, returned on
     :attr:`NuisanceEstimates.outcome_probes` under the same keys.
+
+    ``fold_plug_in_rules=True`` also evaluates each fold's outcome regression at both arms
+    of every row, in the same fold loop, and returns the sign of each fold's blip on
+    :attr:`NuisanceEstimates.fold_plug_in_rules`: the plug-in rule of every fold at every
+    row, as booleans.  A plug-in learned-rule fit asks for it, so the omitted-variable
+    bound can read every fold's rule without a refit.  The pooled regression reduces its
+    two predictions to the sign inside each fold worker, so no ``(V, n)`` float slab is
+    kept.  The per-arm regression keeps the lower arm's ``(V, n)`` float slab until the
+    higher arm's fold workers have compared against it.  It needs a binary arm-coded
+    treatment and no intermediate variable or companion, which the learned-rule refusal
+    table guarantees.
     """
+    if fold_plug_in_rules and (
+        not fit_outcome
+        or not data.is_binary_treatment
+        or data.has_intermediate
+        or companion is not None
+    ):
+        raise ValueError(
+            "fold_plug_in_rules=True reads the blip of a binary arm-coded treatment, and needs "
+            "a fitted outcome regression, no intermediate variable and no companion"
+        )
     if data.composite_view:
         raise ValueError(
             "fit_nuisances was given a composite-indicator view. The view is for targeting "
@@ -2290,6 +2400,7 @@ def fit_nuisances(
     outcome_out: dict[str, FloatArray]
     probes = dict(probe_doses or {})
     companion_estimates: CompanionEstimates | None = None
+    fold_rules: BoolArray | None = None
     if not fit_outcome:
         # The outcome-free path of an estimator that weights the observed outcomes
         # (`AdaptiveIPTW`): no outcome learner runs, and every outcome accessor raises.
@@ -2346,6 +2457,14 @@ def fit_nuisances(
                     arm
                 )
 
+        pooled_reduce: CompanionReduce | None = None
+        if fold_plug_in_rules and not outcome_by_arm:
+            # Every fold's model at both arms of every row, from the model object that made
+            # the out-of-fold predictions (``cross_fit_companion``), reduced to the sign of
+            # the blip inside the fold worker so that no float slab reaches the parent.
+            for arm in arms:
+                companion_designs[_rule_key(arm)] = designs[_design_key(arm, levels[0])]
+            pooled_reduce = functools.partial(_pooled_rule_sign, lower=arms[0], higher=arms[1])
         outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
@@ -2371,6 +2490,7 @@ def fit_nuisances(
                 companion=companion,
                 companion_queries=by_arm_companion,
                 n_jobs=n_jobs,
+                fold_plug_in_rules=fold_plug_in_rules,
             )
         else:
             outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
@@ -2386,6 +2506,7 @@ def fit_nuisances(
                 groups=groups,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
+                companion_reduce=pooled_reduce,
             )
         if outcome_diagnostics:
             diagnostics["outcome"] = outcome_diagnostics
@@ -2398,6 +2519,11 @@ def fit_nuisances(
             for level in levels
         }
         primary = by_level[levels[0]]
+
+        if fold_plug_in_rules:
+            fold_rules = np.ascontiguousarray(
+                np.asarray(outcome_companion.pop(_RULE_SIGN), dtype=bool).T
+            )
 
         companion_estimates = None
         if companion is not None:
@@ -2440,6 +2566,7 @@ def fit_nuisances(
         msm=msm,
         companion=companion_estimates,
         outcome_probes={key: outcome_out[f"probe:{key}"] for key in probes},
+        fold_plug_in_rules=fold_rules,
     )
 
 

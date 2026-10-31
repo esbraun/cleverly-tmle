@@ -203,8 +203,10 @@ from ..interventions.base import refuse_mixed_interventions, refuse_regime_densi
 from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
+    FrozenLearnedRule,
     LearnedRule,
     _learned_rule_regimes,
+    check_fold_rules,
     learned_rule_configuration_refusal,
     learned_rule_record,
     learned_rule_scheme_refusal,
@@ -4031,6 +4033,7 @@ class TMLE:
             fit_treatment_observation=fit_treatment_observation,
             outcome_by_arm=self.outcome_by_arm,
             fit_outcome=fit_outcome,
+            fold_plug_in_rules=self._reads_fold_plug_in_rules(),
         )
         if tuned is not None:
             assert estimates.policies is not None
@@ -4044,7 +4047,27 @@ class TMLE:
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
         # caller's rules or its design.
-        return replace(estimates, regimes=self._regimes(data, estimates, seed=seed), msm=msm)
+        # A plug-in learned rule moves the fold rules into its regime set, so the nuisances
+        # do not carry a second copy.
+        return replace(
+            estimates,
+            regimes=self._regimes(data, estimates, seed=seed),
+            msm=msm,
+            fold_plug_in_rules=None,
+        )
+
+    def _reads_fold_plug_in_rules(self) -> bool:
+        """Whether the nuisance fit evaluates every fold's plug-in rule at every row.
+
+        A plug-in learned-rule fit stores the rule of every fold at every row in its regime
+        set (:func:`~cleverly.interventions.learned.learned_rule_treat`), which the
+        omitted-variable bound reads.  A frozen rule learns nothing, and a rule learner
+        evaluates its own fold rules.
+        """
+        rule = self.learned_rule
+        return (
+            rule is not None and rule.loss == "plug_in" and not isinstance(rule, FrozenLearnedRule)
+        )
 
     def _msm(self, data: CausalData) -> MSMSet | None:
         """The declared working model evaluated on ``data``, or ``None`` if none was."""
@@ -4071,7 +4094,7 @@ class TMLE:
                     "a learned-rule fit with a rule learner reached its rule without a draw "
                     "seed. This is a defect in cleverly: every draw of TMLE carries one."
                 )
-            treat, margin = learned_rule_treat(
+            treat, margin, fold_rules = learned_rule_treat(
                 data,
                 estimates,
                 self.learned_rule,
@@ -4079,7 +4102,10 @@ class TMLE:
                 g_bounds=self._rule_g_bounds(data),
                 seed=0 if seed is None else int(seed),
             )
-            return _learned_rule_regimes(treat, self.learned_rule.name, margin)
+            if fold_rules is not None:
+                # The diagonal at fit time, so a defect surfaces here and not at the bound.
+                check_fold_rules(fold_rules, treat, estimates.folds)
+            return _learned_rule_regimes(treat, self.learned_rule.name, margin, fold_rules)
         if not self.interventions:
             return None
         reference = None if self.reference is None else str(self.reference)

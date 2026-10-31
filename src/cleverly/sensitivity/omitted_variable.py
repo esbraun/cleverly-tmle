@@ -87,15 +87,26 @@ combines the draws' limits by the median rule of the estimate.  Each draw is ret
 its own nuisances for its influence curve.  :func:`sensitivity_elements` describes one draw,
 named with ``repeat``.
 
+Learned rules (X11 part (n)).  With the fold rules held fixed, the learned-rule value is the
+regime functional of :math:`g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}`, whose Riesz
+representer :math:`g^\star / g` the bound reads from the fit's stored matrix of every fold's
+rule at every row (:func:`_combined_rule_regimes`).  It is a point bound: its estimate of
+``nu^2`` applies ``V - 1`` of the rules to rows they were learned on, so no limit is derived,
+and ``benchmark`` refuses because its refit would relearn the rules.  A fit of several splits
+refuses as an implementation gap (X11 (n2)), and a frozen-rule replay refuses because it
+holds no fold rule.
+
 Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for five
 reasons.
 
 * A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
   Lemma 3 of Chernozhukov et al. and the standard error of their Theorem 4 assume a
   consistently estimated treatment mechanism.
-* A fit indexed by a regime, a shift, or an MSM term is well posed.  Theorem 2 of
-  Chernozhukov et al. covers each one as a linear functional of the outcome regression,
-  and no implementation is registered.
+* A fit indexed by a risk-ratio tilt mean is well posed.  Theorem 2 of Chernozhukov et al.
+  covers it as a linear functional of the outcome regression, and no implementation is
+  registered.  A regime, shift, MSM or learned-rule fit is covered (part G and X11 part
+  (n)), and refuses only on the configurations :func:`_refuse_axis_configuration` and
+  :func:`_refuse_learned_rule_bound` name.
 * An ``ipsi`` fit is outside that theorem, because its estimand contains the treatment
   mechanism.
 * A longitudinal fit has no registered derivation.
@@ -137,7 +148,12 @@ from ..exceptions import CapabilityError, DataError, refuse_inference
 from ..inference.cluster import influence_variance
 from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
-from ..interventions.learned import LEARNED_RULE_BOUND_REFUSAL
+from ..interventions.base import RegimeSet
+from ..interventions.learned import (
+    LEARNED_RULE_BENCHMARK_REFUSAL,
+    LEARNED_RULE_LIMITS,
+    fold_rules,
+)
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
@@ -179,8 +195,13 @@ LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", 
 #: linear functional of the outcome regression with a known Riesz representer, read off
 #: the fit's own clever covariate.  :func:`axis_parameters` turns a fit's codes into names.
 AXIS_ESTIMANDS: frozenset[str] = frozenset(
-    {"ey_regime", "ate_regime", "ey_policy", "ate_policy", "msm"}
+    {"ey_regime", "ate_regime", "ey_policy", "ate_policy", "msm", "ey_learned_rule"}
 )
+
+#: The stem of the learned-rule value (X11 part (n)).  With the fold rules held fixed it is
+#: the regime functional of the stochastic regime that averages them, so it reuses the
+#: regime fluctuation group and reads its representer from :func:`_combined_rule_regimes`.
+LEARNED_RULE_STEM = "ey_learned_rule"
 
 #: The fluctuation group, and the part G feature, of each covered axis.
 _AXIS_GROUPS: dict[str, tuple[str, str]] = {
@@ -354,26 +375,19 @@ def _refuse_selected_mechanism(result: Any) -> Refusal | None:
 def _refuse_non_arm_axis(result: Any) -> Refusal | None:
     """Refuse a fit whose counterfactuals are indexed by anything but an arm.
 
-    Two reasons, not one.  A regime, a shift, and an MSM coefficient are linear
-    functionals of the outcome regression and each has a Riesz representer, so the bound
-    is well posed and unimplemented.  An incremental intervention builds its density out
-    of the estimated mechanism, so the mechanism is part of the estimand rather than a
-    nuisance the bound conditions on, and the regression-only bound does not cover it.
+    A regime, a shift, an MSM coefficient and a learned-rule value are covered, and pass
+    unless their configuration refuses (:func:`_refuse_axis_configuration`,
+    :func:`_refuse_learned_rule_bound`).  A risk-ratio tilt mean is a linear functional of
+    the outcome regression with a Riesz representer, so its bound is well posed and
+    unimplemented.  An incremental intervention builds its density out of the estimated
+    mechanism, so the mechanism is part of the estimand rather than a nuisance the bound
+    conditions on, and the regression-only bound does not cover it.
     """
     axis = result.config.parameter_axis
     if axis == "arm":
         return None
     if axis == "learned_rule":
-        # A third reason: the target is data-adaptive, and no bound for it was reviewed.
-        # A benchmark refit would also relearn the rules, and so change the target.
-        return Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "the omitted-variable bound and its benchmark do not cover a learned-rule fit: "
-            + LEARNED_RULE_BOUND_REFUSAL
-            + ".",
-            alternative=NO_ALTERNATIVE,
-            roadmap="X11",
-        )
+        return _refuse_learned_rule_bound(result)
     if axis == "ipsi":
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
@@ -397,6 +411,47 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
         alternative=NO_ALTERNATIVE,
         roadmap="X82",
     )
+
+
+def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
+    r"""Refuse a learned-rule fit whose fold rules the bound cannot read as one target.
+
+    The bound holds the fold rules of one split fixed.  A fit of ``R`` splits reports the
+    mean :math:`R^{-1}\sum_r \theta_r`, which is still linear in :math:`\bar Q`, with
+    representer :math:`\bar g^\star / g` and
+    :math:`\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}`.  That composition is well
+    posed and not built: it needs a choice of ``g`` and ``sigma^2`` across the splits, so it
+    refuses as an implementation gap (X11 (n2)).  A fit of a :class:`~cleverly.interventions.
+    FrozenLearnedRule` holds one realized rule per row and no fold rule, so the stochastic
+    regime that averages the fold rules has no value off the realized one.  Weights,
+    clusters and fold targeting pass: part G's regime bound admits each of them, and none
+    changes the functional or its representer (``docs/technical-reference/
+    validation-methods.md``, "The point bound of a learned-rule value").
+    """
+    n_splits = int(getattr(result, "n_repeats", 1))
+    if n_splits > 1:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"the omitted-variable bound holds the fold rules of one split fixed, and this "
+            f"learned-rule fit reports the mean over {n_splits} splits (repeats={n_splits}). "
+            "The bound of the mean over splits reads the average of every split's fold rules, "
+            "which is not built (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Refit with repeats=1 (CrossFitting(repeats=1) on the method), and run the "
+                "omitted-variable bound on that fit, which holds the rules of its one split "
+                "fixed."
+            ),
+            roadmap="X11",
+        )
+    if getattr(result.repeats[0].nuisance.regimes, "fold_rules", None) is None:
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "the omitted-variable bound of a learned-rule value reads every fold's rule at "
+            "every row, and this fit evaluates a FrozenLearnedRule, which holds one realized "
+            "rule per row and no fold rule.",
+            alternative="Run the bound on the learned-rule fit that the rule was frozen from.",
+        )
+    return None
 
 
 def _axis_gap(what: str, why: str) -> Refusal:
@@ -490,7 +545,19 @@ def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     from ..targets import parameter_name
 
     axis = getattr(getattr(result, "config", None), "parameter_axis", None)
-    if axis not in _AXIS_GROUPS or getattr(result, "assessment_family", None) != "point":
+    if getattr(result, "assessment_family", None) != "point":
+        return {}
+    if axis == "learned_rule":
+        regimes = result.repeats[0].nuisance.regimes
+        if regimes is None:
+            return {}
+        name = parameter_name(LEARNED_RULE_STEM, arm=regimes.labels[0.0])
+        return (
+            {name: ArmParameter(name, LEARNED_RULE_STEM, "regime", 0.0)}
+            if name in result.estimates
+            else {}
+        )
+    if axis not in _AXIS_GROUPS:
         return {}
     group = _AXIS_GROUPS[axis][0]
     nuisance = result.repeats[0].nuisance
@@ -1258,6 +1325,7 @@ _FEATURE_MECHANISMS: dict[str, str | None] = {
     "missing_treatment": "recording",
     "intermediate": "intermediate",
     "regime": None,
+    "learned_rule": None,
     "shift": None,
     "msm": None,
     "stratum": None,
@@ -1289,7 +1357,8 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
         "response": bool(data.has_missing_outcome),
         "missing_treatment": bool(getattr(data, "has_missing_treatment", False)),
         "intermediate": declares_intermediate(result),
-        "regime": parameter.group == "regime",
+        "regime": parameter.group == "regime" and parameter.stem != LEARNED_RULE_STEM,
+        "learned_rule": parameter.stem == LEARNED_RULE_STEM,
         "shift": parameter.group == "mtp",
         "msm": parameter.group == "msm",
         "stratum": parameter.stratum is not None,
@@ -1307,7 +1376,8 @@ def _limit_reading(
     keeps its output.  The import is local because :mod:`cleverly.validation` imports
     this package.
     """
-    if not features:
+    if not features or "learned_rule" in features:
+        # A learned-rule bound publishes no limit, so there is nothing to license.
         return None
     from ..validation._interpretation import fit_configuration, resolve
 
@@ -1382,6 +1452,10 @@ def _elements_for(
     effect that conditions on arm ``c``.
     """
     data, nuisance, bounds = _bound_inputs(result, repeat, parameter.group)
+    if parameter.stem == LEARNED_RULE_STEM:
+        # The fold rules held fixed are one stochastic regime, so the regime representer
+        # and m(O, alpha) below read its density in place of the realized one-hot rule.
+        nuisance = replace(nuisance, regimes=_combined_rule_regimes(nuisance))
     scaler = nuisance.scaler
     group = parameter.group
     fluctuation = repeat.fluctuations[group]
@@ -1523,6 +1597,11 @@ def _elements_for(
                 nu2_correction = correction
                 plugin_mechanism = nuisance.treatment_mechanism
                 plugin_mechanism = "known" if plugin_mechanism == "known" else "logistic"
+    if "learned_rule" in features:
+        # The point bound only (X11 part (n)): no curve of nu^2 is derived, because V - 1
+        # of the V fold rules read rows they were learned on.
+        psi_nu2 = None
+        limit_refusal = _LEARNED_RULE_LIMIT_REFUSAL
     max_bias = float(np.sqrt(sigma2 * nu2))
     # The square-root delta method requires a positive product. At sigma2=0 the
     # point bound is still defined, but its ordinary influence curve is not.
@@ -1543,6 +1622,40 @@ def _elements_for(
         nu2_correction=nu2_correction,
         features=features,
     )
+
+
+#: Why a learned-rule bound has no confidence limit, in the form the limit accessors raise.
+_LEARNED_RULE_LIMIT_REFUSAL = MechanismRefusal(
+    key="learned_rule",
+    text=LEARNED_RULE_LIMITS,
+    alternative="Read the point bounds and the point robustness value, which stay available.",
+    reason=RefusalReason.INFERENCE_GAP,
+    roadmap="X11",
+)
+
+
+def _combined_rule_regimes(nuisance: NuisanceEstimates) -> RegimeSet:
+    r"""The stochastic regime that averages the fold rules of one learned-rule split.
+
+    With the rules :math:`d_1, \dots, d_V` held fixed, the learned-rule value is
+    :math:`\theta(\bar Q) = E[V^{-1}\sum_v \bar Q(d_v(W), W)]`, the regime functional of
+    :math:`g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}`.  Its Riesz representer is
+    :math:`g^\star / g`, and the bias of the fold-evaluated estimate,
+    :math:`V^{-1}\sum_v E[\Delta\bar Q\,\Delta\alpha_v]`, equals
+    :math:`E[\Delta\bar Q\,\Delta\alpha]` for that combined representer.  The density reads
+    every fold's rule at every row (:func:`~cleverly.interventions.learned.fold_rules`),
+    which also checks that each row's entry at its own fold is its realized rule.  It is
+    not the realized one-hot rule, whose representer
+    :math:`1\{A = d_{v(i)}(W_i)\} / g` belongs to no functional of :math:`\bar Q` alone.
+    """
+    regimes = nuisance.regimes
+    rules = fold_rules(nuisance)
+    assert regimes is not None and rules is not None
+    treated = np.mean(rules, axis=1, dtype=float)
+    values = np.empty((treated.size, 2, 1), dtype=float)
+    values[:, 1, 0] = treated
+    values[:, 0, 0] = 1.0 - treated
+    return RegimeSet(regimes.names, values, regimes.reference)
 
 
 def _configuration_phrase(features: tuple[str, ...]) -> str:
@@ -2875,6 +2988,8 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
         form a malformed request.  :func:`benchmark` reports a malformed request itself,
         before any refusal.
     """
+    if getattr(result.config, "parameter_axis", None) == "learned_rule":
+        return LEARNED_RULE_BENCHMARK_REFUSAL
     if result.data.known_treatment is not None:
         return Refusal(
             RefusalReason.INVALID_DECLARATION,

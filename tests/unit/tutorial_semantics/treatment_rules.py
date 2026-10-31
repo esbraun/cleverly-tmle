@@ -204,6 +204,24 @@ def _check_random_offer(namespace: dict[str, Any]) -> None:
     assert round(float(weights.max()), 2) == 3.19
 
 
+def _check_rule_sensitivity(namespace: dict[str, Any]) -> None:
+    from cleverly.exceptions import CapabilityError
+
+    robustness, bound = namespace["rule_robustness"], namespace["rule_bound"]
+    value = namespace["value"]
+    # "The robustness value, 0.079 ... cannot lower the value by 0.05".
+    assert namespace["shift"] == 0.05
+    assert round(robustness["rv"], 3) == 0.079
+    # "the value could move by at most 0.0185, to between 0.6989 and 0.7359".
+    assert round(bound.bias, 4) == 0.0185
+    assert round(bound.lower, 4) == 0.6989 and round(bound.upper, 4) == 0.7359
+    assert bound.lower < value.psi < bound.upper
+    # "with no 95% limits around them".
+    with pytest.raises(CapabilityError):
+        _ = bound.ci_lower
+    assert bound.limit_reading is None
+
+
 def check(namespace: dict[str, Any]) -> None:
     """Pin the readings of the learned-rule and random-offer fits on their seeded draw."""
     _check_probe_log()
@@ -215,6 +233,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_assessment(namespace)
     _check_failure(namespace)
     _check_random_offer(namespace)
+    _check_rule_sensitivity(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:

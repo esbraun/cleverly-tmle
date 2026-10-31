@@ -827,7 +827,7 @@ matching capability row therefore carry one reason.
 | an `msm` axis with a continuous dose or a link other than `"identity"` | a representer. A continuous dose reads the treatment density at quadrature doses, and under another link the coefficient is not linear in the outcome regression |
 | a `policy` axis with a randomized, fold-tuned, or joint policy set | a combination of the component representers |
 | a `policy` axis on a continuous dose, where an observed or a shifted dose is not a declared dose atom | a derived representer for a fitted dose density, and a guarantee for $\hat\nu^2$. On a binned density, the doubly robust $\hat\nu^2$ is often negative |
-| a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X82 part G |
+| a `learned_rule` fit of several splits, or of a `FrozenLearnedRule` | one set of fold rules to hold fixed. A fit of several splits has one set per split, and the median of their bounds estimates no defined parameter. A frozen rule holds one realized rule per row and no fold rule. The point bound of a learned-rule fit of one split is below |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
 
@@ -979,6 +979,86 @@ takes the median of the draws' point bounds.
 `tests/unit/test_omitted_variable_consistent_mechanism.py` checks that the DR-TMLE $\nu^2$ equals the
 ordinary TMLE $\nu^2$ with one learner and seed. It checks the same equality for the C-TMLE refit.
 A mutation control that reads the selected mechanism instead of the refit gives another $\nu^2$.
+
+#### The point bound of a learned-rule value
+
+A [learned-rule fit](point-treatment-tmle.md#learned-rules) of one split gets a point bound. With
+the fold rules $d_1, \dots, d_V$ held fixed, the reported value is the linear functional
+
+$$
+\theta(\bar Q) = E\Big[\frac1V \sum_{v=1}^V \bar Q(d_v(W), W)\Big],
+$$
+
+which is the regime functional of the stochastic regime
+$g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}$. Its Riesz representer is $\alpha = g^\star / g$,
+and $m(O, \alpha) = \sum_a g^\star(a \mid W)\, \alpha(a, W)$, as for a declared regime. Under an
+omitted confounder the fold-evaluated estimate of fold $v$ misses $\Psi_{d_v}$ by
+$-E[\Delta\bar Q\, \Delta\alpha_v]$, with $\alpha_v = 1\{A = d_v(W)\} / g$. By linearity the
+reported value misses $\theta$ by $-V^{-1}\sum_v E[\Delta\bar Q\, \Delta\alpha_v] =
+-E[\Delta\bar Q\, \Delta\alpha]$, so Theorem 2 of the cited paper applies with the combined
+representer. Here $\Delta$ is the long-minus-short difference, and $c_D$ is the share of the
+second moment of this combined representer that only the confounder adds. The derivation is this
+package's step.
+
+The fit evaluates each fold's rule at every row while that fold's model is in memory, the outcome
+regression for the plug-in rule and the fitted learner for a rule learner. It stores the rules as
+an $n \times V$ boolean matrix in its regime set, one byte per row and fold. The pooled outcome
+regression reduces its two predictions to booleans inside each fold worker. The per-arm regression
+holds the lower arm's $V \times n$ float predictions, $8Vn$ bytes, until the higher arm's fold
+workers have compared against them.
+
+The bound reads the matrix and refits nothing. The entry of each row at its own fold must equal the
+row's realized rule. The fit checks this when it builds the matrix and the bound checks it again,
+and either raises `RuntimeError` if it fails. The representer is not the realized clever covariate
+$1\{A = d_{v(i)}(W_i)\} / g$, which belongs to no functional of $\bar Q$ alone.
+
+| quantity | learned-rule fit |
+| --- | --- |
+| centre | the fit's estimate |
+| $\sigma^2$ | the fit's targeted outcome regression |
+| $\nu^2$ | the mean of $2 m(O, \alpha) - \alpha^2$, or of $\alpha^2$ under `nu2_estimator="plugin"`, with $\alpha = g^\star / g$ |
+| feature | `learned_rule` |
+| limits, the confidence-limit robustness value, `limit_reading` | refused with the key `learned_rule` and the reason `inference_gap`. `limit_reading` is `None` |
+| `benchmark()` | refused with `implementation_gap`. Its refit would relearn the rules |
+| `weights=`, `id=`, `targeting_scheme="fold"` | admitted. The regime bound admits each of them, and none changes the functional or its representer. $\sigma^2$ and $\nu^2$ take the observation-weighted mean over every row, so the bound is of the fixed rules' value in the weighted population |
+| `repeats` above 1 | refused with `implementation_gap`. The mean over $R$ splits is linear in $\bar Q$, with representer $\bar g^\star / g$ and $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$, so the bound is well posed. It needs a choice of $g$ and $\sigma^2$ across splits and is not built ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)). The remedy is `repeats=1` |
+
+Two conditions are this bound's own. For each row, $V - 1$ of the $V$ rules were learned on rows
+that include it. $\hat\nu^2$ is consistent for the fixed rules' $\nu^2$ when the rule class is
+Glivenko-Cantelli and $g$ is consistent and truncated, because the empirical mean then converges
+uniformly over the rules, including on the rows each rule was learned on. That is one sufficient
+route, not a requirement.
+
+A standard error for $\hat\nu^2$ would need a Donsker-type condition on the rule learners, which
+condition C5 of the learned-rule contract does not make. A limit at the common limiting rule would
+need a margin rate, which condition C3 does not give.
+[X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, and a
+conservative option, a cross-fitted $\nu^2_{\rm diag} \ge \nu^2$, that is recorded and not built.
+
+The summaries print a note that the bound keeps each fold's learned rule fixed. No study measures
+the bound, and the registry has no row for it: the `ovb_limit` rows license limits, and this bound
+has none.
+
+`tests/unit/test_learned_rule_bound.py` checks these claims:
+
+- The stored matrix has the realized rule on its diagonal, and each column is the plug-in rule
+  of a by-hand refit of that fold's outcome regression, pooled or one per arm. For a rule learner,
+  with `loss="blip"` and `loss="weighted_classification"`, each column equals the recorded fold
+  rule at every row. Off the diagonal each matrix holds both values. A blip or a rule-learner score
+  exactly at its threshold gives `False` in every column. A corrupted diagonal raises, at fit time
+  and at the bound.
+- When every fold learns the rule $1\{W_1 > 0\}$, the representer, $\sigma^2$, $\nu^2$, the
+  bounds and the robustness value equal those of the known rule's regime fit, with pooled and fold
+  targeting, known weights and clusters.
+- On an exact law with an omitted binary $U$ and two fold rules that differ at one level of $W$,
+  the representer is $g^\star / g$ on every row, and both estimators of $\nu^2$ equal
+  $E[\sum_a g^{\star 2} / g]$ to a relative tolerance of $10^{-12}$. That value lies 0.4 below
+  $V^{-1}\sum_v E[1 / g(d_v(W) \mid W)]$, declared from the law. The long-minus-short difference of
+  the value, $-0.0284$, equals $E[\Delta\bar Q\, \Delta\alpha]$. At the law's own strengths, the
+  bound with the fit's $\hat\nu^2$ and the law's short residual variance in place of
+  $\hat\sigma^2$ reaches it exactly. The representer of one fold's rule alone misses the bias, and
+  the realized-rule representer gives a $\nu^2$ of 2.078 against 1.823, so its bound overshoots.
+  The test asserts the three quoted numbers.
 
 #### Omitted-variable limits and their coverage evidence
 

@@ -379,7 +379,7 @@ def rule_learner_treat(
     scaler: OutcomeScaler,
     g_bounds: tuple[float, float],
     seed: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return the rule of every row, from the rule learner of the row's outer fold.
 
     Parameters
@@ -409,10 +409,15 @@ def rule_learner_treat(
     margin : numpy.ndarray
         The score of the row's fold rule minus its threshold at the row
         (:meth:`FoldRule.margin`).
+    fold_rules : numpy.ndarray
+        ``(n, V)`` booleans: column ``v`` is the rule of fold ``v`` at every row, evaluated
+        while the fold's fitted learner is in memory.  Its diagonal, the entry of each
+        row's own fold, is ``treat``.
     """
     covariates = np.asarray(data.covariates, dtype=float)
     treat = np.zeros(data.n, dtype=bool)
     margin = np.zeros(data.n, dtype=float)
+    fold_rules = np.zeros((data.n, folds.n_folds), dtype=bool)
     for fold, (train, test) in enumerate(folds):
         rule = fit_fold_rule(
             data,
@@ -428,4 +433,5 @@ def rule_learner_treat(
         rows = np.asarray(test)
         treat[rows] = rule.treat(covariates[rows])
         margin[rows] = rule.margin(covariates[rows])
-    return treat, margin
+        fold_rules[:, fold] = rule.treat(covariates)
+    return treat, margin, fold_rules

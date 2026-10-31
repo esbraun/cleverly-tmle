@@ -41,7 +41,7 @@ from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
 from cleverly.interventions import Incremental, LearnedRule, Rule, Shift, Static
 from cleverly.interventions.learned import (
-    LEARNED_RULE_BOUND_REFUSAL,
+    LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
     LEARNED_RULE_EVALUE_REFUSAL,
     LEARNED_RULE_REMEDY,
@@ -53,7 +53,11 @@ from cleverly.msm import MSM
 from cleverly.sensitivity import evalue
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.missingness import fit_wide_tilt_refusal
-from cleverly.sensitivity.omitted_variable import fit_wide_bound_refusal
+from cleverly.sensitivity.omitted_variable import (
+    benchmark,
+    benchmark_refusal,
+    fit_wide_bound_refusal,
+)
 from cleverly.validation.refute import refute_refusal
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
@@ -565,11 +569,13 @@ class TestTheStudyRefusesTheSameRows:
 
 
 class TestTheAssessmentRows:
-    """No bound and no covariate-perturbing refutation runs on a learned-rule fit.
+    """The rows of the sensitivity analyses that a learned-rule fit reads.
 
-    Each such row reads unavailable, and each call refuses with the same sentence.
-    Simulated confounding and the other refutations run, because their replay holds the
-    realized fold rules (X82 part F4).  The summarize rows and ``truncation_curve`` run; the capability sweep
+    The omitted-variable point bound and its robustness value, elements and contour run on the
+    fit's frozen fold rules (X11 part (n)). The benchmark, the E-value and the missingness
+    analyses read unavailable, and each call refuses with the same sentence. Simulated
+    confounding and the other refutations run, because their replay holds the realized fold
+    rules (X82 part F4).  The summarize rows and ``truncation_curve`` run; the capability sweep
     (``tests/unit/test_capability_row_sweep.py``, kind ``learned_rule``) pins that.
     """
 
@@ -585,11 +591,7 @@ class TestTheAssessmentRows:
     @pytest.mark.parametrize(
         ("operation", "item"),
         [
-            ("omitted_confounding", "X11 (n)"),
-            ("robustness_value", "X11 (n)"),
-            ("elements", "X11 (n)"),
-            ("contour", "X11 (n)"),
-            ("benchmark", "X11 (n)"),
+            ("benchmark", "X11 (n2)"),
             ("evalue", "F27"),
             ("missingness", "F27"),
             ("tipping_gamma", "F27"),
@@ -601,6 +603,12 @@ class TestTheAssessmentRows:
         row = result.sensitivity.capability(operation)
         assert not row.available
         assert f"{item} in docs/roadmap.md" in (row.reason or "")
+
+    @pytest.mark.parametrize(
+        "operation", ["omitted_confounding", "robustness_value", "elements", "contour"]
+    )
+    def test_each_point_bound_row_reads_available(self, result: Any, operation: str) -> None:
+        assert result.sensitivity.capability(operation).available
 
     def test_simulated_confounding_has_no_learned_rule_stop(self, result: Any) -> None:
         """X82 part F4 replays the fit with its fold rules frozen.
@@ -614,11 +622,13 @@ class TestTheAssessmentRows:
         assert "relearn" not in refusal.message()
 
     def test_each_call_refuses_with_its_row_sentence(self, result: Any) -> None:
-        for reason, sentence in (
-            (fit_wide_bound_refusal(result), LEARNED_RULE_BOUND_REFUSAL),
-            (fit_wide_tilt_refusal(result), LEARNED_RULE_TILT_REFUSAL),
-        ):
-            assert reason is not None and sentence in reason.message()
+        assert fit_wide_bound_refusal(result) is None
+        assert benchmark_refusal(result, ["W2"]) is LEARNED_RULE_BENCHMARK_REFUSAL
+        with pytest.raises(CapabilityError) as caught:
+            benchmark(result, ["W2"], estimand=support.NAME)
+        assert LEARNED_RULE_BENCHMARK_REFUSAL.condition in str(caught.value)
+        reason = fit_wide_tilt_refusal(result)
+        assert reason is not None and LEARNED_RULE_TILT_REFUSAL in reason.message()
         with pytest.raises(CapabilityError) as caught:
             evalue(result, support.NAME)
         assert LEARNED_RULE_EVALUE_REFUSAL in str(caught.value)
