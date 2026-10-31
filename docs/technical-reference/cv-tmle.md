@@ -122,7 +122,9 @@ differs from the mixture whenever the folds' stratum shares differ.
 
 With `repeats > 1` each estimate, marginal and stratum, is the median over draws of its own value,
 so the reported marginal is the median of the draws' mixtures and need not equal the mixture of
-the reported stratum medians. Each draw's marginal is that draw's mixture.
+the reported stratum medians. Each draw's marginal is that draw's mixture. The learned-rule
+value is the exception: it takes the mean over draws, so its marginal is the mixture of the
+stratum means and its band reads the mean curves.
 
 The construction covers the arm means and their linear contrasts (`ey`, `ate`), the regime
 means and their contrasts (`ey_regime`, `ate_regime`), and the learned-rule value
@@ -133,7 +135,8 @@ inherits the conditions of the fold-evaluated estimate inside each stratum, posi
 stratum, and a fixed number of strata. `tests/unit/test_fold_evaluated_strata_exact.py` checks it
 on an exact discrete law. Each stratum estimate is the fold average of its plug-ins, each fold's
 stratum curve is the Gateaux derivative of the stratum functional at the fold's law, and each
-reported stratum score is solved. The share term of the marginal curve is the Gateaux
+reported stratum score is solved. `tests/unit/test_learned_rule_strata.py` checks the same
+identities for the learned-rule value, at fold rules that differ. The share term of the marginal curve is the Gateaux
 derivative of the share mixture with the stratum estimates held fixed. Its controls normalise by
 the global share, which leaves a nonzero curve mean, drop the share, and use the unstratified
 fold weights.
@@ -212,7 +215,7 @@ does not need an identity among medians. The table compares the two engines.
 | in-fit contrast | median rule on the per-draw contrast | median rule on the per-draw contrast |
 | `contrast()`, `ratio()` | refused | computed per draw, then the median rule. A `transform=` sets the scale of the rule |
 | `covariance(names)` | refused | the matrix rule of equation (3.14) for the selected names |
-| simultaneous band | refused | the median of the per-draw critical values around the split-adjusted estimates |
+| simultaneous band | refused, except on a learned-rule fit, whose band reads the mean curves | the median of the per-draw critical values around the split-adjusted estimates |
 | bootstrap | runs as a diagnostic | refused |
 
 Chernozhukov et al. (2018, pp. C29-C30) state equation (3.14) as a variance-form matrix rule. The

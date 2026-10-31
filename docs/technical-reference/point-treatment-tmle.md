@@ -1453,7 +1453,10 @@ $$
 \Psi_{s,d}(P) = E_P\bigl[\bar Q_P(d(W), W) \mid S = s\bigr],
 $$
 
-under the tilted law when weighted. The fit applies the
+under the tilted law when weighted. The marginal estimate's interval targets
+$\sum_s P_0(S = s)\,\tilde\psi_{s,0n} = V^{-1}\sum_v \Psi_{d_{nv}}(P_0)$, the target of the
+unstratified fit at the same fold rules; the share term of its curve accounts for the estimated
+shares. The fit applies the
 [fold evaluation with baseline strata](cv-tmle.md#the-algorithm-as-implemented) of the arm and
 regime means, with the fold's one-hot rule density as the regime.
 
@@ -1485,16 +1488,22 @@ fit has no stacked report.
 | `id=` | refused before any learner, [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata): the clustered stratum fold variance and its $t$ reference are unchecked |
 | `targeting_scheme="fold"` | refused before any learner, [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b), as for every stratified fit |
 | the omitted-variable bound | refused, [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2): a stratum value needs the combined representer restricted to each fold's stratum rows, and no witness checks the marginal mixture's bias against the combined representer |
-| `freeze_learned_rule`, the frozen-rule replay, `simulated_confounding`, the `refute` tests that hold the rules | admitted on one split, for the marginal and for each stratum |
+| `freeze_learned_rule`, the frozen-rule replay, `simulated_confounding`, the `refute` tests that hold the rules, `placebo` | admitted on one split, for the marginal and for each stratum. The placebo of a stratum reads against the stratum's outcome mean $E[Y \mid S = s]$, the value of every rule inside the stratum under the placebo law |
 
 `tests/unit/test_learned_rule_strata.py` checks the construction on an exact discrete law whose
 folds learn different rules. Each stored fold rule is the sign of its training cell means, each
 stratum estimate is the fold average of the plug-ins at the fold rules, and each fold's stratum
 curve is the Gateaux derivative of $\Psi_{s,d_{nv}}$ at the fold's law, unweighted and under a
-covariate weight. Each reported stratum score is solved, and each fold's own score is not. Four
-controls fail: another fold's rule in the derivative, the full-sample rule in place of the fold
-rules, the global stratum share in the curve (a nonzero curve mean), and a curve without the
-stratum share. No registered study covers the fit, so its estimates carry the experimental label.
+covariate weight. Each reported stratum score is solved, and each fold's own score is not. The
+covariate weight is constant inside each value of $W$, so the weighted rules equal the
+unweighted ones here, and the weighted rule rests on the witnesses of known weights.
+
+A mutation of the fit fails these checks: the full-sample rule in place of the fold rules. Three
+perturbations of the reported curve show that the checks have power: the global stratum share
+in place of the fold's (a nonzero curve mean), another fold's rule in the derivative, and a
+curve without the stratum share. On the support law, a placebo that reads every stratum against
+the marginal outcome mean fails. No registered study covers the fit, so its estimates carry the
+experimental label.
 
 #### Refusals and the result record
 

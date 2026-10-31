@@ -939,8 +939,11 @@ class TestLearnedRulePlacebo:
             permuted = np.array(perm)
             g = np.array([share[rule[i]] for i in range(6)])
             values.append(np.sum(w * (permuted == rule) * y / g) / np.sum(w))
-        data = SimpleNamespace(outcome=y, weights=w, observed=np.ones(6, dtype=bool))
-        assert np.mean(values) == pytest.approx(_learned_rule_reference(data))
+        data = SimpleNamespace(
+            outcome=y, weights=w, observed=np.ones(6, dtype=bool), has_strata=False
+        )
+        result = SimpleNamespace(data=data, nuisance=SimpleNamespace(regimes=None))
+        assert np.mean(values) == pytest.approx(_learned_rule_reference(result, "value"))
         # The mutation: an unweighted mean of a weighted fit is not the placebo value.
         assert np.mean(values) != pytest.approx(float(np.mean(y)))
 

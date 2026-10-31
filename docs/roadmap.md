@@ -135,7 +135,7 @@ not change the package version.
 | after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
-| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); implemented for the arm and regime means, with exact tests; the calibration cell is pending | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); implemented for the arm and regime means and the learned-rule value, with exact tests; the calibration cells are pending | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | after beta | Further DR-TMLE compositions | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (d) | the shipped `DRTMLE` | [X50](#x50-further-dr-tmle-compositions) |
 | after beta | C-TMLE point estimates for further targets | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector and outcome-adaptive paths | [X51](#x51-c-tmle-point-estimates-for-further-targets) |
 | after beta | Parametric C-TMLE intervals | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path; X58 for part (b) | [X52](#x52-parametric-c-tmle-intervals) |
@@ -1002,6 +1002,8 @@ curve divides by the fold's own stratum share, and the update weights solve each
 score ([CV-TMLE](technical-reference/cv-tmle.md#the-algorithm-as-implemented)). The marginal
 estimate is the share mixture of the stratum estimates. With `repeats > 1` it is the median of
 the draws' mixtures, which need not equal the mixture of the reported stratum medians. The
+learned-rule value takes the mean over draws instead, so its marginal is the mixture of the
+stratum means and its band reads the mean curves. The
 omitted-variable bound of a marginal target carries the feature `fold_evaluated_strata`, so its
 limits print as descriptive.
 
@@ -1019,11 +1021,17 @@ estimator.
 Delivered: the fold average of the per-fold stratum plug-ins equals each reported stratum
 estimate, and each fold's stratum curve passes an exact-law test
 (`tests/unit/test_fold_evaluated_strata_exact.py`). The fit reads experimental until the
-remaining acceptance item lands:
+remaining acceptance items land:
 
 - a registered calibration cell: arm targets with 3 strata, the untargeted stratum plug-in with
   a misspecified outcome learner as the targeting control, and the stratum curve without the
-  $1/P_{n,v}(S=s)$ normalisation as the invalid-inference control.
+  $1/P_{n,v}(S=s)$ normalisation as the invalid-inference control;
+- a registered calibration cell for the learned-rule value of
+  [X11](#x11-learned-policy-follow-ups) with 3 strata, whose truth refits each fold's rule: the
+  untargeted stratum plug-in with an outcome learner that drops $W_1$ as the control (it changes
+  the rule as well as the regression, so it shows repair of a stratum-blind fit), and the
+  stratum curve without the $1/P_{n,v}(S=s)$ normalisation as the invalid-inference control.
+  `tests/unit/test_learned_rule_strata.py` holds its exact-law tests.
 
 Every other target group refuses with this item's id: the ATT and the ATC, the
 population-intervention targets, incremental and policy targets, and a fit with a missing

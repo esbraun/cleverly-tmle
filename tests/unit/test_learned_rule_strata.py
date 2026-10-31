@@ -26,19 +26,28 @@ so the folds learn different rules there. The module checks:
 * each reported stratum score is solved exactly, while each fold's own stratum score is not;
 * the marginal value is the share mixture of the stratum values.
 
-Controls that must fail: another fold's rule in the derivative, the full-sample rule in place
-of the fold rules (a deliberate mutation of the fit), the global stratum share in the curve
-(the nonzero witness: it leaves a nonzero curve mean, because the folds' stratum shares
-differ), and a curve without the stratum share.
+Controls that must fail. One mutates the fit: the full-sample rule in place of the fold rules.
+Three perturb the reported curve after the fit, and show that the checks have power: the global
+stratum share in place of the fold's (the nonzero witness: it leaves a nonzero curve mean,
+because the folds' stratum shares differ), another fold's rule in the derivative, and a curve
+without the stratum share.
+
+The covariate weight is constant inside each value of ``W``, so the weighted cell means, and
+the weighted fold rules, equal the unweighted ones. The weighted fit witnesses the weighted
+curves and scores, since the weight varies inside stratum 0. That the rule reads the weights is
+the witness of the known-weights composition (``test_learned_rule_compositions.py``).
 
 The remaining classes run on the continuous support law: the admitted compositions (known
 weights, a rule learner, the mean over splits with its band), the refusals (clusters, fold
 targeting, the omitted-variable bound, an empty stratum in a validation fold), and the
-surfaces that read the fit (persistence, the frozen-rule replay, simulated confounding).
+surfaces that read the fit (persistence, the frozen-rule replay, simulated confounding, and
+the placebo, whose null inside a stratum is the stratum's outcome mean).
 """
 
 from __future__ import annotations
 
+import functools
+import importlib
 from typing import Any
 
 import numpy as np
@@ -66,6 +75,9 @@ from tests.unit._declaration_support import tmle_module
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("learned_rule_strata")
+
+# ``cleverly.validation.refute`` names the function, so read the module by its path.
+refute_module = importlib.import_module("cleverly.validation.refute")
 
 NAME = support.NAME
 
@@ -678,28 +690,74 @@ class TestTheSurfaces:
         (test,) = report.tests
         assert len(test.values) == 2 and np.all(np.isfinite(test.values))
 
-    def test_simulated_confounding_runs_on_a_stratum(self) -> None:
-        study = CausalStudy(
-            _strata_frame(),
-            design=PointTreatment(
-                outcome="Y", treatment="A", adjustment=FIT["covariates"], strata=("S",)
-            ),
-        )
-        fitted = study.identify(LearnedRuleValue()).estimate(
-            outcome_learner=support.outcome_learner(),
-            treatment_learner=support.treatment_learner(),
-            n_folds=5,
-            cv_evaluation=True,
-            simultaneous=False,
-            random_state=0,
-        )
-        name = _names(fitted)[1]
-        surface = simulated_confounding(
-            fitted,
-            estimand=name,
-            grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.2)),
-            random_state=0,
-        )
-        frame = surface.to_frame()
-        assert len(frame) == 4
-        assert surface.original_estimate == fitted[name].psi
+    def test_simulated_confounding_holds_each_stratum_at_zero_strength(self) -> None:
+        """The stratum alias passes the replay checks, and so does the marginal alias."""
+        fitted = _study_fit()
+        grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.2))
+        for name in (_names(fitted)[0], _names(fitted)[1]):
+            surface = simulated_confounding(fitted, estimand=name, grid=grid, random_state=0)
+            assert surface.original_estimate == fitted[name].psi
+            assert len(surface.cells) == 4 and all(cell.failure is None for cell in surface.cells)
+            (zero,) = [
+                cell
+                for cell in surface.cells
+                if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+            ]
+            # The frozen-rule replay of an unperturbed draw is the fit itself.
+            assert zero.estimate == fitted[name].psi
+
+    def test_the_placebo_of_a_stratum_reads_its_stratum_outcome_mean(self) -> None:
+        """Under the placebo law every rule's value inside stratum ``s`` is ``E[Y | S = s]``."""
+        fitted = _study_fit()
+        t = _placebo_t(fitted)
+        assert max(abs(value) for value in t.values()) < 4.0, t
+
+    def test_control_the_marginal_outcome_mean_fails_a_stratum_placebo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation: every alias reads ``E[Y]``. The strata's outcome means differ, so it fails."""
+        fitted = _study_fit()
+        data = fitted.data
+        means = [
+            float(
+                np.average(
+                    data.outcome[data.strata == code], weights=data.weights[data.strata == code]
+                )
+            )
+            for code in range(data.n_strata)
+        ]
+        # Nonzero witness: the stratum outcome means differ from each other.
+        assert max(means) - min(means) > 0.2, means
+        monkeypatch.setattr(refute_module, "_learned_rule_stratum", lambda *_: None)
+        t = _placebo_t(fitted)
+        assert abs(t[NAME]) < 4.0
+        assert max(abs(value) for name, value in t.items() if name != NAME) > 8.0, t
+
+
+@functools.cache
+def _study_fit() -> Any:
+    study = CausalStudy(
+        _strata_frame(),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=FIT["covariates"], strata=("S",)
+        ),
+    )
+    return study.identify(LearnedRuleValue()).estimate(
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        cv_evaluation=True,
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+def _placebo_t(fitted: Any) -> dict[str, float]:
+    """The ``t`` statistic of 30 placebo draws of each name, against the reported null."""
+    out = {}
+    for name in _names(fitted):
+        (test,) = refute(fitted, estimand=name, tests=("placebo",), n_replicates=30).tests
+        values = np.asarray(test.values, dtype=float)
+        null = float(test.detail.split("against the exact null ")[1].split(";")[0])
+        out[name] = float((values.mean() - null) / (values.std(ddof=1) / np.sqrt(values.size)))
+    return out
