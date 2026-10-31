@@ -36,10 +36,14 @@ the design test's expected exceedance rate of the unbounded fit is below one hal
 test computed the rate, and :data:`BOUND_FACTOR` is its outcome.  Both factors hold the truth.
 
 **The comparator** is ``survtmle`` 1.1.1 (``method="mean"`` for P1 and ``method="hazard"`` for
-P2) on the same samples.  Its runs are pending (#302): the record declares
-``pending_reference="survtmle"``, the paired cells read 0/0, and the evidence page carries the
-comparator-pending label.  The R runner is written with the runs, on the local queue.  The
-Python cells K, N, W and C3 gate under the Python-studies rule.
+P2) on the same samples, in the image ``cleverly-survtmle:1.1.1`` (``tests/canonical/survtmle``,
+base image pinned by digest, the CRAN tarball by checksum), through
+``tests/canonical/survival_node_bounds/run_study.R``.  Both calls use the declared formulas.  The
+censoring formula ``trt + W1 + W2 + t`` is fitted once per sample by the runner on the
+subject's row set (visits 1 to 4, at risk after the event check) and passed to survtmle as a
+fitted glm, because survtmle's own row rule keeps the study's end at visit 5 as a censoring
+when ``t0 = 3``.  P1 is a matching implementation.  P2 is a different estimator: survtmle
+fluctuates every visit's hazard jointly, and the subject targets each horizon on its own.
 
 **Failure bound.**  ``failure_bound`` is 0.01 for each implementation (``FAILURE_BOUND``).  A
 cell may lose ``floor(0.01 R)`` replicates, and the accounting fills each lost value at its
@@ -54,8 +58,8 @@ red; N's control converges by design.  A red cell goes to the red-cell ledger, a
 enters the roadmap only for a red cell.  No re-run uses a new budget, margin or law.
 
 **Registered.**  The Python run finished with 7,200 replicates and its artifacts are committed,
-so the record is in ``registered()`` with its comparator pending.  The R runner is written and
-has not run, and the ``survtmle`` image digest is not pinned (see ``pending_reason``).
+so the record is in ``registered()``.  The survtmle phase runs from the declared commit with
+``--skip-properties`` on the local Study queue (TRACKER row 45).
 """
 
 from __future__ import annotations
@@ -318,19 +322,12 @@ STUDY = StudyRecord(
     nuisance_count=3,
     margins=Margins(),
     implementation="cleverly",
-    pending_reference="survtmle",
-    pending_reason=(
-        "the survtmle P1 and P2 runs are queued on the local study queue (#302). TODO: run "
-        "tests/canonical/survival_node_bounds/run_study.R, which is written by inspection and "
-        "has not run, and pin the survtmle image digest. D10 (node-1 pooled censoring) is "
-        "declared known in the container, so no convention gap is routed; the P-cells stay "
-        "comparator pending"
-    ),
-    # The change that runs the comparator also declares
-    # ``comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"}``: the two hazard
-    # fluctuations differ, as the unmatched settings of ``canonical_point_survival_hazard``
-    # state.  A pending record carries no override, because no paired row exists for it to name.
+    reference="survtmle",
+    # The two hazard fluctuations differ: survtmle fluctuates every visit's hazard jointly until
+    # each |meanIC| <= tol, and the subject targets each horizon on its own walk, as the
+    # unmatched settings of ``canonical_point_survival_hazard`` state.
     comparison="matching implementation",
+    comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"},
     failure_bound={"cleverly": FAILURE_BOUND, "survtmle": FAILURE_BOUND},
     efficiency_bounds={name: law.EFFICIENCY_SD[name] for name in ESTIMANDS[MEAN_MODEL]},
     modules=(
@@ -365,12 +362,13 @@ REFERENCE_METADATA = {
     "reference_construction": (
         "P1: survtmle(method='mean', bounds=valid, glm.trt='W1 + W2', glm.ftime='trt*(W1 + W2)', "
         "glm.ctime='trt + W1 + W2 + t'); P2: survtmle(method='hazard', bounds=hazard-valid, "
-        "glm.ftime='trt*(W1 + W2) + t'), one t0 per call; runs pending"
+        "glm.ftime='trt*(W1 + W2) + t'), one t0 per call, bounds at every visit; the censoring "
+        "glm 'trt + W1 + W2 + t' is fitted on the subject's visit 1-4 rows and passed as a fit"
     ),
     "pairing": (
         "the shipped default margins (paired difference 0.15 SD, RMSE ratio 1.10, coverage "
         "-0.025, calibration 0.05), declared a priori; D10 (node-1 pooled censoring) is handled "
-        "by declaring node 1 known, and none is routed (comparator pending)"
+        "by declaring node 1 known, and none is routed"
     ),
 }
 

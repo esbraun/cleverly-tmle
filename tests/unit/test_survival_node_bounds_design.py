@@ -140,9 +140,10 @@ def test_the_declared_numbers() -> None:
     assert (study.PRIMARY_N, study.SEED, study.RESAMPLING_SEED) == (2_000, 20263391, 2026339101)
     assert study.FAILURE_BOUND == properties.FAILURE_BOUND == 0.01
     assert record.failure_bound == {"cleverly": 0.01, "survtmle": 0.01}
-    assert record.pending_reference == "survtmle"
-    assert "#302" in str(record.pending_reason)
-    assert "TODO" in str(record.pending_reason)
+    assert record.reference == "survtmle"
+    assert record.pending_reference is None and not record.pending_reason
+    assert record.comparison == "matching implementation"
+    assert dict(record.comparison_overrides) == {f"{study.HAZARD_MODEL}:*": "different estimator"}
     assert properties.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert properties.SHRUNKEN_SE_FACTOR == 0.70
     assert (properties.WITNESS_SHARE, properties.WITNESS_MOVEMENT) == (0.5, 1e-4)
