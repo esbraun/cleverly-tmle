@@ -29,11 +29,10 @@ oscillate between components instead of converging.
 
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
+from .._warnings import warn as _warn
 from ..exceptions import ConvergenceWarning
 from ._score import (
     STOP_CONTEXT_MISSING,
@@ -170,7 +169,7 @@ def solve_one_step(
     relative = relative_score(score, scale)
     converged = bool(relative <= tol)
     if not converged and warn:
-        warnings.warn(
+        _warn(
             f"one-step targeting stopped after {steps} step(s) with a relative score of "
             f"{relative:.3g} > {tol:g}. Try a smaller step_size, or check "
             "res.diagnostics.support() for a positivity violation.",
@@ -314,7 +313,7 @@ def _solve_one_step_ruled(
                 f"{relative_score(score, scale):.3g} > {tol:g}. Try a smaller step_size, or "
                 "check res.diagnostics.support() for a positivity violation."
             )
-        warnings.warn(message, ConvergenceWarning, stacklevel=3)
+        _warn(message, ConvergenceWarning, stacklevel=3)
     return Fluctuation(
         epsilon=epsilon,
         targeted=current,

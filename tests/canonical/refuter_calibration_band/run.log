@@ -1,0 +1,23 @@
+=== refuter-calibration-band declared run
+command: /usr/bin/python /home/user/cleverly-tmle/tests/canonical/refuter_calibration_band/regenerate.py --output /tmp/claude-0/sj_out --jobs 4
+commit: ca9ae6139de1e2f78e712e0d5cd1ce4038859cf3; upstream ca9ae6139de1e2f78e712e0d5cd1ce4038859cf3
+clean tree: True
+cleverly 0.1.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 dc3c467fe9e70e624c9c20fecbd465de6a22b552800435bbbcbc3f891fd92b00
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-23T01:22:55+00:00
+note: resumed from /root/.cache/cleverly/runs/refuter-calibration-band/95506462bf46, reused the Python phase
+finished: 2026-10-23T01:36:43+00:00
+wall seconds: 827.4
+exit code: 0
+sha256 cells.csv: 113e0777b07179a6d53a4079562380818523a27057cad74b2c31872ed642606f
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 84b48db6c0e45aeb8b368fb45c94989fc99922e29a3fd9124a66667671ce4093
+sha256 performance-tests.csv: 9d55f0dff27aef5188ce247fdb3238e07f5b86534c3585f03e7ddb9e50b7bd6b
+sha256 properties.csv: 8eac356fe57d33ff6c1c50b9207186fe4832f0676fb61020fdcb47a970052f81
+sha256 property-replicates.parquet: 275a28dee3e51255cb0e38a75d1a6a66ce2a52dff34957cbf80bacef79767c93
+sha256 replicates.parquet: c7515c722d62ed1717487619543edf98773ffca4feef78b1b3f5aebe9738eb3f
+sha256 summary.csv: e2ab4edcf7c936a9fcef5f9271dbd50b314f4c7e819428860b225f686b17d1f3
+

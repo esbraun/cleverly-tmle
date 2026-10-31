@@ -76,7 +76,6 @@ results are returned in it.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, TypeAlias
@@ -85,6 +84,8 @@ import numpy as np
 
 from .._refusal import NO_ALTERNATIVE
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import FitWarning, records_data
+from .._warnings import warn as _warn
 from ..data.known_mechanism import (
     KnownNodeMechanisms,
     known_node_mechanisms,
@@ -128,6 +129,8 @@ __all__ = [
     "RegimenMasks",
     "Repeated",
     "assignment_matrix",
+    "check_markov_order",
+    "markov_restriction",
 ]
 
 #: What a treatment node holds.  A ``"categorical"`` node holds level codes, of one column or
@@ -160,6 +163,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "unit_ids",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
+    "validation_warnings",
     "dose_supports",
     "dose_atoms",
     "baseline_names",
@@ -185,6 +189,7 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "event_codes",
     "repeated_names",
     "panel",
+    "markov_order",
 )
 
 
@@ -234,6 +239,54 @@ class Repeated:
 Assignment: TypeAlias = Sequence[float] | FloatArray
 
 
+def markov_restriction(markov_order: int) -> str:
+    """The statement of the statistical-model restriction that ``markov_order`` declares.
+
+    Parameters
+    ----------
+    markov_order : int
+        The declared order ``k``.
+
+    Returns
+    -------
+    str
+        The restriction, for the identification record of a fit.
+    """
+    return (
+        f"statistical-model restriction, Markov order {markov_order}: at every node the "
+        "outcome regression and the treatment and censoring mechanisms depend on the history "
+        f"only through W and the last {markov_order + 1} nodes. It restricts the observed-data "
+        "model and does not change the estimand. Every model the estimator fits reads the "
+        "window, so the estimator's own consistency and interval conditions apply to the "
+        "models fitted on the window, and each of them needs the restriction for the "
+        "model it reads."
+    )
+
+
+def check_markov_order(markov_order: int | None) -> None:
+    """Refuse a ``markov_order`` that is not a non-negative integer.
+
+    Parameters
+    ----------
+    markov_order : int or None
+        The declared order, or ``None`` for the full history.
+
+    Raises
+    ------
+    ValueError
+        When ``markov_order`` is not ``None`` and not a non-negative integer.
+    """
+    if markov_order is None:
+        return
+    valid = (
+        isinstance(markov_order, (int, np.integer))
+        and not isinstance(markov_order, bool)
+        and int(markov_order) >= 0
+    )
+    if not valid:
+        raise ValueError(f"markov_order must be a non-negative integer; got {markov_order!r}")
+
+
 def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArray:
     """Read a plan as one ``(n, T)`` matrix, whether or not it varies by unit.
 
@@ -253,8 +306,8 @@ def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArra
     if values.ndim == 2:
         if values.shape != (n, n_times):
             raise DataError(
-                f"a per-unit assignment must be ({n}, {n_times}) -- a row per unit and a "
-                f"column per treatment node -- but got {values.shape}"
+                f"a per-unit assignment must be ({n}, {n_times}), a row per unit and a "
+                f"column per treatment node, but got {values.shape}"
             )
         return values
     raise DataError(
@@ -446,10 +499,18 @@ class LongitudinalData:
     #: The unit identifier of each row on a container built by :meth:`from_long_panel`, in
     #: sorted order, else ``None``.
     unit_ids: Any = None
+    #: The declared Markov order ``k`` of :meth:`with_markov_order`, or ``None`` for the full
+    #: history.  Every nuisance design then reads ``W`` and a window of the last nodes, and
+    #: the frames a rule or a policy reads keep the full history.
+    markov_order: int | None = None
+    #: The package warnings raised while this data was built and checked (a dropped
+    #: constant covariate, say), which every fit on it adds to its own record.
+    validation_warnings: tuple[FitWarning, ...] = field(default=(), compare=False, repr=False)
 
     # ------------------------------------------------------------------ build
 
     @classmethod
+    @records_data
     def from_frame(
         cls,
         data: Any,
@@ -1199,6 +1260,52 @@ class LongitudinalData:
 
         return to_long_panel(self)
 
+    def with_markov_order(self, markov_order: int | None) -> LongitudinalData:
+        """Return a copy whose nuisance designs read a window of the last nodes.
+
+        The order ``k`` is a statistical-model restriction on the observed law.  At node
+        ``t`` the treatment and censoring mechanisms read ``W``, ``L_{t-k}, ..., L_t`` and
+        ``A_{t-k-1}, ..., A_{t-1}``.  The outcome regression reads ``W`` and
+        ``L_{t-k}, ..., L_t``, plus the arms of the rule and policy nodes in ``[t-k-1, t]``.
+        The estimand does not change.
+
+        Parameters
+        ----------
+        markov_order : int or None
+            The order ``k``, or ``None`` for the full history.
+
+        Returns
+        -------
+        LongitudinalData
+            A copy that records the order.
+
+        Raises
+        ------
+        ValueError
+            When ``markov_order`` is not a non-negative integer.
+        DataError
+            When the window keeps every earlier node of the design.
+        CapabilityError
+            When the design has one baseline treatment and no time-varying covariate.
+        """
+        check_markov_order(markov_order)
+        if markov_order is None:
+            return replace(self, markov_order=None)
+        if self.treatment_held and not any(names for names in self.time_varying_names):
+            raise CapabilityError(
+                "markov_order= restricts the time-varying history, and this design has none: "
+                "one baseline treatment and no time-varying covariate.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Omit markov_order=.",
+            )
+        if markov_order >= self.n_times - 1:
+            raise DataError(
+                f"markov_order={markov_order} keeps every earlier node of this "
+                f"{self.n_times}-node design, so it restricts nothing. Omit markov_order= to "
+                "use the full history"
+            )
+        return replace(self, markov_order=int(markov_order))
+
     def with_known_mechanisms(
         self, *, treatment_probabilities: Any = None, censoring_probabilities: Any = None
     ) -> LongitudinalData:
@@ -1682,7 +1789,7 @@ class LongitudinalData:
             repeated_values = np.asarray(repeated, dtype=float)
             if repeated_values.shape != (n, n_times):
                 raise DataError(
-                    f"a repeated outcome must be ({n}, {n_times}) -- rows by time points -- "
+                    f"a repeated outcome must be ({n}, {n_times}), rows by time points, "
                     f"but got {repeated_values.shape}"
                 )
             observed_by_node = np.column_stack(
@@ -1741,7 +1848,7 @@ class LongitudinalData:
         raw_treatment = np.asarray(treatment)
         if raw_treatment.shape != (n, n_times):
             raise DataError(
-                f"treatment must be ({n}, {n_times}) -- rows by treatment nodes -- "
+                f"treatment must be ({n}, {n_times}), rows by treatment nodes, "
                 f"but got {raw_treatment.shape}"
             )
         a = np.full((n, n_times), np.nan)
@@ -2365,6 +2472,292 @@ class LongitudinalData:
             panel=panel,
         )
 
+    def with_treatment(
+        self,
+        treatment: Any,
+        *,
+        known_mechanisms: KnownNodeMechanisms | Literal["keep"] | None = "keep",
+    ) -> LongitudinalData:
+        """A copy whose treatment matrix is replaced, every other array unchanged.
+
+        The refutations of :func:`cleverly.validation.refute` replace the treatment of a
+        longitudinal fit with a placebo. A ``nan`` treatment means that the unit is not at
+        risk at the node, which the other arrays decide, so the replacement must hold
+        ``nan`` exactly where the observed treatment does.
+
+        Parameters
+        ----------
+        treatment : array-like
+            The ``(n, T)`` replacement, in the codes of :attr:`treatment` at a categorical
+            node and as a dose at a continuous node.
+        known_mechanisms : KnownNodeMechanisms or None or "keep"
+            The declared mechanism of the replacement. ``"keep"`` keeps the declaration of
+            this container, which is right only when the declaration does not read the
+            treatment.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        CapabilityError
+            On a container with a mixed node, whose components a matrix of codes cannot
+            replace.
+        DataError
+            When the replacement has another shape, another ``nan`` pattern, a code outside
+            a node's levels, or a held node that differs from the decision.
+        """
+        if self.has_mixed_node:
+            raise CapabilityError(
+                "a treatment matrix cannot replace a vector node with a continuous component, "
+                "whose components it does not hold.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=NO_ALTERNATIVE,
+                roadmap="X82",
+            )
+        values = np.asarray(treatment, dtype=float)
+        if values.shape != self.treatment.shape:
+            raise DataError(
+                f"the replacement treatment has shape {values.shape}; the container holds "
+                f"{self.treatment.shape}"
+            )
+        if not np.array_equal(np.isnan(values), np.isnan(self.treatment)):
+            raise DataError(
+                "the replacement treatment holds nan on other cells than the observed one. A "
+                "nan treatment means that the unit is not at risk at the node, which the "
+                "censoring and event arrays decide"
+            )
+        for time in range(1, self.n_times + 1):
+            column = values[:, time - 1]
+            present = column[~np.isnan(column)]
+            if self.is_held_node(time):
+                first = values[~np.isnan(column), 0]
+                if not np.array_equal(present, first):
+                    raise DataError(
+                        f"node {time} of a held design must repeat the decision at node 1"
+                    )
+                continue
+            if self.node_kind(time) == "continuous":
+                if not np.all(np.isfinite(present)):
+                    raise DataError(f"the replacement dose at node {time} is not finite")
+                continue
+            levels = len(self.treatment_levels[time - 1])
+            if not np.all(np.isin(present, np.arange(levels, dtype=float))):
+                raise DataError(
+                    f"the replacement treatment at node {time} holds a code outside the "
+                    f"{levels} level code(s) of the node"
+                )
+        declared = self.known_mechanisms if known_mechanisms == "keep" else known_mechanisms
+        return replace(self, treatment=values, known_mechanisms=declared)
+
+    def with_outcome(self, values: Any, *, name: str = "replacement outcome") -> LongitudinalData:
+        """A copy whose outcome is replaced, every other array unchanged.
+
+        The negative-control refutation of :func:`cleverly.validation.refute` refits on a
+        control in place of the outcome. The control must be observed wherever the outcome
+        is. A value where the outcome is missing is never read and becomes ``nan``. A repeated
+        outcome's copies in the covariate blocks keep the original values, so the adjustment
+        set of every node is unchanged.
+
+        Parameters
+        ----------
+        values : array-like
+            ``(n,)`` for an end-of-study outcome, ``(n, T)`` for a repeated outcome.
+        name : str
+            What the caller calls the replacement. Every refusal names it.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy, with the family resolved from the replacement.
+
+        Raises
+        ------
+        DataError
+            On a survival outcome, on the wrong shape, or on a missing or non-finite value
+            where the outcome is observed.
+        """
+        if self.is_survival:
+            raise DataError(
+                f"{name} cannot replace a survival outcome: the event indicators define the "
+                "risk sets, so a replacement would change the population"
+            )
+        array = np.asarray(values, dtype=float)
+        if self.repeated is not None:
+            current = np.asarray(self.repeated, dtype=float)
+        else:
+            current = np.asarray(self.outcome, dtype=float)
+        if array.shape != current.shape:
+            raise DataError(f"{name} has shape {array.shape}; expected {current.shape}")
+        observed = ~np.isnan(current)
+        if not np.all(np.isfinite(array[observed])):
+            raise DataError(f"{name} must be finite wherever the outcome is observed")
+        cleaned = np.where(observed, array, np.nan)
+        family = resolve_family(cleaned.T.reshape(-1), observed.T.reshape(-1), "auto")
+        if self.repeated is not None:
+            return replace(self, repeated=cleaned, outcome=cleaned[:, -1], family=family)
+        return replace(self, outcome=cleaned, family=family)
+
+    def with_events(self, event: Any, uncensored: Any, cause_event: Any = None) -> LongitudinalData:
+        """A copy whose survival outcome is replaced, with each exit masked.
+
+        The held-history generated outcomes of :func:`cleverly.validation.refute` draw new
+        events on the observed treatments and covariates. A unit leaves at its first event
+        or at its first censoring node. Its treatment and covariates after that node become
+        ``nan``, exactly as :meth:`from_frame` stores them. A fit that declared no censoring
+        node gets one per node, because the replacement can censor.
+
+        Parameters
+        ----------
+        event : array-like
+            ``(n, T)`` cumulative "had the event at or before ``t``".
+        uncensored : array-like
+            ``(n, T)`` "still under observation after ``t``". It must be monotone and must
+            not drop a unit that is not present at that node.
+        cause_event : array-like or None
+            ``(n, T, J)`` cumulative per-cause events of a competing-risk fit.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        DataError
+            On a fit without a survival outcome, on the wrong shape, or on an event or a
+            censoring node at which the unit is not present.
+        """
+        if not self.is_survival:
+            raise DataError("with_events replaces a survival outcome, and this fit has none")
+        events = np.asarray(event, dtype=bool)
+        kept = np.asarray(uncensored, dtype=bool)
+        shape = (self.n, self.n_times)
+        if events.shape != shape or kept.shape != shape:
+            raise DataError(f"with_events needs (n, T) = {shape} arrays")
+        if np.any(events[:, 1:] < events[:, :-1]) or np.any(kept[:, 1:] > kept[:, :-1]):
+            raise DataError("with_events needs a cumulative event and a monotone censoring")
+        present = ~np.isnan(np.asarray(self.treatment, dtype=float))
+        # A unit is present at node t when it is uncensored and event-free through t - 1.
+        reach = np.ones(shape, dtype=bool)
+        reach[:, 1:] = kept[:, :-1] & ~events[:, :-1]
+        if np.any(reach & ~present):
+            raise DataError("with_events reaches a node at which a unit holds no treatment")
+        first = events.copy()
+        first[:, 1:] &= ~events[:, :-1]
+        if np.any(first & ~(kept & reach)):
+            raise DataError("with_events records an event on a unit not under observation")
+        treatment = np.where(reach, self.treatment, np.nan)
+        blocks = tuple(
+            np.where(reach[:, [node]], block, np.nan) if block.shape[1] else block
+            for node, block in enumerate(self.time_varying)
+        )
+        causes = None
+        if self.cause_event is not None:
+            causes = np.asarray(cause_event, dtype=bool)
+            if causes.shape != self.cause_event.shape or np.any(causes.any(axis=2) != events):
+                raise DataError("with_events needs per-cause events that add up to the event")
+        names = self.censoring_names or tuple(
+            f"recoded_exit_{node}" for node in range(1, self.n_times + 1)
+        )
+        return replace(
+            self,
+            outcome=events[:, -1].astype(float),
+            event=events,
+            cause_event=causes,
+            uncensored=kept & reach,
+            treatment=treatment,
+            time_varying=blocks,
+            censoring_names=names,
+        )
+
+    def with_extra_covariate(self, values: Any, name: str) -> LongitudinalData:
+        """A copy with one more baseline covariate, appended after the others.
+
+        Parameters
+        ----------
+        values : array-like
+            One finite value per unit.
+        name : str
+            The new column's name, which no column of the container may hold.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        DataError
+            When the values are not one finite value per unit, or the name is taken.
+        """
+        column = np.asarray(values, dtype=float).reshape(-1)
+        if column.shape[0] != self.n or not np.all(np.isfinite(column)):
+            raise DataError(f"a new baseline covariate needs {self.n} finite values")
+        self._refuse_taken_name(name)
+        return replace(
+            self,
+            baseline=np.column_stack([self.baseline, column]),
+            baseline_names=(*self.baseline_names, name),
+        )
+
+    def with_node_covariates(self, values: Any, names: Sequence[str]) -> LongitudinalData:
+        """A copy with one more time-varying covariate at every node, appended to each block.
+
+        Parameters
+        ----------
+        values : array-like
+            ``(n, T)``: column ``t`` joins the covariates measured before the node-``t``
+            treatment. A value on a row that is not at risk at the node is never read.
+        names : sequence of str
+            One new name per node, which no column of the container may hold.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        DataError
+            When the values are not ``(n, T)`` and finite, or a name is taken or repeated.
+        """
+        block = np.asarray(values, dtype=float)
+        if block.shape != (self.n, self.n_times) or not np.all(np.isfinite(block)):
+            raise DataError(
+                f"new node covariates need finite values of shape {(self.n, self.n_times)}"
+            )
+        labels = tuple(names)
+        if len(labels) != self.n_times or len(set(labels)) != len(labels):
+            raise DataError(f"new node covariates need {self.n_times} distinct names")
+        for name in labels:
+            self._refuse_taken_name(name)
+        return replace(
+            self,
+            time_varying=tuple(
+                np.column_stack([existing, block[:, index]])
+                for index, existing in enumerate(self.time_varying)
+            ),
+            time_varying_names=tuple(
+                (*existing, labels[index]) for index, existing in enumerate(self.time_varying_names)
+            ),
+        )
+
+    def _refuse_taken_name(self, name: str) -> None:
+        """Refuse a new column name that the container already uses."""
+        taken = {
+            *self.baseline_names,
+            *(item for block in self.time_varying_names for item in block),
+            *self.treatment_names,
+            *self.censoring_names,
+            *self.event_names,
+            self.outcome_name,
+        }
+        if not isinstance(name, str) or not name or name in taken:
+            raise DataError(f"the new column name {name!r} is empty or already in use")
+
     # ------------------------------------------------------------------ masks
 
     def uncensored_through(self, time: int) -> BoolArray:
@@ -2538,6 +2931,49 @@ class LongitudinalData:
         blocks = [self.baseline, *self.time_varying[:time]]
         matrix = np.hstack([block for block in blocks if block.shape[1]])
         return np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def window_start(self, time: int) -> int:
+        """The first covariate node the nuisance designs at ``time`` read.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+
+        Returns
+        -------
+        int
+            ``max(1, time - k)`` under :attr:`markov_order` ``k``, and ``1`` without one.
+        """
+        if self.markov_order is None:
+            return 1
+        return max(1, time - self.markov_order)
+
+    def window_covariates(self, time: int) -> FloatArray:
+        """``[W, L_s, ..., L_t]`` from :meth:`window_start` ``s``, as a finite matrix.
+
+        Without :attr:`markov_order` it is :meth:`covariate_history` itself.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+
+        Returns
+        -------
+        FloatArray
+            The baseline columns and the covariate blocks of the window nodes.
+        """
+        if self.markov_order is None:
+            return self.covariate_history(time)
+        if not 1 <= time <= self.n_times:
+            raise DataError(f"time {time} is outside 1..{self.n_times}")
+        start = self.window_start(time)
+        blocks = [self.baseline, *self.time_varying[start - 1 : time]]
+        present = [block for block in blocks if block.shape[1]]
+        if not present:
+            return np.zeros((self.n, 0))
+        return np.nan_to_num(np.hstack(present), nan=0.0, posinf=0.0, neginf=0.0)
 
     def history_names(self, time: int) -> tuple[str, ...]:
         """Column names of :meth:`covariate_history`, in its column order.
@@ -2760,11 +3196,17 @@ class LongitudinalData:
         :meth:`covariate_history` bit for bit, so the decision cannot be reversed by an
         edit that reads as a tidy-up.  It says nothing about which design is right, and a
         test claiming to say that should be mutated and seen to fail before it is trusted.
+
+        Under :attr:`markov_order` ``k`` the design holds ``W``, ``L_{t-k}, ..., L_t`` and the
+        blocks of ``A_{t-k-1}, ..., A_{t-1}``, plus ``A_t`` with ``include_current``.
         """
-        columns = [self.covariate_history(time)]
+        columns = [self.window_covariates(time)]
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
-        for t in range(1, last + 1):
+        # Under a Markov order k the window holds A_{t-k-1}, ..., A_{t-1}: the arms that
+        # precede the window's covariates L_{t-k}, ..., L_t.
+        first = 1 if self.markov_order is None else max(1, self.window_start(time) - 1)
+        for t in range(first, last + 1):
             if self.is_held_node(t):
                 # One block per *decision*: an identity node repeats node 1, so it adds
                 # nothing the node-1 block does not already hold.
@@ -2875,7 +3317,10 @@ class LongitudinalData:
         """Build a dataframe of ``payload`` in the backend this data came from."""
         return frame_from_dict(payload, backend=self.backend)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
+        """One line of at most 100 characters: the rows and the facts a fit reads first."""
+        from .._summary import short_repr
+
         parts = [
             f"n={self.n}",
             f"T={self.n_times}",
@@ -2895,7 +3340,7 @@ class LongitudinalData:
             parts.append(f"clusters={self.n_clusters}")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
-        return f"LongitudinalData({', '.join(parts)})"
+        return short_repr("LongitudinalData", [("", part) for part in parts])
 
 
 #: What to tell a caller whose node has more levels than the estimator accepts.  Not
@@ -3075,7 +3520,7 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
         for value in unique
     )
     if numeric_levels and unique.size >= MIN_CONTINUOUS_LEVELS:
-        warnings.warn(
+        _warn(
             f"treatment node {name!r} is numeric and takes {unique.size} distinct values; "
             "it will be modelled as that many unordered arms, with one multinomial "
             "mechanism per node and one counterfactual mean per assigned sequence. If it "
@@ -3331,7 +3776,7 @@ def _read_followup(
                 raise DataError(
                     f"censoring column {name!r} marks {int(returned.sum())} unit(s) as under "
                     "observation after they had already been censored. Censoring is assumed "
-                    "monotone -- a unit that leaves does not return -- and intermittent "
+                    "monotone (a unit that leaves does not return) and intermittent "
                     "observation identifies a different parameter, so this is refused rather "
                     "than read as a return to follow-up."
                 )
@@ -3383,8 +3828,8 @@ def _read_followup(
             if np.any(recovered):
                 raise DataError(
                     f"outcome column {name!r} marks {int(recovered.sum())} unit(s) as event-free "
-                    "after they had already had the event. The event is assumed absorbing -- a "
-                    "unit that has it leaves the risk set and does not return to it -- and a "
+                    "after they had already had the event. The event is assumed absorbing (a "
+                    "unit that has it leaves the risk set and does not return to it) and a "
                     "recurrent event identifies a different parameter, so this is refused "
                     "rather than read as a recovery."
                 )
@@ -3408,7 +3853,7 @@ def _read_followup(
                 both = [_cause_name(int(c)) for c in np.flatnonzero(fired[row])]
                 raise DataError(
                     f"{int(clash.sum())} unit(s) have more than one cause marked at time "
-                    f"{time + 1} -- the first has {both}. Competing causes are mutually "
+                    f"{time + 1}; the first has {both}. Competing causes are mutually "
                     "exclusive: a unit leaves the risk set through exactly one of them, so "
                     "at most one indicator is 1 at any node"
                 )
@@ -3443,7 +3888,7 @@ def _check_presence(
     if np.any(stray):
         raise DataError(
             f"{name!r} is recorded for {int(stray.sum())} unit(s) that had already left the "
-            "study -- censored, or, on a survival fit, having had the event. The estimator "
+            "study (censored, or, on a survival fit, having had the event). The estimator "
             "conditions on the observed history and would ignore those values, so they are "
             "refused rather than silently dropped: set the nodes after a unit leaves to "
             "missing."

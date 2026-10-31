@@ -30041,11 +30041,11 @@
    }
   }
  },
- "dockerfile_sha256": "6a03b883deaa142f62a75c8f9469304fb3021981c30cb80d3061dec81b26325a",
+ "dockerfile_sha256": "c0d26c98de198101c54300e4988ed28481422385f54562a388d2024a411d0bd3",
  "econml_version": "0.17.0",
  "environment": {
   "python": "3.13.16",
-  "route": "virtual environment whose installed distributions equal the pins of requirements.txt"
+  "route": "container"
  },
  "fixture_version": 1,
  "generator_sha256": "070398b1e62b712887e819c779e44c6bb0d14008cd2451d5debc64f6c3a8ad8f",

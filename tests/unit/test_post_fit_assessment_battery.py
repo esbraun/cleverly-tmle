@@ -6,6 +6,7 @@ import inspect
 import re
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,7 @@ from cleverly import (
     load,
 )
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly.assessment import (
     ASSESSMENT_CAPABILITIES,
     INTERPRETERS,
@@ -41,12 +43,12 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import RefusalReason
 from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import (
-    _DIRECT_EFFECT_REFUSAL,
+    _INCOMPLETE_INTERMEDIATE_REFUSAL,
     _select_evalue,
     _standardising_sd,
     evalue_from_rr,
 )
-from cleverly.sensitivity.positivity import PositivityReport
+from cleverly.sensitivity.positivity import OverlapGrade, PositivityReport
 from cleverly.validation import RepeatSpreadRow
 from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW, _critical_value
 
@@ -85,7 +87,13 @@ def _learners(**overrides: object) -> dict[str, object]:
 
 
 def _raw(engine: type = TMLE, **overrides: object):
-    """An unfitted estimator built directly, bypassing ``CausalStudy``."""
+    """An unfitted estimator built directly, bypassing ``CausalStudy``.
+
+    A DR-TMLE takes the pooled reduced regressions, because the two folds of
+    :func:`_learners` are fewer than the foldwise default needs.
+    """
+    if engine is DRTMLE:
+        overrides.setdefault("reduced_crossfit", "pooled")
     return engine(**_learners(**overrides))
 
 
@@ -235,11 +243,8 @@ def test_explicit_or_evalue_is_not_blocked_by_default_derivation() -> None:
         _study()
         .identify(OddsRatio())
         .estimate(
-            # DR-TMLE, because its default odds-ratio E-value has no exact retarget, as
-            # the collaborative path had. That path now refuses every E-value branch
-            # (RM12 and RM20), so a collaborative fit here would test that refusal instead
-            # of this test's subject: an *explicitly* requested odds-ratio E-value is not
-            # blocked by the default derivation. The refusal is pinned in the next test.
+            # DR-TMLE: its default odds-ratio E-value retargets to the exact risk ratio,
+            # and an *explicitly* requested odds-ratio E-value keeps the approximation.
             method="drtmle",
             outcome_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
@@ -250,8 +255,9 @@ def test_explicit_or_evalue_is_not_blocked_by_default_derivation() -> None:
         )
     )
     assert result.sensitivity.capability("evalue").available
-    assert result.sensitivity.evalue().approximate
+    assert not result.sensitivity.evalue().approximate
     direct = result.sensitivity.evalue("or")
+    assert direct.approximate
     combined = result.sensitivity.run_all(arguments={"evalue": {"estimand": "or"}})
     assert combined.report("evalue") == direct
     assert direct.scale == "odds ratio"
@@ -406,8 +412,9 @@ def test_a_route_without_an_interpreter_is_what_the_two_way_check_catches() -> N
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
-        ({"fitted_method": "collaborative_tmle"}, "collaborative_tmle"),
-        ({"fitted_method": "drtmle"}, "drtmle"),
+        # TMLE, C-TMLE and DR-TMLE each carry a same-seed equality witness
+        # (tests/unit/test_evalue_part_g.py), so the gate refuses any other method.
+        ({"fitted_method": "ipw"}, "ipw"),
     ],
 )
 def test_derived_ratio_preserves_method_and_estimand_refusal_boundaries(
@@ -670,7 +677,7 @@ def test_the_truncation_row_costs_a_bounded_number_of_characters_per_parameter(
 ) -> None:
     """One long detail sets the width of the whole section, because nothing wraps it.
 
-    ``format_table`` sizes each column by its widest cell, so the combined report is as
+    The report table sizes each column by its widest cell, so the combined report is as
     wide as this row plus about 106 columns of name, status, and next step. What is
     bounded is the per-parameter cost and not the row itself, because a stratified fit
     reports one parameter for each estimand and stratum and the row names every one of
@@ -954,7 +961,8 @@ def test_method_facts_carry_the_reason_no_split_spread_is_available() -> None:
 
 # ``ctmle`` left this list when RM20 gave ``strategy="oat"``, the last collaborative path
 # that kept an interval, a status of its own. Its saved result refuses the E-value as the
-# live one does, which the test after this one pins.
+# live one does, which the test after this one pins. ``drtmle`` retargets to the exact
+# ratio since X82 part G, so only the CV-evaluated fit takes the fixed-baseline fallback.
 @pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "cv"])
 def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
     engine_name, tmp_path, monkeypatch
@@ -975,7 +983,7 @@ def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
     before = raw.sensitivity.evalue("ate")
     after = restored.sensitivity.evalue("ate")
     assert before == after
-    if engine_name != "tmle":
+    if engine_name == "cv":
         assert before.approximate
         assert before.risk_ratio == pytest.approx(1 + raw["ate"].psi / raw["ey0"].psi)
         assert before.risk_ratio_ci == pytest.approx(
@@ -1189,7 +1197,7 @@ def test_missing_or_invalid_baseline_cannot_enable_approximation():
         baseline = replace(result["ate"], name="ey0", psi=value)
         variant = replace(
             result,
-            fitted_method="drtmle",
+            config=replace(result.config, cv_evaluation=True),
             estimates={**result.estimates, "ey0": baseline},
             parameter_keys={},
         )
@@ -1202,8 +1210,9 @@ def _rare_outcome_drtmle_fit(
 ):
     """A DR-TMLE fit whose ATE interval reaches below the negative of its baseline risk.
 
-    DR-TMLE has no cached-nuisance risk-ratio retarget, so ``ate`` takes the
-    fixed-baseline conversion. The outcome is rare, so the difference interval is wide
+    The result is read as CV-evaluated, which has no cached-nuisance risk-ratio retarget, so
+    ``ate`` takes the fixed-baseline conversion. The edit refits nothing, so the estimates
+    stay those of the fit. The outcome is rare, so the difference interval is wide
     against a small reference risk. That is the geometry the affine conversion sends
     outside the risk-ratio parameter space.
 
@@ -1231,11 +1240,12 @@ def _rare_outcome_drtmle_fit(
             ),
         }
     )
-    return (
+    fit = (
         _raw(DRTMLE, estimands=("ate", "ey0"), learner_folds=2, random_state=seed)
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
+    return replace(fit, config=replace(fit.config, cv_evaluation=True))
 
 
 def test_a_difference_bound_below_the_negative_baseline_reports_a_limit_of_one():
@@ -1353,7 +1363,7 @@ def test_a_fixed_baseline_outside_the_parameter_space_is_refused_by_name(
         baseline = replace(baseline, variance=baseline_variance)
     variant = replace(
         result,
-        fitted_method="drtmle",
+        config=replace(result.config, cv_evaluation=True),
         estimates={
             **result.estimates,
             "ate": replace(result["ate"], psi=difference_psi),
@@ -1395,7 +1405,7 @@ def test_correction_participation_is_stamped_independently_of_extra(guard):
         # The collaborative case left when ``oat`` took a status. Its status refusal
         # arrives before this one, which
         # ``test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status`` pins.
-        ("drtmle", {}),
+        # ``drtmle`` left when X82 part G gave it the exact retarget.
         ("tmle", {"cv_evaluation": True}),
     ],
 )
@@ -1436,7 +1446,9 @@ def test_repeated_exact_ratio_preserves_combination_and_retargets_each_repeat(mo
     original = source.estimator.retarget
 
     def tracked(*args, **kwargs):
-        calls.append(args[1])
+        # The omitted-variable rows retarget each draw too; count the risk-ratio retargets.
+        if tuple(kwargs["estimands"]) == ("rr",):
+            calls.append(args[1])
         return original(*args, **kwargs)
 
     monkeypatch.setattr(source.estimator, "retarget", tracked)
@@ -1507,9 +1519,13 @@ def test_cached_evalue_refusals_store_data_without_exception_tracebacks(tmp_path
     restored = joblib.load(path)
     assert restored.capability("evalue") == capability
     for candidate in (facade, restored):
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
+        with pytest.raises(
+            CapabilityError, match=re.escape(_INCOMPLETE_INTERMEDIATE_REFUSAL.message())
+        ):
             candidate.evalue()
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
+        with pytest.raises(
+            CapabilityError, match=re.escape(_INCOMPLETE_INTERMEDIATE_REFUSAL.message())
+        ):
             candidate.evalue("ate")
         assert all(isinstance(value, tuple) for value in candidate._evalue_selections.values())
 
@@ -1561,45 +1577,23 @@ def test_a_method_outside_the_correction_system_refuses_corrections_by_name(meth
     assert result.assess().diagnostics["corrections"].status is AssessmentStatus.NOT_APPLICABLE
 
 
-_SUMMARY_FOOTER = (
-    "Full ledger: call to_frame(). Next steps: call next_steps()."
-    "\nRetained payloads: call report(...)."
-)
+def _table(summary: Any, title: str) -> Any:
+    """The summary table titled ``title``."""
+    [table] = [table for table in summary.tables if table.title == title]
+    return table
 
 
-def _summary_sections(text: str) -> dict[str, str]:
-    """Map each title in ``AssessmentReport.summary`` to its body, in printed order.
-
-    Three tests below read one section each. Each split the text its own way on a
-    hand-typed title and underline, so a renamed section failed only the test that
-    retyped the same bytes. A section here is a block whose second line underlines the
-    first, and its body is every line below that underline.
-
-    Parameters
-    ----------
-    text : str
-        The output of :meth:`AssessmentReport.summary`.
-
-    Returns
-    -------
-    dict of str to str
-        Section title to section body, in the order the summary prints them.
-    """
-    sections: dict[str, str] = {}
-    for block in text.split("\n\n"):
-        title, _, remainder = block.partition("\n")
-        underline, _, body = remainder.partition("\n")
-        if underline == "-" * len(title):
-            sections[title] = body
-    return sections
+def _statuses(table: Any) -> list[str]:
+    """The status of each row of a battery table, in printed order."""
+    return [row[1].value for row in table.rows]
 
 
-def test_the_battery_summary_expands_results_before_compact_checks_and_omissions():
-    """Every status is visible, while only completed analyses expand to full text.
+def test_the_battery_summary_puts_results_before_checks_and_omissions():
+    """Every row prints once: returned results, then checks by urgency, then omissions.
 
     The duplicate ``shared`` name is a nonzero witness for surface qualification. The
-    long warning detail is a witness for compactness: it remains in the ledger but does
-    not push returned results below review prose.
+    long warning detail is a witness for the full detail: the table prints its first
+    sentence, and only ``"full"`` and the frame carry the next steps.
     """
 
     def item(name: str, status: AssessmentStatus, detail: str) -> AssessmentItem:
@@ -1614,7 +1608,7 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
         ),
         diagnostics=DiagnosticReport(
             (
-                item("warning", AssessmentStatus.WARNING, "warning detail " * 20),
+                item("warning", AssessmentStatus.WARNING, "warning detail. " * 20),
                 item("choose", AssessmentStatus.DEFERRED, "deferred detail " * 20),
                 item("missing", AssessmentStatus.UNAVAILABLE, "unavailable detail"),
             )
@@ -1628,84 +1622,34 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
         ),
     )
 
-    text = battery.summary()
-    sections = _summary_sections(text)
-    results, checks, omissions = (
-        sections["Returned results"],
-        sections["Checks"],
-        sections["Not run"],
-    )
-    assert list(sections) == ["Returned results", "Checks", "Not run"]
-    # ``_summary_sections`` skips any block that carries no rule, so section order alone
-    # would admit a preamble printed above the first section.  The two anchors below pin
-    # the text to its first and last byte, and the width check pins the rule itself.
-    assert text.startswith("Returned results\n")
-    assert results.splitlines()[0].split() == ["surface", "operation", "result"]
-    assert "sensitivity" in results and "completed detail" in results
-    # The operation column is the name a reader passes back to ``report(...)``, so the
-    # one completed row has to print its own name and not only its surface and detail.
-    assert "estimate" in results
-    assert "passed detail" not in text
-    assert "warning detail" not in text
-    assert "deferred detail" not in text
-
-    expected_checks: dict[AssessmentStatus, tuple[str, ...]] = {
-        AssessmentStatus.FAILED: ("validation.shared",),
-        AssessmentStatus.WARNING: ("diagnostics.warning",),
-        AssessmentStatus.PASSED: ("validation.score",),
-    }
-    expected_omissions: dict[AssessmentStatus, tuple[str, ...]] = {
-        AssessmentStatus.DEFERRED: ("diagnostics.choose",),
-        AssessmentStatus.UNAVAILABLE: ("diagnostics.missing", "sensitivity.shared"),
-        AssessmentStatus.NOT_APPLICABLE: ("sensitivity.irrelevant",),
-    }
-    for body, expected in ((checks, expected_checks), (omissions, expected_omissions)):
-        for status, qualified_names in expected.items():
-            assert status.value in body
-            for qualified_name in qualified_names:
-                assert qualified_name in body
-
+    summary = battery.summary()
+    assert [table.title for table in summary.tables] == ["Results", "Checks", "Not run"]
+    results, checks, omissions = summary.tables
     # The declared order of the two status tuples, as rendered. Membership alone holds
     # for either tuple reversed, and the order carries the meaning: the check a reader
     # must act on comes first, and the omission a reader can resolve comes first.
-    assert checks.index("failed") < checks.index("warning") < checks.index("passed")
-    assert (
-        omissions.index("deferred")
-        < omissions.index("unavailable")
-        < omissions.index("not_applicable")
-    )
+    assert _statuses(checks) == ["failed", "warning", "passed"]
+    assert [row[0].value for row in omissions.rows] == ["choose", "missing", "shared", "irrelevant"]
+    assert [row[0].text for row in results.rows] == ["estimate"]
+    assert results.rows[0][1].text == "completed detail"
+    # Every presented row prints exactly once.
+    assert len(checks.rows) + len(results.rows) + len(omissions.rows) == len(battery._presented())
+    labels = [row[0].text for table in summary.tables for row in table.rows]
+    assert "shared (validation)" in labels and "shared (sensitivity)" in labels
 
-    # The compact rendering itself. Only the first row of a status group carries the
-    # status and the count. The second row of the two-member group leaves both fields
-    # blank, keeps the column positions, and carries its operation name alone.
-    lines = omissions.splitlines()
-    first = next(line for line in lines if line.startswith(AssessmentStatus.UNAVAILABLE.value))
-    second = lines[lines.index(first) + 1]
-    assert first.split() == ["unavailable", "2", "diagnostics.missing"]
-    assert second.split() == ["sensitivity.shared"]
-    assert second.index("sensitivity.shared") == first.index("diagnostics.missing")
-
-    assert text.endswith(f"\n\n{_SUMMARY_FOOTER}")
-    expected_counts = {
-        status.value: len(qualified_names)
-        for status, qualified_names in {**expected_checks, **expected_omissions}.items()
-    }
-    inventory_counts = {
-        fields[0]: int(fields[1])
-        for line in (checks + omissions).splitlines()
-        if len(fields := line.split(maxsplit=2)) == 3 and fields[0] in expected_counts
-    }
-    assert inventory_counts == expected_counts
-    completed_rows = sum(
-        1 for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
-    )
-    assert completed_rows == 1
-    assert completed_rows + sum(inventory_counts.values()) == len(battery._presented())
+    assert summary.facts[vocabulary.RESULT] == "failed"
+    assert summary.reading == "2 checks need attention: shared (validation) and warning."
+    warning = next(row for row in checks.rows if row[0].value == "warning")
+    assert warning[2].text == "warning detail"
+    full = battery.summary("full").section(vocabulary.BATTERY_ROWS_IN_FULL).lines
+    assert any(line.startswith("warning (needs attention): warning detail.") for line in full)
+    steps = summary.note("next_steps").text
+    assert all(f"act on {name}" in steps for name in ("shared", "warning", "choose"))
 
     frame = battery.to_frame()
-    warning = frame.loc[frame["check"] == "warning"].iloc[0]
-    assert warning["detail"] == "warning detail " * 20
-    assert warning["next_steps"] == "act on warning"
+    row = frame.loc[frame["check"] == "warning"].iloc[0]
+    assert row["detail"] == "warning detail. " * 20
+    assert row["next_steps"] == "act on warning"
     assert battery.omissions == (
         battery.diagnostics["choose"],
         battery.diagnostics["missing"],
@@ -1714,12 +1658,12 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
     )
 
 
-def test_the_battery_summary_names_empty_result_check_and_omission_sections():
-    """An empty section keeps its title and says ``none``, rather than disappearing.
+def test_the_battery_summary_counts_what_it_leaves_out():
+    """A table with no row is left out, and the header's counts say so.
 
     The witness is a report at each extreme: one that only returned results, and one that
-    only ran a check. A dropped section reads as a summary that was never asked the
-    question, which is the reading the three fixed titles exist to prevent.
+    only ran a check. The counts read zero where a table is missing, so a missing table
+    never reads as a question nobody asked.
     """
     no_review = AssessmentReport(
         ValidationReport(
@@ -1734,42 +1678,35 @@ def test_the_battery_summary_names_empty_result_check_and_omission_sections():
         DiagnosticReport(()),
     )
 
-    reviewed = _summary_sections(no_review.summary())
-    assert list(reviewed) == ["Returned results", "Checks", "Not run"]
-    assert reviewed["Checks"] == "none"
-    assert reviewed["Not run"] == "none"
-    assert "returned result" in reviewed["Returned results"]
+    reviewed = no_review.summary()
+    assert [table.title for table in reviewed.tables] == ["Results"]
+    assert reviewed.facts[vocabulary.NOT_RUN] == "0"
+    assert reviewed.facts[vocabulary.NEED_ATTENTION] == "0"
+    assert reviewed.facts[vocabulary.RESULT] == "nothing needs attention"
+    assert "returned result" in str(reviewed)
 
-    returned = _summary_sections(no_results.summary())
-    assert list(returned) == ["Returned results", "Checks", "Not run"]
-    assert returned["Returned results"] == "none"
-    assert "validation.score" in returned["Checks"]
+    returned = no_results.summary()
+    assert [table.title for table in returned.tables] == ["Checks"]
+    assert returned.facts[vocabulary.RESULT] == "failed"
+    assert returned.facts[vocabulary.NEED_ATTENTION] == "1"
+    assert "outside tolerance" in str(returned)
 
 
-def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventory():
-    """A real fit presents every row it ran: results in full, and the rest by name.
+def test_the_documented_seed_fit_prints_every_row_it_ran():
+    """A real fit presents every row it ran: checks, results and omissions by name.
 
     Size is the witness a synthetic report cannot give. Two of this fit's status groups
-    hold more than two rows, so a summary that renders only the head of a group drops rows here
-    and stays self-consistent, because the count column reports what it printed. The
-    inventory is therefore checked against every presented row rather than against the
-    count printed beside it.
+    hold more than two rows, so a summary that renders only the head of a group would drop
+    rows here. Each presented row is therefore checked against the printed labels.
     """
     fitted = _fit(_study(), ATE())
     battery = fitted.assess()
-    text = battery.summary()
-    sections = _summary_sections(text)
-    results, checks, omissions = (
-        sections["Returned results"],
-        sections["Checks"],
-        sections["Not run"],
-    )
-    assert list(sections) == ["Returned results", "Checks", "Not run"]
+    summary = battery.summary()
+    text = str(summary)
+    assert [table.title for table in summary.tables] == ["Results", "Checks", "Not run"]
 
-    assert len(battery.to_frame()) == 15
-    assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
+    assert len(battery.to_frame()) == 16
     assert "poorly calibrated" not in text
-    assert "not run by default because it retargets the fit" not in text
     # The nuisance row completes because the linear outcome learner puts some predictions of
     # this binary outcome at or beyond 0 or 1. Their clipped logits pull the slope toward 0,
     # and the rule's interval reaches 0, so the rule gives no finding.
@@ -1782,27 +1719,15 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
 
     # The nonzero witness for completeness: two groups are larger than a head of two.
     statuses = [item.status for _, item in battery._presented()]
-    assert statuses.count(AssessmentStatus.DEFERRED) == 4
+    assert statuses.count(AssessmentStatus.DEFERRED) == 5
     assert statuses.count(AssessmentStatus.NOT_APPLICABLE) == 3
 
-    review = "\n".join((checks, omissions, _SUMMARY_FOOTER))
-    inventoried = {
-        f"{surface}.{item.name}"
-        for surface, item in battery._presented()
-        if item.status is not AssessmentStatus.COMPLETED
-    }
-    assert len(inventoried) == 8
-    assert {name for name in inventoried if name in review} == inventoried
-
-    # Every returned result names the operation ``report(...)`` takes. No detail on this
-    # fit repeats its own operation name, so the results block is the only source.
-    completed = {
-        item.name for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
-    }
-    assert {"support", "nuisance_models", "omitted_confounding"} <= completed
-    assert {name for name in completed if name in results} == completed
-
-    assert max(len(line) for line in review.splitlines()) < 80
+    printed = [row[0].value for table in summary.tables for row in table.rows]
+    assert sorted(printed) == sorted(item.name for _, item in battery._presented())
+    # A completed row prints its report's reading, read when the summary prints.
+    support = next(row for row in _table(summary, "Results").rows if row[0].value == "support")
+    assert battery.report("support").summary().reading.startswith(support[1].text)
+    assert max(len(line) for line in text.splitlines()) <= 78
 
 
 def test_next_steps_are_de_duplicated_and_keep_presentation_order():
@@ -2022,19 +1947,19 @@ def test_the_support_row_and_the_retained_verdict_cannot_disagree() -> None:
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(
             PositivityReport,
-            "_verdict_parts",
-            lambda _self: ("serious", "VERDICT: truncation is carrying this estimate. Mutated."),
+            "_grade",
+            lambda _self: OverlapGrade("serious", "serious", 0.0, (0.01, 0.99), None),
         )
         mutated = INTERPRETERS["support"](report, None)
     assert mutated.status is AssessmentStatus.WARNING
 
 
-def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
+def test_the_summary_states_the_ratio_in_every_tier() -> None:
     """The reader-facing half of the contract: ungraded is not unreported."""
     for fraction in (0.0, 0.02, 0.06):
-        verdict = _positivity(fraction, 0.25).verdict()
-        assert "Kish-equivalent weight count of 25%" in verdict
-        assert "no threshold is applied because none is derived" in verdict
+        text = _positivity(fraction, 0.25).summary().note("effective_share").text
+        assert text.startswith("The smallest arm keeps an effective 25% of its rows")
+        assert "it is not a test, and no threshold applies" in text
 
 
 def _load(ratio: float, **overrides: float | str) -> dict[str, float | str]:
@@ -2104,12 +2029,18 @@ def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -
 
     assert ample.severity == threadbare.severity == "adequate"
     assert INTERPRETERS["support"](threadbare, None).status is AssessmentStatus.COMPLETED
-    assert "Absolute-load concentration is greatest" in ample.verdict()
-    assert "99.0 Kish-equivalent rows out of 100 score-mask rows (99%" in ample.verdict()
-    assert "4.0 Kish-equivalent rows out of 100 score-mask rows (4%" in threadbare.verdict()
+    concentration = ample.summary().note("equation_concentration").text
+    assert "concentrate most for mean: 99.0 effective rows of 100 (99%)" in concentration
+    assert "4.0 effective rows of 100 (4%)" in (
+        threadbare.summary().note("equation_concentration").text
+    )
     for report in (ample, threadbare):
-        assert "Kish-equivalent weight count of 90%" in report.verdict()
-        assert "not estimator effective sample size" in report.verdict()
+        summary = report.summary()
+        assert "effective 90% of its rows" in summary.note("effective_share").text
+        assert "it is not the estimator's sample size, its precision or a test of overlap" in (
+            summary.note("equation_concentration").text
+        )
+        assert report.verdict() == summary.reading
 
 
 def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
@@ -2125,11 +2056,12 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
         0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_score_load={"mean": empty}
     )
     summary = report.summary()
-    header = next(line for line in summary.splitlines() if line.startswith("group "))
+    (table,) = [t for t in summary.tables if t.title == vocabulary.EQUATION_TABLE]
 
-    assert header.index("Kish-equivalent rows") < header.index("max |w h|")
-    assert "empty" in summary
-    assert "Absolute-load concentration" not in report.verdict()
+    assert table.columns.index("effective rows") < table.columns.index("largest")
+    assert "-" in str(summary).split(vocabulary.EQUATION_TABLE)[1].splitlines()[3]
+    assert "mean: equation empty," in str(report.summary("full"))
+    assert "equation_concentration" not in summary.note_codes
 
 
 def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None:
@@ -2142,21 +2074,22 @@ def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None
     report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
 
     assert report.group_score_load == {}
-    assert "max |clever covariate| (mean): 1" in report.summary()
-    assert "max |clever covariate| (att): 4" in report.summary()
-    assert "Kish-equivalent rows" not in report.summary()
-    assert "Absolute-load concentration" not in report.verdict()
+    (details,) = report.summary("full").sections
+    assert "Largest weight in the correction step for mean: 1." in details.lines
+    assert "Largest weight in the correction step for att: 4." in details.lines
+    assert vocabulary.EQUATION_TABLE not in report.summary()
+    assert "equation_concentration" not in report.summary().note_codes
 
 
 def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:
     """A binding bound changes the procedure, not the parameter it estimates."""
     verdict = _positivity(0.06, 0.9).verdict()
 
-    assert "sensitive to this finite-sample regularisation" in verdict
+    assert "treat the estimate as sensitive to it" in verdict
+    assert "The cap does not change the question" in verdict
     explanations = (
         positivity_module.__doc__,
         positivity_module.truncation_curve.__doc__,
-        verdict,
     )
     for explanation in explanations:
         assert explanation is not None
@@ -2171,9 +2104,12 @@ def _drtmle(**overrides: object):
         "outcome_learner": LinearRegression(),
         "treatment_learner": LogisticRegression(max_iter=1000),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(max_iter=1000),
         "estimands": ("ey1", "ey0", "ate"),
         "n_folds": 2,
+        # Two folds, so the pooled construction: foldwise needs three.
+        "reduced_crossfit": "pooled",
         "random_state": 3,
         "simultaneous": False,
     }
@@ -2211,7 +2147,7 @@ def test_a_guarded_drtmle_truncation_curve_asks_for_the_refit_flag() -> None:
     """The gate reads the execution class, so the corrected label must reroute the caller."""
     guarded = _drtmle().diagnostics.run_all(include_retargets=True)["truncation_curve"]
     assert guarded.status is AssessmentStatus.DEFERRED
-    assert "refits nuisance models" in guarded.detail
+    assert "refits the models" in guarded.detail
     assert "include_refits=True" in guarded.detail
 
     unguarded = _drtmle(guard=()).diagnostics.run_all(include_retargets=True)["truncation_curve"]

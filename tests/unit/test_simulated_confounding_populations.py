@@ -29,6 +29,7 @@ from cleverly import (
     PointTreatment,
     RiskRatio,
 )
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.assessment import INTERPRETERS
 from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -445,12 +446,16 @@ def test_weighted_repeated_population_surface_cache_and_persistence() -> None:
     ]
     assert set(frame["association_population"]) == {"selected_baseline_stratum"}
     assert set(surface.calibration_frame()["calibration_population"]) == {"full_fitted_population"}
-    summary = surface.summary()
-    assert "target population: perturbed_treatment_group" in summary
-    assert "conditioning arm: 1" in summary
-    assert "baseline stratum: ('small',)" in summary
-    assert "strata columns: ('V',)" in summary
-    assert "association population: selected_baseline_stratum" in summary
+    summary = surface.summary(detail="full")
+    (population,) = [value for label, value in summary.header if label == "Population"]
+    assert population == "units with treatment 1"
+    assert surface.conditioning_arm == 1
+    assert "population_moves" in summary.note_codes
+    reading = summary.note("association_reading").text
+    assert "the cell produced, within the selected baseline stratum." in reading
+    settings = summary.section("Settings").lines
+    assert "Baseline stratum: V = small." in settings
+    assert settings[0].endswith("the associations are measured on the selected baseline stratum.")
 
 
 #: The two refusals the tampering table separates. Matching the exception type alone let a
@@ -950,19 +955,23 @@ def test_the_reading_guard_names_the_population_channel_only_where_it_exists() -
     )
     conditional_summary = att.summary()
     baseline_summary = ate.summary()
+    conditional_reading = conditional_summary.note("association_reading").text
+    baseline_reading = baseline_summary.note("association_reading").text
 
     assert att.population == "perturbed_treatment_group"
     assert ate.population == "baseline"
-    assert "ATT and ATC membership follows each cell's perturbed treatment." in conditional_summary
     assert (
         "An association near zero says the treatment axis opened no confounding path."
-        in conditional_summary
+        in conditional_reading
     )
-    assert "rebuilds its ATT or ATC population from the perturbed treatment" in conditional_summary
-    assert "Read target_population_fraction beside the movement." in conditional_summary
-    assert misclassification not in conditional_summary
+    # The population channel prints once, in its own note, and not again in the reading.
+    assert conditional_summary.note("population_moves").text == NOTE_TEXTS[
+        "population_moves"
+    ].format(arm_phrase=f"treatment {att.conditioning_arm}")
+    assert "rebuilds its ATT or ATC population" not in conditional_reading
+    assert misclassification not in conditional_reading
+    assert "population share" in conditional_summary.table("Associations").columns
 
-    assert misclassification in baseline_summary
-    assert "rebuilds its ATT or ATC population" not in baseline_summary
-    assert "ATT and ATC membership follows" not in baseline_summary
-    assert "Read target_population_fraction beside the movement." not in baseline_summary
+    assert misclassification in baseline_reading
+    assert "population_moves" not in baseline_summary.note_codes
+    assert "population share" not in baseline_summary.table("Associations").columns

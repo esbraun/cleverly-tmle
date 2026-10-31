@@ -275,8 +275,18 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, configuration: str = "both_correct") -> Any:
-    """The cross-fitted stratified DR-TMLE fit at one nuisance configuration."""
+def fit_cleverly(
+    frame: pd.DataFrame,
+    configuration: str = "both_correct",
+    *,
+    reduced_crossfit: str = str(CONFIGURATION["reduced_crossfit"]),
+) -> Any:
+    """The cross-fitted stratified DR-TMLE fit at one nuisance configuration.
+
+    ``reduced_crossfit`` is the only other setting a caller may vary, so that
+    ``drtmle-foldwise`` fits this construction rather than a copy of it.  Every row this study
+    publishes uses the default.
+    """
     outcome, treatment = learners(configuration)
     return (
         FixedFoldDRTMLE(
@@ -284,6 +294,7 @@ def fit_cleverly(frame: pd.DataFrame, configuration: str = "both_correct") -> An
             outcome_learner=outcome,
             treatment_learner=treatment,
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=ColumnLogistic(),
             cross_fit=True,
             n_folds=N_FOLDS,
@@ -296,6 +307,7 @@ def fit_cleverly(frame: pd.DataFrame, configuration: str = "both_correct") -> An
             tol=1e-10,
             random_state=0,
             guard=("Q", "g"),
+            reduced_crossfit=reduced_crossfit,
         )
         .fit(frame, outcome="Y", treatment="A", covariates=list(COVARIATES), strata=["V"])
         .single()

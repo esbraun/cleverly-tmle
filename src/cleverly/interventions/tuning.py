@@ -421,14 +421,6 @@ class FittedTuner:
         features = self.design(frame, n)[:, 1:]
         return np.asarray(self.model.predict(features), dtype=float).reshape(-1)
 
-    def describe(self) -> str:
-        """A stable text of the fitted tuner."""
-        if self.theta.size:
-            values = ", ".join(f"{value:.6g}" for value in self.theta)
-            return f"{type(self.tuner).__name__}(q={self.tuner.q:g}) at theta=({values})"
-        learner = getattr(self.tuner, "learner", None)
-        return f"SupportBoundary({type(learner).__name__}, q={self.tuner.q:g})"
-
 
 def fit_tuner(
     tuner: DoseQuantile | SupportBoundary,

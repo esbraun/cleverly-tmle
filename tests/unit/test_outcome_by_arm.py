@@ -501,6 +501,7 @@ def fit_drtmle(frame: pd.DataFrame, **settings: Any) -> Any:
         "outcome_learner": outcome_learner(),
         "treatment_learner": treatment_learner(),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": treatment_learner(),
         "n_folds": 4,
         "cross_fit": True,
@@ -524,7 +525,7 @@ class TestTheNestedDesignsOfDRTMLE:
 
     @staticmethod
     def fit(frame: pd.DataFrame, **settings: Any) -> Any:
-        return fit_drtmle(frame, reduced_crossfit="nested", **settings)
+        return fit_drtmle(frame, reduced_crossfit="foldwise", **settings)
 
     def test_the_inner_arm_predictions_are_the_hand_fitted_leave_two_out_models(self) -> None:
         result = self.fit(binary_frame(n=800), outcome_by_arm=True)

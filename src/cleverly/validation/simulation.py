@@ -47,12 +47,13 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
+from .._summary import Detail, Summary
 from .._typing import FloatArray
+from .._warnings import suppressed as _suppressed
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
 from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
-from ..utils.text import format_table
 from ._failures import failure_call, recordable
 from ._seeds import sample_seed_streams, validate_sample_seeds
 
@@ -395,6 +396,19 @@ class EstimandSummary:
     def rmse(self) -> float:
         return float(np.sqrt(np.mean((self.estimates - self.truth) ** 2)))
 
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "EstimandSummary",
+            (
+                ("", self.estimand),
+                ("coverage", f"{self.coverage:.3f}"),
+                ("bias", f"{self.bias:+.4f}"),
+                ("replications", self.n_replicates),
+            ),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         # The convention ``ParameterEstimate.to_dict`` keeps: an ordinary summary carries
         # the columns it always carried, and a summary of a diagnostic carries
@@ -552,139 +566,58 @@ class StudyResult:
             for status, _ in (summary.status_counts or ((summary.inference, summary.n_replicates),))
         )
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the study.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints one row per estimand and the reading. ``"full"`` adds each
+            estimand's mean, RMSE, root-n bias and Monte Carlo errors, and the failed
+            replications.
 
         Returns
         -------
-        str
-            A printable table, one line per estimand.
+        Summary
+            A ``str`` whose text is the printed summary; its ``reading`` is
+            :meth:`verdict`, and a notebook renders it as HTML.
         """
-        level = 1.0 - self.alpha
-        lines = [
-            f"Simulation study: {self.label}",
-            "-" * (18 + len(self.label)),
-            f"n = {self.n}; replications = {self.n_replicates}"
-            + (f" ({self.n_failed} failed)" if self.n_failed else ""),
-            # Printed beside the budget rather than in a column, because it describes
-            # every row: it says whether "mean se" and the coverage column measured the
-            # estimator's own inference or its retained diagnostic.
-            *(
-                [
-                    f"measuring a {self._diagnostic_noun}: one or more reported "
-                    "estimates supply no interval"
-                    + (
-                        " on some replicates"
-                        if any(
-                            any(status == "influence_curve" for status, _ in summary.status_counts)
-                            for summary in self.summaries.values()
-                        )
-                        else ""
-                    )
-                    + ", so the columns below describe the spread of "
-                    "the curve it reports and not a confidence interval"
-                ]
-                if self._diagnostic
-                else []
-            ),
-            *(
-                f"{summary.estimand}: the replicates took more than one status "
-                f"({summary.mixed_statuses}), and every column reads them as the "
-                f"{_diagnostic_noun(status for status, _ in summary.status_counts)}"
-                if any(not supplies_inference(status) for status, _ in summary.status_counts)
-                else f"{summary.estimand}: the replicates took more than one status "
-                f"({summary.mixed_statuses}), and every column reads the interval each "
-                "replicate reported"
-                for summary in self.summaries.values()
-                if summary.status_counts
-            ),
-            *(
-                f"{summary.estimand}: experimental, because at least one replicate's "
-                "estimate has no registered study behind its configuration"
-                for summary in self.summaries.values()
-                if summary.support == "experimental"
-            ),
-            "",
-            format_table(
-                [
-                    "estimand",
-                    "truth",
-                    "mean",
-                    "bias",
-                    "sqrt(n)*bias",
-                    "mc se",
-                    "mean se",
-                    "se ratio",
-                    f"{level:.0%} cover",
-                    "reject",
-                ],
-                [
-                    [
-                        summary.estimand,
-                        f"{summary.truth:.4f}",
-                        f"{summary.mean_estimate:.4f}",
-                        f"{summary.bias:+.4f}",
-                        f"{summary.root_n_bias:+.3f}",
-                        f"{summary.monte_carlo_se:.4f}",
-                        f"{summary.mean_std_error:.4f}",
-                        f"{summary.se_ratio:.3f}",
-                        f"{summary.coverage:.3f}",
-                        f"{summary.rejection_rate:.3f}",
-                    ]
-                    for summary in self.summaries.values()
-                ],
-            ),
-            "",
-            self.verdict(),
-        ]
-        return "\n".join(lines)
+        from .._summary._setup import simulation_summary
+
+        return simulation_summary(self, detail)
 
     def verdict(self) -> str:
         """Reading of the study, naming the specific failure mode where there is one.
+
+        It checks undercoverage beyond three Monte Carlo standard errors and bias beyond
+        three bias standard errors, and nothing else. A detectable shortfall of at most two
+        points of coverage, or a detectable bias of at most 2% of ``max(1, |truth|)``, is
+        named as small.
 
         Returns
         -------
         str
             A reading of the study, naming the failure mode where there is one.
         """
-        notes: list[str] = []
-        target = 1.0 - self.alpha
-        for summary in self.summaries.values():
-            shortfall = target - summary.coverage
-            if shortfall > 3.0 * summary.coverage_se and shortfall > 0.02:
-                notes.append(
-                    f"{summary.estimand}: coverage {summary.coverage:.3f} is below the nominal "
-                    f"{target:.0%} by more than Monte Carlo error"
-                    + (
-                        f"; the {spread_name('reported standard error', summary.inference)} is "
-                        f"{1 / summary.se_ratio:.2f}x too small"
-                        if summary.se_ratio < 0.95
-                        else "; the standard error looks right, so this is bias"
-                    )
-                )
-            if abs(summary.bias) > 3.0 * summary.bias_se and abs(summary.bias) > 0.02 * max(
-                1.0, abs(summary.truth)
-            ):
-                notes.append(
-                    f"{summary.estimand}: bias {summary.bias:+.4f} is "
-                    f"{abs(summary.bias) / summary.bias_se:.1f} Monte Carlo standard errors from "
-                    "zero"
-                )
-        if not notes and self._diagnostic:
-            # A plug-in interval that covers is not a confidence interval the estimator
-            # reports, so the verdict does not certify one.  Bias is a property of the
-            # point estimate, which this path does report.
-            return (
-                "VERDICT: bias is consistent with a correctly working estimator. The "
-                f"coverage column measures a {self._diagnostic_noun}, so it "
-                "certifies no confidence interval for this estimator."
-            )
-        if not notes:
-            return "VERDICT: coverage and bias are consistent with a correctly working estimator."
-        return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
+        from .._summary._setup import simulation_reading
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return simulation_reading(self)
+
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "StudyResult",
+            (
+                ("", self.label),
+                ("n", self.n),
+                ("replications", self.n_replicates),
+                ("estimands", ", ".join(self.summaries)),
+            ),
+        )
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 class CoverageStudy:
@@ -882,7 +815,6 @@ class CoverageStudy:
         tuple of ReplicationRecord or ReplicationFailure
             One record per estimand on success, or the fit's explicit failure record.
         """
-        import warnings
 
         if (
             isinstance(replicate_index, bool)
@@ -895,10 +827,9 @@ class CoverageStudy:
         # not a fit that broke down on one sample.
         frame, truth = self._draw(int(seed))
         try:
-            with warnings.catch_warnings():
+            with _suppressed():
                 # Individual replications routinely trip positivity warnings; the
                 # aggregate coverage is the diagnostic here, not the per-fit warnings.
-                warnings.simplefilter("ignore")
                 fitted = self.estimator().fit(frame, **self.fit_kwargs)
             result = self._select(fitted)
             names = self.estimands or tuple(result.estimates)

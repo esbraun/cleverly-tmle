@@ -961,14 +961,14 @@ def _d_cases() -> tuple[RowCase, ...]:
             "canonical-drtmle",
             "both_correct",
             _ST + "canonical_drtmle.py:362",
-            _drtmle(**stacked),
+            _drtmle(reduced_crossfit="pooled", **stacked),
             {},
             ATE,
         )
     )
     add(
         _case(
-            "D01",
+            "D11",
             "drtmle-one-wrong",
             "q_wrong_g_glm_cf",
             _ST + "drtmle_one_wrong.py:452",
@@ -979,11 +979,22 @@ def _d_cases() -> tuple[RowCase, ...]:
     )
     add(
         _case(
+            "D11",
+            "drtmle-foldwise",
+            "treatment_correct",
+            _ST + "drtmle_foldwise.py:186",
+            _drtmle(cross_fit=True, n_folds=10),
+            {},
+            ATE,
+        )
+    )
+    add(
+        _case(
             "D02",
             "canonical-multi-arm-drtmle",
             "multi_arm_binary_drtmle",
             _ST + "canonical_multi_arm_drtmle.py:249",
-            _drtmle(reference=0.0, **stacked),
+            _drtmle(reference=0.0, reduced_crossfit="pooled", **stacked),
             {"arms": 3},
             THREE,
         )
@@ -994,7 +1005,7 @@ def _d_cases() -> tuple[RowCase, ...]:
             "canonical-stratified-drtmle",
             "stratified_both_correct",
             _ST + "canonical_stratified_drtmle.py:282",
-            _drtmle(**stacked),
+            _drtmle(reduced_crossfit="pooled", **stacked),
             {"strata": True},
             ("ey", "ate"),
         )
@@ -2034,6 +2045,21 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, law=law, n=n: study.sample(law, n, 0),
             lambda study, frame, scenario=scenario: study.fit_scenario(scenario, frame),
         )
+
+    # Node bounds on a held survival fit: the study's declared fit of each model at 400 rows.
+    bounded = "canonical_survival_node_bounds.py:208"
+    for row, model in (
+        ("G45.mean_model", "mean_model"),
+        ("G45.hazard_model", "hazard_model"),
+    ):
+        observed(
+            row,
+            "survival-node-bounds",
+            model,
+            bounded,
+            lambda study, model=model: study.draw_from_seed(model, 400, 0)[0],
+            lambda study, frame, model=model: study.fit(model, frame),
+        )
     return tuple(cases)
 
 
@@ -2231,6 +2257,107 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _learned_rule_composition_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-compositions`` (X11 PR A).
+
+    Each runs the study's own fit on a draw of its scenario at the declared size, up to the
+    classifier, with the study's outcome learner.
+    """
+    module, slug = "_learned_rule_compositions_law", "learned-rule-compositions"
+
+    def case(row: str, cell: str, scenario: str, n: int) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            cell,
+            f"{module}.py:148",
+            module,
+            lambda study: study.draw(scenario, n, 0),
+            lambda study, frame: study.fit(frame, scenario, study.base.outcome_learner(), 0),
+        )
+
+    return (
+        case("T37.fold_targeted", "fold_targeted", "fold_targeted", 2_000),
+        case("T37.weighted", "weighted", "weighted", 2_000),
+        case("T37.clustered", "clustered", "clustered", 2_000),
+        case("T37.few_cluster", "clustered_few__declared", "clustered_few", 1_020),
+    )
+
+
+def _learned_rule_split_mean_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-split-mean`` (X11 PR B).
+
+    Each runs the study's own five-split fit on a draw of its scenario at the declared size, up to
+    the classifier, with the study's outcome learner.
+    """
+    module, slug = "learned_rule_split_mean", "learned-rule-split-mean"
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            "T38.split_mean",
+            slug,
+            scenario,
+            "_learned_rule_split_mean_law.py:85",
+            module,
+            lambda study: study.draw_from_seed(scenario, 2_000, 0)[0],
+            lambda study, frame: study.law.fit(frame, study.base.outcome_learner(), 0),
+        )
+
+    return (case("non_exceptional"), case("misspecified_limit"))
+
+
+def _learned_rule_learners_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-learners`` (X11 PR C).
+
+    Each runs the study's own declared fit of one rule learner on a draw of its scenario at the
+    primary size, up to the classifier, with the study's outcome learner.
+    """
+    module, slug = "learned_rule_learners", "learned-rule-learners"
+
+    def case(loss: str) -> RowCase:
+        return _observed(
+            f"T39.{loss}",
+            slug,
+            loss,
+            "_learned_rule_law.py:285",
+            module,
+            lambda study: study.draw_from_seed(loss, 2_000, 0)[0],
+            lambda study, frame: study.base.fit(
+                frame, study.base.outcome_learner(), 0, rule=study.law.rule(loss)
+            ),
+        )
+
+    return (case("blip"), case("weighted_classification"))
+
+
+def _fold_evaluated_strata_cases() -> tuple[RowCase, ...]:
+    """The cases of ``fold-evaluated-strata`` (X11 PR E1, X28).
+
+    Each runs the study's own declared fit of one setting on a draw of that setting at the
+    primary size, up to the classifier.
+    """
+    module, slug = "fold_evaluated_strata", "fold-evaluated-strata"
+    rows = {
+        "unweighted": "T40.continuous",
+        "weighted": "T40.continuous_weighted",
+        "binary_unweighted": "T40.binary",
+        "binary_weighted": "T40.binary_weighted",
+    }
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            rows[scenario],
+            slug,
+            scenario,
+            "_fold_evaluated_strata_law.py:451",
+            module,
+            lambda study: study.draw_from_seed(scenario, 1_000, 0)[0],
+            lambda study, frame: study.law.fit(frame, scenario, 0),
+        )
+
+    return tuple(case(scenario) for scenario in rows)
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2336,6 +2463,207 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _adaptive_iptw_cases() -> tuple[RowCase, ...]:
+    """The cases of ``adaptive-iptw`` (X21).
+
+    Each runs the study's own fit of one scene on a small draw of its law up to the classifier.
+    """
+    module, slug = "canonical_adaptive_iptw", "adaptive-iptw"
+
+    def case(row: str, scene: str, fit: str, line: int) -> RowCase:
+        def draw(study: Any) -> Any:
+            declared = study.SCENES[scene]
+            # The key reads structure only, so a clustered law keeps its declared cluster count.
+            size = declared.n if declared.law == "cl" else min(declared.n, 600)
+            return study.draw_frame(declared.law, size, 0)
+
+        def run(study: Any, frame: Any) -> Any:
+            return study.FITS[fit](frame, study.SCENES[scene].n, 0)
+
+        return _observed(row, slug, fit, f"{module}.py:{line}", module, draw, run)
+
+    return (
+        case("AI.known_arms.targeted", "pd_known", "pd_arms", 390),
+        case("AI.known_arms.one_step", "pd_known", "pd_arms_one_step", 390),
+        case("AI.known_regimes.targeted", "pd_known", "pd_regimes", 413),
+        case("AI.known_regimes.one_step", "pd_known", "pd_regimes_one_step", 413),
+        case("AI.known_weighted", "wt_known", "wt_known", 476),
+        case("AI.known_clustered", "cl_known", "cl_known", 495),
+        case("AI.known_stratified", "st_known", "st_known", 514),
+        case("AI.points.cross_fit", "p_rate", "p_rate", 373),
+        case("AI.points.in_sample", "p_insample", "p_insample", 373),
+        case("AI.points_three_arm", "m_rate", "m_rate", 434),
+        case("AI.points_missing_outcome.cross_fit", "c_l1", "c_l1", 454),
+        case("AI.points_missing_outcome.cross_fit", "cn", "cn", 539),
+        case("AI.points_missing_outcome.in_sample", "c_l1_insample", "c_l1_insample", 454),
+        case("AI.points_composite_three_arm.cross_fit", "c_l3", "c_l3", 454),
+        case("AI.points_composite_three_arm.in_sample", "c_l3_insample", "c_l3_insample", 454),
+        case("AI.points_weighted", "wt_known", "wt_estimated", 476),
+        case("AI.points_clustered", "cl_known", "cl_estimated", 495),
+        case("AI.points_stratified", "st_known", "st_estimated", 514),
+        case("AI.points_regime", "pd_rate", "pd_regimes_estimated", 413),
+        case("AI.points_regime_missing", "rm", "rm", 559),
+        case("AI.points_missing_treatment.cross_fit", "ma_crossfit", "ma_crossfit", 575),
+        case("AI.points_missing_treatment.in_sample", "ma_insample", "ma_arms", 575),
+        case("AI.points_missing_treatment.in_sample", "ma_insample", "ma_regime", 575),
+    )
+
+
+#: The sample a long-horizon case draws. The key reads the structure of a fit, not a value, and
+#: 4,000 units pass the fit's preflight for every plan of every scenario.
+LONG_HORIZON_CASE_N = 4_000
+
+#: Each long-horizon row to the primary scenarios whose fits it covers, as (study, scenario).
+#: ``tests/unit/test_long_horizon_support.py`` requires every scenario of the three studies in
+#: exactly one row.
+LONG_HORIZON_MEMBERS: dict[str, tuple[tuple[str, str], ...]] = {
+    "G46.tmle.binary_k3": (("S1", "binary_k3"),),
+    "G46.tmle.binary_k4": (("S1", "binary_k4"),),
+    "G46.tmle.binary_k5": (("S1", "binary_k5"),),
+    "G46.tmle.binary_k5_msm": (("S1", "binary_k5_msm"),),
+    "G46.tmle.categorical_k3": (("S2", "categorical_k3"),),
+    "G46.tmle.categorical_k4": tuple(
+        ("S2", name) for name in ("categorical_k4", "categorical_k4_high", "categorical_k4_static")
+    ),
+    "G46.tmle.categorical_k5": tuple(
+        ("S2", name)
+        for name in (
+            "categorical_k5",
+            "categorical_k5_mix",
+            "categorical_k5_static",
+            "categorical_k5_switch",
+            "categorical_k5_high",
+        )
+    ),
+    "G46.tmle.categorical_k5_crossfit": (("S2", "categorical_k5_crossfit"),),
+    "G46.sdr.sdr_binary_k3": (("S3", "sdr_binary_k3"),),
+    "G46.sdr.sdr_binary_k4": (("S3", "sdr_binary_k4"),),
+    "G46.sdr.sdr_binary_k5": (("S3", "sdr_binary_k5"),),
+    "G46.sdr.sdr_categorical_k5": tuple(
+        ("S3", name)
+        for name in (
+            "sdr_categorical_k5",
+            "sdr_categorical_k5_mix",
+            "sdr_categorical_k5_static",
+            "sdr_categorical_k5_switch",
+            "sdr_categorical_k5_high",
+            "sdr_policy_k5",
+            "sdr_policy_k5_mix",
+            "sdr_policy_k5_taper",
+        )
+    ),
+    "G46.sdr.sdr_categorical_k5_crossfit": (("S3", "sdr_categorical_k5_crossfit"),),
+    "G46.sdr.sdr_categorical_k3": (),
+    "G46.sdr.sdr_categorical_k4": (),
+    "G46.tmle.categorical_k5_learned": (),
+    "G46.sdr.sdr_categorical_k5_learned": (),
+}
+
+_LONG_HORIZON_SLUG = {
+    "S1": "long-horizon-ltmle",
+    "S2": "long-horizon-categorical-ltmle",
+    "S3": "long-horizon-sdr",
+}
+
+#: The rows that no primary scenario covers, each with the property cell its case stands on.
+_LONG_HORIZON_CELL_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("G46.tmle.categorical_k5_learned", "S2", "third_arm__k5__binary_complement"),
+    (
+        "G46.sdr.sdr_categorical_k3",
+        "S3",
+        "categorical_respond_vs_ref__k3__known_mechanism",
+    ),
+    (
+        "G46.sdr.sdr_categorical_k4",
+        "S3",
+        "categorical_respond_vs_ref__k4__known_mechanism",
+    ),
+    ("G46.sdr.sdr_categorical_k4", "S3", "respond_vs_ref__k4__n_4000"),
+    ("G46.sdr.sdr_categorical_k5_learned", "S3", "third_arm__k5__binary_complement"),
+)
+
+#: The rows whose study gates a band, with the study that fits it.
+_LONG_HORIZON_BAND_ROWS = (("G46.tmle.binary_k5", "S1"), ("G46.tmle.categorical_k5", "S2"))
+
+
+def _long_horizon_primary_case(row: str, study: str, name: str) -> RowCase:
+    """The study's own primary fit of one scenario, run up to the classifier."""
+
+    def build() -> Observed:
+        from tests import discrete_law_longitudinal_horizon as law_
+        from tests import long_horizon_design as design
+        from tests.studies import long_horizon_primary as primary
+
+        module = design.STUDIES[study]
+        scenario = next(s for s in module.SCENARIOS if s.name == name)
+        frame = law_.draw(scenario.K, scenario.m, LONG_HORIZON_CASE_N, 0, scenario.law)
+        return capture(lambda: primary.fit(frame, scenario, module.ESTIMATOR))
+
+    return RowCase(
+        row, _LONG_HORIZON_SLUG[study], name, "tests/studies/long_horizon_primary.py:177", build
+    )
+
+
+def _long_horizon_band_case(row: str, study: str) -> RowCase:
+    """The study's own band fit, with the simultaneous band on, up to the classifier."""
+
+    def build() -> Observed:
+        from tests import discrete_law_longitudinal_horizon as law_
+        from tests import long_horizon_design as design
+        from tests.studies import long_horizon_properties as properties
+
+        config, plans, _ = design.band_config(study)
+        boot = study in design.BOOT_BAND_STUDIES
+        arm = properties.Arm(
+            "k5", "positive", config, read="boot_band" if boot else "band", plans=plans
+        )
+        extra = {"n_bootstrap": design.B_GATE} if boot else {}
+        drawn = law_.draw(config.K, config.m, LONG_HORIZON_CASE_N, 0, config.law)
+        return capture(
+            lambda: properties._call(arm, drawn, plans, simultaneous=True, reference=None, **extra)
+        )
+
+    return RowCase(
+        row,
+        _LONG_HORIZON_SLUG[study],
+        "k5__simultaneous_band",
+        "tests/studies/long_horizon_properties.py:603",
+        build,
+    )
+
+
+def _long_horizon_cell_case(row: str, study: str, cell: str) -> RowCase:
+    """The study's own property fit of one cell, run up to the classifier."""
+
+    def build() -> Observed:
+        from tests import discrete_law_longitudinal_horizon as law_
+        from tests.studies import long_horizon_properties as properties
+
+        arm = next(
+            arm
+            for fit_set in properties.fit_sets(study)
+            for arm in fit_set.arms
+            if arm.cell == cell and not arm.joint
+        )
+        config = arm.config
+        drawn = law_.draw(config.K, config.m, LONG_HORIZON_CASE_N, 0, config.law)
+        return capture(lambda: config.fit_sample(drawn))
+
+    return RowCase(row, _LONG_HORIZON_SLUG[study], cell, "tests/long_horizon_design.py:787", build)
+
+
+def _long_horizon_cases() -> tuple[RowCase, ...]:
+    """The cases of the three long-horizon studies (X39): one for each member scenario."""
+    cases = [
+        _long_horizon_primary_case(row, study, name)
+        for row, members in LONG_HORIZON_MEMBERS.items()
+        for study, name in members
+    ]
+    cases += [_long_horizon_band_case(row, study) for row, study in _LONG_HORIZON_BAND_ROWS]
+    cases += [_long_horizon_cell_case(*item) for item in _LONG_HORIZON_CELL_ROWS]
+    return tuple(cases)
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -2346,5 +2674,11 @@ CASES: tuple[RowCase, ...] = (
     *_long_cases(),
     *_vector_cases(),
     *_categorical_incremental_cases(),
+    *_learned_rule_composition_cases(),
+    *_learned_rule_split_mean_cases(),
+    *_learned_rule_learners_cases(),
+    *_fold_evaluated_strata_cases(),
     *_continuous_dose_cases(),
+    *_adaptive_iptw_cases(),
+    *_long_horizon_cases(),
 )

@@ -80,7 +80,7 @@ the same set, and each file answers the same question wherever it appears.
 | --- | --- |
 | the fixture `README.md` | the regeneration commands, in full and in smoke form |
 | `manifest.json` | the configuration, every declared margin, every seed and package pin, the `cleverly` version and commit, the interpreter and library versions, and a hash of every published result and study module |
-| `replicates.csv.gz` | one row per replication per implementation |
+| `replicates.parquet` | one row per replication per implementation. The row files are Parquet files |
 | `performance-tests.csv` | the accuracy verdicts against known truth |
 | `equivalence.csv` | the paired verdicts against the canonical implementation |
 | `properties.csv` | the theory-property cells and their controls |
@@ -88,7 +88,7 @@ the same set, and each file answers the same question wherever it appears.
 | `failure-accounting.csv` | each cell that lost a replicate, with each side's count and bound, its legs at the complete cases and at the worst case, and its gate. Present only when a fit failed |
 | `property-failures.csv` | each recorded fitting failure of a property cell, with its replicates, stage, and message. Present only when a property fit failed |
 | `property-failure-accounting.csv` | each property cell that lost a replicate, with its count, its bound, and one row for each declared clause. Present only when a property fit failed |
-| `property-failure-witnesses.csv` | the draw-level witness of each lost replicate. Present only when a property fit failed |
+| `property-failure-witnesses.parquet` | the draw-level witness of each lost replicate. Present only when a property fit failed |
 
 A study page's Reproduction section adds only what is specific to that study.
 

@@ -35,8 +35,9 @@ family                                 cells
 ``learned_mechanism`` (reporting)      ``respond_vs_ref__k5__learned`` at 40,000
 =====================================  =========================================================
 
-**Budgets.**  The replicate counts below are provisional.  The declaration commit sets them from
-the pilots.
+**Budgets.**  The pilot merge at 67ac67df sets the replicate counts below (plans
+``X39-pilot-merge-reading.md``).  Calibration R is 6,000.  The Wald-curve band R is 4,000.
+The bias families keep 2,000 although the bias ladder reads 1,000.
 
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
 ``reporting``.  Its gated truth rows (``GATED_ROWS``) and gated property cells (``GATED_CELLS``)
@@ -117,15 +118,19 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyCell
 from tests.studies.evidence.replication import fit_properties
 
+#: The factor of the shrunken-SE control, the one the study shares.
+SHRUNKEN_SE_FACTOR = shared.SHRUNKEN_SE_FACTOR
+
 TAG = "S1"
 
-#: Provisional: the calibration pilot sets each study's calibration R.
+#: The calibration pilot sets each study's calibration R (pilot merge at 67ac67df).
 CALIBRATION_REPLICATES = 6_000
-#: Provisional: the bias pilots pick R from 1,000, 1,200, 2,000, 3,000 and 4,000.
+#: The bias pilots read R 1,000 on the ladder 1,000 to 4,000; the study keeps 2,000.
 BIAS_REPLICATES = 2_000
 ROOT_N_REPLICATES = 1_000
 TESTING_REPLICATES = 2_000
-BAND_REPLICATES = 2_000
+#: The Wald-curve band: pass probability 0.999 at 4,000 (pilot joint coverage 0.9425).
+BAND_REPLICATES = 4_000
 REPORTING_REPLICATES = 2_000
 
 #: The replicate count of each family.

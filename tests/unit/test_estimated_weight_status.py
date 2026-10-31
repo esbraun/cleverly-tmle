@@ -23,6 +23,8 @@ import pytest
 
 from cleverly import variable_importance
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
+from cleverly._summary._estimates import plain_support_reason
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.ctmle import per_arm_parametric_support
@@ -74,7 +76,8 @@ class TestAnEstimatedWeightDRTMLEShowsALabelledInterval:
         support = result["ate"].support
         assert RECORD.shown_reason in support.reason
         assert "X50" in support.evidence
-        assert RECORD.shown_reason in result.summary()
+        settings = result.summary(detail="full").section("Settings").lines
+        assert any(plain_support_reason(RECORD.shown_reason) in line for line in settings)
 
     def test_the_nuisance_report_and_the_assessment_carry_the_note(self, result: Any) -> None:
         assert_assessment_note(result, STATUS)
@@ -85,10 +88,11 @@ class TestAnEstimatedWeightDRTMLEShowsALabelledInterval:
     def test_the_score_verdict_does_not_claim_an_interval(self, result: Any) -> None:
         check = result.score_verdict
         assert check.passed
-        text = check.summary()
-        assert "With one wrong nuisance it holds only" not in text
-        assert "verifies its score equations, not an interval" in text
-        assert RECORD.reason in text
+        summary = check.summary()
+        assert "dr_curve" not in summary.note_codes
+        assert summary.note("equations_only").text == vocabulary.NOTE_TEXTS[
+            "equations_only"
+        ].format(reason=RECORD.plain_reason)
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:
@@ -130,24 +134,31 @@ class TestTheWeightTextAgreesWithTheStatus:
     """The weight report and the bootstrap warning are true of the status fit and a control.
 
     ``data.weight_report()`` belongs to the data, so it cannot read a fit's status. Its
-    estimated-weight line said "the interval conditions on the fitted weights" on every
-    fit, which contradicts a guarded DR-TMLE fit that reports no interval. The line now
-    names that fit and its status, and the ordinary TMLE is the control whose interval the
-    conditioning sentence describes.
+    estimated-weight note said "the interval conditions on the fitted weights" on every
+    fit, which contradicts a guarded DR-TMLE fit that reports no interval. The note now
+    names that fit and its experimental label, and the ordinary TMLE is the control whose
+    interval the conditioning sentence describes.
     """
 
     def test_the_status_fit_reads_its_own_status_in_the_weight_report(self, result: Any) -> None:
         assert result.inference_status == STATUS
-        text = result.data.weight_report().summary()
-        assert "the interval conditions on the fitted weights" not in text
-        assert STATUS in text
-        assert f"{RECORD.reopened_by} in docs/roadmap.md" in text
+        assert "experimental" in RECORD.plain_reason
+        summary = result.data.weight_report().summary()
+        text = summary.note("weights_estimated").text
+        assert text == vocabulary.NOTE_TEXTS["weights_estimated"]
+        assert "the interval conditions on the fitted weights" not in summary
+        assert (
+            "A DRTMLE fit with a non-empty guard, and an AdaptiveIPTW fit with a known "
+            "treatment mechanism, show an interval on estimated weights under the "
+            "experimental label."
+        ) in text
+        assert "weights_fixed" not in summary.note_codes
 
     def test_the_ordinary_tmle_has_the_interval_the_report_describes(self, frame: Any) -> None:
         control = fit(frame, estimator=TMLE)
         assert_keeps_inference(control)
-        text = control.data.weight_report().summary()
-        assert "an interval that a fit reports conditions on the fitted weights" in text
+        text = control.data.weight_report().summary().note("weights_estimated").text
+        assert "an interval a fit reports treats the fitted weights as known" in text
         lower, upper = control.estimates["ate"].ci
         assert np.isfinite(lower) and np.isfinite(upper)
 

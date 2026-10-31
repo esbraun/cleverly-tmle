@@ -22,7 +22,7 @@ from cleverly import (
     LongitudinalTreatment,
     RegimeContrast,
 )
-from cleverly.assessment import _truncation_item, replayability
+from cleverly.assessment import TruncationCurve, _truncation_item, replayability
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -73,6 +73,8 @@ SETTINGS = {
 
 
 def _payload(frame: Any) -> dict[str, list[Any]]:
+    if isinstance(frame, TruncationCurve):
+        frame = frame.to_frame()
     return nw.from_native(frame, eager_only=True).to_dict(as_series=False)
 
 
@@ -334,7 +336,7 @@ def test_explicit_grid_preserves_order_pairs_backend_and_result_subset(result) -
         (0.2, 1.0),
     ]
     assert not {"std_err", "ci_lower", "ci_upper"} & payload.keys()
-    assert result.data.backend in type(curve).__module__
+    assert result.data.backend in type(curve.to_frame()).__module__
 
 
 def test_grid_order_is_first_appearance_and_not_sorted_order(result) -> None:  # type: ignore[no-untyped-def]
@@ -998,7 +1000,7 @@ def test_pandas_and_polars_curves_have_exact_payload_parity() -> None:
             **{**SETTINGS, "reference": "always", "n_folds": 1},
         ).fit(frame, **COLUMNS)
         curve = result.diagnostics.truncation_curve([result.config.g_bounds, 0.2])
-        assert backend in type(curve).__module__
+        assert backend in type(curve.to_frame()).__module__
         payloads[backend] = _payload(curve)
 
     assert payloads["pandas"] == payloads["polars"]

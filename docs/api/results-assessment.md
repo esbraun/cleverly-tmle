@@ -1,7 +1,8 @@
 # Results and assessment
 
 Use result objects to read estimates, uncertainty, influence curves, diagnostics, and provenance.
-Reports provide stable summaries and dataframe output for downstream analysis.
+Each result and report prints a readable summary with `summary()`, and `to_frame()` returns its
+rows as a dataframe.
 
 ```{eval-rst}
 .. autosummary::
@@ -21,6 +22,7 @@ Reports provide stable summaries and dataframe output for downstream analysis.
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
+   cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
    cleverly.variable_importance

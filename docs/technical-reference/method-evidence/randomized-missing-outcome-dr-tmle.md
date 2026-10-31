@@ -128,7 +128,7 @@ and the five-reduction cycle's empirical score reduction against the same scores
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar/properties.csv)
 carry the protocol, provenance, and every published row.

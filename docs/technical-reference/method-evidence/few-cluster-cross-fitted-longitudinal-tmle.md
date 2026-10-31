@@ -3,8 +3,9 @@
 This study measures the Student $t$ reference of the cross-fitted clustered `LTMLE` at 20 and 30
 clusters. An estimate that reads $J$ clusters with positive weight mass uses $J-2$ degrees of
 freedom. The targeting pools every follower, so the fold count does not enter the degrees of
-freedom. Below 20 clusters an `LTMLE` fit reports no interval, because no registered study
-measures one there. [Longitudinal clusters](../longitudinal-tmle.md#clusters) states the rules.
+freedom. From 3 to 19 clusters an `LTMLE` fit shows its interval under the `experimental` label
+(status `few_cluster_plugin`), because no registered study measures one there, and below 3 it
+withholds the interval. [Longitudinal clusters](../longitudinal-tmle.md#clusters) states the rules.
 
 The publication policy is `reporting`. Every cell may read red, and
 [F28](../../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns any red cell. The

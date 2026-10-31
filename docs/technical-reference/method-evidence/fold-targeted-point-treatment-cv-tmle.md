@@ -173,7 +173,7 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the smoke and full commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/zepid_cvtmle/manifest.json)
 records the configuration, dependency pins, seeds, and hashes. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/zepid_cvtmle/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/zepid_cvtmle/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/zepid_cvtmle/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/zepid_cvtmle/properties.csv)
 carry every published row.

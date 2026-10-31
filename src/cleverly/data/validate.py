@@ -8,12 +8,12 @@ constant covariates make the treatment model's design matrix singular.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import NO_ALTERNATIVE, DataError, DataWarning, RefusalReason
 
 __all__ = [
@@ -294,10 +294,10 @@ def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
             "counterfactual contrast to be defined"
         )
     if distinct < MIN_CONTINUOUS_LEVELS:
-        warnings.warn(
+        _warn(
             f"{name} was declared continuous but takes only {distinct} distinct values. "
-            "That is estimable -- the density becomes a probability mass function and a "
-            "shift moves along the ordered values -- but if those values are the arms of "
+            "That is estimable: the density becomes a probability mass function and a "
+            "shift moves along the ordered values, but if those values are the arms of "
             "a categorical treatment, dropping treatment_kind='continuous' gives the "
             "per-arm estimands instead, which are what most analyses of a few levels "
             "want.",
@@ -392,8 +392,8 @@ def arm_indicators(codes: np.ndarray, n_levels: int) -> FloatArray:
 #: the caller offers ``treatment_kind=``.  Kept beside :func:`_reject_arm_count` rather than
 #: inlined into it, because a caller without that keyword has to supply its own.
 CONTINUOUS_REMEDY = (
-    "Collapse the levels into the contrast you actually want to report, or -- if the "
-    "treatment is really continuous -- pass treatment_kind='continuous', which models it "
+    "Collapse the levels into the contrast you actually want to report, or, if the "
+    "treatment is really continuous, pass treatment_kind='continuous', which models it "
     "with a conditional density and reports shift interventions rather than a mean per arm."
 )
 
@@ -640,7 +640,7 @@ def check_covariates(
             seen[digest] = j
 
     if dropped:
-        warnings.warn(
+        _warn(
             f"dropped {len(dropped)} constant or duplicated covariate(s): {dropped}",
             UserWarning,
             stacklevel=3,

@@ -129,7 +129,7 @@ targeting, and the consequence of silently analyzing complete cases.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar/properties.csv)
 carry the protocol, provenance, and every published row.

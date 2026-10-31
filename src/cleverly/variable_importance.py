@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -24,6 +24,9 @@ from .inference.influence import ParameterEstimate, support_column
 from .inference.results import reported_status
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_dataframe
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ._summary import Detail, Summary
 
 __all__ = ["VariableImportanceEntry", "VariableImportanceResult", "variable_importance"]
 
@@ -128,6 +131,138 @@ class VariableImportanceResult:
             payload["p_value_adjusted"] = [entry.adjusted_pvalue for entry in self.entries]
         payload["adjustment_set"] = [", ".join(entry.adjustment_set) for entry in self.entries]
         return emit_frame(payload, backend=self.backend)
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the candidates, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds each candidate's adjustment set.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from ._summary import check_detail
+
+        return _importance_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summary import pvalue_text, short_repr
+
+        facts: list[tuple[str, Any]] = [("candidates", len(self.fits))]
+        if self.entries and self.entries[0].adjusted_pvalue is not None:
+            top = self.entries[0]
+            facts.append(("top", f"{top.candidate} adj. p={pvalue_text(top.adjusted_pvalue)}"))
+        return short_repr("VariableImportanceResult", facts)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+
+def _row_labels(entries: Sequence[VariableImportanceEntry]) -> list[str]:
+    """One label per entry: the candidate, with the parameter when a candidate has several."""
+    per_candidate: dict[str, int] = {}
+    for entry in entries:
+        per_candidate[entry.candidate] = per_candidate.get(entry.candidate, 0) + 1
+    return [
+        entry.candidate
+        if per_candidate[entry.candidate] == 1
+        else f"{entry.candidate}: {entry.parameter}"
+        for entry in entries
+    ]
+
+
+def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Summary:
+    from ._summary import (
+        Cell,
+        Summary,
+        SummarySection,
+        SummaryTable,
+        count_text,
+        note,
+        pvalue_text,
+        vocabulary,
+    )
+    from ._summary._estimates import estimates_table
+
+    entries = result.entries
+    labels = _row_labels(entries)
+    estimates = {label: entry.estimate for label, entry in zip(labels, entries, strict=True)}
+    level = 1.0 - entries[0].estimate.alpha if entries else 0.95
+    table, notes = estimates_table(estimates, level=level)
+    inferential = all(entry.adjusted_pvalue is not None for entry in entries)
+    rows = []
+    for row, entry in zip(table.rows, entries, strict=True):
+        key = Cell((entry.candidate, entry.parameter), row[0].text)
+        extra: tuple[Cell, ...] = ()
+        if inferential:
+            adjusted = float(entry.adjusted_pvalue)  # type: ignore[arg-type]
+            extra = (Cell(adjusted, pvalue_text(adjusted)),)
+        rows.append((key, *row[1:], *extra))
+    columns = table.columns + ((vocabulary.ADJUSTED_P_VALUE,) if inferential else ())
+    table = SummaryTable(columns, tuple(rows), title=table.title, kind="estimates")
+    first = next(iter(result.fits.values()), None)
+    header: list[tuple[str, str]] = []
+    if first is not None:
+        facts = first.summary().facts
+        header.append(
+            (
+                vocabulary.QUESTION,
+                f"effect of each candidate on {first.data.outcome_name}, one fit per candidate",
+            )
+        )
+        header.append((vocabulary.OUTCOME, facts.get(vocabulary.OUTCOME, "")))
+        for label in (vocabulary.METHOD, vocabulary.OUTCOME_MODEL, vocabulary.TREATMENT_MODEL):
+            if label in facts:
+                header.append((label, facts[label]))
+        header.append((vocabulary.ROWS, count_text(first.data.n)))
+    header.append((vocabulary.CANDIDATES, count_text(len(result.fits))))
+    if inferential:
+        header.append((vocabulary.ADJUSTMENT, f"{result.method}, {count_text(len(entries))} tests"))
+    notes = list(notes)
+    if inferential:
+        notes.append(
+            note(
+                "multiple_testing",
+                vocabulary.NOTE_TEXTS["multiple_testing"].format(
+                    count=count_text(len(entries)), method=result.method
+                ),
+            )
+        )
+    notes.append(note("separate_fits", vocabulary.NOTE_TEXTS["separate_fits"]))
+    cautious = [
+        candidate
+        for candidate, fit in result.fits.items()
+        if any(item.kind == "warning" for item in fit.summary().notes)
+    ]
+    if cautious:
+        notes.append(
+            note(
+                "fit_cautions",
+                vocabulary.NOTE_TEXTS["fit_cautions"].format(names=", ".join(cautious)),
+            )
+        )
+    sections: list[SummarySection] = []
+    if detail == "full":
+        sections.append(
+            SummarySection(
+                vocabulary.SECTION_SETTINGS,
+                tuple(
+                    f"{label} is adjusted for {', '.join(entry.adjustment_set) or 'nothing'}."
+                    for label, entry in zip(labels, entries, strict=True)
+                ),
+            )
+        )
+    return Summary.build(
+        title=vocabulary.IMPORTANCE_TITLE,
+        header=header,
+        tables=[table],
+        notes=notes,
+        sections=sections,
+    )
 
 
 def _bh_adjust(pvalues: Sequence[float]) -> np.ndarray:
@@ -286,8 +421,12 @@ def variable_importance(
         # The outcome-scale refusal of every fit comes before the status, as the fold
         # policy does.
         template._refuse_unbounded_cross_fitted_scale(candidate_data)
+        # The status reads the estimand the fit below reports, not the template's own list.
+        fitted_estimator = copy(template)
+        fitted_estimator.estimands = estimand
         refuse_inference(
-            template._inference_status(candidate_data), operation="variable_importance()"
+            fitted_estimator._inference_status(candidate_data),
+            operation="variable_importance()",
         )
         prepared[candidate] = (adjustment_set, candidate_data)
     fits: dict[str, TMLEResult] = {}

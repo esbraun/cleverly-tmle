@@ -27,6 +27,7 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import AssessmentStatus, SuperLearner
+from cleverly._summary import vocabulary
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -165,9 +166,9 @@ class TestPositivity:
 
     def test_the_report_renders_and_tabulates(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
-        text = report.summary()
-        assert "Positivity" in text
-        assert "VERDICT" in text
+        summary = report.summary()
+        assert str(summary).splitlines()[0].strip() == vocabulary.OVERLAP_TITLE
+        assert summary.reading == report.verdict()
         frame = report.to_frame(good_overlap.data)
         assert set(nw.from_native(frame, eager_only=True)["group"].unique().to_list()) == {
             "overall",
@@ -610,26 +611,29 @@ class TestThePerGroupCovariateLeverageIsReported:
             assert report.group_score_load.keys() == result.fluctuations.keys()
 
     def test_the_table_renders_beside_the_maxima_it_keeps(self, loaded_fit) -> None:
-        """The table names equations, denominators, exact bounds, and descriptive units."""
+        """The table names each group's rows, weights and cap; the detail names equations."""
         report = loaded_fit.diagnostics.support()
         summary = report.summary()
-        lines = summary.splitlines()
-        header = next(line for line in lines if line.startswith("group "))
-
-        assert "equation" in header and "target rows" in header
-        assert header.index("Kish-equivalent rows") < header.index("max |w h|")
-        assert "g bound" in header and "clipped" in header
-        assert "residual-multiplier concentration, not residual contributions" in summary
-        for group, load in report.group_score_load.items():
-            row = next(line for line in lines if line.startswith(f"{group} "))
-            assert str(load["equation"]) in row
-            assert f"{load['max_load']:.4g}" in row
-            assert f"{load['n_targeted']:.0f}/{load['n_total']:.0f}" in row
-        # The composed note now says where the estimands it refuses to cover are covered.
-        # The refusal is unchanged: this fit forms the product for its `ate` and never for
-        # its `att`, so the derived row is present and does not describe the `att`.
-        assert "P(A=a,Delta=1|W) does not describe att" in summary
-        assert "Their score-weight load is in the group table above" in summary
+        (table,) = [t for t in summary.tables if t.title == vocabulary.EQUATION_TABLE]
+        assert table.columns.index("effective rows") < table.columns.index("largest")
+        assert "capped" in table.columns
+        details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
+        for row, (group, load) in zip(table.rows, report.group_score_load.items(), strict=True):
+            assert row[0].value == group
+            assert row[1].value == load["n_targeted"]
+            assert row[table.columns.index("largest")].value == load["max_load"]
+            assert any(
+                line.startswith(f"{group}: equation {load['equation']},") for line in details
+            )
+        # The composed note says where the estimands it refuses to cover are covered. The
+        # refusal is unchanged: this fit forms the product for its `ate` and never for its
+        # `att`, so the derived row is present and does not describe the `att`.
+        text = summary.note("composed_excluded").text
+        assert text.startswith(
+            "The joint probability of the treatment and a recorded outcome row does not "
+            "describe att"
+        )
+        assert text.endswith(vocabulary.COMPOSED_POINTER)
 
     def test_the_verdict_names_the_narrowest_group_and_keeps_the_arm_sentence(
         self, loaded_fit
@@ -641,16 +645,22 @@ class TestThePerGroupCovariateLeverageIsReported:
         ``adequate`` with a group retaining under half of the rows it weights.
         """
         report = loaded_fit.diagnostics.support()
-        verdict = report.verdict()
+        summary = report.summary()
         group, narrow = min(
             report.group_score_load.items(), key=lambda item: item[1]["targeted_ratio"]
         )
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
 
-        assert f"group {group!r}, equation {narrow['equation']!r}" in verdict
-        assert f"{narrow['effective']:.1f} Kish-equivalent rows" in verdict
-        assert f"Kish-equivalent weight count of {narrowest_arm:.0%}" in verdict
-        assert "not estimator effective sample size" in verdict
+        concentration = summary.note("equation_concentration").text
+        assert f"concentrate most for {group}: {narrow['effective']:.1f} effective rows" in (
+            concentration
+        )
+        assert "it is not the estimator's sample size, its precision or a test of overlap" in (
+            concentration
+        )
+        assert f"keeps an effective {narrowest_arm:.0%} of its rows" in (
+            summary.note("effective_share").text
+        )
         assert report.truncated["fraction"] == 0.0
         assert narrow["targeted_ratio"] < 0.5
         assert report.severity == "adequate"
@@ -702,7 +712,9 @@ class TestThePerGroupCovariateLeverageIsReported:
 class TestTruncationCurve:
     def test_the_curve_is_flat_when_overlap_is_good(self, good_overlap) -> None:
         curve = nw.from_native(
-            good_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05], estimands=["ate"]),
+            good_overlap.diagnostics.truncation_curve(
+                [0.001, 0.01, 0.05], estimands=["ate"]
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -712,7 +724,9 @@ class TestTruncationCurve:
     def test_the_curve_moves_when_overlap_is_poor(self, poor_overlap) -> None:
         headline = poor_overlap.psi("ate")
         curve = nw.from_native(
-            poor_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05, 0.15], estimands=["ate"]),
+            poor_overlap.diagnostics.truncation_curve(
+                [0.001, 0.01, 0.05, 0.15], estimands=["ate"]
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -732,7 +746,7 @@ class TestTruncationCurve:
 
     def test_the_fitted_bound_is_marked(self, good_overlap) -> None:
         curve = nw.from_native(
-            good_overlap.diagnostics.truncation_curve(estimands=["ate"]), eager_only=True
+            good_overlap.diagnostics.truncation_curve(estimands=["ate"]).to_frame(), eager_only=True
         )
         assert sum(curve["is_fitted_bound"].to_list()) >= 1
 
@@ -801,7 +815,7 @@ class TestTruncationCurve:
                 .single()
             )
             curve = nw.from_native(
-                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]), eager_only=True
+                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]).to_frame(), eager_only=True
             )
 
         assert result.nuisance.propensity.values.shape == (300, 0)
@@ -967,7 +981,9 @@ class TestOmittedVariableBias:
         assert benchmark(seeded, ["W1"], estimand="ate", random_state=0).random_state == 0
 
     def test_the_contour_grid_is_monotone(self, good_overlap) -> None:
-        grid = nw.from_native(good_overlap.sensitivity.contour("ate", grid_size=5), eager_only=True)
+        grid = nw.from_native(
+            good_overlap.sensitivity.contour("ate", grid_size=5).to_frame(), eager_only=True
+        )
         assert len(grid) == 25
         # The lower bound falls as either sensitivity parameter grows.
         at_origin = [
@@ -1017,16 +1033,17 @@ class TestEValue:
 
 
 class TestTheEValueOnAMissingOutcomeFit:
-    """The standardized conversion divides by a standard deviation it does not have.
+    """The standardized conversion divides by the population standard deviation.
 
-    Under missing at random the respondents' ``sd(Y)`` estimates the conditional
-    dispersion among respondents, not the population dispersion the estimate is
-    standardized against. The refusal is *branch-scoped*: a reported ratio reads only the
-    estimate and its interval, so it needs no standard deviation and stays available.
+    Under missing at random the respondents' ``sd(Y)`` estimates the dispersion among
+    respondents, not the population dispersion the estimate is standardized against. The
+    Gaussian branch therefore divides by the missing-at-random plug-in of
+    :mod:`cleverly.sensitivity._outcome_moments`, which fits one more outcome regression.
+    A reported ratio reads only the estimate and its interval, and needs no standard
+    deviation.
 
-    Two fits are needed to show both halves. The Gaussian branch requires
-    ``family="gaussian"`` and the reported-ratio branches require a binomial fit, so no
-    single fit carries the refused branch and a retained one at once.
+    The Gaussian branch requires ``family="gaussian"`` and the reported-ratio branches
+    require a binomial fit, so two fits carry the two halves.
     """
 
     @pytest.fixture(scope="class")
@@ -1059,23 +1076,20 @@ class TestTheEValueOnAMissingOutcomeFit:
             .single()
         )
 
-    def test_the_standardized_conversion_is_refused_by_the_selection(
+    def test_the_standardized_conversion_reads_the_population_scale(
         self, gaussian_missing_fit
     ) -> None:
-        """The capability row is what proves where the refusal lives.
+        """The row declares the refit, and the call divides by the plug-in, not the respondents'."""
+        from cleverly.sensitivity._outcome_moments import missing_at_random_sd
 
-        ``_select_evalue`` builds both the row and the call, so a refusal placed in the
-        execution instead would leave this row advertising ``available=True`` beside a
-        call that raises. Asserting the row and the call together is what tells the two
-        placements apart.
-        """
         row = gaussian_missing_fit.sensitivity.capability("evalue")
-        assert not row.available
-        assert row.status is AssessmentStatus.UNAVAILABLE
-        assert "population outcome standard deviation" in row.reason
-        assert "sd(Y)" in row.reason
-        with pytest.raises(CapabilityError, match="population outcome standard deviation"):
-            gaussian_missing_fit.sensitivity.evalue("ate")
+        assert row.available
+        assert row.execution == "refit"
+        report = gaussian_missing_fit.sensitivity.evalue("ate")
+        assert "missing-at-random plug-in" in report.note
+        sd = missing_at_random_sd(gaussian_missing_fit)
+        assert f"{sd:.4g}" in report.note
+        assert report.limit_descriptive
 
     def test_a_reported_ratio_on_a_missing_outcome_fit_still_answers(
         self, binomial_missing_fit
@@ -1105,7 +1119,8 @@ class TestMissingnessTilt:
 
     def test_no_tilt_reproduces_the_reported_estimate(self, missing_fit) -> None:
         curve = nw.from_native(
-            missing_fit.sensitivity.missingness([0.0], estimands=["ate"]), eager_only=True
+            missing_fit.sensitivity.missingness([0.0], estimands=["ate"]).to_frame(),
+            eager_only=True,
         )
         # gamma = 0 is the MAR analysis, so the curve must pass exactly through the
         # reported point estimate. Anything else means the tilt is mis-parameterised.
@@ -1114,7 +1129,9 @@ class TestMissingnessTilt:
 
     def test_the_tilt_moves_the_estimate_monotonically(self, missing_fit) -> None:
         curve = nw.from_native(
-            missing_fit.sensitivity.missingness([-1.0, -0.5, 0.0, 0.5, 1.0], estimands=["ey1"]),
+            missing_fit.sensitivity.missingness(
+                [-1.0, -0.5, 0.0, 0.5, 1.0], estimands=["ey1"]
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -1294,7 +1311,7 @@ class TestTheTiltUnderObservationWeights:
         self, weighted_missing_fit, name: str
     ) -> None:
         curve = nw.from_native(
-            weighted_missing_fit.sensitivity.missingness([self.GAMMA], estimands=[name]),
+            weighted_missing_fit.sensitivity.missingness([self.GAMMA], estimands=[name]).to_frame(),
             eager_only=True,
         )
         expected = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=True)
@@ -1320,7 +1337,7 @@ class TestTheTiltUnderObservationWeights:
         """``gamma = 0`` is the MAR analysis of the *weighted* fit, not of the sample."""
         for name in ("ey1", "ate", "att", "atc"):
             curve = nw.from_native(
-                weighted_missing_fit.sensitivity.missingness([0.0], estimands=[name]),
+                weighted_missing_fit.sensitivity.missingness([0.0], estimands=[name]).to_frame(),
                 eager_only=True,
             )
             assert float(curve["psi"][0]) == pytest.approx(
@@ -1334,7 +1351,7 @@ class TestValidation:
         assert check.passed
         assert bool(check)
         assert check.failures == ()
-        assert "PASS" in check.summary()
+        assert check.summary().facts["Result"] == "passed"
         check.raise_if_failed()
 
     def test_the_score_check_can_be_made_to_fail(self, good_overlap) -> None:
@@ -1376,9 +1393,10 @@ class TestValidation:
 
         assert not broken.score_verdict.passed
         summary = broken.summary()
-        assert "score check: FAIL" in summary
-        assert "mean" in summary.split("score check: FAIL")[1]
-        assert "do not describe this estimate" in summary
+        unsolved = summary.note("score_unsolved")
+        assert unsolved.kind == "warning"
+        assert "the means and the average effect" in unsolved.text
+        assert "may be wrong" in unsolved.text
         # The interval is still printed -- the line says it is not licensed, it does not
         # withhold it. Predeclaring which regimes are refused outright needs the
         # targeting-and-exit study's evidence; see
@@ -1391,7 +1409,9 @@ class TestValidation:
         assert names == {"propensity", "outcome"}
         assert 0.0 < diagnostics["propensity"].metrics["auc"] < 1.0
         assert diagnostics["outcome"].metrics["r2"] > 0.1
-        assert "VERDICT" in diagnostics.summary()
+        summary = diagnostics.summary()
+        assert summary.reading == diagnostics.verdict()
+        assert dict(summary.header)[vocabulary.MODELS] == "2"
 
     def test_an_almost_randomised_treatment_is_read_as_good_overlap(self) -> None:
         frame, _ = make_linear_ate(n=1500, seed=81)
@@ -1403,8 +1423,11 @@ class TestValidation:
             .fit(randomised, outcome="Y", treatment="A")
             .single()
         )
-        verdict = result.diagnostics.nuisance_models().verdict()
-        assert "overlap is excellent" in verdict
+        report = result.diagnostics.nuisance_models()
+        auc = report["propensity"].metrics["auc"]
+        assert auc < 0.55
+        text = report.summary().note("weak_treatment_model").text
+        assert f"(AUC {auc:.3f})" in text and "which favours overlap" in text
 
     def test_calibration_is_reported_per_model(self, good_overlap) -> None:
         diagnostics = good_overlap.diagnostics.nuisance_models()
@@ -1440,8 +1463,9 @@ class TestValidation:
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-6)
 
     def test_the_combined_report_renders(self, good_overlap) -> None:
-        assert "score_equations" in good_overlap.diagnostics.run_all().summary()
-        assert "nuisance_models" in good_overlap.diagnostics.run_all().summary()
+        summary = good_overlap.diagnostics.run_all().summary()
+        assert "equations solved" in summary
+        assert "outcome and treatment models" in summary
 
 
 class TestRefutation:
@@ -1453,10 +1477,10 @@ class TestRefutation:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        return result.diagnostics.refute(n_replicates=3, random_state=0)
+        return result.diagnostics.refute(n_replicates=5, random_state=0)
 
     def test_all_default_tests_behave(self, refutation) -> None:
-        assert refutation.passed
+        assert refutation.passed is not False
         assert {test.name for test in refutation.tests} == {
             "placebo",
             "random_common_cause",
@@ -1475,7 +1499,9 @@ class TestRefutation:
     def test_the_results_tabulate(self, refutation) -> None:
         frame = nw.from_native(refutation.to_frame(), eager_only=True)
         assert len(frame) == 3
-        assert "VERDICT" in refutation.summary()
+        summary = refutation.summary()
+        assert [row[0].value for row in summary.tables[0].rows] == frame["test"].to_list()
+        assert summary.reading
 
     def test_a_negative_control_outcome_shows_no_effect(self) -> None:
         frame, _ = make_linear_ate(n=700, seed=84)
@@ -1492,7 +1518,7 @@ class TestRefutation:
             negative_control_outcome=control,
             random_state=0,
         )
-        assert outcome.passed
+        assert outcome["negative_control_outcome"].statistic_pvalue > 0.05
 
     def test_the_negative_control_test_needs_an_outcome(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=85)
@@ -1698,9 +1724,9 @@ class TestTheDefaultEstimandOfTheOmittedVariableBound:
 class TestCombinedSensitivityReport:
     def test_the_report_gathers_what_it_can(self, good_overlap) -> None:
         report = good_overlap.sensitivity.run_all().summary()
-        assert "omitted_confounding" in report
-        assert "robustness_value" in report
-        assert "evalue" in report
+        assert "unmeasured confounding" in report
+        assert "robustness value" in report
+        assert "E-value" in report
 
 
 class TestTheMechanismDenominatorsAreDiagnosed:
@@ -1737,7 +1763,8 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert "P(A=a,Delta=1|W)" in report.mechanisms
         stats = report.mechanisms["P(Delta=1|A,W)"]
         assert 0.0 < stats["min"] < stats["q01"] < stats["q05"] < stats["median"] < 1.0
-        assert "P(Delta=1|A,W)" in report.summary()
+        (table,) = [t for t in report.summary().tables if t.title == vocabulary.MECHANISM_TABLE]
+        assert [row[0].value for row in table.rows] == list(report.mechanisms)
 
     def test_the_composed_row_reports_ess_and_concentration(self, strained) -> None:
         report = strained.diagnostics.support()
@@ -1796,8 +1823,10 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 )
                 .single()
             )
-        verdict = result.diagnostics.support().verdict()
-        assert "P(Delta=1|A,W) strains the estimate" in verdict
+        report = result.diagnostics.support()
+        assert report._grade().mechanism == "P(Delta=1|A,W)"
+        verdict = report.verdict()
+        assert verdict.startswith("The probability that the outcome is recorded was capped")
         assert "truncation_curve(mechanism=True)" in verdict
 
     def test_a_low_mechanism_ess_reaches_the_verdict(self, strained) -> None:
@@ -1811,7 +1840,8 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 "P(Delta=1|A,W)": {**report.mechanisms["P(Delta=1|A,W)"], "ess_ratio": 0.4}
             },
         )
-        assert "P(Delta=1|A,W) strains the estimate" in degenerate.verdict()
+        assert degenerate._grade().branch == "mechanism_concentrated"
+        assert degenerate.verdict().startswith("The probability that the outcome is recorded")
         assert "leaves an effective 40%" in degenerate.verdict()
         # Reported, not graded: this mechanism clips nothing, so the sentence appears and
         # the tier does not move. A cutoff on a Kish ratio would be an invented rule.
@@ -1839,13 +1869,14 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 },
             )
 
-        verdict = with_clipping(composed).verdict()
-        assert f"{composed} strains the estimate" not in verdict
-        assert "truncation is carrying this estimate" in verdict
+        grade = with_clipping(composed)._grade()
+        assert (grade.branch, grade.mechanism) == ("serious", None)
+        assert "leans on the cap" in with_clipping(composed).verdict()
 
         # The control: a *factor* row's clipping is its own, and still earns the sentence
         # ahead of the propensity's, which is the ordering this loop exists for.
-        assert "P(Delta=1|A,W) strains the estimate" in with_clipping("P(Delta=1|A,W)").verdict()
+        factor = with_clipping("P(Delta=1|A,W)")._grade()
+        assert (factor.branch, factor.mechanism) == ("mechanism_capped", "P(Delta=1|A,W)")
 
         # And joint leverage still reaches the verdict through the derived row.
         leveraged = dataclasses.replace(
@@ -1855,12 +1886,15 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 composed: {**report.mechanisms[composed], "ess_ratio": 0.4},
             },
         )
-        assert f"{composed} strains the estimate" in leveraged.verdict()
+        assert leveraged._grade().mechanism == composed
+        assert leveraged.verdict().startswith(
+            "The joint probability of the treatment and a recorded outcome falls to"
+        )
 
     def test_a_fit_without_missingness_reports_no_mechanism(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
         assert report.mechanisms == {}
-        assert "P(Delta=1|A,W)" not in report.summary()
+        assert vocabulary.MECHANISM_TABLE not in report.summary()
 
     def test_a_conditional_arm_fit_reports_its_factors_and_no_product(self) -> None:
         """``att`` divides by ``P(A = a)``, never by ``g_a(W) pi_a(W)``.
@@ -1889,14 +1923,14 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         report = result.diagnostics.support()
         assert set(result.fluctuations) == {"att"}
         assert set(report.mechanisms) == {"P(Delta=1|A,W)"}
-        assert "P(A=a,Delta=1|W)" not in report.summary()
+        assert "arm and outcome recorded" not in report.summary()
 
         # The omission says so. A silently absent row reads exactly like a fit with
         # nothing to report, and those are the two readings that must not be confused.
         assert report.composed_excluded == ("att",)
-        summary = report.summary()
-        assert "no derived denominator row is reported for att" in summary
-        assert "divides by P(A=a) rather than g(W)" in summary
+        text = report.summary().note("composed_excluded").text
+        assert text.startswith("No joint-probability row is reported for att")
+        assert "divides by the share treated rather than each row's treatment probability" in text
 
     def test_a_mixed_fit_says_which_estimands_the_product_row_omits(self) -> None:
         """The row is reported for the `ate` and does not describe the `att` beside it.
@@ -1922,10 +1956,10 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         report = result.diagnostics.support()
         assert "P(A=a,Delta=1|W)" in report.mechanisms
         assert set(report.composed_excluded) == {"att", "atc"}
-        summary = report.summary()
-        assert "P(A=a,Delta=1|W) does not describe" in summary
+        text = report.summary().note("composed_excluded").text
+        assert "recorded outcome row does not describe" in text
         for group in ("att", "atc"):
-            assert f"{group}, which divides by" in summary
+            assert f"{group}, which divides by" in text
 
     def test_a_covered_fit_and_a_complete_fit_say_nothing(self, strained, good_overlap) -> None:
         """The note is silent where there is nothing to explain.
@@ -1937,25 +1971,29 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         """
         covered = strained.diagnostics.support()
         assert covered.composed_excluded == ()
-        assert "does not describe" not in covered.summary()
+        assert "composed_excluded" not in covered.summary().note_codes
 
         complete = good_overlap.diagnostics.support()
         assert "att" in good_overlap.fluctuations
         assert complete.mechanisms == {}
         assert complete.composed_excluded == ()
-        assert "no derived denominator row" not in complete.summary()
+        assert "composed_excluded" not in complete.summary().note_codes
 
     def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
         # Traceability: a reported number must be traceable to every bound that shaped
         # it, not just the one with a familiar name.
-        assert "P(Delta=1|A,W) truncated to" in strained.summary()
-        assert "truncated to [0.01, 1]" not in good_overlap.summary()
+        def recorded(result: object) -> list[str]:
+            settings = result.summary(detail="full").section("Settings").lines
+            return [line for line in settings if "that the outcome is recorded raised" in line]
+
+        assert recorded(strained)
+        assert not recorded(good_overlap)
 
     def test_the_curve_sweeps_the_mechanism_bound(self, strained) -> None:
         curve = nw.from_native(
             strained.diagnostics.truncation_curve(
                 [0.01, 0.1, 0.25], estimands=["ate"], mechanism=True
-            ),
+            ).to_frame(),
             eager_only=True,
         )
         truncated = np.array(curve["truncated_fraction"].to_list())
@@ -1970,7 +2008,9 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         smallest = float(np.min(strained.nuisance.missingness))
         grid = [smallest / 8.0, smallest / 4.0, smallest / 2.0]
         curve = nw.from_native(
-            strained.diagnostics.truncation_curve(grid, estimands=["ate"], mechanism=True),
+            strained.diagnostics.truncation_curve(
+                grid, estimands=["ate"], mechanism=True
+            ).to_frame(),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())

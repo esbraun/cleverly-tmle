@@ -39,6 +39,7 @@ from ._refusal import Refusal
 
 __all__ = [
     "KEY_AXES",
+    "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
     "UNCLASSIFIED",
@@ -55,6 +56,7 @@ __all__ = [
     "classify_point_fit",
     "classify_structural_fit",
     "combine_support",
+    "learner_family",
     "longitudinal_key",
     "point_key",
     "record_fit",
@@ -283,13 +285,18 @@ class SupportKey:
         to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
         longitudinal one.
     qualifiers : frozenset of str
-        ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
+        ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
+        sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
+        ``rule_learner_blip`` or ``rule_learner_weighted_classification``. A longitudinal key
+        holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key on the policy axis holds the policy density ``ratio``. A longitudinal key
-        holds ``multiplier_kind``, the inverse-probability ``normalization``, the policy density
-        ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm and the
-        ``isotonic`` projection.
+        point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
+        policy has a cap tuned on the data. A longitudinal key holds ``multiplier_kind``, the
+        inverse-probability ``normalization``, the policy density ``ratio``, the
+        ``survival_model``, the hazard ``targeting`` algorithm, the ``isotonic`` projection,
+        whether the fit declares ``node_bounds``, the ``hazard_pooling``, whether it declares a
+        ``ratio_trim``, the data's ``markov_order``, and whether a regimen has a ``tuned_cap``.
     """
 
     kind: str
@@ -382,6 +389,24 @@ def _jsonable(value: Any) -> Any:
     return repr(value)
 
 
+def interval_floor(key: SupportKey) -> int:
+    """The cluster count below which ``key`` reads ``below_floor``: 10 for a point fit, else 20.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The fit's key.
+
+    Returns
+    -------
+    int
+        The interval floor of the fit's kind.
+    """
+    if key.kind == "point":
+        return MINIMUM_INTERVAL_CLUSTERS
+    return MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+
+
 def _dependence(clusters: int | None, floor: int) -> str:
     """The dependence tier of a fit that reads ``clusters`` positive-mass clusters."""
     if clusters is None:
@@ -417,6 +442,75 @@ def _option(value: Any) -> Any:
     if isinstance(value, (tuple, list)):
         return tuple(_option(item) for item in value)
     return repr(value)
+
+
+#: The class attribute by which a learner declares its family to :func:`learner_family`. The
+#: value ``"parametric"`` declares a fixed-dimension model that selects nothing from the data.
+LEARNER_FAMILY_MARKER: Final[str] = "cleverly_learner_family"
+
+
+def _parametric_classes() -> tuple[type, ...]:
+    """The learner classes that :func:`learner_family` reads as parametric without a marker."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    from .learners.glm import GLM
+
+    return (LogisticRegression, LinearRegression, GLM)
+
+
+def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
+    """The family of a learner: ``"parametric"`` or ``"adaptive"``.
+
+    A learner is parametric when its exact class is scikit-learn's ``LogisticRegression`` or
+    ``LinearRegression`` or :class:`cleverly.learners.GLM`, or when its class declares
+    :data:`LEARNER_FAMILY_MARKER` as ``"parametric"``. Every other learner is adaptive: the
+    default (``None``), a Super Learner, a tree, a boosted ensemble, a subclass of a listed
+    class, and any unknown class. A subclass such as ``LogisticRegressionCV`` can select its
+    penalty, so the test reads the exact class.
+
+    Parameters
+    ----------
+    learner : object or None
+        The learner as passed to the estimator. ``None`` selects the default library.
+
+    Returns
+    -------
+    str
+        ``"parametric"`` or ``"adaptive"``.
+    """
+    if learner is None:
+        return "adaptive"
+    if getattr(type(learner), LEARNER_FAMILY_MARKER, None) == "parametric":
+        return "parametric"
+    return "parametric" if type(learner) in _parametric_classes() else "adaptive"
+
+
+def _adaptive_iptw_learners(estimator: Any, data: Any) -> dict[str, str]:
+    """The learner families of an AdaptiveIPTW fit, as two options of its key.
+
+    ``mechanism_learner`` is ``"known"`` when every key's whole mechanism is declared. It is
+    ``"parametric"`` when every mechanism learner that the fit uses is parametric, and
+    ``"adaptive"`` otherwise. The fit uses the treatment learner when the data declare no
+    treatment probabilities, and the missingness learner (or the treatment learner in its
+    place) when an outcome or a treatment is missing. ``reduced_learner`` is ``"fixed_basis"``
+    when the reduced regression is parametric and ``"selecting"`` otherwise.
+    """
+    if estimator._has_known_keys(data):
+        mechanism = "known"
+    else:
+        used = []
+        if data.known_treatment is None:
+            used.append(estimator.treatment_learner)
+        if data.has_missing_outcome or data.has_missing_treatment:
+            missingness = estimator.missingness_learner
+            used.append(estimator.treatment_learner if missingness is None else missingness)
+        parametric = all(learner_family(learner) == "parametric" for learner in used)
+        mechanism = "parametric" if parametric else "adaptive"
+    reduced = estimator.reduced_outcome_learner
+    if reduced is None:
+        reduced = estimator.outcome_learner
+    basis = "fixed_basis" if learner_family(reduced) == "parametric" else "selecting"
+    return {"mechanism_learner": mechanism, "reduced_learner": basis}
 
 
 def _learner_type(learner: Any) -> type | None:
@@ -468,6 +562,17 @@ def _outcome(data: Any, q_bounds: Any) -> tuple[str, ...]:
     if str(data.family) == "binomial":
         return ("binomial",)
     return (str(data.family), "bounded" if q_bounds is not None else "unbounded")
+
+
+def _unequal_clusters(data: Any) -> bool:
+    """Whether ``data`` declares clusters whose sizes are not all equal."""
+    import numpy as np
+
+    cluster = getattr(data, "cluster", None)
+    if cluster is None:
+        return False
+    _, sizes = np.unique(np.asarray(cluster), return_counts=True)
+    return bool(sizes.min() != sizes.max())
 
 
 def point_key(
@@ -535,6 +640,16 @@ def point_key(
         qualifiers.add("strata")
     if data.known_treatment is not None:
         qualifiers.add("known_mechanism")
+    if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
+        # The learned-rule study draws equal cluster sizes only, and unequal sizes that depend
+        # on the outcome put a ratio bias in the fold-evaluated point, so a learned-rule row
+        # never covers unequal sizes unless it declares them.
+        qualifiers.add("unequal_clusters")
+    loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
+    if loss != "plug_in":
+        # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the
+        # plug-in rule never covers a fit whose rule a blip or classification learner sets.
+        qualifiers.add(f"rule_learner_{loss}")
 
     options: dict[str, Any] = {
         "fluctuation": estimator.fluctuation,
@@ -543,13 +658,29 @@ def point_key(
         "multiplier_kind": estimator.multiplier_kind,
     }
     if method == "drtmle":
-        for name in ("guard", "reduction", "reduced_crossfit", "update_order", "randomized"):
+        for name in ("guard", "reduction", "update_order", "randomized"):
             options[name] = getattr(estimator, name)
+        # The construction that runs: only a guarded, cross-fitted fit builds the foldwise
+        # slabs, and every other fit runs the one in-sample or unguarded path.
+        options["reduced_crossfit"] = "foldwise" if estimator._foldwise() else "pooled"
         options["evaluation"] = estimator.evaluation is not None
+    if method == "adaptive_iptw":
+        # The two forms are two estimators of one target, so a row of one never covers a
+        # fit of the other. The learner families decide which theorem conditions the fit can
+        # meet, so a row of parametric learners never covers a boosted or default fit.
+        options["form"] = estimator.form
+        options |= _adaptive_iptw_learners(estimator, data)
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
         options["ratio"] = estimator.ratio
+        from .estimators._tuned_policies import declares_tuned
+
+        if declares_tuned(tuple(getattr(estimator, "policies", None) or ())):
+            # A cap tuned on the data adds a derivative term to the curve. No point study fits
+            # one (the tuned-cap study, mtp-tuning, is longitudinal), so a row of declared caps
+            # never covers it.
+            options["tuned_cap"] = True
 
     key = SupportKey(
         kind="point",
@@ -613,6 +744,7 @@ def longitudinal_key(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
+    tuned_cap: bool = False,
 ) -> tuple[SupportKey, dict[str, type | None]]:
     """The key and the learner classes of a longitudinal fit.
 
@@ -632,6 +764,9 @@ def longitudinal_key(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
+    tuned_cap : bool, default False
+        Whether a regimen has a policy cap tuned on the data. The cap adds a derivative term to
+        the curve, so only a row of a tuned-cap study covers it.
 
     Returns
     -------
@@ -676,6 +811,11 @@ def longitudinal_key(
             ("survival_model", _option(estimator.survival_model)),
             ("targeting", _option(estimator.targeting)),
             ("isotonic", _option(estimator.isotonic)),
+            ("node_bounds", bool(getattr(estimator, "node_bounds", None))),
+            ("hazard_pooling", _option(getattr(estimator, "hazard_pooling", "node"))),
+            ("ratio_trim", getattr(estimator, "ratio_trim", None) is not None),
+            ("markov_order", _option(getattr(data, "markov_order", None))),
+            ("tuned_cap", tuned_cap),
         ),
     )
     learners = {
@@ -1319,6 +1459,7 @@ def classify_longitudinal_fit(
     has_msm: bool,
     regimen_kinds: Iterable[str],
     conditions: Sequence[Refusal] = (),
+    tuned_cap: bool = False,
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1345,6 +1486,8 @@ def classify_longitudinal_fit(
     conditions : sequence of Refusal, default ()
         The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
         experimental.
+    tuned_cap : bool, default False
+        Whether a regimen has a policy cap tuned on the data.
 
     Returns
     -------
@@ -1360,6 +1503,7 @@ def classify_longitudinal_fit(
             known_factors=known_factors,
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
+            tuned_cap=tuned_cap,
         )
         classification = classify_key(key, learners, conditions)
     except Exception as error:

@@ -1,6 +1,8 @@
-"""The run form of the two RM30 learned-rule studies: rules L6 to L9.
+"""The run form of the learned-rule studies (RM30 and X11): rules L6 to L9.
 
-Both ``regenerate.py`` drivers call :func:`run`.  The regeneration itself is the shared
+Every X11 study's ``regenerate.py`` driver calls :func:`run`, the fold-evaluated strata study of
+X11 PR E1 (``fold-evaluated-strata``, X28) among them, although its target is not a learned
+rule.  The regeneration itself is the shared
 :func:`tests.canonical.regenerate.main`.  This module adds the run form in front of it.
 
 A **declared run** passes no ``--replicates``.  It is the shared declared run form of
@@ -16,7 +18,9 @@ then skips the property study, and a reading says ``smoke run, not the declared 
 
 ``--property-harness-check CAP`` is a smoke-only check of the property path.  It fits at most
 ``CAP`` draws of each property cell of the throwaway record and prints the rule agreement, the
-solver warnings and the wall time.  It prints no bias, coverage or SE ratio.
+solver warnings and the wall time.  It prints no bias, coverage or SE ratio.  A study whose fits
+learn no rule declares ``LEARNED_RULE = False`` in its property module and gets no rule
+agreement; a learned-rule study whose rows lack ``rule_rows_checked`` stops the check.
 """
 
 from __future__ import annotations
@@ -52,17 +56,54 @@ PACKAGES = {
 
 
 def declared_sample_seeds() -> set[int]:
-    """Every sample seed a declared run of either study draws."""
+    """Every sample seed a declared run of any X11 study under this run form draws.
+
+    That is every learned-rule study and ``fold-evaluated-strata``, whose target is not a
+    learned rule: a smoke run of any of them must avoid the declared seeds of all of them.
+    """
+    from tests.studies import fold_evaluated_strata as strata
+    from tests.studies import fold_evaluated_strata_properties as strata_properties
+    from tests.studies import learned_rule_compositions as compositions
+    from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
+    from tests.studies import learned_rule_learners as learners
+    from tests.studies import learned_rule_learners_properties as learner_properties
+    from tests.studies import learned_rule_split_mean as split_mean
+    from tests.studies import learned_rule_split_mean_properties as split_mean_properties
 
-    return law.declared_sample_seeds(
+    seeds = law.declared_sample_seeds(
         gated.STUDY,
         gated.PRIMARY_REPLICATES,
         properties.PROPERTY_DRAWS,
         properties.suffixes(gated.STUDY),
     ) | law.declared_sample_seeds(boundary.STUDY, boundary.PRIMARY_REPLICATES, (), {})
+    seeds |= law.declared_sample_seeds(
+        compositions.STUDY,
+        compositions.PRIMARY_REPLICATES,
+        composition_properties.PROPERTY_DRAWS,
+        composition_properties.suffixes(compositions.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        split_mean.STUDY,
+        split_mean.PRIMARY_REPLICATES,
+        split_mean_properties.PROPERTY_DRAWS,
+        split_mean_properties.suffixes(split_mean.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        learners.STUDY,
+        learners.PRIMARY_REPLICATES,
+        learner_properties.PROPERTY_DRAWS,
+        learner_properties.suffixes(learners.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        strata.STUDY,
+        strata.PRIMARY_REPLICATES,
+        strata_properties.PROPERTY_DRAWS,
+        strata_properties.suffixes(strata.STUDY),
+    )
+    return seeds
 
 
 def runtime_refusals() -> list[str]:
@@ -116,11 +157,22 @@ def _property_harness_check(
     write_csv(
         rows, output / "property-harness-check.csv.gz", compression={"method": "gzip", "mtime": 0}
     )
-    fitted = rows.loc[rows["rule_rows_checked"] > 0]
-    agreement = (fitted["rule_rows_checked"] == fitted["n"]).groupby(fitted["cell"]).all()
     warnings = rows.groupby("cell")["solver_warnings"].sum()
     print(f"property harness check, {len(rows)} rows, wall {wall:.1f} s", flush=True)
-    print(f"rule agreement 1 on every fitted row, by cell:\n{agreement.to_string()}", flush=True)
+    if getattr(properties, "LEARNED_RULE", True):
+        if "rule_rows_checked" not in rows:
+            raise RuntimeError(
+                f"{properties.__name__} learns a rule, but its rows carry no rule_rows_checked"
+            )
+        fitted = rows.loc[rows["rule_rows_checked"] > 0]
+        # A fit of R splits checks every row once per split (``learned-rule-split-mean``).
+        checks = getattr(properties, "RULE_CHECKS_PER_ROW", 1)
+        agreement = (
+            (fitted["rule_rows_checked"] == checks * fitted["n"]).groupby(fitted["cell"]).all()
+        )
+        print(
+            f"rule agreement 1 on every fitted row, by cell:\n{agreement.to_string()}", flush=True
+        )
     print(f"solver warnings, by cell:\n{warnings.to_string()}", flush=True)
 
 

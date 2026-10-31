@@ -38,8 +38,9 @@ from .._typing import (
     StoppingRule,
     TargetingMethod,
 )
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from ..exceptions import CapabilityError, ConvergenceWarning, DataError, Refusal, RefusalReason
 from ..fluctuation._score import (
     STOP_CONTEXT_MISSING,
     StopContext,
@@ -93,12 +94,12 @@ from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
 from ._strata import companion_stratum_codes, stratum_probabilities
 from .composite import complement_form
 from .direct_effect import clever_covariate_inputs
-from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
+from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet, _replace_families
 
 __all__ = [
     "DEFAULT_MAX_OUTER",
     "ONE_STEP_CARRY_COST",
-    "ONE_STEP_NESTED_REFUSAL",
+    "ONE_STEP_FOLDWISE_REFUSAL",
     "ObservationMechanismFluctuation",
     "ProjectionFluctuation",
     "ReductionExit",
@@ -120,21 +121,25 @@ __all__ = [
 ]
 
 #: Why ``targeting="one_step"`` refuses to carry further arrays through its steps.  The
-#: nested refusal below and the ``evaluation=`` refusal of ``DRTMLE`` both state it.
+#: foldwise refusal below and the ``evaluation=`` refusal of ``DRTMLE`` both state it.
 ONE_STEP_CARRY_COST = (
     "by the same steps the fitted arrays take, and the one-step walk takes up to 20,000 "
     "of them with an adaptive length"
 )
 
-#: The refusal of ``targeting="one_step"`` beside ``reduced_crossfit="nested"``.
+#: The refusal of ``targeting="one_step"`` beside a cross-fitted, guarded
+#: ``reduced_crossfit="foldwise"`` fit, which is the default DR-TMLE construction.
 #: ``DRTMLE._check_drtmle`` raises it before any learner, and :func:`solve_submodel`
 #: raises it again as the backstop of a direct ``carry``.
-ONE_STEP_NESTED_REFUSAL = Refusal(
+ONE_STEP_FOLDWISE_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "targeting='one_step' and reduced_crossfit='nested' are not combined. The "
-    f"nested construction moves its fold-free designs {ONE_STEP_CARRY_COST}. "
+    "targeting='one_step' and reduced_crossfit='foldwise' are not combined. The "
+    f"foldwise construction moves one slab of primary arrays per fold {ONE_STEP_CARRY_COST}. "
     "This is a cost decision rather than a derivation.",
-    alternative="Use targeting='iterative', which is the default.",
+    alternative=(
+        "Use targeting='iterative', which is the default, or reduced_crossfit='pooled', "
+        "which lets each fold's data reach its own reduced regressions."
+    ),
 )
 
 #: A round that leaves the mechanism score above this share of the previous round's has
@@ -290,6 +295,43 @@ def _largest(score: FloatArray) -> float:
 #: score magnitude rather than about how the loop ended -- see
 #: :attr:`ReductionFluctuation.exit_reason`.
 ReductionExit = Literal["tolerance", "stall", "cap"]
+
+
+def _capped_failure(
+    unsolved: TargetingFailure | None,
+    exit_reason: ReductionExit,
+    converged: bool,
+    *,
+    group: str,
+    max_outer: int,
+    warn: bool,
+) -> TargetingFailure | None:
+    """The record's failure once an alternation that ran out of rounds is counted as one.
+
+    ``unsolved`` judges the closing pass's scores against :data:`_UNSOLVED` and never reads
+    the round count.  A loop that exhausts ``max_outer`` without meeting ``spec.tol`` can
+    still close below that bar while its state has not settled: on the 60-cluster law of
+    ``tests/unit/test_drtmle_crossfit.py::TestAnAlternationThatRunsOutOfRoundsIsAFailure``
+    the fold-wise slabs ran to the cap with :math:`g_{r,2}` near ``3e7``, a standard error of
+    about ``1.4e5``, and every closing score inside the bar.  Such a fit reports
+    ``"max_iter_reached"`` and, when ``warn`` is set, raises a
+    :class:`~cleverly.exceptions.ConvergenceWarning`, because the score check can pass it.
+    A cap exit whose closing pass meets ``spec.tol`` stays unflagged: the closing pass
+    solved the equations the reported curve is built from.
+    """
+    if exit_reason != "cap" or converged:
+        return unsolved
+    if warn:
+        _warn(
+            f"the doubly-robust alternation of the {group!r} targeting step ran out of its "
+            f"{max_outer} rounds without meeting its tolerance. The closing scores can still "
+            "look solved while the state has not settled, so the standard errors may not "
+            f"describe this estimate. Inspect res.fluctuations[{group!r}].reduction.trace.",
+            ConvergenceWarning,
+            stacklevel=4,
+        )
+    return unsolved or "max_iter_reached"
+
 
 #: Which order the three equations are solved in within a round.  Two routes to one stated
 #: exit rather than two estimators: the 2016 working paper's step 7 states its own
@@ -512,9 +554,9 @@ def solve_submodel(
     silently dropped under ``targeting="one_step"``: that solver walks the universal
     least-favorable submodel in up to twenty thousand adaptive steps, so carrying an array
     through it is a different order of cost from carrying one through twenty Newton steps,
-    and the one caller that passes ``carry`` is a reference construction rather than a
-    production path.  ``DRTMLE._check_drtmle`` refuses the nested composition before any
-    learner, so for that composition this raise is a backstop.
+    and the callers that pass ``carry`` are the foldwise slabs and the evaluation companion.
+    ``DRTMLE._check_drtmle`` refuses both compositions before any learner, so this raise is
+    a backstop.
 
     ``stop`` carries the units and the outcome range a declared ``spec.stopping`` computes its
     threshold from.  Under ``stopping="relative"`` it is not read.  Under a declared rule a
@@ -535,7 +577,7 @@ def solve_submodel(
         )
     if spec.targeting == "one_step":
         if carry:
-            raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
+            raise CapabilityError.from_refusal(ONE_STEP_FOLDWISE_REFUSAL)
         return solve_one_step(
             scaled,
             initial,
@@ -578,7 +620,7 @@ def _solve_submodel_ruled(
     """:func:`solve_submodel` under a declared stopping rule, a step bound or a best iterate."""
     if spec.targeting == "one_step":
         if carry:
-            raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
+            raise CapabilityError.from_refusal(ONE_STEP_FOLDWISE_REFUSAL)
         return solve_one_step(
             scaled,
             initial,
@@ -1124,8 +1166,9 @@ class ReductionSpec:
     refit:
         Takes a :class:`~cleverly.estimators._nuisance.NuisanceEstimates` carrying the
         *current* targeted regression and mechanism, and returns the reductions relative to
-        them for the requested family names -- the production set, and one per outer fold
-        at the evaluation companion's rows (empty without a companion). Unrequested fields
+        them for the requested family names -- the production set, one per outer fold
+        at the evaluation companion's rows (empty without a companion), and one per outer
+        fold at that fold's foldwise slab (empty on a pooled fit). Unrequested fields
         are carried from the current set, so every return remains a complete ``ReducedSet``.
         It is handed a whole object rather than two
         arrays for the reason :func:`~cleverly.estimators.reduced.fit_reduced` takes one:
@@ -1142,11 +1185,14 @@ class ReductionSpec:
         path recovered by a loop that happens to exit early.
     """
 
-    refit: Callable[[NuisanceEstimates, tuple[ReducedFamily, ...]], tuple[Any, tuple[Any, ...]]]
+    refit: Callable[
+        [NuisanceEstimates, tuple[ReducedFamily, ...]],
+        tuple[Any, tuple[Any, ...], tuple[Any, ...]],
+    ]
     missing_refit: (
         Callable[
             [NuisanceEstimates, tuple[float, float], float],
-            tuple[Any, tuple[Any, ...]],
+            tuple[Any, tuple[Any, ...], tuple[Any, ...]],
         ]
         | None
     ) = None
@@ -1250,8 +1296,9 @@ class ReductionFluctuation:
     failure: str | None = None
     #: Which of the loop's three exits fired.  **Not** a restatement of :attr:`failure`, and
     #: the two disagree in both directions: ``failure`` is set from the *closing pass's*
-    #: scores against :data:`_UNSOLVED` and never reads the round count, so a fit that ran
-    #: out of rounds but scores well reports ``None`` while one that stalled at round three
+    #: scores against :data:`_UNSOLVED`, and from the cap only when the closing pass also
+    #: misses ``spec.tol`` (:func:`_capped_failure`).  So a fit that ran out of rounds and
+    #: then closed at the tolerance reports ``None``, while one that stalled at round three
     #: with a bad score reports ``"max_iter_reached"`` -- a name that on its own would have a
     #: reader believe the cap was reached.  Which exit fired is a fact about the loop, it is
     #: recoverable from nowhere else on this record, and it is what a claim of the form "such
@@ -1454,6 +1501,9 @@ class _Companion:
     fold_sizes: tuple[int, ...]
     #: The fit's stratum blocks, applied at the companion rows with their own strata.
     blocks: StratumBlocks | None = None
+    #: ``True`` for the foldwise slabs, whose rows are the fitting rows: their blocks are the
+    #: fit's own strata rather than a companion's.
+    fitting_rows: bool = False
 
     @classmethod
     def of(
@@ -1475,6 +1525,51 @@ class _Companion:
             arms=nuisance.arms,
             fold_sizes=tuple(companion.fold_sizes),
             blocks=blocks,
+        )
+
+    @classmethod
+    def slabs_of(
+        cls,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        blocks: StratumBlocks | None = None,
+    ) -> _Companion | None:
+        """The foldwise slabs as a companion over the fitting rows, or ``None`` when pooled.
+
+        Slab ``k`` is :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner` entry
+        ``k``: primary arrays from models that never saw fold ``k``, with fold ``k``'s
+        reduced regressions at every row.  Moving it with this class's carries tilts it along
+        **its own** covariate at the pooled ``epsilon``.  Carried along the production
+        covariate instead, each row ``j`` would be tilted by fold ``fold(j)``'s reduced
+        regressions, which trained on fold ``k``, and fold ``k``'s data would reach its own
+        reduced regressions at the next refit.
+        """
+        inner = nuisance.inner
+        if inner is None:
+            return None
+        if len(inner.reduced) != inner.n_folds:
+            raise ValueError(
+                "the foldwise slabs carry no reduced regressions; fit_reduced fills them at "
+                "the initial fit, and a slab without them has no covariate of its own"
+            )
+        return cls(
+            data=data,
+            outcome=tuple(inner.outcome),
+            mechanism=tuple(
+                each.arm(nuisance.arms[1]) if len(nuisance.arms) == 2 else each.values
+                for each in inner.propensity
+            ),
+            reduced=tuple(inner.reduced),
+            scaler=nuisance.scaler,
+            arms=nuisance.arms,
+            fold_sizes=tuple(
+                int(size)
+                for size in np.bincount(
+                    np.asarray(nuisance.folds.assignment), minlength=inner.n_folds
+                )
+            ),
+            blocks=blocks,
+            fitting_rows=True,
         )
 
     @property
@@ -1512,7 +1607,7 @@ class _Companion:
                         bounds=bounds,
                         nuisance_bound=nuisance_bound,
                     ),
-                    companion=True,
+                    companion=not self.fitting_rows,
                 ),
             )
             for fold in range(self.n_folds)
@@ -1531,7 +1626,7 @@ class _Companion:
                         bounds=bounds,
                         propensity=self.mechanism[fold],
                     ),
-                    companion=True,
+                    companion=not self.fitting_rows,
                 ),
             )
             for fold in range(self.n_folds)
@@ -1563,7 +1658,7 @@ class _Companion:
                     reduced_mechanism_covariate(
                         self.reduced[fold], self.mechanism[fold], bounds=bounds
                     ),
-                    companion=True,
+                    companion=not self.fitting_rows,
                 ),
             )
             for fold in range(self.n_folds)
@@ -1596,10 +1691,10 @@ class _Companion:
 def _split_carried(
     carried: Sequence[Any], inner: tuple[Any, ...] | None
 ) -> tuple[tuple[Any, ...] | None, tuple[Any, ...]]:
-    """The nested construction's carried arrays and the companion's, in the order passed.
+    """The foldwise slabs' carried arrays and the companion's, in the order passed.
 
     One place splits them, so that a solve which passes both cannot be read back as though
-    the companion's slabs were fold-free designs -- which every array here would survive,
+    the companion's arrays were the foldwise slabs -- which every array here would survive,
     since both are the same type and the same length.
     """
     if inner is None:
@@ -1608,7 +1703,7 @@ def _split_carried(
 
 
 def _combine(inner: tuple[Any, ...] | None, companion: tuple[Any, ...]) -> tuple[Any, ...]:
-    """What goes in as ``carry``: the nested arrays first, then the companion's."""
+    """What goes in as ``carry``: the foldwise slabs first, then the companion's."""
     return tuple(() if inner is None else inner) + companion
 
 
@@ -1900,29 +1995,65 @@ def solve_with_reduction(
         mechanism_fit.arm(upper) if complement else np.asarray(mechanism_fit.values, dtype=float)
     )
     current = nuisance
-    # The nested construction's fold-free primary arrays, moved by every fluctuation the
-    # production ones take -- `carry` in, `carried` out. `None` on a pooled fit, where every
-    # `carry` below is empty and every `carried` comes back empty, so the loop is bit for
-    # bit what it was. They are *carried* rather than reconstructed from `(initial, epsilon)`
-    # because the outcome solve applies its tilt once per Newton step and shrinks after each,
-    # so a net offset recovers the endpoint only when no iterate touched a bound -- and the
-    # fits that touch one are the weak-overlap fits this construction is compared on.
-    inner_q = None if nuisance.inner is None else nuisance.inner.outcome
-    inner_g = (
-        None
-        if nuisance.inner is None
-        else tuple(
-            each.arm(upper) if complement else each.values for each in nuisance.inner.propensity
-        )
-    )
-    inner_extra: tuple[InitialFit, ...] | None = None
+    # The foldwise slabs, moved by every fluctuation the production arrays take, each along
+    # its own covariate -- `carry` in, `carried` out. `None` on a pooled fit, where every
+    # slab part of `carry` below is empty, so the loop is bit for bit what it was. They are
+    # *carried* rather than reconstructed from `(initial, epsilon)` because the outcome solve
+    # applies its tilt once per Newton step and shrinks after each, so a net offset recovers
+    # the endpoint only when no iterate touched a bound.
+    slabs = _Companion.slabs_of(data, nuisance, blocks)
     # The evaluation companion, or `None` on every fit that declared no `evaluation=` --
     # which is every fit except the diagnostic that evaluates the remainder against truth.
-    # It travels beside `inner_q`/`inner_g` in the same `carry`, contributes to no solve and
-    # is split back out by `_split_carried`.
+    # It travels after the slabs in the same `carry`, contributes to no solve and is split
+    # back out by `_split_carried`.
     companion = (
         None if nuisance.companion is None else _Companion.of(nuisance, nuisance.companion, blocks)
     )
+
+    def outcome_carry() -> tuple[CarryItem, ...]:
+        return _combine(
+            None if slabs is None else slabs.outcome_carry(group, bounds, nuisance_bound),
+            () if companion is None else companion.outcome_carry(group, bounds, nuisance_bound),
+        )
+
+    def extra_carry() -> tuple[CarryItem, ...]:
+        return _combine(
+            None if slabs is None else slabs.extra_carry(bounds),
+            () if companion is None else companion.extra_carry(bounds),
+        )
+
+    def mechanism_carry() -> tuple[MechanismCarry, ...]:
+        return _combine(
+            None if slabs is None else slabs.mechanism_carry(bounds),
+            () if companion is None else companion.mechanism_carry(bounds),
+        )
+
+    def take_outcome(carried: Sequence[InitialFit]) -> None:
+        head, tail = _split_carried(carried, None if slabs is None else slabs.outcome)
+        if slabs is not None and head is not None:
+            slabs.take_outcome(head)
+        if companion is not None:
+            companion.take_outcome(tail)
+
+    def take_mechanism(carried: Sequence[FloatArray]) -> None:
+        head, tail = _split_carried(carried, None if slabs is None else slabs.mechanism)
+        if slabs is not None and head is not None:
+            slabs.take_mechanism(head)
+        if companion is not None:
+            companion.take_mechanism(tail)
+
+    def refit(families: tuple[ReducedFamily, ...], base: ReducedSet) -> ReducedSet:
+        """Refit ``families`` at the current state and move every slab and companion set."""
+        fresh, at_companion, at_slabs = reduction.refit(
+            _reduction_inputs(current, targeted_q, targeted_g, base, slabs, companion),
+            families,
+        )
+        if companion is not None:
+            companion.take_partial(at_companion, families)
+        if slabs is not None:
+            slabs.take_partial(at_slabs, families)
+        return _replace_families(base, {name: getattr(fresh, name) for name in families})
+
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     fluctuation = solve_submodel(
         scaled,
@@ -1932,15 +2063,10 @@ def solve_with_reduction(
         observed,
         spec,
         warn=warn,
-        carry=_combine(
-            inner_q,
-            () if companion is None else companion.outcome_carry(group, bounds, nuisance_bound),
-        ),
+        carry=outcome_carry(),
         stop=stop,
     )
-    inner_q, tail = _split_carried(fluctuation.carried, inner_q)
-    if companion is not None:
-        companion.take_outcome(tail)
+    take_outcome(fluctuation.carried)
 
     mechanism: MechanismFluctuation | None = None
     extra: Fluctuation | None = None
@@ -1985,29 +2111,18 @@ def solve_with_reduction(
                 observed,
                 spec,
                 warn=False,
-                carry=_combine(
-                    inner_q,
-                    ()
-                    if companion is None
-                    else companion.outcome_carry(group, bounds, nuisance_bound),
-                ),
+                carry=outcome_carry(),
                 stop=stop,
             )
             targeted_q = fluctuation.targeted
-            inner_q, tail = _split_carried(fluctuation.carried, inner_q)
-            if companion is not None:
-                companion.take_outcome(tail)
+            take_outcome(fluctuation.carried)
             if "g" in guard:
                 # Step 3, at g^k and the once-updated Qbar. `replace` rather than the whole
                 # set: Qr is step 5's and must not arrive early, which is the difference
                 # between the two orders rather than an optimisation.
-                once, once_companion = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
-                    (("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",)),
+                reduced = refit(
+                    ("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",), reduced
                 )
-                reduced = replace(reduced, gr1=once.gr1, gr2=once.gr2)
-                if companion is not None:
-                    companion.take_partial(once_companion, ("gr1", "gr2"))
                 extra_submodel = reduced_outcome_submodel(
                     data.treatment, reduced, bounds=bounds, propensity=targeted_g
                 )
@@ -2019,27 +2134,17 @@ def solve_with_reduction(
                     observed,
                     spec,
                     warn=False,
-                    carry=_combine(
-                        inner_q, () if companion is None else companion.extra_carry(bounds)
-                    ),
+                    carry=extra_carry(),
                     stop=stop,
                 )
                 targeted_q = extra.targeted
-                inner_q, tail = _split_carried(extra.carried, inner_q)
-                if companion is not None:
-                    companion.take_outcome(tail)
+                take_outcome(extra.carried)
                 if first_initial is None:
                     first_initial = np.asarray(extra.score_initial)
                 if extra.failure is not None:
                     ill_conditioned += 1
             if "Q" in guard:
-                twice, twice_companion = reduction.refit(  # step 5, at the twice-updated Qbar
-                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
-                    ("qr",),
-                )
-                reduced = replace(reduced, qr=twice.qr)
-                if companion is not None:
-                    companion.take_partial(twice_companion, ("qr",))
+                reduced = refit(("qr",), reduced)  # step 5, at the twice-updated Qbar
                 mechanism = _solve_reduced_mechanism(  # step 6: equation (9), along H_3
                     response,
                     targeted_g,
@@ -2049,15 +2154,13 @@ def solve_with_reduction(
                     bounds=bounds,
                     tol=spec.tol,
                     blocks=blocks,
-                    carry=_combine(
-                        inner_g, () if companion is None else companion.mechanism_carry(bounds)
-                    ),
+                    carry=mechanism_carry(),
                 )
                 targeted_g = mechanism.propensity
-                inner_g, tail = _split_carried(mechanism.carried, inner_g)
-                if companion is not None:
-                    companion.take_mechanism(tail)
-                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                take_mechanism(mechanism.carried)
+                current = _retargeted_mechanism(
+                    nuisance, targeted_g, arms, None if slabs is None else slabs.mechanism
+                )
         else:
             if "Q" in guard:
                 mechanism = _solve_reduced_mechanism(
@@ -2069,30 +2172,23 @@ def solve_with_reduction(
                     bounds=bounds,
                     tol=spec.tol,
                     blocks=blocks,
-                    carry=_combine(
-                        inner_g, () if companion is None else companion.mechanism_carry(bounds)
-                    ),
+                    carry=mechanism_carry(),
                 )
                 # The **truncated** tilt, which is what makes the next round's offset, every
                 # later covariate and the reported correction read one array. Carrying the
                 # raw one forward is what left a clipped row outside the bounds for the rest
                 # of the fit, which is the load-bearing half of the centring identity.
                 targeted_g = mechanism.propensity
-                inner_g, tail = _split_carried(mechanism.carried, inner_g)
-                if companion is not None:
-                    companion.take_mechanism(tail)
-                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                take_mechanism(mechanism.carried)
+                current = _retargeted_mechanism(
+                    nuisance, targeted_g, arms, None if slabs is None else slabs.mechanism
+                )
 
             if "g" in guard:
                 mechanism_families: tuple[ReducedFamily, ...] = (
                     ("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",)
                 )
-                reduced, reduced_companion = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
-                    mechanism_families,
-                )
-                if companion is not None:
-                    companion.take_partial(reduced_companion, mechanism_families)
+                reduced = refit(mechanism_families, reduced)
 
             if "g" in guard:
                 extra_submodel = reduced_outcome_submodel(
@@ -2106,17 +2202,12 @@ def solve_with_reduction(
                     observed,
                     spec,
                     warn=False,
-                    carry=_combine(
-                        inner_q, () if companion is None else companion.extra_carry(bounds)
-                    ),
+                    carry=extra_carry(),
                     stop=stop,
                 )
-                inner_extra, companion_extra = _split_carried(extra.carried, inner_q)
-                # Updated in place rather than held aside the way `inner_extra` is: the
-                # companion has no branch where equation (10) did not run, so its
-                # equation-(8) base is unconditionally this endpoint.
-                if companion is not None:
-                    companion.take_outcome(companion_extra)
+                # Updated in place: equation (8) below starts from this endpoint, for the
+                # production regression and for every slab and companion copy alike.
+                take_outcome(extra.carried)
                 if first_initial is None:
                     first_initial = np.asarray(extra.score_initial)
                 if extra.failure is not None:
@@ -2133,33 +2224,19 @@ def solve_with_reduction(
                 observed,
                 spec,
                 warn=False,
-                # The base and its carried copies must be the same vintage: equation (10)
-                # leaves `targeted_q` where it was and hands its own result on, so reading
-                # `inner_q` here would fluctuate arrays one step behind the array they
-                # accompany. The companion is on the same rule and for the same reason: its
-                # equation-(10) endpoint is what equation (8) starts from.
-                carry=_combine(
-                    None if inner_q is None else (inner_q if extra is None else inner_extra or ()),
-                    ()
-                    if companion is None
-                    else companion.outcome_carry(group, bounds, nuisance_bound),
-                ),
+                # The base and its carried copies are the same vintage: equation (10) leaves
+                # `targeted_q` where it was and hands its own result on, and the slabs and the
+                # companion took that result above.
+                carry=outcome_carry(),
                 stop=stop,
             )
             targeted_q = fluctuation.targeted
-            inner_q, tail = _split_carried(fluctuation.carried, inner_q)
-            if companion is not None:
-                companion.take_outcome(tail)
+            take_outcome(fluctuation.carried)
             if "Q" in guard:
                 # Qr is a regression of the outcome residual, so the step just taken moved
                 # its target. Refit before the score below is read, or the loop tests
                 # equation (9) at a covariate the exiting pair no longer implies.
-                reduced, reduced_companion = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
-                    ("qr",),
-                )
-                if companion is not None:
-                    companion.take_partial(reduced_companion, ("qr",))
+                reduced = refit(("qr",), reduced)
 
         # Equation (8)'s score, at the pair the round *exits* at rather than the pair it was
         # solved at. Under the R package's order those are the same state and this is a
@@ -2363,6 +2440,24 @@ def solve_with_reduction(
             and _solved(*equations[2], _UNSOLVED, negligible)
             else "max_iter_reached"
         )
+    # The loop's own exit test, applied to the state the closing pass returns. It used to be
+    # ``worst <= spec.tol`` on the relative maximum, which asks equations (9) and (10) for a
+    # bar :data:`_NEGLIGIBLE` says they cannot reach: measured before this changed, a fit
+    # that exited at ``"tolerance"`` with ``failure=None`` still reported ``converged=False``,
+    # so the field was false on essentially every fit and separated nothing.
+    converged = bool(
+        all(_solved(relative, absolute, spec.tol, negligible) for relative, absolute in equations)
+        if spec.stopping == "relative"
+        else (
+            fluctuation.rule_ratio is not None
+            and fluctuation.rule_ratio <= 1.0
+            and _extra_met(extra_ratio, equations[1], spec.tol, negligible)
+            and _solved(*equations[2], spec.tol, negligible)
+        )
+    )
+    unsolved = _capped_failure(
+        unsolved, exit_reason, converged, group=group, max_outer=max_outer, warn=warn
+    )
     failure = unsolved
     if mechanism is not None:
         mechanism = replace(
@@ -2382,25 +2477,7 @@ def solve_with_reduction(
         trace=tuple(trace),
         rounds=rounds,
         max_outer=max_outer,
-        # The loop's own exit test, applied to the state the closing pass returns. It used to
-        # be ``worst <= spec.tol`` on the relative maximum, which asks equations (9) and (10)
-        # for a bar :data:`_NEGLIGIBLE` says they cannot reach: measured before this changed, a
-        # fit that exited at ``"tolerance"`` with ``failure=None`` still reported
-        # ``converged=False``, so the field was false on essentially every fit and separated
-        # nothing.
-        converged=bool(
-            all(
-                _solved(relative, absolute, spec.tol, negligible)
-                for relative, absolute in equations
-            )
-            if spec.stopping == "relative"
-            else (
-                fluctuation.rule_ratio is not None
-                and fluctuation.rule_ratio <= 1.0
-                and _extra_met(extra_ratio, equations[1], spec.tol, negligible)
-                and _solved(*equations[2], spec.tol, negligible)
-            )
-        ),
+        converged=converged,
         failure=failure,
         exit_reason=exit_reason,
         ill_conditioned=ill_conditioned,
@@ -2439,7 +2516,6 @@ def _solve_missing_outcome_reduction(
     across arms.  With baseline strata every covariate of every block is in stratum form
     (:class:`StratumBlocks`), so each stratum's drift equations are solved apart.
     """
-    del warn  # failures are recorded on the returned targeting objects
     if tuple(reduction.guard) != ("Q", "g") and set(reduction.guard) != {"Q", "g"}:
         raise ValueError("missing-outcome targeting requires both guards")
     if not isinstance(nuisance.reduced, MissingOutcomeReducedSet):
@@ -2524,7 +2600,9 @@ def _solve_missing_outcome_reduction(
         current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
         if reduction.missing_refit is None:
             raise ValueError("missing-outcome targeting has no five-regression refit callback")
-        refreshed, companion = reduction.missing_refit(current, bounds, nuisance_bound)
+        refreshed, companion, slabs = reduction.missing_refit(current, bounds, nuisance_bound)
+        if slabs:
+            raise ValueError("missing-outcome targeting does not support foldwise slabs")
         if companion:
             raise ValueError("missing-outcome targeting does not support evaluation companions")
         if not isinstance(refreshed, MissingOutcomeReducedSet):
@@ -2697,6 +2775,20 @@ def _solve_missing_outcome_reduction(
             )
             else "max_iter_reached"
         )
+    converged = bool(
+        all(_solved(relative, absolute, spec.tol, negligible) for relative, absolute in equations)
+        if spec.stopping == "relative"
+        else (
+            outcome_ratio <= 1.0
+            and all(
+                _solved(relative, absolute, spec.tol, negligible)
+                for relative, absolute in equations[2:]
+            )
+        )
+    )
+    unsolved = _capped_failure(
+        unsolved, exit_reason, converged, group=group, max_outer=max_outer, warn=warn
+    )
     width = standard_blocks.dim
     record = ReductionFluctuation(
         reduced=reduced,
@@ -2710,20 +2802,7 @@ def _solve_missing_outcome_reduction(
         trace=tuple(trace),
         rounds=len(trace),
         max_outer=max_outer,
-        converged=bool(
-            all(
-                _solved(relative, absolute, spec.tol, negligible)
-                for relative, absolute in equations
-            )
-            if spec.stopping == "relative"
-            else (
-                outcome_ratio <= 1.0
-                and all(
-                    _solved(relative, absolute, spec.tol, negligible)
-                    for relative, absolute in equations[2:]
-                )
-            )
-        ),
+        converged=converged,
         failure=unsolved,
         exit_reason=exit_reason,
         observation=replace(observation_fit, failure=observation_fit.failure or unsolved),
@@ -3356,8 +3435,8 @@ def _retargeted_mechanism(
     :meth:`~cleverly.estimators._nuisance.Propensity.bounded`'s two-arm rule arriving one
     step earlier -- the tilt moves one probability and the other arm is its complement.
 
-    ``inner`` is the nested construction's fold-free mechanisms, moved by the **same** tilt
-    at the **same** ``epsilon`` -- see :attr:`~cleverly.fluctuation.mechanism.
+    ``inner`` is the foldwise slabs' mechanisms, each moved at the **same** ``epsilon``
+    along its own covariate -- see :attr:`~cleverly.fluctuation.mechanism.
     MechanismFluctuation.carried`.  ``None`` on every pooled fit, where
     :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner` is ``None`` and this
     replaces nothing.
@@ -3385,7 +3464,7 @@ def _reduction_inputs(
     targeted: InitialFit,
     mechanism: FloatArray,
     reduced: ReducedSet,
-    inner: tuple[InitialFit, ...] | None = None,
+    slabs: _Companion | None = None,
     companion: _Companion | None = None,
 ) -> NuisanceEstimates:
     """The nuisances a refit of the reduced regressions is taken *relative to*.
@@ -3399,11 +3478,12 @@ def _reduction_inputs(
     regressions forward, so a mechanism-only refit does not restore a stale ``qr`` and a
     ``qr``-only refit does not restore stale ``gr1`` or ``gr2`` values.
 
-    ``inner`` moves the nested construction's fold-free outcome regressions along with it,
+    ``slabs`` moves the foldwise slabs' outcome regressions and reduced sets along with it,
     for the reason the refit reads the targeted pair at all: equations (9) and (10) are
-    stated at the targeted collection, so a nested refit taken at fold-free arrays still
-    sitting at their **initial** values would be conditioning on a different state from the
-    one it evaluates at.  ``None`` on every pooled fit.
+    stated at the targeted collection, so a foldwise refit taken at slabs still sitting at
+    their **initial** values would be conditioning on a different state from the one it
+    evaluates at.  The slab mechanisms are already on ``nuisance``
+    (:func:`_retargeted_mechanism`).  ``None`` on every pooled fit.
 
     ``companion`` moves the evaluation rows' copies for exactly that reason a second time: a
     reduced regression is a regression **on** a primary prediction, so the companion design
@@ -3415,9 +3495,12 @@ def _reduction_inputs(
     updated = replace(nuisance, outcome=targeted, reduced=reduced)
     if companion is not None:
         updated = replace(updated, companion=companion.record())
-    if inner is None or nuisance.inner is None:
+    if slabs is None or nuisance.inner is None:
         return updated
-    return replace(updated, inner=replace(nuisance.inner, outcome=inner))
+    return replace(
+        updated,
+        inner=replace(nuisance.inner, outcome=tuple(slabs.outcome), reduced=tuple(slabs.reduced)),
+    )
 
 
 def _column_block(

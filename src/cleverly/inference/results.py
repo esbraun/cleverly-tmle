@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from typing import Any, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 import numpy as np
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
+
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
-from .._support import Classification, Kind, combine_support, support_for
+from .._support import Classification, Kind, combine_support, interval_floor, support_for
 from .._typing import FloatArray, IntArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
@@ -36,6 +39,7 @@ from .influence import (
 )
 
 __all__ = [
+    "RepeatSpread",
     "attach_bootstrap",
     "check_transform_scale",
     "covariance_rule",
@@ -507,10 +511,139 @@ def median_covariance(
     return np.asarray((candidates[low] + candidates[high]) / 2.0, dtype=float)
 
 
+class RepeatSpread(dict[str, float]):
+    """How much each estimate moved between random splits into folds.
+
+    What :meth:`~cleverly.estimators.TMLEResult.repeat_spread` and
+    :meth:`~cleverly.longitudinal.LongitudinalResult.repeat_spread` return. It is a ``dict``
+    from estimand name to the standard deviation of that estimate across the splits, on the
+    scale its standard error is on, and it prints a summary that sets each spread beside the
+    standard error it should be read against.
+
+    Parameters
+    ----------
+    spreads : mapping of str to float
+        The standard deviation across the splits, per estimand; ``nan`` where a split gave
+        a value the scale cannot take.
+    n_repeats : int
+        The number of splits.
+    std_errors : mapping of str to float
+        The spread each estimate's interval uses: the standard error, or the plug-in
+        diagnostic of an estimate that supplies no inference.
+    inferential : mapping of str to bool
+        Whether each estimate supplies inference.
+    scales : mapping of str to str
+        The scale each spread is taken on: ``"log"`` for a ratio, otherwise ``"original"``.
+    aggregate : {"median", "mean"}, default="median"
+        How the fit combined the splits. The median's standard error includes the spread
+        between splits. The mean of a learned-rule fit does not add it, because each split
+        has its own target and the fit estimates their mean.
+    """
+
+    def __init__(
+        self,
+        spreads: Mapping[str, float],
+        n_repeats: int,
+        std_errors: Mapping[str, float],
+        inferential: Mapping[str, bool],
+        scales: Mapping[str, str],
+        aggregate: Literal["median", "mean"] = "median",
+    ) -> None:
+        super().__init__(spreads)
+        self.n_repeats = int(n_repeats)
+        self.std_errors = dict(std_errors)
+        self.inferential = dict(inferential)
+        self.scales = dict(scales)
+        self.aggregate = aggregate
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (
+            RepeatSpread,
+            (
+                dict(self),
+                self.n_repeats,
+                self.std_errors,
+                self.inferential,
+                self.scales,
+                self.aggregate,
+            ),
+        )
+
+    def to_frame(self, backend: str | None = None) -> Any:
+        """One row per estimand: the spread, the standard error it is read against, and
+        their ratio.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
+
+        Returns
+        -------
+        dataframe
+            The columns ``estimand``, ``spread``, ``std_err`` (``None`` for an estimate that
+            supplies no inference), ``plugin_std_err``, ``ratio`` and ``scale``, in
+            ``backend``.
+        """
+        from ..utils.frames import frame_from_dict
+
+        names = list(self)
+        return frame_from_dict(
+            {
+                "estimand": names,
+                "spread": [self[name] for name in names],
+                "std_err": [
+                    self.std_errors[name] if self.inferential[name] else None for name in names
+                ],
+                "plugin_std_err": [self.std_errors[name] for name in names],
+                "ratio": [
+                    self[name] / self.std_errors[name]
+                    if self.std_errors[name] > 0
+                    else float("nan")
+                    for name in names
+                ],
+                "scale": [self.scales[name] for name in names],
+            },
+            backend=backend,
+        )
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the spreads beside the standard errors.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds which scale a ratio's spread is on.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import spread_summary
+
+        return spread_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import spread_repr
+
+        return spread_repr(self, self.n_repeats)
+
+    def __str__(self) -> str:
+        return str(self.summary())
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+
 def repeat_spread(
     estimates: Mapping[str, ParameterEstimate],
     draws: Sequence[Mapping[str, float]],
-) -> dict[str, float]:
+    *,
+    aggregate: Literal["median", "mean"] = "median",
+) -> RepeatSpread:
     """Split spread of each estimate across the draws, on its inference scale.
 
     The body of :meth:`cleverly.estimators.TMLEResult.repeat_spread` and
@@ -522,11 +655,14 @@ def repeat_spread(
         The combined estimates, which give each name's reported scale.
     draws : sequence of mappings
         Each draw's point estimates, keyed by name.
+    aggregate : {"median", "mean"}, default="median"
+        How the fit combined the draws, which the summary's note reads.
 
     Returns
     -------
-    dict of str to float
-        The standard deviation across the draws, per estimand present in every draw.
+    RepeatSpread
+        The standard deviation across the draws, per estimand present in every draw, as a
+        mapping that also prints a summary.
 
     Raises
     ------
@@ -557,7 +693,16 @@ def repeat_spread(
                 continue
             values = np.log(values)
         spreads[name] = float(np.std(values, ddof=1))
-    return spreads
+    return RepeatSpread(
+        spreads,
+        n_repeats=len(draws),
+        std_errors={name: float(estimates[name].plugin_std_error) for name in spreads},
+        inferential={name: bool(estimates[name].supplies_inference) for name in spreads},
+        scales={
+            name: "log" if estimates[name].scale == "ratio" else "original" for name in spreads
+        },
+        aggregate=aggregate,
+    )
 
 
 def split_noise_lines(
@@ -599,7 +744,7 @@ def split_noise_lines(
         # Beside the standard error rather than in a separate report, because the
         # comparison is the whole content of the number: on its own "0.0065" says
         # nothing about whether the split mattered.
-        f"split noise -- spread across the {n_repeats} draws on the inference "
+        f"split noise: spread across the {n_repeats} draws on the inference "
         "scale (the log scale for a ratio), a diagnostic and not a standard error:",
     ]
     for name, value in spreads.items():
@@ -825,7 +970,7 @@ def derived_bootstrap(
     if interval == "bca":
         if derived is None:
             raise ValueError("a BCa summary of a derived estimate needs the derived estimate")
-        summary = replicates.summary(
+        summary = replicates.interval(
             "derived",
             alpha,
             interval="bca",
@@ -835,12 +980,13 @@ def derived_bootstrap(
             ),
         )
     else:
-        summary = replicates.summary("derived", alpha)
+        summary = replicates.interval("derived", alpha)
     kept = [item for item in summaries if item is not None]
     return replace(
         summary,
         diagnostic=any(item.diagnostic for item in kept),
         below_floor=any(item.below_floor for item in kept),
+        cluster_floor=next((item.cluster_floor for item in kept if item.below_floor), None),
         support=combine_support([item.support for item in kept], kind="derived"),
     )
 
@@ -1038,6 +1184,9 @@ def attach_bootstrap(
     """
     alpha = result.config.alpha_sig
     below_floor = classification is not None and classification.key.dependence == "below_floor"
+    cluster_floor = (
+        interval_floor(classification.key) if classification is not None and below_floor else None
+    )
     kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
     # A cluster bootstrap resamples clusters, so its acceleration reads the cluster sums.
     unit = (
@@ -1048,7 +1197,7 @@ def attach_bootstrap(
 
     def summary(name: str, estimate: ParameterEstimate) -> BootstrapSummary:
         if interval == "bca":
-            drawn = bootstrap.summary(
+            drawn = bootstrap.interval(
                 name,
                 alpha,
                 interval="bca",
@@ -1056,11 +1205,12 @@ def attach_bootstrap(
                 acceleration=bca_acceleration(estimate.influence_curve, unit),
             )
         else:
-            drawn = bootstrap.summary(name, alpha)
+            drawn = bootstrap.interval(name, alpha)
         return replace(
             drawn,
             diagnostic=diagnostic,
             below_floor=below_floor,
+            cluster_floor=cluster_floor,
             support=support_for(
                 classification, estimate.inference, estimate.reference_df, kind=kind
             ),

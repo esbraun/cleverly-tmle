@@ -50,6 +50,7 @@ G_BOUNDS = (0.01, 0.99)
 NUISANCE_BOUND = 0.01
 REDUCED = {
     "reduced_outcome_learner": LinearRegression,
+    "reduced_mechanism_residual_learner": LinearRegression,
     "reduced_treatment_learner": lambda: LogisticRegression(C=1e6, max_iter=2000),
 }
 
@@ -300,6 +301,7 @@ def _live_estimator(**settings: Any) -> DRTMLE:
         treatment_learner=LogisticRegression(max_iter=1000),
         missingness_learner=LogisticRegression(max_iter=1000),
         reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
         reduced_treatment_learner=LogisticRegression(max_iter=1000),
         max_outer=40,
         random_state=0,
@@ -816,7 +818,7 @@ class TestW11Integration:
             assert f"g[{label}]" in summary
 
     def test_the_tilt_at_zero_reproduces_the_fit(self, live_fit) -> None:
-        frame = missingness_tilt(live_fit, gamma=[0.0])
+        frame = missingness_tilt(live_fit, gamma=[0.0]).to_frame()
         assert len(frame) > 0
         for _, row in frame.iterrows():
             assert row["psi"] == pytest.approx(live_fit.estimates[row["estimand"]].psi, abs=1e-12)
@@ -938,6 +940,7 @@ def test_the_study_route_fits_three_arms() -> None:
         method=DRTMLEMethod(
             randomized=True,
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         ),
         outcome_learner=LogisticRegression(max_iter=1000),

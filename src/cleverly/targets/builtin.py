@@ -108,10 +108,11 @@ _CONDITIONAL_ID = Identification(
         *_POINT_TREATMENT,
         "the conditioning event (having received the arm the effect is reported among) "
         "has positive probability, so the parameter is defined",
-        "positivity is only needed *at the reference arm* within that population: the "
+        "positivity is only needed at the reference arm within that population: the "
         "conditioning arm's own outcomes are already drawn from it and are not reweighted, "
-        "which is why g_ref(W) near zero is what these estimands are sensitive to and why "
-        "g_bounds='auto' truncates them harder",
+        "so these estimands are sensitive to a probability of the reference arm near zero, "
+        "and the automatic probability limits for them are a fixed 0.025 and 0.975 rather "
+        "than the sample-size rule",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -128,7 +129,7 @@ _REGIME_ID = Identification(
         *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
         "positivity *for the regime*: g(a | W) > 0 wherever the regime assigns arm a "
-        "with positive probability -- a weaker requirement than positivity for every "
+        "with positive probability, a weaker requirement than positivity for every "
         "arm when the regime is deterministic, and a different one",
         "the regime is a known function of W: g* does not depend on the observed-data "
         "law, so the influence function carries no term for estimating it. An "
@@ -163,16 +164,19 @@ _LEARNED_RULE_ID = Identification(
         "g_bounds regularizes the fitted denominator only",
         "C3, a limiting rule: the fold curves converge in L2(P0) to the curve of one fixed "
         "rule d1 (van der Laan and Luedtke 2015, Theorem 6). It holds when the limit blip "
-        "of the outcome learner is zero on a set of probability zero, and it fails at an "
-        "exceptional law with a consistent learner, where the interval can under-cover",
+        "of the outcome learner, or the limit score of a declared rule learner, sits at "
+        "its threshold on a set of probability zero, and it fails at an exceptional law "
+        "with a consistent learner, where the interval can under-cover",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
         "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
         "with g = g0, a negligible remainder-replacement error, and the remainder "
         "linearization in Equation (14). Under these conditions, a maximum-likelihood "
         "mechanism fit in a correctly specified model gives a conservative interval",
         "C5: no Donsker condition is needed, so the learners may be flexible",
-        "C6: iid rows, with no observation weights, clusters, missing outcomes or "
-        "intermediate variable",
+        "C6: iid rows; or, under id=, iid clusters of bounded size whose number grows "
+        "with n, with a fixed number of folds and at least 2 clusters in every validation "
+        "fold; known, fixed and bounded observation weights under weights=; no missing "
+        "outcomes or intermediate variable",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -185,6 +189,7 @@ _LEARNED_RULE_ID = Identification(
     references=(
         "van der Laan & Luedtke (2015)",
         "Montoya, van der Laan, Skeem & Petersen (2023)",
+        "Luedtke & van der Laan (2016)",
     ),
 )
 
@@ -200,7 +205,7 @@ _IPSI_ID = Identification(
         "existing, not an oversight in the list",
         "the intervention is a functional of the observed-data law: q_delta is built "
         "out of g, so the influence function carries a term for the pathwise derivative "
-        "through it and the estimator fluctuates the mechanism as well as Qbar",
+        "through it and the estimator updates the fitted treatment mechanism as well as Qbar",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -208,7 +213,7 @@ _IPSI_ID = Identification(
         "estimand itself, so every term of the second-order remainder carries "
         "(ghat - g0) as a factor. The remainder vanishes identically when the mechanism "
         "is consistent whatever Qbar does, and no accuracy in Qbar rescues an "
-        "inconsistent mechanism -- there the remainder is "
+        "inconsistent mechanism; there the remainder is "
         "E[(mhat - m0)(Dhat - D0)/Dhat] with m the tilted mean and D = sum_b delta_b*g_b, "
         "which on two levels with Qbar correct is "
         "(delta - 1) delta E[(g0 - ghat)^2 (Qbar(1,W) - Qbar(0,W)) / (D0 Dhat^2)], "
@@ -274,18 +279,18 @@ _POLICY_ID = Identification(
         "the policy is a known function of (A, W), and of a randomizer of known law when "
         "it is randomized: d does not depend on the observed-data law, so the influence "
         "function carries no term for estimating it. A cap read from the data is a "
-        "declared tuner with a declared target instead (X40 part (e)): the population "
+        "declared tuner with a declared target instead: the population "
         "target adds the tuner's term to the curve, and the fold-average target fits each "
         "fold's map on its training rows. cap= is never defaulted to max(A)",
         "on a continuous treatment, d is piecewise smooth invertible (Diaz, Williams, "
         "Hoffman & Schenck 2023, Assumption 4): a policy that maps an interval to one dose "
         "is not pathwise differentiable and is refused",
         "with delta=: missingness at random given (A, W), and positivity for it *at the "
-        "assigned dose* -- P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
-        "observed. The fluctuation updates Qbar as a function of the dose, so obtaining "
+        "assigned dose*: P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
+        "observed. The final update of Qbar is a function of the dose, so obtaining "
         "Qbar*(d(A, W), W) reads the mechanism where the policy sends the unit",
         "with intermediate=: the same two statements for P(Z = z | A, W), plus that Delta "
-        "is not caused by Z -- the assumption missingness_design() states for an arm",
+        "is not caused by Z, the assumption missingness_design() states for an arm",
     ),
     required_nuisances=(OUTCOME_REGRESSION, "treatment_density"),
     dr_condition=(
@@ -294,7 +299,7 @@ _POLICY_ID = Identification(
         "the policy induces to the observed one, so its error is the error in that ratio "
         "rather than in a probability. With delta= that half becomes the *product* of the "
         "ratio and P(Delta = 1 | A, W), and with intermediate= the ratio times "
-        "P(Z = z | A, W) * P(Delta = 1 | A, W) -- so it is Qbar right OR the whole "
+        "P(Z = z | A, W) * P(Delta = 1 | A, W); so it is Qbar right OR the whole "
         "product right, exactly as on the arm path, and not either mechanism alone"
     ),
     references=(
@@ -315,7 +320,7 @@ _RR_TILT_ID = Identification(
         "risk ratio is below one, and g(0 | w) > 0 where it is above one",
         "the tilt draws a two-point randomizer of known law, independent of everything else, "
         "so the policy does not depend on the observed-data law (Hoffman et al. 2024, "
-        "Example 8): its g enters the clever covariate as a nuisance and not the estimand",
+        "Example 8): its g enters only the estimator's update covariate, not the estimand",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
@@ -339,7 +344,7 @@ _MSM_ID = Identification(
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
-        DR_MECHANISM_HEAD + ", exactly as for the arm-indexed means -- beta is a smooth "
+        DR_MECHANISM_HEAD + ", exactly as for the arm-indexed means; beta is a smooth "
         "function of them and of nothing else. Note this says nothing about the working "
         "model being correct: beta is defined as a projection, so it is the same "
         "functional either way"
@@ -661,7 +666,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         default_arms="binary",
         undefined_when="the sample contains no units in the conditioning arm",
         description=(
-            "average treatment effect on the treated, E[Y^1 - Y^0 | A = 1] -- and with "
+            "average treatment effect on the treated, E[Y^1 - Y^0 | A = 1], and with "
             "more arms, E[Y^a - Y^ref | A = a] once per non-reference arm"
         ),
     ),
@@ -675,7 +680,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         default_arms="binary",
         undefined_when="the sample contains no units in the reference arm",
         description=(
-            "average treatment effect on the controls, E[Y^1 - Y^0 | A = 0] -- and with "
+            "average treatment effect on the controls, E[Y^1 - Y^0 | A = 0], and with "
             "more arms, E[Y^a - Y^ref | A = ref] once per non-reference arm"
         ),
     ),

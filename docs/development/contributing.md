@@ -63,12 +63,13 @@ The remote holds `main` alone. Delete your branch after it merges.
 | `ruff format --check .` | formatting, including every Python fence in a Markdown file |
 | `mypy` | types in `src/cleverly` and in `scripts` |
 | `pytest -q -n auto --dist loadgroup` | the fast suite, which is the default handoff gate |
+| `pytest -q -n auto --dist loadgroup -m slow` | the slow tier: each tutorial notebook with its refit cells |
 | `python -m tests.prose` | a report on the reader-facing prose. It changes nothing and fails nothing |
 | `nox -s docs` | the documentation build, with every Sphinx warning as an error |
 | `python -m build`, then package checks | distribution metadata, contents, and clean installs |
 
-`nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions. Those sessions
-mirror the CI jobs, so a green `nox` run predicts a green pull request.
+`nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions. Those
+sessions mirror the CI jobs, so a green `nox` run predicts a green pull request.
 
 Do not run a study regeneration beside the fast suite. Each process expects the machine's cores.
 [Fast tests and validation studies](testing-strategy.md) explains the design behind the commands.
@@ -82,7 +83,7 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
 | library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
 | a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
-| a notebook artifact | `python scripts/execute_notebook.py <path>`, then the documentation row above |
+| a notebook artifact, or a tutorial callback | `python scripts/execute_notebook.py <path>`, then the documentation row above, then `pytest -q tests/unit/test_documentation_runtime.py -k <stem> -m slow` |
 
 The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
 committed artifacts, so the statistical evidence is checked in minutes rather than hours.
@@ -90,7 +91,7 @@ committed artifacts, so the statistical evidence is checked in minutes rather th
 The notebook command executes every cell and replaces the stored outputs. The TWINS notebook needs
 network access, because it downloads a pinned dataset. The tutorial notebooks run offline. The
 command then writes a stamp with two halves, and only one half can fail the fast suite.
-[Example notebooks](example-notebooks.md) gives the cell outline, the rules, and the procedure for
+[Example notebooks](example-notebooks.md) gives the page outline, the rules, and the procedure for
 a tutorial notebook.
 
 | stamp half | covers | the fast suite |
@@ -113,10 +114,13 @@ Regenerate every registered study that evaluates a result-determining implementa
 
 ## Write documentation
 
-The root `README.md` and reader-facing documents under `docs/` align with Issue 9 of
-ASD-STE100 Simplified Technical English. `CLAUDE.md` states the rules and their limits in full.
-Use one idea per sentence, the active voice, the present tense, and a named actor.
-Use a table wherever the content is parallel.
+[Writing for readers](writing-for-readers.md) holds the writing rules. It names the reader of each
+documentation area: a data scientist new to causal inference for the examples, the getting-started
+pages, and the user guide; a statistician for the technical reference; and contributors for these
+development pages. Write for that reader. On a data-scientist page, lead with the answer, and define
+each technical term in plain words where it first appears. Use a table only when the reader compares
+items across the same columns. When you rewrite a whole data-scientist page, or write a new one, run
+the guide's reader review before you open the pull request.
 
 `docs/README.md` is the source map. It states which document holds which record. It also states the
 examples contract: a new method entry needs a new tutorial, and the two link to each other in both
@@ -145,6 +149,34 @@ docstring breaks the published site.
 
 An example runs in the fast tier. Pass explicit learners to every fit, because the default learner
 library costs 30 to 120 seconds per fit. `CLAUDE.md` gives the complete docstring rules.
+
+## Write a summary
+
+A printed summary is for the person who ran the analysis. Model it on statsmodels: a title, a
+header of facts in two columns, the estimates table, numbered warnings and notes, and longer
+sections only at `detail="full"`. Build it from `cleverly._summary`, never with hand-made
+strings.
+
+1. Take every label, note text, and plain name from `cleverly._summary.vocabulary`. A new note
+   gets a code in `NOTE_CODES` and a template in `NOTE_TEXTS`. A number in a note comes through a
+   placeholder from the constant that sets it, never written into the template.
+2. Build the estimates table with `cleverly._summary._estimates.estimates_table`. It is the one
+   place a summary applies the inference-status rule of
+   [the invariants](../architecture-invariants.md), so a spread that is not a standard error
+   never prints under that name.
+3. Leave library bookkeeping out at both details: hashes, fingerprints, versions, time stamps,
+   seeds, run ids, registry or roadmap ids, cache keys, and the internals of the targeting step.
+   They stay on the object.
+4. Say what a condition means for the reader's number, in plain words, and keep every condition
+   the statement needs. A note that only restates a warning replaces it
+   (`RESTATED_WARNINGS`).
+5. Keep a configuration object's generated repr. A fitted object's one-line repr comes from
+   `short_repr`, and an object with a rounded repr names its content through `_cache_token`, so
+   two different objects never share an assessment cache key.
+6. Add fixtures to a module in `tests/unit/summary_fixtures/`, compact and with explicit
+   learners, so `tests/unit/test_summary_contract.py` checks fidelity against `to_frame()`, width,
+   escaping, and the absence of internals for every one. Each new note code fires on a fixture,
+   or on a literal check when no compact fit reaches it.
 
 ## Add a method, or a validation study
 

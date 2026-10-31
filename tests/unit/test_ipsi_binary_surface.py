@@ -15,6 +15,7 @@ binary branch bit for bit on every platform.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -25,6 +26,7 @@ import pytest
 from cleverly.longitudinal import regimen as regimen_module
 from tests.studies import canonical_longitudinal_incremental as plain
 from tests.studies import canonical_longitudinal_incremental_dropout as dropout
+from tests.studies.evidence.manifest import read_rows
 
 pytestmark = pytest.mark.xdist_group("ipsi_binary_surface")
 
@@ -35,13 +37,13 @@ EXACT = os.environ.get("CI") is None
 FLOOR = 1e-12
 ROOT = "tests/canonical/"
 COMMITTED = {
-    plain.STUDY.implementation: ROOT + "npcausal_longitudinal_incremental/replicates.csv.gz",
-    dropout.STUDY.implementation: ROOT + "longitudinal_incremental_dropout/replicates.csv.gz",
+    plain.STUDY.implementation: ROOT + "npcausal_longitudinal_incremental/replicates.parquet",
+    dropout.STUDY.implementation: ROOT + "longitudinal_incremental_dropout/replicates.parquet",
 }
 
 
 def _committed(implementation: str, scenario: str, replicate: int) -> pd.DataFrame:
-    rows = pd.read_csv(COMMITTED[implementation], float_precision="round_trip")
+    rows = read_rows(Path(COMMITTED[implementation]))
     keep = (
         (rows["implementation"] == implementation)
         & (rows["scenario"] == scenario)

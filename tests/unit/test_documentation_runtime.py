@@ -64,7 +64,7 @@ import ipaddress
 import re
 import socket
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +84,7 @@ from tests.notebooks import (
 from tests.unit.tutorial_semantics import (
     NOT_TUTORIALS,
     STATIC_ONLY,
+    RefitNamespace,
     assert_protocol_recorded,
     callback,
     callback_module,
@@ -96,6 +97,8 @@ from tests.unit.tutorial_semantics import (
     narrated_notebooks,
     narration_mismatches,
     notebook_code,
+    refit_bound,
+    refit_cells,
     stored_text,
     tutorials,
 )
@@ -230,6 +233,7 @@ PRELUDES: dict[str, str] = {
     "README.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
+    "docs/technical-reference/adaptive-iptw.md": "",
     "docs/technical-reference/dr-tmle/supported-estimands.md": "",
     "docs/technical-reference/longitudinal-tmle.md": "",
     "docs/technical-reference/parametric-gformula.md": "",
@@ -641,11 +645,14 @@ def _close_figures() -> None:
         pyplot.close("all")
 
 
-def _run_notebook(relative: str, tmp_path: Path, monkeypatch: Any) -> dict[str, Any]:
+def _run_notebook(
+    relative: str, tmp_path: Path, monkeypatch: Any, *, skip: Collection[str] = ()
+) -> dict[str, Any]:
     """Run a notebook's code cells in order, in one namespace, without a kernel.
 
     Execution happens in a scratch directory with the Agg backend.  The namespace carries
-    ``display`` because a kernel provides it as a builtin.
+    ``display`` because a kernel provides it as a builtin.  A cell in ``skip`` is compiled, so a
+    magic or a syntax error still fails, and is not executed.
     """
     monkeypatch.chdir(tmp_path)
     _headless_matplotlib(monkeypatch)
@@ -664,6 +671,8 @@ def _run_notebook(relative: str, tmp_path: Path, monkeypatch: Any) -> dict[str, 
                     f"{name} is not plain Python ({error}). The offline gate runs cells without "
                     "a kernel, so remove IPython magics and shell escapes"
                 )
+            if cell_id in skip:
+                continue
             try:
                 exec(compiled, namespace)
             except Exception as error:  # pragma: no cover - the failure is the message
@@ -692,12 +701,17 @@ def test_tutorial_semantics_at_documented_size(
     """Reviewed seeded tutorials satisfy their claims at the displayed sample size.
 
     A Markdown tutorial runs its fences and a notebook tutorial runs its code cells.  Both run
-    offline, and both hand their namespace to the tutorial's own callback module.
+    offline, and both hand their namespace to the tutorial's own callback module.  A notebook's
+    refit cells are compiled and not executed here, and ``check`` cannot read what they bind:
+    :func:`test_tutorial_refits_at_documented_size` runs them.
     """
     relative = _tutorial_id(path)
     refuse_network(monkeypatch)
     if path.suffix == ".ipynb":
-        namespace = _run_notebook(relative, tmp_path, monkeypatch)
+        namespace: dict[str, Any] = RefitNamespace(
+            _run_notebook(relative, tmp_path, monkeypatch, skip=refit_cells(path)),
+            refit_bound(path),
+        )
     else:
         namespace = _run_document(
             relative,
@@ -707,6 +721,125 @@ def test_tutorial_semantics_at_documented_size(
             namespace_name="__doc_semantic_example__",
         )
     callback(path.stem)(namespace)
+
+
+#: The notebook tutorials with at least one refit cell, which the slow gate executes whole.
+REFIT_TUTORIALS = tuple(path for path in TUTORIALS if path.suffix == ".ipynb" and refit_cells(path))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("path", REFIT_TUTORIALS, ids=_tutorial_id)
+def test_tutorial_refits_at_documented_size(path: Path, tmp_path: Path, monkeypatch: Any) -> None:
+    """A notebook runs every cell, refit cells included, and both callbacks hold.
+
+    This is the slow tier (``pytest -m slow``).  It runs what the fast gate skips, in the
+    notebook's own order, so the refit cells see the state a reader's kernel gives them.
+    """
+    relative = _tutorial_id(path)
+    refuse_network(monkeypatch)
+    namespace = _run_notebook(relative, tmp_path, monkeypatch)
+    callback(path.stem)(namespace)
+    callback_module(path.stem).check_refits(namespace)
+
+
+def test_a_check_refits_callback_has_refit_cells_to_check() -> None:
+    """A module defines ``check_refits`` only for a notebook with a refit cell.
+
+    The other direction is not required: without ``check_refits`` the slow gate still runs every
+    cell and ``check``.  A ``check_refits`` with no refit cell is a check that no gate calls.
+    """
+    with_refits = {path.stem for path in REFIT_TUTORIALS}
+    stray = sorted(
+        path.stem
+        for path in TUTORIALS
+        if callable(getattr(callback_module(path.stem), "check_refits", None))
+        and path.stem not in with_refits
+    )
+    assert not stray, f"check_refits(namespace) with no refit cell to check: {stray}"
+
+
+def test_the_slow_tier_is_deselected_by_default_and_run_by_its_own_job() -> None:
+    """The default run skips ``slow``, and the CI ``slow-tests`` job selects it.
+
+    Without the first, the fast command would pay for the refits again.  Without the second, no
+    gate would run them at all.
+    """
+    import tomllib
+
+    options = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"]
+    assert '-m "not slow"' in options["ini_options"]["addopts"]
+    assert any(marker.startswith("slow:") for marker in options["ini_options"]["markers"])
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    tests_job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
+    slow_job = workflow.split("\n  slow-tests:", 1)[1].split("\n  # ", 1)[0]
+    pytest_lines = [line for line in tests_job.splitlines() if "pytest" in line]
+    assert pytest_lines and not any(" -m " in line for line in pytest_lines)
+    assert "pytest -q -n auto --dist loadgroup -m slow" in slow_job
+    assert "if:" not in slow_job, "the slow tier runs on every change"
+
+
+def test_the_derived_refit_cells_are_the_reviewed_ones() -> None:
+    """Pin the derived refit cells of each notebook tutorial.
+
+    Each notebook's callback module declares ``REFIT_CELLS``, so each author edits one file when a
+    notebook gains or loses a refit cell.  The pin keeps a classification change visible: a cell
+    that silently left the fast gate would otherwise go unnoticed until the slow job ran.  A
+    notebook module without the pin fails here rather than defaulting to no refit cells.
+    """
+    notebooks = [path for path in TUTORIALS if path.suffix == ".ipynb"]
+    missing = [
+        path.stem for path in notebooks if not hasattr(callback_module(path.stem), "REFIT_CELLS")
+    ]
+    assert not missing, f"callback modules without REFIT_CELLS: {missing}"
+    derived = {path.stem: list(refit_cells(path)) for path in notebooks}
+    pinned = {path.stem: list(callback_module(path.stem).REFIT_CELLS) for path in notebooks}
+    assert derived == pinned
+
+
+def test_the_refit_rule_follows_reads_and_ignores_rebinding(tmp_path: Path) -> None:
+    """The derived rule marks a reader of a refit name, and not a cell that rebinds the name."""
+    sources = (
+        "fit = 1\nname = 'a'",
+        "checks = fit.refute(n_replicates=20)\nname = 'b'",
+        "print(checks)",
+        "for name in ('x',):\n    print(name, fit)",
+        "name = 'c'\nprint(name)",
+        "rows = [row for row in checks]",
+        "fit = 2\nprint(fit)",
+        "table = {k: v for k, v in fit.items()}",
+        "simulated_confounding(fit)",
+        "from cleverly.validation import refute as check_it",
+        "check_it(fit)",
+        "warm = [fit for fit in range(3)]",
+        "print(fit)",
+        "try:\n    caught = refute(fit)\nexcept ValueError as error:\n    pass",
+        "print(error, caught)",
+        "class K:\n    caught = 1",
+        "print(caught)",
+        "[last := item for item in checks]",
+        "print(last)",
+    )
+    cells = [nbformat.v4.new_code_cell(source, id=f"c{i}") for i, source in enumerate(sources)]
+    path = tmp_path / "probe.ipynb"
+    nbformat.write(nbformat.v4.new_notebook(cells=cells), path)
+    assert refit_cells(path) == {
+        "c1": "calls refute",
+        "c2": "reads 'checks' from 'c1'",
+        "c5": "reads 'checks' from 'c1'",
+        "c8": "calls simulated_confounding",
+        "c10": "calls check_it",
+        "c13": "calls refute",
+        "c14": "reads 'caught' from 'c13', 'error' from 'c13'",
+        "c16": "reads 'caught' from 'c13'",
+        "c17": "reads 'checks' from 'c1'",
+        "c18": "reads 'last' from 'c17'",
+    }
+    # ``row`` and the second ``fit`` are comprehension variables, local to their comprehension.
+    assert set(refit_bound(path)) == {"checks", "rows", "caught", "error", "last"}
+    guarded = RefitNamespace({"checks": None, "fit": 2}, refit_bound(path))
+    with pytest.raises(KeyError, match="check_refits"):
+        guarded["checks"]
+    assert guarded["fit"] == 2
 
 
 @pytest.mark.parametrize("path", narrated_notebooks(), ids=_tutorial_id)
@@ -806,8 +939,20 @@ def test_the_shared_callback_helpers_refuse_what_they_must(tmp_path: Path) -> No
     )
     carried = SimpleNamespace(provenance=SimpleNamespace(protocol_fingerprint=program.fingerprint))
     assert assert_protocol_recorded(notebook, "protocol", program, carried) == program.fingerprint
-    with pytest.raises(AssertionError, match="does not print the protocol fingerprint"):
+    with pytest.raises(AssertionError, match="prints neither the protocol fingerprint"):
         assert_protocol_recorded(notebook, "protocol", moved)
+    # A cell that prints every field passes without the fingerprint, and one that drops a
+    # field fails.
+    fields = "\\n".join(moved.summary_lines()).replace('"', '\\"')
+    printed = tmp_path / "fields.ipynb"
+    printed.write_text(
+        '{"cells": [{"cell_type": "code", "id": "protocol", "source": "", "outputs": '
+        f'[{{"output_type": "stream", "name": "stdout", "text": "{fields}"}}]}}]}}',
+        encoding="utf-8",
+    )
+    assert assert_protocol_recorded(printed, "protocol", moved) == moved.fingerprint
+    with pytest.raises(AssertionError, match=r"nor .Ward."):
+        assert_protocol_recorded(printed, "protocol", replace(moved, interference_unit="Ward"))
     stale = SimpleNamespace(provenance=SimpleNamespace(protocol_fingerprint=moved.fingerprint))
     with pytest.raises(AssertionError):
         assert_protocol_recorded(notebook, "protocol", program, carried, stale)

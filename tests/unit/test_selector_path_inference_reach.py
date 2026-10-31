@@ -38,6 +38,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import variable_importance
 from cleverly._inference_status import STATUS_RECORDS
+from cleverly._summary import vocabulary
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
@@ -330,22 +331,28 @@ class TestEverySpreadIsNamedByItsStatus:
             spread_name("ratio_to_standard_error", DIAGNOSTIC),
         ]
         assert "reported_standard_error" not in columns
-        summary = report.summary()
-        assert spread_name("sd/se", DIAGNOSTIC) in summary
-        assert "reported se" not in summary
+        (table,) = [
+            table for table in report.summary().tables if table.title == vocabulary.SPREAD_TABLE
+        ]
+        assert vocabulary.SPREAD_LABELS[spread_name("std_err", DIAGNOSTIC)] in table.columns
+        assert vocabulary.SPREAD_LABELS["std_err"] not in table.columns
 
     def test_the_split_noise_share_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
         summary = repeated_selector_fit.summary()
-        label = spread_name("std_err", DIAGNOSTIC)
-        assert f"of {label})" in summary
-        assert "of std_err)" not in summary
+        label = vocabulary.SPREAD_LABELS[spread_name("std_err", DIAGNOSTIC)]
+        assert label in summary.table("estimates").columns
+        assert f"its {label} includes the spread between splits" in (
+            summary.note("repeated_splits").text
+        )
+        assert "std. error" not in summary.note("repeated_splits").text
 
     def test_the_nuisance_note_keeps_its_capitals(self, repeated_selector_fit: Any) -> None:
-        """``str.capitalize`` printed "f18". Only the first letter may change."""
+        """``str.capitalize`` printed "f18". The summary's note quotes the status's plain
+        reason as written."""
         report = repeated_selector_fit.diagnostics.nuisance_models()
         assert report.inference_note == WORKING_MECHANISM.assessment_note
-        note = WORKING_MECHANISM.assessment_note
-        assert note[0].upper() + note[1:] + "." in report.summary()
+        text = report.summary().note("fit_status").text
+        assert text == f"{vocabulary.NO_INTERVAL} {WORKING_MECHANISM.plain_reason}"
 
     def test_an_ordinary_report_has_no_note(self, ordinary_fit: Any) -> None:
         assert ordinary_fit.diagnostics.nuisance_models().inference_note is None
@@ -360,14 +367,14 @@ class TestEverySpreadIsNamedByItsStatus:
         assert spread_name("std_error", DIAGNOSTIC) in columns
         assert "std_error" not in columns
         # The detail counts the shift in the same unit the frame names.
-        assert f" {spread_name('standard errors', DIAGNOSTIC)}); " in test.detail
+        assert f" {spread_name('standard errors', DIAGNOSTIC)} against" in test.detail
 
     def test_an_ordinary_refutation_detail_counts_standard_errors(self, ordinary_fit: Any) -> None:
         report = refute(
             ordinary_fit, tests=("random_common_cause",), n_replicates=2, random_state=0
         )
         detail = report.tests[0].detail
-        assert " standard errors); " in detail
+        assert " standard errors against" in detail
         assert spread_name("standard errors", DIAGNOSTIC) not in detail
 
     def test_a_failing_score_verdict_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
@@ -377,15 +384,16 @@ class TestEverySpreadIsNamedByItsStatus:
         assert check.inference == DIAGNOSTIC
         unit = spread_name("standard errors", DIAGNOSTIC)
         assert f"The {unit} above" in check.one_line()
-        assert f"the {unit} this fit reports" in check.summary()
-        assert "influence-curve standard errors" not in check.summary()
+        reading = check.summary().reading
+        assert "so the plug-in standard error may be wrong" in reading
+        assert "so the standard error may be wrong" not in reading
 
     def test_an_ordinary_failing_score_verdict_is_unchanged(self, ordinary_fit: Any) -> None:
         check = score_check(ordinary_fit, tolerance=0.0)
         assert not check.passed
         assert check.inference == "influence_curve"
         assert "  The standard errors above are read off" in check.one_line()
-        assert "the influence-curve standard errors this fit reports" in check.summary()
+        assert "so the standard error may be wrong" in check.summary().reading
 
     def test_the_coverage_study_labels_what_it_measured(self) -> None:
         study = CoverageStudy(

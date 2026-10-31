@@ -161,7 +161,7 @@ estimators.
 
 `patience=p` is the `patience` argument of R `ctmleDiscrete`. It applies to every strategy that
 selects a path position by cross-validated risk: `"greedy"`, `"ordered"`, `"discrete"`, `"lasso"`
-and `"learners"`. With the default `None`, the fit builds every fold's whole path first, as before.
+and `"learners"`. With the default `None`, the fit builds every fold's whole path first.
 
 The fit scores each position `k` by the summed held-out loss plus the penalty from the pooled
 influence. The counter then reads the risk of `k`.
@@ -174,15 +174,14 @@ influence. The counter then reads the risk of `k`.
 | a risk that is not finite | counts as worse |
 | selection | the position of the smallest scored risk, the first of ties |
 
-The count is not a run length. A worse risk after a reset adds one, and a later worse risk adds
-another. This matches the counter in `functions_discrete.R` of R `ctmle`.
+The count is the number of positions since the smallest risk so far. A position below its
+predecessor but above that minimum still adds one. This matches the counter in `functions_discrete.R` of R `ctmle`.
 
 The path is lazy under `patience`. The fit builds each fold's path one position at a time, in step
 over the folds. So the stop is a function of the summed fold risk. No position after the stop is
 scored, and one stop position applies to the full-sample path too. Every stored array
 ends at the stop. `CTMLESelection.patience` records the setting. `CTMLESelection.stopped_at`
-records the index where the counter fired. The summary prints one line that states which case
-occurred.
+records the index where the counter fired.
 
 Under `greedy`, `ordered` and `discrete`, no position after the stop is fitted. Under `lasso` and
 `learners` the later positions are fitted. `lasso` fits its whole penalty grid before the path
@@ -228,7 +227,8 @@ selector strategy to the declared subset $W_g$. The outcome regression keeps the
 | the outcome regression, the missingness mechanisms | the full set |
 
 `CTMLESelection.covariates` is the pool. `CTMLESelection.restricted_pool` is set only when the
-design declares a subset, and the summary then prints "collaborative candidate pool: {Wg}".
+design declares a subset. The search summary then reads the pool, marked "(declared)", under
+"Covariates searched", and the fit's full summary says the search drew only from it.
 
 A fit that selects nothing takes the status of the ordinary TMLE. These are a `"discrete"` fit with
 one candidate equal to the pool and a `"learners"` fit with an empty declared list. The test
@@ -313,9 +313,9 @@ package fits it on the same rows a covariate-set candidate uses.
 `"lambda=0.0123"`, `"lambda=0"`, `"LogisticRegression[2]"`, or `"arrays[1]"`. `final` is the
 final-step candidate, or `None` when no final step ran. `selected` stays the cross-validated index.
 The reported mechanism is `final` when it is set, and `selected` otherwise. Under `lasso`,
-`path[k]` holds the covariates with a nonzero coefficient in some fit of candidate `k`. `summary()`
-also reports whether the treatment risk decreases along the declared order, which the template
-requires. A fit does not refuse when it does not.
+`path[k]` holds the covariates with a nonzero coefficient in some fit of candidate `k`. Under
+`learners`, the summary notes each candidate at which the treatment risk rises, against the order
+the template requires. The fit does not refuse.
 
 **R `ctmle` differs in these ways.** The package does not reproduce them.
 
@@ -439,9 +439,9 @@ column, and a $2K$ solve that does not converge. An array entry refuses cross-fi
 bootstrap, and every refit, because it describes one fit on the original rows and columns.
 
 **Evidence.** The registered study [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md)
-validates the strategy on three scenarios. All three pass their truth tests. The R `ctmle` type 3
-comparator is declared, and its runs are pending, so the study has no parity result. The study
-reports Python property evidence, with comparator runs pending. All 21 property cells pass,
+validates the strategy on three scenarios. Both sides pass all three truth tests. The paired rows
+against R `ctmle` type 3 are equivalent on all three scenarios, and the parity witness passes on
+`binary_declared_pair` and `binary_constant_q`. All 21 property cells pass,
 including the both-wrong control, the cluster-robust cell against its IID control, and three
 wrong-outcome cells. Three test modules hold the C-TMLE0 checks.
 
@@ -488,7 +488,7 @@ The point estimate, the selection path, and the curve remain. Two accessors repo
 diagnostic. `plugin_std_error` gives the plug-in standard error of that curve. `plugin_interval`
 gives its Wald interval. Both are a diagnostic. Neither is a confidence statement.
 
-The reports follow the accessors. `summary()` prints the diagnostic in a `working-mechanism se`
+The reports follow the accessors. `summary()` prints the diagnostic in a `plug-in SE (diagnostic)`
 column, and prints no interval column. `to_frame()` emits `inference`, `plugin_std_err`,
 `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`, `ci_lower`, `ci_upper`,
 and `p_value`.
@@ -496,7 +496,8 @@ and `p_value`.
 Five derived operations refuse for the same reason. A contrast of two refused estimates is itself
 refused. A simultaneous band is a joint confidence statement, so a selector fit builds none. An
 explicit `simultaneous=True` also builds no band and emits no warning. The default is `True`, and
-`summary()` names the omission when the fit reports more than one estimate.
+the Settings section of `summary(detail="full")` names the omission when the fit reports more
+than one estimate.
 
 An E-value reads the estimate and its interval, so every E-value branch reports `unavailable` on these
 paths. `variable_importance()` adjusts one p-value per candidate, so it refuses at its entry point
@@ -555,8 +556,7 @@ learning and selective inference for cross-validation are candidate frameworks, 
 oracle-model, Gaussian quadratic-selection, and joint-Gaussian-selection conditions have not been
 established for this selector.
 
-The pinned R `ctmle` computes a binary parametric term for each candidate and uses the selected
-candidate's variance, as the paragraph above states. The table separates the two intervals.
+The table separates the plug-in interval from R's parametric-term interval.
 
 | interval | what it is | R `ctmle` 0.1.2 at `18de559` |
 | --- | --- | --- |
@@ -574,10 +574,9 @@ inputs of one fit, and with a misspecified-outcome witness where the term is not
 
 Leeb and Pötscher (2006) supply a nonuniformity warning in a finite-dimensional regression
 subset-selection model; their theorem has not been transferred here. A working-mechanism plug-in
-standard error makes no conditional-coverage claim and is not inferential output. The package now
-enforces that sentence rather than only asserting it: the number is reachable under
-`plugin_std_error` and `plugin_interval`, and under no inferential name. Near-ties are an
-especially important unresolved regime.
+standard error makes no conditional-coverage claim and is not inferential output. The number is
+reachable under `plugin_std_error` and `plugin_interval`, and under no inferential name. No result
+here covers near-ties between candidates.
 
 ### The per-arm outcome-adaptive design
 
@@ -634,7 +633,7 @@ independent sample.
 
 Every `oat_design="shared"` fit takes the `"generated_design_plugin"` status.
 `ci`, `pvalue` and `std_error` raise `CapabilityError` with the reason of the status, and the
-`summary()` column is `generated-design se`.
+`summary()` column is `plug-in SE (diagnostic)`.
 
 At `n = 1,000`, the registered point-treatment pair
 resolves a finite-sample deficit in the standard-error ratio without invalid coverage. The
@@ -650,8 +649,9 @@ as a diagnostic. Ordinary TMLE conditions alone do not establish validity after 
 
 The full-refit bootstrap reruns each adaptive construction. No reviewed theorem validates it for a
 selector path or for either outcome-adaptive design. On those paths, `summary()` therefore prints
-the standard deviation of the replicate estimates as `bootstrap sd`, and a `percentile range`,
-under the diagnostic framing. It prints no percentile confidence interval. `to_frame()` emits
+the standard deviation of the replicate estimates as `bootstrap SD (diagnostic)`, and a
+`percentile range (diagnostic)`, with a note that the range is not a confidence interval.
+`to_frame()` emits
 `bootstrap_sd`, `bootstrap_range_lower` and `bootstrap_range_upper` in place of
 `bootstrap_std_err`, `bootstrap_ci_lower` and `bootstrap_ci_upper`. The targeted-HAL bootstrap
 result cited in the audit fixes its data-adaptive complexity bound rather than reselecting it.
@@ -659,7 +659,7 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors, comparator-backed against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. The R `ctmle` `ctmletype = 3` comparator is declared and its runs are pending. All three truth tests and all 21 property cells pass |
+| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. All three paired rows against R `ctmle` `ctmletype = 3` are equivalent. All six truth tests and all 21 property cells pass |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |
@@ -1064,9 +1064,10 @@ fit uses the treatment learner for every factor.
 The positivity report names the design as the condition of the product row, for example
 `P(A=a,Delta=1|Qbar(a,W))`. With strata, the condition is `Qbar(a,W),S`.
 
-**Small strata.** Count the rows of each stratum, arm and fold cell before you read
-`plugin_std_error`. The fit regresses each factor on the rows of one stratum and one arm. A
-cross-fitted fit uses only the training complement of each fold. With few rows, a flexible or
+**Small strata.** Before you read `plugin_std_error`, count the smaller class of each factor's
+binary target in each stratum, arm and fold cell. The study found that class, not the row count,
+limits the factor fit. The fit regresses each factor on the rows of one stratum and one arm, and
+a cross-fitted fit uses only the training complement of each fold. With a small class, a flexible or
 unpenalized treatment learner can extrapolate the design toward zero. The term of one row then
 dominates `plugin_std_error`. The point estimate does not move.
 
@@ -1074,10 +1075,10 @@ The [strata and missing-data study](method-evidence/outcome-adaptive-per-arm-c-t
 measured this effect with an unpenalized cubic learner in $\operatorname{logit} q_a$ and five
 folds. Each row of the table is 800 fits of the `strata_missing` law at its n.
 
-| n | expected rows in the smallest cell | fits with `plugin_std_error` above twice the empirical SD | mean `plugin_std_error` over the empirical SD | median `plugin_std_error` over the empirical SD |
-| --- | --- | --- | --- | --- |
-| 500 | 29 | 40 | 1.575 | 1.00 |
-| 2,000 | 117 | 3 | 0.929 | 0.898 |
+| n | expected rows in the smallest cell | expected size of the smallest class | fits with `plugin_std_error` above twice the empirical SD | mean `plugin_std_error` over the empirical SD | median `plugin_std_error` over the empirical SD |
+| --- | --- | --- | --- | --- | --- |
+| 500 | 29 | 9.9 | 40 | 1.575 | 1.00 |
+| 2,000 | 117 | 39.5 | 3 | 0.929 | 0.898 |
 
 | item | content |
 | --- | --- |

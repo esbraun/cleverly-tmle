@@ -634,8 +634,10 @@ previous reader had is not a citation; a page number is.
   12(1):305–332, DOI 10.1515/ijb-2015-0052. Read first-hand in the NIH author manuscript PMC6056197
   on 2026-09-26, and its section structure again on 2026-09-28. Sections 4.1 to 4.3 give the blip
   and weighted-classification losses for a rule learner, and Section 6 gives the CV-TMLE of a rule's
-  risk. It gives no interval for the value.
-  [X11](roadmap.md#x11-learned-policy-follow-ups) part (g) cites it.
+  risk. It gives no interval for the value. Appendix A gives the doubly robust versions of the
+  blip losses, read in full text on 2026-10-30. The
+  rule learners of the learned-rule value cite it, in
+  [learned rules](technical-reference/point-treatment-tmle.md#learned-rules).
 - Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
   non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
   Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. Read first-hand on 2026-09-26, 2026-09-27
@@ -1018,7 +1020,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   nuisance estimators and solves extra score equations for a binary treatment-specific mean. The
   shipped selector does not perform those targeting steps. This entry gives no section locator,
   because the RM19 review could not read the journal version, and the
-  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why.
+  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why. `AdaptiveIPTW` cites the working paper WP302 and not this article. The
+  [adaptive-propensity IPTW entry](#adaptive-propensity-iptw-adaptiveiptw) says so.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
@@ -1942,6 +1945,19 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 ## Sensitivity analysis
 
+- Tan (2006), [*A distributional approach for causal inference using propensity scores*](https://doi.org/10.1198/016214506000000023),
+  *Journal of the American Statistical Association* 101(476):1619–1637. Section 4.2, eq. (9),
+  defines the marginal sensitivity model that
+  [marginal sensitivity model bounds](technical-reference/validation-methods.md#marginal-sensitivity-model-bounds)
+  use.
+- Dorn, Guo & Kallus, replication code,
+  [`CausalML/DoublyValidDoublySharpSensitivity`](https://github.com/CausalML/DoublyValidDoublySharpSensitivity)
+  at commit `26cbbf6e` (22 March 2024), `simplified_dvds.R`. The functions `phi.continuous` and
+  `dvds.binary` give the estimator and the set interval that the bounds match term by term. The
+  published paper (*JASA* 120(549):331–342) was not read, so no theorem of it is cited.
+- Imbens & Manski (2004), *Confidence intervals for partially identified parameters*,
+  *Econometrica* 72(6):1845–1857. This package did not read it. It is named only as the
+  interval for the parameter alone that the bounds do not ship.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026),
   [*Long Story Short: Omitted Variable Bias in Causal Machine
   Learning*](https://doi.org/10.1162/REST.a.1705), *The Review of Economics and Statistics*,
@@ -1999,8 +2015,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   $Y_{am} \perp A \mid C$ and $Y_{am} \perp M \mid A, C, U$, so $U$ confounds only the
   intermediate-outcome relation. Appendix 1 gives the risk-ratio bias for a binary $U$ with a
   constant $\gamma$. Roadmap item
-  [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) lets $U$ confound the treatment
-  too, so this paper is context for X49 and not its base.
+  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G lets $U$ confound the treatment
+  too, so this paper is context for that part and not its base.
 - Smith & VanderWeele (2019), [*Mediational E-values: approximate sensitivity analysis for
   unmeasured mediator-outcome confounding*](https://www.louisahsmith.com/publications/smith2019mediational.pdf),
   *Epidemiology* 30(6):835-837. The [supplement](https://download.lww.com/wolterskluwer_vitalstream_com/PermaLink/EDE/B/EDE_2019_07_22_SMITH_EDE18-0696R2_SDC1.pdf)
@@ -2016,7 +2032,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   and averaging over measured covariates. The hard-stop review read arXiv:1507.03984v1, Section 2,
   Result 1 and Equation (1), eAppendix 1, Lemmas A.1 and A.2, and eAppendix 2.2, Propositions A.1
   and A.2. The proof of Proposition A.2 bounds a ratio of two integrals with Lemma A.2. Roadmap item
-  [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) applies that bound to each arm.
+  [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G applies that bound to each arm.
 - Gilbert, Fong, Kenny & Carone (2023), [*A controlled effects approach to assessing immune
   correlates of protection*](https://academic.oup.com/biostatistics/article/24/4/850/7320953),
   *Biostatistics* 24(4):850-865. Its E-value compares marker interventions within one vaccination
@@ -2051,14 +2067,23 @@ sizes only the cluster sum is the delta-method variance of the row mean
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- Albert and Anderson (1984), *On the existence of maximum likelihood estimates in logistic
+  regression models*, Biometrika 71(1), 1–10. The paper classifies a sample as completely
+  separated, quasi-completely separated, or overlapping, and finds a finite maximum-likelihood fit
+  only under overlap. Konis (2007), *Linear programming algorithms for detecting separated data
+  in binary logistic regression models*, DPhil thesis, University of Oxford, gives the linear
+  programme that tests for separation. The simulated common-cause calibration applies that
+  programme to $K$ classes (`_classes_separate`). The witnesses in
+  `tests/unit/test_simulated_confounding_point_laws.py` check it on complete, quasi-complete and
+  one-class separation. No review in this project has read either source in full.
 - Carnegie, Harada and Dorie, R package [`treatSens`](https://github.com/vdorie/treatSens) 3.0
   (`DESCRIPTION` dated 2024-02-03), read on the `master` branch. The hard-stop review read
   `R/genU_contY.R`, `R/treatSensMLM.R` and `man/treatSens.Rd`. `treatSensMLM` declares the latent
   at the individual or the group level (`trt.level`, lines 4 to 7). `contYZU` in `R/genU_contY.R`
   draws one latent value per group for a group-level treatment (lines 37 to 84).
-  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. Roadmap item
-  [X47](roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (b) cites it as a
-  design precedent for the latent level, not as a base.
+  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. The
+  [clustered point law](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+  cites it as a design precedent for the latent level, not as a base.
 - Qin and Yang, R package [`mediationsens`](https://cran.r-project.org/package=mediationsens)
   0.0.3, read in the CRAN reference manual. `sens()` simulates a pretreatment latent that enters
   the mediator and outcome models, and the treatment model when the treatment is not randomized.
@@ -2161,16 +2186,16 @@ sizes only the cluster sum is the delta-method variance of the row mean
   procedure. The abstract on page 1014 states that scope. The method encodes the impact of
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
-  latent treatment perturbation and no refit law for this surface. Roadmap item X47, part (a),
-  cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
+  latent treatment perturbation and no refit law for this surface. The multi-arm point law of the
+  simulated common-cause surface cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
   2.3.1, Theorem 2.1 and Remark 2.
 - Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
   Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
   arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
   a bias correction from those models. That construction does not perturb the treatment and the
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
-  and a mixed latent cause for this surface. Roadmap item X47, part (b), cites it as a negative
-  finding.
+  and a mixed latent cause for this surface. The clustered point law of the simulated common-cause surface
+  cites it as a negative finding.
 
 ## Negative controls
 
@@ -2265,7 +2290,7 @@ rather than a comparison target.
   iterative algorithm as "Theorem 3 of van der Laan (2014)", with this journal version in its
   reference list. The RM19 review could not read the journal version, which is not open access.
   So this repository cites **Theorem 3** through Benkeser et al. (2017), Section 3.1, and gives no
-  page or section locator of its own. The later univariate result remains the default.
+  page or section locator of its own. `AdaptiveIPTW` cites the working paper WP302 and not this article. The later univariate result remains the default.
 - Benkeser, Carone, van der Laan & Gilbert (2016), *Doubly-robust Nonparametric Inference on the
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
   356. Read first-hand by the RM19 review. RM40 did not read this version. §3.1 and equation (2)
@@ -2417,22 +2442,65 @@ $f^{-1}(f(h) \pm z\,se)$, with $se$ from the gradient of $f \circ h$.
 $(f(h) - f(\text{null}))/se$. `contrast(transform=)` and `ParameterEstimate.wald_test` reproduce
 both, and sort the transformed limits.
 
+## Adaptive-propensity IPTW (`AdaptiveIPTW`)
+
+The estimator rests on one working paper. The [contract page](technical-reference/adaptive-iptw.md)
+states what the estimator takes from it and what it corrects. The journal version of the paper was
+not available to this project, so the page cites the working paper only. The `drtmle` source is
+implementation provenance and the origin of the one-step form.
+
+- van der Laan (2012), *Statistical Inference when using Data Adaptive Estimators of Nuisance
+  Parameters*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper 302 (WP302).
+  Locators: Theorem 1, "Negligibility of second order terms", pp. 5-6, where the foot of p. 5
+  defines $Q_{r,0,n}$ and the second of the three displays at the top of p. 6 states the condition
+  (WP302 numbers no equations); the worked super learner example, pp. 4-7; Section 2.1, p. 7; the
+  proof preamble, p. 26; Lemma 1, p. 27; Lemma 2, pp. 27-28. Three defects are recorded. The
+  influence curve prints the term $H_0 (A - g_0)$ with a plus sign on p. 6 and again in
+  Section 2.1. The proof, p. 26, and the efficient influence function of p. 7 give a minus sign,
+  and the package uses minus. The gloss on p. 6 says that the second and third conditions again
+  need $g_n$ at rate $o(n^{-1/4})$, which is false for the second condition. The claim of
+  Section 2.1 that a correct parametric model in the library satisfies all the conditions is false
+  when $Q_0 \ne Q_{r,0}$.
+- van der Laan (2014), *Int. J. Biostat.* 10(1):29-57, the published version of WP302. The article
+  is unread. This repository cites no locator from it.
+- Williamson, Forbes and White (2014), *Statistics in Medicine*, DOI 10.1002/sim.5991. Section 3.3:
+  for plain IPTW with a parametric propensity, a sandwich variance that ignores the estimated
+  propensity is typically conservative.
+- Ertefaie, Hejazi and van der Laan, arXiv:2005.11303v2, p. 2: the targeted IPW estimator "has
+  been shown to suffer from issues of irregularity". The Biometrics version appears under
+  [longitudinal references](#longitudinal-survival-and-marginal-structural-models).
+- Benkeser, Cai and van der Laan, arXiv:1901.05056v1, Appendix F, condition (v): the mirror-image
+  term of the doubly robust case needs an explicit smoothness assumption.
+- The `drtmle` 1.1.2 vignette, [`vignettes/using_drtmle.Rmd`](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/vignettes/using_drtmle.Rmd#L1317-L1323),
+  lines 1317-1323, gives the one-step form, and lines 1345-1348 say that the authors expect
+  `iptw_tmle` to behave better in finite samples, "though further study is needed".
+  [`R/adaptive_iptw.R`](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/adaptive_iptw.R#L208-L215), lines 208-215, computes the one-step
+  value, and lines 284-296 build the covariance from the refitted reduced regression.
+  [`R/confint.R`](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/confint.R#L179-L181), lines 179-181, calls `iptw_os` "not recommended",
+  and line 250 refuses inference for the untargeted IPTW with the message "Theory does not
+  support inference for naive IPTW with super learner."
+
 ## The TWINS example
 
 The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the
-exposure coverage, and the reading of its birth-weight table.
+exposure coverage, the outcome range, and the argument against adjustment for gestational age.
 
 - National Center for Health Statistics, linked birth/infant death cohort files for the 1989, 1990,
   and 1991 birth cohorts, distributed by the
   [National Bureau of Economic Research](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data).
   NCHS collected the data, and it is not responsible for any analysis of them. Use of the data
   signifies agreement with the [NCHS data-use rules](https://www.cdc.gov/nchs/data_access/restrictions.htm):
-  statistical analysis only, and no attempt to identify any person. The 1989 user guide counts the
-  deaths of infants who die before their first birthday (introduction, p. 1, and the note to
-  Table 2, p. 6). The table of items not stated by state of residence in each guide names the states that did not collect the
-  tobacco item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in
-  1989 (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12);
-  and California, Indiana, New York, and South Dakota in 1991 (p. 9).
+  statistical analysis only, and no attempt to identify any person. The table of items not
+  stated by state of residence in each guide names the states that did not collect the tobacco
+  item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in 1989
+  (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12); and
+  California, Indiana, New York, and South Dakota in 1991 (p. 9).
+- The 1989 user guide of the linked file. Its record layout (p. 14) codes the birth weight in
+  grams as 0227 to 8165, with 9999 for "not stated". Pages 14-15 code the gestation recode
+  `GESTAT10` as 01 for under 20 weeks, 02 for 20-27, 03 for 28-31, 04 for 32-35, 05 for 36, 06
+  for 37-39, 07 for 40, 08 for 41, 09 for 42 and over, and 10 for not stated. The technical
+  appendix (pp. 12-13) states that a birth weight inconsistent with both the computed gestation
+  and the clinical estimate was reclassified as "not stated".
 - Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
   latent-variable models*](https://proceedings.neurips.cc/paper/2017/hash/94b5bde6de888ddf9cde6748ad2523d1-Abstract.html),
   *Advances in Neural Information Processing Systems* 30 (NIPS 2017). Section 4.3 describes the
@@ -2445,7 +2513,9 @@ exposure coverage, and the reading of its birth-weight table.
   164(11):1115-1120, DOI 10.1093/aje/kwj275. It uses the 1991 US linked file with maternal smoking
   as the exposure. Figure 3 gives the causal graphs, and the discussion explains the paradox as
   selection bias from stratification on birth weight, which smoking affects and which shares
-  unmeasured causes, such as birth defects, with infant mortality.
+  unmeasured causes, such as birth defects, with infant mortality. The notebook applies the same
+  graph argument to gestational age, a variable that smoking affects and that shares unmeasured
+  causes with birth weight. The paper does not analyze gestational age.
 
 The notebook also cites one source for its sensitivity analysis. Its entry is under
 [sensitivity analysis](#sensitivity-analysis).
@@ -2514,7 +2584,7 @@ not a shipped claim.
   bounds*](https://arxiv.org/abs/2005.02908v1), *Epidemiology*, DOI 10.1097/EDE.0000000000001380.
   Read first-hand in arXiv:2005.02908v1, the only version. Result 1 bounds the observed risk ratio
   by a product of bias factors. Its selection factor $BF_s$ is a product of one factor for each
-  arm. Cited by roadmap item [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) as the
+  arm. Cited by roadmap item [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G as the
   structural precedent for a split into one factor for each arm.
 - Tang & Westling (2024), [*Consistency of the bootstrap for asymptotically linear estimators based
   on machine learning*](https://arxiv.org/abs/2404.03064v2), arXiv:2404.03064v2. Theorem 3.4 gives
@@ -2600,5 +2670,5 @@ not a shipped claim.
   inference*](https://arxiv.org/abs/2102.09412), arXiv:2102.09412, read in the HTML version of 25
   February 2022. Section 4, Equations (12) to (15), gives a Gaussian-copula outcome law that keeps
   the support of the outcome. The [hard-stop review](technical-reference/hard-stop-review.md)
-  cites it for roadmap item [X47](roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits)
-  part (g).
+  cites it for roadmap item [X82](roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator)
+  part F, point laws (g).

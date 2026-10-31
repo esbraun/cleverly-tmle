@@ -195,75 +195,140 @@ R `drtmle`'s `cvFolds` path maps to `cross_fit=True, reduced_crossfit="pooled",
 targeting_scheme="pooled", cv_evaluation=False, stratify_folds="none"`. `cvFolds` draws an
 unstratified V-fold split, and `"none"` is the only policy a cross-fitted `cleverly` fit accepts. The
 [evidence manifest](../evidence.md#estimator-variants-over-registered-targets) states the map, the
-test that pins it, and which settings the source audit refuses.
+test that pins it, and which settings the source audit refuses. The default
+`reduced_crossfit="foldwise"` is not the R computation. The R comparator studies pin `"pooled"`.
 
 ## Reduced-regression cross-fitting
 
-`reduced_crossfit="pooled"` (default) reuses the primary split as it stands; `"nested"` takes
-fold `k`'s training designs *and targets* from primary models fitted with fold `k` left out as
-well. **A diagnostic keyword rather than a tuning one**, for a specific reason: the argument for
-the cheap construction needs one quantity to vanish, and that quantity *is* the difference between
-these two.
+`reduced_crossfit` sets where fold `k`'s reduced regressions (`Q_r`, `g_{r,1}`, `g_{r,2}`) train.
+On a cross-fitted fit, fold `k`'s empirical-process term has conditional mean zero only when those
+regressions are functions of the fold-`k` complement.
 
-**Cross-fitting is not in the theorem.** The canonical mapping above is source evidence for the
-implemented computation, and the 2023 article's statement that cross-validated nuisance estimates
-weaken the entropy conditions is supporting evidence that cross-validated DR-TMLE is intended;
-neither is the missing proof.
-What is specifically unaddressed is the **pooled** construction, in which an observation influences
-other rows' generated regressors and then returns to its own reduced-regression prediction through
-those rows. Generic cross-fitting results do not cover that because the conditional independence
-they turn on is exactly what the generated design breaks.
+| setting | fold `k`'s reduced regressions train on | fold `k`'s data reach them |
+| --- | --- | --- |
+| `"foldwise"` (default) | slab `k`: the production arrays at fold-`k` rows, and leave-two-out arrays `Q̄^(−k,−m)`, `g^(−k,−m)` at the rows of each fold `m ≠ k`. Each tilt moves slab `k` along the covariate built from slab `k` and fold `k`'s reduced regressions | no |
+| `"pooled"` | the production arrays `Q̄^(−m)`, `g^(−m)` at the rows of each fold `m ≠ k`. R `drtmle`'s `cvFolds` construction | yes, through the models of the other folds and through the tilts of their rows |
 
-Cross-fitting does not repair a one-wrong fit whose mechanism breaks the level sets of `g_0`. The
-probe used a wrong outcome regression and a gradient-boosting mechanism on law L. The ten-fold
-default gave an ATE bias of +1.53, +2.01 and +1.51 SD at n = 1,000, 4,000 and 16,000. That bias is
-in the estimator's population limit at the fitted mechanism, so cross-fitting does not remove it.
-[A data-adaptive mechanism](theorem.md#a-data-adaptive-mechanism) gives the measurement.
+Each fluctuation solves one pooled `epsilon` on the production rows under both settings.
+At fold `k`'s own rows, slab `k` holds the production state at every refit, so the estimate and the
+influence curve keep their form. `TestEachSlabHoldsTheProductionStateAtItsOwnFold` in
+`tests/unit/test_drtmle_crossfit.py` checks this to 0 at every refit.
 
-The argument supplied here. Writing `ĥ_k` for what fold `k`'s reduced regression contributes and
-`h̃_k` for the nested version:
+### The fold leak of the pooled construction
 
-```text
-(P_{n,k} − P_0) ĥ_k = (P_{n,k} − P_0) h̃_k             [A]
-                    + (P_{n,k} − P_0) Δ_k ∘ ĝ^(−k)     [B],   Δ_k = Q̂_r^(−k) − Q̃_r^(−k)
-```
+The pooled construction lets fold `k`'s data reach its own reduced regressions through two
+channels. The first channel is the initial designs and targets: the models of fold `m` trained on
+fold `k`. The second channel is the tilts. A pooled fit moves the row of fold `m` along that row's
+covariate, which fold `m`'s reduced regressions built after they trained on fold `k`.
 
-**[A]** is the ordinary cross-fitting argument: conditional on the fold-`k` complement both maps
-are fixed, so the term has conditional mean zero and is `o_p(n^(−1/2))` under the `L_2` convergence
-Theorem 1 already assumes. **[B]** is the whole of the open question, because `Δ_k` is precisely
-the object that depends on fold `k`; no cross-fitting lemma reaches it. What does is asymptotic
-equicontinuity, needing two conditions:
+Probe P1 (X83) measured the leak on the `canonical-drtmle` law, with its draws, folds and
+learners. The table gives the ATE bias in units of the Monte Carlo SD.
 
-> **(E)** the reduction learner's fitted functions of one or two scalars lie, with probability tending to
-> one, in a class whose bracketing entropy is bounded **uniformly in the underlying measure**.
+| scenario, n, R | pooled | foldwise | in sample | pooled − foldwise, paired |
+| --- | --- | --- | --- | --- |
+| `treatment_correct`, 2,000, 400 | +0.339 | +0.134 | +0.049 | +0.227 ± 0.025 |
+| `outcome_correct`, 2,000, 400 | +0.116 | +0.027 | −0.012 | +0.091 ± 0.010 |
+| `treatment_correct`, 8,000, 200 | +0.108 | −0.018 | −0.034 | +0.130 ± 0.030 |
 
-The structural fact that makes (E) available is that **the reductions have fixed dimension**:
-one scalar for the default construction and two for the bivariate reduced probability, however
-many covariates the fit adjusted for. Composition with a fixed map transports brackets exactly,
-so the entropy requirement falls entirely on a class of functions of at most two variables and
-not at all on the primary nuisances' complexity. The measure-free phrasing is load-bearing, since
-the pushforward is a *random* measure and a bound holding at `P_0` says nothing about it. A
-fixed-basis linear or logistic model is a bounded fixed-dimensional sieve; histogram
-boosting is a fixed bounded-variation ball when its iteration and leaf limits are fixed. A
-CV-selected round count would take boosting out of the class. A random forest is outside.
+At n = 2,000 the pooled ATE interval covers 0.915 of `treatment_correct` draws, and the foldwise
+interval covers 0.950. The pooled-minus-in-sample bias falls from +0.326 SD to +0.156 SD between
+n = 2,000 and 8,000. Standardized bias falls like `n^(−1/2)` when the bias falls like `1/n`, so
+the leak is second order. It is large at the sample sizes of the registered studies. The probe
+output is not a committed artifact.
 
-> **(S)** `‖Δ_k‖_{L_2} = o_p(1)`: the reduction fit is `L_2`-continuous in the design and target
-> columns it is handed.
+The registered
+[`drtmle-foldwise` study](../method-evidence/dr-tmle-foldwise.md) fits each draw of its leak pair
+twice, pooled and foldwise, on the `canonical-drtmle` law. Under `treatment_correct` at n = 1,000 and
+4,400 replications, its ATE bias is +0.400 SD pooled and +0.156 SD foldwise. The paired
+displacement is 0.266 SD, against a declared floor of 0.10.
 
-**(S) is the open condition.** It is free for a fixed-basis linear smoother and not free for
-anything that *selects* structure from the data: a split point, a bandwidth, a CV-chosen
-candidate. An arbitrarily small design perturbation can move any of those selections discretely.
-Boosting is entropy-safe and design-continuity-unsafe. `reduced_crossfit="nested"` is what computes
-`Δ_k`; a measured dispatch put its consequence on `ψ` at or below what a redrawn fold split moves
-in every cell, which is **supported, not shown**, since a consequence can hold by cancellation.
+### The argument for the foldwise construction
 
-Two things not to read into "nested". It costs `K` times the primary nuisance fitting, and was
-measured at **1.3x to 17x** a pooled fit's wall clock over four draws, reaching the outer cap on
-two. What dominates that cost is not the extra fitting: nested reductions are noisier, so equation
-(10)'s near-singular solve takes more rounds. And **neither construction makes the targeted
-collection fold-independent**: `epsilon` is solved on all `n` rows, since
-`targeting_scheme="fold"` is refused, so a nested fit is *nested in the nuisance models and pooled
-in the tilt*.
+Write `ĥ_k` for the contribution of fold `k`'s reduced regressions, and `e` for the history of the
+pooled `epsilon` values. Given `e`, slab `k` and fold `k`'s reduced regressions are functions of
+the fold-`k` complement. So the term that the pooled construction leaves open is zero. The
+remaining term needs the three conditions in the table.
+
+| condition | content |
+| --- | --- |
+| (E-eps) | given the complement, the class `{h_k(·; e)}` indexed by `e` has bounded entropy at `P_0` |
+| (C) | `ê = O_p(1)` |
+| (L2) | `h_k(·; ê)` is `L_2` consistent at the targeted state. Theorem 1 assumes it |
+
+With these conditions, the conditional Donsker step (van der Vaart 1998, Lemma 19.24) gives
+`(P_{n,k} − P_0) ĥ_k = o_p(n^(−1/2))`. The dimension of `e` is at most `max_outer` times the
+number of equations, arms and stratum blocks. The random round count makes the class a finite
+union.
+
+(E-eps) follows from condition (E) below by composition with the smooth tilt family. It needs
+entropy at `P_0` only, because the design map is fixed given the complement.
+
+> **(E)** the reduction learner's fitted functions of one or two scalars lie, with probability
+> tending to one, in a class whose bracketing entropy is bounded uniformly in the underlying
+> measure.
+
+The reductions have fixed dimension: one scalar for the default construction, and two for the
+bivariate reduced probability. A fixed-basis linear or logistic model is a bounded sieve of that
+dimension. Histogram boosting with fixed iteration and leaf limits is a bounded-variation ball. A
+CV-selected round count takes boosting out of the class. A random forest is outside the class.
+
+Zheng and van der Laan (2010) give the pooled-`epsilon` structure. Their fold fit is a parametric
+submodel, and here the covariates are learner refits. No cited result proves (E-eps), so it is an
+assumption of this construction.
+
+The foldwise construction keeps two second-order terms.
+
+| term | why it is second order |
+| --- | --- |
+| fold `k`'s reduced regressions predict in sample at slab `k`'s training rows, to build the slab covariate there | in each one-wrong regime the scores of equations (9) and (10) have mean zero at the consistent nuisance, so their `epsilon` goes to 0. Equation (8)'s covariate `1/g` reads leave-two-out primaries only |
+| the leave-two-out fits train on `(K − 2)/K` of the rows, and the production fits on `(K − 1)/K` | the difference enters as the difference of two cross-fitted fits of one nuisance times the error of the consistent nuisance |
+
+### Tests of the construction
+
+| test (`tests/unit/test_drtmle_crossfit.py`) | what it pins |
+| --- | --- |
+| `TestAFoldsReducedRegressionsNeverSeeThatFoldsData` | with the `epsilon` history fixed, flipping fold `k`'s outcomes and permuting its treatments leaves slab `k` unchanged at every row and refit, in both update orders. Restoring the production covariate of equation (8), (10) or (9) for the slabs breaks it |
+| `TestTheSlabsTiltAlongTheirOwnCovariates` | with the slabs carried along the production covariates, a foldwise fit equals a pooled fit bit for bit |
+| `TestADataIndependentPrimaryLearnerLeavesOnlyTheTiltChannel` | with identical initial designs, the two settings still give different estimates |
+| `TestEachSlabHoldsTheProductionStateAtItsOwnFold` | own-fold slab rows equal the production state at every refit, with strata and with an `evaluation=` companion |
+| `TestThreeArms` | the same identity at three arms in both update orders. Each pair of folds is fitted once per learner, and the longhand fit outside the pair reproduces both of its slab entries |
+| `TestAScreenedMechanismIsScreenedInEverySlab` | with `screen_treatment=True` each leave-two-out mechanism equals a screened fit outside its pair. An unscreened fit differs by more than `1e-3` |
+
+### Limits of the foldwise construction
+
+| limit | statement |
+| --- | --- |
+| folds | `n_folds` must be at least 3. A fit with fewer folds raises `CapabilityError` (`INVALID_DECLARATION`) before any learner, and names `reduced_crossfit="pooled"`. The fit asks again when `n_folds` changes after construction |
+| trainable rows | each pair of folds must leave a trainable row of every arm in the whole sample. The leave-two-out primary regressions do not train inside a baseline stratum. A split that does not leave such a row is refused after the fold draw and before any learner |
+| `targeting="one_step"` | refused on cost: the one-step walk would carry one slab per fold. The refusal names `targeting="iterative"` and `reduced_crossfit="pooled"` |
+| truncation | a slab takes the pooled `epsilon` without a solve of its own. Without a real truncation a slab's mechanism can run to 0. A cross-fitted fit at `g_bounds=(1e-9, 1 − 1e-9)` on the informative cluster law reaches the outer cap with `g_{r,2}` near 3e7 and a standard error near 1.4e5. The fit reports `failure="max_iter_reached"` and raises a `ConvergenceWarning`. The pooled fit of the same draw exits on tolerance (`TestAnAlternationThatRunsOutOfRoundsIsAFailure` in `tests/unit/test_drtmle_crossfit.py`) |
+| saved results | a foldwise result carries `K` slabs of primary arrays and reduced sets, so a saved artifact grows about `K`-fold. A retarget, such as `truncation_curve()`, reads the slabs |
+| `targeting_scheme="fold"` | refused. The foldwise construction is pooled in the tilt |
+| in sample | `cross_fit=False` has one fold and no complement, so both settings run one in-sample path |
+
+### Cost of the foldwise construction
+
+The foldwise construction fits each primary nuisance once more for every unordered pair of
+folds. One fit serves both slabs of the pair. With `n_folds=K` that is `K(K − 1)/2` extra fits of
+each primary learner. `TestThreeArms` in `tests/unit/test_drtmle_crossfit.py` counts the fits.
+Pass explicit learners and fewer folds when the default learner library is too slow.
+
+One measurement used the `both_correct` law of
+`tests/studies/canonical_drtmle.py` at n = 500, the default learner library, the default 10 folds,
+and one core. The measurement ran before the pair cache. That implementation made `K²` extra
+fits of each learner: it fitted each pair twice and refitted each production model. At `K = 10`
+the extra fits now number 45 per learner in place of 100. The time was not measured again.
+
+| phase | `"pooled"` | `"foldwise"` |
+| --- | --- | --- |
+| initial nuisance fits | about 80 s | about 910 s (100 extra fits per learner, before the pair cache) |
+| first refit of the reduced regressions | 192 s | 195 s |
+| one outer round after the first | not measured | about 200 s |
+
+The foldwise fit did not exit on tolerance within 30 outer rounds (cap `max_outer=50`). Each round
+refits the default reduced learners on every slab. The pooled fit had not finished after 2 hours
+on a shared machine either, so the round count is a property of the default reduced learners, not
+of the construction. The `drtmle-foldwise` study passes explicit reduced learners for this reason.
 
 ## Where the truncations are
 

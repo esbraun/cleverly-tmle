@@ -1,0 +1,7 @@
+true ATE 0.1420; n = 3000; draws = 200
+naive difference: mean -0.0267
+tmle_known_in     mean error -0.0009  SD 0.0211  mean SE 0.0207  SE/SD 0.98  covered 186 of 200
+tmle_known_xf     mean error -0.0007  SD 0.0211  mean SE 0.0208  SE/SD 0.98  covered 186 of 200
+drtmle_known_in   mean error -0.0010  SD 0.0214  mean SE 0.0207  SE/SD 0.97  covered 186 of 200
+aiptw_known_xf    mean error -0.0006  SD 0.0210  mean SE 0.0211  SE/SD 1.00  covered 187 of 200
+tmle_fitted_g_in  mean error -0.0622  SD 0.0211  mean SE 0.0269  SE/SD 1.27  covered 61 of 200

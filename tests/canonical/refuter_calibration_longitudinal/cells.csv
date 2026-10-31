@@ -1,0 +1,8 @@
+cell,arms,clusters,covariates_per_row,cross_fitting,estimand_kind,inference,known_mechanism,learners,method,n,nodes,outcome_family,replicates,treatment_kind,min_event_count_min,min_event_count_max
+L1,2,,0.003,folds=5,ate_regimen,influence_curve,False,GLM() | GLM() | GLM() | GLM(),LTMLE,1000,2,survival,20,discrete,122,171
+S1,2,,0.003,folds=5,ate_regimen,influence_curve,False,GLM(family='gaussian') | GLM(family='gaussian') | GLM(),SDR,1000,2,gaussian,20,discrete,,
+I1,2,,0.003,folds=5,ate_regimen,influence_curve,False,GLM(family='gaussian') | GLM(family='gaussian') | GLM(),IPSI,1000,2,gaussian,20,discrete,,
+B1,2,,0.003,off,ate_regimen,influence_curve,False,GLM(family='gaussian') | GLM(family='gaussian'),SequentialGComputation,1000,2,gaussian,20,discrete,,
+B2,2,,0.003,off,ate_regimen,influence_curve,False,GLM(),SequentialIPW,1000,2,gaussian,20,discrete,,
+B3,2,,0.003,off,ate_regimen,influence_curve,False,GLM() | GLM(family='gaussian') | GLM(),ParametricGFormula,1000,2,gaussian,20,discrete,,
+SN1,2,,0.003,folds=5,ate_regimen,influence_curve,False,GLM(family='gaussian') | GLM() | GLM(family='gaussian'),StructuralNestedMean,1000,2,gaussian,20,discrete,,

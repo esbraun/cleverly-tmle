@@ -9,9 +9,8 @@ exception types, so every loader can reach it.
 
 from __future__ import annotations
 
-import warnings
-
 from ._version import __version__
+from ._warnings import warn as _warn
 from .exceptions import VersionMismatchWarning
 
 __all__ = ["warn_on_version_mismatch"]
@@ -44,11 +43,13 @@ def warn_on_version_mismatch(
         else "a writer that recorded no version (an earlier release, or a direct joblib or "
         "pickle dump)"
     )
-    warnings.warn(
+    _warn(
         f"this {what} was saved by {by}, and this is cleverly {__version__}. Alpha releases "
         "keep no compatibility for saved objects, so cleverly loads it as saved, with no "
         "migration. Its statuses, reports and cached assessments can differ from what this "
         "version computes. Fit the analysis again with this version.",
         VersionMismatchWarning,
         stacklevel=stacklevel,
+        # A load warning, not a fit's: no fit is running to record it.
+        record=False,
     )

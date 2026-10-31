@@ -84,11 +84,10 @@ support is fitted in sample instead, with ``cross_fit=False``.
 from __future__ import annotations
 
 import copy
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import numpy as np
 
@@ -121,6 +120,8 @@ from .._typing import (
     TargetingMethod,
     TargetingScheme,
 )
+from .._warnings import records_fit
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
@@ -167,7 +168,12 @@ from ..fluctuation.submodel import (
     stratify_columns,
 )
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cluster_inference_status, cross_validated_variance, fewest_clusters
+from ..inference.cluster import (
+    cluster_inference_status,
+    cross_validated_variance,
+    fewest_clusters,
+    influence_variance,
+)
 from ..inference.influence import (
     ArmMean,
     ClusterReference,
@@ -197,11 +203,16 @@ from ..interventions.base import refuse_mixed_interventions, refuse_regime_densi
 from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
+    FrozenLearnedRule,
     LearnedRule,
     _learned_rule_regimes,
+    check_fold_rules,
     learned_rule_configuration_refusal,
     learned_rule_record,
     learned_rule_scheme_refusal,
+    learned_rule_split,
+    learned_rule_treat,
+    mean_over_splits,
     refuse_learned_rule_composition,
 )
 from ..interventions.policy import (
@@ -258,6 +269,10 @@ from ._strata import (
     absent_arm_error,
     check_stratified_targets,
     embed_stratum_curve,
+    fold_evaluated_strata_refusal,
+    fold_evaluated_stratum_weights,
+    refuse_empty_stratum_folds,
+    stratum_mixture,
     stratum_probabilities,
     stratum_source,
     unscale_block,
@@ -297,6 +312,9 @@ from .targeting import (
     solve_with_stratified_projection,
     stratum_blocks,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import SummaryFacts
 
 __all__ = ["TMLE", "tmle"]
 
@@ -695,6 +713,13 @@ class TMLE:
         that the ordinary fluctuation does not target.  Their stacked-validation reports
         remain available with the default ``cv_evaluation=False``.
 
+        With ``strata=`` the setting reports the arm means, their linear contrasts, and
+        the regime means and their contrasts, on complete data with rows as the unit.
+        Each stratum estimate averages the fold plug-ins of its stratum, each fold curve
+        divides by the fold's own stratum share, and the marginal estimate is the share
+        mixture of the stratum estimates.  Every other stratified request refuses before
+        any learner (X28 in ``docs/roadmap.md``).
+
         When this setting is true, ``result.cv_targeting`` holds the fold-evaluated
         report and the whole-sample plug-in at the same fold-reweighted fluctuation.
         That plug-in equals the default stacked report only when every fold has equal
@@ -711,12 +736,18 @@ class TMLE:
         A :class:`~cleverly.interventions.LearnedRule` to estimate the fold-average value of the
         rule learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
         contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
-        ``cross_fit=True``, ``cv_evaluation=True``, ``targeting_scheme="pooled"``, ``repeats=1`` and
-        ``n_bootstrap=0``, and refuses every other scheme before any learner, with that remedy.
-        It also refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
-        ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
-        missing outcomes, ``intermediate=``, ``weights=``, ``id=`` and ``strata=``.
+        ``cross_fit=True``, ``cv_evaluation=True`` and ``n_bootstrap=0``, and refuses every other
+        scheme before any learner, with that remedy.  Either targeting scheme runs, and so do
+        known observation weights and clusters.  ``repeats=R`` above 1 reports the mean over the
+        ``R`` splits, never the median, and refuses beside clusters.  It refuses ``interventions=``,
+        ``policies=``, ``incremental=``, ``msm=``, ``reference=`` and an arm estimand beside it,
+        and a continuous or multi-arm treatment, missing outcomes, ``intermediate=``, estimated
+        weights and ``strata=``.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
+        ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
+        rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
+        treatment fits are cross-fitted inside the fold's training rows with this estimator's
+        own learners; the fluctuation, estimate and variance do not change.
         The result records the fold summaries under ``result.extra["learned_rule"]``.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
@@ -750,11 +781,17 @@ class TMLE:
         drawn from the draw's own seed.  Holding those fixed would average over one stage
         of a randomised procedure while pinning the rest.
 
-        The aggregation is the **median**, and only the median. There is no aggregation
-        setting and no arithmetic-mean compatibility path. The marginal interval follows
-        the established within-plus-between rule. Joint covariance, post-fit contrasts,
-        and simultaneous bands are refused. The retained central-draw curve does not
-        represent the split-adjusted median estimator that a multiplier band would need.
+        The aggregation is the **median**, and only the median, for every target but the
+        learned-rule value. There is no aggregation setting. A learned-rule fit
+        (``learned_rule=``) reports the mean of the ``R`` split estimates instead, with the
+        variance :math:`n^{-2}\\sum_i \\bar\\phi_i^2` of the mean of the split curves:
+        each split defines its own target, and the median estimates no defined parameter.
+        The median's marginal interval follows the established within-plus-between rule.
+        Under the median, joint covariance, post-fit contrasts and simultaneous bands are
+        refused. The retained central-draw curve does not represent the split-adjusted
+        median estimator that a multiplier band would need. The mean of a learned-rule fit
+        is linear, so its covariance and contrasts read the mean curve as they read the
+        curve of one split.
 
         ``result.repeats`` holds the per-draw nuisance fits, fluctuations and point
         estimates, and ``result.repeat_spread()`` reports how far the draws moved --
@@ -852,6 +889,11 @@ class TMLE:
 
     _assessment_method = "tmle"
 
+    #: Whether :func:`~cleverly.sensitivity.simulated_confounding` replays a binary point fit
+    #: of this class: :meth:`refit` refits every nuisance on a perturbed table.  The surface
+    #: reads the declaration of the exact class, so a subclass declares its own.
+    simulated_confounding_replay = True
+
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
@@ -883,6 +925,19 @@ class TMLE:
             strata=data.strata,
             weights=data.weights if data.is_weighted else None,
         )
+
+    def _summary_facts(self, result: TMLEResult) -> SummaryFacts:
+        """The method facts :meth:`TMLEResult.summary` prints for a fit of this estimator.
+
+        A hook beside :meth:`_bootstrap_diagnostic`: a subclass that has its own title,
+        method line, notes or "Method details" overrides it and starts from
+        :func:`~cleverly.estimators._point_summary.base_summary_facts`, which this
+        default returns. The estimates table and its notes are not facts of the method, so
+        no override can change how an estimate's inference status prints.
+        """
+        from ._point_summary import base_summary_facts
+
+        return base_summary_facts(result)
 
     def _bootstrap_diagnostic(self, data: CausalData) -> bool:
         """Whether the fit declares its full-refit bootstrap interval a diagnostic.
@@ -976,6 +1031,11 @@ class TMLE:
         if self.msm is not None:
             refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
+
+    #: Realized outer splits that a refit uses in place of drawing one. Only the copy that
+    #: :meth:`refit` builds sets it, so no constructor argument and no fitted result holds it.
+    _frozen_folds: tuple[Folds, ...] | None = None
+    _frozen_seeds: tuple[int, ...] | None = None
 
     def __init__(
         self,
@@ -1105,7 +1165,7 @@ class TMLE:
                     "learned_rule= takes a cleverly.interventions.LearnedRule; got "
                     f"{type(self.learned_rule).__name__}"
                 )
-            # Rows 1 and 2 of the learned-rule refusal table read the configuration alone, and
+            # The first two rows of the learned-rule refusal table read the configuration alone, and
             # they come first in its order, so they refuse where they were written.  The
             # preflight asks them again for a copied or modified estimator.
             refusal = learned_rule_configuration_refusal(self)
@@ -1127,7 +1187,7 @@ class TMLE:
                 "needs cross-fitted nuisance predictions; pass cross_fit=True"
             )
         if self.targeting_scheme == "fold" and not self.cross_fit:
-            warnings.warn(
+            _warn(
                 "targeting_scheme='fold' needs validation folds to target within, and "
                 "cross_fit=False leaves none; falling back to pooled targeting. Set "
                 "cross_fit=True for the fold-specific targeting extension.",
@@ -1228,8 +1288,8 @@ class TMLE:
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "reference= names the arm, regime or shift every contrast is taken "
-                "against, and a working model reports coefficients rather than contrasts "
-                "-- there is nothing for it to be a reference for. Which arm is the "
+                "against, and a working model reports coefficients rather than contrasts; "
+                "there is nothing for it to be a reference for. Which arm is the "
                 "baseline is decided by the design you gave msm=, usually by an intercept "
                 "column. A difference of two coefficients comes from result.contrast()."
             )
@@ -1254,7 +1314,7 @@ class TMLE:
         # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
         reason = self._cross_fit_policy_reason()
         if reason is not None:
-            # A learned-rule fit hears rows 10 to 14 of its refusal table before a shared policy
+            # A learned-rule fit hears the setting rows of its refusal table before a shared policy
             # sentence.  Their remedy is the configuration that fits, and the shared remedies
             # (enable cross-fitting, or set repeats=1) meet one of those rows next.  The rows raise
             # ``CapabilityError``, as every row of that table does.  A policy that passes the shared
@@ -1297,6 +1357,7 @@ class TMLE:
 
     # ------------------------------------------------------------------- fit
 
+    @records_fit
     def fit(
         self,
         data: Any,
@@ -1511,6 +1572,8 @@ class TMLE:
         *,
         intermediate_value: float | None = None,
         random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int] | None = None,
     ) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
 
@@ -1542,7 +1605,8 @@ class TMLE:
         holding the fingerprint here would refuse the placebo and negative-control
         refutations for a change that moves no row.  What a refit cannot do is change the
         row *set*: the count check inside ``validate`` still refuses that, and
-        :func:`~cleverly.validation.refute` refuses the subsampling test up front.
+        :func:`~cleverly.validation.refute` refits the subsampling test on the original labels
+        of the kept rows (``frozen_folds``) and refuses the bootstrap test up front.
         :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
         refit accepts the plan and draws its labels again to check them.
 
@@ -1561,6 +1625,15 @@ class TMLE:
             The value of the intermediate variable the controlled direct effect fixes.
         random_state : int or None
             Seed of the refit.  ``None`` keeps this estimator's own.
+        frozen_folds : sequence of Folds or None
+            One realized outer split per repeat, for the rows of ``data``.  The refit uses
+            these labels instead of drawing a split.  The data-subset refutation passes the
+            original fit's labels of the drawn units, so the refit's fold noise is the
+            original's and no split is redrawn.  ``None`` draws the split as usual.
+        frozen_seeds : sequence of int or None
+            One seed per repeat, replacing the seeds the plan would spawn from
+            ``random_state``.  The noise-covariate refutation passes the seeds of the
+            original repeats, so each repeat draws the original's folds and learner seeds.
 
         Returns
         -------
@@ -1568,6 +1641,14 @@ class TMLE:
             The result of the whole fit on ``data``.
         """
         estimator = self._configured_for_refit(data)
+        if frozen_folds is not None:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator._frozen_folds = tuple(frozen_folds)
+        if frozen_seeds is not None:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator._frozen_seeds = tuple(frozen_seeds)
         plan = estimator.split_plan
         if plan is not None and plan.source_fingerprint is not None:
             if estimator is self:
@@ -1742,15 +1823,29 @@ class TMLE:
                 alternative="Use the default pooled targeting scheme.",
                 roadmap="X61",
             )
-        if data.has_strata and self.cv_evaluation:
-            raise CapabilityError(
-                "baseline strata are not implemented with cv_evaluation=True: the "
-                "fold-evaluated estimate needs stratum shares and a stratum-indexed fold "
-                "average inside every validation fold.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="Use cv_evaluation=False.",
-                roadmap="X28",
-            )
+        if self.cv_evaluation:
+            # The nonlinear aggregates have no fold-evaluated construction with or without
+            # strata (X61), so they meet that refusal before the stratified one (X28).
+            unsupported = [
+                name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
+            ]
+            if unsupported:
+                raise CapabilityError(
+                    "cv_evaluation=True does not yet support "
+                    f"{unsupported}: averaging a nonlinear parameter over folds changes "
+                    "its gradient fold by fold, so the ordinary mean/MSM fluctuation no "
+                    "longer solves that cross-validated score.",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative=(
+                        "The stacked-validation report (cv_evaluation=False) remains "
+                        "supported. Request linear levels/contrasts or ATT/ATC for "
+                        "fold-wise evaluation."
+                    ),
+                    roadmap="X61",
+                )
+            refusal = fold_evaluated_strata_refusal(data, estimands)
+            if refusal is not None:
+                raise refusal
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -1795,24 +1890,6 @@ class TMLE:
                 ),
                 roadmap="X60",
             )
-        if self.cv_evaluation:
-            unsupported = [
-                name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
-            ]
-            if unsupported:
-                raise CapabilityError(
-                    "cv_evaluation=True does not yet support "
-                    f"{unsupported}: averaging a nonlinear parameter over folds changes "
-                    "its gradient fold by fold, so the ordinary mean/MSM fluctuation no "
-                    "longer solves that cross-validated score.",
-                    reason=RefusalReason.IMPLEMENTATION_GAP,
-                    alternative=(
-                        "The stacked-validation report (cv_evaluation=False) remains "
-                        "supported. Request linear levels/contrasts or ATT/ATC for "
-                        "fold-wise evaluation."
-                    ),
-                    roadmap="X61",
-                )
 
         # These checks also run in `_scaler` and `_config` before any nuisance learner.
         # Read the same methods here so copied settings reach the replay slot.
@@ -1978,7 +2055,8 @@ class TMLE:
         intermediate; only the targeting step then runs per level.
 
         With ``repeats=R`` the whole construction below -- split, nuisances, targeting --
-        runs ``R`` times and the reports are combined by their median. The loop sits here, around
+        runs ``R`` times and the reports are combined by their median, or by their mean on a
+        learned-rule fit (:meth:`_combine_repeats`). The loop sits here, around
         :meth:`_nuisances` rather than inside it, which is what makes it free for the
         variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
         selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
@@ -2024,7 +2102,7 @@ class TMLE:
                     extra = draw_extra
 
         # The construction this fit ran, which every reader of the result branches on.
-        extra = {**extra, "missing_data": missing_data_route(self, data)}
+        extra = {**extra, "missing_data": self._missing_data_route(data, estimands)}
         self._warn_on_positivity(data, nuisances[0], config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
@@ -2059,7 +2137,7 @@ class TMLE:
             )
             details.append(detail)
 
-        estimates = median_estimates(per_repeat)
+        estimates = self._combine_repeats(per_repeat)
         cv_detail = self._cv_detail(details, cluster=data.cluster)
         if self.cv_evaluation and cv_detail is None:
             raise DataError(
@@ -2070,12 +2148,24 @@ class TMLE:
         # A learned-rule fit is fold-evaluated, so the check above leaves ``cv_detail`` set.
         # The second test is for the type checker.
         if self.learned_rule is not None and cv_detail is not None:
-            # One draw: ``refuse_learned_rule_composition`` refuses repeats.
+            # One record per split. ``cv_detail.fold_estimates`` describes the first split
+            # only, so each split's fold estimates are read from its own detail.
             (name,) = cv_detail.fold_estimates
-            record = learned_rule_record(
-                self.learned_rule, nuisances[0], cv_detail.fold_estimates[name]
-            )
-            extra = {**extra, "learned_rule": record}
+            splits = []
+            for nuisance, seed, detail, report in zip(
+                nuisances, draw_seeds, details, per_repeat, strict=True
+            ):
+                assert detail is not None
+                splits.append(
+                    learned_rule_split(
+                        self.learned_rule,
+                        nuisance,
+                        detail.fold_estimates[name],
+                        seed=seed,
+                        estimate=report[name].psi,
+                    )
+                )
+            extra = {**extra, "learned_rule": learned_rule_record(self.learned_rule, splits)}
         result = TMLEResult(
             estimates=estimates,
             repeats=tuple(repeats),
@@ -2169,6 +2259,27 @@ class TMLE:
         record_fit(classification, result, source="TMLE._fit_single")
         return result
 
+    def _missing_data_route(self, data: CausalData, estimands: tuple[str, ...]) -> str:
+        """The construction this fit records under ``extra["missing_data"]``.
+
+        A hook so that an estimator with its own route rule records it without a copy of
+        :meth:`_fit_single`. ``estimands`` is the resolved target list of the fit.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : tuple of str
+            The resolved targets. This route rule does not read them.
+
+        Returns
+        -------
+        str
+            One of :data:`~cleverly.estimators.composite.MissingDataRoute`.
+        """
+        del estimands
+        return missing_data_route(self, data)
+
     def _targeted_draw(
         self,
         data: CausalData,
@@ -2229,14 +2340,49 @@ class TMLE:
         first = present[0]
         if len(present) == 1:
             return first
-        fold_evaluated = median_estimates([detail.fold_evaluated for detail in present])
+        fold_evaluated = self._combine_repeats([detail.fold_evaluated for detail in present])
+        pooled = (
+            median_estimates([detail.pooled for detail in present])
+            if self.learned_rule is None
+            else mean_over_splits(
+                [detail.pooled for detail in present], variance=influence_variance
+            )
+        )
         return replace(
             first,
             repeats=len(present),
-            pooled=median_estimates([detail.pooled for detail in present]),
+            aggregate="median" if self.learned_rule is None else "mean",
+            pooled=pooled,
             fold_evaluated=fold_evaluated,
             variance={name: value.variance for name, value in fold_evaluated.items()},
         )
+
+    def _combine_repeats(
+        self, per_repeat: Sequence[Mapping[str, ParameterEstimate]]
+    ) -> dict[str, ParameterEstimate]:
+        """Combine the reports of every draw into one.
+
+        The median rule of :func:`~cleverly.inference.influence.median_estimates` for every
+        target but the learned-rule value.  A learned-rule fit reports the mean over its
+        splits (:func:`~cleverly.interventions.learned.mean_over_splits`), with the
+        variance :math:`n^{-2}\\sum_i \\bar\\phi_i^2` of the averaged fold-evaluated
+        curve, because each split defines its own target and the median of the split
+        estimates estimates no defined parameter.  ``refuse_learned_rule_composition``
+        refuses ``repeats`` above 1 with clusters, so the rows here are independent.
+
+        Parameters
+        ----------
+        per_repeat : sequence of mappings
+            One report per draw.
+
+        Returns
+        -------
+        dict
+            The combined report.
+        """
+        if self.learned_rule is None or len(per_repeat) == 1:
+            return median_estimates(per_repeat)
+        return mean_over_splits(per_repeat, variance=_second_moment_over_n_squared)
 
     # ------------------------------------------------------------- internals
 
@@ -3221,7 +3367,11 @@ class TMLE:
             data, estimands
         ):
             return
-        names = {"collaborative_tmle": "C-TMLE", "drtmle": "DR-TMLE"}
+        names = {
+            "collaborative_tmle": "C-TMLE",
+            "drtmle": "DR-TMLE",
+            "adaptive_iptw": "AdaptiveIPTW",
+        }
         self._check_training_support(
             data,
             folds,
@@ -3681,6 +3831,9 @@ class TMLE:
         Every realized draw also passes :meth:`_preflight_missing_outcome_folds` and
         :meth:`_preflight_training_support`, so each fit path that draws folds checks what
         its nuisances need from every training complement before its first learner fit.
+        A fold-evaluated fit with baseline strata also passes
+        :func:`~cleverly.estimators._strata.refuse_empty_stratum_folds`, which needs every
+        stratum and every arm inside it in every validation fold.
 
         The supplied path first asks :meth:`SplitPlan.verify` whether the plan's generator
         record draws exactly these labels on these rows.  It then asks
@@ -3703,8 +3856,22 @@ class TMLE:
         seeds = tuple(
             _fresh_seed() if seed is None else seed for seed in self.crossfit_plan(data).seeds()
         )
+        if self._frozen_seeds is not None:
+            if len(self._frozen_seeds) != len(seeds):
+                raise DataError(
+                    "frozen_seeds must hold one seed per repeat; "
+                    f"got {len(self._frozen_seeds)} for {len(seeds)} repeat(s)"
+                )
+            seeds = self._frozen_seeds
         supplied = self.split_plan
-        if supplied is None:
+        if self._frozen_folds is not None:
+            folds = self._frozen_folds
+            if len(folds) != len(seeds) or any(draw.n != data.n for draw in folds):
+                raise DataError(
+                    "frozen_folds must hold one split of the refit's rows per repeat; "
+                    f"got {len(folds)} split(s) for {len(seeds)} repeat(s)"
+                )
+        elif supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
             # The record check comes first: labels the recorded generator does not draw
@@ -3719,6 +3886,10 @@ class TMLE:
                 source_fingerprint=data_fingerprint(data),
             )
         self._preflight_cluster_validation_folds(data, folds)
+        if self.cv_evaluation:
+            # The fold-evaluated stratum estimate needs every stratum, and every arm inside
+            # it, in every validation fold of every draw (X28).
+            refuse_empty_stratum_folds(data, folds)
         self._preflight_missing_outcome_folds(data, estimands, folds)
         self._preflight_training_support(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))
@@ -3745,6 +3916,9 @@ class TMLE:
             if self.cv_evaluation
             else 'one pooled fluctuation (targeting_scheme="pooled")'
         )
+        # The learned-rule value has no stacked report (X11 (e)), so its remedy is the fold
+        # count alone.
+        or_stacked = "" if self.learned_rule is not None else f", or use {stacked}"
         weights = data.weights if data.is_weighted else None
         for draw in folds:
             if draw.is_single:
@@ -3766,7 +3940,7 @@ class TMLE:
                         reason=RefusalReason.INVALID_DECLARATION,
                         alternative=(
                             f"Request at most {n_clusters // 2} folds "
-                            f"(CrossFitting(n_folds=...)), or use {stacked}."
+                            f"(CrossFitting(n_folds=...)){or_stacked}."
                         ),
                     )
 
@@ -3805,6 +3979,7 @@ class TMLE:
         companion: CausalData | None = None,
         fit_treatment: bool = True,
         fit_treatment_observation: bool = True,
+        fit_outcome: bool = True,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
@@ -3871,6 +4046,8 @@ class TMLE:
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
             outcome_by_arm=self.outcome_by_arm,
+            fit_outcome=fit_outcome,
+            fold_plug_in_rules=self._reads_fold_plug_in_rules(),
         )
         if tuned is not None:
             assert estimates.policies is not None
@@ -3884,26 +4061,109 @@ class TMLE:
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
         # caller's rules or its design.
-        return replace(estimates, regimes=self._regimes(data, estimates), msm=msm)
+        # A plug-in learned rule moves the fold rules into its regime set, so the nuisances
+        # do not carry a second copy.
+        return replace(
+            estimates,
+            regimes=self._regimes(data, estimates, seed=seed),
+            msm=msm,
+            fold_plug_in_rules=None,
+        )
+
+    def _reads_fold_plug_in_rules(self) -> bool:
+        """Whether the nuisance fit evaluates every fold's plug-in rule at every row.
+
+        A plug-in learned-rule fit stores the rule of every fold at every row in its regime
+        set (:func:`~cleverly.interventions.learned.learned_rule_treat`), which the
+        omitted-variable bound reads.  A frozen rule learns nothing, and a rule learner
+        evaluates its own fold rules.
+        """
+        rule = self.learned_rule
+        return (
+            rule is not None and rule.loss == "plug_in" and not isinstance(rule, FrozenLearnedRule)
+        )
 
     def _msm(self, data: CausalData) -> MSMSet | None:
         """The declared working model evaluated on ``data``, or ``None`` if none was."""
         return None if self.msm is None else MSMSet.evaluate(self.msm, data)
 
-    def _regimes(self, data: CausalData, estimates: NuisanceEstimates) -> RegimeSet | None:
+    def _regimes(
+        self, data: CausalData, estimates: NuisanceEstimates, *, seed: int | None = None
+    ) -> RegimeSet | None:
         """The regimes of this fit on ``data``, or ``None`` for an arm-indexed fit.
 
-        A learned-rule fit reads its fold-local plug-in rule off the cross-fitted outcome
-        regression in ``estimates``: row ``i`` of fold ``v`` carries the prediction of the
-        model fitted on the complement of ``v``.  Every other fit evaluates its declared
-        regimes on ``data`` and ignores ``estimates``.
+        A learned-rule fit learns its fold-local rule here
+        (:func:`~cleverly.interventions.learned.learned_rule_treat`).  The plug-in rule reads
+        the cross-fitted outcome regression in ``estimates``: row ``i`` of fold ``v`` carries
+        the prediction of the model fitted on the complement of ``v``.  A pseudo-outcome
+        loss fits its rule learner inside each training fold, from an inner cross-fit
+        (:meth:`_inner_rule_nuisances`) seeded from the draw's ``seed``.  Every other fit
+        evaluates its declared regimes on ``data`` and ignores ``estimates``.
         """
         if self.learned_rule is not None:
-            return _learned_rule_regimes(estimates, self.learned_rule)
+            if seed is None:
+                seed = self.random_state
+            if seed is None and self.learned_rule.loss != "plug_in":
+                raise RuntimeError(
+                    "a learned-rule fit with a rule learner reached its rule without a draw "
+                    "seed. This is a defect in cleverly: every draw of TMLE carries one."
+                )
+            treat, margin, fold_rules = learned_rule_treat(
+                data,
+                estimates,
+                self.learned_rule,
+                fit_inner=partial(self._inner_rule_nuisances, scaler=estimates.scaler),
+                g_bounds=self._rule_g_bounds(data),
+                seed=0 if seed is None else int(seed),
+            )
+            if fold_rules is not None:
+                # The diagonal at fit time, so a defect surfaces here and not at the bound.
+                check_fold_rules(fold_rules, treat, estimates.folds)
+            return _learned_rule_regimes(treat, self.learned_rule.name, margin, fold_rules)
         if not self.interventions:
             return None
         reference = None if self.reference is None else str(self.reference)
         return RegimeSet.evaluate(self.interventions, data, reference=reference)
+
+    def _rule_g_bounds(self, data: CausalData) -> tuple[float, float]:
+        """The truncation bounds of the rule learner's pseudo-outcome: the fit's ``g_bounds``.
+
+        The same resolution as :meth:`_config`'s ``g_bounds``, which ``result.config``
+        records, at the full sample's effective size, not at the size of a training fold or
+        of an inner training complement.  The bound reads no outcome or treatment, so a
+        fold's rule reads nothing of that fold's validation rows through it.
+        """
+        return resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
+
+    def _inner_rule_nuisances(
+        self, data: CausalData, folds: Folds, seed: int, *, scaler: OutcomeScaler
+    ) -> NuisanceEstimates:
+        """The inner cross-fit of a rule learner's pseudo-outcome, inside one training fold.
+
+        ``data`` holds the training rows of one outer fold, and ``folds`` their inner split.
+        The outcome regression and the treatment mechanism use the fit's own learner
+        templates, screening and per-arm setting, and the inner ``seed`` reaches any learner
+        that draws folds of its own.  A declared known mechanism is read, not fitted.
+        """
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        return fit_nuisances(
+            data,
+            outcome_learner=self._resolve_learner(
+                self.outcome_learner, task=outcome_task, seed=seed
+            ),
+            treatment_learner=self._resolve_learner(
+                self.treatment_learner, task="classification", seed=seed
+            ),
+            missingness_learner=None,
+            intermediate_learner=None,
+            folds=folds,
+            scaler=scaler,
+            screen_treatment=self.screen_treatment,
+            screen_threshold=self.screen_threshold,
+            min_retain=self.min_retain,
+            n_jobs=self.n_jobs,
+            outcome_by_arm=self.outcome_by_arm,
+        )
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""
@@ -4055,7 +4315,7 @@ class TMLE:
         """
         if not (data.declares_estimated_weights and self.n_bootstrap):
             return
-        warnings.warn(
+        _warn(
             "weights_estimated=True with n_bootstrap: the bootstrap resamples rows and "
             "renormalises the weights it was given, never re-deriving them, so its "
             "intervals condition on the fitted weights. Re-deriving the weights inside "
@@ -4082,7 +4342,7 @@ class TMLE:
             outside = nuisance.propensity.truncate(config.g_bounds).fraction
             kind = "a known" if nuisance.treatment_mechanism == "known" else "an estimated"
             if outside > _TRUNCATION_WARN_FRACTION:
-                warnings.warn(
+                _warn(
                     f"{outside:.1%} of units have {kind} treatment probability outside the "
                     f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm. Those "
                     "units still contribute, but their contributions use bounded rather "
@@ -4146,7 +4406,7 @@ class TMLE:
                     "variance. Inspect res.diagnostics.support() and re-run with a different "
                     "nuisance_bound."
                 )
-                warnings.warn(
+                _warn(
                     f"{below:.1%} of estimated {label} values fall below the nuisance bound "
                     f"{config.missingness_bound:.4g}. {guidance}",
                     PositivityWarning,
@@ -4253,6 +4513,12 @@ class TMLE:
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=f"{route}.",
             )
+        if self.cv_evaluation and not nuisance.folds.is_single:
+            # The fit refuses these before any learner; a direct call can still name a
+            # target outside the fold-evaluated stratum construction (X28).
+            refusal = fold_evaluated_strata_refusal(data, requested)
+            if refusal is not None:
+                raise refusal
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
         reference = self._reference_arm(data, regimes, nuisance.policies)
@@ -4414,6 +4680,7 @@ class TMLE:
                 natural_course=natural_course if group == "mean" else None,
             )
             pooled_report.update(pooled)
+            marginal_names = tuple(pooled)
             if data.has_strata:
                 assert targeting_submodel is not None
                 stratified, codes = self._stratum_estimates(
@@ -4450,6 +4717,27 @@ class TMLE:
             # produced: a target reports one parameter per arm, and `targets_for` selects
             # by target name. A target that a fold cannot evaluate is dropped there by
             # `drop_undefined`, which is what `_average_over_folds` then reconciles.
+            if data.has_strata and self.cv_evaluation:
+                # X28: the stratum estimates average the fold plug-ins of each stratum, and
+                # the marginal estimates are their share mixtures.
+                assert targeting_submodel is not None
+                fold_evaluated, per_fold_values = self._fold_evaluated_strata(
+                    data,
+                    targeted,
+                    group,
+                    submodel,
+                    targeting_submodel,
+                    fluctuation,
+                    requested,
+                    level,
+                    reference,
+                    indices,
+                    marginal_names,
+                )
+                fold_evaluated_report.update(fold_evaluated)
+                fold_estimates.update(per_fold_values)
+                estimates.update(fold_evaluated)
+                continue
             per_fold = [
                 self._fold_estimates(
                     data, targeted, group, submodel, fluctuation, requested, level, index
@@ -4634,6 +4922,9 @@ class TMLE:
         only the splits this version draws for the same reason: ``"stratified"`` and
         ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
         them, and they were deleted.
+
+        ``aggregate`` is ``"mean"`` on a learned-rule fit, which reports the mean over its
+        splits (:meth:`_combine_repeats`), and ``"median"`` on every other fit.
         """
         cross_fit = self.cross_fit
         supplied = self.split_plan
@@ -4660,6 +4951,7 @@ class TMLE:
             stratify_by=stratify_by,
             random_state=self.random_state,
             repeats=self.repeats,
+            aggregate="median" if self.learned_rule is None else "mean",
         )
 
     def _submodel(
@@ -4826,7 +5118,7 @@ class TMLE:
             # Only reachable when resolve_n_folds collapsed the split -- too few units
             # in the rarer treatment arm to stratify. The constructor already warned
             # about the cross_fit=False route, so this is the remaining silent one.
-            warnings.warn(
+            _warn(
                 "targeting_scheme='fold' was requested but the data supports only a "
                 "single fold, so there is no validation split to target within; "
                 "falling back to pooled targeting.",
@@ -4855,12 +5147,20 @@ class TMLE:
         that objective as one stacked regression, including when folds have unequal row
         counts or unequal sampling-weight mass.
 
+        With baseline strata the normalisation is inside each fold and stratum
+        (:func:`~cleverly.estimators._strata.fold_evaluated_stratum_weights`), because each
+        reported stratum estimate averages the fold plug-ins of its stratum.
+
         A fold-specific update is invariant to multiplying all of its weights by a
         constant and never calls this helper.  A non-cross-fitted fit has no validation
         risks to average and likewise keeps the original empirical measure.
         """
         if not self.cv_evaluation or not self.cross_fit or nuisance.folds.is_single:
             return data.weights
+        if data.has_strata:
+            # Each reported stratum estimate averages fold plug-ins over the fold's rows in
+            # the stratum, so its score normalises inside each fold and stratum (X28).
+            return fold_evaluated_stratum_weights(data, [test for _, test in nuisance.folds])
         weights = np.array(data.weights, dtype=float, copy=True)
         n_folds = len(nuisance.folds)
         for _, test in nuisance.folds:
@@ -4963,7 +5263,7 @@ class TMLE:
         if reduction is None:
             raise ValueError(
                 "these nuisances carry reduced-dimension regressions, so the targeting step "
-                "has two further score equations to solve -- and solving them refits those "
+                "has two further score equations to solve, and solving them refits those "
                 f"regressions against the targeted pair, which a {type(self).__name__} has "
                 "no learners for. Retarget with the DRTMLE that fitted them, or drop "
                 "`reduced` to report a plain TMLE under a plain TMLE's name."
@@ -5221,7 +5521,7 @@ class TMLE:
         failed = [i for i, record in enumerate(fold_records) if not record.converged]
         modes = sorted({reasons[i] for i in failed})
         if failed:
-            warnings.warn(
+            _warn(
                 f"{len(failed)} of {len(fold_records)} fold(s) did not converge in the "
                 f"{group!r} targeting step ({', '.join(modes)}). The pooled score "
                 "can still look solved because each fold's score is near zero on its own "
@@ -5531,6 +5831,121 @@ class TMLE:
                 codes[name] = code
         return out, codes
 
+    def _fold_evaluated_strata(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        marginal_submodel: Submodel,
+        targeting_submodel: Submodel,
+        fluctuation: Fluctuation,
+        requested: Sequence[str],
+        alpha_sig: float,
+        reference: float,
+        indices: Sequence[IntArray],
+        marginal_names: Sequence[str],
+    ) -> tuple[dict[str, ParameterEstimate], dict[str, tuple[float, ...]]]:
+        r"""The fold-evaluated report of a stratified fit (X28), and its fold values.
+
+        Stratum :math:`s` of fold :math:`v` reports :math:`\psi_{s,v}`, the plug-in over the
+        fold's rows in the stratum, read from the stratum's own block as
+        :meth:`_stratum_estimates` reads it. Its fold curve is :math:`I(S = s) D_{s,v} /
+        P_{n,v}(S = s)`, with the fold's own stratum share: the stratum's curve on its
+        :math:`n_{v,s}` rows times :math:`n_v / n_{v,s}`. :func:`_average_over_folds` then
+        reports :math:`V^{-1}\sum_v \psi_{s,v}` with the cross-validated variance. The update
+        solves each of these scores, through
+        :func:`~cleverly.estimators._strata.fold_evaluated_stratum_weights`. Each marginal
+        estimate is the share mixture of its stratum estimates
+        (:func:`~cleverly.estimators._strata.stratum_mixture`), not the fold average of the
+        marginal plug-ins, whose score the stratum weights leave unsolved.
+
+        Every whitelisted target is defined in every fold and stratum that
+        :func:`~cleverly.estimators._strata.refuse_empty_stratum_folds` admits, so each
+        marginal finds every stratum estimate it mixes.
+
+        Returns
+        -------
+        tuple of dict
+            The marginal estimates and then the stratum estimates, as the stacked report
+            orders them, and the fold values of each.
+
+        Raises
+        ------
+        RuntimeError
+            If a marginal misses one of its stratum estimates, which no admitted fit reaches.
+        """
+        assert data.strata is not None
+        strata = np.asarray(data.strata)
+        stratum_fluctuation = stratum_source(fluctuation)
+        width = marginal_submodel.dim
+        per_fold: list[dict[str, ParameterEstimate]] = [{} for _ in indices]
+        names: dict[str, tuple[str, int]] = {}
+        for code, probability in enumerate(stratum_probabilities(data)):
+            block = slice(code * width, (code + 1) * width)
+            conditional_submodel = Submodel(
+                unscale_block(targeting_submodel.observed[:, block], probability),
+                {
+                    arm: unscale_block(values[:, block], probability)
+                    for arm, values in targeting_submodel.arms.items()
+                },
+                marginal_submodel.names,
+                group,
+                dict(marginal_submodel.arm_columns),
+                dict(marginal_submodel.contrast_columns),
+            )
+            label = data.stratum_label(code)
+            for fold, index in enumerate(indices):
+                inside = strata[index] == code
+                rows = index[inside]
+                estimates = self._estimates_for(
+                    data,
+                    nuisance,
+                    group,
+                    conditional_submodel,
+                    stratum_fluctuation,
+                    requested,
+                    alpha_sig,
+                    reference,
+                    index=rows,
+                )
+                for estimate in estimates.values():
+                    name = stratum_alias(estimate.name, label)
+                    names[name] = (estimate.name, code)
+                    # The stratum's curve on its n_{v,s} rows, embedded in the fold with the
+                    # fold's own share: n_v / n_{v,s} on the stratum's rows, zero elsewhere.
+                    curve = np.zeros(index.size, dtype=float)
+                    curve[inside] = estimate.influence_curve * (index.size / rows.size)
+                    per_fold[fold][name] = replace(
+                        estimate, name=name, influence_curve=curve, n=int(index.size)
+                    )
+        stratum_report = _average_over_folds(
+            per_fold, tuple(names), indices, n=data.n, cluster=None, alpha=alpha_sig
+        )
+        values = {name: tuple(fold[name].psi for fold in per_fold) for name in stratum_report}
+        report: dict[str, ParameterEstimate] = {}
+        for marginal in marginal_names:
+            labels = [
+                stratum_alias(marginal, data.stratum_label(code)) for code in range(data.n_strata)
+            ]
+            missing = [name for name in labels if name not in stratum_report]
+            if missing:
+                # Unreachable: no target of FOLD_EVALUATED_STRATA_TARGETS is undefined in an
+                # admitted fold, so a missing stratum estimate is a bug, not a dropped target.
+                raise RuntimeError(
+                    f"the fold-evaluated mixture {marginal!r} has no stratum estimate {missing}"
+                )
+            estimate, folds = stratum_mixture(
+                data,
+                marginal,
+                [stratum_report[name] for name in labels],
+                [values[name] for name in labels],
+                alpha=alpha_sig,
+            )
+            report[marginal] = estimate
+            values[marginal] = folds
+        report.update(stratum_report)
+        return report, values
+
     def _stratum_natural_course(
         self,
         data: CausalData,
@@ -5616,7 +6031,7 @@ class TMLE:
                 intermediate_value=intermediate_value,
             )
             per_repeat.append(estimates)
-        combined = median_estimates(per_repeat)
+        combined = self._combine_repeats(per_repeat)
         # The plug-in standard error is the replicate's own curve at every status, which is
         # what a studentized interval divides by (``RefitFn``).
         return {
@@ -5738,6 +6153,16 @@ def _in_report_order(
     }
 
 
+def _second_moment_over_n_squared(curve: FloatArray) -> float:
+    """The fold-evaluated variance of a stored curve, :math:`n^{-2}\\sum_i \\phi_i^2`.
+
+    :func:`_average_over_folds` stores :math:`\\phi_i = (n / (V n_v)) D_i`, so on rows
+    this equals :func:`~cleverly.inference.cross_validated_variance` of the fold curve.
+    """
+    values = np.asarray(curve, dtype=float)
+    return float(np.sum(np.square(values)) / values.size**2)
+
+
 def _average_over_folds(
     per_fold: Sequence[Mapping[str, ParameterEstimate]],
     supported: Sequence[str],
@@ -5810,10 +6235,10 @@ def _average_over_folds(
         )
 
     if dropped:
-        warnings.warn(
+        _warn(
             f"{', '.join(dropped)} could not be evaluated inside every validation fold "
-            "-- a fold with no units in the conditioning arm, or a counterfactual mean "
-            "at the boundary -- so it is omitted from the cross-validated report. Fewer "
+            "(a fold with no units in the conditioning arm, or a counterfactual mean "
+            "at the boundary), so it is omitted from the cross-validated report. Fewer "
             "folds (n_folds=) would give each one more units to work with.",
             UserWarning,
             stacklevel=3,

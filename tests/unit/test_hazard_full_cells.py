@@ -19,7 +19,7 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.longitudinal import LTMLE, LongitudinalData
-from cleverly.longitudinal.hazard import HazardState, hazard_inputs, loglik, walk_curve
+from cleverly.longitudinal.hazard import HazardState, hazard_inputs, walk_curve, walk_loss
 from cleverly.longitudinal.sequential import constant_nodes
 
 REGIMENS = {"a1": 1, "a0": 0}
@@ -97,7 +97,7 @@ def test_the_walk_converges_with_the_cell_held_at_one(one_step: Any) -> None:
     held = inputs.full
     assert np.all(start.hazards[:, held].sum(axis=-1) == 1.0)
     assert np.all(start.survival[:, held] == 0.0)
-    assert np.isfinite(loglik(start, inputs))
+    assert np.isfinite(walk_loss(start, inputs))
     moved = start.moved(np.ones_like(start.logits), inputs.bounds)
     assert np.all(moved.hazards[:, held].sum(axis=-1) == 1.0)
 

@@ -6,15 +6,29 @@
     "subject": {
       "implementation": "cleverly-mtp-boundaries",
       "cleverly_version": "0.1.4",
-      "cleverly_commit": "ddefc4e89c26f566186454d24e2c9c2190dedee3",
+      "cleverly_commit": "815b44b8a38ef7715f451e7b3a2deb2d9ad4673c",
       "cleverly_worktree_clean": false,
       "python": "3.13.16",
-      "numpy": "2.5.4",
-      "scipy": "1.18.1",
-      "pandas": "3.0.6",
-      "scikit_learn": "1.9.1"
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
     },
-    "reference": null
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr (LTMLE scenarios) and cf_sdr and theta_dr (SDR scenarios) on an LmtpTask with the shifted values and the per-node ratios this package computed written beside the replicate data; no lmtp density ratio is fitted",
+      "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R, tests/canonical/lmtp_sdr_adapter.R",
+      "pairing": {
+        "boundaries_ltmle": "exact under SMOKE_GATE",
+        "boundaries_sdr": "exact under SMOKE_GATE",
+        "atom_ltmle": "default margins: the package's outcome design holds the atom indicator",
+        "atom_sdr": "default margins: the package's outcome design holds the atom indicator"
+      }
+    }
   },
   "configuration": {
     "replicates": 1000,
@@ -133,65 +147,46 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_mtp_boundaries.py": "c38edd165d72bfc5c35bf3a0cc9fb602e07f793474e626bab6364d214153cb0a",
+    "tests/studies/canonical_mtp_boundaries.py": "9b1d24673adb627770a7c88d1d709aff5567a109502b32f86f7bd09ddfbf0d25",
     "tests/studies/mtp_boundaries_properties.py": "fe95e86a192de3373f05131adc1a54b8d1f1c3fe2e365330b7e63c9b1becbfe2",
     "tests/studies/mtp_boundaries_common.py": "fa521b70a2aeb03bde1d975bd8e0902fab4504c1c451f2577a63aa64b038ca18",
-    "tests/studies/mtp_study_tools.py": "1ae81eda30faf49fdcd13973e9a5e5d69a4ec6bb93c6d9d86b73e71ee7f11b40",
+    "tests/studies/mtp_study_tools.py": "4fa02e137f7bf471f39d4ad72d64fba0ad7eb0d429d586a06218384095f46bcc",
     "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
     "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
     "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
     "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
     "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
-    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
     "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
     "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
     "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
-    "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
-    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
-    "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
-    "tests/canonical/mtp_boundaries_runner.R": "f53c690892551fd419586ee431576273947495e520a943fe2e688be88f391cfc"
+    "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
+    "tests/canonical/lmtp_mtp_adapter.R": "65638b0db4fca5fa709720faf25da839350a6e32f11aa20723f9aadca534d583",
+    "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+    "tests/canonical/mtp_boundaries_runner.R": "71f99327d287daa7132b903f9ec7e7626decb5d91b37235d6c6ea63f4b4ba4cb"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/mtp_boundaries_runner.R": "71f99327d287daa7132b903f9ec7e7626decb5d91b37235d6c6ea63f4b4ba4cb",
+    "tests/canonical/lmtp_mtp_adapter.R": "65638b0db4fca5fa709720faf25da839350a6e32f11aa20723f9aadca534d583",
+    "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
+    "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+    "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
   "sha256": {
-    "replicates.csv.gz": "3c9c0d2969f5feb4b3a102252f309fc0687a6be4a5c7fedd77d6ceb15276b7d7",
-    "summary.csv": "ab1ccbe083ef18a0fb57b416ebf4e81da3d43b85a46434a88bffeeb6008ea6e6",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "79b5c5345876d8d2d5215990f586a402b96ddfa8c4d1658a6965b8d7dfcd6f1b",
-    "property-replicates.csv.gz": "1bbf5c0ca03a39673dd7630efaabc9ded9043d23c0c3d6d1ad2fbbba98ce3860",
-    "properties.csv": "f0597de36d996e4950be1dd3676fe06995ab0d5f75bbdaf5f327a392a168a90f"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "lmtp",
-    "reason": "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this container lacks. The X40 plan's step J owns them: the 3-replicate R smoke under SMOKE_GATE, then the declared R run, in the beta plans' Study queue after S1's Python phase",
-    "metadata": {
-      "lmtp_version": "1.5.4",
-      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
-      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "reference_construction": "lmtp cf_tmle and theta_dr (LTMLE scenarios) and cf_sdr and theta_dr (SDR scenarios) on an LmtpTask with the shifted values and the per-node ratios this package computed written beside the replicate data; no lmtp density ratio is fitted",
-      "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R, tests/canonical/lmtp_sdr_adapter.R",
-      "pairing": {
-        "boundaries_ltmle": "exact under SMOKE_GATE",
-        "boundaries_sdr": "exact under SMOKE_GATE",
-        "atom_ltmle": "default margins: the package's outcome design holds the atom indicator",
-        "atom_sdr": "default margins: the package's outcome design holds the atom indicator"
-      }
-    },
-    "declared_sources_sha256": {
-      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
-      "tests/canonical/mtp_boundaries_runner.R": "f53c690892551fd419586ee431576273947495e520a943fe2e688be88f391cfc",
-      "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
-      "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
-      "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
-      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
-    }
+    "replicates.parquet": "00f81babf60fb144889af7b419ed87f709be585ce7e0490a032a36931b257744",
+    "summary.csv": "564514aa5ac534ac3351eb5ea24cd1def9fd7b989a64447277c6e4595c295b07",
+    "equivalence.csv": "31d5eae45f85f6dc3602092f9f95447da4a11e60e4745eba40450d19e31be518",
+    "performance-tests.csv": "cbefffe866d1aebdbbac1acf75d51f02bef550a2312e587811472ad2f24079ad",
+    "property-replicates.parquet": "9b3125afdf5cc4732c8aa32a4f078d2558f4266d6ec411feae02c8fc1587946e",
+    "properties.csv": "f0597de36d996e4950be1dd3676fe06995ab0d5f75bbdaf5f327a392a168a90f",
+    "exactness.csv": "e9b44a15422027ee8e737f0d28560b61244ef8f214556fb7c6b37b4f68fec0ef"
   }
 }

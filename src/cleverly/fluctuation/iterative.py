@@ -21,7 +21,6 @@ updated fit, which is what makes this the "iterative" TMLE.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
@@ -30,6 +29,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import ConvergenceWarning, MethodConfigurationError
 from ..utils.bounds import expit, logit, shrink_probabilities
 from ._score import (
@@ -64,21 +64,23 @@ TargetingLabel = Literal["iterative", "one_step", "linear"]
 
 #: One item of ``carry``: a further initial fit moved by the same steps as the fitted one.
 #:
-#: A bare :class:`InitialFit` travels along the **production** submodel, which is what the
-#: nested reduced-regression construction wants -- its fold-free copies describe the same
-#: rows, so they take the same clever covariate.  A ``(fit, submodel)`` pair travels along
-#: one of its own, which is what an *evaluation companion* needs: its rows are not the
-#: fitted rows, so ``1_a / g^*`` at them is a different array even though ``epsilon`` is the
-#: same number.  Both are moved by the identical step sequence, which is the whole reason
-#: either goes through the solver rather than being reconstructed from ``(initial, epsilon)``
-#: afterwards -- see :attr:`Fluctuation.carried`.
+#: A bare :class:`InitialFit` travels along the **production** submodel.  A
+#: ``(fit, submodel)`` pair travels along one of its own, which is what an *evaluation
+#: companion* and a foldwise DR-TMLE slab need: a companion's rows are not the fitted rows,
+#: and a slab's covariate is built from its own fold's reduced regressions, so ``1_a / g^*``
+#: there is a different array even though ``epsilon`` is the same number.  Both are moved by
+#: the identical step sequence, which is the whole reason either goes through the solver
+#: rather than being reconstructed from ``(initial, epsilon)`` afterwards -- see
+#: :attr:`Fluctuation.carried`.
 CarryItem: TypeAlias = "InitialFit | tuple[InitialFit, Submodel]"
 
 #: How a targeting step failed, when it did.  Naming the mode matters because the
 #: fixes differ: ``separation_suspected`` and ``bounds_pinned`` point at positivity,
 #: ``singular_hessian`` at a rank-deficient clever covariate (two columns that are
 #: multiples of one another), and ``max_iter_reached`` at a tolerance that is simply
-#: too tight for the conditioning of the problem.
+#: too tight for the conditioning of the problem.  ``bound_excludes_data`` is set by the
+#: bounded node fluctuation of a longitudinal fit (``node_bounds=``), which checks that the
+#: score equation has a root before it runs a step.
 #:
 #: These are *reported*, not raised.  Raising would break the sensitivity sweeps that
 #: deliberately push the truncation bound into bad territory to show what happens.
@@ -89,6 +91,7 @@ TargetingFailure = Literal[
     "separation_suspected",
     "bounds_pinned",
     "max_iter_reached",
+    "bound_excludes_data",
 ]
 
 #: ``|epsilon|`` past which the fluctuation is treated as running away, which is what
@@ -124,6 +127,11 @@ _FAILURE_TEXT: dict[str, str] = {
         "the iteration cap was reached with the score still above tolerance; the fit may "
         "simply need more iterations, or the tolerance may be tighter than the "
         "conditioning of the problem supports"
+    ),
+    "bound_excludes_data": (
+        "a declared node bound excludes the weighted mean outcome of the node's followers, "
+        "so no fluctuation inside the bound solves the score equation; widen node_bounds "
+        "at that node"
     ),
 }
 
@@ -337,8 +345,8 @@ class Fluctuation:
     carried : tuple of InitialFit
         Further initial fits moved along the **same** submodel by the **same** steps, in
         the order they were passed as ``carry``.  Empty on every fit that did not ask for
-        one, which is every fit but a
-        :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``.
+        one.  :class:`~cleverly.DRTMLE` asks for them with an ``evaluation=`` companion and
+        with ``reduced_crossfit="foldwise"``.
 
         It exists because a step sequence cannot be reconstructed from its endpoint.  The
         solve applies :func:`apply_logistic` once per Newton step and shrinks after each,
@@ -701,7 +709,7 @@ def solve_fluctuation(
         else _classify(epsilon, current, detail, alpha, iterations, max_iter, mask)
     )
     if not converged and warn:
-        warnings.warn(
+        _warn(
             f"targeting step did not drive the relative score below {tol:g} after "
             f"{iterations} iteration(s) (relative score = {relative:.3g}): "
             f"{_FAILURE_TEXT[failure] if failure else 'cause not identified'}. "
@@ -882,7 +890,7 @@ def _solve_fluctuation_ruled(
                 f"{iterations} iteration(s) (relative score = {relative_score(score, scale):.3g}): "
                 f"{cause}"
             )
-        warnings.warn(
+        _warn(
             message + ". Inspect res.fluctuations[group].failure and res.diagnostics.support().",
             ConvergenceWarning,
             stacklevel=3,
@@ -1121,7 +1129,7 @@ def _solve_fluctuation_bounded(
                 f"targeting step did not drive the relative score below {tol:g} after "
                 f"{iterations} iteration(s) (relative score = {relative:.3g}): {cause}{bounded}"
             )
-        warnings.warn(
+        _warn(
             message + ". Inspect res.fluctuations[group].failure and res.diagnostics.support().",
             ConvergenceWarning,
             stacklevel=3,
@@ -1369,7 +1377,7 @@ def _solve_linear(
     carried = tuple(moved(fit, own) for fit, own in zip(carry_fits, carry_submodels, strict=True))
     escaped = any(values.min() < 0.0 or values.max() > 1.0 for values in targeted.arms.values())
     if escaped:
-        warnings.warn(
+        _warn(
             "the linear fluctuation produced targeted predictions outside the outcome's "
             "range. fluctuation='logistic' (the default) is bounded by construction and is "
             "preferred unless you specifically need the linear submodel.",

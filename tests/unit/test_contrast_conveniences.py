@@ -353,6 +353,7 @@ class TestInheritance:
                     outcome_learner=LogisticRegression(max_iter=1000),
                     treatment_learner=LogisticRegression(max_iter=1000),
                     reduced_outcome_learner=LinearRegression(),
+                    reduced_mechanism_residual_learner=LinearRegression(),
                     reduced_treatment_learner=LogisticRegression(max_iter=1000),
                     cross_fit=False,
                     estimands=("ey1", "ey0"),

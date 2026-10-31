@@ -45,6 +45,7 @@ from tests.canonical.drtmle_stratified.regenerate import REFERENCE
 from tests.studies import canonical_stratified_drtmle as study
 from tests.studies import stratified_drtmle_properties as properties
 from tests.studies.canonical_drtmle import ColumnLogistic, FixedFoldDRTMLE
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 from tests.studies.evidence.seeds import stream_seed
 
@@ -78,6 +79,7 @@ class SubsetOutcome(BaseEstimator, ClassifierMixin):
 def _settings() -> dict[str, Any]:
     return {
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": ColumnLogistic(),
         "cross_fit": True,
         "n_folds": study.N_FOLDS,
@@ -233,9 +235,8 @@ def _reference(samples: pd.DataFrame, scratch: Path) -> pd.DataFrame:
 
 def _validation(rows: pd.DataFrame) -> pd.DataFrame:
     """Arm ``C`` against the committed rows of the published cells."""
-    committed = pd.read_csv(
-        ROOT / "tests" / "canonical" / "drtmle_stratified" / "property-replicates.csv.gz",
-        float_precision="round_trip",
+    committed = read_rows(
+        ROOT / "tests" / "canonical" / "drtmle_stratified" / "property-replicates.parquet"
     )
     out = []
     for name in ("ate", *(f"ate[V={s}]" for s in STRATA)):

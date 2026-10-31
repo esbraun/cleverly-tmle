@@ -686,8 +686,8 @@
       "fit-diagnostics.csv": "baseline",
       "performance-tests.csv": "baseline",
       "properties.csv": "analysis",
-      "property-replicates.csv.gz": "composite_replicates",
-      "replicates.csv.gz": "baseline",
+      "property-replicates.parquet": "composite_replicates",
+      "replicates.parquet": "baseline",
       "summary.csv": "baseline"
     },
     "baseline": {
@@ -13329,8 +13329,8 @@
     "fit-diagnostics.csv": "69fc9823225f9e9cd134d28a46cdc6e100d5a9b175f6eecba2d73f664ac82ee6",
     "performance-tests.csv": "9a4eed25d634ac604f3089cf25c2666e350913754386c38a367d2c92ac8316bd",
     "properties.csv": "6f2e319f7dc95435a14d07007342984868a4538b13a78356a0ab0d2708d0fb25",
-    "property-replicates.csv.gz": "7af2e8890c531ed9e5ac1f9f00f046ffd62842a1c75f82a54e75a618d7110d92",
-    "replicates.csv.gz": "c1e6ce61de9eb52ff86eb2081403f07f382e4b1505f0c0de78a4d2f9a8047efc",
+    "property-replicates.parquet": "dad91378dfba9575e1cfdc72d5d95de36a0b233751418a6c7d0c7213ca7b652e",
+    "replicates.parquet": "1206a207a6b5a349b8e19f9f0e95929701ddd2e34259cd658648e7b6bc7fa579",
     "summary.csv": "68ea895cf25057cd8e26cad5ba71198ab12f92eedc651f493245c38786f0e990"
   },
   "slug": "canonical-multi-arm-drtmle",

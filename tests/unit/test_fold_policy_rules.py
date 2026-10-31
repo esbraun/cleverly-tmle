@@ -34,6 +34,7 @@ from cleverly.datasets import (
     make_nonlinear_bounded,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators import drtmle as drtmle_module
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
 from cleverly.interventions import Shift
 from cleverly.learners import SuperLearner, random_partition
@@ -1225,6 +1226,8 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
         from sklearn.dummy import DummyClassifier
 
         monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
+        # The leave-two-out preflight refuses the same draw first; disable it too.
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a: None)
         n, n_folds = 60, 6
         rng = np.random.default_rng(0)
         frame = pd.DataFrame(
@@ -1246,7 +1249,7 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
             random_state=seed_stranding_rows(n, n_folds, treated),
             simultaneous=False,
             estimands=["ate"],
-            reduced_crossfit="nested",
+            reduced_crossfit="foldwise",
         )
         with pytest.raises(ValueError) as raised:
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
@@ -1367,6 +1370,7 @@ def drtmle_settings() -> dict[str, Any]:
         "outcome_learner": LogisticRegression(max_iter=500),
         "treatment_learner": LogisticRegression(max_iter=500),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(C=1e6, max_iter=500),
         "cross_fit": True,
         "n_folds": OUTER_FOLDS,

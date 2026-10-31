@@ -1,0 +1,5 @@
+Step 6 fit: estimate 0.1666, truth 0.1629
+842 s for 300 refits
+placebo: level L0, verdict descriptive, t 0.3074, arithmetic mean placebo estimate +0.00018223 against the exact null 0; the t statistic of the 100 draws is +0.3074 on 99 degrees of freedom
+random_common_cause: level L0, verdict descriptive, paired shift in standard errors 0.0740, adding an irrelevant covariate moved the estimate by +0.07397 standard errors against the original fit, under its seed and folds
+subset: level L0, verdict descriptive, scatter ratio rho 1.1121, subsample estimates scatter by 0.0039922 against 0.0035897 from sampling 2100 of 3000 units alone

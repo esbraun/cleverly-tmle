@@ -441,8 +441,8 @@ class TestTheRecord:
             assert (fit.stacked_folds, fit.stacked_repeats) == (5, repeats)
 
     def test_the_summary_names_the_folds_and_the_median(self, repeated: Any) -> None:
-        text = repeated.summary()
-        assert "cross-fitted over 5 folds in the exact V-fold stack" in text
+        text = " ".join(repeated.summary(detail="full").section("Method details").lines)
+        assert "cross-fitted over 5 folds, with one outcome model and one treatment" in text
         assert "median of 3 cross-fitting repeats" in text
 
     def test_each_draw_records_its_fold_coefficients(self, repeated: Any) -> None:

@@ -364,7 +364,7 @@ for a finite-sample red with no defect.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/npcausal_stratified_incremental/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/npcausal_stratified_incremental/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/npcausal_stratified_incremental/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/npcausal_stratified_incremental/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/npcausal_stratified_incremental/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/npcausal_stratified_incremental/properties.csv)
 carry the protocol, provenance, and every published row.

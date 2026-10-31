@@ -97,6 +97,7 @@ from typing import Any
 import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
+from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
@@ -249,8 +250,8 @@ class RegimenMSM:
         weights = np.asarray(self.weights, dtype=float)
         if design.ndim != 3 or design.shape[1] != len(self.cells):
             raise DataError(
-                f"the working model's design must have shape (n, {len(self.cells)}, p) -- "
-                f"rows, regimen-horizon cells, terms -- got {design.shape}"
+                f"the working model's design must have shape (n, {len(self.cells)}, p) ("
+                f"rows, regimen-horizon cells, terms), got {design.shape}"
             )
         if design.shape[2] != len(self.terms):
             raise DataError(
@@ -423,9 +424,9 @@ def evaluate_regimen_msm(
             "MSM.linear reads the label it is handed as a dose to interpolate between, "
             "which a treatment arm can be and a regimen cannot: a plan is a sequence of "
             "decisions, and no arithmetic on its name is a summary of it. Pass design= "
-            "with design_kind='known' and code the grid yourself -- design=lambda label, "
+            "with design_kind='known' and code the grid yourself, e.g. design=lambda label, "
             "horizon, w: np.column_stack([np.ones(len(w)), np.full(len(w), "
-            "duration[label])]) -- so that what the coefficient is per unit of is written "
+            "duration[label])]), so that what the coefficient is per unit of is written "
             "down."
         )
     _check_support(link_for(str(msm.link)), data)
@@ -450,9 +451,9 @@ def _call(function: Any, cell: Cell, frame: Any, *, what: str) -> Any:
     except TypeError as error:
         shape = "(n, p)" if what == "design" else "(n,)"
         raise DataError(
-            f"a working model's {what} over regimens takes three arguments -- "
+            f"a working model's {what} over regimens takes three arguments: "
             f"(regimen_label, horizon, baseline_frame) -> {shape}"
-            " -- rather than the (arm_label, covariate_frame) pair a working model over "
+            ", rather than the (arm_label, covariate_frame) pair a working model over "
             "arms takes. The horizon is inside the design so that a coefficient can be a "
             "trend across horizons; on an end-of-study fit it is the last node and may be "
             f"ignored. Called for regimen {cell.label!r} at horizon {cell.horizon}."
@@ -522,14 +523,14 @@ def _check_support(link: Link, data: LongitudinalData) -> None:
         raise DataError(
             f"link={link.name!r} models the counterfactual mean as exp(beta' phi), which "
             f"is positive, and {name} takes the value {low:g}. A log-link "
-            "working model needs a non-negative outcome -- a risk, a count or a rate. Use "
+            "working model needs a non-negative outcome: a risk, a count or a rate. Use "
             "link='identity' for an outcome that can be negative."
         )
     if link.support == "unit" and (low < 0.0 or high > 1.0):
         raise DataError(
             f"link='logit' models the counterfactual mean as a probability, and "
             f"{name} ranges over [{low:g}, {high:g}]. A logit working model "
-            "needs an outcome in [0, 1] -- a binary outcome or a proportion. Note that "
+            "needs an outcome in [0, 1]: a binary outcome or a proportion. Note that "
             "the projection is solved on the outcome's own scale, so that its "
             "coefficients are reported in the units they were declared in."
         )
@@ -568,6 +569,31 @@ class MSMRegimenFit:
     @property
     def converged(self) -> bool:
         return all(node.converged for node in self.nodes) and self.alternation.converged
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The working model's link, its cells, and the coefficient of each term.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds what the coefficients summarize.
+
+        Returns
+        -------
+        Summary
+            The summary. The result's ``summary()`` gives each coefficient's interval.
+        """
+        from ._record_summary import msm_fit_summary
+
+        return msm_fit_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._record_summary import msm_fit_repr
+
+        return msm_fit_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)

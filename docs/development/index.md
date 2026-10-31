@@ -16,6 +16,7 @@ needs. Read [pull requests](pull-requests.md) before you open one. Read
 Contributing <contributing>
 Pull requests <pull-requests>
 Releases <releases>
+Writing for readers <writing-for-readers>
 Example notebooks <example-notebooks>
 Release notes template <release-notes-template>
 Roadmap <../roadmap>

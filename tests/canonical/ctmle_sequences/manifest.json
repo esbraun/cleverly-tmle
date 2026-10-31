@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-ctmle-sequences",
       "cleverly_version": "0.1.3",
-      "cleverly_commit": "c8aa6e651fd0109ae3037e2e5ed3e8d73279e631",
+      "cleverly_commit": "4c26dd0584647708a02be092e21a5c73ed77e1a8",
       "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.4.6",
@@ -14,13 +14,42 @@
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
-    "reference": null
+    "reference": {
+      "implementation": "r-ctmle",
+      "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
+      "ctmle_version": "0.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "glmnet_control": "glmnet.control(fdev = 0, devmax = 1)",
+      "binary_lasso": "ctmleGlmnet(Y, A, W, Q = cbind(q0, q1), lambdas = c(STUDY_LAMBDAS$binary_lasso, 0), ctmletype = 1, family = 'binomial', like_type = 'loglik', gbound = 0.025, PEN = FALSE, V = 5, folds = the package's selection folds, detailed = TRUE); std_error = sqrt(var.psi) of the type-1 final step",
+      "binary_learners": "build_gn_seq(A, W, SL.library = SL.cv1lasso..SL.cv4lasso at LEARNER_LAMBDAS and SL.glm, folds = folds_R), then set.seed(s_r) and ctmleGeneral(ctmletype = 1, gn_candidates, gn_candidates_cv, family = 'binomial', like_type = 'loglik', gbound = 0.025, PEN = FALSE, V = 5, folds = folds_R, detailed = TRUE); std_error = sqrt(varDstar_origscale[best_k] / n)",
+      "type_1_adapter": "ctmleGlmnet type 1 has no branch for a selected last penalty (quirk 7). The runner catches an error of ctmleGlmnet only when its message holds the quirk-7 text \"length of 'dimnames' [1] not equal to array extent\" and the rebuilt best_k is the last penalty; it then reports results.all$est[best_k] with varDstar_origscale[best_k] / n. Any other error is a comparator failure. rebuild_type1 also runs on every replicate where ctmleGlmnet completes, and the runner stops unless its best_k and results.all$est are identical",
+      "replay_outputs": "coef(glm), coef(gbw, s = lambdas) of the full-sample default path, coef of each build_gn_seq full fit, the accepted candidates, results.all est and likelihood, and the type-1 final step from R's best_k and from the package's selected index (ctmle_glmnet.R:248-327); every coefficient set reproduces R's arrays to 1e-12",
+      "outcome_regression": "glm(Y ~ A + W1 + W2 + W3 + W4, family = binomial())",
+      "red_cell_owners": {
+        "truth/binary_lasso/coverage": "X16-plugin-variance",
+        "truth/coverage": "F18",
+        "truth/se_ratio": "F18",
+        "truth/bias": "X16-sequence-reading",
+        "replay": "X16-sequence-reading",
+        "property/selector_necessity": "F18",
+        "property/double_robustness/positive/bias": "X16-sequence-reading",
+        "property/double_robustness/positive/coverage": "F18",
+        "property/double_robustness/positive/se_ratio": "F18",
+        "property/multi_arm/positive/coverage": "F18",
+        "property/multi_arm/positive/se_ratio": "F18"
+      }
+    }
   },
   "configuration": {
     "replicates": 800,
     "n": 2000,
     "seed": 20261601,
     "publication_policy": "reporting",
+    "paired_role": "descriptive: quirk 2 drives R's cross-validation to the last candidate, so the selected estimates are not compared under a verdict",
+    "failure_bound": {
+      "cleverly-ctmle-sequences": 0.01,
+      "r-ctmle": 0.01
+    },
     "scenarios": {
       "binary_lasso": [
         "ate"
@@ -46,7 +75,6 @@
     "binary_lasso_folds": "unstratified 5-fold selection assignments drawn from the estimator's own seed and asserted; R reads the same assignment",
     "binary_learners_folds": "folds_R from make_r_folds.R, committed as r_folds.csv.gz; selection_split = folds_R - 1; PropensityArrays cv columns fitted out of fold on folds_R",
     "declared_differences": "the package refits the outcome inside each selection fold; R refits epsilon on every row inside each fold (quirk 2) and refits glmnet on every row in its evaluation (quirk 3); R clamps the penalty 0 to the minimum of the path it reads, the training rows' path while a construction scores its tries and the full-sample path elsewhere (quirk 4, recorded per fold in r-selection.csv); R's construction criterion always adds var(D*), whatever PEN is, so with PEN = FALSE R's construction is penalized and the package's (penalty=False) is not, and R's stop can bind where the package's cannot; inside each cross-validation fold R scales that construction penalty by n_train / n (quirk 8); for binary_learners the package refits its terminal under the split, while R reads SL.glm's cv column",
-    "paired_role": "descriptive: quirk 2 drives R's cross-validation to the last candidate, so the selected estimates are not compared under a verdict",
     "replay_gates": "per scenario, on every replicate without a near_tie or clip flag: accepted indices identical; each candidate estimate and loss within 1e-6; for each final-step start, the final index identical and the estimate and every option loss within 1e-6; at least 400 unflagged replicates, and for binary_lasso at least 100 final-step comparisons. The package side uses R's arrays, R's initial Q, penalty=True, loss='loglik', alpha=0.995",
     "expected_adapter_rate": "close to every binary_lasso replicate: on the rev 2.1 law R chose the last penalty on 10 of 10 probe replicates (one-sided 95% Clopper-Pearson lower bound 0.74), because quirk 2 drives R's cross-validated loss toward the end. About 0 of 800 replicates are expected to be compared without the adapter (95% upper bound about 207). The rate is published and not gated",
     "inference": "package: plug-in D* diagnostic (plugin_std_error); R: var.psi of the type-1 final step for binary_lasso and varDstar_origscale[best_k] / n for binary_learners",
@@ -98,15 +126,15 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ctmle_sequences.py": "e418347e6b4d863e7773797cd39c89ef39377d17a26e15dbfcbc6b00539f1324",
-    "tests/studies/ctmle_sequence_properties.py": "2c6b48a7665b615e8b6f2f62acd3a6938f7f245e299fc1240a0cefeab0bbe376",
+    "tests/studies/canonical_ctmle_sequences.py": "7aaa810e432a26070907ee69f8fc92985f38a643969e4e7c3bff7e733aa3a5d4",
+    "tests/studies/ctmle_sequence_properties.py": "16717b4eded7b56f75d86f2462f6d28229e4731a9e5106d3565f58dbde9a4b92",
     "tests/studies/ctmle_sequence_replay.py": "7a11aeff2e2580caacbad6501eae924bc73eb8f387bf56164b85ae817b178ea3",
     "tests/canonical/ctmle_sequence_witness/harness.py": "4176ba51fc8ad9aa240f58efa19f65ca01695c44cf8f739c786454c95d45a718",
-    "tests/studies/canonical_ctmle_selector.py": "d13a9f8e2213cca5186100962fadfd96055c0ac1d49b5549f60674101cf7e40d",
-    "tests/studies/canonical_properties.py": "9dc6a724cfa2694efe83f3270c18b2cc5c65a2b8a0e6aee40f6c027f55330286",
+    "tests/studies/canonical_ctmle_selector.py": "c18e143da9e3154845fe334b92939f23a1004d862298023160a0c2af0f4ee9ac",
+    "tests/studies/canonical_properties.py": "6f890306a2ddf9ea219ef0db818dbe426a7d38a87bd01dd99a6b5a6f2ee6f15b",
     "tests/studies/bounded_cv_laws.py": "3b203e01801af646a778c120896b215e3d71d9e2589864ac66f5a2545d4b2360",
-    "tests/studies/canonical_cvtmle.py": "23792f26e303f6e42f7295d9e693ecf5fa49fd1c32497f10a17d667fa194472b",
-    "tests/studies/canonical_tmle.py": "e4b9de7e9064e4806324aa23a7a72d0b2c24c2826ff4f57e85571de09fd9b5e1",
+    "tests/studies/canonical_cvtmle.py": "1967aa13254ebc671e7ec655dfcb9040a69e931de85c525d4723cc9a80b10330",
+    "tests/studies/canonical_tmle.py": "2e357e185549ac6f83c31b4f981df9350981af3c7026ba5e01a7d3bcedd6a791",
     "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
     "tests/studies/multi_arm_common.py": "60f76754d0079b0a00994812f3d6208c7e6ba0f8ae060811e9db8c0ba1841697",
     "tests/studies/multi_arm_properties.py": "2f7ded8fb0ea6c66799220f5db6654b21abffb306de53ec72e5ad9145d23b8a9",
@@ -114,57 +142,31 @@
     "tests/conftest.py": "8adf5363471ccc6aa16e94a141b521552bc7098983bfa59d7a80878590db6ba5",
     "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
-    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
     "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
-  "reference_sha256": {},
-  "sha256": {
-    "replicates.csv.gz": "5c47d8b434306566d1c3d595be2718485d7d007703762013f27d4ab73f3ac6b7",
-    "summary.csv": "cca7b1c679e48a676b35f79ea1be1b16403af75a68f0cd5bb585b1ed6e04a5bf",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "758bf95393e5143c75400179e0dd5905610ac9fff92f760f28bf095f01054c04",
-    "property-replicates.csv.gz": "fccb32e6545d16972cabdb9d608e8c441949cb4b554543700946ed51d6912402",
-    "properties.csv": "157b037ce9e5d807052ac4bc3c86bc87f730aeadf3dcf592e180188d9fe823d8",
-    "property-selection.csv": "e51f7966397c60b34871466f2c52ccf59035de5b5aec45c9181030d874a275a9"
+  "reference_sha256": {
+    "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
+    "tests/canonical/ctmle_sequences/run_ctmle_sequences.R": "9b8b2ac5023918d940a539f52c671a376dd1cdbb92d554b2c6ee33d260f27bf9",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/ctmle_sequences/lambdas.csv": "359fcbacc0041fdf9302ae61b6f5e8f98a9285fb116e1d80c81dfe61983d457e",
+    "tests/canonical/ctmle_sequences/make_r_folds.R": "69001d8c7104ac9e602f640fc577a9df48798c202a03f178b201f0be42862264",
+    "tests/canonical/ctmle_sequences/rebuild_type1.R": "099efbe92389c2489a646457dda533429a769ab9b0f34e695f2de3ed4936e08a",
+    "tests/canonical/ctmle_sequences/r_folds.csv.gz": "8a150f643c29135f21cf9d1ca86007eed5fdc7ff8050340487139a3d35270f60"
   },
-  "comparator": {
-    "status": "pending",
-    "implementation": "r-ctmle",
-    "reason": "Study queue item 9: the R ctmle runs need Docker and the pinned reference image, and a later change registers them",
-    "metadata": {
-      "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
-      "ctmle_version": "0.1.2",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "glmnet_control": "glmnet.control(fdev = 0, devmax = 1)",
-      "binary_lasso": "ctmleGlmnet(Y, A, W, Q = cbind(q0, q1), lambdas = c(STUDY_LAMBDAS$binary_lasso, 0), ctmletype = 1, family = 'binomial', like_type = 'loglik', gbound = 0.025, PEN = FALSE, V = 5, folds = the package's selection folds, detailed = TRUE); std_error = sqrt(var.psi) of the type-1 final step",
-      "binary_learners": "build_gn_seq(A, W, SL.library = SL.cv1lasso..SL.cv4lasso at LEARNER_LAMBDAS and SL.glm, folds = folds_R), then set.seed(s_r) and ctmleGeneral(ctmletype = 1, gn_candidates, gn_candidates_cv, family = 'binomial', like_type = 'loglik', gbound = 0.025, PEN = FALSE, V = 5, folds = folds_R, detailed = TRUE); std_error = sqrt(varDstar_origscale[best_k] / n)",
-      "type_1_adapter": "ctmleGlmnet type 1 has no branch for a selected last penalty (quirk 7). The runner catches an error of ctmleGlmnet only when its message holds the quirk-7 text \"length of 'dimnames' [1] not equal to array extent\" and the rebuilt best_k is the last penalty; it then reports results.all$est[best_k] with varDstar_origscale[best_k] / n. Any other error is a comparator failure. rebuild_type1 also runs on every replicate where ctmleGlmnet completes, and the runner stops unless its best_k and results.all$est are identical",
-      "replay_outputs": "coef(glm), coef(gbw, s = lambdas) of the full-sample default path, coef of each build_gn_seq full fit, the accepted candidates, results.all est and likelihood, and the type-1 final step from R's best_k and from the package's selected index (ctmle_glmnet.R:248-327); every coefficient set reproduces R's arrays to 1e-12",
-      "outcome_regression": "glm(Y ~ A + W1 + W2 + W3 + W4, family = binomial())",
-      "red_cell_owners": {
-        "truth/binary_lasso/coverage": "X16-plugin-variance",
-        "truth/coverage": "F18",
-        "truth/se_ratio": "F18",
-        "truth/bias": "X16-sequence-reading",
-        "replay": "X16-sequence-reading",
-        "property/selector_necessity": "F18",
-        "property/double_robustness/positive/bias": "X16-sequence-reading",
-        "property/double_robustness/positive/coverage": "F18",
-        "property/double_robustness/positive/se_ratio": "F18",
-        "property/multi_arm/positive/coverage": "F18",
-        "property/multi_arm/positive/se_ratio": "F18"
-      }
-    },
-    "declared_sources_sha256": {
-      "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
-      "tests/canonical/ctmle_sequences/run_ctmle_sequences.R": "9b8b2ac5023918d940a539f52c671a376dd1cdbb92d554b2c6ee33d260f27bf9",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-      "tests/canonical/ctmle_sequences/lambdas.csv": "359fcbacc0041fdf9302ae61b6f5e8f98a9285fb116e1d80c81dfe61983d457e",
-      "tests/canonical/ctmle_sequences/make_r_folds.R": "69001d8c7104ac9e602f640fc577a9df48798c202a03f178b201f0be42862264",
-      "tests/canonical/ctmle_sequences/rebuild_type1.R": "099efbe92389c2489a646457dda533429a769ab9b0f34e695f2de3ed4936e08a",
-      "tests/canonical/ctmle_sequences/r_folds.csv.gz": "8a150f643c29135f21cf9d1ca86007eed5fdc7ff8050340487139a3d35270f60"
-    }
+  "sha256": {
+    "replicates.parquet": "edf7ff1745c8bc0b62e97a5c3e9b475bcff12988dd8f82782546c3cb8f693cce",
+    "summary.csv": "29806c17d7c48843b93cc0f83b153aa683887e65fae99e98e31d5b22ac9a4ce5",
+    "equivalence.csv": "08acb517285f33c4b80e98802514a83baefe5c44139cfef708771c309eb1abf7",
+    "performance-tests.csv": "8f56e79f59c4e290d97a792a78ffd2b32f42122a386fc0d1b36aa3b0e6ff1679",
+    "property-replicates.parquet": "ae3fc4e6921dde8cc8ffa61a322b3bfabe7c11535bd0fe9300db38b800ee1d81",
+    "properties.csv": "157b037ce9e5d807052ac4bc3c86bc87f730aeadf3dcf592e180188d9fe823d8",
+    "r-selection.csv": "43bdf9e64ea94f794a5ab47c1d0a13d3c2fff1cb4c0a059781320cf1d2981cce",
+    "r-selection-summary.csv": "e2befe255cf0b746f1ba191340e526bef2e01531751fda158229967cddbe8914",
+    "replay.csv": "7e895fa6996754ee0025bdb566dfcc33bc73b30d24c4d5d548ac5c9ff4f01a25",
+    "replay-summary.csv": "6427093991746c3fa1f8c2380c95f235327c055ea39a468593fb58f073132033",
+    "property-selection.csv": "e51f7966397c60b34871466f2c52ccf59035de5b5aec45c9181030d874a275a9"
   }
 }

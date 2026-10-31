@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
-from ._support import combine_support
+from ._summary import Detail, Summary
+from ._support import Support, combine_support
 from ._typing import Family
+from ._warnings import records_fit
 from .data import CausalData
 from .data.causal_data import _vector_components
 from .data.known_mechanism import (
@@ -23,7 +25,8 @@ from .data.treatment_covariates import (
     treatment_mechanism_restriction,
 )
 from .data.validate import RANDOMIZED_INTERCEPT
-from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
+from .estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, TMLEResult
+from .estimators import iptw as iptw_estimator
 from .estimators._strata import check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
 from .exceptions import (
@@ -50,6 +53,7 @@ from .longitudinal import (
     SequentialIPW,
 )
 from .longitudinal import estimator as _sequential
+from .longitudinal.data import check_markov_order, markov_restriction
 from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
     BASELINE_TILT_REFUSAL,
@@ -57,17 +61,21 @@ from .longitudinal.estimator import (
 )
 from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
+    ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL,
     BASELINE_POINT_REFUSAL,
     IPSI_POINT_REFUSAL,
+    IPW_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
     SDR_POINT_REFUSAL,
     SDR_TILT_REFUSAL,
+    AdaptiveIPTWMethod,
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EstimationMethod,
     GComputationMethod,
     IPSIMethod,
     IPWMethod,
+    MethodAvailabilities,
     MethodAvailability,
     ParametricGFormulaMethod,
     Runtime,
@@ -75,7 +83,7 @@ from .methods import (
     TMLEMethod,
 )
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
-from .protocol import ProtocolDetail, StudyProtocol, protocol_summary_lines
+from .protocol import StudyProtocol, protocol_summary_lines
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -303,13 +311,14 @@ class CausalResult(Protocol):
         """
         ...
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+    def summary(self, *, detail: Detail = "short") -> Summary:
         """Return a printable fit summary.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            How much of the protocol record the summary prints.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` also prints the fields of the study
+            protocol record, or that the fit had none.
 
         Returns
         -------
@@ -930,6 +939,10 @@ class LongitudinalTreatment:
         The known retention probabilities (a tuple of pairs is also accepted): each censoring
         column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
         censoring learner.
+    markov_order : int or None
+        A statistical-model restriction of order ``k``.  Every nuisance model at node ``t``
+        reads the baseline covariates and the last ``k + 1`` nodes only.  The estimand does
+        not change.  ``None`` uses the full history.
 
     See Also
     --------
@@ -974,9 +987,11 @@ class LongitudinalTreatment:
     continuous_treatment: Sequence[str] | Mapping[str, Any] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    markov_order: int | None = None
     dose_atoms: Mapping[str, Sequence[float]] | None = None
 
     def __post_init__(self) -> None:
+        check_markov_order(self.markov_order)
         continuous = self.continuous_treatment
         object.__setattr__(
             self,
@@ -1032,9 +1047,11 @@ class LongitudinalTreatment:
             Validated time-ordered representation.
         """
         if isinstance(data, LongitudinalData):
+            if self.markov_order is not None and data.markov_order is None:
+                data = data.with_markov_order(self.markov_order)
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_frame(
+        prepared = LongitudinalData.from_frame(
             data,
             outcome=self.outcome,
             treatment=self.treatment,
@@ -1057,6 +1074,9 @@ class LongitudinalTreatment:
             ),
             dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
         )
+        if self.markov_order is None:
+            return prepared
+        return prepared.with_markov_order(self.markov_order)
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """The event nodes and cause labels this outcome declaration implies.
@@ -1107,6 +1127,7 @@ class LongitudinalTreatment:
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment", declared_treatment, tuple(data.treatment_names)),
             ("held treatment", held, data.treatment_held),
+            ("markov_order", self.markov_order, data.markov_order),
             ("time grid", None, data.time_grid),
             ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
             ("time_varying", blocks, prepared_blocks),
@@ -2273,8 +2294,8 @@ class ControlledDirectEffect:
         # inside the provider rather than as a refusal naming what to pass instead.
         if not isinstance(self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio)):
             raise DataError(
-                "ControlledDirectEffect(contrast=...) takes a typed arm contrast -- "
-                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio() -- not {self.contrast!r}"
+                "ControlledDirectEffect(contrast=...) takes a typed arm contrast: "
+                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio(), not {self.contrast!r}"
             )
 
     @property
@@ -2393,7 +2414,17 @@ def _narrow_bands(
             random_state=getattr(method, "runtime", Runtime()).random_state,
             cluster=result.data.cluster,
         )
-    return replace(narrowed, support=combine_support([bands.support, narrowed.support]))
+    # No study measures a band over a narrowed family, so the band is experimental whatever its
+    # row licenses for the engine's own band.
+    return replace(narrowed, support=combine_support([bands.support, _NARROWED_BAND]))
+
+
+#: The support of a band narrowed to the parameters an effect reports.
+_NARROWED_BAND: Final[Support] = Support(
+    "experimental",
+    "The band covers a subset of the parameters of the fit's own band, and no study measures a "
+    "band over that subset.",
+)
 
 
 def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
@@ -2535,10 +2566,19 @@ class BackdoorMeanContrast:
         support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
         if self.axis == "learned_rule":
             treated, control = self.treatment_levels[1], self.treatment_levels[0]
+            blip = f"{regression(repr(treated))} - {regression(repr(control))}"
+            loss = getattr(next(iter(self.interventions), None), "loss", "plug_in")
+            learned = {
+                "plug_in": f"{blip} > 0 as learned",
+                "blip": f"a regression of a doubly robust pseudo-outcome for {blip} is "
+                "positive, fitted",
+                "weighted_classification": "a classifier of the sign of a doubly robust "
+                f"pseudo-outcome for {blip}, weighted by its size, predicts a positive sign "
+                "with probability above 1/2, fitted",
+            }[loss]
             return (
                 f"(1/V) sum_v E_W[{regression('d_v(W)')}], where d_v(W) = 1 when "
-                f"{regression(repr(treated))} - {regression(repr(control))} > 0 as learned "
-                "on the training rows of outer fold v"
+                f"{learned} on the training rows of outer fold v"
             )
         if self.axis == "arm":
             reference = self.reference_arm
@@ -2600,7 +2640,7 @@ class BackdoorMeanContrast:
             )
         return (
             f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
-            "with influence correction"
+            "corrected by its influence function"
         )
 
 
@@ -3174,7 +3214,7 @@ def _point_identification(
         assumptions.append(
             "the natural-course mean is a functional of the observed law alone: neither "
             f"the adjustment set {list(design.adjustment)} nor a treatment mechanism "
-            "enters it, which is why this record requires no nuisance estimate"
+            "enters it, so this question needs no model of either"
         )
     elif target == "ey_obs":
         assumptions.append(
@@ -3531,7 +3571,7 @@ _LONGITUDINAL_MTP_IDENTIFICATION = Identification(
         "h_t wherever a_t does (Díaz et al. 2023, Assumption 1, which Williams & Díaz 2025 "
         "leave unchanged), and so does remaining under observation",
         "each policy is known and fixed before the fit, or its cap is a declared tuner with a "
-        "declared target (X40 part (e)), and on a continuous node it is piecewise smooth "
+        "declared target, and on a continuous node it is piecewise smooth "
         "invertible (Assumption 4); a policy reads the history and the unit's own treatment "
         "at its node, and its earlier treatment columns stand for the intervened values",
     ),
@@ -3804,18 +3844,28 @@ class ExplicitAdjustmentProvider:
             longitudinal=True,
             history=history,
         )
+        identification = (
+            _LONGITUDINAL_TILT_IDENTIFICATION
+            if declares_tilt(regimens)
+            else _LONGITUDINAL_MTP_IDENTIFICATION
+            if declares_mtp(regimens)
+            else _LONGITUDINAL_POLICY_IDENTIFICATION
+            if declares_policy(regimens)
+            else _LONGITUDINAL_IDENTIFICATION
+        )
+        markov_order = getattr(design, "markov_order", None)
+        if markov_order is not None:
+            identification = replace(
+                identification,
+                model_restrictions=(
+                    *identification.model_restrictions,
+                    markov_restriction(markov_order),
+                ),
+            )
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
-            identification=(
-                _LONGITUDINAL_TILT_IDENTIFICATION
-                if declares_tilt(regimens)
-                else _LONGITUDINAL_MTP_IDENTIFICATION
-                if declares_mtp(regimens)
-                else _LONGITUDINAL_POLICY_IDENTIFICATION
-                if declares_policy(regimens)
-                else _LONGITUDINAL_IDENTIFICATION
-            ),
+            identification=identification,
             provider=self,
             _study=study,
         )
@@ -3915,6 +3965,33 @@ class CausalStudy:
     def protocol(self) -> StudyProtocol | None:
         """Return the scientific study protocol, if one was supplied."""
         return self._protocol
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the study design and its data.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the design, the data's size and the columns in each role.
+            ``"full"`` also prints the study protocol's fields, or that there is none.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose text is the printed summary. Its ``header``, ``tables`` and
+            ``notes`` hold the same facts as data, and a notebook renders it as HTML.
+        """
+        from ._summary._setup import study_summary
+
+        return study_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summary._setup import study_repr
+
+        return study_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def identify(
         self,
@@ -4059,7 +4136,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     >>> effect.estimand.name
     'ate'
     >>> sorted(method.name for method in effect.available_methods())[:2]
-    ['collaborative_tmle', 'drtmle']
+    ['adaptive_iptw', 'collaborative_tmle']
     """
 
     estimand: PointEstimand
@@ -4069,13 +4146,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     protocol: StudyProtocol | None = None
     _study: CausalStudy | None = field(repr=False, compare=False, default=None)
 
-    def available_methods(self) -> tuple[MethodAvailability, ...]:
+    def available_methods(self) -> MethodAvailabilities:
         """Report estimation methods available for this functional.
 
         Returns
         -------
-        tuple of MethodAvailability
-            One capability record for each named method, including refusal reasons.
+        MethodAvailabilities
+            A tuple of one capability record for each named method, including refusal
+            reasons. Its ``summary()`` prints the methods as a table and ``to_frame()``
+            returns them as a dataframe.
 
         Notes
         -----
@@ -4154,8 +4233,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
-        return (
+        iptw_reason = self._adaptive_iptw_refusal(design)
+        records = (
             MethodAvailability("tmle", tmle, tmle_reason),
+            MethodAvailability("adaptive_iptw", iptw_reason is None, iptw_reason),
             MethodAvailability(
                 "collaborative_tmle",
                 collaborative,
@@ -4191,6 +4272,55 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     ),
                 ),
             ),
+        )
+        from ._summary._setup import question_text
+
+        return MethodAvailabilities(records, question=question_text(self))
+
+    def _adaptive_iptw_refusal(self, design: Any) -> Refusal | None:
+        """Why ``adaptive_iptw`` does not fit this functional, or ``None`` where it does.
+
+        The estimator reports arm means, the means of known regimes, the natural-course mean,
+        and the targets built from them. Every other axis, and ATT and ATC, belong to TMLE.
+        An intermediate variable needs an outcome regression, which the estimator does not fit.
+
+        Parameters
+        ----------
+        design : Any
+            The declared design, or ``None`` for an effect built without a study.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal of the first rule that applies.
+        """
+        functional = self.functional
+        if functional.longitudinal:
+            return ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL
+        if getattr(design, "treatment_kind", None) == "continuous" or (
+            isinstance(design, PointTreatment) and design.support == "vector"
+        ):
+            return iptw_estimator.R1
+        axis, target = functional.axis, functional.target
+        if functional.intermediate is not None:
+            return iptw_estimator.R4
+        if axis == "learned_rule":
+            return iptw_estimator.axis_refusal("learned_rule=")
+        if axis in {"policy", "rr_tilt"}:
+            return iptw_estimator.axis_refusal("policies=")
+        if axis == "ipsi":
+            return iptw_estimator.axis_refusal("incremental=")
+        if axis == "msm":
+            return iptw_estimator.target_refusal("an MSM")
+        if axis == "arm" and target in {"att", "atc"}:
+            return iptw_estimator.target_refusal(target)
+        if axis in {"arm", "regime"} and target in TARGETS:
+            return None
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "no adaptive IPTW result was reviewed for this functional.",
+            alternative="Fit method='tmle'.",
+            roadmap="X81",
         )
 
     def _sequential_methods(
@@ -4253,7 +4383,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ``REPEATED_OUTCOME_KINDS``, as the fit refuses it before any learner.
         """
         if not self.functional.longitudinal:
-            return False, BASELINE_POINT_REFUSAL, False, BASELINE_POINT_REFUSAL
+            return False, BASELINE_POINT_REFUSAL, False, IPW_POINT_REFUSAL
         if self.functional.msm is not None:
             return False, BASELINE_MSM_REFUSAL, False, BASELINE_MSM_REFUSAL
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_plan_methods()
@@ -4300,81 +4430,91 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             return True, None, False, IPW_MTP_REFUSAL
         return True, None, True, None
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
-        """Return a readable identification summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the identified question.
+
+        It states the question in plain words, the conditions the answer rests on (which
+        the data can partly probe and which they cannot), and the methods that can estimate
+        it.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` prints every field of the protocol record. ``"fingerprint"`` prints
-            only its schema and fingerprint, for a reader who has the record already.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the question. ``"full"`` also prints every identification
+            statement as written, why each method that does not fit does not, and the
+            study protocol's fields, or that the study had none.
 
         Returns
         -------
-        str
-            A printable block naming the estimand, the functional, and the assumptions.
+        Summary
+            A ``str`` whose text is the printed summary. Its ``header``, ``tables`` and
+            ``notes`` hold the same facts as data, and a notebook renders it as HTML.
         """
-        assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
-        readings = [
-            line
-            for reading in self.identification.interpretations
-            for line in (
-                f"  - {reading.label}: {reading.meaning}",
-                *(f"      needs {item}" for item in reading.assumptions),
-                *(f"      source: {item}" for item in reading.references),
-            )
-        ]
-        restrictions = (
-            [
-                "model restrictions:",
-                *(f"  - {item}" for item in self.identification.model_restrictions),
-            ]
-            if self.identification.model_restrictions
-            else []
-        )
-        history = self.functional.history
-        # A longitudinal functional conditions each node's mechanism on its own history,
-        # so one list of the baseline covariates would understate every later node.
-        adjustment = (
-            [f"history at {node}: {list(names)}" for node, names in history]
-            if history
-            else [f"adjustment/history: {list(self.functional.adjustment)}"]
-        )
-        return "\n".join(
-            [
-                self.estimand.definition,
-                f"identified by {self.provider.name}: {self.functional.expression}",
-                *adjustment,
-                f"required nuisances: {list(self.identification.required_nuisances)}",
-                f"assumptions:\n{assumptions}",
-                *(
-                    ["interpretations, each with the assumption it adds:", *readings]
-                    if readings
-                    else []
-                ),
-                *restrictions,
-                *protocol_summary_lines(self.protocol, protocol),
-            ]
-        )
+        from ._summary._setup import question_summary
 
-    def summary_lines(self, *, protocol: ProtocolDetail = "full") -> tuple[str, ...]:
-        """Return identification facts for inclusion in result summaries.
+        return question_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summary._setup import question_repr
+
+        return question_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def _assumption_lines(self, fitted_method: str | None = None) -> list[str]:
+        """The lines of an Assumptions section: every statement this question rests on.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` gives every field of the protocol record. ``"fingerprint"`` gives
-            only its schema and fingerprint.
+        fitted_method : str or None
+            The method that fitted a result. An ``"adaptive_iptw"`` fit leaves the model
+            restriction to its own lines.
+
+        Returns
+        -------
+        list of str
+            The lead sentence, then one line per statement, reading and restriction.
+        """
+        from ._summary._setup import assumption_lines
+
+        return assumption_lines(self, fitted_method)
+
+    def _result_summary_lines(
+        self, *, detail: Detail = "short", fitted_method: str | None = None
+    ) -> tuple[str, ...]:
+        """Return identification facts for the longitudinal result summary.
+
+        Kept for :meth:`~cleverly.LongitudinalResult.summary` until that summary is built
+        on the shared summary layer; a summary built on that layer reads
+        :meth:`_assumption_lines`.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"short"`` gives the analysis. ``"full"`` also gives the fields of the study
+            protocol record, or that the fit had none.
+        fitted_method : str or None
+            The method that fitted the result. An ``"adaptive_iptw"`` fit fits no outcome
+            regression, so its lines name the reduced regression in place of the outcome
+            regression and leave the shipped model restriction to the fit's own line.
 
         Returns
         -------
         tuple of str
             The same facts as lines, for a result summary to append.
         """
+        iptw = fitted_method == "adaptive_iptw"
+        nuisances = self.identification.required_nuisances
+        if iptw:
+            nuisances = tuple(
+                "reduced_outcome_regression" if name == "outcome_regression" else name
+                for name in nuisances
+            )
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
-            "required nuisances: " + ", ".join(self.identification.required_nuisances),
+            "required nuisances: " + ", ".join(nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
             *(
                 f"interpretation {reading.label}: {reading.meaning}; needs "
@@ -4383,12 +4523,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ),
             *(
                 ("model restrictions: " + "; ".join(self.identification.model_restrictions),)
-                if self.identification.model_restrictions
+                if self.identification.model_restrictions and not iptw
                 else ()
             ),
-            *protocol_summary_lines(self.protocol, protocol),
+            *protocol_summary_lines(self.protocol, detail),
         )
 
+    @records_fit
     def estimate(
         self,
         method: str | EstimationMethod = "tmle",
@@ -4511,6 +4652,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "tmle": TMLEMethod,
                 "collaborative_tmle": CollaborativeTMLEMethod,
                 "drtmle": DRTMLEMethod,
+                "adaptive_iptw": AdaptiveIPTWMethod,
                 "sdr": SDRMethod,
                 "ipsi": IPSIMethod,
                 "gcomp": GComputationMethod,
@@ -4551,6 +4693,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             estimator: Any = CTMLE(**kwargs)
         elif isinstance(method, DRTMLEMethod):
             estimator = DRTMLE(**kwargs)
+        elif isinstance(method, AdaptiveIPTWMethod):
+            estimator = AdaptiveIPTW(**kwargs)
         else:
             estimator = TMLE(**kwargs)
         result_set = estimator.fit(self._study.data)

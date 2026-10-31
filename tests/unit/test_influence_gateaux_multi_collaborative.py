@@ -154,6 +154,7 @@ def _fit(cell: str) -> Any:
         outcome_learner=FixedMultiOutcome(q_hat),
         treatment_learner=FixedMultiTreatment(g_hat),
         reduced_outcome_learner=CellMeans(),
+        reduced_mechanism_residual_learner=CellMeans(),
         reduced_treatment_learner=CellMeans(),
         guard=guard,
         estimands=("ey", "ate"),

@@ -83,8 +83,9 @@ inference model. Repeated rows of one customer add no independent observations. 
 
 A generated name is `"column@t"`, where `t` is the node index and not the time label. The labels
 stay in `data.panel`, a `PanelLayout`, which `data.panel.decision_times` lists. A rule at node `t`
-reads `"column@s"` for `s <= t`. The summary of a fit on an adapted panel adds a `long panel:`
-line. The line names the unit column, the decision times, and any column left out at a node.
+reads `"column@s"` for `s <= t`. The summary of a fit on an adapted panel counts units, not
+rows, and `summary(detail="full")` names the unit column, the decision times, and any column left
+out at a node.
 `from_long_panel` takes rows in any order. The container follows the sorted unit identifiers.
 
 ```python
@@ -180,13 +181,9 @@ print(long_result.summary())
 This plan offers at node `t` when the customer's engagement at node `t` is positive. The fit
 raises `DataError` for a rule that names a column from a later node. It raises the same error when
 the column is absent at the node, for example because the node screened it out as constant. It
-never reads an earlier node instead.
-
-| test | what it checks |
-| --- | --- |
-| `test_a_rule_reads_its_own_node_and_never_a_later_one` | `each_node` equals a rule written by hand, a rule that reads the previous node assigns different arms, and a rule that reads a later node raises |
-| `test_a_screened_out_node_raises_rather_than_read_an_earlier_node` | a rule raises when its column is absent at its node |
-| `test_ltmle_on_the_adapted_panel_equals_the_wide_fit` | `LTMLE` on the adapted panel equals the fit on the equivalent wide frame, to a relative difference of 1e-12 |
+never reads an earlier node instead. `tests/unit/test_long_panel.py` checks both refusals, and it
+checks that `LTMLE` on the adapted panel equals the fit on the equivalent wide frame to a relative
+difference of 1e-12.
 
 ### Go back to a long panel
 
@@ -228,16 +225,19 @@ Each refusal raises `DataError` before any learner. A message about one unit nam
 | a treatment that never changes within a customer | that is one baseline decision held over every node. Build the wide frame and declare `treatment="A"` |
 | a column named like a generated name, such as `eng@1` | the name collides with a generated column. Rename it |
 
-The wide layout refuses the same event on a censored row. `LongitudinalData.from_frame` used to
-drop it without a message, and it now raises `DataError`.
+The wide layout raises the same `DataError` for an event on a censored row.
 
 ### Long horizons
 
-The registered evidence for `LTMLE` and `SDR` covers two decision nodes. The
-[roadmap](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) plans laws with
-three to five. Every $L_t$ block accumulates into the history design, so a long panel adds columns
-at each node and needs more customers. `times=` cannot coarsen a grid. To model fewer decisions,
-aggregate the frame to the coarser decision times before you read it.
+Most registered evidence for `LTMLE` and `SDR` covers two decision nodes. Three studies cover three to
+five: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md),
+[three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and
+[`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
+Every $L_t$ block accumulates into the history design, so a long panel adds columns
+at each node and needs more customers. `markov_order=` limits each model to the most recent nodes,
+as [Weight trimming, shorter histories, and node bounds](#weight-trimming-shorter-histories-and-node-bounds)
+describes. `times=` cannot coarsen a grid. To model fewer decisions, aggregate the frame to the
+coarser decision times before you read it.
 
 ## Declare a dynamic rule
 
@@ -407,19 +407,18 @@ print(bootstrapped.summary())
 The [bootstrap contract](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each replicate resamples and refits. The percentile interval carries the support label
 of the fit. A registered support row decides the label. The `bootstrap` kind of the row covers an
-in-sample end-of-study or survival fit with static regimens. Any other fit prints
-`[experimental]`.
+in-sample end-of-study or survival fit with static regimens. On any other fit, a note under the
+summary says the bootstrap interval is experimental.
 
 The registered study measures correctly specified cell-mean nuisances on finite
-binary laws, at $n = 1000$. A fit with fewer than 20 clusters prints `bootstrap sd` and a
-percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of their inputs.
+binary laws, at $n = 1000$. A fit with fewer than 20 clusters prints a
+`bootstrap SD (diagnostic)` column and a percentile range, both diagnostics. `ratio` and `rmst`
+carry the bootstrap of their inputs.
 
 ### Bootstrap for sparse regimens
 
-This feature is **experimental**. The X39 long-horizon studies have not run, so every item in this
-section prints `experimental`. The label makes no coverage claim. The roadmap row
-[X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) holds the pending
-studies.
+Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
+The label of a fit follows the support rows `G46`. A fit outside those rows prints `experimental`, and the label makes no coverage claim.
 
 Use the refit bootstrap for `LTMLE` or `SDR` when few units follow a regimen, or when the
 influence curve has heavy tails. The Wald interval reads its variance from those few rows. The
@@ -434,9 +433,14 @@ The bootstrap is opt in. A fit never turns it on.
 | --- | --- | --- |
 | `n_bootstrap=B` | refits the whole estimator on `B` resamples and attaches an interval to each estimate | `supported` only for a covered fit, otherwise `experimental` |
 | `bootstrap_interval="percentile"` | takes the quantiles of the `B` draws. This is the default | as above |
-| `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `experimental` on every fit |
-| `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `experimental` on every fit |
+| `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `supported` for a single-fold fit that matches a long-horizon row, within the limits below, otherwise `experimental` |
+| `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `supported` for a three-level `LTMLE` fit at five decisions that matches `G46.tmle.categorical_k5`, otherwise `experimental` |
 | `result.diagnostics.influence()` | reports how few rows carry each influence curve. Call it directly: `run_all()` does not include it | a diagnostic, with no label |
+
+The label checks the plan family of the fit. It does not check $n$, the learners or the quantity.
+The long-horizon studies gate the BCa interval at $n$ from 4,000 to 128,000, and the first note of
+each row lists its sizes. At three and four decisions, BCa is `supported` for static and dynamic
+plans only. A known stochastic policy at those decisions reads `experimental`.
 
 Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
 `bootstrap_interval`.
@@ -501,14 +505,14 @@ The warning fires when `variance_rel_sd` is above 0.125, which is close to a Kis
 warning lists the relative SD of each flagged row, with its Kish count and Edgeworth loss. A
 flagged row can show a negative loss, because the skew term can predict an excess while the noisy
 variance estimate still triggers the flag. The
-X39 work set that threshold after it read the pilot runs, so it is not a pre-registered rule.
+pilot runs set that threshold, so it is not a pre-registered rule.
 A cross-fitted fit, a hazard-model fit and an isotonic fit warn too, but the message does not
 advise the bootstrap. For the cross-fitted fit the bootstrap over-covers, and the roadmap owner
 `X20-bootstrap` in the roadmap holds that result.
 
 **Cost.** Each resample refits every nuisance. A fit of 64,000 rows and five decisions takes about
 0.2 seconds for each resample on the fast path, a development measurement that no committed
-artifact records yet. The X39 studies plan `B = 199`, so one such fit costs about 40 seconds of
+artifact records yet. The long-horizon studies declare `B = 199`, so one such fit costs about 40 seconds of
 bootstrap time.
 
 The fast path fits the distinct rows with the resample counts as weights. It
@@ -517,10 +521,9 @@ mechanisms, categorical treatment, and learners that declare `frequency_exact`. 
 refits each materialized resample, which costs much more. Set `n_jobs` to run resamples in
 parallel.
 
-**Evidence.** The code ships as experimental. The long-horizon Python studies over three to five
-decisions are pending, as a follow-up. The R comparators (`ltmle` and `lmtp`) are deferred to
-[X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). No coverage result for
-BCa, the sup-t band or the warning threshold exists in this repository yet.
+**Evidence.** The three long-horizon studies fit the bootstrap with `B = 199`. Each study gates a BCa interval only where its Wald interval does not gate, that is where $n$ is below twice the exact-law tail size. The three-level `LTMLE` study gates the sup-t band over six plans at five decisions.
+
+The `SDR` bootstrap band, the cross-fitted bootstrap and an MSM fit stay `experimental`. The studies carry Python property evidence. The R comparators (`ltmle` and `lmtp`) are deferred to [X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). No study gates the warning threshold.
 
 ## Repeated outcomes
 
@@ -661,8 +664,9 @@ hazard_curve = study.estimate(
 print(hazard_curve.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-The risks of each arm do not decrease over the four grid times. Call `summary()` to see the walk: the
-parameter count, the step count, the largest relative score, and whether the walk converged.
+The risks of each arm do not decrease over the four grid times. Call `summary(detail="full")` to see
+the walk under Settings: the step count, the number of estimates it updated, the largest relative
+score, and whether it solved its equations.
 
 `targeting="iterative"`, the default, targets the hazards at each horizon on its own. That curve is
 not guaranteed to be monotone.
@@ -690,8 +694,18 @@ states each claim and its condition.
 The hazard model refuses a treatment at several nodes, a covariate after baseline, a continuous
 treatment, and a modified treatment policy. Each message names the iterated-mean route.
 [Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
-gives the contract, both algorithms, and the evidence. No registered study measures the coverage
-of a hazard fit or a projected fit yet.
+gives the contract, both algorithms, and the evidence.
+
+Three registered studies measure hazard fits
+on a design with one baseline treatment:
+[per-horizon targeting](../technical-reference/method-evidence/point-survival-hazard.md),
+[one-step targeting](../technical-reference/method-evidence/point-survival-curve.md) and
+[five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
+The first two await their R comparator runs (`survtmle` and `tmle3`), and the cross-fitted one has
+no comparator, because no package fits that construction. The one-step study also holds one cell
+that fits the default iterated-mean model with `isotonic=True` on a law with treatment at two nodes. Its curve rises steeply
+enough that the projection never moved a level, so no study yet measures an interval at a level
+that the projection moved.
 
 ## Fit the sequentially doubly robust estimator
 
@@ -850,7 +864,7 @@ mean model with the declared blip features. Every row of the summary and of `to_
 that label. A blip that depends on an undeclared earlier treatment or covariate makes the
 coefficients answer a different question.
 
-The evidence label is "Python property evidence, with comparator runs pending". The
+The evidence label is "comparator-backed", against EconML 0.17.0 `DynamicDML`. The
 [structural nested mean study](../technical-reference/method-evidence/structural-nested-mean.md)
 covers cross-fitted fits with `GLM` nuisances on binary, three-level and dose nodes. It also
 covers known weights and 40 or more clusters. A fit inside those rows reads `supported`. Any other fit, such as an in-sample fit, reads `experimental`. The summary
@@ -916,16 +930,17 @@ result = ParametricGFormula(
     censoring=["C1", "C2"],
 )
 print(result.summary())
-print(result.simulation.monte_carlo_share)
+print(result.simulation.summary())
 ```
 
 `gformula()` is the one-call form. The fit refuses an undeclared time-varying column that is not
 coded 0/1, before any learner. Declare it in `covariate_types=` as `"binary"`, `"categorical"` or
 `"normal"`.
 
-The interval includes the simulation error. `result.simulation.monte_carlo_share` gives the share
-of each variance that the simulation contributes, and the fit warns above 10%. Raise `n_draws=` to
-lower it. A fit with the same `random_state=` repeats exactly.
+The interval includes the simulation error. `result.simulation.summary()` lists the models the
+simulation draws from and the share of each variance that the simulation contributes, and the fit
+warns above 10%. Raise `n_draws=` to lower it. `result.simulation.monte_carlo_share` holds the same
+shares as a dictionary. A fit with the same `random_state=` repeats exactly.
 
 A data-adaptive learner for any model that the estimate reads gives the status
 `adaptive_baseline_plugin`: the point estimate only. A fixed number at a continuous treatment node
@@ -1068,6 +1083,46 @@ The score report has one row per node and draw. A repeated outcome, `Repeated([.
 [Repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states the
 rule, the seeds and the refusals.
 
+## Weight trimming, shorter histories, and node bounds
+
+Four settings change how `LTMLE` and `SDR` fit their models. None of them changes the quantity
+being estimated.
+
+`ratio_trim=q` caps each node's weight at the `q` quantile of all the node weights, the rule of
+R `lmtp`. Through a study, pass `Targeting(ratio_trim=q)`. The cap tames extreme weights, but no
+published result gives an interval for the capped fit. A fit whose cap moves any weight therefore
+reports its point estimate with a diagnostic standard error, under the status
+`trimmed_ratio_plugin`. `RegimenFit.trimmed_share` gives the share of weights the cap moved.
+`IPSI` and a fit with `survival_model="hazard"` refuse the option.
+
+`LongitudinalTreatment(markov_order=k)` lets each model at node `t` read the baseline covariates
+and only the last `k` nodes of history. It assumes that the earlier history adds nothing to those
+models. The causal conditions still need the full history: every confounder of each decision must
+be recorded somewhere in it. The estimate stays on target in large samples when one family of
+models, the outcome models or the treatment and censoring models, is right on the window. The
+interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the declaration.
+
+`LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
+in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.
+Through a study, pass `ModelSpec(hazard_pooling="pooled")`. The option needs one baseline
+treatment and no covariate measured after baseline.
+
+`LTMLE(node_bounds={t: (lower, upper)})` declares the known range of the outcome regression at chosen
+nodes, keyed by grid time. Through a study, pass `Targeting(node_bounds=...)`. The node's
+regression and its correction step then stay inside the range. When the weighted mean outcome of
+the units still following the plan at a node lies outside the declared range, the node runs no correction, and the fit
+warns with `ConvergenceWarning` and names the node. `SDR` refuses the option, because it runs no
+correction step.
+
+The [survival node-bounds study](../technical-reference/method-evidence/survival-node-bounds.md)
+fits node bounds and pooled censoring in repeated samples. No simulation study covers
+`ratio_trim=` or `markov_order=`, so such fits print `experimental`. Exact-law tests check both,
+and [Ratio trimming](../technical-reference/longitudinal-tmle.md#ratio-trimming),
+[Markov order](../technical-reference/longitudinal-tmle.md#markov-order),
+[Pooled censoring](../technical-reference/longitudinal-tmle.md#pooled-censoring) and
+[Node bounds](../technical-reference/longitudinal-tmle.md#node-bounds) state each rule and its
+refusals.
+
 ## Diagnostics
 
 Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
@@ -1111,10 +1166,23 @@ report = result.diagnostics.run_all(
 )
 ```
 
-Point-only sensitivity formulas remain unavailable unless a longitudinal derivation exists.
+Three checks from the point-treatment toolkit also run on a longitudinal fit.
+`result.diagnostics.refute()` refits the stored estimator with the original folds. Its placebo
+draws a new treatment history for every unit, so every plan contrast should be about zero. A
+[simulation study](../technical-reference/method-evidence/refuter-calibration-longitudinal.md)
+backs a pass or fail for the placebo, subset and negative-control tests on the fits it covers,
+and other fits print their numbers without one.
+The "Longitudinal refutation" part of
+[refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
+every test.
 
-Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
-no sample estimator for them. The
+`result.sensitivity.simulated_confounding()` covers an uncensored panel with an end-of-study
+outcome and no covariate measured after the first node, as
+[Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows.
+`result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
+`TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
+longitudinal estimator and report `unavailable`. Tan (2025) derives population bounds for binary,
+static longitudinal strategies, but no sample estimator for them. The
 [roadmap](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) records that boundary.
 
 ## Persistence

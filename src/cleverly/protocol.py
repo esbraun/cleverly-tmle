@@ -6,7 +6,9 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
+
+from ._summary import Detail, Summary, check_detail
 
 __all__ = ["StudyProtocol"]
 
@@ -185,57 +187,82 @@ class StudyProtocol:  # numpydoc ignore=PR02
         Returns
         -------
         tuple of str
-            Full protocol record and fingerprint, one fact per line.
+            One field per line, as a full summary's study description prints them, with a
+            field's list of items joined by semicolons. The schema version and the
+            :attr:`fingerprint` identify the record for a program, and no line prints them.
         """
-        return (
-            f"causal study protocol: schema {self.schema_version}; {self.fingerprint}",
-            f"target population: {self.target_population}",
-            f"eligibility: {list(self.eligibility)}",
-            f"time zero: {self.time_zero}",
-            f"treatment strategies: {list(self.treatment_strategies)}",
-            f"treatment versions: {list(self.treatment_versions)}",
-            f"outcome: {self.outcome}",
-            f"horizon: {self.horizon}",
-            f"intercurrent-event handling: {list(self.intercurrent_event_handling)}",
-            f"interference unit: {self.interference_unit}",
-            f"assumption rationale: {list(self.assumption_rationale)}",
+        from ._summary._setup import protocol_lines
+
+        return protocol_lines(self)
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the protocol.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the population, time zero, outcome, horizon, the strategies
+            and the eligibility criteria. ``"full"`` adds the intercurrent-event handling
+            and the rationale for the assumptions.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose text is the printed summary; a notebook renders it as HTML.
+        """
+        from ._summary._setup import protocol_summary
+
+        return protocol_summary(self, detail)
+
+    def __repr__(self) -> str:
+        from ._summary import short_repr
+
+        return short_repr(
+            "StudyProtocol",
+            (
+                ("population", repr(self.target_population)),
+                ("outcome", repr(self.outcome)),
+                ("horizon", repr(self.horizon)),
+            ),
         )
 
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
-#: How much of the protocol record a summary prints: the whole record, or its first line,
-#: which carries the schema and the fingerprint.
-ProtocolDetail = Literal["full", "fingerprint"]
+    def _cache_token(self) -> str:
+        """The content an assessment cache keys this record by: its repr is cut short."""
+        return self.fingerprint
 
 
 def protocol_summary_lines(
-    record: StudyProtocol | None, protocol: ProtocolDetail = "full"
+    record: StudyProtocol | None, detail: Detail = "short"
 ) -> tuple[str, ...]:
     """Return the protocol lines of an identification or result summary.
 
-    The one-line form keeps the fingerprint of the canonical record, and
-    ``record.summary_lines()`` prints the whole record again.
+    A short summary prints no protocol line. A full summary prints the record's fields;
+    no line prints the schema version or the fingerprint, which identify the record for a
+    program.
 
     Parameters
     ----------
     record : StudyProtocol or None
         The study's protocol record. ``None`` records that no protocol was supplied.
-    protocol : {"full", "fingerprint"}
-        ``"full"`` prints every field. ``"fingerprint"`` prints only the line with the
-        schema and the fingerprint. The summaries pass their own ``protocol`` keyword.
+    detail : {"short", "full"}
+        The summary's ``detail=`` argument.
 
     Returns
     -------
     tuple of str
-        The protocol lines, or ``("causal study protocol: absent",)`` without a record.
+        No line at short detail. At full detail, the record's fields, or
+        ``("causal study protocol: absent",)`` without a record.
 
     Raises
     ------
     ValueError
-        If ``protocol`` is neither ``"full"`` nor ``"fingerprint"``.
+        If ``detail`` is neither ``"short"`` nor ``"full"``.
     """
-    if protocol not in ("full", "fingerprint"):
-        raise ValueError(f"protocol must be 'full' or 'fingerprint'; got {protocol!r}")
+    if check_detail(detail) == "short":
+        return ()
     if record is None:
         return ("causal study protocol: absent",)
-    lines = record.summary_lines()
-    return lines if protocol == "full" else lines[:1]
+    return record.summary_lines()

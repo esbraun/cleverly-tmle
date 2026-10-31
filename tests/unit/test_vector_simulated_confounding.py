@@ -25,7 +25,7 @@ from sklearn.linear_model import LogisticRegression
 
 import tests.discrete_law_policy_point as law
 from cleverly import CausalStudy, ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 
 from . import test_point_vector_treatment as point_tests
@@ -130,7 +130,8 @@ def test_each_cell_equals_an_independent_refit_of_the_longhand_law() -> None:
     frame = surface.to_frame()
     assert {"treatment_strength[F]", "treatment_strength[D]"} <= set(frame.columns)
     assert "induced_treatment_association[D]" in frame.columns
-    assert "treatment strength (F, D)" in surface.summary()
+    columns = surface.summary().table("Movement").columns
+    assert columns[1:3] == ("treatment strength (F)", "treatment strength (D)")
 
 
 def test_calibration_reports_each_component_by_its_law() -> None:
@@ -164,9 +165,9 @@ def test_mv1_a_latent_draw_per_component_is_caught(monkeypatch: pytest.MonkeyPat
         "_perturb_components",
         [
             (
-                "_perturb_treatment(values[:, index], latent, strengths[name], family)",
-                "_perturb_treatment(values[:, index], np.roll(latent, index), "
-                "strengths[name], family)",
+                "values[:, index], latent, strengths[name], family, pairs.get(name)",
+                "values[:, index], np.roll(latent, index), strengths[name], family, "
+                "pairs.get(name)",
             )
         ],
     )
@@ -181,7 +182,12 @@ def test_mv2_a_dose_read_by_the_flip_law_is_caught(monkeypatch: pytest.MonkeyPat
         surface_module,
         surface_module,
         "_perturb_components",
-        [('"binary" if levels else "continuous"', '"binary"')],
+        [
+            (
+                '"continuous" if not levels else "categorical" if name in pairs else "binary"',
+                '"binary"',
+            )
+        ],
     )
     result = _fit()
     surface = _surface(result)
@@ -253,3 +259,115 @@ def test_the_natural_course_mean_of_a_vector_is_refused() -> None:
         grid=ConfounderStrengthGrid(treatment={"F": (0.0,), "D": (0.0, 0.5)}, outcome=(0.0,)),
         random_state=5,
     ).complete
+
+
+# ------------------------------------------------------------------ a categorical component
+
+
+def _three_level_fit() -> Any:
+    """The mixed law with a third flag level on a fifth of the rows (X82 part F (a))."""
+    frame = law.mixed_sample(400, 21)
+    third = np.random.default_rng(4).random(len(frame)) < 0.2
+    frame.loc[third, "F"] = 2.0
+    study = CausalStudy(frame, design=spine.point_design(continuous_treatment=["D"]))
+    identified = study.identify(
+        ModifiedTreatmentPolicyEffect(
+            policies=[point_tests.joint("natural"), point_tests.joint("dose up")],
+            reference="natural",
+        )
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return identified.estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            simultaneous=False,
+            ratio="classifier",
+            random_state=5,
+        )
+
+
+def test_a_three_level_component_swaps_its_declared_pair_and_keeps_its_third_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _three_level_fit()
+    alias = "ate_policy[dose up vs natural]"
+    grid = ConfounderStrengthGrid(treatment={"F": (0.0, 0.3), "D": (0.0,)}, outcome=(0.0,))
+    with pytest.raises(ValueError, match="must name exactly the categorical components"):
+        simulated_confounding(result, estimand=alias, grid=grid)
+    seen: list[Any] = []
+    original = result.estimator.refit
+
+    def refit(data: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(data)
+        return original(data, *args, **kwargs)
+
+    monkeypatch.setattr(result.estimator, "refit", refit)
+    data = result.data
+    levels = data.component_levels[data.component_names.index("F")]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        surface = simulated_confounding(
+            result,
+            estimand=alias,
+            grid=grid,
+            random_state=5,
+            arm_pair={"F": (levels[2], levels[0])},
+        )
+    assert surface.arm_pair == (("F", (levels[2], levels[0])),)
+    (replacement,) = seen
+    latent = np.random.default_rng(surface.latent_seed).normal(size=data.n)
+    tail = latent >= NormalDist().inv_cdf(1 - 0.3)
+    f = data.component_names.index("F")
+    before = data.treatment_components[:, f]
+    after = replacement.treatment_components[:, f]
+    expected = before.copy()
+    expected[tail & (before == 2.0)] = 0.0
+    expected[tail & (before == 0.0)] = 2.0
+    assert np.array_equal(after, expected)
+    assert np.array_equal(after[before == 1.0], before[before == 1.0])
+    assert np.any(after != before)
+
+
+def _clustered_vector_fit() -> Any:
+    """The mixed law in clusters of ten, with the flag constant within each cluster."""
+    frame = law.mixed_sample(400, 21)
+    frame["cl"] = np.arange(len(frame)) // 10
+    frame["F"] = frame.groupby("cl")["F"].transform("first")
+    study = CausalStudy(frame, design=spine.point_design(continuous_treatment=["D"], cluster="cl"))
+    identified = study.identify(
+        ModifiedTreatmentPolicyEffect(
+            policies=[point_tests.joint("natural"), point_tests.joint("dose up")],
+            reference="natural",
+        )
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return identified.estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            simultaneous=False,
+            ratio="classifier",
+            random_state=5,
+        )
+
+
+def test_a_row_latent_reads_each_component_of_a_clustered_vector() -> None:
+    """B1 per component: a moved cluster-level flag refuses, a moved dose alone runs."""
+    result = _clustered_vector_fit()
+    alias = "ate_policy[dose up vs natural]"
+    moves_flag = ConfounderStrengthGrid(treatment={"F": (0.0, 0.2), "D": (0.0,)}, outcome=(0.0,))
+    with pytest.raises(CapabilityError, match="on 'F'") as caught:
+        simulated_confounding(result, estimand=alias, grid=moves_flag, latent_level="row")
+    assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    moves_dose = ConfounderStrengthGrid(treatment={"F": (0.0,), "D": (0.0, 0.2)}, outcome=(0.0,))
+    surface = simulated_confounding(
+        result, estimand=alias, grid=moves_dose, latent_level="row", random_state=3
+    )
+    assert surface.complete
+    cluster = simulated_confounding(
+        result, estimand=alias, grid=moves_flag, latent_level="cluster", random_state=3
+    )
+    assert cluster.complete

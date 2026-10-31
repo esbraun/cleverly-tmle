@@ -638,14 +638,14 @@ def test_w6_the_structural_label_survives_save_and_load(tmp_path: Any) -> None:
     frame = result.to_frame()
     assert set(frame["model"]) == {module.SNMM_LABEL}
     assert len(frame["model"]) == len(result)
-    assert module.SNMM_LABEL in result.summary()
+    assert "structural_model" in result.summary().note_codes
     path = tmp_path / "snmm.joblib"
     result.save(path)
     loaded = cleverly.load(path)
     assert isinstance(loaded, StructuralNestedMeanResult)
     assert loaded.label == module.SNMM_LABEL
     assert set(loaded.to_frame()["model"]) == {module.SNMM_LABEL}
-    assert module.SNMM_LABEL in loaded.summary()
+    assert str(loaded.summary()) == str(result.summary())
     assert loaded.psi("ey_regimen[always]") == result.psi("ey_regimen[always]")
     assert loaded.inference_status == result.inference_status
     assert list(loaded.kinds.values()) == list(result.kinds.values())
@@ -997,6 +997,21 @@ def test_w7_every_redirected_design_carries_its_reason_code() -> None:
     )
 
 
+def test_w7_a_markov_order_is_redirected_before_any_learner() -> None:
+    """The window would restrict E[Y | H_t] and E[Z_j | H_t], which the restriction does not name.
+
+    Before the refusal the nuisance designs read ``history_design``, so the fit ran on the
+    window and recorded no restriction for these means.
+    """
+    data = LongitudinalData.from_frame(_simulated(), **SIM).with_markov_order(0)
+    error = _refused(
+        RefusalReason.API_REDIRECTION,
+        lambda: StructuralNestedMean(REGIMENS, **GLMS).fit(data),
+    )
+    assert error.refusal == module._MARKOV_REFUSAL
+    assert "Omit markov_order=" in str(error)
+
+
 def test_w7_a_mixed_node_is_refused_before_any_learner() -> None:
     """A flag with a dose at one node has no blip coding, so the fit refuses it by name."""
     frame = _simulated().assign(F=lambda f: (f["A1"] > 0).astype(float), D=lambda f: f["S1"].abs())
@@ -1301,6 +1316,7 @@ def test_the_summary_prints_the_condition_and_the_bands() -> None:
     result = snmm(
         _simulated(300), regimens=REGIMENS, n_folds=2, **{**GLMS, "simultaneous": True}, **SIM
     )
-    text = result.summary()
-    assert "simultaneous" in text and "valid under the linear structural nested mean model" in text
+    summary = result.summary()
+    assert summary.table("Simultaneous 95% bands").rows
+    assert "linear structural nested mean model" in summary.note("structural_model").text
     assert warnings is not None

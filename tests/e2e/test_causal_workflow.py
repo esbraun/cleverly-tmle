@@ -14,6 +14,7 @@ from cleverly import (
     TMLEMethod,
     load,
 )
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.estimators import TMLE, TMLEResult
 from tests.conftest import FAST_KWARGS, IN_SAMPLE
@@ -52,7 +53,13 @@ def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, t
     assert isinstance(result.method, TMLEMethod)
     assert result.parameter_keys["ate"].value == 1
     assert result.parameter_keys["ate"].reference == 0
-    assert "identification assumptions" in result.summary()
+    assumptions = result.summary(detail="full").section("Assumptions").lines
+    assert assumptions[0] == vocabulary.ASSUMPTIONS_LEAD.format(
+        functional=effect.functional.expression
+    )
+    assert [f"- {item}" for item in effect.identification.assumptions] == list(
+        assumptions[1 : 1 + len(effect.identification.assumptions)]
+    )
     saved = result.save(tmp_path / "causal-result.joblib")
     restored = load(saved)
     assert restored.parameter_keys == result.parameter_keys

@@ -185,7 +185,7 @@ def _bootstrap(replicate: int, frame: Any) -> list[dict[str, Any]]:
         n_bootstrap=BOOTSTRAP_DRAWS,
         random_state=seed % (2**31),
     )
-    summary = result.bootstrap.summary("ate", alpha=STUDY.margins.alpha)
+    summary = result.bootstrap.interval("ate", alpha=STUDY.margins.alpha)
     low, high = summary.ci
     truth = TWO_ARM["ate"]
     return [

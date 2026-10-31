@@ -43,6 +43,11 @@ print(result.summary())
 `gformula()` is the one-call form. `ParametricGFormulaMethod` (name `"parametric_gformula"`) is the
 study method.
 
+The [model-based-over-time tutorial](../examples/model-based-over-time.ipynb) fits this estimator
+on three navigation decisions with binary symptom covariates and a continuous score, beside the
+structural nested mean model, and shows the shift that main-terms covariate models produce when a
+covariate law carries a treatment-by-baseline product.
+
 ## Status
 
 | item | state | evidence |
@@ -154,7 +159,8 @@ the copies. This estimate is valid at `n_draws = 1`.
 The result reports the share of each curve's variance that the simulation contributes:
 $\sum_i (w_i / \bar w)^2 \sigma_i^2 / m$ divided by $\sum_i \mathrm{IF}_i^2$. A cluster sum
 replaces the unit in the denominator. A contrast reads the difference of the two regimens' copies.
-`result.simulation.monte_carlo_share` holds the shares, and `summary()` prints the largest.
+`result.simulation.monte_carlo_share` holds the shares, and `summary(detail="full")` prints the
+largest under Settings.
 The fit warns with `MonteCarloWarning` above 10%. Raise `n_draws` to lower the share.
 
 ### Why the argument holds
@@ -307,6 +313,8 @@ fit chooses the family of each model from its response.
 | --- | --- |
 | `n_folds > 1` | `CapabilityError`, `implementation_gap`. The fit is in sample only |
 | `msm=` | `CapabilityError`, `api_redirection`. `LTMLE(msm=...)` fits a working model |
+| `markov_order=` on the design | `CapabilityError`, `api_redirection`. The simulation models read the full history. `LTMLE`, `SDR` and the sequential baselines read the window |
+| `ratio_trim=`, `hazard_pooling="pooled"` | `CapabilityError`, `api_redirection`. `LTMLE` and `SDR` take them |
 | `alpha=`, `max_iter=`, `tol=` | `MethodConfigurationError`. No fluctuation exists |
 | `pseudo_learner=` | `CapabilityError`. The fit has no pseudo-outcome regression |
 | a risk-ratio tilt | `CapabilityError`, `api_redirection`. The fit simulates an odds tilt only |
@@ -371,8 +379,9 @@ the law with complex-step arithmetic, so it does not share code with the simulat
 | order, node 1 | the simulation uses the fit order and the observed node-1 covariates | `TestOrderAndNodeOne` |
 | refusals | each refusal arrives before any learner | `TestRefusals` |
 
-Each mutation control changes one source line of `gformula.py` in a copy of the tree. The named
-witness fails.
+Pull request #352 records 35 one-line mutation controls of `gformula.py`, run by hand before the
+estimator merged: 34 killed and one survivor, accepted in planning notes outside this repository.
+No committed test reruns them. The named witness killed each mutation in the table.
 
 | mutation | witness that fails |
 | --- | --- |

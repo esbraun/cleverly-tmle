@@ -364,6 +364,7 @@ def fit_cleverly(
             outcome_learner=outcome,
             treatment_learner=treatment,
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=ColumnLogistic(),
             cross_fit=True,
             n_folds=N_FOLDS,

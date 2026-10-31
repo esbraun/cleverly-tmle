@@ -6,8 +6,8 @@ row covers a set of values on one axis only where :func:`rows_over` expands it i
 per value, and each expanded row has a case in ``tests/studies/support_cases.py``.
 
 The row ids follow ``docs/roadmap.md`` and the support inventory: ``T`` for ordinary TMLE,
-``D`` for DR-TMLE and ``C`` for C-TMLE. A suffix names the expanded value. The longitudinal
-rows (``G``) are a later addition.
+``D`` for DR-TMLE, ``C`` for C-TMLE and ``AI`` for the adaptive-propensity IPTW. A suffix names
+the expanded value. The longitudinal rows (``G``) are a later addition.
 
 A leaf module: it imports :mod:`cleverly._support` only.
 """
@@ -47,12 +47,19 @@ _POINT: Final[frozenset[Kind]] = frozenset({"point"})
 
 
 def default_options(engine: str) -> dict[str, Any]:
-    """The options a default fit of ``engine`` carries in its key.
+    """The options a support row of ``engine`` carries in its key unless it overrides them.
+
+    For ``"tmle"`` and ``"collaborative_tmle"`` these are the options of a default fit.  For
+    ``"drtmle"`` they differ from a default fit in one option.  The key names
+    ``reduced_crossfit="pooled"``, which :func:`cleverly._support.point_key` records for
+    every fit that runs the in-sample or unguarded path, and which the stacked rows ``D01``
+    to ``D03`` measured against R ``drtmle``.  A default cross-fitted ``DRTMLE`` fit runs
+    ``"foldwise"``, and only a row that overrides ``reduced_crossfit`` covers it.
 
     Parameters
     ----------
     engine : str
-        ``"tmle"``, ``"drtmle"`` or ``"collaborative_tmle"``.
+        ``"tmle"``, ``"drtmle"``, ``"collaborative_tmle"`` or ``"adaptive_iptw"``.
 
     Returns
     -------
@@ -73,6 +80,12 @@ def default_options(engine: str) -> dict[str, Any]:
             "update_order": "drtmle",
             "randomized": False,
             "evaluation": False,
+        }
+    if engine == "adaptive_iptw":
+        options |= {
+            "form": "targeted",
+            "mechanism_learner": "adaptive",
+            "reduced_learner": "selecting",
         }
     return options
 
@@ -281,7 +294,8 @@ def _guard(*names: str) -> dict[str, Any]:
 _PLUGIN_STUDY = "omitted-variable-bound-plugin-se"
 _PLUGIN_LIMIT = (
     "The cells calibrate the interval of the plug-in omitted-variable limits, for a treatment "
-    "mechanism that is a LogisticRegression or is declared known (X26). They do not calibrate "
+    # Roadmap: X26.
+    "mechanism that is a LogisticRegression or is declared known. They do not calibrate "
     "the Wald interval of the effect."
 )
 
@@ -482,7 +496,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="clustered",
             cells=["unequal_noninformative", "unequal_informative"],
-            limits=["The fold-evaluated cluster-covariate cell is red (F28)."],
+            # Roadmap: F28.
+            limits=["The fold-evaluated cluster-covariate cell is red."],
         ),
         "weighting",
         {"unweighted": "none", "cluster_average": "fixed"},
@@ -495,7 +510,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("fold_evaluated",),
             dependence="clustered",
             cells=["fold_evaluated_property"],
-            limits=["The cluster-covariate cell is red (F28)."],
+            # Roadmap: F28.
+            limits=["The cluster-covariate cell is red."],
         ),
         "weighting",
         {"fold_evaluated": "none"},
@@ -508,7 +524,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             dependence="t",
             kinds=_WALD_T,
             cells=["few_cluster_reference"],
-            limits=["The informative-size cells at 10 to 30 clusters include red cells (F28)."],
+            # Roadmap: F28.
+            limits=["The informative-size cells at 10 to 30 clusters include red cells."],
         ),
         "splitting",
         {
@@ -553,7 +570,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P10",),
             qualifiers=["strata"],
             cells=["stratified_l1_logit"],
-            limits=["The logit slope at the smallest stratum is red (X8)."],
+            # Roadmap: X8.
+            limits=["The logit slope at the smallest stratum is red."],
         ),
         "treatment",
         {"logit_binary": ("binary",), "dose_logit": ("continuous",)},
@@ -588,7 +606,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             outcome=CONTINUOUS,
             qualifiers=["strata"],
             cells=["stratified_msm_identity"],
-            limits=["One paired cell at the smallest stratum is red (X8)."],
+            # Roadmap: X8.
+            limits=["One paired cell at the smallest stratum is red."],
         )
     )
     rows.append(
@@ -617,7 +636,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             treatment=("continuous",),
             options={"ratio": "density"},
             cells=["continuous_modified_policy"],
-            limits=["One paired calibration leg is red (RM18)."],
+            # Roadmap: RM18.
+            limits=["One paired calibration leg is red."],
         )
     )
     rows.append(
@@ -646,9 +666,221 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P11",),
             splitting=("fold_evaluated",),
             cells=["non_exceptional", "misspecified_limit"],
-            limits=["The exceptional and weak-blip laws are red (F27)."],
+            # Roadmap: F27.
+            limits=["The exceptional and weak-blip laws are red."],
         )
     )
+    # X11 (h), (k) and (l): the learned-rule value with fold targeting, known weights and
+    # clusters. Unequal cluster sizes key the qualifier ``unequal_clusters``, which no row
+    # declares, and a weighted clustered fit has no row either.
+    equal_sizes = (
+        "The study draws equal cluster sizes only. A fit with unequal sizes is experimental, "
+        "because sizes that depend on the outcome put a ratio bias in the fold-evaluated point."
+    )
+    rows.append(
+        point_row(
+            "T37.fold_targeted",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            splitting=("fold_targeted_evaluated",),
+            cells=["fold_targeted"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures coverage with a logistic outcome learner at one law. An "
+                "outcome learner that omits W1 is measured for bias only."
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T37.weighted",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            weighting="fixed",
+            splitting=("fold_evaluated",),
+            cells=["weighted"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures a known observation weight only. Estimated weights refuse.",
+                "A weighted fit with clusters is experimental.",
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T37.clustered",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            dependence="clustered",
+            cells=["clustered"],
+            # Roadmap: X11.
+            limits=[equal_sizes],
+        )
+    )
+    rows.append(
+        point_row(
+            "T37.few_cluster",
+            ["learned-rule-compositions"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            dependence="t",
+            kinds=_WALD_T,
+            cells=["clustered_few__declared"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures 30 clusters of 34 rows in 10 folds, with 20 degrees of "
+                "freedom.",
+                equal_sizes,
+            ],
+        )
+    )
+    # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
+    # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
+    # splitting, weighting and dependence axes, match no row.
+    rows.append(
+        point_row(
+            "T38.split_mean",
+            ["learned-rule-split-mean"],
+            families=("P11",),
+            splitting=("fold_evaluated", "repeated"),
+            cells=["non_exceptional", "misspecified_limit"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures unweighted rows with pooled targeting and no id, at ten "
+                "folds and repeats=5. A fit with weights, fold targeting or clusters at "
+                "repeats above 1 matches no row and is experimental, and clusters refuse.",
+                "The key holds neither the fold count nor the repeat count, so a fit at "
+                "another repeat count reads supported on the linearity argument, which covers "
+                "any fixed repeat count, and no cell measures it.",
+                "The band cannot separate the declared variance from the mean of the split "
+                "variances, which was 1.2% to 1.6% higher in the pilot. The formula and the "
+                "per-split truth rest on the unit witnesses.",
+                "The exceptional and weak-blip laws are not measured.",
+            ],
+        )
+    )
+    # X11 (g): the learned-rule value when a blip or a weighted-classification rule learner
+    # sets each fold's rule. The qualifier ``rule_learner_<loss>`` keys the loss, so the plug-in
+    # row T24 never covers these fits and each loss has its own row. The splitting axis reads
+    # ``fold_evaluated`` without ``repeated``, and weights, clusters and fold targeting key
+    # other axes, so a fit that composes a rule learner with any of them matches no row.
+    # SE ratio and coverage of each loss at n = 4,000 (``interval_calibration``), 2,000 (primary)
+    # and 1,000 (``small_sample_diagnostic``), from the committed results of the study.
+    measured = {
+        "blip": (
+            "1.0080 and 0.9501 at n = 4,000, 0.9644 and 0.9375 at n = 2,000, and 0.9615 and "
+            "0.9410 at n = 1,000"
+        ),
+        "weighted_classification": (
+            "0.9886 and 0.9456 at n = 4,000, 0.9525 and 0.9380 at n = 2,000, and 0.9557 and "
+            "0.9325 at n = 1,000"
+        ),
+    }
+    for loss, reading in measured.items():
+        rows.append(
+            point_row(
+                f"T39.{loss}",
+                ["learned-rule-learners"],
+                families=("P11",),
+                splitting=("fold_evaluated",),
+                qualifiers=[f"rule_learner_{loss}"],
+                cells=[loss],
+                # Roadmap: X11.
+                limits=[
+                    "The study measures unweighted rows with pooled targeting, repeats=1 and no "
+                    "id. A rule-learner fit with weights, fold targeting, clusters or repeats "
+                    "above 1 matches no row and is experimental.",
+                    "The interval is calibrated at n = 4,000. At n = 1,000 and 2,000 the "
+                    "standard error is about 3.5% to 5% small and the coverage about 0.93 to "
+                    f"0.94. The SE ratio and the coverage are {reading}. The key holds no sample "
+                    "size, so a smaller fit also reads supported.",
+                    "The deficit is the covariance between folds, because each fold's rule is "
+                    "fitted on the other folds' validation rows. It is a second-order remainder "
+                    "of relative order about 1/n, larger for a pseudo-outcome rule learner than "
+                    "for the plug-in rule, and it grows with the learner's variability.",
+                    "The study measures a linear regression or a logistic regression on a "
+                    "quadratic basis of two covariates, at one law. A more flexible rule learner "
+                    "rests on the theory alone and may need a larger n for the same calibration.",
+                    "The fold-locality control shows that the instrument resolves a rule learned "
+                    "on the validation rows. The subtler leak, outer nuisances reused for the "
+                    "pseudo-outcome, rests on the unit witnesses W-g3 and W-g4.",
+                    "The value gain over the plug-in rule is descriptive and carries no test.",
+                ],
+            )
+        )
+    # X28 (X11 PR E1): fold-evaluated CV-TMLE with baseline strata. The qualifier ``strata``
+    # and the splitting ``fold_evaluated`` key the fit, so the unstratified T03 never covers it.
+    # The study fits the arm means and the ATE (P1). A regime mean with strata keys P5 and
+    # matches no row, and ``repeats`` above 1 keys ``repeated``. The rows run over the outcome
+    # kind and the weighting, as T03 does, because each outcome has a weighted cell.
+    strata_limits = [
+        "The study measures the arm means and the ATE on rows with pooled targeting, complete "
+        "data, no id and repeats=1. The regime means and their contrasts, which the "
+        "construction also reports, are not measured and match no row.",
+        "Measured at n = 1,000 with 5 folds and three strata whose smallest share is 0.2, so "
+        "about 200 rows and about 17 treated rows per stratum-fold. The key holds neither the "
+        "fold count nor the stratum shares. With 10 folds at n = 500 the fit refuses about 14% "
+        "of samples for an empty stratum-fold arm, and that refusal is an error, never a silent "
+        "estimate. More folds or smaller strata leave fewer rows per fold plug-in and were not "
+        "measured.",
+        "Every learner of the study is a correctly specified parametric model. A flexible "
+        "learner rests on the theory alone.",
+        "The intervals are pointwise (simultaneous=False). The simultaneous band is not "
+        "measured, so the row lists no band.",
+        "With repeats above 1 the marginal estimate is the median of the draws' share "
+        "mixtures, and such a fit matches no row.",
+        "The unnormalised-curve control shows that the instrument resolves a gross "
+        "normalisation error. The fold-local stratum share, against the whole-sample share, "
+        "rests on the unit witnesses of tests/unit/test_fold_evaluated_strata_exact.py.",
+        "The targeting control's learner sees neither W1 nor the stratum. It shows that "
+        "targeting repairs a stratum-blind initial fit, not a subtle misspecification within a "
+        "stratum.",
+    ]
+    outcome_limits = {
+        "binary": [
+            "On the binary outcome the smallest stratum-arm holds about 38 rows of the rarer "
+            "outcome value at n = 1,000 (5th percentile about 30). With fewer, the Wald interval "
+            "misses on the side of the rarer value: with about 6 such rows on average, ey[1] in "
+            "the smallest stratum covered 0.909 and the stacked stratified fit 0.9155 on the same "
+            "draws (sparse_event_diagnostic, no verdict).",
+            "The share term of the marginal curve carries too little of the variance on a "
+            "binary outcome to be resolved there. It is tested on the bounded outcome, and its "
+            "formula does not read the outcome type.",
+        ],
+        "continuous": [
+            "The bounded outcome is a beta law on (0, 1) with q_bounds=(0, 1). The share term "
+            "of the marginal curve carries 27% of the marginal ATE variance there, and a fit "
+            "without it fails its band.",
+        ],
+    }
+    for weighted in (False, True):
+        for kind, outcome in (("binary", BINARY), ("continuous", BOUNDED)):
+            scenario = ("binary_" if kind == "binary" else "") + (
+                "weighted" if weighted else "unweighted"
+            )
+            weight_limits = (
+                [
+                    "The study measures the known weight 1 + 1.5 W2, which varies inside every "
+                    "stratum."
+                ]
+                if weighted
+                else []
+            )
+            rows.append(
+                point_row(
+                    f"T40.{kind}_weighted" if weighted else f"T40.{kind}",
+                    ["fold-evaluated-strata"],
+                    families=("P1",),
+                    outcome=outcome,
+                    weighting="fixed" if weighted else "none",
+                    splitting=("fold_evaluated",),
+                    qualifiers=["strata"],
+                    cells=[scenario],
+                    # Roadmap: X28.
+                    limits=[*strata_limits, *outcome_limits[kind], *weight_limits],
+                )
+            )
     rows.append(
         point_row(
             "T25",
@@ -802,6 +1034,15 @@ def _t_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit line of a stacked DR-TMLE row whose evidence ran the pooled reduced regressions.
+LEAK = (
+    "Pooled reduced regressions: R drtmle cvFolds parity. The drtmle-foldwise study "
+    "measured the fold leak on shared draws at n = 1,000: ATE bias 0.400 SD pooled against "
+    "0.156 SD foldwise, a paired displacement of 0.266 SD. Row D11 covers the binary "
+    "unstratified foldwise default."
+)
+
+
 def _d_rows() -> tuple[SupportRow, ...]:
     """DR-TMLE (``D`` rows)."""
     dr = ("drtmle",)
@@ -813,7 +1054,11 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             cells=["both_correct", "outcome_correct", "treatment_correct"],
-            limits=["The one-inconsistent-nuisance cells are red (RM18)."],
+            # Roadmap: RM18.
+            limits=[
+                "The one-inconsistent-nuisance cells are red.",
+                LEAK,
+            ],
         ),
         point_row(
             "D02",
@@ -823,7 +1068,8 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
-            limits=["The boundary and one-sided-bias cells are red (RM18)."],
+            # Roadmap: RM18.
+            limits=["The boundary and one-sided-bias cells are red.", LEAK],
         ),
         point_row(
             "D03",
@@ -833,7 +1079,14 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["strata"],
             cells=["stratified_both_correct"],
-            limits=["Two truth cells and the small-stratum cell are red (X8)."],
+            # Roadmap: X8.
+            limits=[
+                "Two truth cells and the small-stratum cell are red.",
+                LEAK,
+                "Foldwise reduced regressions do not remove the stratified treatment_correct "
+                "bias: a 200-draw pilot at n = 2,000 read foldwise marginal 0.29, v1 0.30, "
+                "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
+            ],
         ),
         point_row(
             "D04",
@@ -842,6 +1095,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             engine=dr,
             splitting=("stacked",),
             dependence="clustered",
+            options={"reduced_crossfit": "foldwise"},
             cells=["unequal_informative"],
         ),
         point_row(
@@ -852,6 +1106,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="t",
             kinds=_WALD_T,
+            options={"reduced_crossfit": "foldwise"},
             cells=["few_cluster_reference"],
         ),
     ]
@@ -896,6 +1151,7 @@ def _d_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             engine=dr,
             splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
             cells=["q_wrong_g_glm_cf"],
         ),
         point_row(
@@ -963,9 +1219,24 @@ def _d_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             cells=["three_arm_mar_outcome_and_treatment"],
         ),
+        # X83: the default cross-fitted fit, foldwise reduced regressions on the
+        # canonical-drtmle law. Its key is the key of D07.estimated_g_stacked, so the two merge.
+        point_row(
+            "D11",
+            ["drtmle-foldwise"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
+            cells=["both_correct", "outcome_correct", "treatment_correct"],
+        ),
     ]
     return _merged(
-        rows, {"D01": ["D01", "D07.estimated_g_stacked"], "D06.qg": ["D06.qg", "D07.known_g"]}
+        rows,
+        {
+            "D06.qg": ["D06.qg", "D07.known_g"],
+            "D11": ["D11", "D07.estimated_g_stacked"],
+        },
     )
 
 
@@ -981,7 +1252,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 engine=_ctmle(strategy),
                 kinds=_POINT,
                 cells=[f"binary_{strategy}"],
-                limits=["The selector plug-in interval is withheld (F18)."],
+                # Roadmap: F18.
+                limits=["The selector plug-in interval is withheld."],
             )
         )
         rows.append(
@@ -993,7 +1265,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 treatment=("arms3",),
                 kinds=_POINT,
                 cells=[f"multi_arm_selector_{strategy}"],
-                limits=["The selector plug-in interval is withheld (F18)."],
+                # Roadmap: F18.
+                limits=["The selector plug-in interval is withheld."],
             )
         )
     shared = _ctmle("oat", "shared")
@@ -1025,7 +1298,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
             treatment=("arms3",),
             kinds=_POINT,
             cells=["multi_arm_binary_oat"],
-            limits=["The generated-design interval is withheld (F19)."],
+            # Roadmap: F19.
+            limits=["The generated-design interval is withheld."],
         ),
         point_row(
             "C05.binary",
@@ -1156,12 +1430,14 @@ def _c_rows() -> tuple[SupportRow, ...]:
     derivative = _ctmle("derivative")
     study = "ctmle-derivative"
     rows += [
+        # The R ctmle type-3 comparison covers this row's fit: binary, two-arm, complete-outcome,
+        # in-sample ATE.  Its two GLM scenarios are equivalent to R.
         point_row(
             "C10.in_sample",
             [study],
             families=("P1",),
             engine=derivative,
-            cells=["in_sample"],
+            cells=["in_sample", "binary_declared_pair", "binary_pipeline"],
         ),
         point_row(
             "C10.stacked",
@@ -1452,20 +1728,24 @@ def _c_rows() -> tuple[SupportRow, ...]:
 SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ("T10.fold_evaluated", "wald"): (
         "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
-        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187 (F28)."
+        # Roadmap: F28.
+        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187."
     ),
     ("T11.fold_evaluated", "wald_t"): (
         "Row T11.fold_evaluated is red when cluster sizes are informative at 10 to 30 clusters: "
         "at 10 clusters bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180 and SE ratio "
-        "0.8297 to 0.8849 (F28)."
+        # Roadmap: F28.
+        "0.8297 to 0.8849."
     ),
     ("T16.logit_binary", "wald"): (
         "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
-        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+        # Roadmap: X8.
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387."
     ),
     ("T16.dose_logit", "wald"): (
         "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
-        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+        # Roadmap: X8.
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387."
     ),
     # X40: the owner chose this label for the four red price_down cells of the five-node price
     # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
@@ -1633,6 +1913,27 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             " 1.0034"
         ),
     ),
+    "AI.points.cross_fit": (
+        "adaptive-iptw-finite-sample: bias 0.000882 to 0.0046, margin 0.0044",
+        "adaptive-iptw-finite-sample: bias -0.0032 to -0.000466, margin 0.0033",
+        "adaptive-iptw-finite-sample: bias -0.000589 to 0.0024, margin 0.0035",
+    ),
+    "AI.points_composite_three_arm.cross_fit": (
+        "adaptive-iptw-composite-l3: bias -0.0075 to -0.000620, margin 0.0066",
+    ),
+    "AI.known_clustered": (
+        "adaptive-iptw-finite-sample: coverage 0.9394 to 0.9643, SE ratio 0.9902 to 1.0722",
+    ),
+    "AI.points_missing_outcome.cross_fit": (
+        "adaptive-iptw-finite-sample: bias -0.0031 to 0.0014, margin 0.0043",
+    ),
+    "AI.points_regime": (
+        "adaptive-iptw-finite-sample: bias -0.000687 to 0.0037, margin 0.0043",
+        "adaptive-iptw-finite-sample: bias -0.000669 to 0.0029, margin 0.0034",
+    ),
+    "AI.points_regime_missing": (
+        "adaptive-iptw-finite-sample: bias -0.0025 to 0.0010, margin 0.0048",
+    ),
 }
 
 
@@ -1695,14 +1996,304 @@ def _categorical_point_rows() -> tuple[SupportRow, ...]:
     )
 
 
-#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``) and the
-#: categorical tilt (``T35``).
+# ----------------------------------------------------------- adaptive-propensity IPTW (X21)
+
+_AI_SLUG: Final[tuple[str, ...]] = ("adaptive-iptw",)
+_AI_STACKED: Final[tuple[str, ...]] = ("stacked",)
+
+_AI_COMPARATOR: Final[str] = (
+    "The study's drtmle comparator runs are pending, so the evidence is Python property "
+    "evidence only."
+)
+_AI_LEARNERS: Final[str] = (
+    "The key reads the learner families. The row covers a fixed-basis reduced regression and, "
+    "under an estimated mechanism, a parametric mechanism learner. A default super learner, a "
+    "tree or a boosted learner in either role matches no row."
+)
+_AI_PLUGIN: Final[str] = (
+    "Under an estimated mechanism the row licenses the point estimate only. The plug-in "
+    "standard error and interval of the fit are a diagnostic."
+)
+_AI_EPSILON_PATH: Final[str] = (
+    "Under cross-fitting, the interval argument needs the epsilon-path condition of S5 in "
+    "docs/technical-reference/adaptive-iptw.md. That condition stays open."
+)
+
+
+def _ai_cells(family: str, cell: str, labels: Sequence[str]) -> list[str]:
+    """The cells ``<label>__<cell>`` of one property family of ``adaptive-iptw``."""
+    return [f"{family}/{label}__{cell}" for label in labels]
+
+
+def _ai_calibration(cell: str, labels: Sequence[str]) -> list[str]:
+    return _ai_cells("interval_calibration", f"{cell}__correctly_specified", labels)
+
+
+def _ai_bias(cell: str, labels: Sequence[str]) -> list[str]:
+    return _ai_cells("bias", cell, labels)
+
+
+def _ai_necessity(*labels: str) -> list[str]:
+    return [f"targeting_necessity/{label}__targeted" for label in labels]
+
+
+def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
+    """The rows of the study ``adaptive-iptw`` (X21), one per configuration of its cells.
+
+    A known mechanism, declared for the whole fit, licenses the Wald interval where the
+    calibration cells pass. An estimated mechanism licenses the point only, because the
+    estimator withholds the interval there. The key reads the learner families
+    (:func:`cleverly._support.learner_family`). A known row needs a fixed-basis reduced
+    regression, and an estimated row also needs a parametric mechanism learner, as every cell
+    fitted. A default, tree or boosted learner matches no row.
+    """
+    engine = ("adaptive_iptw",)
+    arms = ("ey0", "ey1", "ate")
+    regimes = ("ey_d", "ey_s", "ey_never", "ate_d", "ate_s")
+    ratios = ("rr", "or")
+    known_options = {"mechanism_learner": "known", "reduced_learner": "fixed_basis"}
+    known: dict[str, Any] = {"engine": engine, "splitting": _AI_STACKED, "options": known_options}
+    one_step: dict[str, Any] = known | {"options": known_options | {"form": "one_step"}}
+    known_limits = [_AI_COMPARATOR, _AI_LEARNERS, _AI_EPSILON_PATH]
+    points: dict[str, Any] = {
+        "engine": engine,
+        "kinds": _POINT,
+        "options": {"mechanism_learner": "parametric", "reduced_learner": "fixed_basis"},
+        "limits": [_AI_COMPARATOR, _AI_LEARNERS, _AI_PLUGIN],
+    }
+    cross: dict[str, Any] = points | {
+        "splitting": _AI_STACKED,
+        "limits": [*points["limits"], _AI_EPSILON_PATH],
+    }
+
+    rows = [
+        point_row(
+            "AI.known_arms.targeted",
+            _AI_SLUG,
+            **known,
+            families=("P1", "P2"),
+            qualifiers=("known_mechanism",),
+            kinds=frozenset({"point", "wald", "band"}),
+            cells=[
+                *_ai_calibration("known_arms", (*arms, *ratios)),
+                "simultaneous_coverage/known_band__simultaneous_band",
+            ],
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_arms.one_step",
+            _AI_SLUG,
+            **one_step,
+            families=("P1", "P2"),
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("one_step_known_arms", (*arms, *ratios)),
+            limits=[*known_limits, "The one-step form has no simultaneous-band cell."],
+        ),
+        point_row(
+            "AI.known_regimes.targeted",
+            _AI_SLUG,
+            **known,
+            families=("P5", "P6"),
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("known_regimes", regimes),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_regimes.one_step",
+            _AI_SLUG,
+            **one_step,
+            families=("P5", "P6"),
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("one_step_known_regimes", regimes),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_weighted",
+            _AI_SLUG,
+            **known,
+            families=("P1",),
+            weighting="fixed",
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("known_weighted", arms),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_clustered",
+            _AI_SLUG,
+            **known,
+            families=("P1",),
+            dependence="clustered",
+            qualifiers=("known_mechanism",),
+            cells=_ai_calibration("known_clustered", arms),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.known_stratified",
+            _AI_SLUG,
+            **known,
+            families=("P1",),
+            qualifiers=("known_mechanism", "strata"),
+            cells=_ai_calibration("known_stratified", ("ate_v0", "ate_v1", "ate_v2")),
+            limits=known_limits,
+        ),
+        point_row(
+            "AI.points.cross_fit",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            cells=[
+                *_ai_bias("correct", arms),
+                *_ai_bias("rate", arms),
+                *_ai_bias("level_set_breaking_h1", ("ey1",)),
+                *_ai_bias("parametric_q_ne_qr", ("ey1",)),
+                *(f"root_n_points/n_{n}" for n in (500, 1500, 4500)),
+                *_ai_necessity("p_ey0", "p_ey1", "p_ate"),
+            ],
+        ),
+        point_row(
+            "AI.points.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1",),
+            cells=_ai_bias("insample_correct", arms),
+        ),
+        point_row(
+            "AI.points_three_arm",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            treatment=("arms3",),
+            cells=[
+                *_ai_bias("three_arm", ("ey_low", "ey_medium", "ey_high", "ate_low", "ate_medium")),
+                *_ai_bias(
+                    "rate_reduced", ("ey_low", "ey_medium", "ey_high", "ate_low", "ate_medium")
+                ),
+            ],
+        ),
+        merge_rows(
+            "AI.points_missing_outcome.cross_fit",
+            point_row(
+                "AI.points_composite",
+                _AI_SLUG,
+                **cross,
+                families=("P1",),
+                missing=("outcome",),
+                cells=_ai_bias("composite_l1", arms),
+            ),
+            point_row(
+                "AI.points_natural_course",
+                _AI_SLUG,
+                **cross,
+                families=("P1", "P4"),
+                missing=("outcome",),
+                cells=[
+                    *_ai_bias("natural_course", ("ey0", "ey_obs", "par", "paf")),
+                    *_ai_necessity("cn_ey_obs"),
+                ],
+            ),
+        ),
+        point_row(
+            "AI.points_missing_outcome.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1",),
+            missing=("outcome",),
+            cells=_ai_bias("insample_composite_l1", arms),
+        ),
+        point_row(
+            "AI.points_composite_three_arm.cross_fit",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            treatment=("arms3",),
+            missing=("outcome",),
+            cells=_ai_bias("composite_l3", ("ey_low", "ey_mid", "ey_high", "ate_low", "ate_mid")),
+        ),
+        point_row(
+            "AI.points_composite_three_arm.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1",),
+            treatment=("arms3",),
+            missing=("outcome",),
+            cells=_ai_bias(
+                "insample_composite_l3", ("ey_low", "ey_mid", "ey_high", "ate_low", "ate_mid")
+            ),
+        ),
+        point_row(
+            "AI.points_weighted",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            weighting="fixed",
+            cells=_ai_bias("weighted", arms),
+        ),
+        point_row(
+            "AI.points_clustered",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            dependence="clustered",
+            cells=_ai_bias("clustered", arms),
+        ),
+        point_row(
+            "AI.points_stratified",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            qualifiers=("strata",),
+            cells=_ai_bias("stratified", ("ate_v0", "ate_v1", "ate_v2")),
+        ),
+        point_row(
+            "AI.points_regime",
+            _AI_SLUG,
+            **cross,
+            families=("P5", "P6"),
+            cells=[*_ai_bias("regime", regimes), *_ai_necessity("pd_d", "pd_s")],
+        ),
+        point_row(
+            "AI.points_regime_missing",
+            _AI_SLUG,
+            **points,
+            families=("P5", "P6"),
+            missing=("outcome",),
+            cells=[
+                *_ai_bias("insample_regime_missing", ("ey_d", "ey_s", "ate_s_vs_d")),
+                *_ai_necessity("rm_d"),
+            ],
+        ),
+        point_row(
+            "AI.points_missing_treatment.cross_fit",
+            _AI_SLUG,
+            **cross,
+            families=("P1",),
+            missing=("outcome", "treatment"),
+            cells=_ai_bias("missing_treatment_crossfit", arms),
+        ),
+        point_row(
+            "AI.points_missing_treatment.in_sample",
+            _AI_SLUG,
+            **points,
+            families=("P1", "P5"),
+            missing=("outcome", "treatment"),
+            cells=[
+                *_ai_bias("insample_missing_treatment", arms),
+                *_ai_bias("insample_regime_missing_treatment", ("ey_d",)),
+            ],
+        ),
+    ]
+    return tuple(rows)
+
+
+#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``), the
+#: categorical tilt (``T35``) and the adaptive-propensity IPTW (``AI``).
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
         *_d_rows(),
         *_c_rows(),
         *_categorical_point_rows(),
+        *_adaptive_iptw_rows(),
     )
 )
 
@@ -1720,6 +2311,32 @@ _TWO: Final[tuple[str, ...]] = ("2", "2")
 _OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
     {"end_of_study", "survival", "competing", "repeated"}
 )
+
+
+#: The limit of ``G45.hazard_model``: on the study law its valid bounds seldom change the fit.
+#: ``docs/technical-reference/method-evidence/survival-node-bounds.md`` reports the 10.1% share.
+HAZARD_BOUNDS_RARELY_BIND: Final[str] = (
+    "The bounds rarely bind (the estimate moved on 10% of draws), so the study reports the "
+    "binding witness of this fit and does not gate it."
+)
+
+
+def _x33_options(
+    *, node_bounds: bool = False, hazard_pooling: str = "node", tuned_cap: bool = False
+) -> tuple[tuple[str, Any], ...]:
+    """The fitting options of a longitudinal key that change the fit's arithmetic.
+
+    No row declares ``ratio_trim=`` or a Markov order: no registered study fits either one,
+    so a fit that declares one matches no row. Only the ``mtp-tuning`` rows (``G41``) declare
+    a cap tuned on the data.
+    """
+    return (
+        ("node_bounds", node_bounds),
+        ("hazard_pooling", hazard_pooling),
+        ("ratio_trim", False),
+        ("markov_order", None),
+        ("tuned_cap", tuned_cap),
+    )
 
 
 def long_row(
@@ -1743,10 +2360,14 @@ def long_row(
     targeting: str = "iterative",
     isotonic: bool = False,
     ratio: str = "density",
+    node_bounds: bool = False,
+    hazard_pooling: str = "node",
+    tuned_cap: bool = False,
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
     learners: Mapping[str, type] | None = None,
+    kind_families: Mapping[Kind, Iterable[str]] | None = None,
 ) -> SupportRow:
     """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
 
@@ -1790,6 +2411,12 @@ def long_row(
         Whether the row projects the curve onto a monotone one.
     ratio : {"density", "classifier"}, default "density"
         The policy density ratio of a modified treatment policy row.
+    node_bounds : bool, default False
+        Whether the row's fits declare ``node_bounds=``.
+    hazard_pooling : {"node", "pooled"}, default "node"
+        How the row's fits pool the censoring and hazard regressions over the nodes.
+    tuned_cap : bool, default False
+        Whether the row's fits declare a policy cap tuned on the data.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -1798,6 +2425,9 @@ def long_row(
         The stated limits of the row.
     learners : mapping of str to type or None, default None
         The exact learner class per nuisance role, where the study fixes one.
+    kind_families : mapping of str to iterable of str or None, default None
+        The target families that a listed kind covers. A kind with no entry covers every family
+        of the row.
 
     Returns
     -------
@@ -1828,9 +2458,23 @@ def long_row(
             ("survival_model", survival_model),
             ("targeting", targeting),
             ("isotonic", isotonic),
+            *_x33_options(
+                node_bounds=node_bounds, hazard_pooling=hazard_pooling, tuned_cap=tuned_cap
+            ),
         ),
     )
-    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), learners, tuple(limits))
+    return SupportRow(
+        row_id,
+        key,
+        kinds,
+        tuple(evidence),
+        tuple(cells),
+        learners,
+        tuple(limits),
+        kind_families=tuple(
+            (kind, frozenset(covered)) for kind, covered in (kind_families or {}).items()
+        ),
+    )
 
 
 def _long_rows() -> tuple[SupportRow, ...]:
@@ -1850,7 +2494,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             kinds=_LONG_DERIVED,
             cells=["interval_calibration", "simultaneous_coverage"],
-            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here (X20)."],
+            # Roadmap: X20.
+            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here."],
         ),
         long_row(
             "G03",
@@ -1881,7 +2526,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             dependence="clustered",
             kinds=_POINT,
             cells=["boot_ey_clustered"],
-            limits=["Only the full-refit bootstrap measures this configuration (X20)."],
+            # Roadmap: X20.
+            limits=["Only the full-refit bootstrap measures this configuration."],
         ),
         long_row(
             "G06",
@@ -2049,7 +2695,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=("2",) * 5,
             weighting="fixed",
             cells=["weighted_t5"],
-            limits=["The fixed-weight cell reads a finite-sample shortfall (X13)."],
+            # Roadmap: X13.
+            limits=["The fixed-weight cell reads a finite-sample shortfall."],
         ),
         long_row(
             "G16",
@@ -2080,7 +2727,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             kinds=_LONG_BAND,
             cells=["three_arm_t3"],
-            limits=["The three-arm cell reads a finite-sample shortfall (X13)."],
+            # Roadmap: X13.
+            limits=["The three-arm cell reads a finite-sample shortfall."],
         ),
         long_row(
             "G18.stochastic",
@@ -2274,12 +2922,15 @@ def _long_rows() -> tuple[SupportRow, ...]:
             qualifiers=("A1", "A2", "C1", "C2"),
             cells=["smart_q_correct"],
         ),
+        # The band is the default simultaneous band of the in-sample calibration fits, which
+        # estimate the mechanisms, over all fifteen reported parameters (cell all_reported).
         long_row(
             "G27",
             ["longitudinal-repeated-outcome"],
             outcome_kind="repeated",
             treatment=("2",) * 3,
-            cells=["interval_calibration"],
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "all_reported"],
         ),
     ]
     # The repeated-outcome ``IPSI`` study (X32b): three odds tilts at three nodes.  The band is
@@ -2510,8 +3161,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
     # the study share the row of their splitting and outcome scale.
     sdr_repeated = ["longitudinal-repeated-sdr"]
     sdr_repeated_limit = (
-        "The study's lmtp comparator runs are pending, so the evidence is Python property "
-        "evidence only."
+        "The paired lmtp comparison uses the known mechanisms and the cell-means regressions "
+        "of the study."
     )
     rows += [
         long_row(
@@ -2678,14 +3329,58 @@ def _long_rows() -> tuple[SupportRow, ...]:
             limits=("law I is measured at n = 80,000, where its second-order bias is small",),
         ),
     ]
+    # Node bounds on a held survival fit (`survival-node-bounds`): every node bounded, the
+    # censoring model pooled over the nodes, and node 1's retention declared known (the
+    # qualifier ``time>=1``), in sample with GLM learners on one five-visit law at n = 2,000.
+    bounds = ["survival-node-bounds"]
+    bounds_limit = (
+        "The study's survtmle comparator runs are pending, so the evidence is Python property "
+        "evidence only."
+    )
+    rows += [
+        long_row(
+            "G45.mean_model",
+            bounds,
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            qualifiers=("time>=1",),
+            node_bounds=True,
+            hazard_pooling="pooled",
+            cells=["interval_calibration", "binding_witness", "bound_necessity"],
+            limits=[
+                "Calibrated in sample at n = 2,000 with valid bounds at 1.1 times the largest "
+                "at-risk iterated mean, quasibinomial node regressions and logistic mechanisms. "
+                + bounds_limit
+            ],
+        ),
+        long_row(
+            "G45.hazard_model",
+            bounds,
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            qualifiers=("time>=1",),
+            survival_model="hazard",
+            node_bounds=True,
+            hazard_pooling="pooled",
+            cells=["interval_calibration"],
+            limits=[
+                "Calibrated in sample at n = 2,000 with valid bounds at 1.1 times the largest "
+                "true hazard and one pooled logistic hazard. " + bounds_limit,
+                HAZARD_BOUNDS_RARELY_BIND,
+            ],
+        ),
+    ]
     return tuple(rows)
 
 
 def _continuous_dose_rows() -> list[SupportRow]:
     """The rows of the continuous-policy studies (X40): ``G39`` to ``G41``.
 
-    The key reads the node count, the engine, the splitting, the outcome scale and the ratio
-    route. It does not read a declared support, an atom, a branch or a tuned cap. The two-node
+    The key reads the node count, the engine, the splitting, the outcome scale, the ratio
+    route and whether a cap is tuned on the data. It does not read a declared support, an
+    atom or a branch. The two-node
     density rows of ``mtp-boundaries`` therefore stand on ``G10.continuous`` and
     ``G24.mtp.in_sample``. These rows hold the keys that no earlier row covers.
 
@@ -2833,6 +3528,7 @@ def _continuous_dose_rows() -> list[SupportRow]:
                 splitting=splitting,
                 outcome=BOUNDED,
                 ratio=ratio,
+                tuned_cap=True,
                 cells=cells,
             )
         )
@@ -3050,7 +3746,8 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                "reference mean only. A static level or contrast is refused (X72).",
+                # Roadmap: X72.
+                "reference mean only. A static level or contrast is refused.",
             ),
         ),
         row("G42.weighted", _structural_cells("s2w"), weighting="fixed"),
@@ -3066,6 +3763,7 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
         ("survival_model", "iterated_mean"),
         ("targeting", "iterative"),
         ("isotonic", False),
+        *_x33_options(),
     )
 
 
@@ -3096,12 +3794,362 @@ def _categorical_long_rows() -> tuple[SupportRow, ...]:
     )
 
 
+_LH_BCA: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca"})
+_LH_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", "band"})
+_LH_BOOT_BAND: Final[frozenset[Kind]] = frozenset(
+    {"point", "wald", "bootstrap_bca", "bootstrap_band"}
+)
+#: The scenario sizes at which the study gates the Wald and the BCa interval of each row that
+#: reads the Wald note: ``tests/unit/test_long_horizon_support.py`` derives both from
+#: ``tests/long_horizon_design.py``.
+_LH_GATED_N: Final[Mapping[str, tuple[tuple[int, ...], tuple[int, ...]]]] = {
+    "binary_k3": ((4_000,), (4_000,)),
+    "binary_k4": ((16_000,), (16_000,)),
+    "binary_k5": ((76_000,), (76_000,)),
+    "categorical_k3": ((28_000,), (28_000,)),
+    "categorical_k4": ((128_000,), (108_000, 124_000, 128_000)),
+    "categorical_k5": ((116_000,), (64_000, 72_000, 96_000, 116_000, 124_000)),
+    "sdr_binary_k3": ((4_000,), (4_000,)),
+    "sdr_binary_k4": ((16_000,), (16_000,)),
+    "sdr_binary_k5": ((76_000,), (76_000,)),
+    "sdr_categorical_k5": (
+        (44_000, 116_000),
+        (44_000, 64_000, 72_000, 76_000, 96_000, 116_000, 124_000),
+    ),
+}
+#: The rows whose gated BCa quantities all use static or dynamic plans, so that the row licenses
+#: the BCa interval for those plans only.
+_LH_STATIC_BCA_ROWS: Final[frozenset[str]] = frozenset(
+    {
+        "binary_k3",
+        "binary_k4",
+        "categorical_k3",
+        "categorical_k4",
+        "sdr_binary_k3",
+        "sdr_binary_k4",
+    }
+)
+_LH_STATIC_BCA_FAMILIES: Final[frozenset[str]] = frozenset({"end_of_study", "regimens", "static"})
+
+
+def _lh_sizes(sizes: Sequence[int]) -> str:
+    """Scenario sizes as a list, such as ``n = 4,000 and 16,000``."""
+    text = [f"{n:,}" for n in sizes]
+    return text[0] if len(text) == 1 else f"{', '.join(text[:-1])} and {text[-1]}"
+
+
+def _lh_note(wald: Sequence[int], bca: Sequence[int], *, static_bca: bool) -> str:
+    """The stated limit of a long-horizon row that reads a Wald interval and a BCa interval."""
+    note = (
+        "The Wald interval is gated for a quantity only where n is at least twice its n_kappa. "
+        f"The study gates it at n = {_lh_sizes(wald)}. "
+        "Where the Wald interval is not gated, the BCa interval at B = 199 is gated instead, "
+        f"at n = {_lh_sizes(bca)}, and the BCa row of a Wald-gated quantity reports. "
+        "The row grain checks neither n nor the quantity. "
+        "A fit at another n or on another quantity reads as this row."
+    )
+    if static_bca:
+        note += (
+            " The study gates BCa on plans without a known stochastic node only, "
+            "so the row licenses BCa for those plans."
+        )
+    return note
+
+
+_LH_SWITCH_LIMIT: Final[str] = (
+    "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
+    "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
+    "bias -0.0015 to 0.0038, SE ratio 0.9624"
+)
+# Roadmap: X20.
+_LH_CROSSFIT_NOTE: Final[str] = (
+    "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
+    "ratio of 1.17 to 1.33 here, and six of the Wald rows lose their gate below twice "
+    "n_kappa."
+)
+_LH_MSM_NOTE: Final[str] = (
+    "Both coefficients are gated at n = 96,000, which is at least twice the n_kappa of the "
+    "intercept (94,226) and of the duration (50,908). The MSM fit runs no bootstrap."
+)
+_LH_SDR_BAND_NOTE: Final[str] = "The SDR bootstrap band is experimental and gates no row."
+_LH_NO_PRIMARY_NOTE: Final[str] = (
+    "The study fits this setting in its property cells only, so no BCa row gates it and the "
+    "Wald interval rests on the calibration cells."
+)
+_LH_LEARNED_NOTE: Final[str] = (
+    "The cell is a bias check of the necessity family: it states no interval, and the "
+    "treatment of the third arm is learned."
+)
+
+
+def _long_horizon_rows() -> tuple[SupportRow, ...]:
+    """The rows of the three long-horizon studies (X39): ``G46``.
+
+    One row for each estimator, decision count, arm count, splitting and working model that a
+    primary scenario covers. The row ids read ``G46.tmle.<name>`` and ``G46.sdr.<name>``.
+
+    Every row licenses ``point``. It licenses ``wald`` when the study gates a Wald row of a
+    member scenario, or an ``interval_calibration`` cell of the row's setting. It licenses
+    ``bootstrap_bca`` when the study gates a BCa row of a member scenario. The study gates BCa
+    only where the Wald row is not gated (n below twice n_kappa). The six rows whose gated BCa
+    rows all use plans without a known stochastic node license BCa for those plans only
+    (``kind_families``). The row grain checks neither n nor the quantity, so each row states
+    its gated n and that limit in its first note. The cross-fitted rows and every SDR row
+    license no bootstrap band: the cross-fitted bootstrap is experimental (X20), and the SDR
+    bootstrap band is experimental. A row licenses ``band`` when the study gates the Wald-curve
+    band of its setting (``binary_k5``) and ``bootstrap_band`` when it gates the studentized
+    sup-t band at B = 199 (``categorical_k5``).
+    """
+    tmle2 = ("long-horizon-ltmle", "tmle", 2)
+    tmle3 = ("long-horizon-categorical-ltmle", "tmle", 3)
+    sdr2 = ("long-horizon-sdr", "sdr", 2)
+    sdr3 = ("long-horizon-sdr", "sdr", 3)
+    #: name, study, decisions, folds, msm, learned, kinds, stochastic, cells, limits
+    declared: tuple[
+        tuple[
+            str,
+            tuple[str, str, int],
+            int,
+            int,
+            bool,
+            bool,
+            frozenset[Kind],
+            bool,
+            tuple[str, ...],
+            tuple[str, ...],
+        ],
+        ...,
+    ] = (
+        ("binary_k3", tmle2, 3, 1, False, False, _LH_BCA, True, ("binary_k3",), ()),
+        ("binary_k4", tmle2, 4, 1, False, False, _LH_BCA, True, ("binary_k4",), ()),
+        ("binary_k5", tmle2, 5, 1, False, False, _LH_BAND, True, ("binary_k5",), ()),
+        (
+            "binary_k5_msm",
+            tmle2,
+            5,
+            1,
+            True,
+            False,
+            _LONG_WALD,
+            False,
+            ("binary_k5_msm",),
+            (_LH_MSM_NOTE,),
+        ),
+        (
+            "categorical_k3",
+            tmle3,
+            3,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("categorical_k3",),
+            (),
+        ),
+        (
+            "categorical_k4",
+            tmle3,
+            4,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("categorical_k4", "categorical_k4_high", "categorical_k4_static"),
+            (),
+        ),
+        (
+            "categorical_k5",
+            tmle3,
+            5,
+            1,
+            False,
+            False,
+            _LH_BOOT_BAND,
+            True,
+            (
+                "categorical_k5",
+                "categorical_k5_mix",
+                "categorical_k5_static",
+                "categorical_k5_switch",
+                "categorical_k5_high",
+            ),
+            (),
+        ),
+        (
+            "categorical_k5_crossfit",
+            tmle3,
+            5,
+            5,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("categorical_k5_crossfit",),
+            (_LH_CROSSFIT_NOTE,),
+        ),
+        (
+            "sdr_binary_k3",
+            sdr2,
+            3,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k3",),
+            (),
+        ),
+        (
+            "sdr_binary_k4",
+            sdr2,
+            4,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k4",),
+            (),
+        ),
+        (
+            "sdr_binary_k5",
+            sdr2,
+            5,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            ("sdr_binary_k5",),
+            (),
+        ),
+        (
+            "sdr_categorical_k5",
+            sdr3,
+            5,
+            1,
+            False,
+            False,
+            _LH_BCA,
+            True,
+            (
+                "sdr_categorical_k5",
+                "sdr_categorical_k5_mix",
+                "sdr_categorical_k5_static",
+                "sdr_categorical_k5_switch",
+                "sdr_categorical_k5_high",
+                "sdr_policy_k5",
+                "sdr_policy_k5_mix",
+                "sdr_policy_k5_taper",
+            ),
+            (_LH_SWITCH_LIMIT, _LH_SDR_BAND_NOTE),
+        ),
+        (
+            "sdr_categorical_k5_crossfit",
+            sdr3,
+            5,
+            5,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("sdr_categorical_k5_crossfit",),
+            (_LH_CROSSFIT_NOTE,),
+        ),
+        (
+            "sdr_categorical_k3",
+            sdr3,
+            3,
+            1,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            ("interval_calibration/categorical_respond_vs_ref__k3__known_mechanism",),
+            (_LH_NO_PRIMARY_NOTE,),
+        ),
+        (
+            "sdr_categorical_k4",
+            sdr3,
+            4,
+            1,
+            False,
+            False,
+            _LONG_WALD,
+            True,
+            (
+                "interval_calibration/categorical_respond_vs_ref__k4__known_mechanism",
+                "root_n_and_efficiency/respond_vs_ref__k4__n_4000",
+            ),
+            (_LH_NO_PRIMARY_NOTE,),
+        ),
+        (
+            "categorical_k5_learned",
+            tmle3,
+            5,
+            1,
+            False,
+            True,
+            frozenset({"point"}),
+            True,
+            ("categorical_probability_necessity/third_arm__k5__binary_complement",),
+            (_LH_LEARNED_NOTE,),
+        ),
+        (
+            "sdr_categorical_k5_learned",
+            sdr3,
+            5,
+            1,
+            False,
+            True,
+            frozenset({"point"}),
+            True,
+            ("categorical_probability_necessity/third_arm__k5__binary_complement",),
+            (_LH_LEARNED_NOTE,),
+        ),
+    )
+    rows: list[SupportRow] = []
+    for name, (
+        slug,
+        engine,
+        arms,
+    ), nodes, folds, msm, learned, kinds, stochastic, cells, limits in declared:
+        roles = "C" if learned else "AC"
+        if name in _LH_GATED_N:
+            wald, bca = _LH_GATED_N[name]
+            limits = (_lh_note(wald, bca, static_bca=name in _LH_STATIC_BCA_ROWS), *limits)
+        rows.append(
+            long_row(
+                f"G46.{engine}.{name}",
+                [slug],
+                regimens=("static", "stochastic") if stochastic else ("static",),
+                msm=msm,
+                treatment=tuple(str(arms) for _ in range(nodes)),
+                splitting=("cross_fitted",) if folds > 1 else ("in_sample",),
+                qualifiers=[f"{role}{k}" for role in roles for k in range(1, nodes + 1)],
+                engine=engine,
+                kinds=kinds,
+                cells=cells,
+                limits=limits,
+                kind_families=(
+                    {"bootstrap_bca": _LH_STATIC_BCA_FAMILIES}
+                    if name in _LH_STATIC_BCA_ROWS
+                    else None
+                ),
+            )
+        )
+    return tuple(rows)
+
+
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
-#: structural nested mean model (``G42``) and the categorical tilt (``G43``).
+#: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
+#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
-    (*_long_rows(), *_categorical_long_rows())
+    (*_long_rows(), *_categorical_long_rows(), *_long_horizon_rows())
 )
 
 
@@ -3114,12 +4162,39 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."
     ),
+    "ovb-limit-coverage": (
+        "It measures the coverage of the omitted-variable bound limits of X82 part G. A limit "
+        "is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
+        "licenses."
+    ),
+    "marginal-bound-limit-coverage": (
+        "It measures the coverage of the marginal sensitivity bound limits of X82 part H. A "
+        "limit is no estimate, and VERDICT_EVIDENCE, not a support row, records what the study "
+        "licenses."
+    ),
+    "evalue-limit-coverage": (
+        "It measures the coverage of the risk-ratio intervals that two E-value limits map. "
+        "VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
     "calibration-slope-warning": (
         "It measures the rate of a diagnostic warning. The warning is no estimate."
     ),
+    "refuter-calibration-longitudinal": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
+    "refuter-calibration-point": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
+    "refuter-calibration-band": (
+        "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
+        "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
-        "and licenses no configuration (F27)."
+        # Roadmap: F27.
+        "and licenses no configuration."
     ),
 }
 
@@ -3132,6 +4207,7 @@ OPTION_ALLOWLIST: Final[Mapping[str, str]] = {
     "treatment_learner": "src/cleverly/estimators/tmle.py",
     "missingness_learner": "src/cleverly/estimators/tmle.py",
     "intermediate_learner": "src/cleverly/estimators/tmle.py",
+    "reduced_outcome_learner": "src/cleverly/estimators/iptw.py",
     "pseudo_learner": "docs/technical-reference/longitudinal-tmle.md",
     "censoring_learner": "docs/technical-reference/longitudinal-tmle.md",
     "g_bounds": "docs/technical-reference/point-treatment-tmle.md",

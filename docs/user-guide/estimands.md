@@ -192,7 +192,7 @@ gives its coverage at each law.
 | --- | --- | --- |
 | no effect for any unit | 0.8938, with a 99% interval of 0.8832 to 0.9038 | `under-covers at the exceptional law`, in the [boundary study](../technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) |
 | a weak effect, $0.15 W_1$ on the logit scale | 0.8948, with a 99% interval of 0.8842 to 0.9048 | `under-covers at the weak_blip law`, in the same study |
-| two laws that meet the published conditions, with the declared logistic outcome learner | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
+| two laws that meet the published conditions, one with a correctly specified outcome learner and one with a misspecified one | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
 
 ```python
 from sklearn.linear_model import LogisticRegression
@@ -212,7 +212,8 @@ fold_evaluated = TMLEMethod(
 )
 learned = study.estimate(LearnedRuleValue(), method=fold_evaluated, random_state=3)
 record = learned.extra["learned_rule"]
-shares = record.treated_shares
+(split,) = record.splits  # one split into five folds
+shares = split.treated_shares
 ```
 
 The rule of fold $v$ treats a unit when the outcome regression fitted on the other folds predicts
@@ -226,7 +227,7 @@ rule. The table gives what the result holds.
 | where | content |
 | --- | --- |
 | `learned.estimates` | one parameter, `ey_learned_rule[learned rule]` |
-| `learned.extra["learned_rule"]` | the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip |
+| `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip |
 | `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row, `1.0` for treat |
 | `learned.summary()` | a line that states the target |
 
@@ -235,12 +236,20 @@ default `CrossFitting()` refuses before any learner and names that remedy. The f
 binary treatment, complete outcomes, iid rows without weights, and no strata or intermediate
 variable. `CausalStudy.identify` refuses each of those designs.
 
-A refit relearns the rules, so `refute` reads `unavailable` on this fit. The package does not
-implement a sensitivity analysis for this target, so every sensitivity analysis reads
-`unavailable` too. The support report and `truncation_curve` run.
+A refit that relearned the rules would estimate the value of other rules. So the `subset`,
+`random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` tests of `refute`,
+and `simulated_confounding`, keep the outer folds and the rule of each row, and read the value of
+the fit's own rules. The `placebo` test refits as the fit did: under random treatment every rule
+has the value of the mean outcome, which is what it reads against. The generated-outcome tests
+refuse, because a learned rule has no generated truth yet.
+
+The omitted-variable bound, the E-value and the missingness tilt read `unavailable` for this
+target. The support report and `truncation_curve` run.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.
+
+The [treatment-rules example](../examples/treatment-rules.ipynb) runs this fit end to end.
 
 ## Modified treatment policies
 
@@ -264,6 +273,27 @@ result = dose_study.estimate(
 A shifted dose above the cap holds the row at its own dose. The example cap of 4.0 lies inside
 the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
 observed dose and the policy assigns a dose above that maximum.
+
+The correction step needs the ratio of the density of each policy dose to the density of the
+observed dose. By default the fit estimates the dose density in `density_bins` bins. With
+`ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
+policy copy, and the ratio comes from its predicted odds. The classifier route fits no density,
+so it suits a flexible classifier when the bins are too coarse.
+[Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
+states both routes.
+
+A cap can also come from the data. `Shift(1.0, cap=DoseQuantile(0.9), target="population")` holds
+every dose whose shift would pass the 90th percentile of the observed doses.
+`SupportBoundary(LinearQuantileRegression(features=...), q=0.9)` sets the cap from a quantile
+regression of the dose on the named covariates, so the cap varies by row. `DoseQuantile`,
+`SupportBoundary` and `LinearQuantileRegression` come from `cleverly.interventions`.
+
+A tuned cap needs `target=`, and the fit refuses one without it. `target="population"` estimates
+the mean under the cap that the whole population would give, and the interval includes the error
+of estimating that cap. It needs an outcome model that is accurate near the cap.
+`target="fold_average"` averages the means under each fold's own cap. The [tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) checks the
+population target over two decisions. A tuned cap at one decision rests on exact-law tests only
+(`tests/unit/test_point_tuned_caps.py`).
 
 Other maps of the dose use the same `policies=` axis. The table names each class.
 
@@ -301,7 +331,10 @@ exactly one piece. It also checks that each declared inverse inverts its map, an
 derivative matches the map. In a longitudinal fit, a policy is a node of
 a `DynamicRegimen` plan. The
 [longitudinal reference](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
-gives the details.
+gives the details, and
+[limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)
+lists what the studies do not cover. The [monthly prices](../examples/sequential-pricing.ipynb)
+example raises a price at each of three months.
 
 ## Incremental propensity-score interventions
 

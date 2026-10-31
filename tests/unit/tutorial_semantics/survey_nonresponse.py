@@ -8,7 +8,6 @@ decimals are also compared against its stored outputs, and every decimal it writ
 from __future__ import annotations
 
 import csv
-import re
 from typing import Any
 
 import numpy as np
@@ -17,17 +16,28 @@ from scipy.special import logit
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
 
-from cleverly import CrossFitting
+from cleverly import CapabilityError, CrossFitting
+from cleverly._summary import vocabulary
 from cleverly.datasets import missing_outcome_bounded_dgp, navigation_protocol
-from cleverly.sensitivity import missingness_tilt
+from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
+from cleverly.validation import BoundedAdjustmentOutcome, GaussianAdjustmentOutcome
+from cleverly.validation.refute import refute_refusal
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
     changed_fields,
     covers,
-    stored_output,
 )
+
+#: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
+#: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
+REFIT_CELLS = (
+    "bound",
+    "refutation",
+    "generated-outcomes",
+)
+
 
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
 
@@ -43,6 +53,20 @@ UNPRINTED_DECIMALS = {
     "3.17": f"5th percentile of the interval tipping gamma (3.1721): {_PROBE}/summary.log",
     "5.48": f"95th percentile of the interval tipping gamma (5.4783): {_PROBE}/summary.log",
 }
+
+_REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
+
+#: Decimals of the 400-draw readings the Details quote, which no cell prints.  Each appears in the log.
+_REFUTE_LOG_DECIMALS = ("-0.134", "-0.232", "-0.03598", "0.004196")
+UNPRINTED_DECIMALS.update(
+    dict.fromkeys(_REFUTE_LOG_DECIMALS, f"a value of the 400-draw review probe, {_REFUTE_PROBE}")
+)
+UNPRINTED_DECIMALS.update(
+    {
+        "9.4": f"the longest wall time of a probe run, 566 s, in {_REFUTE_PROBE}",
+        "0.00056": f"the truth 0.10287 minus the simulated_outcome mean 0.10231, {_REFUTE_PROBE}",
+    }
+)
 
 
 def _quadrature_targets() -> tuple[float, float]:
@@ -98,21 +122,21 @@ def check(namespace: dict[str, Any]) -> None:
     expression = effect.functional.expression
     assumptions = " ".join(effect.identification.assumptions).lower()
     nuisances = effect.identification.required_nuisances
-    summary = effect.summary()
+    summary = effect.summary(detail="full")
 
     assert "responded=1" in expression
     assert "missingness at random" in assumptions
     assert "response positivity" in assumptions
     assert "missingness_mechanism" in nuisances
     assert fitted.nuisance.missingness is not None
-    assert expression in summary
+    assert expression in summary.section("Assumptions").lines[0]
 
     # Step 6: a cross-fitted, stacked fit with boosted trees for Q, logistic g and pi, and the
     # known range of the score as q_bounds.
     method = namespace["method"]
     fit_summary = fitted.summary()
-    assert "stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds" in fit_summary
-    assert "TMLE (in-sample nuisances)" not in fit_summary
+    assert dict(fit_summary.header)["Out-of-fold predictions"] == "5 folds"
+    assert fitted.config.estimator_name == "stacked CV-TMLE (Levy)"
     assert method.cross_fitting == CrossFitting(n_folds=5)
     assert method.targeting.q_bounds == (0.0, 1.0)
     assert isinstance(method.models.outcome_learner, HistGradientBoostingRegressor)
@@ -228,25 +252,40 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{namespace['distance']:.1f}" == "0.2"
     assert f"{cc_target:.3f}" == "0.173"
 
-    # The support and nuisance reports print what the reading quotes.
+    # The support and nuisance reports give what the reading quotes.
     assert tuple(namespace["assessment"].attention) == ()
-    assessment_output = stored_output(NOTEBOOK, "assessment")
-    assert "P(A=a,Delta=1|W)  0.0081" in assessment_output
-    assert "max |clever covariate| (mean): 81.76" in assessment_output
-    assert "nuisance fits look reasonable" in assessment_output
-    assert "out-of-fold predictions" in assessment_output
-    # The status table prints only the rows that ran or run on request.  The omitted-variable
-    # rows and the E-value do not run for a fit with a response mechanism and stay off the page.
+    support = namespace["support"]
+    assert round(support.mechanisms["P(A=a,Delta=1|W)"]["min"], 4) == 0.0081
+    assert round(support.mechanisms["P(Delta=1|A,W)"]["min"], 3) == 0.038
+    assert support.mechanisms["P(A=a,Delta=1|W)"]["clipped_fraction"] == 0.0
+    assert support.truncated["fraction"] == 0.0
+    # "The largest weight on a respondent is 41.2": one over the chance of the offer they got
+    # times the chance of answering under it, over respondents only.  Nonzero witness: the
+    # report's clever-covariate maximum also counts non-responders and is about twice as large.
+    weight = namespace["respondent_weight"]
+    assert len(weight) == int(frame["responded"].sum())
+    assert f"{weight.max():.1f}" == "41.2"
+    assert max(support.clever_covariate_max.values()) > 1.5 * weight.max()
+    # "only 3 of 3,051 respondents carry a weight above 20".
+    assert namespace["heavy"] == int((weight > 20).sum()) == 3
+    # The fit caps the chances at the printed bounds, and nothing reached them.
+    assert round(support.bounds[0], 4) == 0.0095 and support.nuisance_bound == 0.01
+    nuisance_summary = namespace["nuisance"].summary()
+    assert nuisance_summary.reading == vocabulary.MODEL_READINGS["clear"]
+    assert dict(nuisance_summary.header)[vocabulary.PREDICTIONS] == "out of fold"
+    # The omitted-variable bound admits a response mechanism, so its rows run.  The benchmark
+    # refits, so the default assessment defers it.
     ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])
-    for row in (*OMITTED_VARIABLE_OPERATIONS, "evalue"):
-        assert str(ledger.loc[("sensitivity", row), "status"]) == "unavailable"
-        assert not re.search(rf"sensitivity\s+{row}\b", assessment_output)
-    assert "unavailable" not in assessment_output and "not_applicable" not in assessment_output
+    for row in OMITTED_VARIABLE_OPERATIONS:
+        status = "deferred" if row == "benchmark" else "completed"
+        assert str(ledger.loc[("sensitivity", row), "status"]) == status
+    # The E-value standardizes by a missing-at-random plug-in of sd(Y), which fits one more
+    # outcome regression, so the default assessment defers it.
+    assert str(ledger.loc[("sensitivity", "evalue"), "status"]) == "deferred"
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
-        assert re.search(rf"sensitivity\s+{row}\s+completed", assessment_output)
 
-    # Step 9: the estimate never reaches 0 under the navigation-arm tilt, and the interval does
+    # Step 10: the estimate never reaches 0 under the navigation-arm tilt, and the interval does
     # at 4.921.  Nonzero witness: just before it, the lower limit is still positive.
     assert namespace["tipping_gamma"] is None
     ci_tipping = namespace["ci_tipping_gamma"]
@@ -280,3 +319,181 @@ def check(namespace: dict[str, Any]) -> None:
     assert (curve["std_err"] == full.std_error).all()
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
+    # The printed mean drop is the move of the estimate over the mean non-response probability,
+    # and it approaches the missing-at-random mean as gamma grows toward the floor.
+    printed = namespace["curve"]
+    expected_drop = (full.psi - curve["psi"].to_numpy()) / nonresponse
+    assert np.allclose(printed["mean drop"].to_numpy(), expected_drop)
+    assert float(printed["mean drop"].iloc[-1]) < namespace["mar_mean"]
+
+
+def check_refits(namespace: dict[str, Any]) -> None:
+    """The refit cells: the refutation, the generated outcomes, and the E-value and bounds."""
+    _check_refutation(namespace)
+    _check_generated_outcomes(namespace)
+    _check_evalue_and_bounds(namespace)
+
+
+def _check_refutation(namespace: dict[str, Any]) -> None:
+    """Step 9: the three refits are descriptive, and each check the page skips refuses."""
+    fitted = namespace["full"]
+    refutation = namespace["refutation"]
+    original = fitted["ate"].psi
+    tests = {test.name: test for test in refutation.tests}
+    assert set(tests) == {"placebo", "subset", "random_common_cause"}
+    for test in tests.values():
+        # "No check prints a verdict": no registry row covers a boosted fit with missing outcomes.
+        assert test.passed is None and test.rung == "L0"
+        assert len(test.values) == 20 and test.original == pytest.approx(original)
+    assert refutation.passed is None
+    report = " ".join(refutation.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines)
+    # The full summary names the nearest registered row, a TMLE row with GLM nuisances, and the
+    # learner on which this fit differs.  Nonzero witness: the first registered row is a
+    # longitudinal one.
+    assert "The nearest fits studied: method TMLE," in report and "LTMLE" not in report
+    assert "Where this fit differs, it has a learner outside those studied" in report
+    # "The verdict column reads descriptive".
+    assert set(refutation.to_frame()["verdict"]) == {"descriptive"}
+    # The placebo reading: "+0.0009203 ... spread 0.006121 ... t +0.6724 (p = 0.509) ... 0.9123".
+    placebo = tests["placebo"]
+    values = np.asarray(placebo.values)
+    assert round(float(values.mean()), 7) == 0.0009203
+    assert round(float(values.std(ddof=1)), 6) == 0.006121
+    assert round(float(placebo.statistic), 4) == 0.6724
+    assert round(float(placebo.statistic_pvalue), 3) == 0.509
+    assert round(float(np.mean(placebo.standard_errors) / values.std(ddof=1)), 4) == 0.9123
+    # A placebo that kept the offers would return the original estimate, far from the null.
+    assert abs(values.mean()) < 0.1 * original
+    # The subset reading: "0.0034151 against 0.0034171 ... ratio 0.99941 (p = 0.917)".
+    subset = tests["subset"]
+    scatter = float(np.std(subset.values, ddof=1))
+    n = len(namespace["frame"])
+    reference = float(fitted["ate"].std_error * np.sqrt((n / 2800 - 1) * n / (n - 1)))
+    assert round(scatter, 7) == 0.0034151 and round(reference, 7) == 0.0034171
+    assert round(scatter / reference, 5) == 0.99941
+    assert round(float(subset.statistic_pvalue), 3) == 0.917
+    # The random-common-cause reading: "+0.04526 standard errors, spread 0.08908".
+    shift = (np.asarray(tests["random_common_cause"].values) - original) / fitted["ate"].std_error
+    assert round(float(shift.mean()), 5) == 0.04526
+    assert round(float(shift.std(ddof=1)), 5) == 0.08908
+    assert 0.0 < abs(shift.mean()) < 1.0
+
+    # The negative control the page skips: no recorded pre-offer score, and a control equal to an
+    # adjustment column is refused.
+    refusal = refute_refusal(
+        fitted,
+        estimand="ate",
+        tests=("negative_control_outcome",),
+        negative_control_outcome=namespace["frame"]["age"].to_numpy(),
+        negative_control_kind="pre_treatment",
+    )
+    assert refusal is not None and "equals the adjustment column 'age'" in refusal.message()
+    # The replay the page skips: the response reads the offer, so a cell that moves the offer is
+    # refused and names F12.  Nonzero witness: the law's response differs by arm.
+    law = missing_outcome_bounded_dgp()
+    base = np.zeros((1, 3))
+    assert float(law.missingness(base, 1.0)[0]) > float(law.missingness(base, 0.0)[0]) + 0.05
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1))
+    with pytest.raises(CapabilityError, match="observation_reads") as excinfo:
+        simulated_confounding(fitted, grid=grid)
+    assert "F12" in str(excinfo.value)
+
+
+def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
+    """Step 9: the generated outcomes run at level L1 on the bounded process."""
+    fitted = namespace["full"]
+    independent, adjusted = namespace["independent"], namespace["adjusted"]
+    assert isinstance(independent, BoundedAdjustmentOutcome)
+    assert (independent.effect, independent.adjustment_scale) == (0.0, 0.0)
+    assert adjusted.effect != 0.0 and adjusted.adjustment_scale != 0.0
+    probe = (EXAMPLES.parents[1] / _REFUTE_PROBE).read_text(encoding="utf-8")
+    for literal in _REFUTE_LOG_DECIMALS:
+        assert literal in probe, literal
+    assert probe.count("400 draws") >= 3 and probe.count("L2") >= 3
+    # Only simulated_outcome leaves its band; its mean estimate lies 0.00056 below the truth.
+    assert (
+        probe.count("bias") >= 3
+        and probe.count("inside [-0.2, 0.2]") == 2
+        and "outside [-0.2, 0.2]" in probe
+    )
+    assert round(0.10287 - 0.10231, 5) == 0.00056
+    tests = namespace["generated_tests"]
+    # "with 10 every line prints level L1, the numbers without a pass or fail".
+    assert set(tests) == {"dummy_outcome", "simulated_outcome", "plasmode"}
+    for check in tests.values():
+        assert check.n_replicates == 10 and len(check.values) == 10
+        assert check.rung == "L1" and check.passed is None
+        bias = check.readings[0]
+        assert bias.name == "bias" and bias.upper - bias.lower > 0.2 - (-0.2)
+    # Truth: 0 for the dummy and one shared positive value for the other two, which differs from
+    # the recorded estimate.  The held-design simulated outcome withholds the ratio and coverage.
+    assert tests["dummy_outcome"].declared_effect == 0.0
+    shared = tests["simulated_outcome"].declared_effect
+    assert shared == tests["plasmode"].declared_effect and 0.0 < shared < fitted["ate"].psi - 0.03
+    assert [reading.name for reading in tests["simulated_outcome"].readings] == ["bias"]
+    assert len(tests["plasmode"].readings) == 3
+    # A bare Gaussian declaration refuses the fit that declares q_bounds, as the page says.
+    refusal = refute_refusal(
+        fitted,
+        estimand="ate",
+        tests=("simulated_outcome",),
+        simulated_outcome=GaussianAdjustmentOutcome(),
+    )
+    assert refusal is not None and "q_bounds" in refusal.message()
+
+
+def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
+    """Step 10: the E-value and the omitted-variable bound, read on the fit."""
+    fitted = namespace["full"]
+    evalue = namespace["evalue"]
+    assert evalue.approximate and evalue.limit_descriptive
+    assert round(evalue.risk_ratio, 3) == 1.706
+    assert tuple(round(x, 3) for x in evalue.risk_ratio_ci) == (1.644, 1.77)
+    assert (round(evalue.point, 4), round(evalue.limit, 4)) == (2.8039, 2.6735)
+    # The E-value is the closed form of VanderWeele and Ding at the risk ratio.
+    rr = evalue.risk_ratio
+    assert evalue.point == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)))
+    # The short summary flags the conversion; the full one states the scale it used.
+    assert "approximate_scale" in evalue.summary().note_codes
+    assumptions = " ".join(evalue.summary(detail="full").section("Assumptions").lines)
+    assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in assumptions
+    rv = namespace["rv"]
+    assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3612)
+    assert rv["limit_licensed"] is False
+    assert "differs on outcome family 'gaussian'" in rv["limit_sentence"]
+    # The benchmarks: the table of the reading, recomputed from the fit.
+    expected = {
+        "discharge_risk": (1.0, 0.361, (-0.0759, 0.3716), (-0.0947, 0.3906)),
+        "age": (0.872, 0.032, (0.0974, 0.1982), (0.0881, 0.2077)),
+        "prior_utilization": (0.128, 0.0, (0.1478, 0.1478), (0.1392, 0.1564)),
+    }
+    for covariate, (cf_y, cf_d, bound_limits, ci_limits) in expected.items():
+        record = fitted.sensitivity.benchmark(covariates=(covariate,))
+        bound = fitted.sensitivity.omitted_confounding(benchmark=record)
+        assert (round(record.cf_y, 3), round(record.cf_d, 3)) == (cf_y, cf_d)
+        assert (round(bound.lower, 4), round(bound.upper, 4)) == bound_limits
+        assert (round(bound.ci_lower, 4), round(bound.ci_upper, 4)) == ci_limits
+        assert bound.limit_descriptive
+    # "Dropping discharge_risk more than doubles the residual variance": a gain of 1.272, so cf_y
+    # clips at 1 and the bound includes 0.  Dropping prior_utilization raises nu^2, so cf_d clips.
+    risk = fitted.sensitivity.benchmark(covariates=("discharge_risk",))
+    assert risk.sigma2_short > 2.0 * risk.sigma2_long and round(risk.gain_y, 3) == 1.272
+    assert risk.cf_y == 1.0
+    assert fitted.sensitivity.omitted_confounding(benchmark=risk).lower < 0.0
+    utilization = fitted.sensitivity.benchmark(covariates=("prior_utilization",))
+    assert utilization.nu2_short > utilization.nu2_long
+    assert utilization.gain_d < 0.0 and utilization.cf_d == 0.0
+    # The bound is zero-width at cf_d = 0, and the estimate sits at its centre.  A mutation that
+    # added the response gain would move it.
+    flat = fitted.sensitivity.omitted_confounding(benchmark=utilization)
+    assert flat.lower == pytest.approx(fitted["ate"].psi, abs=1e-9)
+    # The bisection: at cf_y = 1 the lower limit reaches zero at the printed weight-side
+    # strength, about half that of discharge_risk and more than five times that of age.
+    tipping = namespace["tipping_cf_d"]
+    assert f"{tipping:.2f}" == "0.17"
+    assert abs(fitted.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping).ci_lower) < 1e-6
+    assert fitted.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).ci_lower > 0.0
+    strengths = {name: record.cf_d for name, (record, _) in namespace["benchmarks"].items()}
+    assert strengths["prior_utilization"] < strengths["age"] < tipping < strengths["discharge_risk"]
+    assert 0.4 < tipping / strengths["discharge_risk"] < 0.6
+    assert 5.0 < tipping / strengths["age"] < 6.0

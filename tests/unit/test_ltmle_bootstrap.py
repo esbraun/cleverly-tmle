@@ -26,6 +26,7 @@ from cleverly.inference.bootstrap import _bootstrap_design
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.data import _ROW_FIELDS, _SHARED_FIELDS
 from tests.studies import canonical_ltmle
+from tests.studies.evidence.manifest import read_rows
 
 COLUMNS: dict[str, Any] = {
     "outcome": ["Y1", "Y2"],
@@ -34,6 +35,17 @@ COLUMNS: dict[str, Any] = {
     "time_varying": [[], ["L2"]],
     "censoring": ["C1", "C2"],
 }
+
+
+def _bootstrap_table(summary: Any) -> Any:
+    """The bootstrap table of a summary."""
+    return next(t for t in summary.tables if (t.title or "").startswith("Bootstrap ("))
+
+
+def _interval_column(result: Any) -> str:
+    """The interval column of the summary's bootstrap table."""
+    (table,) = [t for t in result.summary().tables if (t.title or "").startswith("Bootstrap")]
+    return table.columns[-1]
 
 
 def _estimator(**settings: Any) -> LTMLE:
@@ -198,9 +210,8 @@ class TestTheReplicates:
     def test_the_fit_matches_a_committed_canonical_row(self) -> None:
         """At ``n_bootstrap=0`` and above it, the registered fit is unchanged."""
         frame, _ = canonical_ltmle.draw_scenario(canonical_ltmle.SCENARIO, 2_000, 0)
-        committed = pd.read_csv(
-            Path(__file__).parents[1] / "canonical" / "ltmle" / "replicates.csv.gz",
-            float_precision="round_trip",
+        committed = read_rows(
+            Path(__file__).parents[1] / "canonical" / "ltmle" / "replicates.parquet"
         )
         rows = committed[
             (committed["implementation"] == "cleverly") & (committed["replicate"] == 0)
@@ -294,17 +305,21 @@ class TestReporting:
         estimate = next(iter(result.estimates.values()))
         assert estimate.bootstrap.support.label == "experimental"
         assert "bootstrap interval" in estimate.bootstrap.support.reason
-        text = result.summary()
-        assert "full-refit bootstrap (iid resampling, 2 usable replicates, 0 failed)" in text
-        assert "percentile CI" in text and "[experimental]" in text
+        summary = result.summary()
+        table = _bootstrap_table(summary)
+        assert table.title == "Bootstrap (iid resampling, 2 usable replicates)"
+        assert result.bootstrap.n_failed == 0
+        assert "percentile 95% CI" in table.columns
+        assert "bootstrap_experimental" in summary.note_codes
         row = estimate.to_dict()
         assert {"bootstrap_std_err", "bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(row)
         assert row["bootstrap_support"] == "experimental"
 
     def test_a_supported_bootstrap_prints_no_marker(self) -> None:
         result = canonical_boot()
-        lines = [line for line in result.summary().splitlines() if "percentile CI" in line]
-        assert lines and not any("[experimental]" in line for line in lines)
+        summary = result.summary()
+        assert "percentile 95% CI" in _bootstrap_table(summary).columns
+        assert "bootstrap_experimental" not in summary.note_codes
         columns = set(result.to_frame().columns)
         assert {"bootstrap_std_err", "bootstrap_ci_lower", "bootstrap_ci_upper"} <= columns
         assert set(next(iter(result.estimates.values())).to_dict()["bootstrap_support"]) == set(
@@ -318,7 +333,7 @@ class TestReporting:
             crossfit = _estimator(n_bootstrap=3, n_folds=2).fit(survival_frame, **COLUMNS)
         estimate = next(iter(crossfit.estimates.values()))
         assert estimate.bootstrap.support.label == "experimental"
-        assert "[experimental]" in crossfit.summary()
+        assert "bootstrap_experimental" in crossfit.summary().note_codes
 
     def test_an_unmeasured_composition_is_experimental(self) -> None:
         """A competing-risk fit has no row listing ``bootstrap``, so its interval is experimental."""
@@ -345,7 +360,9 @@ class TestReporting:
             )
         estimate = next(iter(result.estimates.values()))
         assert estimate.bootstrap.support.label == "experimental"
-        assert "percentile CI" in result.summary()
+        summary = result.summary()
+        assert "percentile 95% CI" in _bootstrap_table(summary).columns
+        assert "bootstrap_experimental" in summary.note_codes
 
     def test_the_point_row_decides_the_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """An in-sample ``TMLE`` bootstrap is supported by its row, and experimental without it."""
@@ -374,17 +391,18 @@ class TestReporting:
 
         supported = fit()
         assert supported["ate"].bootstrap.support.label == "supported"
-        assert "percentile CI" in supported.summary()
-        assert "[experimental]" not in supported.summary()
+        assert _interval_column(supported) == "percentile 95% CI"
+        assert "bootstrap_experimental" not in supported.summary().note_codes
         cross_fitted = fit(True)
         assert cross_fitted["ate"].bootstrap.support.label == "experimental"
         assert cross_fitted["ate"].bootstrap.diagnostic is False
-        assert "percentile CI" in cross_fitted.summary()
+        assert _interval_column(cross_fitted) == "percentile 95% CI"
+        assert "bootstrap_experimental" in cross_fitted.summary().note_codes
         assert "bootstrap_ci_lower" in cross_fitted["ate"].to_dict()
         without_bootstrap_kind(monkeypatch)
         demoted = fit()
         assert demoted["ate"].bootstrap.support.label == "experimental"
-        assert "[experimental]" in demoted.summary()
+        assert "bootstrap_experimental" in demoted.summary().note_codes
 
     @pytest.mark.parametrize(
         "configuration",
@@ -417,6 +435,7 @@ class TestReporting:
         if estimator is DRTMLE:
             settings.update(
                 reduced_outcome_learner=LinearRegression(),
+                reduced_mechanism_residual_learner=LinearRegression(),
                 reduced_treatment_learner=LogisticRegression(max_iter=1000),
             )
         with warnings.catch_warnings():
@@ -438,13 +457,13 @@ class TestReporting:
         row = result["ate"].to_dict()
         if estimator is CTMLE:
             assert result["ate"].bootstrap.diagnostic is True
-            assert "percentile range" in result.summary()
+            assert _interval_column(result) == "percentile range (diagnostic)"
             assert "bootstrap_sd" in row
             assert "bootstrap_ci_lower" not in row
         else:
             assert result["ate"].bootstrap.diagnostic is False
             assert result["ate"].bootstrap.support.label == "experimental"
-            assert "percentile CI" in result.summary()
+            assert _interval_column(result) == "percentile 95% CI"
             assert "bootstrap_ci_lower" in row
 
 
@@ -511,7 +530,7 @@ class TestDerivedBootstrap:
             warnings.simplefilter("ignore")
             left = plain.diagnostics.truncation_curve(bounds)
             right = bootstrapped.diagnostics.truncation_curve(bounds)
-        pd.testing.assert_frame_equal(left, right)
+        pd.testing.assert_frame_equal(left.to_frame(), right.to_frame())
 
     def test_a_study_routes_the_bootstrap_and_narrows_it(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=8)

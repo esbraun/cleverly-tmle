@@ -12,7 +12,8 @@ be checked *exactly*, which is nearly all of it:
 * the refused combinations, and why.
 
 The registered ``repeat_stability`` property tests the repeated-sampling claim on one fixed
-binary sample. It compares 400 paired fold seeds for one and three draws. These unit tests
+binary sample. It compares 400 paired fold seeds for one and three draws, and reads a second
+single draw as its control. These unit tests
 instead keep the exact structural guarantees close to the implementation.
 """
 
@@ -28,6 +29,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly._summary import vocabulary
 from cleverly.data.weighting import REPORTED_DRAW
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators.serialize import dumps, loads
@@ -152,6 +154,20 @@ def ratio_repeated(binary_frame: Any) -> Any:
     """
     estimator = fast_tmle(repeats=REPEATS, estimands=("ate", "rr", "or"))
     return estimator.fit(binary_frame, **COLUMNS).single()
+
+
+def spread_lines(result: Any) -> list[str]:
+    """The Settings lines of the full summary that report the spread across splits."""
+    lines = result.summary(detail="full").section("Settings").lines
+    return [line for line in lines if "splits" in line or "no spread" in line]
+
+
+def _spread_omission(report: Any) -> str:
+    """The reason the model check's full detail gives for a missing split spread."""
+    lines = report.summary(detail="full").section(vocabulary.SECTION_DETAILS).lines
+    prefix, _, _ = vocabulary.MODEL_OMISSIONS["spread"].partition("{reason}")
+    (line,) = [line for line in lines if line.startswith(prefix)]
+    return line[len(prefix) :].removesuffix(".")
 
 
 class TestOneRepeatIsAnOrdinaryFit:
@@ -332,17 +348,35 @@ class TestTheDrawsAreDistinctAndReproducible:
         for repeat in repeated.repeats:
             assert repeat.folds is repeat.nuisance.folds
 
-    def test_the_first_draw_is_exactly_its_one_repeat_control(
-        self, frame: Any, repeated: Any
-    ) -> None:
+    def test_the_first_draw_is_exactly_its_one_repeat_fit(self, frame: Any, repeated: Any) -> None:
         first_seed = fast_tmle(repeats=REPEATS).crossfit_plan(repeated.data).seeds()[0]
         assert first_seed is not None
-        control = fast_tmle(repeats=1, random_state=first_seed).fit(frame, **COLUMNS).single()
+        one = fast_tmle(repeats=1, random_state=first_seed).fit(frame, **COLUMNS).single()
         np.testing.assert_array_equal(
             repeated.repeats[0].nuisance.folds.assignment,
-            control.nuisance.folds.assignment,
+            one.nuisance.folds.assignment,
         )
-        assert repeated.repeats[0].psi["ate"] == control.psi("ate")
+        assert repeated.repeats[0].psi["ate"] == one.psi("ate")
+
+    def test_the_second_draw_is_exactly_its_one_repeat_fit(self, frame: Any, repeated: Any) -> None:
+        """The registered ``second_draw_control`` refits draw 1 alone at the plan's second seed.
+
+        The refit must equal draw 1 and differ from draw 0, or the control would read the first
+        draw again.
+        """
+        seeds = fast_tmle(repeats=REPEATS).crossfit_plan(repeated.data).seeds()
+        assert seeds[1] is not None and seeds[1] != seeds[0]
+        one = fast_tmle(repeats=1, random_state=seeds[1]).fit(frame, **COLUMNS).single()
+        np.testing.assert_array_equal(
+            repeated.repeats[1].nuisance.folds.assignment,
+            one.nuisance.folds.assignment,
+        )
+        assert repeated.repeats[1].psi["ate"] == one.psi("ate")
+        assert repeated.repeats[1].psi["ate"] != repeated.repeats[0].psi["ate"]
+        assert not np.array_equal(
+            repeated.repeats[1].nuisance.folds.assignment,
+            repeated.repeats[0].nuisance.folds.assignment,
+        )
 
     def test_the_same_seed_gives_the_same_draws(self, frame: Any, repeated: Any) -> None:
         again = fast_tmle(repeats=REPEATS).fit(frame, **COLUMNS).single()
@@ -530,17 +564,19 @@ class TestRepeatedCanonicalCVTMLE:
         first = _per_draw_detail(canonical)[0]
         assert canonical.cv_targeting.fold_epsilon == first.fold_epsilon
         assert canonical.cv_targeting.fold_estimates == first.fold_estimates
-        assert "the fold columns describe the first" in canonical.cv_targeting.summary()
+        note = canonical.cv_targeting.summary().note("cv_first_split")
+        assert "the fold columns describe the first split only" in note.text
 
     def test_the_score_equation_is_still_solved(self, canonical: Any) -> None:
         check = score_check(canonical)
         assert check.passed, check.summary()
 
     def test_the_summary_names_the_estimator_and_the_variance_rule(self, canonical: Any) -> None:
-        summary = canonical.summary()
-        assert "fold-evaluated CV-TMLE" in summary
-        assert "independent draws" in summary
-        assert "split dispersion" in summary
+        settings = canonical.summary(detail="full").section("Settings").lines
+        assert vocabulary.CROSS_FIT_EVALUATION[True] in " ".join(settings)
+        repeated = canonical.summary().note("repeated_splits").text
+        assert "median over 3 random splits" in repeated
+        assert "includes the spread between splits" in repeated
 
 
 class TestTheRejectedVarianceRule:
@@ -662,9 +698,9 @@ class TestTheSpreadAcrossDraws:
         assert spread["ate"] == pytest.approx(float(np.std(ate_draws, ddof=1)))
 
     def test_the_summary_says_which_scale_the_split_noise_is_on(self, ratio_repeated: Any) -> None:
-        summary = ratio_repeated.summary()
-        assert "the log scale for a ratio" in summary
-        assert "sd(psi) across" not in summary
+        (line,) = spread_lines(ratio_repeated)
+        assert "on the scale the interval is computed on" in line
+        assert "spread_scale" in ratio_repeated.summary().note_codes
 
     def test_one_draw_has_no_spread_to_report(self, once: Any) -> None:
         """And the ordinary reason for it never reaches an ordinary reader.
@@ -700,7 +736,14 @@ class TestTheSpreadAcrossDraws:
             assert row.ratio_to_standard_error == pytest.approx(
                 expected / repeated[row.estimand].std_error
             )
-        assert "Repeated-split sensitivity" in diagnostics.summary()
+        (spread,) = [
+            table
+            for table in diagnostics.summary().tables
+            if table.title == vocabulary.SPREAD_TABLE
+        ]
+        assert [row[0].value for row in spread.rows] == [
+            row.estimand for row in diagnostics.repeat_spread
+        ]
         assert "split spread" in repeated.diagnostics.run_all()["nuisance_models"].detail
 
     def test_the_combined_row_names_the_widest_parameter_and_not_the_narrowest(
@@ -753,7 +796,7 @@ class TestTheSpreadAcrossDraws:
         assert np.isnan(row.standard_deviation)
         assert np.isnan(row.ratio_to_standard_error)
         assert report.repeat_spread_omission == SPREAD_UNAVAILABLE_DRAWS + missing
-        assert f"split spread unavailable: {SPREAD_UNAVAILABLE_DRAWS}{missing}" in report.summary()
+        assert _spread_omission(report) == f"{SPREAD_UNAVAILABLE_DRAWS}{missing}"
         assert f"split spread unavailable: {SPREAD_UNAVAILABLE_DRAWS}{missing}" in (
             mutated.diagnostics.run_all()["nuisance_models"].detail
         )
@@ -777,7 +820,7 @@ class TestTheSpreadAcrossDraws:
         assert np.isnan(row.ratio_to_standard_error)
         assert row.reported_standard_error == ratio_repeated["rr"].std_error
         assert report.repeat_spread_omission == SPREAD_NOT_FINITE + "rr"
-        assert f"split spread unavailable: {SPREAD_NOT_FINITE}rr" in report.summary()
+        assert _spread_omission(report) == f"{SPREAD_NOT_FINITE}rr"
         assert f"split spread unavailable: {SPREAD_NOT_FINITE}rr" in (
             mutated.diagnostics.run_all()["nuisance_models"].detail
         )
@@ -816,11 +859,13 @@ class TestTheSpreadAcrossDraws:
         draws[-1] = replace(draws[-1], psi={**draws[-1].psi, "rr": -0.5})
         mutated = replace(ratio_repeated, repeats=tuple(draws))
 
-        summary = mutated.summary()
-        assert "rr    -  (no spread on the inference scale)" in summary
-        assert "nan" not in summary
-        # The finite parameters still report their share, so the dash is not a blanket.
-        assert "of std_err" in summary
+        summary = mutated.summary(detail="full")
+        assert "rr has no spread on that scale" in str(summary)
+        assert "nan" not in str(summary)
+        # The finite parameters still report their spread, so the line is not a blanket.
+        (line,) = [line for line in spread_lines(mutated) if line.startswith("Spread")]
+        assert "ate " in line
+        assert "rr " not in line
 
     def test_no_reported_parameter_leaves_a_reason_and_no_row(self, repeated: Any) -> None:
         """The last omission reason, and the only one no fitted result reaches.
@@ -834,7 +879,7 @@ class TestTheSpreadAcrossDraws:
         report = mutated.diagnostics.nuisance_models()
         assert report.repeat_spread == ()
         assert report.repeat_spread_omission == SPREAD_NO_PARAMETERS
-        assert f"split spread unavailable: {SPREAD_NO_PARAMETERS}" in report.summary()
+        assert _spread_omission(report) == SPREAD_NO_PARAMETERS
 
     @pytest.mark.parametrize("variance", [0.0, float("nan")])
     def test_a_row_survives_a_standard_error_it_cannot_divide_by(
@@ -890,9 +935,12 @@ class TestTheSpreadAcrossDraws:
         assert frame["estimand"].to_list() == list(repeated.estimates)
 
     def test_the_summary_shows_it_beside_the_standard_error(self, repeated: Any, once: Any) -> None:
-        assert "split noise" in repeated.summary()
-        assert "of std_err" in repeated.summary()
-        assert "split noise" not in once.summary()
+        assert any(
+            line.startswith("Spread of each row across the 3 splits")
+            for line in spread_lines(repeated)
+        )
+        assert spread_lines(once) == []
+        assert once.summary(detail="full").section("Settings").lines
 
     def test_it_survives_the_round_trip(self, repeated: Any) -> None:
         report = repeated.diagnostics.nuisance_models()
@@ -926,16 +974,18 @@ class TestWhatTheResultExposes:
         assert repeated.n_repeats == REPEATS
 
     def test_the_summary_says_the_fit_was_repeated(self, repeated: Any, once: Any) -> None:
-        assert "median over 3 independent draws" in repeated.summary()
-        assert "independent draws" not in once.summary()
+        assert "median over 3 random splits" in repeated.summary().note("repeated_splits").text
+        assert "repeated_splits" not in once.summary().note_codes
+        assert once.summary().table("estimates").rows
 
     def test_the_summary_says_the_report_is_coordinatewise(self, repeated: Any, once: Any) -> None:
         # ``contrast()`` refuses because a coordinatewise median breaks the identities
         # between rows.  A reader who subtracts two rows of the printed table performs the
         # same operation by hand, so the table has to say so.
-        assert "the report above is coordinatewise" in repeated.summary()
-        assert "ate versus ey1 - ey0" in repeated.summary()
-        assert "coordinatewise" not in once.summary()
+        text = "a difference of two rows need not equal a third"
+        assert text in repeated.summary().note("repeated_splits").text
+        assert "repeated_splits" not in once.summary().note_codes
+        assert once.summary().table("estimates").rows
 
     def test_the_declared_plan_records_the_count(self, repeated: Any) -> None:
         assert repeated.config.crossfit.repeats == REPEATS
@@ -1004,15 +1054,20 @@ class TestTheSensitivityLayerFollowsTheDraws:
         self, repeated: Any, once: Any
     ) -> None:
         assert positivity_report(repeated).n_repeats == REPEATS
-        assert "draw 1 of 3" in positivity_report(repeated).summary()
-        assert "draw 1 of" not in positivity_report(once).summary()
+        split = vocabulary.SPLIT_SHOWN
+        summary = positivity_report(repeated).summary()
+        assert summary.facts[split] == "split 1 of 3"
+        assert "first_split" in summary.note_codes
+        assert split not in positivity_report(once).summary().facts
+        assert "first_split" not in positivity_report(once).summary().note_codes
 
     def test_the_nuisance_diagnostics_say_so_too(self, repeated: Any) -> None:
         report = repeated.diagnostics.nuisance_models()
         assert report.n_repeats == REPEATS
-        assert "draw 1 of 3" in report.summary()
-        assert "draw 2 of 3" in replace(report, reported_repeat=2).summary()
-        assert "draw 1 of 3" not in replace(report, reported_repeat=2).summary()
+        split = vocabulary.SPLIT_SHOWN
+        assert dict(report.summary().header)[split] == "split 1 of 3"
+        assert dict(replace(report, reported_repeat=2).summary().header)[split] == "split 2 of 3"
+        assert split not in dict(replace(report, n_repeats=1).summary().header)
 
     def test_the_group_load_row_counts_the_same_draws_the_report_does(
         self, repeated: Any, once: Any
@@ -1030,7 +1085,9 @@ class TestTheSensitivityLayerFollowsTheDraws:
         detail = repeated.diagnostics.run_all()["support"].detail
         assert f"draw {REPORTED_DRAW:02d} of {REPEATS:02d}" in detail
         assert detail == repeated.assess().diagnostics["support"].detail
-        assert f"draw {REPORTED_DRAW} of {REPEATS}" in positivity_report(repeated).summary()
+        assert positivity_report(repeated).summary().facts[vocabulary.SPLIT_SHOWN] == (
+            f"split {REPORTED_DRAW} of {REPEATS}"
+        )
 
         assert f"draw {REPORTED_DRAW:02d} of 01" in once.diagnostics.run_all()["support"].detail
 
@@ -1041,13 +1098,20 @@ class TestTheOmittedVariableBoundNeedsItsOwnMedianInfluenceFunction:
         frame, _ = make_binary_outcome(n=N, seed=17)
         return fast_tmle(repeats=2, estimands=["ate"]).fit(frame, **COLUMNS).single()
 
-    def test_the_bound_is_refused_instead_of_combining_influence_terms(
+    def test_the_elements_name_a_draw_instead_of_combining_influence_terms(
         self, binary_fit: Any
     ) -> None:
+        """Each draw has its own elements, and a bare request does not pick one silently.
+
+        The bound itself combines the draws by the median rule
+        (``tests/unit/test_omitted_variable_repeats.py``).
+        """
         from cleverly.sensitivity.omitted_variable import sensitivity_elements
 
-        with pytest.raises(CapabilityError, match="median-combined repeats"):
+        with pytest.raises(CapabilityError, match="describe one draw"):
             sensitivity_elements(binary_fit, "ate")
+        draws = [sensitivity_elements(binary_fit, "ate", repeat=r) for r in range(2)]
+        assert draws[0].max_bias != draws[1].max_bias
 
 
 class TestSerialization:
@@ -1115,7 +1179,7 @@ class TestVariantsInheritRepeats:
         assert set(selected) <= set(COLUMNS["covariates"])
 
         assert report.n_repeats == 2
-        assert "draw 1 of 2" in report.summary()
+        assert dict(report.summary().header)[vocabulary.SPLIT_SHOWN] == "split 1 of 2"
         assert "on draw 1 of 2" in result.diagnostics.run_all()["nuisance_models"].detail
         spread = next(row for row in report.repeat_spread if row.estimand == "ate")
         assert spread.standard_deviation == pytest.approx(split_spread(result, "ate"))

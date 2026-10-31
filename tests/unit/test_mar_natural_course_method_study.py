@@ -20,6 +20,7 @@ import pytest
 
 from tests import discrete_law_mar as mar
 from tests.studies import canonical_mar_natural_course as study
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 
 #: The largest ``|cleverly - R| / |targeting move|`` the parity check admits in any
@@ -229,7 +230,7 @@ def test_the_probe_artifact_covers_the_reference_rows(tmp_path: Path) -> None:
 
 def _paired_primary_rows() -> tuple[pd.DataFrame, pd.DataFrame]:
     """The committed primary rows of each implementation, aligned by replication."""
-    rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    rows = read_rows(study.STUDY.artifact("replicates.parquet"))
     key = ["scenario", "replicate", "estimand"]
     subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
     reference = rows[rows["implementation"] == study.STUDY.reference].set_index(key)

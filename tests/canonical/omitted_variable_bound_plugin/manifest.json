@@ -222,11 +222,11 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "31ac275f9d7652cc5e73edc35f06ad070ca21c0f6df6169b4411d9852806d913",
+    "replicates.parquet": "d286457e969959b8efa4ff38f356137c1f33ae9a32317a9690a7558d8964adf4",
     "summary.csv": "78c360cce6bef8376712ec4d742d8dc8b1844fb3d39351162794fa263280f0c2",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "81b77ddfa61329da271d00f43bb8050e43cd4ecc3c225025707b9819c158f251",
-    "property-replicates.csv.gz": "64d789ad03b7f49fde2ed5c194e4dc81aa5bdc3a4265381992fd615fdb53bf54",
+    "property-replicates.parquet": "86a20bfd251be42a7605f759b1b1d443d337b384cbf56c7a9974d7b41c31f0d9",
     "properties.csv": "c2474ba29d33eebeabd8fdbc941d3ec588b570d8923902e6c03da7c497c91061",
     "nu2-replicates.csv.gz": "a311d7cce45d4f3f4a03f60c4af7a6abc671dfdb413959625474b02708679b5f",
     "nu2-reading.csv": "d15c7cc737c4568c1a3aff5bd1cf02af6f118e2bc85e11fa64a59ed00fdcddc0",
@@ -235,6 +235,6 @@
     "failure-accounting.csv": "539f3810185fb0ed9eb40719022af29937296bcd55819db991f7797af099c20f",
     "property-failures.csv": "ef1333a75c0c712e35735a4d12e42da231106d16b8e59f714724e1f78cdeea82",
     "property-failure-accounting.csv": "4613591b5ef215231b778f90b5752df8113b0e0e576f545295a5fa77bc0d759f",
-    "property-failure-witnesses.csv": "8752293339040af88da30408dbfc20f194c332f9d5ddf57da1ce11c0736fd389"
+    "property-failure-witnesses.parquet": "94290e6c6a48653fb218afca04cd4e30ec573d8f5cde11dd1e2e480cfee82504"
   }
 }

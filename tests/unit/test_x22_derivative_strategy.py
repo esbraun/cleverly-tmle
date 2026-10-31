@@ -270,6 +270,7 @@ def test_mutation_a_derivative_mechanism_on_the_full_set_fails_the_witness(
 
 
 def test_the_derivative_fit_on_wg_carries_the_restriction_text() -> None:
-    summary = derivative_fit(COVARIATES, WG).summary()
-    assert "model restrictions" in summary
-    assert "c2, c3" in summary
+    lead = "- model restriction: "
+    lines = derivative_fit(COVARIATES, WG).summary(detail="full").section("Assumptions").lines
+    (restriction,) = [line for line in lines if line.startswith(lead)]
+    assert "c2, c3" in restriction

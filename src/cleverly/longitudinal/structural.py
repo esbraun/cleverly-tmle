@@ -21,7 +21,8 @@ The nuisances condition on the full history :math:`H_t`.  They are the outcome m
 :math:`q_t(H_t) = E[Y \mid H_t]` and, for each :math:`j \ge t`, the product means
 :math:`m_{j,t}(H_t) = E[Z_j \mid H_t]` with :math:`Z_j = \phi_j(H_j) \otimes c(A_j)`.  The
 score of node :math:`t` is :math:`\tilde Z_{t,t}(\tilde Y_t - \sum_{j \ge t}
-\tilde Z_{j,t}^\top \psi_j)`, and the nodes are solved from the last to the first.
+\tilde Z_{j,t}^\top \psi_j)`, and the nodes are solved from the last to the first.  A design
+with a declared ``markov_order`` is refused: its restriction does not cover these means.
 ``docs/technical-reference/structural-dynamic-effects.md`` gives the derivation, the influence
 curves and the conditions.
 """
@@ -30,7 +31,6 @@ from __future__ import annotations
 
 import copy
 import itertools
-import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
@@ -41,13 +41,12 @@ from scipy import stats
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
-    NO_SIMULTANEOUS_BANDS,
-    NO_T_REFERENCE_BANDS,
     InferenceStatus,
     precedent_status,
     status_record,
     supplies_inference,
 )
+from .._summary import Detail, Summary, check_detail
 from .._support import (
     UNCLASSIFIED,
     Classification,
@@ -60,6 +59,9 @@ from .._support import (
     support_for,
 )
 from .._typing import FloatArray, Learner
+from .._warnings import FitWarning, records_fit
+from .._warnings import suppressed as _suppressed
+from .._warnings import warn as _warn
 from ..data.validate import arm_indicators
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import (
@@ -71,9 +73,7 @@ from ..exceptions import (
 from ..inference.cluster import (
     cluster_inference_status,
     cluster_sums,
-    fewest_clusters,
     influence_covariance,
-    positive_mass_clause,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
@@ -81,9 +81,6 @@ from ..inference.influence import (
     Scale,
     has_t_reference,
     make_estimate,
-    reference_label,
-    support_column,
-    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
@@ -99,7 +96,6 @@ from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
-from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData, Repeated
 from .estimator import LTMLE, _reference_df, refuse_unsupported
 from .regimen import DynamicRegimen, Regimen, _same_label, resolve_regimens
@@ -176,6 +172,18 @@ _HELD_REFUSAL = Refusal(
     "a design with one baseline decision held over every node has no treatment variation "
     "after node 1 for the blips of the later nodes to use.",
     alternative="Fit LTMLE or SDR, which read a held decision.",
+)
+#: Why a fit refuses a declared Markov order.  The restriction of
+#: :func:`~cleverly.longitudinal.data.markov_restriction` names the regimen outcome regression and
+#: the treatment and censoring mechanisms.  The g-estimation nuisances are other conditional
+#: means, so a window on them would rest on a restriction nobody declared.
+_MARKOV_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "StructuralNestedMean conditions the outcome mean E[Y | H_t] and the product means "
+    "E[Z_j | H_t] on the full history. The Markov restriction of markov_order= covers the "
+    "regimen outcome regressions and the treatment and censoring mechanisms only, and not "
+    "these means.",
+    alternative="Omit markov_order=, or fit LTMLE or SDR, whose nuisances read the window.",
 )
 _KNOWN_MECHANISM_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -1023,6 +1031,10 @@ class StructuralConfig:
         Whether a blip feature reads a time-varying covariate.
     support_key : SupportKey or None, default None
         The support key the fit was classified under, read before any nuisance was fitted.
+    fit_seed : int or None, default None
+        The seed the fit drew its outer split and seeded its default learners with:
+        ``random_state`` on a seeded fit, and a drawn seed on an unseeded one. A refit given
+        it reproduces both (:meth:`StructuralNestedMean.refit`).
     """
 
     n_times: int
@@ -1038,32 +1050,7 @@ class StructuralConfig:
     random_state: int | None
     reads_covariates: bool
     support_key: SupportKey | None = None
-
-    def describe(self) -> list[str]:
-        """The settings as summary lines."""
-        lines = [f"model: {SNMM_LABEL}"]
-        for node in self.nodes:
-            features = ", ".join(feature.name for feature in node.features)
-            lines.append(
-                f"node {node.time} ({node.treatment}): blip features [{features}] x "
-                f"{list(node.levels)}"
-            )
-        if self.regimens:
-            lines.append(
-                "regimens = "
-                + ", ".join(
-                    f"{label} ({'/'.join(str(v) for v in values)})"
-                    for label, values in self.regimens
-                )
-                + f"; reference = {self.reference}"
-            )
-        lines.append(f"cross-fitting = {self.n_folds} folds; outcome family = {self.family}")
-        if self.reads_covariates:
-            lines.append(
-                "a blip feature reads a time-varying covariate: static levels and contrasts "
-                "are not reported (X72 in docs/roadmap.md)"
-            )
-        return lines
+    fit_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1090,6 +1077,31 @@ class StructuralDiagnostics:
     extreme_share: tuple[float, ...]
     n_constant_fits: int
     learner_diagnostics: tuple[Any, ...] = ()
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The smallest eigenvalue and the share of extreme probabilities at each time.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds what each column measures.
+
+        Returns
+        -------
+        Summary
+            The summary.
+        """
+        from ._record_summary import structural_diagnostics_summary
+
+        return structural_diagnostics_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._record_summary import structural_diagnostics_repr
+
+        return structural_diagnostics_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def _split_seeds(random_state: int | None, count: int) -> list[int]:
@@ -1273,6 +1285,8 @@ class StructuralNestedMean:
         Refused.  The estimator fits an end-of-study outcome with no censoring.
     horizons : None
         Refused.  The outcome is one end-of-study value.
+    **refused : Any
+        A point-treatment keyword, refused by name.
 
     Raises
     ------
@@ -1308,6 +1322,11 @@ class StructuralNestedMean:
     ['ate_regimen[never vs always]', 'blip[A1:1.0:intercept]', 'blip[A2:1.0:intercept]',
      'ey_reference', 'ey_regimen[always]', 'ey_regimen[never]']
     """
+
+    #: The outer split that a refit uses instead of drawing one (:meth:`refit`).
+    _frozen_folds: Folds | None = None
+    #: The seed of a refit's split and default learners, in place of ``random_state``.
+    _frozen_seed: int | None = None
 
     def __init__(
         self,
@@ -1383,6 +1402,7 @@ class StructuralNestedMean:
 
     # ------------------------------------------------------------------ fit
 
+    @records_fit
     def fit(
         self,
         data: Any,
@@ -1469,7 +1489,8 @@ class StructuralNestedMean:
             raise CapabilityError.from_refusal(_COVARIATE_FEATURE_REFUSAL)
         reference = self._reference(regimens)
         self._refuse_reference_dose(prepared)
-        folds = self._folds(prepared)
+        fit_seed = self._fit_seed()
+        folds = self._folds(prepared, fit_seed)
         check_integrity(folds, cluster=prepared.cluster)
         # No refusal of this estimator is a composition that the code computes and no study
         # covers, so the classification carries no condition: the label rests on the rows.
@@ -1485,7 +1506,7 @@ class StructuralNestedMean:
             self.outcome_learner,
             self.treatment_learner,
             learner_folds=self.learner_folds,
-            random_state=self.random_state,
+            random_state=fit_seed,
             regression=self.regression_learner,
         )
         nuisances = _fit_nuisances(prepared, nodes, learners, folds, self.n_jobs)
@@ -1526,6 +1547,7 @@ class StructuralNestedMean:
             random_state=self.random_state,
             reads_covariates=reads_covariates,
             support_key=None if classification is None else classification.key,
+            fit_seed=fit_seed,
         )
         result = StructuralNestedMeanResult(
             estimates=estimates,
@@ -1541,13 +1563,20 @@ class StructuralNestedMean:
             simultaneous=self._bands(estimates, kinds, prepared, status, classification),
             diagnostics=diagnostics,
             static_regimens=regimens,
-            estimator=copy.copy(self),
+            estimator=self._template(),
             label=SNMM_LABEL,
         )
         record_fit(classification, result, source="StructuralNestedMean.fit")
         return result
 
     # -------------------------------------------------------------- internals
+
+    def _template(self) -> StructuralNestedMean:
+        """The settings a result keeps: a copy that holds no frozen split or seed."""
+        template = copy.copy(self)
+        template._frozen_folds = None
+        template._frozen_seed = None
+        return template
 
     @staticmethod
     def _refuse_design(data: LongitudinalData) -> None:
@@ -1563,6 +1592,8 @@ class StructuralNestedMean:
             raise CapabilityError.from_refusal(_HELD_REFUSAL)
         if data.known_mechanisms is not None:
             raise CapabilityError.from_refusal(_KNOWN_MECHANISM_REFUSAL)
+        if data.markov_order is not None:
+            raise CapabilityError.from_refusal(_MARKOV_REFUSAL)
         if data.has_mixed_node:
             raise CapabilityError.from_refusal(_mixed_refusal(data))
 
@@ -1598,15 +1629,118 @@ class StructuralNestedMean:
                     alternative="Center the dose so that the reference lies in the range.",
                 )
 
-    def _folds(self, data: LongitudinalData) -> Folds:
+    def _fit_seed(self) -> int:
+        """The seed of the split and of the default learners of one fit.
+
+        A refit given ``frozen_seeds`` takes that seed. A seeded estimator takes its
+        ``random_state``. An unseeded one draws a seed, which the result records, so a
+        refutation can rerun the fit under the same split and the same learner seeds.
+        """
+        if self._frozen_seed is not None:
+            return int(self._frozen_seed)
+        return _fresh_seed() if self.random_state is None else int(self.random_state)
+
+    def _folds(self, data: LongitudinalData, seed: int | None = None) -> Folds:
+        if self._frozen_folds is not None:
+            if self._frozen_folds.n != data.n:
+                raise ValueError(
+                    f"a frozen split labels {self._frozen_folds.n} rows and the refit has {data.n}"
+                )
+            return self._frozen_folds
         if self.n_folds <= 1:
             return Folds.single(data.n)
-        return random_partition(
-            data.n,
-            self.n_folds,
-            cluster=data.cluster,
-            seed=_fresh_seed() if self.random_state is None else int(self.random_state),
-        )
+        if seed is None:
+            seed = self._fit_seed()
+        return random_partition(data.n, self.n_folds, cluster=data.cluster, seed=seed)
+
+    def _preflight_policies(self, prepared: LongitudinalData) -> None:
+        """Run the declaration checks of :meth:`fit` on ``prepared``, fitting nothing.
+
+        The band-rank placebo of :func:`cleverly.validation.refute` calls this on each placebo
+        panel before any refit. A placebo dose moves the observed range of a node, so a static
+        dose or the reference dose 0 that lay inside the range of the fit can lie outside the
+        range of a placebo panel. The checks are those :meth:`fit` runs on the prepared panel.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+
+        Raises
+        ------
+        CapabilityError
+            If a static dose or the reference dose lies outside a node's observed range, or
+            if the design is one this estimator refuses.
+        DataError
+            If a static regimen assigns a value that is not a dose or a level.
+        """
+        self._refuse_design(prepared)
+        _parse_blip_features(prepared, self.blip_features)
+        _static_regimens(self.regimens, prepared)
+        self._refuse_reference_dose(prepared)
+
+    def refit(
+        self,
+        data: LongitudinalData,
+        *,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int | None] | None = None,
+    ) -> StructuralNestedMeanResult:
+        """Run the whole fit again, nuisances included, on a prepared container.
+
+        :func:`cleverly.validation.refute` calls this on a structural result. It changes a
+        column, draws units, or appends a covariate, and then refits. The estimator is not
+        modified: every setting applies to a copy, and the copy builds no simultaneous band.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared container to fit, usually ``result.data`` with one array changed.
+        random_state : int or None
+            Seed of the refit's split and default learners. ``None`` keeps this estimator's
+            own.
+        frozen_folds : sequence of Folds or None
+            The realized outer split, for the rows of ``data``. The estimator draws one split,
+            so the sequence holds one entry. ``None`` draws the split as usual.
+        frozen_seeds : sequence of int or None
+            One seed, in place of ``random_state``, for the outer split and for every learner
+            the estimator seeds. The sequence holds one entry. Given the original fit's
+            :attr:`StructuralConfig.fit_seed`, a refit on data with the same row count draws
+            the original split and the original learner seeds.
+
+        Returns
+        -------
+        StructuralNestedMeanResult
+            The result of the whole fit on ``data``.
+
+        Raises
+        ------
+        ValueError
+            When ``frozen_folds`` or ``frozen_seeds`` holds other than one entry, or a frozen
+            split labels another number of rows than ``data`` holds.
+        """
+        settings = copy.copy(self)
+        settings.simultaneous = False
+        if random_state is not None:
+            settings.random_state = int(random_state)
+        if frozen_folds is not None:
+            folds = tuple(frozen_folds)
+            if len(folds) != 1:
+                raise ValueError(
+                    f"a structural fit draws one split; frozen_folds holds {len(folds)}"
+                )
+            settings._frozen_folds = folds[0]
+        if frozen_seeds is not None:
+            seeds = tuple(frozen_seeds)
+            if len(seeds) != 1:
+                raise ValueError(
+                    f"a structural fit draws one split; frozen_seeds holds {len(seeds)}"
+                )
+            settings._frozen_seed = None if seeds[0] is None else int(seeds[0])
+        with _suppressed():
+            # A refit on a perturbed panel repeats the original fit's status warnings.
+            return settings.fit(data)
 
     def _check_positivity(
         self, nodes: Sequence[_Node], stage: _Stage, data: LongitudinalData
@@ -1794,7 +1928,7 @@ def _status(data: LongitudinalData, folds: Folds, *, parametric: bool) -> Infere
 def _warn_statuses(estimates: Mapping[str, ParameterEstimate]) -> None:
     statuses = {estimate.inference for estimate in estimates.values()}
     for status in sorted(s for s in statuses if not supplies_inference(s)):
-        warnings.warn(
+        _warn(
             f"this StructuralNestedMean fit takes the {status!r} status: "
             + status_record(status).reason,
             UserWarning,
@@ -1875,54 +2009,30 @@ class StructuralModelCheck:
         """Whether the check reports a statistic."""
         return self.reason is None
 
-    def summary(self) -> str:
-        """A printable table of the two sets of contrasts and the joint statistic.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The two sets of contrasts, the joint test, and how to read it.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how the check works and what its degrees of freedom mean.
 
         Returns
         -------
-        str
-            One row per contrast, then the Wald statistic or the reason for none.
+        Summary
+            The summary. It prints as text; ``reading`` says what the test means.
         """
-        standard = np.sqrt(np.clip(np.diag(self.covariance), 0.0, None))
-        rows = [
-            [
-                name,
-                f"{a:.4f}",
-                f"{b:.4f}",
-                f"{a - b:.4f}",
-                f"{s:.4f}",
-            ]
-            for name, a, b, s in zip(
-                self.names, self.structural, self.nonparametric, standard, strict=True
-            )
-        ]
-        table = format_table(
-            ["contrast", "structural", "nonparametric", "difference", "se of difference"], rows
-        )
-        if self.tested:
-            tail = (
-                f"joint Wald statistic = {self.statistic:.3f} on {self.df} contrasts, "
-                f"covariance df = {self.reference_df:.1f}, p = {format_pvalue(self.pvalue)}"
-            )
-        else:
-            tail = f"no test is reported: {self.reason}"
-        if self.n_splits > 1:
-            tail += f"\nestimates and covariance over {self.n_splits} fold splits"
-        marker = (
-            [f"experimental: {self.support.reason}"]
-            if (self.support.label == "experimental")
-            else []
-        )
-        return "\n".join(
-            [
-                "Structural model check (a necessary condition, not a test of the model)",
-                "",
-                table,
-                "",
-                tail,
-                *marker,
-            ]
-        )
+        from ._structural_summary import check_summary
+
+        return check_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._structural_summary import check_repr
+
+        return check_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass
@@ -1963,6 +2073,15 @@ class StructuralNestedMeanResult:
         The settings the fit ran with, which :meth:`check_model` reuses.
     label : str
         The structural condition under which the intervals are valid.
+    fit_warnings : tuple of FitWarning
+        The package warnings the fit raised, in first-seen order. Set by the fit entry
+        point.
+
+    Attributes
+    ----------
+    assessment_cache : dict
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache.
 
     See Also
     --------
@@ -1983,9 +2102,20 @@ class StructuralNestedMeanResult:
     estimator: StructuralNestedMean
     label: str
     simultaneous: SimultaneousBands | None = None
+    #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
+    #: still names them.
+    fit_warnings: tuple[FitWarning, ...] = ()
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, as
+    #: on :class:`~cleverly.longitudinal.LongitudinalResult`, so a mapping handed to the
+    #: constructor by ``dataclasses.replace`` cannot answer for another fit.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
-    #: The method identity of the result.  The result declares no ``assessment_family``, so
-    #: ``assessment_capabilities`` does not accept it until X74 in ``docs/roadmap.md`` adds one.
+    #: The assessment family: one declaration per assessment operation in
+    #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`. A structural fit is not a
+    #: :class:`~cleverly.longitudinal.LongitudinalResult`: it holds one split, no regimen
+    #: plans and no targeting state, so the longitudinal declarations do not describe it.
+    assessment_family: ClassVar[str] = "structural"
+    #: The method identity of the result.
     fitted_method: ClassVar[str] = "snmm"
 
     # ------------------------------------------------------------- mapping API
@@ -2005,15 +2135,33 @@ class StructuralNestedMeanResult:
         return len(self.estimates)
 
     def keys(self) -> Any:
-        """The parameter names in report order."""
+        """The parameter names in report order.
+
+        Returns
+        -------
+        KeysView of str
+            The keys of ``estimates``.
+        """
         return self.estimates.keys()
 
     def values(self) -> Any:
-        """The estimates in report order."""
+        """The estimates in report order.
+
+        Returns
+        -------
+        ValuesView of ParameterEstimate
+            The values of ``estimates``.
+        """
         return self.estimates.values()
 
     def items(self) -> Any:
-        """The ``(name, estimate)`` pairs in report order."""
+        """The ``(name, estimate)`` pairs in report order.
+
+        Returns
+        -------
+        ItemsView of (str, ParameterEstimate)
+            The items of ``estimates``.
+        """
         return self.estimates.items()
 
     def __contains__(self, name: object) -> bool:
@@ -2362,13 +2510,8 @@ class StructuralNestedMeanResult:
 
     def _refit(self, folds: Folds) -> StructuralNestedMeanResult:
         """Refit the structural estimator on these rows with another fold split."""
-        settings = copy.copy(self.estimator)
-        # The check reads the curves and the estimates; a band would be discarded.
-        settings.simultaneous = False
-        settings._folds = lambda _data, _seed=None: folds  # type: ignore[method-assign, misc]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return settings.fit(self.data)
+        # The check reads the curves and the estimates; the refit builds no band.
+        return self.estimator.refit(self.data, frozen_folds=(folds,))
 
     def _nonparametric(self, folds: Folds, q_bounds: tuple[float, float] | None) -> Any:
         """Fit LTMLE for the static regimens on these rows with this fold split."""
@@ -2388,11 +2531,28 @@ class StructuralNestedMeanResult:
         )
         # The split is the structural fit's own, so both estimators hold out the same rows.
         nonparametric_fit._folds = lambda _data, _seed=None: folds  # type: ignore[assignment]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        with _suppressed():
             return nonparametric_fit.fit(self.data)
 
     # ----------------------------------------------------------------- reports
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade.
+
+        Every row refuses on a structural fit, with its reason code and the roadmap item
+        that tracks the derivation.
+        """
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored structural artifacts."""
+        from ..assessment import replayability
+
+        return replayability(self)
 
     def save(self, path: Any) -> Any:
         """Persist the fitted result to a trusted joblib artifact.
@@ -2436,110 +2596,31 @@ class StructuralNestedMeanResult:
         payload["model"] = [self.label for _ in self.estimates]
         return self.data.frame_like(payload)
 
-    def summary(self) -> str:
-        """A printable report: the estimates, the model condition, then the settings.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The estimates, what each row means, the blip features and the model condition.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default="short"
+            ``"full"`` adds the assumptions, the settings and diagnostics in words, the
+            method and the study description.
 
         Returns
         -------
-        str
-            The table, the structural condition, the settings and the diagnostics.
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
         """
-        level = f"{(1 - self.config.alpha_sig) * 100:g}%"
-        status = self.inference_status
-        record = None if supplies_inference(status) else status_record(status)
-        t_reference = has_t_reference(self.estimates)
-        support_cells = support_column(self.estimates)
-        rows = []
-        for name, estimate in self.estimates.items():
-            if record is not None:
-                rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
-                continue
-            low, high = estimate.ci
-            rows.append(
-                [
-                    name,
-                    f"{estimate.psi:.4f}",
-                    f"{estimate.std_error:.4f}",
-                    f"[{low:.4f}, {high:.4f}]",
-                    format_pvalue(estimate.pvalue),
-                    *([reference_label(estimate)] if t_reference else []),
-                ]
-            )
-        if record is not None:
-            headers = ["parameter", "estimate", record.summary_label]
-        else:
-            headers = [
-                "parameter",
-                "estimate",
-                "std. error",
-                f"{level} CI",
-                "p-value",
-                *(["df"] if t_reference else []),
-            ]
-        if support_cells is not None:
-            headers.append("support")
-            rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-        table = format_table(headers, rows)
-        facts = list(self.config.describe())
-        if self.data.cluster is not None:
-            count = f"{self.data.n_clusters}" + positive_mass_clause(
-                self.data.cluster, self.data.weights if self.data.is_weighted else None
-            )
-            facts.append(f"clusters = {count} ({self.data.cluster_name}, cluster-robust variance)")
-        if self.data.is_weighted:
-            report = self.data.weight_report()
-            facts.append(
-                f"observation weights ({report.name or 'weights'}, "
-                + ("estimated" if report.estimated else "fixed")
-                + f"): effective n = {report.effective_n:.1f}, "
-                f"design effect = {report.design_effect:.2f}"
-            )
-        smallest = min(self.diagnostics.smallest_eigenvalue)
-        shares = [s for s in self.diagnostics.extreme_share if not np.isnan(s)]
-        facts.append(f"smallest standardized Jacobian eigenvalue = {smallest:.3g}")
-        if shares:
-            facts.append(
-                f"largest share of rows with a class probability within "
-                f"{self.config.positivity_margin:g} of 0 or 1 = {max(shares):.1%}"
-            )
-        facts.extend(self.provenance.describe())
-        lines = [
-            f"Structural nested mean model ({self.data.n_times} time points, n = {self.n})",
-            f"The intervals are {self.label}.",
-            "",
-            table,
-            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
-            *(["", record.summary_note()] if record is not None else []),
-            "",
-            *(f"  {line}" for line in facts),
-        ]
-        if self.simultaneous is None and record is not None and len(self.estimates) > 1:
-            lines.extend(["", f"  {NO_SIMULTANEOUS_BANDS}"])
-        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
-            lines.extend(["", f"  {NO_T_REFERENCE_BANDS}"])
-        if self.simultaneous is not None:
-            band_marker = (
-                " [experimental]" if self.simultaneous.support.label == "experimental" else ""
-            )
-            lines.extend(
-                [
-                    "",
-                    f"  simultaneous {level} bands (multiplier bootstrap, critical value "
-                    f"{self.simultaneous.critical_value:.3f} vs "
-                    f"{self.simultaneous.pointwise_critical_value:.3f} pointwise){band_marker}:",
-                ]
-            )
-            for name, (low, high) in self.simultaneous.bands.items():
-                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
-        if t_reference and self.data.cluster is not None:
-            positive = fewest_clusters(
-                self.data.cluster, weights=self.data.weights if self.data.is_weighted else None
-            )
-            lines.append(f"  clusters with positive mass = {positive}")
-        return "\n".join(lines)
+        from ._structural_summary import structural_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"StructuralNestedMeanResult({', '.join(self.estimates)})"
+        return structural_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._structural_summary import structural_repr
+
+        return structural_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 # ---------------------------------------------------------------------- one-call form

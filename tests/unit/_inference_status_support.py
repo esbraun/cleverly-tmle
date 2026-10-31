@@ -149,8 +149,16 @@ def assert_withholds(result: Any, status: str) -> None:
     assert not INFERENTIAL_COLUMNS & columns
     assert columns >= DIAGNOSTIC_COLUMNS
     text = result.summary()
-    # The note names the diagnostic column's label and carries the status reason.
-    assert STATUS_RECORDS[status].summary_note() in text
+    # The no_inference note gives the status's plain reason and names the diagnostic
+    # column, which the table prints in place of the std. error.
+    from cleverly._summary import vocabulary
+    from cleverly.inference.influence import spread_name
+
+    label = vocabulary.SPREAD_LABELS[spread_name("std_err", status)]
+    withheld = text.note("no_inference").text
+    assert STATUS_RECORDS[status].plain_reason in withheld
+    assert label in withheld
+    assert label in text.table("estimates").columns
     assert "95% CI" not in text
 
 

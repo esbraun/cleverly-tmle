@@ -305,6 +305,6 @@ hashes. It records no comparator. Run
 `python -m tests.canonical.parametric_gformula_study.regenerate` to regenerate the artifacts.
 Run `python -m tests.canonical.parametric_gformula_study.compare_pygformula` to repeat the
 `pygformula` fixtures. That command needs Docker.
-The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/replicates.csv.gz)
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/properties.csv)
 carry every published row.

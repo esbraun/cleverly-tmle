@@ -459,11 +459,10 @@ class TestBW3TheBandAfterAFailure:
         assert set(failed.simultaneous.bands) == held
 
     def test_the_summary_names_the_others(self, failed: Any) -> None:
-        text = failed.summary()
-        assert "the band is joint over the rows above only; it leaves out" in text
+        text = failed.summary().note("simultaneous_bands").text
+        left_out = text[text.index("The bands leave out") :]
         for name, status in _expected_statuses("1", 2).items():
-            if status != "influence_curve":
-                assert f"{name} (stack_failure_plugin)" in text
+            assert (name in left_out) is (status != "influence_curve"), name
 
     def test_mutation_unfiltered_band(self, failed: Any) -> None:
         with pytest.raises(CapabilityError):
