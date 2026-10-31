@@ -201,8 +201,34 @@ fit_scenario <- function(frame) {
       glm.ftime = ftime_formulas[[scenario]], glm.ctime = censoring,
       maxIter = max_iter, gtol = gtol, tol = tol, verbose = FALSE
     )
-    targeted <- survtmle_call(c(arguments, list(returnIC = TRUE)), sprintf("survtmle %s t0=%d", scenario, t0))
-    fitted <- targeted$fit
+    label <- sprintf("survtmle %s t0=%d", scenario, t0)
+    if (scenario == "mean_model") {
+      # survtmle 1.1.1's mean method builds its observed wide frame from the long data with
+      # trt set to the first arm (makeWideDataList.R reads dataList[[2]]), so with both arms in
+      # one call the clever covariate of arm 1 divides by arm 0's censoring survival.  This
+      # law's censoring depends on trt, so arm 1's influence curve would be wrong.  The runner
+      # calls once per arm with trtOfInterest = z, where dataList[[2]] is that arm.  The
+      # treatment model still reads every unit, and trt*(W1 + W2) fits the arms apart, so the
+      # per-arm call is the both-arm call with the right weights.  A both-arm call is kept as a
+      # witness: its arm 0, which the defect leaves alone, should match the per-arm arm 0, and
+      # each row records the gap.  The two need not agree to rounding, because the bounded
+      # fluctuation is one optim over every arm's clever covariate (iterated_mean_fluctuate.R),
+      # so the gap sits at the optimiser's tolerance (1.6e-5 on the smoke draw, about 0.002
+      # standard errors).  reference-convergence.csv publishes its largest value.
+      per_arm <- lapply(arms, function(arm) {
+        survtmle_call(c(arguments, list(trtOfInterest = arm, returnIC = TRUE)),
+                      sprintf("%s arm=%d", label, arm))
+      })
+      joint <- survtmle_call(c(arguments, list(returnIC = TRUE)), sprintf("%s both arms", label))
+      arm0_gap <- abs(joint$fit$est["0 1", 1] - per_arm$arm0$fit$est["0 1", 1])
+      fits <- lapply(per_arm, function(item) item$fit)
+      counted <- sum(vapply(per_arm, function(item) item$warnings, integer(1)))
+    } else {
+      arm0_gap <- NA_real_
+      targeted <- survtmle_call(c(arguments, list(returnIC = TRUE)), label)
+      fits <- list(arm0 = targeted$fit, arm1 = targeted$fit)
+      counted <- targeted$warnings
+    }
     # The initial plug-in.  The hazard fit at tol = Inf never enters the targeting loop, so its
     # est is the initial fit's plug-in.  The mean fit has none: survtmle 1.1.1's `Gcomp = TRUE`
     # with `bounds` stops with "object 'Qj.t' not found" (iterated_mean_fluctuate.R defines
@@ -212,35 +238,38 @@ fit_scenario <- function(frame) {
     if (scenario == "hazard_model") {
       initial_arguments <- arguments
       initial_arguments$tol <- Inf
-      initial <- survtmle_call(initial_arguments, sprintf("survtmle %s t0=%d initial", scenario, t0))$fit
+      initial <- survtmle_call(initial_arguments, sprintf("%s initial", label))$fit
     }
     # The mean method fluctuates once per visit and never reads tol; the hazard method loops
-    # until every |meanIC| <= tol or maxIter + 1 rounds.  The run log reads both.
-    mean_ic <- as.numeric(unlist(fitted$meanIC))
+    # until every |meanIC| <= tol or maxIter + 1 rounds.  Each row carries the fit's largest
+    # |meanIC| and whether it reached tol, and reference-convergence.csv counts them.
+    max_mean_ic <- max(vapply(fits, function(item) max(abs(as.numeric(unlist(item$meanIC)))), numeric(1)))
+    converged <- as.integer(scenario == "mean_model" || max_mean_ic <= tol)
     message(sprintf(
-      "survtmle-%s replicate=%d t0=%d convergence_warnings=%d max_abs_meanIC=%.17g tol=%.17g converged=%s",
-      scenario, replicate, t0, targeted$warnings, max(abs(mean_ic)), tol,
-      scenario == "mean_model" || all(abs(mean_ic) <= tol)
+      "survtmle-%s replicate=%d t0=%d convergence_warnings=%d max_abs_meanIC=%.17g tol=%.17g converged=%d arm0_gap=%.3g",
+      scenario, replicate, t0, counted, max_mean_ic, tol, converged, arm0_gap
     ))
+    diagnostics <- list(converged = converged, max_abs_meanIC = max_mean_ic,
+                        convergence_warnings = counted, arm0_gap = arm0_gap)
     values <- list()
     for (arm in names(arms)) {
       key <- sprintf("%d 1", arms[[arm]])
       values[[arm]] <- list(
-        estimate = fitted$est[key, 1],
+        estimate = fits[[arm]]$est[key, 1],
         initial = if (is.null(initial)) NA_real_ else initial$est[key, 1],
-        ic = ic_column(fitted, scenario, arms[[arm]], frame, t0)
+        ic = ic_column(fits[[arm]], scenario, arms[[arm]], frame, t0)
       )
-      rows[[length(rows) + 1]] <- row_for(
+      rows[[length(rows) + 1]] <- cbind(row_for(
         scenario, replicate, level_name(arm, t0), values[[arm]]$estimate,
         values[[arm]]$initial, values[[arm]]$ic, n
-      )
+      ), diagnostics)
     }
-    rows[[length(rows) + 1]] <- row_for(
+    rows[[length(rows) + 1]] <- cbind(row_for(
       scenario, replicate, contrast_name(t0),
       values$arm1$estimate - values$arm0$estimate,
       values$arm1$initial - values$arm0$initial,
       values$arm1$ic - values$arm0$ic, n
-    )
+    ), diagnostics)
   }
   do.call(rbind, rows)
 }
