@@ -25,9 +25,6 @@ __all__ = ["HERE", "REGISTRY", "build_command", "check_entry", "run_command", "s
 
 HERE = Path(__file__).resolve().parent
 
-#: Why every entry waits: the cloud network refuses CRAN, so the pinned images build locally.
-QUEUED = "the run waits in the local Study queue (TRACKER row 46): the pinned image builds there"
-
 REGISTRY: tuple[FixtureEntry, ...] = (
     FixtureEntry(
         name="lmtp_trim",
@@ -37,8 +34,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-lmtp-crossfit:1.5.4",
         context="tests/canonical/lmtp_crossfit",
         packages=("lmtp",),
-        status="pending",
-        reason=QUEUED,
+        status="present",
+        reason="",
         script_sha256="ff38fde3a0a584134d2171523ce4b0972743695ebd40acd01ce26ee8adf3dee7",
     ),
     FixtureEntry(
@@ -49,8 +46,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-lmtp-crossfit:1.5.4",
         context="tests/canonical/lmtp_crossfit",
         packages=("lmtp",),
-        status="pending",
-        reason=QUEUED,
+        status="present",
+        reason="",
         script_sha256="95c9369c0e18958f6a6f9253be12c03b58ea5e0011517955c74718edb1c91862",
     ),
     FixtureEntry(
@@ -61,8 +58,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-survtmle:1.1.1",
         context="tests/canonical/survtmle",
         packages=("survtmle",),
-        status="pending",
-        reason=QUEUED,
+        status="present",
+        reason="",
         script_sha256="0d9adbe8920a8c17bf48eea13077e6c5c1b22affa8c55a5d05d9944b5ed2ed5f",
     ),
 )

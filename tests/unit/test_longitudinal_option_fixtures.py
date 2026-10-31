@@ -3,8 +3,8 @@
 Three R scripts in ``tests/canonical/longitudinal_option_fixtures`` print the R side of the
 comparisons for the longitudinal fitting options: ``lmtp``'s ratio trim (``ratio_trim=``),
 ``lmtp``'s history windows (``markov_order=``) and ``survtmle``'s pooled censoring
-(``hazard_pooling="pooled"``).  The pinned images build on the local Study queue, so each
-fixture is ``pending`` until that run adds its JSON file.
+(``hazard_pooling="pooled"``).  The local Study queue ran each in its pinned image, and the
+JSON files are committed beside the scripts.
 
 * The state test asserts the registry and the script bytes.  The scripts share the option
   fixtures' JSON block byte for byte.

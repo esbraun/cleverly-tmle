@@ -2,9 +2,9 @@
 
 This directory holds the R side of three comparisons for the X33 fitting options. Each fixture
 is one R script, one registry entry (`registry.py`) and, after the R run, one JSON file.
-Every fixture is **pending** until the local Study queue runs its script in the pinned image
-(TRACKER row 46). The Python exact tests of each option gate the option; a pending comparator
-blocks nothing.
+Every fixture is **present**: the local Study queue ran each script in its pinned image
+(TRACKER row 46, 2026-10-31), and each JSON file records its script's checksum and image id.
+The Python exact tests of each option gate the option.
 
 ## Fixtures
 
@@ -50,5 +50,5 @@ docker run --rm --entrypoint Rscript -e CLEVERLY_IMAGE_ID="$(docker image inspec
 docker run --rm --entrypoint Rscript -e CLEVERLY_IMAGE_ID="$(docker image inspect --format '{{.Id}}' cleverly-survtmle:1.1.1)" -e CLEVERLY_SCRIPT_SHA256="$(sha256sum $PWD/tests/canonical/longitudinal_option_fixtures/survtmle_pooled.R | cut -d" " -f1)" -v "$PWD/tests/canonical/longitudinal_option_fixtures:/fixture" cleverly-survtmle:1.1.1 /fixture/survtmle_pooled.R /fixture/survtmle_pooled.json
 ```
 
-Then `pytest -q tests/unit/test_longitudinal_option_fixtures.py` reads nothing new until the
-registry entry is set `present`, which the follow-up change does.
+Then `pytest -q tests/unit/test_longitudinal_option_fixtures.py` compares each file. A changed
+script needs a new run and a new checksum in the registry.
