@@ -7,7 +7,7 @@ quadrature value of its parameter (:func:`~tests.studies._fold_evaluated_strata_
     Each draw of a setting fits the declared estimator at n = 1,000 and writes one positive row
     for each of the 12 parameters, ``<setting>_<target>_<stratum>__declared``, in four settings:
     the bounded (beta) outcome rows only and weighted, and the binary outcome rows only and
-    weighted. The SE-ratio interval must lie inside 0.93 to 1.07 and the coverage interval inside
+    weighted (each with its own blip). The SE-ratio interval must lie inside 0.93 to 1.07 and the coverage interval inside
     0.92 to 0.98. Each positive carries the two derived controls of
     :func:`~tests.studies.evidence.property_verdicts.calibration_controls`, the SE shrunken by
     0.70 and noise of one efficiency-bound unit, which check the instrument. Two controls check
@@ -26,7 +26,7 @@ quadrature value of its parameter (:func:`~tests.studies._fold_evaluated_strata_
         the marginal derivation, and the beta outcome is what gives it that power. The ``ey[0]``
         share term moves the ratio to about 0.95 only, which the declared count cannot resolve,
         so that label carries no such control. Neither does any binary label: under the
-        Bernoulli outcome the ratios are 0.985, 0.995 and 0.943, above the band floor. The
+        Bernoulli outcome the ratios are 0.999, 0.995 and 0.999, above the band floor. The
         formula of the share term does not read the outcome type.
 
 ``targeting_necessity``
@@ -112,7 +112,7 @@ CALIBRATION_N = PRIMARY_N
 #: The per-arm rule of :func:`~tests.studies.mtp_study_tools.per_arm_replicates` over the 48
 #: positives, on the pooled pilots read at the smallest pilot size, 8,000 draws
 #: (``test_fold_evaluated_strata_design``).
-CALIBRATION_REPLICATES = 7_600
+CALIBRATION_REPLICATES = 8_800
 NECESSITY_REPLICATES = 2_800
 SHRUNKEN_SE_FACTOR = 0.70
 TARGETING_DISPLACEMENT = 0.5
@@ -126,10 +126,21 @@ LEARNED_RULE = False
 #: The two construction controls, each a below-band SE control of ``SE_CONTROL_SIDES``.
 OWN_CONTROLS = (UNNORMALISED, SHARE_DROPPED)
 
+#: The sample law of each setting: a weighted setting draws the same sample as its rows-only twin
+#: (the weight is a column the fit reads), so rule L3 judges its seeds against that twin's.
+SAMPLE_LAW = {
+    "unweighted": "unweighted",
+    "weighted": "unweighted",
+    "binary_unweighted": "binary_unweighted",
+    "binary_weighted": "binary_unweighted",
+}
+
 #: One draw label per setting and family; each draw writes the rows of all 12 parameters.
 PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = (
     *(
-        base.PropertyDraw("interval_calibration", setting, CALIBRATION_REPLICATES, setting)
+        base.PropertyDraw(
+            "interval_calibration", setting, CALIBRATION_REPLICATES, SAMPLE_LAW[setting]
+        )
         for setting in law.SETTINGS
     ),
     base.PropertyDraw("targeting_necessity", "unweighted", NECESSITY_REPLICATES, "unweighted"),

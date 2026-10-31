@@ -70,16 +70,43 @@ TRUTHS = {
         "ey[1]": 0.5201551,
     },
 }
-# The truth reads the mean model only, so each binary setting's truths are its bounded twin's.
-TRUTHS["binary_unweighted"] = TRUTHS["unweighted"]
-TRUTHS["binary_weighted"] = TRUTHS["weighted"]
+# The binary settings: blip 0.1 - 0.3 W1. Their ey[0] truths are the bounded settings' (the
+# control arm's regression does not read the blip).
+TRUTHS["binary_unweighted"] = {
+    "ate[S=0]": 0.0835926,
+    "ate[S=1]": 0.0434194,
+    "ate[S=2]": -0.0155421,
+    "ate": 0.0249214,
+    "ey[0][S=0]": 0.4139218,
+    "ey[0][S=1]": 0.4814102,
+    "ey[0][S=2]": 0.5797803,
+    "ey[0]": 0.5121791,
+    "ey[1][S=0]": 0.4975144,
+    "ey[1][S=1]": 0.5248296,
+    "ey[1][S=2]": 0.5642382,
+    "ey[1]": 0.5371004,
+}
+TRUTHS["binary_weighted"] = {
+    "ate[S=0]": 0.0831046,
+    "ate[S=1]": 0.0434029,
+    "ate[S=2]": -0.0157397,
+    "ate": 0.0247291,
+    "ey[0][S=0]": 0.3983710,
+    "ey[0][S=1]": 0.4654316,
+    "ey[0][S=2]": 0.5642131,
+    "ey[0]": 0.4964712,
+    "ey[1][S=0]": 0.4814755,
+    "ey[1][S=1]": 0.5088345,
+    "ey[1][S=2]": 0.5484734,
+    "ey[1]": 0.5212002,
+}
 
 #: The asymptotic SE ratio of the marginal curve without its share term, by setting and target.
 SHARE_TERM_RATIOS = {
     "unweighted": {"ate": 0.854196, "ey0": 0.947636, "ey1": 0.655980},
     "weighted": {"ate": 0.853715, "ey0": 0.945242, "ey1": 0.660007},
-    "binary_unweighted": {"ate": 0.985391, "ey0": 0.995435, "ey1": 0.942633},
-    "binary_weighted": {"ate": 0.985314, "ey0": 0.995271, "ey1": 0.944234},
+    "binary_unweighted": {"ate": 0.999223, "ey0": 0.995435, "ey1": 0.999338},
+    "binary_weighted": {"ate": 0.999234, "ey0": 0.995271, "ey1": 0.999357},
 }
 
 
@@ -87,8 +114,11 @@ def _adaptive(function: object, low: float, high: float) -> float:
     return float(quad(function, low, high, epsabs=1e-13, epsrel=1e-12, limit=200)[0])
 
 
-def _functional(target: str, w1: float, w2: float, slope: float = law.SLOPE) -> float:
-    q1, q0 = float(law.qbar0(1.0, w1, w2, slope)), float(law.qbar0(0.0, w1, w2, slope))
+def _functional(
+    target: str, w1: float, w2: float, slope: float = law.SLOPE, intercept: float = law.INTERCEPT
+) -> float:
+    q1 = float(law.qbar0(1.0, w1, w2, slope, intercept))
+    q0 = float(law.qbar0(0.0, w1, w2, slope, intercept))
     return {"ate": q1 - q0, "ey0": q0, "ey1": q1}[target]
 
 
@@ -123,16 +153,16 @@ def test_the_law_is_the_rm30_family_with_a_beta_outcome() -> None:
 
 
 def test_the_settings() -> None:
-    """Four calibration settings: the outcome law crossed with the weight, at the declared
-    mean model; and the sparse-event diagnostic, binary and rows only at the steeper blip."""
+    """Four calibration settings: the outcome law crossed with the weight, each outcome law with
+    its blip; and the sparse-event diagnostic, binary and rows only at the steeper blip."""
     assert law.SETTINGS == ("unweighted", "weighted", "binary_unweighted", "binary_weighted")
     assert law.BOUNDED_SETTINGS == ("unweighted", "weighted")
-    assert {s: (v.outcome, v.weighted, v.slope) for s, v in law.LAWS.items()} == {
-        "unweighted": ("beta", False, 1.5),
-        "weighted": ("beta", True, 1.5),
-        "binary_unweighted": ("binary", False, 1.5),
-        "binary_weighted": ("binary", True, 1.5),
-        "binary_sparse": ("binary", False, 3.0),
+    assert {s: (v.outcome, v.weighted, v.intercept, v.slope) for s, v in law.LAWS.items()} == {
+        "unweighted": ("beta", False, 0.1, 1.5),
+        "weighted": ("beta", True, 0.1, 1.5),
+        "binary_unweighted": ("binary", False, 0.1, -0.3),
+        "binary_weighted": ("binary", True, 0.1, -0.3),
+        "binary_sparse": ("binary", False, 0.1, 3.0),
     }
     w1 = np.linspace(-1.0, 1.0, 9)
     for w2 in base.W2_LEVELS:
@@ -158,7 +188,7 @@ def test_the_truths_are_the_quadrature_and_an_adaptive_integral(setting: str) ->
     for name, value in TRUTHS[setting].items():
         assert declared[name] == pytest.approx(value, abs=5e-8), name
     weights = law._weights(setting)
-    slope = law.LAWS[setting].slope
+    slope, intercept = law.LAWS[setting].slope, law.LAWS[setting].intercept
     for target, name in law.TARGETS.items():
         parts = []
         for code in law.STRATA:
@@ -166,7 +196,9 @@ def test_the_truths_are_the_quadrature_and_an_adaptive_integral(setting: str) ->
             numerator = sum(
                 w
                 * _adaptive(
-                    lambda x, w2=w2, target=target: _functional(target, x, w2, slope), low, high
+                    lambda x, w2=w2, target=target: _functional(target, x, w2, slope, intercept),
+                    low,
+                    high,
                 )
                 for w2, w in weights.items()
             )
@@ -177,7 +209,9 @@ def test_the_truths_are_the_quadrature_and_an_adaptive_integral(setting: str) ->
         whole = sum(
             w
             * _adaptive(
-                lambda x, w2=w2, target=target: _functional(target, x, w2, slope), -1.0, 1.0
+                lambda x, w2=w2, target=target: _functional(target, x, w2, slope, intercept),
+                -1.0,
+                1.0,
             )
             for w2, w in weights.items()
         ) / (2.0 * sum(weights.values()))
@@ -187,15 +221,38 @@ def test_the_truths_are_the_quadrature_and_an_adaptive_integral(setting: str) ->
         assert declared[name] == pytest.approx(whole, abs=1e-8)
 
 
-def test_the_binary_truths_are_the_bounded_ones() -> None:
-    """The two outcome laws share the mean model, so their truths agree exactly."""
-    assert law.truths("binary_unweighted") == law.truths("unweighted")
-    assert law.truths("binary_weighted") == law.truths("weighted")
+def test_the_binary_stratum_arms_are_not_sparse() -> None:
+    """The binary blip keeps every stratum-arm's mean between 0.37 and 0.63 at each ``W2``, so
+    the smallest stratum-arm, the treated rows of stratum 0 (about 83 at n = 1,000), expects at
+    least 30 rows of the rarer value (the pilot's mean is about 38). The first binary law, the
+    bounded blip, put ``ey[1]`` in stratum 0 at 0.19 (about 16 events), the regime
+    ``binary_sparse`` reports. The binary strata still differ: the effects change sign and the
+    ``ey[1]`` means spread, so a stratum mix-up stays visible."""
+    treated = (
+        1_000
+        * law.SHARES[0]
+        * float(np.mean([np.mean(base.g0(law._grid(0), w2)) for w2 in base.W2_LEVELS]))
+    )
+    assert 80 < treated < 86 and 0.37 * treated > 30
+    for setting in ("binary_unweighted", "binary_weighted"):
+        spec = law.LAWS[setting]
+        for code in law.STRATA:
+            grid = law._grid(code)
+            for a in (0.0, 1.0):
+                for w2 in base.W2_LEVELS:
+                    mean = float(np.mean(law.qbar0(a, grid, w2, spec.slope, spec.intercept)))
+                    assert 0.37 < mean < 0.63
+        truth = TRUTHS[setting]
+        effects = [truth[f"ate[S={code}]"] for code in law.STRATA]
+        assert effects[0] > effects[1] > 0.0 > effects[2]
+        ey1 = [truth[f"ey[1][S={code}]"] for code in law.STRATA]
+        assert np.min(np.diff(ey1)) > 0.02
+    assert TRUTHS["unweighted"]["ey[1][S=0]"] == pytest.approx(0.1936, abs=1e-4)
 
 
 def test_the_stratum_effects_are_strongly_heterogeneous() -> None:
     """The stratum ATEs change sign and spread by more than 0.4, which the share term reads."""
-    for setting in law.LAWS:
+    for setting in (*law.BOUNDED_SETTINGS, law.SPARSE):
         effects = [TRUTHS[setting][f"ate[S={code}]"] for code in law.STRATA]
         assert effects[0] < effects[1] < 0.0 < effects[2]
         assert effects[2] - effects[0] > 0.4
@@ -254,8 +311,7 @@ def test_the_share_term_ratios_choose_the_declared_controls(setting: str) -> Non
 def test_no_binary_label_carries_a_share_dropped_control(setting: str) -> None:
     """Under the Bernoulli outcome the residual variance swamps the share term: every ratio
     without it is above the band floor 0.93, so a share-dropped control could not fail, and the
-    binary settings declare none (finding 1 of the design review; its pilot read 0.974 and
-    0.941 for ``ate`` and ``ey[1]``). The share term's formula does not read the outcome type,
+    binary settings declare none (finding 1 of the design review). The share term's formula does not read the outcome type,
     so the bounded settings test it for both."""
     for target, ratio in SHARE_TERM_RATIOS[setting].items():
         assert law.share_term_ratio(setting, target) == pytest.approx(ratio, abs=5e-7)
@@ -354,14 +410,26 @@ def test_the_named_streams_are_distinct_from_every_registered_study() -> None:
 def test_rule_l3_moves_one_label() -> None:
     """Under the bare label, ``interval_calibration/unweighted`` replicate 4,935 would draw the
     sample seed of primary ``unweighted`` replicate 665, so rule L3 moves the whole label to its
-    first retry; every other label keeps its own."""
+    first retry, and ``binary_weighted`` moves likewise; every other label keeps its own."""
     bare = stream_seed(study.STUDY, "property_sample", "interval_calibration", "unweighted", 4_935)
     assert bare == replicate_seed(study.STUDY, "unweighted", 665)
+    # A weighted setting draws its rows-only twin's sample law, so rule L3 judges it against that
+    # twin: binary_weighted replicate 7,863 would draw primary binary_unweighted replicate 1,689.
+    bare = stream_seed(
+        study.STUDY, "property_sample", "interval_calibration", "binary_weighted", 7_863
+    )
+    assert bare == replicate_seed(study.STUDY, "binary_unweighted", 1_689)
+    assert properties.SAMPLE_LAW == {
+        "unweighted": "unweighted",
+        "weighted": "unweighted",
+        "binary_unweighted": "binary_unweighted",
+        "binary_weighted": "binary_unweighted",
+    }
     assert properties.suffixes(study.STUDY) == {
         ("interval_calibration", "unweighted"): ("retry", 1),
         ("interval_calibration", "weighted"): (),
         ("interval_calibration", "binary_unweighted"): (),
-        ("interval_calibration", "binary_weighted"): (),
+        ("interval_calibration", "binary_weighted"): ("retry", 1),
         ("targeting_necessity", "unweighted"): (),
         (study.SPARSE_FAMILY, law.SPARSE): (),
     }
@@ -392,34 +460,28 @@ def _other_x11_sample_seeds() -> set[int]:
     return seeds
 
 
-#: The three sample seeds this study shares with another X11 study, all in ``binary_weighted``
-#: draws at n = 1,000, each against an RM30-law draw at n = 2,000 or 4,000: (this study's draw,
-#: the other draw). Seeds are 32-bit, and about 43,000 against 152,000 seeds expect one or two
-#: coincidences by chance.
+#: The two sample seeds this study shares with another X11 study, each a draw at n = 1,000 here
+#: against an RM30-law draw at n = 2,000 there: (this study's draw, the other draw). Seeds are
+#: 32-bit, and about 48,000 against 152,000 seeds expect one or two coincidences by chance.
 SHARED_SEEDS = {
     ("primary", "binary_weighted", 541): ("learned-rule-split-mean", "misspecified_limit", 1_507),
-    ("interval_calibration", "binary_weighted", 524): (
-        "learned-rule-split-mean",
-        "interval_calibration/non_exceptional__declared",
-        597,
-    ),
-    ("interval_calibration", "binary_weighted", 1_711): (
-        "learned-rule-learners",
-        "interval_calibration/weighted_classification__declared",
-        6_697,
+    ("interval_calibration", "weighted", 8_646): (
+        "learned-rule-cvtmle",
+        "interval_calibration/non_exceptional__correctly_specified",
+        8_206,
     ),
 }
 
 
-def test_no_sample_seed_is_another_x11_studys_but_three_w1_prefixes() -> None:
-    """The study's samples share no seed with each other, and three with another X11 study.
+def test_no_sample_seed_is_another_x11_studys_but_two_w1_prefixes() -> None:
+    """The study's samples share no seed with each other, and two with another X11 study.
 
     This law draws ``W1`` first, as RM30 does, so a shared seed shares a prefix of ``W1``. Each
-    of the three pairs draws 1,000 rows here and 2,000 or 4,000 there, so the two samples share
+    of the two pairs draws 1,000 rows here and 2,000 there, so the two samples share
     their first 1,000 values of ``W1`` and nothing else: ``W2`` starts after the ``W1`` block,
     whose length differs. That is the precedent of ``learned-rule-learners``, whose shared seed
     with ``learned-rule-compositions`` is the same kind (``test_learned_rule_study_harness``).
-    One replicate of 2,000 or 7,600 in each cell makes the dependence negligible, and no verdict
+    One replicate of 2,000 or 8,800 in each cell makes the dependence negligible, and no verdict
     reads the two studies jointly.
     """
     own = base.declared_sample_seeds(
@@ -463,19 +525,19 @@ def test_the_smoke_record_draws_no_declared_seed() -> None:
 #: n = 1,000 (``reviews/x11/scripts/X11-E1-calibration-pilot.py`` in the plans repository). The
 #: bounded settings pool the declared pilot (label 20264099, 8,000 draws each) with the design
 #: review's 2,000 further rows-only draws of the identical configuration (label 20264731). The
-#: binary settings pool the binary pilot (label 20264907, 8,000 draws each) with, rows only, the
-#: design review's 4,000 draws of the identical configuration (label 20264731).
+#: binary settings read the pilot of their blip 0.1 - 0.3 W1 (label 20265013, 8,000 draws
+#: each); the first binary pilot (label 20264907) ran the earlier binary law and is not read.
 PILOT_DRAWS = {
     "unweighted": 10_000,
     "weighted": 8_000,
-    "binary_unweighted": 12_000,
+    "binary_unweighted": 8_000,
     "binary_weighted": 8_000,
 }
 PILOT_SE_RATIOS = (
     1.0085, 0.9956, 0.9994, 0.9983, 1.0058, 1.0037, 1.0024, 1.0005, 1.0050, 0.9853, 1.0037, 1.0027,
     1.0159, 1.0065, 1.0167, 1.0046, 1.0043, 1.0139, 1.0072, 1.0099, 1.0103, 1.0003, 1.0082, 0.9897,
-    1.0058, 1.0042, 1.0110, 1.0051, 1.0091, 0.9999, 1.0160, 1.0073, 1.0044, 1.0047, 1.0159, 1.0036,
-    1.0072, 1.0040, 0.9997, 1.0149, 1.0071, 0.9938, 1.0083, 1.0085, 1.0063, 1.0119, 0.9933, 1.0124,
+    1.0126, 1.0069, 1.0208, 1.0136, 1.0025, 1.0091, 1.0188, 1.0201, 1.0133, 1.0086, 1.0115, 1.0008,
+    1.0103, 1.0008, 1.0068, 1.0050, 1.0110, 1.0009, 1.0195, 1.0112, 1.0101, 0.9939, 1.0144, 1.0150,
 )  # fmt: skip
 
 #: The pilot's standardized bias of the targeted arm and of the untargeted control (in the
@@ -495,25 +557,24 @@ PILOT_NECESSITY = {
 
 def test_the_calibration_count_is_the_per_arm_rule() -> None:
     """``per_arm_replicates`` over the 48 positives, every cell read at the smallest pooled pilot
-    size (8,000 draws), gives 7,600; 7,200 misses the family target.
+    size (8,000 draws), gives 8,800; 8,400 misses the family target.
 
-    Reading each cell at its own pilot size would give 7,200, so the smallest size errs toward
-    more replicates, as the product rule does by treating the 12 correlated labels of one fit as
-    independent. The bounded settings alone would give 6,800 (the design review's pooled reading)
-    and the binary positives move it to 7,600 (design review finding 2)."""
+    The bounded settings alone would give 6,800 (the design review's pooled reading), and the
+    binary positives move it to 8,800 (design review finding 2). Reading each cell at its own
+    pilot size passes at 8,800 too."""
     assert len(PILOT_SE_RATIOS) == len(study.CALIBRATION_LABELS)
     assert tuple(PILOT_DRAWS) == law.SETTINGS
     smallest = min(PILOT_DRAWS.values())
     sized = tools.per_arm_replicates(PILOT_SE_RATIOS, smallest)
-    assert sized["R"] == properties.CALIBRATION_REPLICATES == 7_600
-    assert sized["family_wise"] == pytest.approx(0.9560, abs=5e-4)
-    assert min(sized["per_cell"]) == pytest.approx(0.9947, abs=5e-4)
-    below = tools.per_arm_pass(PILOT_SE_RATIOS, smallest, 7_200)
+    assert sized["R"] == properties.CALIBRATION_REPLICATES == 8_800
+    assert sized["family_wise"] == pytest.approx(0.9570, abs=5e-4)
+    assert min(sized["per_cell"]) == pytest.approx(0.9926, abs=5e-4)
+    below = tools.per_arm_pass(PILOT_SE_RATIOS, smallest, 8_400)
     assert float(np.prod(below)) < tools.FAMILY_TARGET
     own = [
         cell
         for index, draws in enumerate(PILOT_DRAWS.values())
-        for cell in tools.per_arm_pass(PILOT_SE_RATIOS[12 * index : 12 * index + 12], draws, 7_600)
+        for cell in tools.per_arm_pass(PILOT_SE_RATIOS[12 * index : 12 * index + 12], draws, 8_800)
     ]
     assert float(np.prod(own)) >= sized["family_wise"]
     bounded = tools.per_arm_replicates(PILOT_SE_RATIOS[:24], smallest)

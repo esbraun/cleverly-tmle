@@ -15,12 +15,13 @@ estimates with its delta-method curve. Each fit reports 12 parameters: ``ate``, 
     The bounded outcome with the known observation weight ``w = 1 + 1.5 W2``, which varies
     inside every stratum. The target is the parameter of the weight-tilted law.
 ``binary_unweighted``, ``binary_weighted``
-    The same two settings with the RM30 binary outcome, fitted with RM30's logistic outcome
-    learner and no ``q_bounds``.
+    The same two settings with the RM30 binary outcome and the blip ``0.1 - 0.3 W1``, which keeps
+    every stratum-arm's mean near one half, fitted with RM30's logistic outcome learner and no
+    ``q_bounds``.
 
 Every setting draws the law of :mod:`tests.studies._fold_evaluated_strata_law`: the RM30 family
-with the blip ``0.1 + 1.5 W1``, a beta outcome of concentration 12 or a Bernoulli outcome around
-the RM30 outcome regression, and a stratum cut from ``W1`` at shares 0.2, 0.35 and 0.45. The
+with a beta outcome of concentration 12 (blip ``0.1 + 1.5 W1``) or a Bernoulli outcome (blip
+``0.1 - 0.3 W1``) around the RM30 outcome regression, and a stratum cut from ``W1`` at shares 0.2, 0.35 and 0.45. The
 beta outcome is what lets the share-dropped control fail (deviation D1 of the design record);
 the binary settings license the binary outcome. The target is fixed, so every row's truth is
 the quadrature value of its parameter. The X11 plan
@@ -90,30 +91,30 @@ EFFICIENCY_BOUNDS = {
     "weighted_ey1_s1": 0.409567,
     "weighted_ey1_s2": 0.314792,
     "weighted_ey1_all": 0.330274,
-    "binary_unweighted_ate_s0": 1.979953,
-    "binary_unweighted_ate_s1": 1.666671,
-    "binary_unweighted_ate_s2": 1.367470,
-    "binary_unweighted_ate_all": 0.949693,
+    "binary_unweighted_ate_s0": 2.251564,
+    "binary_unweighted_ate_s1": 1.692660,
+    "binary_unweighted_ate_s2": 1.472702,
+    "binary_unweighted_ate_all": 0.997243,
     "binary_unweighted_ey0_s0": 1.441609,
     "binary_unweighted_ey0_s1": 1.145316,
     "binary_unweighted_ey0_s2": 1.056406,
     "binary_unweighted_ey0_all": 0.688568,
-    "binary_unweighted_ey1_s0": 1.362109,
-    "binary_unweighted_ey1_s1": 1.219494,
-    "binary_unweighted_ey1_s2": 0.877871,
-    "binary_unweighted_ey1_all": 0.681307,
-    "binary_weighted_ate_s0": 2.113835,
-    "binary_weighted_ate_s1": 1.807760,
-    "binary_weighted_ate_s2": 1.505181,
-    "binary_weighted_ate_all": 1.033928,
+    "binary_unweighted_ey1_s0": 1.733690,
+    "binary_unweighted_ey1_s1": 1.250093,
+    "binary_unweighted_ey1_s2": 1.029839,
+    "binary_unweighted_ey1_all": 0.726034,
+    "binary_weighted_ate_s0": 2.455433,
+    "binary_weighted_ate_s1": 1.848418,
+    "binary_weighted_ate_s2": 1.613168,
+    "binary_weighted_ate_all": 1.090180,
     "binary_weighted_ey0_s0": 1.528730,
     "binary_weighted_ey0_s1": 1.222094,
     "binary_weighted_ey0_s2": 1.137282,
     "binary_weighted_ey0_all": 0.737211,
-    "binary_weighted_ey1_s0": 1.463648,
-    "binary_weighted_ey1_s1": 1.339879,
-    "binary_weighted_ey1_s2": 0.995399,
-    "binary_weighted_ey1_all": 0.753536,
+    "binary_weighted_ey1_s0": 1.924087,
+    "binary_weighted_ey1_s1": 1.389292,
+    "binary_weighted_ey1_s2": 1.146744,
+    "binary_weighted_ey1_all": 0.807252,
 }
 
 #: The positive arm's cell suffix.
@@ -127,8 +128,8 @@ UNNORMALISED = "unnormalised_curve_control"
 #: settings: the marginal curve without its share term. Its asymptotic SE ratio is 0.854 and
 #: 0.656 rows only, 0.854 and 0.660 weighted. ``ey[0]`` carries none: its share term moves the
 #: ratio to 0.948 and 0.945 only, which the declared count cannot resolve below the band floor
-#: 0.93. No binary label carries one: the Bernoulli residual variance leaves the ratio at 0.985,
-#: 0.995 and 0.943 (``ate``, ``ey[0]``, ``ey[1]``), above the floor, so it could not fail.
+#: 0.93. No binary label carries one: the Bernoulli residual variance leaves the ratio at 0.999,
+#: 0.995 and 0.999 (``ate``, ``ey[0]``, ``ey[1]``), above the floor, so it could not fail.
 SHARE_DROPPED = "share_dropped_control"
 
 #: The marginal labels whose share-term control is declared.
@@ -239,9 +240,9 @@ CONFIGURATION = {
     ),
     "law": (
         "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5), logit g0 = 0.3 W1 - 0.2 W2, Y | A, W ~ "
-        "Beta(12 m, 12 (1 - m)) (unweighted, weighted) or Bernoulli(m) (binary_unweighted, "
-        "binary_weighted) with m = Qbar0(A, W), logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + "
-        "a (0.1 + 1.5 W1); S = 0, 1, 2 on W1 in [-1, -0.6), [-0.6, 0.1), "
+        "Beta(12 m, 12 (1 - m)) with blip b = 0.1 + 1.5 W1 (unweighted, weighted) or "
+        "Bernoulli(m) with b = 0.1 - 0.3 W1 (binary_unweighted, binary_weighted), "
+        "m = Qbar0(A, W), logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + a b; S = 0, 1, 2 on W1 in [-1, -0.6), [-0.6, 0.1), "
         "[0.1, 1] (shares 0.2, 0.35, 0.45); weighted settings w = 1 + 1.5 W2; the "
         "sparse_event_diagnostic draws the binary rows-only law with the blip 0.1 + 3.0 W1"
     ),

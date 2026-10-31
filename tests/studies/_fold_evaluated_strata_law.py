@@ -6,29 +6,34 @@ plug-ins over the rows of each validation fold in the stratum, each fold's strat
 by the fold's own stratum share, and the marginal estimate is the share mixture of the stratum
 estimates with its delta-method curve.
 
-The law is the RM30 family of :mod:`tests.studies._learned_rule_law` with the blip
-``0.1 + 1.5 W1``: ``W1 ~ U(-1, 1)``, ``W2 ~ Bernoulli(0.5)``, ``logit g0(1 | W) = 0.3 W1 -
-0.2 W2`` and the outcome regression ``logit Qbar0(a, W) = 0.2 + 0.5 W1 - 0.3 W2 + a (0.1 +
-1.5 W1)``. Two outcome laws share that mean model, one per pair of settings:
+The law is the RM30 family of :mod:`tests.studies._learned_rule_law`: ``W1 ~ U(-1, 1)``,
+``W2 ~ Bernoulli(0.5)``, ``logit g0(1 | W) = 0.3 W1 - 0.2 W2`` and the outcome regression
+``logit Qbar0(a, W) = 0.2 + 0.5 W1 - 0.3 W2 + a b(W1)``. Each pair of settings has its own
+outcome law and blip:
 
 ``unweighted``, ``weighted``
-    The bounded outcome ``Y | A, W ~ Beta(phi m, phi (1 - m))`` with ``m = Qbar0(A, W)`` and
-    the concentration ``phi = 12`` of :mod:`tests.studies.bounded_cv_laws`, fitted with the
-    quasibinomial learner and ``q_bounds=(0, 1)``.
+    The bounded outcome ``Y | A, W ~ Beta(phi m, phi (1 - m))`` with ``m = Qbar0(A, W)``, the
+    blip ``b = 0.1 + 1.5 W1`` and the concentration ``phi = 12`` of
+    :mod:`tests.studies.bounded_cv_laws`, fitted with the quasibinomial learner and
+    ``q_bounds=(0, 1)``.
 ``binary_unweighted``, ``binary_weighted``
-    The RM30 outcome ``Y | A, W ~ Bernoulli(m)``, fitted with RM30's logistic learner and
-    ``q_bounds=None`` (the package refuses ``q_bounds`` on a binary outcome).
+    The RM30 outcome ``Y | A, W ~ Bernoulli(m)`` with the blip ``b = 0.1 - 0.3 W1``, fitted with
+    RM30's logistic learner and ``q_bounds=None`` (the package refuses ``q_bounds`` on a binary
+    outcome).
 
 The beta law exists for the share-dropped control (deviation D1 of the design record). Its
 conditional variance ``m (1 - m) / (1 + phi)`` leaves the share term about 27% of the marginal
 ``ate`` variance, so a fit that dropped the share term would read an SE ratio of 0.854 and fail
-the band. Under the Bernoulli outcome the residual variance ``m (1 - m)`` swamps the share term
-(SE ratios without it 0.974, 0.996 and 0.941), so no binary setting carries that control. The
-binary settings cover alike at this mean model: the design review's pilot (label 20264731)
-read 0.942 to 0.952 on every binary cell. Its sparse-event deficit at the steeper blip
-``0.1 + 3.0 W1`` (0.918 for ``ey[1]`` in stratum 0, about six events) is generic Wald behaviour
-that the stacked stratified fit shares (0.919 on the same draws), so the ``binary_sparse``
-setting reports it as a diagnostic with no verdict.
+the band. Under a Bernoulli outcome the residual variance ``m (1 - m)`` swamps the share term,
+so no binary setting carries that control.
+
+The binary blip keeps every stratum-arm's mean between 0.38 and 0.62, so the binary positives
+test the fold-evaluated construction with about 38 rows of the rarer outcome value in the
+smallest stratum-arm, not the sparse-event regime. The first binary pilot used the bounded
+blip, where ``ey[1]`` in stratum 0 has mean 0.19 and about 16 events, and ``binary_weighted``
+covered that cell at 0.932, with the stacked stratified fit alike (0.931). That regime belongs
+to the ``binary_sparse`` setting: the steeper blip ``0.1 + 3.0 W1`` (about six events), which
+reports both fits as a diagnostic with no verdict.
 
 The baseline stratum cuts ``W1`` at ``-0.6`` and ``0.1``, so the shares are 0.2, 0.35 and
 0.45, unequal, and the stratum effects are heterogeneous in sign. The weighted settings add the
@@ -40,8 +45,7 @@ The target is fixed and known, so the truth needs no refit. Each stratum mean
 ``E_w[Qbar0(a, W) | S = s]`` integrates ``Qbar0`` over ``W1`` on the stratum's interval by the
 trapezoid rule on :data:`POINTS` points for each value of ``W2``, weighted by ``w(W2)``. The
 marginal truth is the share mixture, and ``S`` is independent of ``W2``, so the weight leaves the
-shares at the interval lengths. The truth reads the mean model only, so a binary setting's
-truths are its bounded twin's. The same quadrature, with each outcome law's conditional variance,
+shares at the interval lengths. The same quadrature, with each outcome law's conditional variance,
 gives each parameter's efficient influence curve SD (the noise-control scale) and the asymptotic
 SE ratio of the share-term control.
 """
@@ -81,6 +85,16 @@ SHARES = (0.2, 0.35, 0.45)
 INTERCEPT = 0.1
 SLOPE = 1.5
 
+#: The blip ``0.1 - 0.3 W1`` of the two binary calibration settings. It leaves the treated
+#: arm's logit ``0.3 + 0.2 W1 - 0.3 W2``, nearly flat in ``W1`` and centred near 0, so every
+#: stratum-arm's mean lies between 0.38 and 0.62. The smallest stratum-arm, the treated rows of
+#: stratum 0 (about 83 at n = 1,000 under RM30's ``g0``), then holds about 38 rows of the rarer
+#: outcome value, near the most it can hold (about 41.5 less the binomial spread). The stratum
+#: effects still change sign (0.084, 0.043, -0.016) and the ``ey[1]`` stratum means differ
+#: (0.498, 0.525, 0.564), so a stratum mix-up stays visible (design record, D1).
+BINARY_INTERCEPT = 0.1
+BINARY_SLOPE = -0.3
+
 #: The steeper slope of the ``binary_sparse`` diagnostic, the design record's first pilot law.
 SPARSE_SLOPE = 3.0
 
@@ -107,19 +121,22 @@ class Setting:
         Whether the fit reads the known weight ``1 + 1.5 W2``.
     slope : float
         The slope of the blip.
+    intercept : float
+        The intercept of the blip.
     """
 
     outcome: str
     weighted: bool
     slope: float = SLOPE
+    intercept: float = INTERCEPT
 
 
 #: The calibration settings: the bounded outcome rows only and weighted, then the binary one.
 SETTING_LAWS = {
     "unweighted": Setting("beta", False),
     "weighted": Setting("beta", True),
-    "binary_unweighted": Setting("binary", False),
-    "binary_weighted": Setting("binary", True),
+    "binary_unweighted": Setting("binary", False, BINARY_SLOPE, BINARY_INTERCEPT),
+    "binary_weighted": Setting("binary", True, BINARY_SLOPE, BINARY_INTERCEPT),
 }
 SETTINGS = tuple(SETTING_LAWS)
 
@@ -172,16 +189,23 @@ PARAMETERS = tuple(parameter(label) for label in PARAMETER_LABELS)
 # --------------------------------------------------------------------------- the law
 
 
-def blip(w1: Any, slope: float = SLOPE) -> np.ndarray:
-    """The blip ``0.1 + slope W1`` on the logit scale; the declared slope is 1.5."""
-    return np.asarray(INTERCEPT + slope * np.asarray(w1, dtype=float), dtype=float)
+def blip(w1: Any, slope: float = SLOPE, intercept: float = INTERCEPT) -> np.ndarray:
+    """The blip ``intercept + slope W1`` on the logit scale; the bounded one is ``0.1 + 1.5 W1``."""
+    return np.asarray(intercept + slope * np.asarray(w1, dtype=float), dtype=float)
 
 
-def qbar0(a: Any, w1: Any, w2: Any, slope: float = SLOPE) -> np.ndarray:
+def qbar0(
+    a: Any, w1: Any, w2: Any, slope: float = SLOPE, intercept: float = INTERCEPT
+) -> np.ndarray:
     """``E[Y | A = a, W]``, from ``logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + a b(W1)``."""
     w1 = np.asarray(w1, dtype=float)
     return np.asarray(
-        expit(0.2 + 0.5 * w1 - 0.3 * np.asarray(w2, dtype=float) + np.asarray(a) * blip(w1, slope)),
+        expit(
+            0.2
+            + 0.5 * w1
+            - 0.3 * np.asarray(w2, dtype=float)
+            + np.asarray(a) * blip(w1, slope, intercept)
+        ),
         dtype=float,
     )
 
@@ -209,7 +233,7 @@ def draw(setting: str, n: int, seed: int) -> pd.DataFrame:
     w1 = rng.uniform(-1.0, 1.0, n)
     w2 = rng.binomial(1, 0.5, n).astype(float)
     a = rng.binomial(1, base.g0(w1, w2)).astype(float)
-    mean = qbar0(a, w1, w2, spec.slope)
+    mean = qbar0(a, w1, w2, spec.slope, spec.intercept)
     if spec.outcome == "binary":
         y = rng.binomial(1, mean).astype(float)
     else:
@@ -233,7 +257,8 @@ def _target_parts(
     and ``v(a) / g0(a)``.
     """
     spec = LAWS[setting]
-    q1, q0 = qbar0(1.0, w1, w2, spec.slope), qbar0(0.0, w1, w2, spec.slope)
+    q1 = qbar0(1.0, w1, w2, spec.slope, spec.intercept)
+    q0 = qbar0(0.0, w1, w2, spec.slope, spec.intercept)
     g1 = base.g0(w1, w2)
     scale = 1.0 if spec.outcome == "binary" else 1.0 / (1.0 + PHI)
     r1 = scale * q1 * (1.0 - q1) / g1

@@ -84,10 +84,10 @@ class TestTheSeedRules:
         # (weighted_classification__declared replicate 732, n = 4,000) equals the sample seed of
         # learned-rule-compositions' clustered replicate 2,444 (n = 2,000). The two draws share
         # their first 2,000 values of W1 and nothing else (``test_learned_rule_learners_design``).
-        # X11's fold-evaluated-strata (X28) adds 8,000 primary and 35,200 property seeds, of
-        # which three equal a seed of learned-rule-split-mean or learned-rule-learners and share
+        # X11's fold-evaluated-strata (X28) adds 8,000 primary and 40,000 property seeds, of
+        # which two equal a seed of learned-rule-split-mean or learned-rule-cvtmle and share
         # only their first 1,000 values of W1 (``test_fold_evaluated_strata_design``).
-        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 43_197
+        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998
         for study in (gated, boundary, compositions, split_mean, learners, strata):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
