@@ -713,6 +713,13 @@ class TMLE:
         that the ordinary fluctuation does not target.  Their stacked-validation reports
         remain available with the default ``cv_evaluation=False``.
 
+        With ``strata=`` the setting reports the arm means, their linear contrasts, and
+        the regime means and their contrasts, on complete data with rows as the unit.
+        Each stratum estimate averages the fold plug-ins of its stratum, each fold curve
+        divides by the fold's own stratum share, and the marginal estimate is the share
+        mixture of the stratum estimates.  Every other stratified request refuses before
+        any learner (X28 in ``docs/roadmap.md``).
+
         When this setting is true, ``result.cv_targeting`` holds the fold-evaluated
         report and the whole-sample plug-in at the same fold-reweighted fluctuation.
         That plug-in equals the default stacked report only when every fold has equal

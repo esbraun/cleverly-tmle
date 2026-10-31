@@ -543,12 +543,24 @@ each new construction: `tests/unit/test_stratified_incremental_exact.py`,
 [stratified identity-link MSM study](method-evidence/stratified-msm-identity.md), and the
 [stratified DR-TMLE study](method-evidence/stratified-dr-tmle.md).
 
+With `cv_evaluation=True` a stratified fit reports the arm means, their linear contrasts, and the
+regime means and their contrasts. Each stratum estimate is the $1/V$ average of the stratum
+plug-ins of the validation folds. Each fold's stratum curve divides by the fold's own share
+$P_{n,v}(S=s)$, and the update weights solve each reported stratum score
+([fold evaluation with baseline strata](cv-tmle.md#the-algorithm-as-implemented)). The marginal
+estimate is $\sum_s P_n(S=s)\hat\psi_s$, whose own score the fold-local stratum weights leave
+unsolved.
+`tests/unit/test_fold_evaluated_strata_exact.py` checks the construction on an exact law, and the
+fit carries the experimental label until its calibration cell is registered
+([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)).
+
 These requests with `strata=` refuse before any learner:
 
 | request | reason |
 | --- | --- |
 | `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Montoya et al. (2023), Section 3.2, Step 2(c), publish that update, and the package does not implement it with strata. [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b) holds this composition |
-| `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
+| `cv_evaluation=True` with a target other than the arm or regime means and their contrasts, a missing outcome, an intermediate variable, or `id=` | the fold-evaluated stratum construction is derived and checked for those means on complete data with rows as the unit. The ATT, the ATC, the population-intervention targets, ratios, incremental, policy and MSM targets each need their own construction, and the clustered stratum variance and its $t$ reference are unchecked ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
+| `cv_evaluation=True` and a drawn validation fold with no row of a stratum, or no row of an arm inside a stratum | the fold has no stratum plug-in or share, or it adds nothing to that arm's stratum score. The check reads the drawn split before any learner and raises `DataError` |
 | an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation may have no finite root. It has none only if some direction of the covariate separates, which depends on the fitted outcome regression, so the guard reads the data alone |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
 | a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |

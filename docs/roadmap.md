@@ -135,7 +135,7 @@ not change the package version.
 | after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
-| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); implemented for the arm and regime means, with exact tests; the calibration cell is pending | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | after beta | Further DR-TMLE compositions | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (d) | the shipped `DRTMLE` | [X50](#x50-further-dr-tmle-compositions) |
 | after beta | C-TMLE point estimates for further targets | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector and outcome-adaptive paths | [X51](#x51-c-tmle-point-estimates-for-further-targets) |
 | after beta | Parametric C-TMLE intervals | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path; X58 for part (b) | [X52](#x52-parametric-c-tmle-intervals) |
@@ -949,7 +949,7 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
 | (j) a learned rule with a controlled intermediate | `intermediate=` | a two-time-point rule pair: the learned rule at $A$ and the static $Z = z$ | source audit, with part (b) |
-| (m) baseline strata | `strata=` | a finite partition, after [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) | natural extension |
+| (m) baseline strata | `strata=` | a finite partition, read with the fold-evaluated stratum construction of [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) at each fold's rule | natural extension |
 
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
 clusters ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
@@ -984,26 +984,35 @@ benchmark and the bound of the mean over splits.
 
 ### X28. Fold-evaluated CV-TMLE with baseline strata
 
-`cv_evaluation=True` refuses `strata=` before any learner (`src/cleverly/estimators/tmle.py`).
-The fold-evaluated estimate needs the stratum shares $P_n(S=s)$ and a stratum-indexed fold
-average inside each validation fold. The pooled stratified update is unchanged. The item follows
-the beta because no pinned comparator reports a fold-averaged stratified estimate. The `tmle3`
-CV-TMLE evaluates a pooled mean over the validation predictions, and the shipped
-`cross_fit=True` pooled fit is that estimator.
+`cv_evaluation=True` with `strata=` reports the arm means and their linear contrasts (`ey`,
+`ate`) and the regime means and their contrasts, on complete data with rows as the unit. Each
+stratum estimate is the fold average of the stratum plug-ins of the validation folds, each fold
+curve divides by the fold's own stratum share, and the update weights solve each reported stratum
+score ([CV-TMLE](technical-reference/cv-tmle.md#the-algorithm-as-implemented)). The marginal
+estimate is the share mixture of the stratum estimates. No pinned comparator reports a
+fold-averaged stratified estimate. The `tmle3` CV-TMLE evaluates a pooled mean over the
+validation predictions, and the shipped `cross_fit=True` pooled fit is that estimator.
 
 | item | contract |
 | --- | --- |
 | base results | the shipped fold-evaluated estimate ([CV-TMLE](technical-reference/cv-tmle.md)) and the shipped stratified fluctuation ([point-treatment TMLE](technical-reference/point-treatment-tmle.md#weights-strata-and-clusters)) |
-| step | a finite partition. Each stratum estimate is the fold average of the stratum plug-ins of the validation folds. Each stratum curve is $I(S=s) D_s / P_n(S=s)$ |
+| step | a finite partition. Each stratum estimate is the fold average of the stratum plug-ins of the validation folds. Each fold's stratum curve is $I(S=s) D_{s,v} / P_{n,v}(S=s)$ |
 | objection search | the [natural-extension verdicts](technical-reference/natural-extension-verdicts.md), part (i), found no objection to a finite partition in Kennedy (2019), Benkeser et al. (2017), or the MSM projection contract. The fold-evaluated base estimate is Zheng and van der Laan (2011), Sections 2 and 2.1, which [F21](#f21-other-missing-outcome-cv-tmle-variants) cites. No source read records the stratum restriction of that estimate as open |
 | inherited conditions | the conditions of the fold-evaluated estimate inside each stratum; positivity inside each stratum; a fixed number of strata |
 
-Acceptance:
+Delivered: the fold average of the per-fold stratum plug-ins equals each reported stratum
+estimate, and each fold's stratum curve passes an exact-law test
+(`tests/unit/test_fold_evaluated_strata_exact.py`). The fit reads experimental until the
+remaining acceptance item lands:
 
-- a fold-evaluated stratified fit whose stratum estimates equal the fold average of the per-fold
-  stratum plug-ins;
-- an exact-law test of each stratum curve;
-- a registered calibration cell.
+- a registered calibration cell: arm targets with 3 strata, the untargeted stratum plug-in with
+  a misspecified outcome learner as the targeting control, and the stratum curve without the
+  $1/P_{n,v}(S=s)$ normalisation as the invalid-inference control.
+
+Every other target group refuses with this item's id: the ATT and the ATC, the
+population-intervention targets, ratios, incremental, policy and MSM targets, and a fit with a
+missing outcome, an intermediate variable or `id=`. Each needs its own construction or, for
+clusters, a checked stratum variance and $t$ reference.
 
 ### X32b. Repeated outcomes for SDR and IPSI
 
