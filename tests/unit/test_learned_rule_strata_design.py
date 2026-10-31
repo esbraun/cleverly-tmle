@@ -56,7 +56,11 @@ def test_the_law_is_e1s_with_a_steeper_binary_blip() -> None:
         "weighted": ("beta", True, 0.1, 1.5),
         "binary_steep": ("binary", False, -1.2, 3.0),
         "binary_steep_weighted": ("binary", True, -1.2, 3.0),
+        "binary_weak": ("binary", False, 0.1, -0.3),
+        "binary_moderate": ("binary", False, -0.6, 1.5),
     }
+    assert tuple(law.LAWS)[:4] == law.SETTINGS
+    assert tuple(law.DIAGNOSTIC_LAWS) == tuple(law.LAWS)[4:]
     ours = law.draw("binary_steep", 2_000, 17)
     e1s = strata.draw("binary_unweighted", 2_000, 17)
     for column in ("W1", "W2", "S", "A", strata.WEIGHT):
@@ -218,7 +222,16 @@ def test_the_cells() -> None:
     assert len(study.CALIBRATION_LABELS) == 16
     assert len(study.STRATUM_LABELS) == 12
     assert len(calibration) == 16 * 3 + 12 + 2 == len(set(calibration))
-    assert set(study.PROPERTY_CELLS) == {"interval_calibration", "targeting_necessity"}
+    assert set(study.PROPERTY_CELLS) == {
+        "interval_calibration",
+        "targeting_necessity",
+        study.WEAK_FAMILY,
+    }
+    assert study.PROPERTY_CELLS[study.WEAK_FAMILY] == tuple(
+        f"{name}_{label}__diagnostic"
+        for name in ("binary_weak", "binary_moderate")
+        for label in law.PARAMETER_LABELS
+    )
     assert study.NECESSITY_LABELS == ("unweighted_s0", "unweighted_s1", "unweighted_s2")
     assert len(study.PROPERTY_CELLS["targeting_necessity"]) == 6
     assert set(study.EFFICIENCY_BOUNDS) == set(study.CALIBRATION_LABELS)
@@ -231,7 +244,8 @@ def test_the_cells() -> None:
     assert study.STUDY.extra_artifacts == (study.HARNESS_ARTIFACT,)
     # PROPERTY_RULES names a rule for every family that forms a verdict.
     families = {family for rule in properties.PROPERTY_RULES for family in rule.families}
-    assert families >= set(study.PROPERTY_CELLS)
+    assert families >= set(study.PROPERTY_CELLS) - {study.WEAK_FAMILY}
+    assert study.WEAK_FAMILY not in families
 
 
 def test_the_parameter_names_are_the_fits() -> None:
@@ -312,6 +326,8 @@ DECLARED_SUFFIXES: dict[tuple[str, str], tuple[object, ...]] = {
     ("interval_calibration", "binary_steep"): ("retry", 1),
     ("interval_calibration", "binary_steep_weighted"): ("retry", 1),
     ("targeting_necessity", "unweighted"): (),
+    ("weak_margin_diagnostic", "binary_weak"): (),
+    ("weak_margin_diagnostic", "binary_moderate"): (),
 }
 
 
@@ -352,24 +368,10 @@ def _own_sample_seeds() -> set[int]:
 #: jointly.
 OWN_SHARED = (("primary", "weighted", 642), ("interval_calibration", "unweighted", 4_245))
 
-#: The sample seeds this study shares with another X11 study: (this study's draw) to (the other
-#: study, its cell, its draw, its n). Each other draw is an RM30-law draw at a larger n, so the
-#: two samples share their first 1,000 values of ``W1`` and nothing else. Seeds are 32-bit, and
-#: about 75,000 against 200,000 seeds expect three or four coincidences by chance.
-SHARED_SEEDS = {
-    ("targeting_necessity", "unweighted", 6_959): (
-        "learned-rule-cvtmle",
-        "interval_calibration/non_exceptional__correctly_specified",
-        13_968,
-        2_000,
-    ),
-    ("targeting_necessity", "unweighted", 6_067): (
-        "learned-rule-learners",
-        "interval_calibration/blip__declared",
-        2_125,
-        4_000,
-    ),
-}
+#: The sample seeds this study shares with another X11 study: none. (At the first declared
+#: necessity count, 8,000, two necessity replicates shared a ``W1`` prefix with
+#: learned-rule-cvtmle and learned-rule-learners; at 3,600 neither is drawn.)
+SHARED_SEEDS: dict[tuple[str, str, int], tuple[str, str, int, int]] = {}
 
 
 def _seed_of(family: str, setting: str, replicate: int) -> int:
@@ -395,22 +397,17 @@ def test_the_sample_seeds_are_distinct_but_one_declared_pair() -> None:
     )
 
 
-def test_no_sample_seed_is_another_x11_studys_but_two_w1_prefixes() -> None:
-    """The study shares two sample seeds with another X11 study, each a ``W1`` prefix only.
+def test_no_sample_seed_is_another_x11_studys() -> None:
+    """The study shares no sample seed with another X11 study.
 
     ``learned_rule_run.declared_sample_seeds()`` covers every other X11 study, E1 among them.
     It does not yet list this study: the run form is a file of E1's, which is frozen while E1
-    runs, so this study joins it in a follow-up (design record, D2). This test and
-    :func:`test_the_smoke_record_draws_no_declared_seed` check the union in the meantime.
+    runs, so this study joins it in the change that registers it (design record, D2). This test
+    and :func:`test_the_smoke_record_draws_no_declared_seed` check the union in the meantime.
     """
     own = _own_sample_seeds()
     others = learned_rule_run.declared_sample_seeds()
-    assert own & others == {_seed_of(*key) for key in SHARED_SEEDS}
-    for key, (_, _, _, size) in SHARED_SEEDS.items():
-        frame = law.draw(key[1], study.PRIMARY_N, _seed_of(*key))
-        rm30 = base.draw("non_exceptional", size, _seed_of(*key))
-        np.testing.assert_array_equal(frame["W1"], rm30["W1"][: study.PRIMARY_N])
-        assert not np.array_equal(frame["W2"], rm30["W2"][: study.PRIMARY_N])
+    assert own & others == {_seed_of(*key) for key in SHARED_SEEDS} == set()
 
 
 def test_the_smoke_record_draws_no_declared_seed() -> None:
@@ -434,12 +431,14 @@ PILOT_SE_RATIOS = (
     1.0164, 1.0146, 1.0035, 1.0017, 1.0123, 1.0077, 0.9731, 0.9962,
 )  # fmt: skip
 
-#: The pilot's standardized bias of the targeted arm and of the untargeted control (in the
-#: control's own SD) for each necessity label: 2,000 draws (cell 4).
+#: The pooled necessity pilot's standardized bias of the targeted arm and of the untargeted
+#: control (in the control's own SD) for each label: 2,000 draws under label 20266011 (cell 4)
+#: and 4,000 under label 20267401 (cell 9, design review finding 3), 6,000 in all.
+NECESSITY_PILOT_DRAWS = 6_000
 PILOT_NECESSITY = {
-    "unweighted_s0": (0.177, 13.64),
-    "unweighted_s1": (0.032, 8.86),
-    "unweighted_s2": (-0.073, -13.84),
+    "unweighted_s0": (0.1637, 12.76),
+    "unweighted_s1": (0.0244, 8.58),
+    "unweighted_s2": (-0.0555, -12.90),
 }
 
 
@@ -460,18 +459,32 @@ def test_the_calibration_count_is_the_per_arm_rule() -> None:
     assert all(abs(ratio - 1.0) <= half for ratio in PILOT_SE_RATIOS)
 
 
-def test_the_necessity_count_covers_the_pilots_largest_bias() -> None:
-    """8,000 draws establish every targeted arm inside the margin with probability above 0.999
-    at the pilot's biases, and above 0.97 if stratum 0's bias (0.177) is one pilot SE larger
-    (0.199). Each control's bias, at least 8.8 own SDs, is established outside the margin
-    surely."""
+def _necessity_power(replicates: int, shift: float) -> float:
+    """The product of the targeted arms' equivalence power, each bias moved ``shift`` away
+    from zero."""
+    return float(
+        np.prod(
+            [
+                tools.equivalence_power(bias + np.sign(bias) * shift, replicates)
+                for bias, _ in PILOT_NECESSITY.values()
+            ]
+        )
+    )
+
+
+def test_the_necessity_count_is_the_declared_rule_on_the_pooled_pilot() -> None:
+    """The smallest multiple of 400 whose equivalence-power product is at least 0.95 at the
+    pooled biases and at one pooled pilot SE further from zero: 3,600. 3,200 misses. Each
+    control's bias, at least 8.5 own SDs, is established outside the margin surely."""
     assert set(PILOT_NECESSITY) == set(study.NECESSITY_LABELS)
+    shift = 1.0 / np.sqrt(NECESSITY_PILOT_DRAWS)
     replicates = properties.NECESSITY_REPLICATES
-    assert replicates == 8_000
-    powers = [tools.equivalence_power(bias, replicates) for bias, _ in PILOT_NECESSITY.values()]
-    assert float(np.prod(powers)) > 0.999
-    assert tools.equivalence_power(0.199, replicates) > 0.97
-    assert tools.equivalence_power(0.177, 6_000) < 0.9995
+    assert replicates == 3_600
+    assert _necessity_power(replicates, 0.0) >= 0.95
+    assert _necessity_power(replicates, shift) >= 0.95
+    assert _necessity_power(replicates - 400, shift) < 0.95
+    # The first pilot's stratum-0 bias, one of its SEs higher, would need more than 6,000.
+    assert tools.equivalence_power(0.199, 6_000) < 0.95
     assert all(
         tools.necessity_power(control, replicates) > 0.9999
         for _, control in PILOT_NECESSITY.values()

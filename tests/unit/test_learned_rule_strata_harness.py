@@ -229,6 +229,70 @@ class TestTheHarness:
         )
 
 
+class TestTheMarginMeasures:
+    @SETTINGS
+    def test_they_read_the_boundary_stratum_of_the_stored_fold_rules(self, setting: str) -> None:
+        frame, fitted = _measured(setting)
+        stored = law.fold_rules(fitted.result.nuisance)
+        assert stored is not None
+        rows = frame["S"].to_numpy() == law.boundary_stratum(setting)
+        split = stored[rows]
+        expected = np.mean(split.any(axis=1) & ~split.all(axis=1))
+        measures = law.boundary_measures(fitted.result, setting)
+        assert measures["boundary_disagreement"] == pytest.approx(expected, abs=0)
+        assert measures["boundary_treated_share"] == pytest.approx(
+            law.treated_share(fitted.result, law.boundary_stratum(setting)), abs=0
+        )
+        assert set(measures) == set(law.MARGIN_COLUMNS)
+
+    def test_the_disagreement_is_a_nonzero_witness(self) -> None:
+        """Some boundary rows split the fold rules, and a stratum the rules treat alike has
+        none: the measure reads the boundary stratum, not the whole sample."""
+        _, fitted = _measured("binary_steep")
+        assert law.boundary_measures(fitted.result, "binary_steep")["boundary_disagreement"] > 0
+        stored = law.fold_rules(fitted.result.nuisance)
+        assert stored is not None
+        s0 = strata.stratum_values(fitted.result) == 0
+        assert not (stored[s0].any(axis=1) & ~stored[s0].all(axis=1)).any()
+
+
+class TestTheWeakMarginDiagnostic:
+    def test_the_unstratified_fit_is_paired_on_the_same_folds_and_rules(self) -> None:
+        frame = law.draw("binary_weak", N, THROWAWAY + 30)
+        declared, unstratified = properties.paired(frame, "binary_weak", THROWAWAY + 31)
+        assert set(unstratified.result.estimates) == {law.ESTIMAND}
+        np.testing.assert_array_equal(
+            law.fold_rules(declared.result.nuisance), law.fold_rules(unstratified.result.nuisance)
+        )
+        assert declared.truth.truths[law.ESTIMAND] == pytest.approx(
+            unstratified.truth.truths[law.ESTIMAND], abs=1e-15
+        )
+        a = float(declared.result.estimates[law.ESTIMAND].psi)
+        b = float(unstratified.result.estimates[law.ESTIMAND].psi)
+        assert a != b and abs(a - b) < 0.02
+
+    def test_a_mismatched_fold_draw_stops_the_draw(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        frame = law.draw("binary_weak", N, THROWAWAY + 30)
+        honest = strata.fold_index
+        calls = iter([0, 1])
+
+        def shifted(result: Any) -> np.ndarray:
+            index = honest(result)
+            return index if next(calls) == 0 else np.roll(index, 1)
+
+        monkeypatch.setattr(strata, "fold_index", shifted)
+        with pytest.raises(RuntimeError, match="other folds"):
+            properties.paired(frame, "binary_weak", THROWAWAY + 31)
+
+    def test_the_weak_law_is_e1s_binary_law_by_e1s_draw(self) -> None:
+        np.testing.assert_array_equal(
+            law.draw("binary_weak", 300, 4).to_numpy(),
+            strata.draw("binary_unweighted", 300, 4).to_numpy(),
+        )
+        assert law.LAWS["binary_weak"] is strata.LAWS["binary_unweighted"]
+        assert law.boundary_stratum("binary_weak") == law.boundary_stratum("binary_moderate") == 2
+
+
 class TestTheUnnormalisedControl:
     @SETTINGS
     def test_it_is_the_curve_times_the_fold_share(self, setting: str) -> None:
@@ -339,6 +403,7 @@ class TestThePropertyPath:
         assert (rows.groupby("cell").size() == CAP).all()
         assert (rows["n"] == properties.CALIBRATION_N).all()
         assert (rows["rule_rows_checked"] == N).all()
+        assert rows[list(law.MARGIN_COLUMNS)].notna().all().all()
         summary = properties.summarize_properties(rows).set_index("cell")
         assert set(summary.index) == declared
 
@@ -392,14 +457,15 @@ class TestThePropertyPath:
             (("interval_calibration", "weighted", 1), 4 * 3 + 3 + 1),
             (("interval_calibration", "binary_steep_weighted", 1), 4 * 3 + 3),
             (("targeting_necessity", "unweighted", 1), 6),
+            ((study.WEAK_FAMILY, "binary_moderate", 1), 4),
         ],
     )
     def test_a_lost_fit_costs_every_cell_it_writes(
         self, lost: tuple[str, str, int], cost: int, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """One empty stratum-fold refusal is one lost draw of all four parameters' cells: the
-        positives with their controls (no share-dropped control in a binary setting), or the
-        six necessity cells."""
+        positives with their controls (no share-dropped control in a binary setting), the six
+        necessity cells, or the four diagnostic cells of a weak-margin law."""
         cached = _property_rows()
 
         def worker(key: Any, frame: pd.DataFrame) -> list[dict[str, Any]]:
@@ -433,3 +499,30 @@ class TestThePropertyPath:
         assert len(hit) == cost
         assert {cell for cell, count in stamped.items() if count} == hit
         assert (rows.loc[rows["cell"].isin(hit)].groupby("cell").size() == CAP - 1).all()
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_the_weak_margin_cells_report_both_fits_and_state_no_verdict() -> None:
+    rows = _property_rows()
+    weak = rows.loc[rows["property"] == study.WEAK_FAMILY]
+    assert set(weak["role"]) == {"diagnostic"}
+    assert weak[list(properties.UNSTRATIFIED_COLUMNS)].notna().all().all()
+    others = rows.loc[rows["property"] != study.WEAK_FAMILY]
+    assert others[list(properties.UNSTRATIFIED_COLUMNS)].isna().all().all()
+    summary = properties.summarize_properties(rows)
+    reported = summary.loc[summary["property"] == study.WEAK_FAMILY]
+    assert len(reported) == 8 and set(reported["role"]) == {"diagnostic"}
+    assert reported["passed"].all() and reported["property_passed"].all()
+    columns = [c for c in properties.WEAK_SUMMARY if not c.endswith("_ci_upper")]
+    assert reported[columns].notna().all().all()
+    for _, row in reported.iterrows():
+        group = weak.loc[weak["cell"] == row["cell"]]
+        covered = np.abs(group["unstratified_estimate"] - group["unstratified_truth"]) <= (
+            law.CRITICAL * group["unstratified_std_error"]
+        )
+        assert row["unstratified_coverage"] == pytest.approx(covered.mean())
+        assert row["boundary_disagreement_mean"] == pytest.approx(
+            group["boundary_disagreement"].mean()
+        )
+    assert property_failures.undeclared_verdict_writers(properties) == []
+    assert property_failures.rule_for(study.WEAK_FAMILY, properties) is None

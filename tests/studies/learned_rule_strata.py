@@ -16,6 +16,10 @@ value ``ey_learned_rule[learned rule]`` in each of the three strata and marginal
 ``binary_steep``, ``binary_steep_weighted``
     The binary outcome with the blip ``-1.2 + 3.0 W1``, whose rule boundary lies in stratum 2.
 
+A third family, ``weak_margin_diagnostic``, reports two weaker binary blips with no verdict:
+E1's own ``0.1 - 0.3 W1`` and ``-0.6 + 1.5 W1``, each beside the same estimator without
+``strata=``.
+
 Every setting draws the law of :mod:`tests.studies._fold_evaluated_strata_law` (X11 PR E1),
 read and never edited, with a steeper blip than E1's in the binary settings
 (:func:`tests.studies._learned_rule_strata_law.draw`). The target of each replication is data-adaptive, so each row carries
@@ -106,6 +110,17 @@ NECESSITY_LABELS = tuple(
 )
 
 
+#: The descriptive weak-margin family: E1's binary blip ``0.1 - 0.3 W1`` (``binary_weak``) and
+#: the blip ``-0.6 + 1.5 W1`` (``binary_moderate``), rows only, one cell per parameter with the
+#: role ``diagnostic``. No margin is read and no verdict forms; each row carries the paired
+#: unstratified learned-rule fit's marginal estimate, SE and truth, and the margin measures.
+WEAK_FAMILY = "weak_margin_diagnostic"
+WEAK_KIND = "diagnostic"
+WEAK_LABELS = tuple(
+    f"{name}_{label}" for name in law.DIAGNOSTIC_LAWS for label in law.PARAMETER_LABELS
+)
+
+
 def calibration_cells() -> tuple[str, ...]:
     """Every ``interval_calibration`` cell, in label order."""
     cells: list[str] = []
@@ -125,6 +140,7 @@ PROPERTY_CELLS = {
     "targeting_necessity": tuple(
         f"{label}__{arm}" for label in NECESSITY_LABELS for arm in ("targeted", "untargeted")
     ),
+    WEAK_FAMILY: tuple(f"{label}__{WEAK_KIND}" for label in WEAK_LABELS),
 }
 
 #: The truth-harness artifact: one row per primary replication and parameter.
@@ -211,6 +227,17 @@ CONFIGURATION = {
         "w(W2); each stratum truth is the mean over the 5 folds, and the marginal truth is the "
         "share mixture"
     ),
+    "weak_margin_diagnostic": (
+        "binary rows-only laws with the blips 0.1 - 0.3 W1 (E1's binary_unweighted, drawn by "
+        "E1's draw) and -0.6 + 1.5 W1, n = 1000: the declared fit and the same estimator "
+        "without strata= (same learner and fold seed, so the same folds and fold rules) on each "
+        "sample, each with its harness; role diagnostic, no verdict"
+    ),
+    "margin_measures": (
+        "boundary_disagreement: share of the boundary stratum's rows on which the stored fold "
+        "rules disagree; boundary_treated_share: share of them the fit's rule treats; "
+        "descriptive"
+    ),
     "oracle_se": (
         "sqrt(V^-2 sum_v Var D_{s,v} / n_v) at each fold's rule, by the same quadrature; "
         "descriptive"
@@ -263,6 +290,7 @@ def primary_rows(
                 "oracle_se": fitted.truth.oracle_ses[name],
                 "rule_rows_checked": fitted.truth.rows_checked,
                 "solver_warnings": fitted.warnings,
+                **law.boundary_measures(fitted.result, scenario),
             }
         )
     return rows

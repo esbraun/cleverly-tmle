@@ -13,11 +13,13 @@ parameters: `ey_learned_rule[learned rule]` in strata 0, 1 and 2 and marginally.
 | part | declaration |
 | --- | --- |
 | law | E1's (`tests/studies/_fold_evaluated_strata_law.py`, read only): `W1 ~ U(-1, 1)`, `W2 ~ Bernoulli(0.5)`, `logit g0 = 0.3 W1 - 0.2 W2`, `logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + a b(W1)`, `S` cut from `W1` at -0.6 and 0.1 (shares 0.2, 0.35, 0.45). Bounded: `Y ~ Beta(12 m, 12 (1 - m))`, `b = 0.1 + 1.5 W1`, rule boundary `W1 = -1/15` in stratum 1. Binary: `Y ~ Bernoulli(m)`, `b = -1.2 + 3.0 W1`, boundary `W1 = 0.4` in stratum 2 |
-| why this binary blip | E1's binary blip `0.1 - 0.3 W1` (slope 0.3) and then `-0.6 + 1.5 W1` were piloted first. The fold rules disagreed on 45% and 26% of the boundary stratum's rows, and the boundary stratum read SE ratios 0.88 to 0.89 and 0.94 to 0.95: the weak-margin finite-sample limit of RM30's `weak_blip` law (F27), not the stratum construction. At slope 3.0 they disagree on 14% and every ratio is 0.97 to 1.02 |
+| why this binary blip | E1's binary blip `0.1 - 0.3 W1` is weak across the whole support (`abs(b) <= 0.4`). In the pilot every stratum and the marginal value under-covered there (0.911 to 0.933, SE ratios 0.88 to 0.97), not only the boundary stratum, and the fold rules disagreed on 45% of the boundary stratum's rows. At `-0.6 + 1.5 W1` they disagreed on 26%, and the boundary stratum read SE ratios 0.954 and 0.936 (weighted); the weighted cell would have failed the per-arm screen and passed at the declared count with probability about 0.23, so that law was predicted red there. This is the weak-margin finite-sample limit of RM30's `weak_blip` law (F27): the oracle SE at each replicate's own fold rules reads the same shortfall, and the unstratified learned-rule fit under-covers alike on the same draws (design review pilot), so the stratum construction adds none of it. At slope 3.0 the rules disagree on 14% and every ratio is 0.97 to 1.02. The declared binary law is still the harder regime: the bounded slope 1.5 with a thirteenth of the Bernoulli residual variance is about 5.4 on the binary scale, and its rules disagree on 8%. Both weaker blips are published as `weak_margin_diagnostic` |
 | scenarios | `unweighted` and `weighted` (bounded; E1's quasibinomial pairwise-product outcome learner on `(A, W1, W2, S)`), `binary_steep` and `binary_steep_weighted` (binary; RM30's logistic learner on the same products). The weight is `w = 1 + 1.5 W2`. The treatment learner is logistic on `(W1, W2, S)`; every learner is correctly specified. n = 1,000 and 2,000 primary replications per scenario |
 | truth | per replication: each fold's rule refit from its training rows with the fit's learner, task and scaled outcome, checked against the fit's rule on every validation row (rule L4) and the stored fold rule on every row; each stratum value by the trapezoid rule on 4,001 points of `W1` per stratum for each `W2`, weighted by `w(W2)`, averaged over the folds; the marginal truth is the share mixture |
 | `interval_calibration` | one positive cell per setting and parameter (16), 14,800 draws per setting, each with the shrunken-SE and noise controls; `unnormalised_curve_control` on every stratum parameter (12); `share_dropped_control` on the marginal value of the two bounded settings (2) |
-| `targeting_necessity` | the bounded rows-only fit with E1's `drop_w1_learner()` against its untargeted fold plug-in at its own rule, on the three stratum parameters, 8,000 draws; its truth is refit with that learner |
+| `targeting_necessity` | the bounded rows-only fit with E1's `drop_w1_learner()` against its untargeted fold plug-in at its own rule, on the three stratum parameters, 3,600 draws; its truth is refit with that learner, and about 16% of replicates learn a rule that leaves one `W2` level untreated in some fold, so that target varies too |
+| `weak_margin_diagnostic` | role `diagnostic`, no verdict: E1's binary rows-only law at its blip `0.1 - 0.3 W1` (`binary_weak`, drawn by E1's `draw`) and the blip `-0.6 + 1.5 W1` (`binary_moderate`), 4,000 draws each at n = 1,000. Each draw fits the declared fit and the same estimator without `strata=` (same learner and fold seed, so the same folds and fold rules). The summary gives the coverage and SE ratio of every cell and of the unstratified marginal fit, with intervals, and the mean boundary-stratum disagreement and treated share |
+| margin measures | every property row and every primary harness row (`strata-harness.csv.gz`) carry `boundary_disagreement` (the share of the boundary stratum's rows on which the five fold rules disagree) and `boundary_treated_share`; descriptive |
 | verdicts | the framework defaults; the two construction controls are below-band SE controls |
 | comparator | none: no pinned comparator reports a fold-averaged stratified learned-rule value |
 
@@ -33,17 +35,28 @@ so it learns a rule of `W2` alone and its plug-in is nearly the same in every st
 shows that targeting repairs a stratum-blind initial fit at a learned rule, not a subtle
 misspecification within a stratum.
 
+## A red calibration cell
+
+The tightest positive is `binary_steep_weighted_s2` (pilot SE ratio 0.973, the cell with the
+most fold-rule disagreement; pass probability about 0.98). A red there, or in any boundary
+stratum, is diagnosed against `weak_margin_diagnostic` and the oracle SE before it is routed. The
+law is not moved again after a verdict.
+
 ## What registration must state
 
 - Support rows over the outcome kind: `binary` from the binary cells and `continuous` (bounded)
   from the beta cells, each with `weighting="fixed"` rows, since each outcome has a weighted
   cell.
-- Measured at n = 1,000 with 5 folds, three strata whose smallest share is 0.2, and blips whose
-  slope at the rule boundary is 1.5 (bounded) and 3.0 (binary). With a weaker margin the fold
-  rules disagree on much of the boundary stratum and the interval under-covers (pilot: 0.911 to
-  0.933 at E1's binary blip), as RM30's `weak_blip` row does.
+- The limits text of the design review's D1 ruling, with its numbers quoted from the
+  `weak_margin_diagnostic` artifact: measured at n = 1,000 with 5 folds and three strata whose
+  smallest share is 0.2, at blip slopes 1.5 (bounded) and 3.0 (binary) at the rule boundary;
+  with a weaker margin the fold rules disagree on more of the sample and the interval
+  under-covers, as the unstratified fit does alike (roadmap F27, the `weak_blip` row). The page
+  links F27 and the learned-rule boundary study.
 - The boundary stratum's target varies by replication; a stratum the rules treat alike has a
   fixed target.
+- The rule boundary was never placed in the smallest stratum: it lies in strata of share 0.35
+  (bounded) and 0.45 (binary).
 - Intervals are pointwise (`simultaneous=False`); the band and `repeats > 1` are not measured.
 - The two construction controls are counted separately, and the targeting control is described
   as stratum-blind.
@@ -56,9 +69,10 @@ The run form is the X11 one in `tests/canonical/learned_rule_run.py`.
 
 A declared run takes `--output` and `--jobs` only, on the Python and package versions that rule L7
 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical library. It
-draws 75,200 samples (8,000 primary, 59,200 calibration and 8,000 necessity), each one fit and
-its harness, at about 0.10 core-s per bounded draw and 0.22 per binary draw (timed on a shared
-machine). That is about 11,600 core-s, under an hour on 4 cores; allow three hours with the
+draws 78,800 samples (8,000 primary, 59,200 calibration, 3,600 necessity and 8,000
+weak-margin), each one fit and its harness and each weak-margin draw two, at about 0.10 core-s
+per bounded draw, 0.22 per binary draw and 0.44 per weak-margin pair (timed on a shared
+machine). That is about 14,700 core-s, about an hour on 4 cores; allow three hours with the
 summaries:
 
 ```bash

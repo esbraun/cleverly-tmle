@@ -23,12 +23,16 @@ the true rule ``d0(W) = I(b(W1) > 0)`` inside a different stratum:
     E1's Bernoulli outcome law with the blip ``-1.2 + 3.0 W1``, zero at ``W1 = 0.4``, inside
     stratum 2. Strata 0 and 1 are asymptotically treat-no-one. RM30's logistic outcome learner,
     no ``q_bounds``. E1's own binary blip ``0.1 - 0.3 W1`` has its root in stratum 2 as well,
-    but a tenth of the slope, and the learned-rule value under-covered there in the pilot: the
-    weak-margin limit of RM30's ``weak_blip`` law (design record, D1).
+    but it is weak across the whole support (``|b| <= 0.4``), and the learned-rule value
+    under-covered in every stratum in the pilot: the weak-margin limit of RM30's ``weak_blip``
+    law (design record, D1). The study reports that blip and ``-0.6 + 1.5 W1`` as the
+    ``weak_margin_diagnostic`` family, with no verdict.
 
 Each blip has a nonzero slope at its root (1.5 bounded, 3.0 binary), so the rule's boundary
 has probability zero and the law is not exceptional (the margin condition C3 of RM30). The
-binary outcome's larger residual variance needs the steeper blip for the same rule noise.
+binary outcome's larger residual variance needs the steeper blip for rule noise of the same
+order; the declared binary law still has more of it than the bounded one. The boundary never
+falls in the smallest stratum (share 0.2): it lies in strata of share 0.35 and 0.45.
 
 The target of a fit is data-adaptive: ``psi_s = V^-1 sum_v Psi_{s,d_v}(P0)`` for each stratum
 and ``sum_s P0(S = s) psi_s = V^-1 sum_v Psi_{d_v}(P0)`` for the marginal value. The harness
@@ -62,13 +66,21 @@ from tests.studies import _learned_rule_law as base
 N_FOLDS = strata.N_FOLDS
 
 #: The blip ``-1.2 + 3.0 W1`` of the two binary settings: zero at ``W1 = 0.4``, inside stratum
-#: 2. Two weaker binary blips were piloted first (label 20266011, design record D1): E1's own
-#: ``0.1 - 0.3 W1`` (root in stratum 2, slope 0.3) covered 0.911 to 0.933 with SE ratios 0.88 to
-#: 0.97 in every stratum, and ``-0.6 + 1.5 W1`` read the boundary stratum at ratio 0.936 and
-#: 0.954. That is the weak-margin finite-sample limit RM30 records at its ``weak_blip`` law
-#: (roadmap F27): the five fold rules disagree on a quarter to a half of the boundary stratum,
-#: so the rule-learning term the curve omits is not yet negligible. The stratum construction is
-#: not what it measures.
+#: 2. Two weaker binary blips were piloted first (label 20266011, design record D1). E1's own
+#: ``0.1 - 0.3 W1`` is weak across the whole support (``|b| <= 0.4``), and every stratum and the
+#: marginal value covered 0.911 to 0.933 with SE ratios 0.88 to 0.97 there, not only the
+#: boundary stratum. ``-0.6 + 1.5 W1`` read the boundary stratum at SE ratio 0.954 and 0.936
+#: (weighted): the weighted cell would have failed the per-arm screen, and passed at the
+#: declared count with probability about 0.23. That is the weak-margin finite-sample limit RM30
+#: records at its ``weak_blip`` law (roadmap F27): the fold rules disagree on a quarter to a
+#: half of the boundary stratum, so the variance of learning the rule, which the curve omits,
+#: is not yet negligible. The oracle SE at each replicate's own fold rules reads the same
+#: shortfall, and the design review's paired unstratified fit under-covers alike on the same
+#: draws, so the stratum construction adds none of it. Both weaker blips are published as the
+#: ``weak_margin_diagnostic`` family (:data:`DIAGNOSTIC_LAWS`). The declared binary law is still
+#: the harder of the two calibration regimes: the bounded slope 1.5 with a thirteenth of the
+#: Bernoulli residual variance is about ``1.5 sqrt(13) = 5.4`` on the binary scale, against 3.0,
+#: and the fold rules disagree on about 8% of the bounded boundary stratum against 14%.
 BINARY_INTERCEPT = -1.2
 BINARY_SLOPE = 3.0
 
@@ -81,6 +93,19 @@ LAWS = {
     "binary_steep_weighted": strata.Setting("binary", True, BINARY_SLOPE, BINARY_INTERCEPT),
 }
 SETTINGS = tuple(LAWS)
+
+#: The ``weak_margin_diagnostic`` laws, binary and rows only, which report and form no verdict:
+#: ``binary_weak`` is E1's ``binary_unweighted`` law (blip ``0.1 - 0.3 W1``), drawn by E1's own
+#: ``draw``, and ``binary_moderate`` the blip ``-0.6 + 1.5 W1``. Both put the rule boundary in
+#: stratum 2 (at ``1/3`` and ``0.4``).
+DIAGNOSTIC_LAWS = {
+    "binary_weak": strata.LAWS["binary_unweighted"],
+    "binary_moderate": strata.Setting("binary", False, 1.5, -0.6),
+}
+LAWS.update(DIAGNOSTIC_LAWS)
+
+#: The E1 setting whose own ``draw`` draws a setting of this study.
+E1_DRAWS = {"unweighted": "unweighted", "weighted": "weighted", "binary_weak": "binary_unweighted"}
 
 #: The settings of the bounded outcome, the only ones whose share term a control can resolve.
 BOUNDED_SETTINGS = strata.BOUNDED_SETTINGS
@@ -101,10 +126,12 @@ PARAMETER_LABELS = tuple(STRATUM_KEYS)
 #: The two-sided 95% normal multiplier of every interval the study writes itself.
 CRITICAL = base.CRITICAL
 
-#: The column names a row carries beside the shared schema (:data:`~tests.studies.
-#: _learned_rule_law.HARNESS_COLUMNS`): the descriptive oracle SE, the rows whose refit rule
-#: equals the fit's, and the solver warnings of the fit and its refits.
-HARNESS_COLUMNS = base.HARNESS_COLUMNS
+#: The column names a row carries beside the shared schema: RM30's
+#: (:data:`~tests.studies._learned_rule_law.HARNESS_COLUMNS`: the descriptive oracle SE, the rows
+#: whose refit rule equals the fit's, and the solver warnings of the fit and its refits), then
+#: two descriptive margin measures of the fit (:func:`boundary_measures`). No verdict reads them.
+MARGIN_COLUMNS = ("boundary_disagreement", "boundary_treated_share")
+HARNESS_COLUMNS = (*base.HARNESS_COLUMNS, *MARGIN_COLUMNS)
 
 
 def parameter(label: str) -> str:
@@ -149,13 +176,13 @@ def limit_rule(setting: str) -> Callable[[np.ndarray, float], np.ndarray]:
 def draw(setting: str, n: int, seed: int) -> pd.DataFrame:
     """One sample of ``setting``: E1's draw, in E1's order, with the setting's blip.
 
-    A bounded setting's sample is E1's own (:func:`~tests.studies._fold_evaluated_strata_law.
-    draw`). A binary setting repeats E1's draw with this study's blip: the same ``W1``, ``W2``,
+    A bounded setting's sample and a ``binary_weak`` sample are E1's own
+    (:func:`~tests.studies._fold_evaluated_strata_law.draw`). Another binary setting repeats E1's draw with this study's blip: the same ``W1``, ``W2``,
     ``A`` and the same uniform stream for ``Y``, so it differs from E1's binary sample only in
     the treated rows' outcome mean.
     """
-    if setting in strata.LAWS and strata.LAWS[setting] == LAWS[setting]:
-        return strata.draw(setting, n, seed)
+    if setting in E1_DRAWS:
+        return strata.draw(E1_DRAWS[setting], n, seed)
     spec = LAWS[setting]
     rng = np.random.default_rng(seed)
     w1 = rng.uniform(-1.0, 1.0, n)
@@ -326,19 +353,26 @@ def estimator(fold_seed: int, setting: str = "unweighted", *, learner: Any = Non
     )
 
 
-def fit(frame: pd.DataFrame, setting: str, fold_seed: int, *, learner: Any = None) -> Any:
-    """Fit the declared estimator to one sample of ``setting`` and return the single result."""
+def fit(
+    frame: pd.DataFrame,
+    setting: str,
+    fold_seed: int,
+    *,
+    learner: Any = None,
+    stratified: bool = True,
+) -> Any:
+    """Fit the declared estimator to one sample of ``setting`` and return the single result.
+
+    ``stratified=False`` is the same estimator without ``strata=``, on the same covariates and
+    fold seed, so the same folds and fold rules: the paired unstratified learned-rule fit of the
+    ``weak_margin_diagnostic`` family.
+    """
     columns: dict[str, Any] = {"weights": strata.WEIGHT} if LAWS[setting].weighted else {}
+    if stratified:
+        columns["strata"] = ["S"]
     return (
         estimator(fold_seed, setting, learner=learner)
-        .fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=list(strata.COVARIATES),
-            strata=["S"],
-            **columns,
-        )
+        .fit(frame, outcome="Y", treatment="A", covariates=list(strata.COVARIATES), **columns)
         .single()
     )
 
@@ -486,7 +520,14 @@ class Measured:
     warnings: int
 
 
-def measured(frame: pd.DataFrame, setting: str, fold_seed: int, *, learner: Any = None) -> Measured:
+def measured(
+    frame: pd.DataFrame,
+    setting: str,
+    fold_seed: int,
+    *,
+    learner: Any = None,
+    stratified: bool = True,
+) -> Measured:
     """Fit one sample, run its harness with the same learner, and count the solver warnings.
 
     Rule L4 stops the run on a non-finite estimate or standard error and on a harness mismatch,
@@ -496,9 +537,9 @@ def measured(frame: pd.DataFrame, setting: str, fold_seed: int, *, learner: Any 
     """
     chosen = learner_of(setting) if learner is None else learner
     with base.solver_warning_count() as count:
-        result = fit(frame, setting, fold_seed, learner=chosen)
+        result = fit(frame, setting, fold_seed, learner=chosen, stratified=stratified)
         truth = harness(result, chosen, setting)
-    for name in PARAMETERS:
+    for name in PARAMETERS if stratified else (ESTIMAND,):
         estimate = result.estimates[name]
         if not (np.isfinite(estimate.psi) and np.isfinite(estimate.std_error)):
             raise RuntimeError(f"a non-finite estimate or standard error of {name} (rule L4)")
@@ -573,3 +614,23 @@ def treated_share(result: Any, code: int) -> float:
     """The share of stratum ``code``'s rows that the fit's rule treats; descriptive."""
     codes = strata.stratum_values(result)
     return float(np.mean(base.rule_of(result)[codes == code]))
+
+
+def boundary_measures(result: Any, setting: str) -> dict[str, float]:
+    """The descriptive margin measures of a fit, at the setting's boundary stratum.
+
+    ``boundary_disagreement`` is the share of the boundary stratum's rows on which the stored
+    fold rules disagree (some fold treats the row and some does not), and
+    ``boundary_treated_share`` the share of them the fit's own rule treats. The stratum is read
+    from ``S`` of the frame, so an unstratified fit reads the same rows.
+    """
+    stored = fold_rules(result.nuisance)
+    if stored is None:
+        raise base.HarnessMismatch("the fit stores no fold rules")
+    covariates = np.asarray(result.data.covariates, dtype=float)
+    rows = covariates[:, 2] == float(boundary_stratum(setting))
+    split = stored[rows]
+    return {
+        "boundary_disagreement": float(np.mean(split.any(axis=1) & ~split.all(axis=1))),
+        "boundary_treated_share": float(np.mean(base.rule_of(result)[rows])),
+    }
