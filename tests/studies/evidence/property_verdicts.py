@@ -25,6 +25,7 @@ from tests.studies.evidence.inference import (
 from tests.studies.evidence.properties import (
     PropertyCell,
     Rate,
+    cell_groups,
     coverage_gain_interval,
     largest_standardized_value,
     paired_displacement,
@@ -331,8 +332,9 @@ def apply_shared_verdicts(
     ) | (summary.loc[small, "coverage_ci_lower"] >= margins.coverage_floor)
 
     calibration = summary["property"] == "interval_calibration"
+    groups = cell_groups(rows, "interval_calibration")
     for cell in sorted(summary.loc[calibration, "cell"]):
-        group = rows.loc[(rows["property"] == "interval_calibration") & (rows["cell"] == cell)]
+        group = groups[cell]
         bound = None if efficiency_bounds is None else efficiency_bounds[cell.split("__", 1)[0]]
         intervals = ratio_intervals(
             group,

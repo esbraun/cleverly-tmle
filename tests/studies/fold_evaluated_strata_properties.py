@@ -73,6 +73,7 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    cell_groups,
     control_row,
     ratio_intervals,
     replicate_row,
@@ -476,8 +477,9 @@ def report_sparse_events(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     if family.any() and roles != {DIAGNOSTIC_ROLE}:
         raise ValueError(f"{SPARSE_FAMILY} publishes roles {sorted(roles)}, not diagnostic")
     margins = STUDY.margins
+    groups = cell_groups(rows, SPARSE_FAMILY)
     for cell in sorted(summary.loc[family, "cell"]):
-        group = rows.loc[(rows["property"] == SPARSE_FAMILY) & (rows["cell"] == cell)]
+        group = groups[cell]
         stacked = group.assign(
             estimate=group["stacked_estimate"], std_error=group["stacked_std_error"]
         )

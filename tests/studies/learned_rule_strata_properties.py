@@ -79,6 +79,7 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    cell_groups,
     control_row,
     ratio_intervals,
     replicate_row,
@@ -501,8 +502,9 @@ def report_weak_margin(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     if family.any() and roles != {DIAGNOSTIC_ROLE}:
         raise ValueError(f"{WEAK_FAMILY} publishes roles {sorted(roles)}, not diagnostic")
     margins = STUDY.margins
+    groups = cell_groups(rows, WEAK_FAMILY)
     for cell in sorted(summary.loc[family, "cell"]):
-        group = rows.loc[(rows["property"] == WEAK_FAMILY) & (rows["cell"] == cell)]
+        group = groups[cell]
         unstratified = group.assign(
             estimate=group["unstratified_estimate"],
             std_error=group["unstratified_std_error"],
