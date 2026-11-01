@@ -13,7 +13,8 @@ Every cell reads the error against :math:`\Psi_{d_0}`. The source's licence is c
 (the regret :math:`\Psi_{d_0} - \tilde\psi_{0n}` is :math:`o_P(n^{-1/2})`, by Lemma 1's margin
 and rate conditions), with the treatment mechanism known. A law cell gates only when its
 learner's population limit meets C3f, C7 and the margin reading of C8 (:func:`gated`, read from
-:data:`LIMITS`, which ``test_learned_rule_optimal_design`` recomputes). Four laws and settings:
+:data:`LIMITS`, which ``test_learned_rule_optimal_value_design`` recomputes). Four laws and
+settings:
 
 ``non_exceptional``, known ``g``, n = 2,000
     RM30's blip ``0.1 + W1``. The declared learner is correct, so :math:`d_1 = d_0`; no unit ties;
@@ -67,8 +68,22 @@ base = law.base
 #: band against :math:`\Psi_{d_0}`. PRIMARY_REPLICATES is the smallest multiple of 400 of at least
 #: the study's floor of 1,000 whose predictive probability that the bias leg and the coverage
 #: floor both pass is at least 0.95, read on the first 4,000-draw pilot and on the 8,000 draws
-#: pooled with the probe, and the larger of the two (``test_learned_rule_optimal_design``). The
-#: bias leg reads the regret: at n = 2,000 the pilots' mean regret is 0.094 estimate SDs.
+#: pooled with the probe, and the larger of the two (``test_learned_rule_optimal_value_design``).
+#: The bias leg reads the regret: at n = 2,000 the pilots' mean regret is 0.094 estimate SDs, so
+#: the 99% bias interval is expected to exclude zero (near [-0.17, -0.04]) and still pass the
+#: 0.25 SD leg.
+#:
+#: What the regret does to each verdict against :math:`\Psi_{d_0}`, at n = 2,000 (design
+#: review, finding 3). Bias: the mean regret, about -0.10 estimate SDs, is the bias the primary
+#: publishes; against :math:`\tilde\psi_{0n}` the bias is about -0.01 SDs. Coverage: a bias of
+#: 0.10 SD costs about 0.001 of coverage at an SE ratio of 1, so a gap from 0.95 comes mostly
+#: from the SE ratio. SE ratio: the regret's own spread (SD about 0.0015) widens the error's SD
+#: by about 0.9%, so the ratio against :math:`\Psi_{d_0}` sits about 0.9% below the ratio
+#: against :math:`\tilde\psi_{0n}` (0.984 against 0.993 on the pooled pilots). Both effects are
+#: of order :math:`n^{-1/2}` relative to the SE under C8 with a parametric outcome model. The
+#: target control's miss is the limit gap itself, and the calibration controls inherit the
+#: positive's regret. No verdict reads :math:`\tilde\psi_{0n}`; the summary publishes the
+#: readings against it as descriptive columns.
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
 SEED = 20269151
@@ -80,17 +95,18 @@ SCENARIOS = {PRIMARY_LAW: (law.ESTIMAND,)}
 
 #: The gate of a law cell (impl review, study-design answer 1), read at its learner's
 #: population limit by quadrature: C7, no tie mass; C3f, the limit rule differs from
-#: :math:`d_0` off the tie set on at most :data:`MAX_DISAGREEMENT` of the population (the
-#: quadrature's tolerance, two grid points); C8 with margin exponent 1, the largest
-#: ``P0(0 < |b0| <= t) / t`` over ``t`` in :data:`~tests.studies._learned_rule_optimal_law.
-#: MARGIN_LEVELS` at most :data:`MAX_MARGIN`, a bounded density of the blip at 0. A law that
-#: misses any of the three is a control or a reporting cell.
+#: :math:`d_0` off the tie set on at most :data:`MAX_DISAGREEMENT` of the population (eight
+#: grid-point masses of the quadrature, far below the control's 0.293); C8 with margin
+#: exponent 1, the largest ``P0(0 < |b0| <= t) / t`` over ``t`` in
+#: :data:`~tests.studies._learned_rule_optimal_law.MARGIN_LEVELS` at most :data:`MAX_MARGIN`, a
+#: bounded density of the blip at 0. A law that misses any of the three is a control or a
+#: reporting cell.
 MAX_DISAGREEMENT = 1e-3
 MAX_MARGIN = 10.0
 
 #: Each law's limit, by quadrature (:func:`tests.studies._learned_rule_optimal_law.law_limit`;
-#: ``test_learned_rule_optimal_design`` recomputes each). ``truth`` is :math:`\Psi_{d_0}` and
-#: ``bound`` the SD of :math:`D^*(d_0)`; ``treated`` is :math:`d_0`'s share; ``tie_mass``,
+#: ``test_learned_rule_optimal_value_design`` recomputes each). ``truth`` is :math:`\Psi_{d_0}`
+#: and ``bound`` the SD of :math:`D^*(d_0)`; ``treated`` is :math:`d_0`'s share; ``tie_mass``,
 #: ``disagreement`` and ``margin`` are the gate's readings; ``limit_value`` is the value of the
 #: law's learner's limit rule.
 LIMITS: dict[str, dict[str, float]] = {
@@ -292,7 +308,10 @@ CONFIGURATION = {
         f"the tie set on at most {MAX_DISAGREEMENT} (C3f), and max_t P(0 < |b0| <= t) / t <= "
         f"{MAX_MARGIN} (C8, exponent 1); only non_exceptional gates"
     ),
-    "variance": "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the stored curve",
+    "variance": (
+        "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the raw fold curves, uncentred within each "
+        "fold (JCI App B)"
+    ),
     "truth": (
         "Psi_d0 = E Qbar0(d0(W), W), d0 = 1{Qbar0(1, W) > Qbar0(0, W)}, by the trapezoid rule on "
         "4001 points of W1 for each W2; one number per law"

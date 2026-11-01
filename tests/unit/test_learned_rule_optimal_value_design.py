@@ -592,7 +592,7 @@ def test_the_target_control_count_is_the_floor() -> None:
 
 
 def test_the_reporting_counts_follow_their_rules() -> None:
-    assert properties.ESTIMATED_REPLICATES == properties.CALIBRATION_REPLICATES
+    assert properties.ESTIMATED_REPLICATES == properties.EXCEPTIONAL_REPLICATES == 1_200
     assert properties.EXCEPTIONAL_REPLICATES == 1_200 == _smallest(lambda r: 1.0)
 
 
@@ -620,7 +620,7 @@ def test_the_regret_is_what_separates_the_two_targets() -> None:
 
 
 #: The sample seeds a declared run draws.
-TOTAL_SEEDS = 1_600 + 13_200 + 1_200 + 13_200 + 1_200
+TOTAL_SEEDS = 1_600 + 13_200 + 1_200 + 1_200 + 1_200
 
 #: The sample seeds this study shares with the RM30 and the other X11 studies.
 SHARED_SEEDS: set[int] = set()

@@ -1,7 +1,7 @@
 r"""The laws, the fit, the truth and the quadrature of the value of the optimal rule (X11 (f)).
 
-The ``learned-rule-optimal-value`` study (:mod:`tests.studies.learned_rule_optimal`) reads the
-CV-TMLE of ``ey_optimal_rule[learned rule]``, whose target is the fixed parameter
+The ``learned-rule-optimal-value`` study (:mod:`tests.studies.learned_rule_optimal_value`)
+reads the CV-TMLE of ``ey_optimal_rule[learned rule]``, whose target is the fixed parameter
 :math:`\Psi_{d_0}(P_0) = E_0\bar Q_0(d_0(W), W)` with
 :math:`d_0(w) = 1\{\bar Q_0(1, w) > \bar Q_0(0, w)\}`, a tie going to arm 0. Every law keeps the
 RM30 covariates, treatment mechanism and outcome base of :mod:`tests.studies._learned_rule_law`
@@ -32,8 +32,8 @@ The population limit of a logistic outcome learner solves its population score e
 quadrature rows of :func:`limit_blip` carry the trapezoid weight, the probability of ``W2``,
 ``g0(a | W)`` and ``P(Y = y | a, W)``, so a weighted fit on them is that limit up to the
 quadrature. ``tests/unit/test_learned_rule_optimal.py`` (W-f2) and
-``tests/unit/test_learned_rule_optimal_design.py`` both read these functions, so the declared
-control and the witness share one computation.
+``tests/unit/test_learned_rule_optimal_value_design.py`` both read these functions, so the
+declared control and the witness share one computation.
 """
 
 from __future__ import annotations
@@ -282,7 +282,7 @@ MASS *= 0.25
 
 @cache
 def law_limit(law: str) -> dict[str, float]:
-    """The conditions of :mod:`tests.studies.learned_rule_optimal`'s gate at ``law``.
+    """The conditions of :mod:`tests.studies.learned_rule_optimal_value`'s gate at ``law``.
 
     ``truth``, ``variance``: :math:`\\Psi_{d_0}` and the variance of :math:`D^*(d_0)`.
     ``treated``: :math:`d_0`'s treated share. ``tie_mass``: :math:`P_0(b_0(W) = 0)` (C7).

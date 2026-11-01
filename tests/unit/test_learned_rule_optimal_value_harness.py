@@ -361,6 +361,39 @@ class TestThePropertyPath:
             assert summary.loc[cell, "passed"] and summary.loc[cell, "property_passed"]
             assert summary.loc[cell, "role"] == "diagnostic"
 
+    def test_the_report_publishes_the_readings_against_the_rule_value(self) -> None:
+        """Pinned on a fixed frame: the error is ``estimate - rule_value``, not the truth."""
+        group = pd.DataFrame(
+            {
+                "truth": [9.0, 9.0, 9.0, 9.0],
+                "estimate": [1.0, 2.0, 3.0, 6.0],
+                "rule_value": [0.5, 1.5, 3.5, 4.0],
+                "std_error": [0.3, 0.2, 0.3, 0.3],
+            }
+        )
+        # error 0.5, 0.5, -0.5, 2.0: mean 0.625, SD 1.030776; covered while |error| <= 1.96 SE.
+        readings = properties.rule_value_readings(group)
+        spread = float(np.std([0.5, 0.5, -0.5, 2.0], ddof=1))
+        assert spread == pytest.approx(1.0307764)
+        assert readings == {
+            "rule_value_standardized_bias": pytest.approx(0.625 / spread),
+            "rule_value_coverage": 0.5,
+            "rule_value_se_ratio": pytest.approx(0.275 / spread),
+        }
+        # Mutation: reading the error against the truth would move every column.
+        shifted = properties.rule_value_readings(group.assign(rule_value=group["truth"]))
+        assert shifted["rule_value_coverage"] == 0.0
+        assert shifted["rule_value_standardized_bias"] < -1.0
+
+    def test_every_cell_publishes_the_readings_against_the_rule_value(self) -> None:
+        rows = _property_rows()
+        summary = properties.summarize_properties(rows).set_index("cell")
+        for cell, group in rows.groupby("cell"):
+            expected = properties.rule_value_readings(group)
+            for column, value in expected.items():
+                assert summary.loc[cell, column] == pytest.approx(value, nan_ok=True), cell
+        assert set(properties.OPTIMAL_SUMMARY) >= set(expected)
+
     def test_the_declared_rules_reproduce_the_studys_verdicts(self) -> None:
         rows = _property_rows()
         summary = properties.summarize_properties(rows)

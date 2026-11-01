@@ -20,9 +20,9 @@ to be `d0` (C3f), no unit with a zero blip (C7, the source's condition (5)), and
 | primary | 1,600 replications of the known-g `non_exceptional` fit at n = 2,000 (bias leg, coverage floor, SE sanity), against `Psi_d0` |
 | `interval_calibration` | `non_exceptional`, known g, n = 2,000: the positive with the shrunken-SE control (factor 0.80) and the noise control (one efficiency-bound unit, 0.664438). 13,200 draws |
 | `optimal_target_control` | `wrong_limit`, known g, n = 2,500: the fit's own estimate and SE. The declared learner's limit rule treats nobody while `d0` treats 29.3%, so the target converges to a value 0.0452 below `Psi_d0`, 3.29 SEs at n = 2,500. The control passes when its exact 99% coverage interval lies wholly below 0.92. 1,200 draws |
-| `estimated_g_report` | `non_exceptional` with the treatment model fitted, n = 2,000: role `diagnostic`, no verdict. 13,200 draws, the calibration count, so its SE ratio and coverage read at the gated cell's precision |
+| `estimated_g_report` | `non_exceptional` with the treatment model fitted, n = 2,000: role `diagnostic`, no verdict. 1,200 draws, the study's floor of 1,000 as a multiple of 400, as for the exceptional report. The cell can never become gated evidence: a support row for estimated `g` needs a gated cell with its own positive and controls, declared before its run. At 1,200 draws its coverage reads to about ±0.014 (95%), enough to show a gross failure |
 | `exceptional_law_report` | `partially_exceptional`, known g, n = 2,000: role `diagnostic`, no verdict. 1,200 draws |
-| descriptive columns | each row carries the data-adaptive `psi~0n` of the fit's own fold rules (refit with rule L4, integrated by the same quadrature), the regret `Psi_d0 - psi~0n` and the record's `rule_disagreement`. Each cell's summary publishes the mean regret and the mean, smallest and largest disagreement. No verdict reads them |
+| descriptive columns | each row carries the data-adaptive `psi~0n` of the fit's own fold rules (refit with rule L4, integrated by the same quadrature), the regret `Psi_d0 - psi~0n` and the record's `rule_disagreement`. Each cell's summary publishes the mean regret, the mean, smallest and largest disagreement, and the error `estimate - psi~0n` read as a standardized bias, a coverage and an SE ratio (`rule_value_standardized_bias`, `rule_value_coverage`, `rule_value_se_ratio`). No verdict reads them |
 | verdicts | the framework defaults on the error `estimate - Psi_d0`, and the control's rule in `tests/studies/learned_rule_optimal_value_properties.py` |
 | comparator | none: no external package fits a CV-TMLE of the value of the optimal rule |
 
@@ -59,6 +59,27 @@ rule was fixed before the probe ran.
   coverage 0.936) gives 13,200 (0.953); the SE ratio alone would give 11,200. The pooled draws
   (0.984, 0.943) give 4,400, and the probe alone 3,200.
 - Control: its pilot coverage, 0.092, clears 0.92 with probability one, so the floor gives 1,200.
+- Reports: both take the floor, 1,200. No verdict reads them, so no reading sets their count.
+
+## What the regret does to each verdict
+
+Every verdict reads the error against the fixed `Psi_d0`, and the realized rule value `psi~0n`
+falls short of it by the regret. At n = 2,000 the pilots put the mean regret near 0.10 estimate
+SDs. Against `psi~0n` the readings are published beside each cell, with no verdict.
+
+- Primary bias leg: the 99% interval of the bias should sit near -0.17 to -0.04 SDs. It is
+  expected to exclude zero, because of the regret, and to pass the 0.25 SD leg.
+- Coverage floor and coverage band: a bias of 0.10 SD costs about 0.001 of coverage at an SE
+  ratio of 1, so a gap from 0.95 comes mostly from the SE ratio.
+- SE sanity and the calibration SE band: the regret's own spread widens the error's SD by about
+  0.9% at n = 2,000. The pooled pilots read an SE ratio of 0.984 against `Psi_d0` and 0.993
+  against `psi~0n`. Both effects are of order `n^-1/2` relative to the SE.
+- Calibration controls: they inherit the positive's regret, and fail by construction far outside
+  both bands.
+- `optimal_target_control`: its miss is the limit gap, a regret of about 3.3 SEs. Against its own
+  `psi~0n` it covers (pilot 0.946, SE ratio 1.00), which shows it fails for the right reason.
+- `exceptional_law_report`: the regret is small (pilot 0.0009). Its under-coverage comes from fold
+  rules that do not settle on the tie set, not from the regret.
 
 `test_learned_rule_optimal_value_design` recomputes every number.
 
@@ -67,7 +88,9 @@ rule was fixed before the probe ran.
 - The bias leg reads the regret. Against its own `psi~0n` the gated cell is centred (pilot bias
   -0.01 SDs), and against `Psi_d0` it reads -0.104 SDs, the mean regret of 0.0014 at n = 2,000.
   Lemma 1 makes the regret `O_P(1/n)` here, and the study measures one size, so it does not
-  show the rate. Quote the published mean regret.
+  show the rate. Quote the published mean regret and the readings against `psi~0n`.
+- The primary bias interval is expected to exclude zero because of the regret, and the SE ratio
+  against `Psi_d0` carries the regret's spread, about 0.9% at n = 2,000.
 - The claim holds with the treatment mechanism known, on a law where the learner is correct
   and the blip has a bounded density at 0. Quote the estimated-g cell's bias, SE ratio and
   coverage as a reading for decision E2, not as a validated claim.
@@ -85,8 +108,8 @@ The declarations are in `tests/studies/learned_rule_optimal_value.py`,
 
 A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
 that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. The run fits 30,400 draws at about 0.20 to 0.22 core-seconds each, truth included:
-about 6,300 core-seconds, or roughly half an hour at four jobs.
+library. The run fits 18,400 draws at about 0.20 to 0.22 core-seconds each, truth included:
+about 3,800 core-seconds, or roughly 16 minutes of fitting at four jobs.
 
 ```bash
 python -u -m tests.canonical.learned_rule_optimal_value.regenerate --jobs 4 --output <empty scratch directory>

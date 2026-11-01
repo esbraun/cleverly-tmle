@@ -19,9 +19,10 @@ folds and pooled targeting, and every cell reads the error against the fixed tru
 ``exceptional_law_report``
     ``partially_exceptional`` with the known ``g``, n = 2,000: role ``diagnostic``, no verdict.
 
-Every cell's summary also publishes the mean regret :math:`\\Psi_{d_0} - \\tilde\\psi_{0n}` and
-the mean, smallest and largest ``rule_disagreement`` over its draws (:data:`OPTIMAL_SUMMARY`),
-read by no verdict. A property draw's sample seed is
+Every cell's summary also publishes the mean regret :math:`\\Psi_{d_0} - \\tilde\\psi_{0n}`,
+the mean, smallest and largest ``rule_disagreement`` over its draws, and the standardized bias,
+coverage and SE ratio against :math:`\\tilde\\psi_{0n}` (:data:`OPTIMAL_SUMMARY`), read by no
+verdict. A property draw's sample seed is
 ``stream_seed(record, "property_sample", family, label, replicate, *suffix)`` and its fold seed
 the same tuple with ``"fold_partition"`` first; rule L3 of the RM30 studies sets each suffix.
 """
@@ -87,18 +88,30 @@ CALIBRATION_N = PRIMARY_N
 #: that the positive passes is at least 0.95, as the product of its SE-ratio leg (the per-arm
 #: model of :func:`~tests.studies.mtp_study_tools.per_arm_pass`, one positive) and its coverage
 #: leg (the exact interval inside the band), read on the first 4,000-draw pilot and on the 8,000
-#: draws pooled with the probe, and the larger of the two (``test_learned_rule_optimal_design``).
-#: The first pilot binds: SE ratio 0.971 and coverage 0.936 against :math:`\Psi_{d_0}`.
+#: draws pooled with the probe, and the larger of the two
+#: (``test_learned_rule_optimal_value_design``). The first pilot binds: SE ratio 0.971 and
+#: coverage 0.936 against :math:`\Psi_{d_0}`. Against :math:`\Psi_{d_0}` the SE ratio carries
+#: the regret's spread, about 0.9% at n = 2,000, and the coverage the regret's bias, about 0.001
+#: (``PRIMARY_REPLICATES`` in :mod:`tests.studies.learned_rule_optimal_value`). The derived
+#: controls fail by their own construction, far outside both bands, so the regret cannot decide
+#: them.
 CALIBRATION_REPLICATES = 13_200
 #: The ``optimal_target_control`` draws: the smallest multiple of 400, at least 1,000, whose
 #: predictive probability that the control's coverage interval lies below the floor is at least
-#: 0.95 on the 4,000-draw pilot; the floor binds (``test_learned_rule_optimal_design``).
+#: 0.95 on the 4,000-draw pilot; the floor binds (``test_learned_rule_optimal_value_design``).
+#: The control's miss is the limit gap, a regret of about 3.3 SEs; against its own
+#: :math:`\tilde\psi_{0n}` the control covers, which ``rule_value_coverage`` publishes.
 TARGET_REPLICATES = 1_200
-#: The ``estimated_g_report`` draws: the calibration count, so that the reported SE ratio and
-#: coverage read at the precision of the gated cell. Declared as a rule; no reading moves it.
-ESTIMATED_REPLICATES = CALIBRATION_REPLICATES
+#: The ``estimated_g_report`` draws: the study's floor of 1,000 draws as a multiple of 400, as
+#: for the exceptional report; no reading moves it. The cell has no verdict, and it can never
+#: become gated evidence: a support row for estimated ``g`` would need a gated cell with its own
+#: positive and controls, declared before its run. So the gated cell's precision buys nothing
+#: here, and the floor rule applies (design review, finding 2). Its regret biases its readings
+#: against :math:`\Psi_{d_0}` as in the primary.
+ESTIMATED_REPLICATES = 1_200
 #: The ``exceptional_law_report`` draws: the study's floor of 1,000 draws for a cell, as a
-#: multiple of 400. Declared as a rule; no reading moves it.
+#: multiple of 400. Declared as a rule; no reading moves it. Its regret is small (about 0.001 on
+#: the pilot); its under-coverage comes from fold rules that do not settle on the tie set.
 EXCEPTIONAL_REPLICATES = 1_200
 #: The plan's shrunken-SE control of the calibration family: the declared SE times 0.8.
 SHRUNKEN_SE_FACTOR = 0.80
@@ -147,13 +160,18 @@ ROW_COLUMNS = law.HARNESS_COLUMNS
 #: The integer harness columns, which a derived control must keep integer.
 INTEGER_COLUMNS = ("rule_rows_checked", "solver_warnings")
 
-#: The descriptive summary columns of every cell: the mean regret, and the mean, smallest and
-#: largest ``rule_disagreement`` over its draws. No verdict reads them.
+#: The descriptive summary columns of every cell: the mean regret; the mean, smallest and
+#: largest ``rule_disagreement`` over its draws; and the standardized bias, coverage and SE ratio
+#: of the error against the realized rule value :math:`\tilde\psi_{0n}` (``rule_value``) rather
+#: than :math:`\Psi_{d_0}` (:func:`rule_value_readings`). No verdict reads them.
 OPTIMAL_SUMMARY = (
     "mean_regret",
     "mean_rule_disagreement",
     "min_rule_disagreement",
     "max_rule_disagreement",
+    "rule_value_standardized_bias",
+    "rule_value_coverage",
+    "rule_value_se_ratio",
 )
 
 _Key = tuple[tuple[str, str, int, int, int, int, int, str]]
@@ -304,6 +322,24 @@ def target_verdicts(summary: pd.DataFrame, *, floor: float) -> None:
     summary.loc[family, "passed"] = summary.loc[family, "coverage_ci_upper"] < floor
 
 
+def rule_value_readings(group: pd.DataFrame) -> dict[str, float]:
+    """One cell's readings against the realized rule value :math:`\\tilde\\psi_{0n}`.
+
+    The error is ``estimate - rule_value``. The standardized bias is its mean over its SD, the
+    coverage the share of draws with ``|error| <= CRITICAL * std_error``, and the SE ratio the
+    mean SE over the error's SD. A derived calibration control carries its positive's
+    ``rule_value``. No verdict reads them.
+    """
+    error = group["estimate"].astype(float) - group["rule_value"].astype(float)
+    std_error = group["std_error"].astype(float)
+    spread = float(error.std())
+    return {
+        "rule_value_standardized_bias": float(error.mean()) / spread,
+        "rule_value_coverage": float((error.abs() <= base.CRITICAL * std_error).mean()),
+        "rule_value_se_ratio": float(std_error.mean()) / spread,
+    }
+
+
 def report_optimal(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     """Publish :data:`OPTIMAL_SUMMARY` for every cell, and the diagnostic families' verdicts.
 
@@ -321,6 +357,8 @@ def report_optimal(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             summary.loc[mask, "mean_rule_disagreement"] = float(disagreement.mean())
             summary.loc[mask, "min_rule_disagreement"] = float(disagreement.min())
             summary.loc[mask, "max_rule_disagreement"] = float(disagreement.max())
+            for column, value in rule_value_readings(group).items():
+                summary.loc[mask, column] = value
     for family in DIAGNOSTIC_FAMILIES:
         selected = summary["property"] == family
         roles = set(summary.loc[selected, "role"].astype(str))

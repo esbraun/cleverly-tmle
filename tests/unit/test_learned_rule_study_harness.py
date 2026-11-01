@@ -107,7 +107,7 @@ class TestTheSeedRules:
         # (``test_learned_rule_contrast_design``). X11's learned-rule-arms (X11 PR H) adds 1,200
         # primary and 5,600 property seeds, none of which equals another X11 study's seed
         # (``test_learned_rule_arms_design``). X11's learned-rule-optimal-value (X11 PR I) adds
-        # 1,600 primary and 28,800 property seeds, none of which equals another X11 study's seed
+        # 1,600 primary and 16,800 property seeds, none of which equals another X11 study's seed
         # (``test_learned_rule_optimal_value_design``).
         assert len(declared) == (
             46_310
@@ -122,7 +122,7 @@ class TestTheSeedRules:
             + 45_597
             + 11_199
             + 6_800
-            + 30_400
+            + 18_400
         )
         for study in (
             gated,
