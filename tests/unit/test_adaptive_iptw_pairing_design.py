@@ -26,7 +26,12 @@ from tests.studies import canonical_adaptive_iptw as gate
 from tests.studies import canonical_adaptive_iptw_pairing as study
 from tests.studies.evidence.registry import ROOT
 
-pytestmark = pytest.mark.xdist_group("adaptive_iptw_pairing_design")
+pytestmark = [
+    pytest.mark.xdist_group("adaptive_iptw_pairing_design"),
+    # A mutated loop (a flipped tilt) can drive the reduced design near-singular; the emulation
+    # reads the fit regardless, and the assertions say whether it moved.
+    pytest.mark.filterwarnings("ignore::scipy.linalg.LinAlgWarning"),
+]
 
 RUNNER = ROOT / "tests" / "canonical" / "adaptive_iptw_pairing" / "run_study.R"
 
@@ -52,7 +57,7 @@ def _r_scalar(source: str, name: str) -> float:
 def test_the_declared_numbers() -> None:
     record = study.STUDY
     assert record.publication_policy == "reporting"
-    assert (study.SEED, study.RESAMPLING_SEED) == (20262102, 2026210201)
+    assert (study.SEED, study.RESAMPLING_SEED) == (20262103, 2026210301)
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N, study.N_FOLDS) == (1_000, 2_000, 10)
     assert (study.AGREEMENT_EXACT, study.AGREEMENT_CROSSFIT) == (1e-4, 0.05)
     assert (study.AGREEMENT_QUANTILE, study.INITIAL_AGREEMENT) == (0.99, 1e-10)
@@ -295,10 +300,16 @@ def test_the_agreement_rule_reads_its_bound() -> None:
     assert study.agreement_bound("pd_known_arms_one_step") == study.AGREEMENT_EXACT
 
 
-def test_a_missing_reference_replicate_fails_the_agreement() -> None:
+def test_a_lost_replicate_leaves_the_quantiles_and_the_accounting_counts_it() -> None:
     rows = _pair(0.0)
     rows = rows.drop(rows.index[(rows["implementation"] == study.REFERENCE)][:1])
-    assert not bool(study.agreement(rows)["passed"].item())
+    table = study.agreement(rows)
+    assert bool(table["passed"].item()) and int(table["paired"].item()) == 199
+    audit = study.account_failures(None, {"agreement.csv": table})  # type: ignore[arg-type]
+    assert bool(audit["passed"].item()) and int(audit["own"].item()) == 0
+    failing = study.agreement(_pair(2.0 * study.AGREEMENT_EXACT))
+    audit = study.account_failures(None, {"agreement.csv": failing})  # type: ignore[arg-type]
+    assert not bool(audit["passed"].item()) and int(audit["own"].item()) == 1
 
 
 def test_a_descriptive_scenario_reports_its_gap_and_its_one_step_form_carries_the_verdict() -> None:
@@ -307,3 +318,70 @@ def test_a_descriptive_scenario_reports_its_gap_and_its_one_step_form_carries_th
     for name in study.DESCRIPTIVE:
         assert f"{name}_one_step" in study.ONE_STEP
         assert study.SCENARIOS[f"{name}_one_step"].draw == study.SCENARIOS[name].draw
+
+
+def _slab(
+    g: np.ndarray,
+    ind: np.ndarray,
+    y: np.ndarray,
+    folds: np.ndarray,
+    degree: int,
+    lower: float,
+    *,
+    own_fold_tilt: bool = True,
+) -> float:
+    """The package's cross-fitted loop: fold ``k``'s design is ``g`` tilted along fold ``k``'s
+    own ``Qr_k / g`` by one pooled step.  ``own_fold_tilt=False`` tilts every fold's design along
+    each row's own fold covariate instead, which is drtmle's rule (the mutation)."""
+    n_folds = int(folds.max()) + 1
+    rows = np.arange(g.size)
+    slab = np.tile(g, (n_folds, 1))
+
+    def fit(slab: np.ndarray) -> np.ndarray:
+        out = np.empty_like(slab)
+        for fold in range(n_folds):
+            train = (folds != fold) & (ind == 1)
+            model = laws.DesignBasisGLM(degree).fit(slab[fold][train][:, None], y[train])
+            out[fold] = model.predict(slab[fold][:, None])
+        return out
+
+    qr = fit(slab)
+    for _ in range(100):
+        g_own, qr_own = slab[folds, rows], qr[folds, rows]
+        if abs(np.mean(qr_own / g_own * (ind - g_own))) <= 1e-12:
+            break
+        covariate, offset = qr_own / g_own, logit(g_own)
+
+        def equation(epsilon: float, covariate: Any = covariate, offset: Any = offset) -> float:
+            return float(np.sum(covariate * (ind - expit(offset + epsilon * covariate))))
+
+        epsilon = brentq(equation, -50.0, 50.0, xtol=1e-14)
+        direction = qr / slab if own_fold_tilt else np.tile(covariate, (n_folds, 1))
+        slab = np.maximum(expit(logit(slab) + epsilon * direction), lower)
+        qr = fit(slab)
+    return float(np.mean(ind / slab[folds, rows] * y))
+
+
+def test_the_package_tilts_each_fold_slab_along_its_own_covariate() -> None:
+    # The witness behind DESCRIPTIVE: the package's composite cross-fitted loop is the slab loop
+    # (D9), not drtmle's per-row rule, so the gap drtmle shows there is the declared difference.
+    scenario = "c_l3_crossfit"
+    key = (scenario, 0, study.STUDY.n_of(scenario))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sample, _, rows = study._replicate(key, study._draw(key))
+        reported = pd.DataFrame(rows).set_index("estimand")
+        folds = _drtmle_folds(np.argsort(sample["position"].to_numpy()), study.N_FOLDS)
+        treatment, outcome = sample["A"].to_numpy(), sample["Y"].to_numpy()
+        recorded = ~np.isnan(outcome) & ~np.isnan(treatment)
+        for code, label in enumerate(study.ARM_LABELS[scenario]):
+            g = sample[f"gn_a{code}"].to_numpy()
+            ind = (recorded & (treatment == code)).astype(float)
+            y = np.nan_to_num(outcome)
+            degree = _effective(g, ind, gate.DEGREE["c"])
+            lower = float(sample[f"lb_a{code}"].iloc[0])
+            row = reported.loc[f"ey[{label}]"]
+            slab = _slab(g, ind, y, folds, degree, lower)
+            per_row = _slab(g, ind, y, folds, degree, lower, own_fold_tilt=False)
+            assert abs(slab - row["estimate"]) / row["std_error"] <= 1e-4
+            assert abs(per_row - row["estimate"]) / row["std_error"] > 1e-4

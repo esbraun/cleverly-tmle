@@ -7,21 +7,28 @@ bounds, tolerance and round cap.  The comparator is R ``drtmle`` 1.1.2 at ``538a
 keeps its own seeds and verdicts; this study only pairs (``X21-plan.md`` 3.6, revised by the
 pairing plan of 2026-11-01).
 
-**What pairs.**  ``drtmle`` fits no mechanism here: the runner passes this package's mechanism
-at each key as ``gn``, and both sides fit the reduced regression ``Qr`` on the same basis of
+**What pairs.**  ``drtmle`` fits no mechanism here: the runner passes a mechanism at each key
+as ``gn``, composed in R from this package's raw fitted factors and checked against the
+package's own, and both sides fit the reduced regression ``Qr`` on the same basis of
 ``logit gn`` and target the propensity along ``Qr / g``.
 
-- *Known mechanism, cross-fitted* (laws PD and ST, ten folds): the initial ``Qr`` and the
-  one-step form are the same computation.  The targeted form differs at order ``1/n`` after the
-  first round, because the package moves fold ``k``'s design along fold ``k``'s own covariate
-  (declared difference D9).  Points and standard errors pair.
-- *Estimated mechanism, in sample* (laws P, M, C, PD, CN, RM, MA): the same algorithm on both
-  sides.  Points pair.  Both sides' ``std_error`` is the Theorem 1 curve, which the package
-  withholds as inference under ``estimated_mechanism_plugin``; its rows carry the plug-in
-  diagnostic (:func:`~tests.studies.evidence.schema.reported_inference`).
-- *Estimated mechanism, cross-fitted*: not paired.  ``drtmle`` trains fold ``k``'s ``Qr`` on a
-  supplied out-of-fold ``gn`` that saw fold ``k``; the package trains it on leave-two-folds-out
-  designs.  They are different estimators (D9; ``X21-red-cell-diagnosis.md``).
+- *In sample* (laws P, M, C, PD, CN, RM, MA): the same algorithm on both sides.
+- *Cross-fitted, known mechanism or a learner that ignores the training data* (laws PD and ST
+  known; C, CN and MA with the gate's oracle factors): the initial ``Qr`` and the one-step form
+  are the same computation.  The targeted form differs after the first round, because the
+  package moves fold ``k``'s design along fold ``k``'s own covariate and drtmle moves each row
+  along its own fold's (declared difference D9).  On PD, ST and C l1 the gap is of order
+  ``1/n``.  On the C l3, CN and MA composites (:data:`DESCRIPTIVE`) it is larger: close
+  mechanism levels let drtmle's per-row tilts merge the clusters its saturated ``Qr`` reads,
+  and CN's first step is large.  Their agreement is reported, and their one-step forms carry
+  the verdict.
+- *Cross-fitted with a learner that reads the training data*: not paired.  ``drtmle`` trains fold
+  ``k``'s ``Qr`` on a supplied out-of-fold ``gn`` that saw fold ``k``; the package trains it on
+  leave-two-folds-out designs.  They are different estimators (D9; ``X21-red-cell-diagnosis.md``).
+
+Both sides' ``std_error`` on an estimated-mechanism key is the Theorem 1 curve, which the
+package withholds as inference under ``estimated_mechanism_plugin``; its rows carry the plug-in
+diagnostic (:func:`~tests.studies.evidence.schema.reported_inference`).
 
 **Folds.**  ``adaptive_iptw`` draws its folds inline as ``split(sample(seq_len(n)), rep(1:K,
 length = n))``.  For each cross-fitted draw this module draws a uniform permutation and deals
@@ -31,9 +38,12 @@ The runner hands ``drtmle`` that permutation in place of ``sample``.  Law ST dea
 separately, because the runner calls ``drtmle`` once per stratum.
 
 **Recodes.**  The runner builds every regime, composite and natural-course recode from the raw
-columns and the law's rule and density, written in R.  This module supplies only the folds and,
-for each key, the package's initial mechanism ``gn`` and its initial ``Qr`` for the nuisance
-gate.
+columns and the law's rule and density, written in R, and composes each key's mechanism from
+the raw factors.  The truncation constants (``g_bounds``, the floor, each key's bounds) and the
+simplex flag are this module's inputs, so the composition check verifies the arithmetic, not
+those rules.  This module also writes each key's initial ``Qr`` for the nuisance gate.
+
+**Agreement** (:func:`agreement`, ``agreement.csv``) is the pairing verdict.
 
 Publication policy is ``reporting``.
 """
@@ -56,6 +66,7 @@ from tests.studies import adaptive_iptw_laws as laws
 from tests.studies import canonical_adaptive_iptw as gate
 from tests.studies import mar_arm_indexed_laws as mar
 from tests.studies import multi_arm_common as multi
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -68,8 +79,8 @@ DRTMLE_COMMIT = "538a3a264c1ca984b6d88978ca7f96165f43152c"
 R_BASE_IMAGE = (
     "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
 )
-SEED = 20262102
-RESAMPLING_SEED = 2026210201
+SEED = 20262103
+RESAMPLING_SEED = 2026210301
 FAILURE_BOUND = 0.01
 PRIMARY_REPLICATES = 1_000
 PRIMARY_N = gate.N_PD
@@ -194,13 +205,16 @@ ONE_STEP = frozenset(
         "ma_crossfit_one_step",
     }
 )
-#: The cross-fitted targeted fits on a composite that takes a few values.  drtmle's loop and the
-#: package's reach different solutions of the same score: the 30-replicate pilot measured
-#: 99th-percentile gaps of 0.015 (C l1) to 0.22 SE (C l3 ``ey[low]``), heavy-tailed, against
-#: 0.008 to 0.013 SE on law PD.  Their agreement is reported with no verdict; the one-step form
-#: of each, which reads the same folds and the same initial ``Qr``, carries the verdict at
-#: :data:`AGREEMENT_EXACT`.
-DESCRIPTIVE = frozenset({"c_l1_crossfit", "c_l3_crossfit", "cn_crossfit", "ma_crossfit"})
+#: The cross-fitted targeted fits on a composite with close levels or a large first step.  The
+#: 30-replicate pilot put drtmle's loop and the package's 0.07 to 0.22 SE apart at the 99th
+#: percentile (C l3 ``ey[low]``, levels 0.1375, 0.15, 0.17; CN, first step -0.2), against 0.003
+#: to 0.015 SE on PD, ST and C l1.  A numpy slab loop reproduces the package and a numpy
+#: transcription of drtmle's loop reproduces R, so the gap is the tilt rule D9 itself
+#: (``tests/unit/test_adaptive_iptw_pairing_design.py``).  The set was chosen after that pilot,
+#: against the bound declared before it, and the page says so.  Their agreement is reported with
+#: no verdict; the one-step form of each, which reads the same folds and the same initial
+#: ``Qr``, carries the verdict at :data:`AGREEMENT_EXACT`.
+DESCRIPTIVE = frozenset({"c_l3_crossfit", "cn_crossfit", "ma_crossfit"})
 #: The gate's reduced-basis degree key of each law (:data:`tests.studies.canonical_adaptive_iptw.DEGREE`).
 #: The runner carries each scenario's degree (``DEGREE`` in ``run_study.R``).
 DEGREE_KEY: dict[str, str] = {
@@ -313,7 +327,14 @@ STUDY = StudyRecord(
         "tests/studies/stratified_law.py",
         "tests/studies/weighted_point_common.py",
         "tests/discrete_law_composite.py",
+        "tests/discrete_law_mar.py",
+        "tests/discrete_law_multi.py",
+        "src/cleverly/estimators/iptw.py",
+        "src/cleverly/estimators/reduced.py",
+        "src/cleverly/fluctuation/mechanism.py",
+        "src/cleverly/fluctuation/_score.py",
         "tests/studies/point_study_helpers.py",
+        "tests/studies/evidence/failures.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -326,6 +347,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_adaptive_iptw_pairing",
     properties_module="tests.studies.adaptive_iptw_pairing_properties",
     property_cells={},
+    extra_artifacts=("agreement.csv",),
     publication_policy="reporting",
 )
 
@@ -354,9 +376,12 @@ REFERENCE_METADATA = {
         "witness_multiple": WITNESS_MULTIPLE,
     },
     "not_paired": (
-        "cross-fitted estimated mechanisms (declared difference D9: drtmle's fold-k reduced "
-        "regression trains on a supplied out-of-fold mechanism that saw fold k); weights and "
-        "clusters (adaptive_iptw takes neither); the validity laws VL0 and VL1"
+        "cross-fitted mechanisms whose learner reads the training data (declared difference D9: "
+        "drtmle's fold-k reduced regression trains on a supplied out-of-fold mechanism that saw "
+        "fold k), so the leave-two-out refit itself: PD rate_scaled, CN with an estimated "
+        "response model, MA with CellFrequency, P and M cross-fitted; weights and clusters (WT, "
+        "CL: adaptive_iptw takes neither); the validity laws VL0 and VL1; bias/flexible (the "
+        "booster is cross-fitted)"
     ),
 }
 
@@ -950,6 +975,11 @@ def _replicate(
         # D2: drtmle trims a mechanism differently from the package's clip, so a fit whose
         # bounds bind is not the same computation on both sides.
         raise RuntimeError(f"{scenario}: the mechanism bounds bind at {active}")
+    record = result.extra["adaptive_iptw"]
+    if scenario not in ONE_STEP and record.stop != "tolerance":
+        # A targeted loop that hit the round cap solved no score; drtmle's would be compared
+        # with an unfinished one.  A recorded failure of the replicate.
+        raise RuntimeError(f"{scenario}: the targeting loop stopped at {record.stop}")
     sample = sample_rows(scenario, replicate, frame, position, estimator, result)
     truth_rows = [
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
@@ -1003,9 +1033,9 @@ def agreement(rows: pd.DataFrame) -> pd.DataFrame:
 
     ``gap`` is ``|cleverly - drtmle| / SE`` on the inference scale (the log for a ratio), with
     the package's standard error; ``se_gap`` is the relative difference of the standard errors.
-    ``passed`` needs the :data:`AGREEMENT_QUANTILE` quantile of both under the scenario's bound,
-    a pair for every package replicate, and initial estimates within
-    :data:`INITIAL_AGREEMENT`.  A :data:`DESCRIPTIVE` scenario (``verdict`` false) reports its
+    ``passed`` needs the :data:`AGREEMENT_QUANTILE` quantile of both under the scenario's bound
+    and initial estimates within :data:`INITIAL_AGREEMENT`, over the replicates both sides
+    returned; a lost replicate is a recorded failure, counted by :func:`account_failures`.  A :data:`DESCRIPTIVE` scenario (``verdict`` false) reports its
     gaps and needs only the pairs and the initial estimates.  ``witnessed`` is false when the mean targeting movement,
     ``|estimate - initial_estimate| / SE``, stays under :data:`WITNESS_MULTIPLE` times the
     bound: the pair then could not tell a targeting step from none.  No verdict reads it.
@@ -1013,7 +1043,9 @@ def agreement(rows: pd.DataFrame) -> pd.DataFrame:
     key = ["scenario", "replicate", "estimand"]
     subject = rows.loc[rows["implementation"] == IMPLEMENTATION].set_index(key)
     reference = rows.loc[rows["implementation"] == REFERENCE].set_index(key)
-    paired = subject.join(reference, how="left", lsuffix="_c", rsuffix="_d")
+    # A replicate either side lost is a recorded failure, which the failure accounting counts
+    # against ``failure_bound``; the quantiles read the replicates both sides returned.
+    paired = subject.join(reference, how="inner", lsuffix="_c", rsuffix="_d")
     out = []
     for (scenario, estimand), group in paired.groupby(level=["scenario", "estimand"], sort=False):
         bound = agreement_bound(str(scenario))
@@ -1027,7 +1059,7 @@ def agreement(rows: pd.DataFrame) -> pd.DataFrame:
             moved = (group["inference_estimate_c"] - np.log(initial_scale)).abs() / se
         else:
             moved = (group["estimate_c"] - initial_scale).abs() / se
-        complete = bool(group["estimate_d"].notna().all())
+        complete = len(group) > 0 and bool(group["estimate_d"].notna().all())
         gap_q = float(gap.quantile(AGREEMENT_QUANTILE)) if complete else float("nan")
         se_q = float(se_gap.quantile(AGREEMENT_QUANTILE)) if complete else float("nan")
         initial_max = float(initial.max()) if complete else float("nan")
@@ -1035,8 +1067,7 @@ def agreement(rows: pd.DataFrame) -> pd.DataFrame:
             {
                 "scenario": scenario,
                 "estimand": estimand,
-                "replicates": len(group),
-                "paired": int(group["estimate_d"].notna().sum()),
+                "paired": len(group),
                 "bound": bound,
                 "gap_q99": gap_q,
                 "gap_max": float(gap.max()),
@@ -1051,6 +1082,38 @@ def agreement(rows: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(out)
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``agreement.csv``: :func:`agreement` of the run's rows."""
+    return {"agreement.csv": agreement(rows)}
+
+
+#: The audit name of the agreement verdict in the failure accounting.
+AGREEMENT_AUDIT = "agreement (paired replicates)"
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The agreement audit with the failed fits counted.
+
+    A key that fails its bound fails the audit.  A lost replicate (a nuisance-gate miss, an
+    unconverged loop or a raised fit on either side) is not in ``agreement.csv``, so the audit
+    passes only while the lost fits stay within each side's ``failure_bound`` over the run.
+    """
+    table = artifacts["agreement.csv"]
+    own = int((~table["passed"].astype(bool)).sum())
+    lost = {
+        side: evidence_failures.missing_fits(failures, STUDY, side)
+        for side in STUDY.implementations
+    }
+    within = all(
+        lost[side] <= evidence_failures.allowed(STUDY, side) * len(SCENARIOS) for side in lost
+    )
+    failed = own + sum(lost.values())
+    return pd.DataFrame.from_records(
+        [{"leg": AGREEMENT_AUDIT, "failed": failed, "passed": own == 0 and within, "own": own}],
+        columns=["leg", "failed", "passed", "own"],
+    )
 
 
 def truth_table() -> Mapping[str, Mapping[str, float]]:

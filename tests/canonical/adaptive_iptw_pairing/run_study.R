@@ -21,7 +21,11 @@ options(digits = 17)
 # against that glm run to convergence, 1e-8; a miss is a recorded failure of the replicate) and
 # the curve check (each rebuilt curve's variance against drtmle's cov, relative 1e-10, fatal).
 # Before the call, the composition check (the composed mechanism against cleverly's, 1e-12,
-# fatal) and, after it, the range check (drtmle's final mechanism inside [tolg, 1 - tolg]).
+# fatal).  After it, two recorded failures of the replicate: the range check (the initial and
+# final mechanisms strictly inside [tolg, 1 - tolg], so neither drtmle's trimLogit nor its floor
+# in fluctuateG moved a row, which D2 needs) and, on a targeted key, the convergence check
+# (drtmle's final score within tolIC: fluctuateG sets a failed step to 0 silently, and the loop
+# then runs to maxIter).
 
 NUISANCE_GATE <- 1e-8
 FOLD_CHECK <- 1e-10
@@ -115,6 +119,10 @@ count_calls <- function(expression, name) {
   0L
 }
 SAMPLE_CALLS <- count_calls(body(drtmle::adaptive_iptw), "sample")
+# `sample` passed as a value (lapply(x, sample)) would escape the call count.
+if (sum(all.names(body(drtmle::adaptive_iptw)) == "sample") != SAMPLE_CALLS) {
+  study_fatal_error("drtmle's adaptive_iptw names sample other than as one call")
+}
 
 basis <- function(degree) {
   terms <- c("qlogis(gn)", if (degree >= 2L) sprintf("I(qlogis(gn)^%d)", 2:degree))
@@ -152,7 +160,8 @@ refit_by_hand <- function(gn, target, rows, folds, formula, family, control) {
   out
 }
 
-run_call <- function(label, A, Y, a, gn, qr_python, lower, family, declared, permutation) {
+run_call <- function(label, A, Y, a, gn, qr_python, lower, family, declared, permutation,
+                     targeted) {
   # One key.  Returns the per-row Horvitz-Thompson terms and corrections of both forms.
   n <- length(A)
   rows <- fit_rows(A, Y, a)
@@ -179,8 +188,22 @@ run_call <- function(label, A, Y, a, gn, qr_python, lower, family, declared, per
   }
   qr0 <- as.numeric(fit$iptw_os_nuisance$Qrn[[1]])
   final <- as.numeric(fit$iptw_tmle_nuisance$gn[[1]])
-  if (any(final < lower | final > 1 - lower)) {
-    study_fatal_error(sprintf("%s: drtmle's final mechanism left [tolg, 1 - tolg]", label))
+  study_stage(sprintf("range %s", label), {
+    for (values in list(gn, final)) {
+      if (any(values <= lower | values >= 1 - lower)) {
+        stop(sprintf("%s: a mechanism reached drtmle's trim [tolg, 1 - tolg]", label))
+      }
+    }
+  })
+  if (targeted) {
+    study_stage(sprintf("convergence %s", label), {
+      indicator <- as.numeric(!is.na(A) & A == a & !is.na(Y))
+      qr_final <- as.numeric(fit$iptw_tmle_nuisance$QrnStar[[1]])
+      score <- mean(qr_final / final * (indicator - final))
+      if (!is.finite(score) || abs(score) > TOL_IC * (1 + 1e-6)) {
+        stop(sprintf("%s: drtmle's loop stopped with score %.3g", label, score))
+      }
+    })
   }
   folds <- if (cross) split(permutation, rep(seq_len(N_FOLDS), length = n)) else list(seq_len(n))
   # The fold check: drtmle's initial Qr is the default-control glm on the supplied folds and
@@ -191,7 +214,7 @@ run_call <- function(label, A, Y, a, gn, qr_python, lower, family, declared, per
   }
   # The nuisance gate: the package's initial Qr against the same regression run to convergence.
   # drtmle's glm stops at glm.control()'s relative deviance change of 1e-8, which can leave its
-  # predictions about 1e-6 from the converged fit; that gap is the comparator's own, and the
+  # predictions up to about 1e-5 from the converged fit; that gap is the comparator's own, and the
   # fold check above already ties drtmle to this regression.
   converged <- refit_by_hand(
     gn, Y, rows, folds, formula, family, stats::glm.control(epsilon = 1e-15, maxit = 100)
@@ -370,7 +393,8 @@ one_call <- function(frame, label, A, Y, a, family, permutation) {
     lower = column(frame, "lb", label)[[1]],
     family = family,
     declared = DEGREE[[frame$scenario[[1]]]],
-    permutation = permutation
+    permutation = permutation,
+    targeted = !(frame$scenario[[1]] %in% ONE_STEP)
   )
 }
 
