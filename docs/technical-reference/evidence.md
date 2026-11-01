@@ -418,7 +418,7 @@ The [node-bounds study](method-evidence/survival-node-bounds.md) adds repeated-s
 `node_bounds=` with `hazard_pooling="pooled"` on a held survival design. Its 15 gated cells pass,
 for the iterated-mean fit and the hazard fit. On the hazard fit the bounds rarely bind. The
 estimate moved on 10% of the draws, so the study reports that witness and does not gate it. Its
-`survtmle` comparator runs are pending. No registered study covers `ratio_trim=` or
+12 paired cells against `survtmle` 1.1.1 pass. No registered study covers `ratio_trim=` or
 `markov_order=`.
 
 The R comparators of the seven options named first have scripts, a registry and a self-test in
