@@ -61,7 +61,7 @@ equivalent. Both outcomes pass.
 
 The declared run shows that pattern in both arms. The mean ratio of the `tmle3` standard error to
 the `cleverly` one falls from 0.9998 at visit 1 to between 0.976 and 0.981 at visit 5, and the
-estimates agree to within 0.007 of the margin. Three late rows read superior: the arm 0 risks at
+paired mean differences use at most 0.7 percent of the margin. Three late rows read superior: the arm 0 risks at
 visits 4 and 5 and the arm 1 risk at visit 5. In each of them the `cleverly` SE ratio against the
 empirical spread is nearer one than the `tmle3` one, and both pass the calibration test.
 

@@ -41,6 +41,12 @@ declared from the smoke run. Those fits stay in the paired rows, as the manifest
 says. The run log of Study queue row 20 in `TRACKER.md` records the counts. The only other R
 messages were `glm` rank-deficiency warnings and `speedglm` falling back to `glm`.
 
+Twenty paired rows read equivalent and one reads superior on coverage: the difference in relapse
+incidence at visit 2. Its intervals disagree in 7 of the 1,600 samples, all 7 covered by
+`cleverly` alone (coverage 0.9519 against 0.9475). The two standard errors agree to within 0.03
+percent there, so the gap comes from the point estimates. The `survtmle` estimate sits
+$7 \times 10^{-5}$ lower on average, through its cause-at-a-time targeting and its `1/n` stop.
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->

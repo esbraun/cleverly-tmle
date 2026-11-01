@@ -702,7 +702,8 @@ on a design with one baseline treatment:
 [one-step targeting](../technical-reference/method-evidence/point-survival-curve.md) and
 [five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
 The first two agree with R packages fitted to the same samples (`survtmle` and `tmle3`), and the
-cross-fitted one has no comparison, because no package fits that construction. The one-step study also holds one cell
+cross-fitted one has no comparison, because no package fits that construction. The one-step study
+also holds one cell
 that fits the default iterated-mean model with `isotonic=True` on a law with treatment at two nodes. Its curve rises steeply
 enough that the projection never moved a level, so no study yet measures an interval at a level
 that the projection moved.
