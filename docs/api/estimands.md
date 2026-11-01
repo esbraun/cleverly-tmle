@@ -22,6 +22,7 @@ that reading adds.
    cleverly.RegimeMean
    cleverly.RegimeContrast
    cleverly.LearnedRuleValue
+   cleverly.OptimalRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.targets.Interpretation

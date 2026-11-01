@@ -229,7 +229,8 @@ two they raise `CapabilityError` and name the default rule as the way out.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
 rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not
-the value of the optimal rule. The table gives what the result holds.
+the value of the best possible rule, which `OptimalRuleValue` below asks for. The table gives
+what the result holds.
 
 | where | content |
 | --- | --- |
@@ -301,6 +302,21 @@ change from sample to sample, and the lean grows: about 1.07 standard errors in 
 samples where the rule changed. The interval still covered about 94% of the time in that case,
 and cleverly cannot tell that it has happened. The cross-fitted estimate (the default) scores
 each rule on rows that did not choose it, and it does not lean this way.
+
+To estimate the value of the best possible rule instead, ask for `OptimalRuleValue()` in place of
+`LearnedRuleValue()`. The best rule gives every unit the option with the highest average outcome
+among units with the same covariates. The fit and its numbers are the same as above, reported as
+`ey_optimal_rule[learned rule]`, and only the question changes. The answer is the best rule's value
+only if the outcome model can learn the true pattern of benefit, the benefit is exactly zero for
+almost no unit, and the learned rules settle on the best rule fast enough as the data grow. When
+the outcome model misses the pattern, the fit estimates the value of a worse rule, which sits below
+the best value, and its interval need not contain the best value.
+
+No study has measured `OptimalRuleValue` yet, so cleverly marks it experimental. It refuses
+`weights=`, `strata=`, the in-sample fit and a comparison with a fixed policy, and the
+omitted-variable bound and `simulated_confounding` refuse on its fit. Each refusal names the fit
+that runs instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
+states the conditions.
 
 To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`
 estimator itself, because `CausalStudy` has no way to declare the comparison yet:

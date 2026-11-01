@@ -153,7 +153,9 @@ from ..interventions.learned import (
     LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL,
     LEARNED_RULE_LIMITS,
+    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
     fold_rules,
+    reports_optimal_rule,
 )
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
@@ -453,7 +455,12 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     than two arms (X11 (d)) refuses as an implementation gap (X11 (n2)): the combined
     representer is :math:`g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}` over every arm,
     and no witness checks the bias or :math:`\nu^2` of a learned argmax rule against it.
+    A fit of the value of the optimal rule (X11 (f)) refuses first: the bound holds the
+    fold rules fixed, and that target moves with the rule
+    (:data:`~cleverly.interventions.learned.OPTIMAL_RULE_SENSITIVITY_REFUSAL`).
     """
+    if reports_optimal_rule(result):
+        return OPTIMAL_RULE_SENSITIVITY_REFUSAL
     n_arms = int(getattr(result.data, "n_arms", 2))
     if n_arms > 2:
         return Refusal(
@@ -3097,6 +3104,8 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
         before any refusal.
     """
     if getattr(result.config, "parameter_axis", None) == "learned_rule":
+        if reports_optimal_rule(result):
+            return OPTIMAL_RULE_SENSITIVITY_REFUSAL
         if _in_sample_learned_rule(result):
             return LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL
         return LEARNED_RULE_BENCHMARK_REFUSAL

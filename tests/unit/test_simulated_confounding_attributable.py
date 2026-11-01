@@ -310,6 +310,10 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
         "ey_learned_rule": "learned-rule value: a replay relearns the rules, so its target moves",
+        "ey_optimal_rule": (
+            "optimal-rule value: the replay holds the fold rules fixed, and confounding also "
+            "moves which rule is optimal (X11 (f3))"
+        ),
         "ey_known_regime": (
             "known regime beside a learned rule: no study request declares one, and a direct TMLE "
             "fit carries no identification metadata, so the surface never meets it"

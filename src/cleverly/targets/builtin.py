@@ -199,6 +199,71 @@ _LEARNED_RULE_ID = Identification(
     ),
 )
 
+#: The value of the optimal rule (X11 (f)).  A fixed parameter, estimated by the
+#: cross-validated TMLE of the learned-rule value, so the point and interval are that fit's.
+#: The source is van der Laan and Luedtke (2015), Section 7.2, last paragraph, with known g.
+#: Estimated g is the package's step from the decomposition of the error into the shipped
+#: learned-rule claim and the regret.
+_OPTIMAL_RULE_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "the target is a fixed parameter, the value Psi_d0(P0) = E Qbar0(d0(W), W) of the "
+        "optimal rule d0(w) = argmax_a Qbar0(a, w). It depends neither on the split nor on "
+        "the fitted rules. The estimator is the cross-validated TMLE of the learned-rule "
+        "value, so the point and the interval are those of ey_learned_rule on the same fit, "
+        "read as an estimate of another target",
+        "C1, a bounded outcome: Y lies in [0, 1] after the declared transform, so a binary "
+        "outcome or a continuous one with a declared q_bounds",
+        "C2, strong positivity: g0(a | W) >= delta > 0 for every arm almost surely; "
+        "g_bounds regularizes the fitted denominator only",
+        "C3 with d1 = d0: the fold rules converge to the optimal rule itself, so the outcome "
+        "learner, or the declared rule learner, is consistent for the blip. A learner whose "
+        "limit rule d1 differs from d0 estimates the value of d1, at most Psi_d0, and the "
+        "interval need not cover Psi_d0",
+        "a non-exceptional law (van der Laan and Luedtke 2015, condition (5)): the blip "
+        "Qbar0(1, W) - Qbar0(0, W) is 0 with probability zero, and with more than two arms "
+        "the top two arms of Qbar0 tie with probability zero, the package's own step. At an "
+        "exceptional law Psi_d0 is not pathwise differentiable, nothing is guaranteed, and "
+        "the interval can under-cover; the online estimator of Luedtke and van der Laan "
+        "(2016) that is valid there is X11 (f2b)",
+        "the regret: the fold average of Psi_d0(P0) - Psi_dnv(P0), which is at least 0, is "
+        "o_P(n^-1/2). Lemma 1 of van der Laan and Luedtke (2015) gives it under the margin "
+        "condition P0(0 < |blip| <= t) <= C t^alpha (moment condition (6)) and the rates of "
+        "Table 1 for the outcome regression or the rule learner. None of these conditions "
+        "involves g",
+        "C4, the remainder: the mean over the folds of the double-robust remainder along "
+        "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
+        "with g = g0, a negligible remainder-replacement error, and the remainder "
+        "linearization in Equation (14)",
+        "estimated g: the error splits as (psi_n - psi_0n) + (psi_0n - Psi_d0), with psi_0n "
+        "the learned-rule value. The first term is the learned-rule claim, which covers an "
+        "estimated g under C4 or Corollary 3, and the second is the regret, which does not "
+        "involve g. The source states the result with g known (Section 7.2), so an "
+        "estimated g is the package's step",
+        "C5: no Donsker condition is needed, so the learners may be flexible",
+        "C6: iid rows; or, under id=, iid clusters of bounded size whose number grows with "
+        "n, with a fixed number of folds and at least 2 clusters in every validation fold; "
+        "no observation weights, baseline strata, missing outcomes or intermediate variable. "
+        "With repeats above 1 the fit reports the mean of estimators of this one fixed "
+        "parameter. Luedtke and van der Laan (2016), Section 5.1, warn that an average over "
+        "swapped sample splits fails under nonregularity; that warning concerns the "
+        "exceptional laws, where this target makes no claim",
+    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        "the remainder is the fold average of the product of the outcome-regression and "
+        "mechanism errors along each fold's learned rule (C4), and the regret of the fold "
+        "rules is o_P(n^-1/2) under the margin and rate conditions of Lemma 1, which read "
+        "the outcome regression or the rule learner and not g"
+    ),
+    references=(
+        "van der Laan & Luedtke (2015)",
+        "Luedtke & van der Laan (2016)",
+    ),
+)
+
 _LEARNED_RULE_CONTRAST_ID = Identification(
     assumptions=(
         *_LEARNED_RULE_ID.assumptions,
@@ -550,6 +615,25 @@ def _ey_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
     ]
 
 
+def _ey_optimal_rule(ctx: TargetContext) -> list[ParameterEstimate]:
+    """The value of the optimal rule, estimated by the learned-rule fit (X11 (f)).
+
+    The arithmetic is :func:`_ey_learned_rule`'s: the regime mean of the learned column,
+    under the fit's report.  Only the target differs, :math:`\\Psi_{d_0}(P_0)` in place
+    of the fold average of the learned rules' values, and so does the reported name.
+    """
+    mean = ctx.means[LEARNED_RULE_CODE]
+    return [
+        ctx.finish(
+            parameter_name("ey_optimal_rule", arm=ctx.label(LEARNED_RULE_CODE)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+            reads=(LEARNED_RULE_CODE,),
+        )
+    ]
+
+
 def _ey_known_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{g*}]`` for every known regime declared beside a learned rule (X11 (c)).
 
@@ -888,6 +972,21 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         description=(
             "weighted average over the outer folds of the value of the rule learned on each "
             "fold's training rows"
+        ),
+    ),
+    Target(
+        name="ey_optimal_rule",
+        group="regime",
+        scale="level",
+        build=_ey_optimal_rule,
+        identification=_OPTIMAL_RULE_ID,
+        parameter_axis="learned_rule",
+        # Never in a default report: the fit's default target is the learned-rule value,
+        # and the optimal value is a different target that a caller names.
+        in_default_set=False,
+        description=(
+            "value of the optimal rule, E Qbar0(d0(W), W) with d0(w) = argmax_a Qbar0(a, w), "
+            "a fixed parameter estimated by the cross-validated TMLE of the learned-rule value"
         ),
     ),
     Target(

@@ -43,6 +43,7 @@ categorized API tables.
    cleverly.RegimeMean
    cleverly.RegimeContrast
    cleverly.LearnedRuleValue
+   cleverly.OptimalRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.targets.Interpretation

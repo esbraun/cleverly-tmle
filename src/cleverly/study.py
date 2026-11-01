@@ -140,6 +140,7 @@ __all__ = [
     "ModifiedTreatmentPolicyEffect",
     "NaturalCourseMean",
     "OddsRatio",
+    "OptimalRuleValue",
     "ParameterKey",
     "PointTreatment",
     "PopulationAttributableFraction",
@@ -2092,6 +2093,69 @@ class LearnedRuleValue:
 
 
 @dataclass(frozen=True)
+class OptimalRuleValue:
+    """Request the value of the optimal treatment rule, estimated from rules learned in folds.
+
+    The target is a fixed parameter: the mean outcome :math:`\\Psi_{d_0}(P_0)` had every
+    unit received the arm with the best mean outcome given its covariates,
+    :math:`d_0(w) = \\arg\\max_a \\bar Q_0(a, w)`.  The estimator is the cross-validated TMLE
+    of :class:`LearnedRuleValue`, so on the same data and settings the point and the interval
+    are that fit's, reported under ``ey_optimal_rule``.  Van der Laan and Luedtke (2015),
+    Section 7.2, give the conditions under which it estimates the optimal value: the fold
+    rules converge to :math:`d_0`, the effect is zero for almost no unit (a non-exceptional
+    law), and the rules approach :math:`d_0` fast enough that the regret is
+    :math:`o_P(n^{-1/2})`.  At an exceptional law nothing is guaranteed, and the interval can
+    under-cover.
+
+    The fit needs cross-fitting with at least two folds, under either report.  It refuses
+    ``weights=``, ``strata=``, known regimes beside it and the in-sample fit (X11 (f3) in
+    ``docs/roadmap.md``).  Every fit reads experimental until a study registers.
+
+    Parameters
+    ----------
+    rule : LearnedRule
+        The rule class whose fold rules estimate the optimal rule, and the label the
+        reported parameter carries.
+
+    See Also
+    --------
+    LearnedRuleValue : The value of the learned rules themselves, a data-adaptive target.
+    cleverly.interventions.LearnedRule : The rule this estimand holds.
+
+    Examples
+    --------
+    >>> from cleverly import OptimalRuleValue
+    >>> estimand = OptimalRuleValue()
+    >>> estimand.name, estimand.rule.name
+    ('ey_optimal_rule', 'learned rule')
+    """
+
+    rule: LearnedRule = field(default_factory=LearnedRule)
+    name: str = field(default="ey_optimal_rule", init=False)
+    definition: str = field(
+        default=(
+            "value of the optimal rule, which gives each unit the arm with the best mean "
+            "outcome given its covariates"
+        ),
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.rule, LearnedRule):
+            raise DataError(
+                "OptimalRuleValue(rule=...) takes a cleverly.interventions.LearnedRule, not "
+                f"{self.rule!r}"
+            )
+
+
+#: The typed estimands whose fit learns a rule inside each training fold.
+LEARNED_RULE_ESTIMANDS: tuple[type[LearnedRuleValue], type[OptimalRuleValue]] = (
+    LearnedRuleValue,
+    OptimalRuleValue,
+)
+
+
+@dataclass(frozen=True)
 class ModifiedTreatmentPolicy:
     """Request mean outcomes under modified treatment policies.
 
@@ -2319,6 +2383,7 @@ PointEstimand = (
     | RegimeMean
     | RegimeContrast
     | LearnedRuleValue
+    | OptimalRuleValue
     | ModifiedTreatmentPolicy
     | ModifiedTreatmentPolicyEffect
     | IncrementalMean
@@ -2345,6 +2410,7 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "ey_regime": "RegimeMean(regimens=...)",
     "ate_regime": "RegimeContrast(regimens=...)",
     "ey_learned_rule": "LearnedRuleValue()",
+    "ey_optimal_rule": "OptimalRuleValue()",
     "ey_policy": "ModifiedTreatmentPolicy(policies=...)",
     "ate_policy": "ModifiedTreatmentPolicyEffect(policies=...)",
     "ey_ipsi": "IncrementalMean(interventions=...)",
@@ -2566,6 +2632,12 @@ class BackdoorMeanContrast:
             return f"E({self.outcome} | {', '.join(conditions)})"
 
         support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
+        if self.axis == "learned_rule" and self.target == "ey_optimal_rule":
+            # A fixed parameter: the value of the optimal rule, the best arm at each W.
+            return (
+                f"E_W[{regression('d0(W)')}], where d0(W) is the arm a{support} with the "
+                f"largest {regression('a')}, a tie going to the first arm in sorted order"
+            )
         if self.axis == "learned_rule":
             treated, control = self.treatment_levels[1], self.treatment_levels[0]
             blip = f"{regression(repr(treated))} - {regression(repr(control))}"
@@ -3431,7 +3503,7 @@ def _point_functional(
         )
     declared = _declared_interventions(actual)
     interventions: tuple[Any, ...] = () if declared is None else tuple(getattr(actual, declared[0]))
-    if isinstance(actual, LearnedRuleValue):
+    if isinstance(actual, LEARNED_RULE_ESTIMANDS):
         # The rule rides where a regime would, so the engine adapter reads it off the
         # functional as it reads every other axis's declaration.
         interventions = (actual.rule,)
@@ -3666,10 +3738,12 @@ class ExplicitAdjustmentProvider:
                 f"{type(estimand).__name__} is not an evidenced point estimand",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
-        if isinstance(actual, LearnedRuleValue):
+        if isinstance(actual, LEARNED_RULE_ESTIMANDS):
             # The rows of the learned-rule refusal table that the data decide, before the generic
             # axis and design checks below: their sentences name other remedies.
-            refuse_learned_rule_composition(data, rule=actual.rule)
+            refuse_learned_rule_composition(
+                data, rule=actual.rule, optimal=isinstance(actual, OptimalRuleValue)
+            )
         # The kinds of the items are a property of the estimand, so they are checked before
         # the design.  Not in ``_point_functional``: the provenance matcher calls that inside
         # a ``try`` that reads a refusal as a mismatch.
@@ -3803,11 +3877,11 @@ class ExplicitAdjustmentProvider:
     ) -> IdentifiedEffect:
         design = study.design
         assert isinstance(design, (LongitudinalTreatment, TimeToEvent, LongPanel))
-        if isinstance(estimand, LearnedRuleValue):
+        if isinstance(estimand, LEARNED_RULE_ESTIMANDS):
             raise CapabilityError(
-                "LearnedRuleValue is a point-treatment target, and a learned longitudinal "
-                "regimen has no supported path. Van der Laan and Luedtke (2015) give one at "
-                "two time points, and X11 (b) in docs/roadmap.md holds it.",
+                f"{type(estimand).__name__} is a point-treatment target, and a learned "
+                "longitudinal regimen has no supported path. Van der Laan and Luedtke (2015) "
+                "give one at two time points, and X11 (b) in docs/roadmap.md holds it.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="DynamicRegimen(..., rule_kind='known') fits a fixed regimen.",
                 roadmap="X11",

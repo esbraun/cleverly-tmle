@@ -2230,6 +2230,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "missing_estimator",
         "repeat_provenance",
         "learned_rule_splits",
+        "optimal_rule",
         "binary_estimator",
         "continuous_estimator",
         "outcome_family",

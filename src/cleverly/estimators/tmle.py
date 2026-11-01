@@ -205,6 +205,7 @@ from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_ARM_REMEDY,
     LEARNED_RULE_REMEDY,
+    OPTIMAL_RULE_TARGET,
     FrozenLearnedRule,
     LearnedRule,
     _learned_rule_regimes,
@@ -218,6 +219,7 @@ from ..interventions.learned import (
     learned_rule_split,
     learned_rule_treat,
     mean_over_splits,
+    optimal_rule_requested,
     refuse_learned_rule_composition,
     stacked_fold_estimates,
 )
@@ -774,6 +776,10 @@ class TMLE:
         treatment fits are cross-fitted inside the fold's training rows with this estimator's
         own learners; the fluctuation, estimate and variance do not change.
         The result records the fold summaries under ``result.extra["learned_rule"]``.
+        ``estimands=["ey_optimal_rule"]`` reports the same estimate as the value of the
+        optimal rule, a fixed parameter, under the further conditions of the learned-rule
+        contract (X11 (f); experimental).  It is then the fit's one estimand, and it refuses
+        known regimes beside it, ``weights=``, ``strata=`` and ``cross_fit=False``.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -2182,7 +2188,9 @@ class TMLE:
             # targeting, so its fold values are read from its targeted fit, and they are
             # descriptive. An in-sample fit (cross_fit=False) reads its one pseudo-fold the
             # same way, and that value is its estimate. The record describes the marginal value.
-            name = parameter_name("ey_learned_rule", arm=self.learned_rule.name)
+            # The value of the optimal rule (X11 (f)) is the same column under another name.
+            stem = OPTIMAL_RULE_TARGET if optimal_rule_requested(self) else "ey_learned_rule"
+            name = parameter_name(stem, arm=self.learned_rule.name)
             scheme = (
                 "fold_evaluated"
                 if self.cv_evaluation
@@ -2215,7 +2223,7 @@ class TMLE:
             extra = {
                 **extra,
                 "learned_rule": learned_rule_record(
-                    self.learned_rule, splits, data.treatment_levels
+                    self.learned_rule, splits, data.treatment_levels, estimand=stem
                 ),
             }
         result = TMLEResult(

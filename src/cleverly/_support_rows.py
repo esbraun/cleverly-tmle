@@ -117,7 +117,7 @@ def point_row(
     evidence : sequence of str
         The registered study slugs.
     families : iterable of str
-        The target families the row covers, as ``P1`` to ``P11``.
+        The target families the row covers, as ``P1`` to ``P12``.
     outcome : tuple of str, default BINARY
         The outcome axis of :class:`~cleverly._support.SupportKey`.
     missing : tuple of str, default ("complete",)
@@ -4523,6 +4523,7 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
     ),
     "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
     "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
+    "P12": _anchor("`ey_optimal_rule`", "tests/unit/test_learned_rule_optimal.py"),
     "blips": _anchor(
         "structural nested mean model (`StructuralNestedMean`)",
         "tests/discrete_law_structural.py",

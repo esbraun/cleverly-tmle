@@ -153,7 +153,13 @@ def base_summary_facts(result: TMLEResult) -> SummaryFacts:
             if details
             else ()
         ),
-        question=vocabulary.LEARNED_RULE_QUESTION if learned is not None else None,
+        question=(
+            None
+            if learned is None
+            else vocabulary.OPTIMAL_RULE_QUESTION
+            if learned.estimand == "ey_optimal_rule"
+            else vocabulary.LEARNED_RULE_QUESTION
+        ),
     )
 
 
