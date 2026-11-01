@@ -111,7 +111,8 @@ _IN_SAMPLE_REMEDY = "fit in sample with cross_fit=False on the engine (CrossFitt
 #: estimand that has no in-sample fit. This sentence names its remedy.
 _LEARNED_RULE_METHOD_CLAUSE = (
     "LearnedRuleValue has no in-sample fit (X11 (a) in docs/roadmap.md), so for it use "
-    "CrossFitting(enabled=True, fold_evaluation=True) with n_folds of at least 2"
+    "CrossFitting(enabled=True) with n_folds of at least 2; CrossFitting(fold_evaluation=True) "
+    "gives the fold-evaluated report that the registered studies cover"
 )
 
 #: What a refusal raised *after* the split was drawn may offer, and why it offers no

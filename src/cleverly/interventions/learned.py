@@ -2,13 +2,18 @@ r"""The value of a treatment rule learned inside each training fold.
 
 A :class:`~cleverly.interventions.Rule` is a *known* function of the covariates, and a rule
 learned from the analysis sample is refused there.  This module holds
-the one learned-rule target the package estimates instead.  The target is data-adaptive:
+the one learned-rule target the package estimates instead.  The target is data-adaptive.
+The fold-evaluated report (``TMLE(cv_evaluation=True)``) targets
 
 .. math::
 
     \tilde\psi_{0n} = \frac1V \sum_{v=1}^V \Psi_{d_{nv}}(P_0),
 
-where :math:`d_{nv}` is the rule learned on the training rows of outer fold :math:`v`.  The
+where :math:`d_{nv}` is the rule learned on the training rows of outer fold :math:`v`, and the
+stacked report (``cv_evaluation=False``) targets
+:math:`\tilde\psi^{s}_{0n} = \sum_v (W_v / W)\,\Psi_{d_{nv}}(P_0)`, with :math:`W_v` the weight
+mass of validation fold :math:`v` (its row count without weights) and :math:`W` their sum.  The
+two coincide at equal masses.  The
 default rule is the plug-in rule
 :math:`d_{nv}(w) = \mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}` of the outcome
 regression :math:`\bar Q_{nv}` fitted on those rows.  ``LearnedRule(loss="blip")`` and
@@ -16,11 +21,13 @@ regression :math:`\bar Q_{nv}` fitted on those rows.  ``LearnedRule(loss="blip")
 robust pseudo-outcome instead (Luedtke and van der Laan 2016, *International Journal of
 Biostatistics*, Sections 4.1 to 4.3), which :mod:`cleverly.interventions._rule_learners` fits.
 Van der Laan and Luedtke (2015), Section 7 and Appendix B, define the target and its
-cross-validated TMLE for any rule learned on the training rows.  The estimator reuses the
-regime fluctuation with one pooled :math:`\varepsilon`, the fold-evaluated report and the
-cross-validated variance (``TMLE(cv_evaluation=True)``).  This module adds the fold-local rule,
-the result record, the mean over a fixed number of splits (:func:`mean_over_splits`) and the
-refusals.  No new submodel, fluctuation or influence curve enters.
+cross-validated TMLE for any rule learned on the training rows, and polle's Algorithm 4
+(Nordland and Holst 2026) gives the stacked weighting :math:`n_v / n`.  The estimator reuses the
+regime fluctuation with one pooled :math:`\varepsilon`, and either the fold-evaluated report
+with the cross-validated variance or the stacked report with the curve centred at the pooled
+estimate.  This module adds the fold-local rule, the result record, the mean over a fixed
+number of splits (:func:`mean_over_splits`) and the refusals.  No new submodel, fluctuation or
+influence curve enters.
 """
 
 from __future__ import annotations
@@ -52,6 +59,7 @@ __all__ = [
     "LEARNED_RULE_TILT_REFUSAL",
     "LOSSES",
     "RULE_CLASS",
+    "SCHEMES",
     "TARGET_KIND",
     "FrozenLearnedRule",
     "LearnedRule",
@@ -69,6 +77,7 @@ __all__ = [
     "learned_rule_treat",
     "mean_over_splits",
     "refuse_learned_rule_composition",
+    "stacked_fold_estimates",
 ]
 
 #: The loss of each rule learner, the ``loss=`` of :class:`LearnedRule`.
@@ -105,18 +114,29 @@ RULE_CLASS: dict[str, str] = {
     ),
 }
 
-#: What the reported value is.  The record and the summary quote it.
-TARGET_KIND = "fold-average data-adaptive value"
+#: What the reported value is under each report, keyed by :attr:`LearnedRuleSplit.scheme`.
+#: The record and the summary quote it.
+TARGET_KIND: dict[str, str] = {
+    "fold_evaluated": "fold-average data-adaptive value",
+    "stacked": "fold-mass-weighted data-adaptive value",
+}
+
+#: The two reports of a learned-rule fit, the values of :attr:`LearnedRuleSplit.scheme`.
+SCHEMES: tuple[str, ...] = tuple(TARGET_KIND)
 
 #: The quantile levels of the estimated blip that the record keeps for each fold.
 BLIP_QUANTILE_LEVELS: tuple[float, ...] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 #: The configuration that fits the learned-rule value.  Every refusal whose remedy is a
-#: configuration names it, and ``tests/unit/test_learned_rule_refusals.py`` fits it.
+#: configuration names it, and ``tests/unit/test_learned_rule_refusals.py`` fits it.  Either
+#: report fits, so the requirement names neither ``cv_evaluation`` value.  Its last clause
+#: names the fold-evaluated report, because the default is the stacked report, which no
+#: registered study covers.
 LEARNED_RULE_CONFIGURATION = (
-    "cross_fit=True, cv_evaluation=True on the engine, or "
-    "CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least "
-    "2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)"
+    "cross_fit=True on the engine, or CrossFitting(enabled=True) on the method, with n_folds "
+    "of at least 2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method); "
+    "cv_evaluation=True on the engine (CrossFitting(fold_evaluation=True) on the method) "
+    "gives the fold-evaluated report that the registered studies cover"
 )
 
 #: The way out of a shared refusal that a drawn split raises.  The learned-rule value has
@@ -608,18 +628,32 @@ def learned_rule_treat(
 
 @dataclass(frozen=True)
 class LearnedRuleSplit:
-    """Record one split of a learned-rule fit: its rules and its fold estimates.
+    r"""Record one split of a learned-rule fit: its rules and its fold estimates.
 
     Parameters
     ----------
     seed : int
         The seed of the split's folds and learners, as ``result.repeats`` records it.
+    scheme : str
+        The report of the fit, one of :data:`SCHEMES`: ``"fold_evaluated"`` under
+        ``cv_evaluation=True`` and ``"stacked"`` under ``cv_evaluation=False``.
     estimate : float
-        The split's fold-evaluated value, :math:`(1/V)\\sum_v \\psi^*_{nv}`.
+        The split's estimate.  Under the fold-evaluated report it is
+        :math:`(1/V)\sum_v \psi^*_{nv}`, and under the stacked report it is the pooled plug-in
+        :math:`\sum_v (W_v/W)\psi^*_{nv}`, which :attr:`fold_weights` gives.
     fold_sizes : tuple of int
         The validation rows of each outer fold.
+    fold_masses : tuple of float
+        The observation-weight mass :math:`W_v` of each fold's validation rows, on the fit's
+        mean-one weight scale.  Without weights it is the fold's row count.
     fold_estimates : tuple of float
-        The targeted plug-in value of each fold on its own validation rows.
+        The targeted plug-in value :math:`\psi^*_{nv}` of each fold on its own validation rows.
+        Under the fold-evaluated report each is a term of the estimate, and with baseline
+        strata it is the share mixture of the fold's stratum plug-ins.  Under the stacked
+        report it is descriptive: the weighted mean of :math:`\bar Q^*(d_i, W_i)` over the
+        fold's rows at the fit's own fluctuation.  Pooled targeting does not solve each
+        fold's score, so a fold value is not an estimate of :math:`\Psi_{d_{nv}}(P_0)`
+        with its own interval, and only their weighted sum is reported.
     treated_shares : tuple of float
         The share of each fold's validation rows that its rule assigns to the higher
         arm code.
@@ -632,7 +666,7 @@ class LearnedRuleSplit:
     score_quantiles : tuple of tuple of float
         For a pseudo-outcome loss, for each fold, quantiles of the rule learner's score
         minus its threshold on the fold's validation rows, at :data:`BLIP_QUANTILE_LEVELS`:
-        :math:`\\hat b_v(w)` for ``loss="blip"`` and :math:`\\hat P_v(\\tilde D > 0 \\mid w) - 1/2`
+        :math:`\hat b_v(w)` for ``loss="blip"`` and :math:`\hat P_v(\tilde D > 0 \mid w) - 1/2`
         for ``loss="weighted_classification"``.  The rule treats where this is positive, so
         its mass at 0 speaks to C3.  Empty for the plug-in rule and for a frozen rule.
     inner_seeds : tuple of int
@@ -647,13 +681,19 @@ class LearnedRuleSplit:
     """
 
     seed: int
+    scheme: str
     estimate: float
     fold_sizes: tuple[int, ...]
+    fold_masses: tuple[float, ...]
     fold_estimates: tuple[float, ...]
     treated_shares: tuple[float, ...]
     blip_quantiles: tuple[tuple[float, ...], ...]
     score_quantiles: tuple[tuple[float, ...], ...]
     inner_seeds: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if self.scheme not in SCHEMES:
+            raise ValueError(f"scheme must be one of {SCHEMES}; got {self.scheme!r}")
 
     @property
     def n_folds(self) -> int:
@@ -662,8 +702,15 @@ class LearnedRuleSplit:
 
     @property
     def fold_weights(self) -> tuple[float, ...]:
-        """Return the weight of each fold in the split's average, ``1/V`` for every fold."""
-        return tuple(1.0 / self.n_folds for _ in self.fold_sizes)
+        r"""Return the weight of each fold in the split's target and estimate.
+
+        ``1/V`` for every fold under the fold-evaluated report, and the fold's share
+        :math:`W_v/W` of the weight mass under the stacked report (``n_v/n`` without weights).
+        """
+        if self.scheme == "fold_evaluated":
+            return tuple(1.0 / self.n_folds for _ in self.fold_sizes)
+        total = float(sum(self.fold_masses))
+        return tuple(float(mass) / total for mass in self.fold_masses)
 
 
 @dataclass(frozen=True)
@@ -690,6 +737,7 @@ class LearnedRuleRecord:
     Attributes
     ----------
     n_splits : int
+    scheme : str
     rule : str
     target : str
     quantile_levels : tuple of float
@@ -706,14 +754,19 @@ class LearnedRuleRecord:
         return len(self.splits)
 
     @property
+    def scheme(self) -> str:
+        """Return the report of the fit, one of :data:`SCHEMES`, which every split shares."""
+        return self.splits[0].scheme
+
+    @property
     def rule(self) -> str:
         """Return the rule class of the fit's loss, in words (:data:`RULE_CLASS`)."""
         return RULE_CLASS[self.loss]
 
     @property
     def target(self) -> str:
-        """Return what the reported value is (:data:`TARGET_KIND`)."""
-        return TARGET_KIND
+        """Return what the reported value is under the fit's report (:data:`TARGET_KIND`)."""
+        return TARGET_KIND[self.scheme]
 
     @property
     def quantile_levels(self) -> tuple[float, ...]:
@@ -728,7 +781,8 @@ class LearnedRuleRecord:
         str
             The target, the fold count, the source of the definition, how the rules are
             learned, which record field describes a rule learner's score, and the range of
-            the treated share over the folds.  A fit of several
+            the treated share over the folds.  The stacked report also gives the range of
+            the fold weights.  A fit of several
             splits also names the split count, and gives both ranges over every split.
         """
         shares = [share for split in self.splits for share in split.treated_shares]
@@ -755,18 +809,38 @@ class LearnedRuleRecord:
             "The target depends on the data, because the rules do (van der Laan and Luedtke "
             f"2015, Section 7). {learned}"
         )
+        if self.scheme == "stacked":
+            weights = [weight for split in self.splits for weight in split.fold_weights]
+            # Each fold mass is the fold's row count exactly when no weights were passed.
+            weighted = any(
+                tuple(float(size) for size in split.fold_sizes) != split.fold_masses
+                for split in self.splits
+            )
+            share = "the total weight" if weighted else "the rows"
+            average = "the average of the values"
+            weighting = (
+                f", weighted by each fold's share of {share} (fold weights "
+                f"{min(weights):.3g} to {max(weights):.3g})"
+            )
+            evaluated = (
+                "each evaluated on the fold it did not train on and pooled over every "
+                "validation row (the stacked report)"
+            )
+        else:
+            average, weighting = "the average value", ""
+            evaluated = "each estimated on the fold it did not train on"
         if self.n_splits == 1:
             return (
-                f"Target: the average value of the {self.splits[0].n_folds} rules learned on the "
-                "training folds, each estimated on the fold it did not train on. "
+                f"Target: {average} of the {self.splits[0].n_folds} rules learned on the "
+                f"training folds{weighting}, {evaluated}. "
                 f"{source} Unweighted share of rows the rules treat, by fold: "
                 f"{low:.3g} to {high:.3g}."
             )
         estimates = [split.estimate for split in self.splits]
         return (
-            f"Target: the mean over {self.n_splits} random splits of the average value of "
-            "the rules learned on the training folds of each split, each estimated on the "
-            f"fold it did not train on. {source} Estimate of each split: "
+            f"Target: the mean over {self.n_splits} random splits of {average} of "
+            f"the rules learned on the training folds of each split{weighting}, {evaluated}. "
+            f"{source} Estimate of each split: "
             f"{min(estimates):.4g} to {max(estimates):.4g}. Unweighted share of rows the "
             f"rules treat, by fold over every split: {low:.3g} to {high:.3g}."
         )
@@ -791,7 +865,9 @@ def mean_over_splits(
         \bar\phi_i = \frac1R\sum_r \phi_{r,i}.
 
     The variance is ``variance(phibar)``, the split's own rule applied to the averaged
-    curve: :math:`n^{-2}\sum_i \bar\phi_i^2` for the fold-evaluated report.  The median of
+    curve: :math:`n^{-2}\sum_i \bar\phi_i^2` for the fold-evaluated report, and
+    :func:`~cleverly.inference.influence_variance`, the centred rule, for the
+    stacked report.  The median of
     the split estimates estimates no defined parameter, so it is never used here.
 
     A parameter status of one split passes to the mean, as it passes to the median
@@ -1018,6 +1094,45 @@ def _learned_rule_regimes(
     )
 
 
+def stacked_fold_estimates(
+    nuisance: NuisanceEstimates, targeted: Any, weights: np.ndarray
+) -> tuple[float, ...]:
+    r"""Return each fold's weighted mean of the targeted value of its rule, on the outcome scale.
+
+    The stacked report's estimate is the pooled weighted mean of
+    :math:`\bar Q^*(d_i, W_i)` over every validation row, which equals
+    :math:`\sum_v (W_v/W)\psi^*_{nv}` with these fold values.  The values are descriptive:
+    pooled targeting solves the pooled score, not each fold's.
+
+    Parameters
+    ----------
+    nuisance : NuisanceEstimates
+        The split's cross-fitted nuisances, whose folds and one-hot regime the values read.
+    targeted : InitialFit
+        The targeted outcome regression of the split's fluctuation, on the fitted scale.
+    weights : numpy.ndarray
+        The observation weights of the rows.
+
+    Returns
+    -------
+    tuple of float
+        One value per fold, in the order of ``nuisance.folds``.
+    """
+    assert nuisance.regimes is not None
+    density = np.asarray(nuisance.regimes.values[:, :, 0], dtype=float)
+    predictions = np.column_stack(
+        [np.asarray(targeted.arms[level], dtype=float) for level in targeted.levels]
+    )
+    mixture = np.einsum("ij,ij->i", density, predictions)
+    weights = np.asarray(weights, dtype=float)
+    scaler = nuisance.scaler
+    out = []
+    for _, test in nuisance.folds:
+        value = float(np.average(mixture[test], weights=weights[test]))
+        out.append(value if scaler.is_identity else float(scaler.unscale_level(value)))
+    return tuple(out)
+
+
 def learned_rule_split(
     rule: LearnedRule,
     nuisance: NuisanceEstimates,
@@ -1025,6 +1140,8 @@ def learned_rule_split(
     *,
     seed: int,
     estimate: float,
+    scheme: str,
+    weights: np.ndarray,
 ) -> LearnedRuleSplit:
     """Build the record of one split of a learned-rule fit.
 
@@ -1035,11 +1152,16 @@ def learned_rule_split(
     nuisance : NuisanceEstimates
         The split's cross-fitted nuisances, whose folds and regimes the record reads.
     fold_estimates : sequence of float
-        The fold plug-in values, in the order of ``nuisance.folds``.
+        The fold plug-in values, in the order of ``nuisance.folds``: the fold-evaluated
+        report's own, or :func:`stacked_fold_estimates` under the stacked report.
     seed : int
         The split's seed.
     estimate : float
-        The split's fold-evaluated value.
+        The split's estimate under its report.
+    scheme : str
+        The report, one of :data:`SCHEMES`.
+    weights : numpy.ndarray
+        The observation weights of the rows, whose fold sums are the fold masses.
 
     Returns
     -------
@@ -1052,10 +1174,13 @@ def learned_rule_split(
     tests = [np.asarray(test) for _, test in nuisance.folds]
     learns = rule.loss != "plug_in" and not isinstance(rule, FrozenLearnedRule)
     margin = getattr(nuisance.regimes, "margin", None) if learns else None
+    weights = np.asarray(weights, dtype=float)
     return LearnedRuleSplit(
         seed=int(seed),
+        scheme=scheme,
         estimate=float(estimate),
         fold_sizes=tuple(int(test.size) for test in tests),
+        fold_masses=tuple(float(np.sum(weights[test])) for test in tests),
         fold_estimates=tuple(float(value) for value in fold_estimates),
         treated_shares=tuple(float(np.mean(treat[test])) for test in tests),
         blip_quantiles=tuple(
@@ -1242,10 +1367,11 @@ def _data_refusal(data: CausalData) -> Refusal | None:
         )
     if data.has_strata and data.cluster is not None:
         return _gap(
-            "a learned rule with baseline strata (strata=) and clusters (id=) is refused. "
-            "Each stratum's fold variance would compare the cluster totals of its stratum "
-            "inside every validation fold, and neither that variance nor its Student t "
-            "reference has been checked (X28 in docs/roadmap.md).",
+            "a learned rule with baseline strata (strata=) and clusters (id=) is refused under "
+            "either report. Each stratum's variance would compare the cluster totals of its "
+            "stratum, inside every validation fold under cv_evaluation=True and over the "
+            "pooled validation rows under the stacked report, and neither variance nor its "
+            "Student t reference has been checked (X28 in docs/roadmap.md).",
             "Fit the clustered learned-rule value without strata=, or the stratified "
             "learned-rule value without id=.",
             "X28",
@@ -1264,7 +1390,8 @@ def learned_rule_scheme_refusal(estimator: Any, data: CausalData | None = None) 
 
     ``repeats=R`` above 1 on rows is no refusal: the fit reports the mean over the ``R``
     splits (:func:`mean_over_splits`).  The median over splits estimates no defined
-    parameter, so no setting reaches it.
+    parameter, so no setting reaches it.  ``cv_evaluation=False`` is no refusal either: the
+    fit reports the stacked value, whose target weights fold :math:`v` by :math:`W_v/W`.
 
     Parameters
     ----------
@@ -1286,15 +1413,6 @@ def learned_rule_scheme_refusal(estimator: Any, data: CausalData | None = None) 
             "rule learned on every row is evaluated on the rows it was learned on, and the "
             "value of that full-sample rule is a different target "
             f"({_X11.format(part='a')}).",
-            remedy,
-            "X11",
-        )
-    if not estimator.cv_evaluation:
-        return _gap(
-            "the learned-rule value needs the fold-evaluated CV-TMLE (cv_evaluation=True). "
-            "The stacked report weights the folds by n_v / n and centres the curve at the "
-            "pooled estimate, which is a different construction "
-            f"({_X11.format(part='e')}).",
             remedy,
             "X11",
         )
@@ -1341,10 +1459,9 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     7       estimated weights, ``weights_estimated=True``        X11 (k2)
     8       ``strata=`` with clusters, ``id=``                   X28
     9       ``cross_fit=False``, or one fold                     X11 (a)
-    10      ``cv_evaluation=False``                              X11 (e)
-    11      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
-    12      ``n_bootstrap`` above 0                              F27
-    13      ``loss="blip"`` with ``weights=`` and a learner      none, a declaration
+    10      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
+    11      ``n_bootstrap`` above 0                              F27
+    12      ``loss="blip"`` with ``weights=`` and a learner      none, a declaration
             whose ``fit`` takes no ``sample_weight``
     ======  ===================================================  ===================
 

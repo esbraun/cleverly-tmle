@@ -565,8 +565,8 @@ def refuse_mixed_interventions(
                 alternative=(
                     "LearnedRuleValue holds it in a CausalStudy, and "
                     "TMLE(learned_rule=...) takes it on the estimator, with "
-                    f"{LEARNED_RULE_CONFIGURATION} (the learned-rule refusal table in "
-                    "docs/technical-reference/point-treatment-tmle.md)."
+                    f"{LEARNED_RULE_CONFIGURATION}. The learned-rule refusal table in "
+                    "docs/technical-reference/point-treatment-tmle.md lists the rest."
                 ),
             )
         found = _intervention_kind(item)
