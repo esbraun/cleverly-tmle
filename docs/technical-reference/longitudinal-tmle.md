@@ -1121,7 +1121,7 @@ the per-horizon algorithm on repeated samples of two exact laws. Its 21 paired c
 
 The registered study [point survival curve](method-evidence/point-survival-curve.md) validates the
 one-step walk on repeated samples of the `survival` law and on further exact laws in its property
-cells. Its `tmle3` comparator runs are pending.
+cells. Its 15 paired comparisons with R `tmle3` `tmle_survival` pass under the default margins.
 
 The registered study [point survival curve crossfit](method-evidence/point-survival-curve-crossfit.md)
 validates the one-step walk at five folds on the same exact laws. It has no comparator.

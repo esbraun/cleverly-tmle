@@ -14,17 +14,17 @@ The primary law is the `survival` scenario of
 efficiency bound is the exact standard deviation of the efficient influence function over the
 law's support.
 
-The comparator is R `tmle3` at commit `ed72f8a`, which runs `tmle_survival` with a one-step
-whole-curve hazard fluctuation. The comparator runs are pending, so this study carries the label
-"Python property evidence, with comparator runs pending". The runs are queued as Study queue row 21
-in `TRACKER.md`. The comparison is not acceptance evidence for any claim until that row closes.
+The study pairs each fit with R `tmle3` at commit `ed72f8a`, which runs `tmle_survival` with a
+one-step whole-curve hazard fluctuation, on the same samples. The evidence label is
+"comparator-backed". The `tmle3` rows were fitted at commit `cea85938` with 1,600 samples. The
+`cleverly` estimates of that run match the earlier Python-only run of the same samples to within
+$10^{-9}$, with every coverage indicator identical.
 
 ## What was compared
 
 | setting | `cleverly` | R `tmle3` |
 | --- | --- | --- |
-| status | run and published on this page | pending. No reference process ran, and `equivalence.csv` has no rows |
-| datasets | 1,600 samples of 2,000 rows of the `survival` scenario | the identical rows, once the runs exist |
+| datasets | 1,600 samples of 2,000 rows of the `survival` scenario | the identical rows |
 | scenario | `survival`: five visits, the risks of both arms and their difference at every visit | the same |
 | treatment model | an unpenalized logistic regression on `W1` and `W2` | `Lrnr_glm` on `W1 + W2` |
 | event and censoring hazards | an unpenalized logistic regression on `W1`, `W2` and the arm at each node | `Lrnr_stratified` on the visit over `Lrnr_glm`, one fit for each visit |
@@ -32,15 +32,18 @@ in `TRACKER.md`. The comparison is not acceptance evidence for any claim until t
 | curve | the risks of both arms and their difference, from one set of hazards | one `tmle_survival` specification for each arm with `target_times = 1:5`. The contrast is the difference of the two per-unit influence curves, and the risk is one minus the reported survival |
 | intervals | pointwise 95% Wald from the influence curve | the same |
 
-The pending runs read under the default margins. The comparator is `tmle3` at commit `ed72f8a`
+The paired rows read under the default margins. The comparator is `tmle3` at commit `ed72f8a`
 with `sl3` at commit `0e8f236`. It runs in its own image, which adds `glmnet` 5.0 to the `tmle3`
 pins. The runner subclasses the updater to repair two defects of its `fit_submodel`, and it changes
 nothing else. The vector test `fit_lambda == 1` becomes `length(fit_lambda) == 1`. The retry
 assigns `lambda.min.ratio`, so a retry refits a different path.
 
 A replicate with an unsolved score and no nonzero step fails the run. A replicate with a nonzero
-step and an unsolved score stays in the paired rows. The run log counts it, and this page will
-report it.
+step and an unsolved score stays in the paired rows. The run log counts it. In the
+declared run every one of the 3,200 `tmle3` fits (1,600 samples, two arms) solved its score
+within `maxit`, with 1 to 38 nonzero steps and no printed error. The standard error from the
+per-unit influence curve differs from the `tmle3` summary by at most $4.6 \times 10^{-6}$. The run
+log of Study queue row 21 in `TRACKER.md` records these counts.
 
 The declared unmatched settings are the cause of any difference between the two sides.
 
@@ -52,8 +55,15 @@ The declared unmatched settings are the cause of any difference between the two 
 | stopping rule | a relative score of 1e-10 | every score at most 1/n in absolute value |
 
 The censoring convention makes the `cleverly` standard error grow against the `tmle3` one with the
-visit. The study module records about 2 percent at visit 5 in its smoke run. A paired row at a late
-visit can therefore read as superior on coverage and not as equivalent. Both outcomes pass.
+visit. The study module records about 2 percent at visit 5 in its smoke run, declared before the
+run. A paired row at a late visit can therefore read as superior on coverage and not as
+equivalent. Both outcomes pass.
+
+The declared run shows that pattern in both arms. The mean ratio of the `tmle3` standard error to
+the `cleverly` one falls from 0.9998 at visit 1 to between 0.976 and 0.981 at visit 5, and the
+estimates agree to within 0.007 of the margin. Three late rows read superior: the arm 0 risks at
+visits 4 and 5 and the arm 1 risk at visit 5. In each of them the `cleverly` SE ratio against the
+empirical spread is nearer one than the `tmle3` one, and both pass the calibration test.
 
 ## Accuracy against known truth
 
@@ -61,24 +71,63 @@ visit can therefore read as superior on coverage and not as equivalent. Both out
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=1]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 1 | `cleverly` | -0.000779 to 0.0011 | 0.9500 | 1.0029 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=1]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 1 | R `tmle3` | -0.000767 to 0.0011 | 0.9494 | 1.0026 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=2]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 2 | `cleverly` | -0.000939 to 0.0015 | 0.9519 | 1.0039 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=2]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 2 | R `tmle3` | -0.000947 to 0.0015 | 0.9494 | 0.9991 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | `cleverly` | -0.000924 to 0.0018 | 0.9531 | 1.0124 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | R `tmle3` | -0.000922 to 0.0018 | 0.9519 | 1.0033 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=4]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 4 | `cleverly` | -0.000847 to 0.0021 | 0.9569 | 1.0364 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=4]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 4 | R `tmle3` | -0.000850 to 0.0021 | 0.9544 | 1.0207 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | `cleverly` | -0.0013 to 0.0018 | 0.9544 | 1.0084 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | R `tmle3` | -0.0013 to 0.0018 | 0.9519 | 0.9878 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=1]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 1 | `cleverly` | -0.000838 to 0.000594 | 0.9519 | 0.9963 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=1]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 1 | R `tmle3` | -0.000844 to 0.000586 | 0.9513 | 0.9980 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=2]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 2 | `cleverly` | -0.000932 to 0.000929 | 0.9575 | 0.9958 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=2]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 2 | R `tmle3` | -0.000934 to 0.000924 | 0.9569 | 0.9918 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | `cleverly` | -0.0011 to 0.0010 | 0.9481 | 0.9839 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | R `tmle3` | -0.0011 to 0.0010 | 0.9487 | 0.9753 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=4]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 4 | `cleverly` | -0.0016 to 0.000649 | 0.9500 | 0.9851 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=4]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 4 | R `tmle3` | -0.0015 to 0.000645 | 0.9425 | 0.9705 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | `cleverly` | -0.0017 to 0.000473 | 0.9494 | 0.9830 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | R `tmle3` | -0.0017 to 0.000479 | 0.9456 | 0.9631 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=1]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 1 | `cleverly` | -0.000566 to 0.000609 | 0.9425 | 1.0035 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=1]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 1 | R `tmle3` | -0.000560 to 0.000612 | 0.9475 | 1.0059 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=2]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 2 | `cleverly` | -0.000515 to 0.0011 | 0.9475 | 1.0152 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=2]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 2 | R `tmle3` | -0.000525 to 0.0011 | 0.9481 | 1.0118 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | `cleverly` | -0.000492 to 0.0014 | 0.9537 | 1.0310 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | R `tmle3` | -0.000490 to 0.0014 | 0.9513 | 1.0225 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=4]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 4 | `cleverly` | -0.000864 to 0.0012 | 0.9500 | 1.0363 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=4]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 4 | R `tmle3` | -0.000870 to 0.0012 | 0.9481 | 1.0217 | pass |
 | five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | `cleverly` | -0.0015 to 0.000754 | 0.9519 | 0.9936 | pass |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | R `tmle3` | -0.0015 to 0.000760 | 0.9456 | 0.9742 | pass |
 <!-- /generated -->
 
-All 15 implementation-estimand tests pass. The tests are the five risks of each arm and the five
-differences, one for each visit. No replication raised an error, so no cell lost a replicate.
+All 30 implementation-estimand tests pass, 15 for each implementation. The tests are the five
+risks of each arm and the five differences, one for each visit. No replication raised an error, so no cell lost a replicate.
+
+## Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `tmle3` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=1]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 1 | -0.000011 | 0.0053 | 1.0008 | 0.000625 | different estimator | 0.000772 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=2]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 2 | 0.000008 | 0.0027 | 1.0008 | 0.0025 | different estimator | 0.0024 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | -6.694e-07 | 0.000208 | 1.0018 | 0.0012 | different estimator | 0.000833 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=4]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 4 | 0.000004 | 0.0012 | 1.0014 | 0.0025 | different estimator | 0.0011 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | 0.000005 | 0.0013 | 1.0020 | 0.0025 | different estimator | 0.0257 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=1]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 1 | 0.000007 | 0.0040 | 1.0034 | 0.000625 | different estimator | 0.0012 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=2]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 2 | 0.000004 | 0.0018 | 1.0025 | 0.000625 | different estimator | 0.0091 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | -5.137e-07 | 0.000210 | 1.0036 | -0.000625 | different estimator | 0.0181 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=4]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 4 | 0.000002 | 0.000628 | 1.0036 | 0.0075 | different estimator | 0.0303 vs 0.0500 | superior |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | -0.000010 | 0.0039 | 1.0046 | 0.0037 | different estimator | 0.0408 vs 0.0500 | superior |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=1]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 1 | -0.000005 | 0.0035 | 1.0046 | -0.0050 | different estimator | 0.0064 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=2]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 2 | 0.000012 | 0.0062 | 1.0025 | -0.000625 | different estimator | 0.0014 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | -0.000001 | 0.000549 | 1.0018 | 0.0025 | different estimator | 0.0012 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=4]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 4 | 0.000006 | 0.0024 | 1.0007 | 0.0019 | different estimator | 0.0012 vs 0.0500 | equivalent |
+| five visits, a binary baseline treatment held over every node, visit dropout | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | -0.000006 | 0.0021 | 1.0004 | 0.0062 | different estimator | 0.0399 vs 0.0500 | superior |
+<!-- /generated -->
 
 ## Theory properties
 
@@ -173,13 +222,15 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 | --- | --- | --- |
 | `replicates` | 1600 | primary replications per scenario |
 | `n` | 2000 | observations per primary replication |
-| `independent_tests_total` | 15 | implementation-estimand tests against the truth |
-| `independent_tests_passed` | 15 | of those, passing |
+| `independent_tests_total` | 30 | implementation-estimand tests against the truth |
+| `independent_tests_passed` | 30 | of those, passing |
+| `paired_tests_total` | 15 | paired comparisons with `tmle3` |
+| `paired_tests_passed` | 15 | of those, passing |
 | `property_cells_total` | 31 | repeated-sampling property cells |
 | `property_cells_passed` | 31 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0370 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9425 | lowest measured primary-study coverage |
-| `min_se_ratio_ci_lower` | 0.9400 | lowest bootstrap primary SE-ratio endpoint |
+| `min_se_ratio_ci_lower` | 0.9212 | lowest bootstrap primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.0892 | highest bootstrap primary SE-ratio endpoint |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals, and the family level of the rule |
 | `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
@@ -200,6 +251,8 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
 | `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
 | `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `tmle3` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 16 | the same bound, in primary replications |
 | `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound |
 | `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict |
 | `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit |
@@ -208,6 +261,8 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 | `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:standardized_bias` | 0.2500 | bias equivalence margin, in empirical standard deviations |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 16 | the same bound, in primary replications |
 | `margin:targeting_displacement` | 0.2500 | least targeting must move the estimate |
 | `margin:type_i_ceiling` | 0.1000 | the rate a positive cell must bound and a control must exceed |
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
@@ -217,8 +272,7 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 
 | limit | what it means for use |
 | --- | --- |
-| the comparator runs are pending | no `tmle3` output is compared. The `tmle3` rows of Study queue row 21 follow, and this page is Python property evidence until then |
-| the declared `tmle3` settings differ | the bounds, the censoring convention, the step and the stopping rule differ by construction. The pending pairs read under the default margins and not as an exactness check |
+| the declared `tmle3` settings differ | the bounds, the censoring convention, the step and the stopping rule differ by construction. The pairs read under the default margins and not as an exactness check |
 | one primary scenario | the 15 truth tests read the five-visit `survival` law. The other laws enter the property cells only |
 | learners that contain the truth | the primary fit uses unpenalized logistic regressions. The property cells use correct additive or saturated learners, apart from the declared wrong ones. A flexible learner is outside the evidence |
 | the isotonic cell does not bind | the diagnostic reports a binding share of zero, so no cell supports an interval after a projection that moves a level |
@@ -229,7 +283,7 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 
 The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/manifest.json)
 records the seeds, the margins, the estimator configuration, the source hashes and the result
-hashes. It records the comparator as pending, with the runner and the image source hashes. Run
+hashes, with the `tmle3` runner and image source hashes. Run
 `python -m tests.canonical.point_survival_curve.regenerate` to regenerate the artifacts. The
 [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/properties.csv)

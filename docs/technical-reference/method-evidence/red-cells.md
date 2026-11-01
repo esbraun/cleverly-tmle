@@ -384,7 +384,7 @@ row. A move to `gated` is a separate registry decision.
 | [long-horizon longitudinal TMLE](long-horizon-longitudinal-tmle.md) | 136 | 0 |
 | [long-horizon categorical longitudinal TMLE](long-horizon-categorical-longitudinal-tmle.md) | 196 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 81 | 0 |
-| [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 46 | 0 |
+| [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 76 | 0 |
 | [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [node bounds on survival fits](survival-node-bounds.md) | 27 | 0 |
