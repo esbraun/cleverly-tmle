@@ -1,6 +1,6 @@
 """``long-horizon-ltmle-parity``: ``LTMLE`` against R ``ltmle`` 1.3-0 at small n (X59 section 5).
 
-One scenario, ``parity_binary_k5``: ``L_R`` at K = 5, m = 2 and n = 4,000, the four
+One scenario, ``parity_binary_k5``: ``L_R`` at K = 5, m = 2 and n = 12,000, the four
 deterministic plans of ``long-horizon-ltmle`` and their contrasts against ``never``, Wald-only,
 500 replicates.  :mod:`tests.studies.long_horizon_parity` states what the record reads and what
 it does not claim.  G-P and G-C cover every estimand; both tolerances are declared from the
@@ -28,10 +28,14 @@ PRIMARY_REPLICATES = PARITY_REPLICATES
 SEED = 20265901
 RESAMPLING_SEED = 2026590101
 SCENARIOS = (
-    Scenario("parity_binary_k5", 5, 2, law_.L_R, 4_000, ("never", "always", "respond", "switch")),
+    Scenario("parity_binary_k5", 5, 2, law_.L_R, 12_000, ("never", "always", "respond", "switch")),
 )
 ESTIMATORS = {"parity_binary_k5": "LTMLE"}
-PRIMARY_N = 4_000
+#: The plan's 4,000 left the outcome-regression clip [5e-4, 0.9995] on 50 of the 500 declared
+#: replicates, and 8,000 on 2 (``switch``, which reaches 1 - 1e-13).  12,000 is the smallest of
+#: 8,000, 12,000 and 16,000 at which every declared replicate stays inside it (largest 0.9945):
+#: ``python -m tests.canonical.x59_smoke qbound ltmle-parity``, before any run.
+PRIMARY_N = 12_000
 
 STUDY = StudyRecord(
     name="long-horizon LTMLE parity with R ltmle",

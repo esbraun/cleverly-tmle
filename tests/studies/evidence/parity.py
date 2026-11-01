@@ -49,8 +49,19 @@ GATES = ("G-P", "G-C", "G1")
 #: The absolute floor of a declared tolerance: five times the largest shipped two-node parity
 #: difference, 2e-7 (``tests/canonical/ltmle_regimen_adapter.R``).
 PARITY_FLOOR = 1e-6
-#: The G1 tolerance, declared absolute (``X59-plan.md`` section 4.2).
+#: The G1 tolerance, fixed absolute by the plan (``X59-plan.md`` section 4.2).  It is not a
+#: declared tolerance: no smoke maximum moves it, and a declaration that names it is refused.
 G1_TOLERANCE = 1e-6
+#: The largest G-P or G-C tolerance a smoke may declare.  Two implementations of one estimator
+#: on the same regressions and the same supplied mechanism differ by their solvers' stopping
+#: rules: about 1e-8 here (IRLS to 1e-10 against ``glm``'s 1e-8 relative deviance), and at most
+#: 2e-7 on the shipped two-node pairs.  A tolerance above 1e-5 needs a smoke maximum above 1e-6,
+#: five times that shipped maximum, which says the two sides do not compute one thing; and 1e-5
+#: is under one percent of the smallest per-replicate standard error at the declared sizes
+#: (about 1.4e-3 for a binary mean at n = 128,000).  A smoke over it fails; it is not declared.
+TOLERANCE_CEILING = 1e-5
+#: The gates whose tolerance the declaration commit sets from the smoke maxima.
+DECLARED_GATES = ("G-P", "G-C")
 #: A smoke maximum is scaled by this to give the declared G-P and G-C tolerance.
 SMOKE_SCALE = 10.0
 #: A G-P cell carries a targeting claim when its RMS move is at least this many tolerances.
@@ -128,17 +139,32 @@ class ParityDeclaration:
     cells : tuple of ParityCell
         Every gated cell.
     tolerance : dict
-        Gate -> its declared tolerance.  ``None`` until the declaration commit fixes it from the
-        smoke maxima (:func:`declared_tolerance`); a gate without one refuses to read.
+        G-P and G-C -> the declared tolerance.  ``None`` until the declaration commit fixes it
+        from the smoke maxima (:func:`declared_tolerance`); a gate without one refuses to read.
+        G1 is fixed at :data:`G1_TOLERANCE` and is not declared here.
     """
 
     cells: tuple[ParityCell, ...]
     tolerance: Mapping[str, float | None] = field(
-        default_factory=lambda: {"G-P": None, "G-C": None, "G1": G1_TOLERANCE}
+        default_factory=lambda: {"G-P": None, "G-C": None}
     )
 
+    def __post_init__(self) -> None:
+        unknown = set(self.tolerance) - set(DECLARED_GATES)
+        if unknown:
+            raise ValueError(
+                f"{sorted(unknown)} take no declared tolerance: G1 is fixed at {G1_TOLERANCE:g}"
+            )
+        for gate, value in self.tolerance.items():
+            if value is not None and not 0.0 < float(value) <= TOLERANCE_CEILING:
+                raise ValueError(
+                    f"the {gate} tolerance {value} is outside (0, {TOLERANCE_CEILING:g}]"
+                )
+
     def tau(self, gate: str) -> float:
-        """The declared tolerance of ``gate``; refuses one not yet declared."""
+        """The tolerance of ``gate``; refuses a declared gate not yet declared."""
+        if gate == "G1":
+            return G1_TOLERANCE
         value = self.tolerance.get(gate)
         if value is None:
             raise ValueError(
@@ -151,6 +177,11 @@ class ParityDeclaration:
         """The gates the declaration holds, in :data:`GATES` order."""
         present = {cell.gate for cell in self.cells}
         return tuple(gate for gate in GATES if gate in present)
+
+    def check_declared(self) -> None:
+        """Refuse, before any run reads a gate, a gate of these cells without its tolerance."""
+        for gate in self.gates():
+            self.tau(gate)
 
 
 def smoke_declaration(declaration: ParityDeclaration) -> ParityDeclaration:
@@ -169,10 +200,19 @@ def smoke_declaration(declaration: ParityDeclaration) -> ParityDeclaration:
 
 
 def declared_tolerance(smoke_maximum: float) -> float:
-    """``max(PARITY_FLOOR, SMOKE_SCALE * smoke_maximum)``, the M1 rule for G-P and G-C."""
+    """``max(PARITY_FLOOR, SMOKE_SCALE * smoke_maximum)``, the M1 rule for G-P and G-C.
+
+    Refuses a tolerance above :data:`TOLERANCE_CEILING`: such a smoke is a failed smoke.
+    """
     if not math.isfinite(smoke_maximum) or smoke_maximum < 0.0:
         raise ValueError(f"a smoke maximum must be finite and non-negative; got {smoke_maximum}")
-    return max(PARITY_FLOOR, SMOKE_SCALE * float(smoke_maximum))
+    tolerance = max(PARITY_FLOOR, SMOKE_SCALE * float(smoke_maximum))
+    if tolerance > TOLERANCE_CEILING:
+        raise ValueError(
+            f"a smoke maximum of {smoke_maximum:.3g} would declare {tolerance:.3g}, above the "
+            f"ceiling {TOLERANCE_CEILING:g}: the smoke fails, diagnose before any declaration"
+        )
+    return tolerance
 
 
 def _paired(rows: pd.DataFrame, record: StudyRecord, scenario: str, estimand: str) -> pd.DataFrame:

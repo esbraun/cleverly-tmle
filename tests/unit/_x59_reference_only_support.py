@@ -59,7 +59,7 @@ PARITY = ParityDeclaration(
         ParityCell("G-C", "a", "ey[a]"),
         ParityCell("G1", "b", "ey[b]"),
     ),
-    tolerance={"G-P": 1e-6, "G-C": 1e-6, "G1": 1e-6},
+    tolerance={"G-P": 1e-6, "G-C": 1e-6},
 )
 
 CONFIGURATION: dict[str, Any] = {}

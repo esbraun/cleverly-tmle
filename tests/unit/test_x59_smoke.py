@@ -61,9 +61,26 @@ def test_a_smoke_table_is_written_at_the_floor_and_keeps_its_maxima() -> None:
     declaration = parity.ParityDeclaration(cells=synthetic.PARITY.cells)
     smoke = parity.smoke_declaration(declaration)
     assert smoke.tolerance["G-P"] == parity.PARITY_FLOOR
-    assert smoke.tolerance["G1"] == parity.G1_TOLERANCE
+    assert smoke.tau("G1") == parity.G1_TOLERANCE
+    assert "G1" not in smoke.tolerance
     with pytest.raises(ValueError, match="not declared yet"):
         declaration.tau("G-P")
+
+
+def test_g1_is_fixed_and_no_declared_tolerance_passes_the_ceiling() -> None:
+    with pytest.raises(ValueError, match="take no declared tolerance"):
+        parity.ParityDeclaration(cells=(), tolerance={"G-P": 1e-6, "G-C": 1e-6, "G1": 1e-3})
+    with pytest.raises(ValueError, match="outside"):
+        parity.ParityDeclaration(cells=(), tolerance={"G-P": 2 * parity.TOLERANCE_CEILING})
+    assert parity.declared_tolerance(5e-7) == pytest.approx(5e-6)
+    with pytest.raises(ValueError, match="the smoke fails"):
+        parity.declared_tolerance(2 * parity.TOLERANCE_CEILING / parity.SMOKE_SCALE)
+
+
+def test_the_smoke_merge_keeps_g1_out_of_the_declaration() -> None:
+    merged = x59_smoke._declared_only({"G-P": None, "G-C": 3e-7}, {"G-P": 2e-7})
+    assert merged == {"G-P": 2e-7, "G-C": 3e-7}
+    assert parity.ParityDeclaration(cells=(), tolerance=merged).tau("G1") == parity.G1_TOLERANCE
 
 
 def test_the_sizing_step_reads_the_timing_files(

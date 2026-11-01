@@ -1,7 +1,7 @@
 """The two small-n parity records of X59 (``X59-plan.md`` section 5), fitted fresh on both sides.
 
 ``long-horizon-ltmle-parity`` pairs ``LTMLE`` with R ``ltmle`` 1.3-0 on ``L_R`` at K = 5, m = 2
-and n = 4,000, over the four deterministic plans and their contrasts.
+and n = 12,000, over the four deterministic plans and their contrasts.
 ``long-horizon-lmtp-parity`` pairs ``mix`` on ``L_R`` at K = 5, m = 3 and n = 8,000 through
 ``lmtp_tmle`` at one fold and ``lmtp_sdr`` at one and five folds, against ``LTMLE`` and ``SDR``.
 Small n reaches the sparse strata and near-separation where two implementations of one

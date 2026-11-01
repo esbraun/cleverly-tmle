@@ -32,7 +32,7 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -316,14 +316,32 @@ def smoke_run(study: str, out: Path, *, prefix: int, mutation: str = "none", job
     return target
 
 
+def _declared_only(
+    committed: Mapping[str, float | None], declared: Mapping[str, float]
+) -> dict[str, float | None]:
+    """The committed G-P and G-C tolerances overridden by the smoke's; G1 is never declared."""
+    from tests.studies.evidence import parity
+
+    merged = {**dict(committed), **dict(declared)}
+    return {gate: merged.get(gate) for gate in parity.DECLARED_GATES}
+
+
 def run(study: str, out: Path, prefix: int, jobs: int) -> int:
     from tests.studies.evidence import parity
 
     target = smoke_run(study, out, prefix=prefix, jobs=jobs)
     table = pd.read_csv(target / "parity.csv", float_precision="round_trip")
     maxima = parity.smoke_maxima(table)
-    declared = {gate: parity.declared_tolerance(value) for gate, value in maxima.items()}
     print("smoke maxima:", json.dumps(maxima), flush=True)
+    try:
+        declared = {
+            gate: parity.declared_tolerance(maxima[gate])
+            for gate in parity.DECLARED_GATES
+            if gate in maxima
+        }
+    except ValueError as error:
+        print(f"FAIL: {error}", flush=True)
+        return 1
     print("tolerances the M1 rule declares from them:", json.dumps(declared), flush=True)
     print("witness reach:", json.dumps(parity.witness_scenarios(table)), flush=True)
     (out / "declared-tolerances.json").write_text(json.dumps(declared, indent=1) + "\n")
@@ -343,7 +361,7 @@ def mutations(study: str, out: Path, prefix: int, jobs: int) -> int:
     declared = json.loads(path.read_text())
     module = _module(study)
     declaration = parity.ParityDeclaration(
-        cells=module.PARITY.cells, tolerance={**dict(module.PARITY.tolerance), **declared}
+        cells=module.PARITY.cells, tolerance=_declared_only(module.PARITY.tolerance, declared)
     )
     detected: dict[str, bool] = {}
     for mutation in reference_.MUTATIONS:
@@ -377,7 +395,7 @@ def subject_mutation(study: str, out: Path) -> int:
     module = _module(study)
     declared = json.loads((out / "declared-tolerances.json").read_text())
     declaration = parity.ParityDeclaration(
-        cells=module.PARITY.cells, tolerance={**dict(module.PARITY.tolerance), **declared}
+        cells=module.PARITY.cells, tolerance=_declared_only(module.PARITY.tolerance, declared)
     )
     smoke = out / "none"
     rows = read_rows(smoke / "replicates.parquet")
@@ -416,6 +434,93 @@ def subject_mutation(study: str, out: Path) -> int:
     result_table = parity.parity_table(paired, None, record=record, declaration=scoped)
     print(f"skip_update(K): maxima {json.dumps(parity.smoke_maxima(result_table))}", flush=True)
     return _verdict(parity.mutation_detected(result_table, scoped))
+
+
+def _qbound_one(study: str, name: str, n: int, replicate: int) -> dict[str, Any]:
+    from tests import discrete_law_longitudinal_horizon as law_
+    from tests.studies import long_horizon_reference as reference_
+    from tests.studies.evidence.seeds import replicate_seed
+
+    module = _module(study)
+    scenario = next(s for s in module.SCENARIOS if s.name == name)
+    frame = law_.draw(
+        scenario.K, scenario.m, n, replicate_seed(module.STUDY, name, replicate), scenario.law
+    )
+    low, high = 1.0, 0.0
+    for plan in scenario.plans:
+        _, a, b = reference_.plugin(frame, plan, scenario.K, scenario.m)
+        low, high = min(low, a), max(high, b)
+    bounds = reference_.Q_BOUNDS
+    return {
+        "study": study,
+        "scenario": name,
+        "n": n,
+        "replicate": replicate,
+        "low": low,
+        "high": high,
+        "outside": bool(low < bounds[0] or high > bounds[1]),
+    }
+
+
+def qbound_replicates(study: str, override: int | None) -> dict[str, int]:
+    """The replicates M3 checks per paired scenario: the declared prefix, else its tier's largest.
+
+    Before the declaration commit no prefix is declared, so a tier-2 scenario is checked at the
+    largest count of ``TIER2_COUNTS`` and a tier-4 one at the largest of ``TIER4_COUNTS``: every
+    prefix the sizing rule can choose is then inside the checked set.
+    """
+    from tests.studies.evidence import parity
+
+    module = _module(study)
+    record = module.STUDY
+    declared = {
+        **dict(record.reference_replicates),
+        **dict(getattr(module, "COMPARATOR_DECLARATION", {}).get("reference_replicates", {})),
+    }
+    tiers = getattr(module, "REFERENCE_TIERS", {})
+    paired = getattr(module, "REFERENCE_SCENARIOS", None) or record.scenarios
+    out = {}
+    for name in paired:
+        if override is not None:
+            out[name] = override
+        elif name in declared:
+            out[name] = int(declared[name])
+        elif name in tiers:
+            counts = parity.TIER2_COUNTS if tiers[name] == 2 else parity.TIER4_COUNTS
+            out[name] = max(counts)
+        else:
+            out[name] = record.replicates
+    return out
+
+
+def qbound(study: str, replicates: Mapping[str, int], out: Path, jobs: int) -> int:
+    """M3 before any run: no paired replicate's regression leaves ``Q_BOUNDS`` on a unit at risk.
+
+    Checks every plan of each named scenario on its first ``replicates[scenario]`` replicates,
+    with the arithmetic of :func:`tests.studies.long_horizon_reference.plugin`, restricted as the
+    R stops are to the units that follow the plan up to the node.  Writes ``qbound-<study>.csv``.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    module = _module(study)
+    keys = [
+        (study, name, module.STUDY.n_of(name), replicate)
+        for name, count in replicates.items()
+        for replicate in range(count)
+    ]
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        rows = list(pool.map(_qbound_one, *zip(*keys, strict=True), chunksize=4))
+    frame = pd.DataFrame(rows)
+    out.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out / f"qbound-{study}.csv", index=False)
+    summary = frame.groupby("scenario").agg(
+        replicates=("replicate", "size"),
+        outside=("outside", "sum"),
+        low=("low", "min"),
+        high=("high", "max"),
+    )
+    print(summary.to_string(), flush=True)
+    return _verdict(not bool(frame["outside"].any()))
 
 
 # ----------------------------------------------------------------------------- memory and timing
@@ -544,6 +649,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         step.add_argument("--out", type=Path, required=True)
         step.add_argument("--prefix", type=int, default=SMOKE_PREFIX)
         step.add_argument("--jobs", type=int, default=4)
+    step = steps.add_parser("qbound")
+    step.add_argument("study", choices=STUDIES)
+    step.add_argument("--out", type=Path, required=True)
+    step.add_argument(
+        "--replicates",
+        type=int,
+        default=None,
+        help="per scenario; default: the record's prefix, else the largest the sizing rule picks",
+    )
+    step.add_argument("--jobs", type=int, default=4)
     step = steps.add_parser("memory")
     step.add_argument("study", choices=STUDIES)
     step.add_argument("--container-mb", type=float, required=True)
@@ -568,6 +683,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return mutations(arguments.study, arguments.out, arguments.prefix, arguments.jobs)
     if arguments.step == "subject-mutation":
         return subject_mutation(arguments.study, arguments.out)
+    if arguments.step == "qbound":
+        return qbound(
+            arguments.study,
+            qbound_replicates(arguments.study, arguments.replicates),
+            arguments.out,
+            arguments.jobs,
+        )
     if arguments.step == "memory":
         from tests.canonical.regenerate import runs_root
 
