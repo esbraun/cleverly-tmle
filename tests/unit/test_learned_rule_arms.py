@@ -807,7 +807,7 @@ class TestTheReplaySurfaces:
 
 # ------------------------------------------------------------------------------ the label
 
-#: The label and row of every two-arm configuration at commit 854dac1, on
+#: The label and row of every two-arm configuration on main at 6c9a4cc (after G registered T44), on
 #: ``law_frame(240, 2)`` with the support helper's learners, and its key's treatment.
 TWO_ARM_LABELS: dict[str, tuple[dict[str, Any], dict[str, Any], str | None]] = {
     "fold_evaluated": ({}, {}, "T24"),
@@ -822,7 +822,7 @@ TWO_ARM_LABELS: dict[str, tuple[dict[str, Any], dict[str, Any], str | None]] = {
         "T43",
     ),
     "in_sample_adaptive": ({"cross_fit": False, "cv_evaluation": False}, {}, None),
-    "contrast": ({"interventions": [Static(1)]}, {}, None),
+    "contrast": ({"interventions": [Static(1)]}, {}, "T44.fold_evaluated"),
     "weights": ({}, {"weights": "w"}, "T37.weighted"),
     "clusters": ({}, {"id": "c"}, "T37.clustered"),
     "strata": ({}, {"strata": ("W2",)}, "T41.binary"),
