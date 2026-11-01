@@ -1,7 +1,7 @@
 """Regenerate the AdaptiveIPTW pairing with R ``drtmle`` (``adaptive-iptw-pairing``).
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
-optionally ``--jobs``, ``--reference-jobs`` and ``--fresh``, and nothing else.
+optionally ``--jobs`` and ``--fresh``, and nothing else.
 :mod:`tests.canonical.declared_run` describes the guard, the run log and the copy into this
 directory.
 
@@ -12,9 +12,10 @@ factors, checks it against the package's, and calls ``drtmle::adaptive_iptw`` on
 
 **Reading** (declared before any run, ``X21-pairing-plan.md`` rev 2 in the plans repository).
 
-* A fatal runner check (fold, composition, curve, stub or range) stops the run; it is a defect
-  of the runner or the package, never a red row.
-* A nuisance-gate miss is a recorded reference failure of the replicate.
+* A fatal runner check (fold, composition, curve or stub) stops the run; it is a defect of
+  the runner or the package, never a red row.
+* A nuisance-gate, range or convergence miss is a recorded reference failure of the
+  replicate.
 * ``agreement`` (``canonical_adaptive_iptw_pairing.agreement``) is the pairing verdict: a key
   whose 99th-percentile gap passes its bound agrees.  A key that fails it is a defect suspect.
 * A key whose mean targeting movement is under ``WITNESS_MULTIPLE`` times its bound is labelled
