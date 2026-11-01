@@ -8,7 +8,8 @@ never drawn from, except the shared ones, whose draws show which variables they 
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import pytest
@@ -112,6 +113,118 @@ def test_the_necessity_learners_limit_is_static_one_with_a_biased_plug_in() -> N
     # The deliberate mutation: the declared learner's limit rule is not Static(1).
     rule = split_mean_law.population_rule("non_exceptional")
     assert not all(levels.all() for levels in rule.values())
+
+
+# --------------------------------------------------------------- the misspecified law
+
+#: Corollary 2's predicted asymptotic SE ratio of each parameter on ``misspecified_limit``, in
+#: ``law.TAGS`` order: ``sqrt(Var D / Var(D - Pi(D | T_g)))`` for the curve ``D`` at the declared
+#: learner's population limit and the true ``g0``, where ``T_g`` is the span of the logistic
+#: treatment model's scores ``(A - g0)(1, W1, W2)``. The reported curve omits the projection
+#: ``Pi``, so a ratio above 1 is the over-coverage Corollary 2 predicts. On this law every ratio
+#: is at most 1.0005 (design review finding 2), so the ``conservative_coverage`` cells measure
+#: coverage under a misspecified treated arm, not conservativeness.
+PREDICTED_SE_RATIOS = (1.000150, 1.000094, 1.000000, 1.000462, 1.000150)
+
+
+def _limit_arms(scenario: str) -> dict[float, tuple[np.ndarray, np.ndarray]]:
+    """The declared learner's population limit ``(Qbar(0, W), Qbar(1, W))`` on the RM30 grid."""
+    model = split_mean_law.population_model(scenario)
+    arms = {}
+    for w2 in base.W2_LEVELS:
+        rows = [np.column_stack([np.full_like(base.GRID, a), base.GRID, np.full_like(base.GRID, w2)])
+                for a in (0.0, 1.0)]  # fmt: skip
+        arms[w2] = tuple(model.predict_proba(design)[:, 1] for design in rows)
+    return arms
+
+
+def _curve(
+    regime: np.ndarray, a: int, y: int, arms: tuple[np.ndarray, np.ndarray], treated: np.ndarray
+) -> np.ndarray:
+    """The curve of the regime ``regime`` at ``(A, Y) = (a, y)`` and the outcome limit ``arms``."""
+    q = np.where(regime, arms[1], arms[0])
+    g = np.where(regime, treated, 1 - treated)
+    return np.asarray((a == regime) * (y - q) / g + q, dtype=float)
+
+
+def _predicted_se_ratios(
+    arms: dict[float, tuple[np.ndarray, np.ndarray]], scenario: str
+) -> dict[str, float]:
+    """Corollary 2's ratio of each tag's curve at the outcome limit ``arms`` and the true ``g0``,
+    by quadrature over ``(W1, W2, A, Y)`` on the RM30 grid."""
+    mass = np.full(base.GRID.size, base.GRID[1] - base.GRID[0])
+    mass[[0, -1]] /= 2.0
+    mass *= 0.5 * 0.5  # the density of W1, and the probability of each W2
+    weights, scores = [], []
+    curves: dict[str, list[np.ndarray]] = {tag: [] for tag in law.TAGS}
+    for w2 in base.W2_LEVELS:
+        treated = base.g0(base.GRID, w2)
+        rule = arms[w2][1] > arms[w2][0]
+        tangent = np.column_stack([np.ones_like(base.GRID), base.GRID, np.full_like(base.GRID, w2)])
+        for a in (0, 1):
+            outcome = base.qbar0(a, base.GRID, w2, scenario)
+            for y in (0, 1):
+                arm = treated if a else 1 - treated
+                weights.append(mass * arm * (outcome if y else 1 - outcome))
+                scores.append((a - treated)[:, None] * tangent)
+                value = _curve(rule, a, y, arms[w2], treated)
+                known = {
+                    arm_: _curve(np.full(rule.shape, bool(arm_)), a, y, arms[w2], treated)
+                    for arm_ in law.ARMS
+                }
+                parts = {
+                    "value": value,
+                    "known_1": known[1],
+                    "known_0": known[0],
+                    "contrast_1": value - known[1],
+                    "contrast_0": value - known[0],
+                }
+                for tag, part in parts.items():
+                    curves[tag].append(part)
+    p = np.concatenate(weights)
+    assert p.sum() == pytest.approx(1.0, abs=1e-9)
+    score = np.vstack(scores)
+    gram = (score * p[:, None]).T @ score
+    ratios = {}
+    for tag, pieces in curves.items():
+        d = np.concatenate(pieces)
+        variance = p @ (d - p @ d) ** 2
+        cross = (score * p[:, None]).T @ d
+        ratios[tag] = float(np.sqrt(variance / (variance - cross @ np.linalg.solve(gram, cross))))
+    return ratios
+
+
+def test_corollary_2s_projection_is_negligible_on_the_misspecified_law() -> None:
+    """D8: the analogy predicts SE ratios of at most 1.0005 on ``misspecified_limit``, so the
+    law cannot tell the analogy's route from exact calibration. On ``non_exceptional``, where
+    the outcome model is correct, the projection vanishes exactly."""
+    ratios = _predicted_se_ratios(_limit_arms("misspecified_limit"), "misspecified_limit")
+    for (tag, ratio), declared in zip(ratios.items(), PREDICTED_SE_RATIOS, strict=True):
+        assert ratio == pytest.approx(declared, abs=2e-6), tag
+        assert 1.0 <= ratio <= 1.001, tag
+    correct = _predicted_se_ratios(_limit_arms("non_exceptional"), "non_exceptional")
+    assert all(ratio == pytest.approx(1.0, abs=1e-6) for ratio in correct.values())
+    # The nonzero witness: an outcome limit that misses both arms by 0.15 W1 puts a visible
+    # share of every curve in the treatment model's tangent space (every ratio above 1.005).
+    crude = {
+        w2: (q0 + 0.15 * base.GRID, q1 + 0.15 * base.GRID)
+        for w2, (q0, q1) in _limit_arms("misspecified_limit").items()
+    }
+    assert min(_predicted_se_ratios(crude, "misspecified_limit").values()) > 1.005
+
+
+def test_the_untreated_arms_limit_is_correctly_specified() -> None:
+    """D8: RM30's two laws share ``Qbar0(0, W)``, which the interaction logistic model
+    represents up to its shared ``W1 W2`` coefficient. On ``misspecified_limit`` the arm-0 limit
+    stays within 0.005 of ``Qbar0(0, .)`` everywhere on the grid, so the ``known_0`` cells read
+    a correctly specified arm. The treated arm's limit misses ``Qbar0(1, .)`` by more than 0.1:
+    the deliberate-mutation control that the check can fail."""
+    for w2, (q0, q1) in _limit_arms("misspecified_limit").items():
+        assert np.max(np.abs(q0 - base.qbar0(0, base.GRID, w2, "misspecified_limit"))) < 0.005
+        assert np.max(np.abs(q1 - base.qbar0(1, base.GRID, w2, "misspecified_limit"))) > 0.1
+    for w2 in base.W2_LEVELS:
+        shared = base.qbar0(0, base.GRID, w2, "non_exceptional")
+        assert np.array_equal(shared, base.qbar0(0, base.GRID, w2, "misspecified_limit"))
 
 
 # ------------------------------------------------------------------------ the declaration
@@ -436,25 +549,27 @@ _Z = np.linspace(-6.0, 6.0, 241)
 _W = norm.pdf(_Z) / norm.pdf(_Z).sum()
 
 
-def _predicted(coverage: float, replicates: int) -> np.ndarray:
+def _predicted(coverage: float, replicates: int, pilot: int = PILOT_DRAWS) -> np.ndarray:
     """The run's hit counts on a grid over the coverage's predictive law (pilot and run error)."""
-    spread = np.sqrt(max(coverage * (1 - coverage), 1e-12) * (1 / replicates + 1 / PILOT_DRAWS))
+    spread = np.sqrt(max(coverage * (1 - coverage), 1e-12) * (1 / replicates + 1 / pilot))
     grid = np.clip(coverage + spread * _Z, 0.0, 1.0)
     return np.rint(grid * replicates).astype(int)
 
 
-def floor_pass(coverage: float, replicates: int, floor: float) -> float:
+def floor_pass(coverage: float, replicates: int, floor: float, pilot: int = PILOT_DRAWS) -> float:
     """The predictive probability that the exact 99% interval's lower bound is at or above
     ``floor``."""
-    hits = _predicted(coverage, replicates)
+    hits = _predicted(coverage, replicates, pilot)
     lower = np.where(hits > 0, beta.ppf(0.005, hits, replicates - hits + 1), 0.0)
     return float(np.sum(_W * (lower >= floor)))
 
 
-def ceiling_pass(coverage: float, replicates: int, ceiling: float) -> float:
+def ceiling_pass(
+    coverage: float, replicates: int, ceiling: float, pilot: int = PILOT_DRAWS
+) -> float:
     """The predictive probability that the exact 99% interval's upper bound is below
     ``ceiling``."""
-    hits = _predicted(coverage, replicates)
+    hits = _predicted(coverage, replicates, pilot)
     upper = np.where(hits < replicates, beta.ppf(0.995, hits + 1, replicates - hits), 1.0)
     return float(np.sum(_W * (upper < ceiling)))
 
@@ -498,16 +613,20 @@ def test_the_calibration_count_is_the_arm_pooled_rule_on_the_five_parameters() -
         assert 1 - floor_pass(1 - coverage, 5_600, 1 - high) < 0.01
 
 
-def _coverage_pass(replicates: int) -> float:
+def _coverage_pass(
+    replicates: int,
+    readings: Mapping[str, Sequence[float]] = PILOT[study.COVERAGE_LAW],
+    controls: Sequence[float] = PILOT_COVERAGE_CONTROL,
+    pilot: int = PILOT_DRAWS,
+) -> float:
     floor = study.STUDY.margins.calibration_coverage[0]
-    readings = PILOT[study.COVERAGE_LAW]
     out = 1.0
     for bias, coverage, control in zip(
-        readings["bias"], readings["coverage"], PILOT_COVERAGE_CONTROL, strict=True
+        readings["bias"], readings["coverage"], controls, strict=True
     ):
-        out *= bias_pass(bias, replicates)
-        out *= floor_pass(coverage, replicates, floor)
-        out *= ceiling_pass(control, replicates, floor)
+        out *= bias_pass(bias, replicates, pilot=pilot)
+        out *= floor_pass(coverage, replicates, floor, pilot)
+        out *= ceiling_pass(control, replicates, floor, pilot)
     return out
 
 
@@ -517,6 +636,56 @@ def test_the_coverage_count_is_the_predictive_rule() -> None:
     assert properties.COVERAGE_REPLICATES == _smallest(_coverage_pass) == 3_200
     assert _coverage_pass(3_200) == pytest.approx(0.964, abs=1e-3)
     assert _coverage_pass(2_800) == pytest.approx(0.943, abs=1e-3)
+
+
+#: The design review's second pilot (``reviews/x11/X11-G-study-design-review.md``, finding 1):
+#: the pilot script run unchanged but for the throwaway label 99127741, 4,000 draws each of the
+#: two law cells, fold-evaluated report, ``law.TAGS`` order, no failed fit, and 3 solver
+#: warnings on ``non_exceptional`` (none on ``misspecified_limit``). ``pooled`` reads the two
+#: pilots' 8,000 draws together. ``ratio`` is ``non_exceptional``'s; ``bias``, ``coverage`` and
+#: ``control`` (the x 0.6 coverage control) are ``misspecified_limit``'s.
+REVIEW_PROBE: dict[str, dict[str, Any]] = {
+    "probe": {
+        "draws": 4_000,
+        "ratio": (0.9980, 1.0101, 1.0050, 1.0082, 0.9951),
+        "bias": (0.0082, 0.0025, -0.0188, 0.0054, 0.0268),
+        "coverage": (0.9490, 0.9500, 0.9475, 0.9475, 0.9428),
+        "control": (0.7638, 0.7645, 0.7612, 0.7580, 0.7562),
+    },
+    "pooled": {
+        "draws": 8_000,
+        "ratio": (0.9961, 1.0077, 1.0072, 1.0049, 1.0013),
+        "bias": (0.0170, 0.0140, -0.0089, 0.0022, 0.0259),
+        "coverage": (0.9492, 0.9524, 0.9449, 0.9476, 0.9480),
+        "control": (0.7634, 0.7659, 0.7561, 0.7515, 0.7594),
+    },
+}
+
+
+def _probe_counts(reading: dict[str, Any]) -> tuple[int, int]:
+    draws = reading["draws"]
+    calibration = tools.replicates_from_pilot(reading["ratio"], draws)["R"]
+    coverage = _smallest(lambda r: _coverage_pass(r, reading, reading["control"], draws))
+    return calibration, coverage
+
+
+def test_the_review_probe_gives_at_most_the_declared_counts() -> None:
+    """The declared rules, unchanged, on the review's second pilot reproduce the declared
+    counts, and on the pooled 8,000 draws give 4,400 and 2,400, at which the declared counts
+    pass with probability 0.990 (calibration) and 0.995 (coverage). The counts err toward
+    more draws, and none was resized (design review finding 1)."""
+    declared = (properties.CALIBRATION_REPLICATES, properties.COVERAGE_REPLICATES)
+    assert _probe_counts(REVIEW_PROBE["probe"]) == declared == (5_600, 3_200)
+    assert _probe_counts(REVIEW_PROBE["pooled"]) == (4_400, 2_400)
+    pooled = REVIEW_PROBE["pooled"]
+    sized = tools.replicates_from_pilot(pooled["ratio"], pooled["draws"])
+    shared = tools.pilot_sigma(pooled["draws"]) ** 2 / len(pooled["ratio"])
+    _, calibration = tools.pass_probabilities(
+        declared[0], sized["mean"], shared, sized["tau"], len(pooled["ratio"])
+    )
+    assert calibration == pytest.approx(0.990, abs=1e-3)
+    coverage = _coverage_pass(declared[1], pooled, pooled["control"], pooled["draws"])
+    assert coverage == pytest.approx(0.995, abs=1e-3)
 
 
 def test_the_necessity_count_is_the_floor() -> None:

@@ -24,8 +24,12 @@ stacked one (``cv_evaluation=False``, X11 (e)) on the same draws and fold seeds.
     treatment model's projection term. Corollary 2 of van der Laan and Luedtke (2015) makes the
     variance from the curve conservative for an MLE of :math:`g` in a correct model, and the
     paper extends this to cross-validated TMLE by analogy only (``reviews/x11/X11-G-corollary3-
-    reading.md``). This law's cells therefore claim the bias leg and coverage at or above the
-    calibration floor, and no SE calibration.
+    reading.md``). On this law the omitted projection term is negligible (predicted SE ratio at
+    most 1.0005, ``test_learned_rule_contrast_design``), so the cells measure coverage when the
+    outcome model's treated arm is misspecified, not conservativeness. Its untreated arm is
+    RM30's shared ``Qbar0(0, W)``, which the outcome model represents to within 0.005, so the
+    ``known_0`` cells read a correctly specified arm. This law's cells claim the bias leg and
+    coverage at or above the calibration floor, and no SE calibration.
 
 The X11 wave-2 plan (``X11-wave2-plan.md`` rev 2.1 in the plans repository, section 4), its
 review (finding 5), the implementation review ``reviews/x11/X11-G-impl-review.md`` (open
@@ -116,10 +120,14 @@ COVERAGE_SHRINK = 0.60
 COVARIANCE_FAMILY = "contrast_covariance"
 CORRELATION_ONE = "correlation_one_control"
 
-#: The must-fail threshold of the correlation-one control, declared after the pilot recorded its
-#: coverage (0.052 to 0.086 on the eight cells, every 99% upper bound below 0.10; the design
-#: record) and before any declared draw, well above every pilot reading (impl review open
-#: question 4).
+#: The must-fail threshold of the correlation-one control, recorded after the pilot and before
+#: any declared draw (impl review open question 4). A must-fail control passes when its coverage
+#: interval lies below the ceiling, so a lower ceiling is harder to pass. The pre-pilot rule
+#: would be the claim's own floor 0.92, the rule of the coverage family's control; 0.80 lies
+#: below it, so choosing it after the pilot cannot have made a verdict easier. The value is the
+#: framework's must-fail convention (``FEW_CLUSTER_IID_CONTROL_CEILING`` and
+#: ``CLUSTER_ROBUST_CONTROL_SE_CEILING``). The pilot read 0.052 to 0.086 on the eight cells,
+#: every 99% upper bound below 0.10, which checks that the control has power at either ceiling.
 CORRELATION_ONE_CEILING = 0.80
 
 #: The diagnostic of each contrast: the same estimate with ``sqrt(se_L^2 + se_K^2)``, the SE if
@@ -262,7 +270,9 @@ CONFIGURATION = {
         "non_exceptional": "RM30 law with blip 0.1 + W1; calibration bands",
         "misspecified_limit": (
             "RM30 law with blip 0.8 W1 + W1^2 - 0.3; bias leg and coverage floor 0.92 only "
-            "(Corollary 3's route, by the paper's analogy)"
+            "(Corollary 3's route, by the paper's analogy); the omitted projection term is "
+            "negligible here (predicted SE ratio at most 1.0005), so the cells measure coverage "
+            "under a misspecified treated arm, not conservativeness"
         ),
     },
     "variance": (
