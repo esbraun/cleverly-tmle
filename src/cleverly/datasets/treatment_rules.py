@@ -224,9 +224,11 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
     """Return the true value of the rules that a learned-rule fit of these data used.
 
     A ``LearnedRuleValue`` fit learns one rule in each fold, from the outcome model fitted on the
-    other folds, and reports the average of the values of those rules.  This function refits
-    ``outcome_learner`` on each fold's training rows, checks that its rule matches the fit's rule
-    on every row of the fold, and averages the exact values of the refitted rules.
+    other folds, and reports a weighted average of the values of those rules.  The fold-evaluated
+    report weights each fold by ``1/V``, and the stacked report weights it by its share of the
+    rows.  This function refits ``outcome_learner`` on each fold's training rows, checks that its
+    rule matches the fit's rule on every row of the fold, and averages the exact values of the
+    refitted rules with the fit's own fold weights.
 
     Parameters
     ----------
@@ -240,14 +242,15 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
     Returns
     -------
     float
-        The average over the folds of :func:`treatment_rule_value` of each fold's rule.
+        The average over the folds of :func:`treatment_rule_value` of each fold's rule, with the
+        weights ``result.extra["learned_rule"].splits[0].fold_weights``.
 
     Raises
     ------
     ValueError
         When the fit is not an unweighted ``LearnedRuleValue`` fit of ``home_30`` on
-        ``offer``, adjusted for ``need`` and ``lives_alone``, or a refitted rule differs from
-        the fit's rule on a row.
+        ``offer`` with one split, adjusted for ``need`` and ``lives_alone``, or a refitted
+        rule differs from the fit's rule on a row.
 
     See Also
     --------
@@ -258,6 +261,11 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
 
     if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
         raise ValueError("the fit must be a LearnedRuleValue fit")
+    if int(getattr(result, "n_repeats", 1)) != 1:
+        raise ValueError(
+            "the fit must use one split (repeats=1): this function returns the value of the "
+            "rules of one split, and a fit of several splits targets the mean over its splits"
+        )
     data = result.data
     if data.is_weighted:
         raise ValueError(
@@ -281,6 +289,7 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
         return np.asarray(np.clip(treated, 0, 1) - np.clip(control, 0, 1), dtype=float)
 
     values = []
+    weights_of_folds = result.extra["learned_rule"].splits[0].fold_weights
     for fold, (train, test) in enumerate(result.nuisance.folds):
         model = fit_on_rows(
             outcome_learner, design, outcome, weights, np.asarray(train), "classification", None
@@ -293,4 +302,4 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
             return (blip(model, rows) > 0.0).astype(float)
 
         values.append(treatment_rule_value(rule))
-    return float(np.mean(values))
+    return float(np.dot(weights_of_folds, values))

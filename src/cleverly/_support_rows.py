@@ -735,6 +735,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # X11 (e): the stacked report of the learned-rule value keys ``stacked``, which no P11 row
+    # declares, so every stacked learned-rule fit reads experimental until the
+    # ``learned-rule-stacked`` study registers its rows.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.

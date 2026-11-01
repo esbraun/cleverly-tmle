@@ -532,9 +532,7 @@ def fold_evaluated_strata_refusal(
     return None
 
 
-def refuse_empty_stratum_folds(
-    data: CausalData, folds: Sequence[Any], *, learned_rule: bool = False
-) -> None:
+def refuse_empty_stratum_folds(data: CausalData, folds: Sequence[Any]) -> None:
     """Refuse a fold-evaluated stratified split with an empty stratum or arm in some fold.
 
     The fold-evaluated stratum estimate is the ``1/V`` average of plug-ins over the rows of
@@ -552,9 +550,6 @@ def refuse_empty_stratum_folds(
         The data of the fit. Without baseline strata the check returns at once.
     folds : sequence of Folds
         The drawn or supplied split of every repeat.
-    learned_rule : bool
-        Whether the fit estimates a learned-rule value, whose stacked report is refused
-        (X11 (e)), so the remedy names fewer strata and a fit without ``strata=`` instead.
 
     Raises
     ------
@@ -573,11 +568,7 @@ def refuse_empty_stratum_folds(
     arms = tuple(data.arm_codes) if data.has_arms else ()
     positive = " positive-weight" if data.is_weighted else ""
     remedy = _POST_DRAW_REMEDY.format(
-        remedy=(
-            "declare fewer baseline strata, fit the learned-rule value without strata="
-            if learned_rule
-            else f"use {_STACKED_REPORT}, declare fewer baseline strata"
-        )
+        remedy=f"use {_STACKED_REPORT}, declare fewer baseline strata"
     )
     draws = [draw for draw in folds if not draw.is_single]
     # An empty stratum is the more basic shortfall, so every fold is read for it first.

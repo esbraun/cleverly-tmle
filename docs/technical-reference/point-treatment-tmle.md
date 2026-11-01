@@ -1252,7 +1252,10 @@ rows, and it is not the value of the optimal rule.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets. The
 [treatment-rules example](../examples/treatment-rules.ipynb) fits this target end to end.
 
-The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table gives each step.
+This is the target of the fold-evaluated report, `cv_evaluation=True`
+(`CrossFitting(fold_evaluation=True)`). The default stacked report weights the folds by their
+weight mass instead, and [the stacked report](#learned-rules) below states it. The fold-evaluated
+fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table gives each step.
 
 | step | what the fit computes | source |
 | --- | --- | --- |
@@ -1409,7 +1412,7 @@ beside `loss="plug_in"` and a missing learner beside another loss. It also refus
 for the blip, a regressor for the classification, and a `SuperLearner` that clips the blip. A
 classifier whose `fit` takes no `sample_weight` refuses too, because it would learn the majority
 sign, and so does a `SuperLearner` with a library member whose `fit` takes none. A weighted blip
-fit applies the same check to its regressor (row 13).
+fit applies the same check to its regressor (row 12).
 
 The key of a rule-learner fit carries the qualifier `rule_learner_blip` or
 `rule_learner_weighted_classification`, so the plug-in rule's row never covers it. The
@@ -1484,14 +1487,14 @@ number of strata. C3 reads that the fold curves of each stratum converge to the 
 fixed rule. A stratum with a zero effect on a share of its units is an exceptional law inside that
 stratum, where the stratum interval can under-cover. Every validation fold must hold every
 stratum and every arm inside it. A drawn split that does not raises `DataError` before any
-learner, and its remedy names fewer strata or a fit without `strata=`, because a learned-rule
-fit has no stacked report.
+learner, and its remedy names the stacked report or fewer strata, as for an arm fit.
 
 | request with `strata=` | result |
 | --- | --- |
 | rows or a known weight (`weights=`), with the plug-in rule, `repeats=1` and pointwise intervals | admitted, supported by [the learned-rule strata study](method-evidence/learned-rule-strata.md) |
 | a rule learner, `repeats` above 1, the simultaneous band | admitted, experimental |
-| `id=` | refused before any learner, [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata): the clustered stratum fold variance and its $t$ reference are unchecked |
+| the stacked report, `cv_evaluation=False` | admitted, experimental. Stratum $s$ targets $\sum_v (W_{v,s}/W_s)\Psi_{s,d_{nv}}(P_0)$ ([the stacked report](#learned-rules)) |
+| `id=` | refused before any learner under either report, [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata): the clustered stratum variance and its $t$ reference are unchecked |
 | `targeting_scheme="fold"` | refused before any learner, [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b), as for every stratified fit |
 | the omitted-variable bound | refused, [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2): a stratum value needs the combined representer restricted to each fold's stratum rows, and no witness checks the marginal mixture's bias against the combined representer |
 | `freeze_learned_rule`, the frozen-rule replay, `simulated_confounding`, the `refute` tests that hold the rules, `placebo` | admitted on one split, for the marginal and for each stratum. The placebo of a stratum reads against the stratum's outcome mean $E[Y \mid S = s]$, the value of every rule inside the stratum under the placebo law |
@@ -1521,9 +1524,78 @@ on the same draws. That is the finite-sample limit of
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions), not of the
 stratified construction.
 
+#### The stacked report
+
+`cv_evaluation=False`, the default of `TMLE` and of `CrossFitting()`, gives the stacked report
+of the same fold rules. One pooled $\varepsilon$ fluctuates every validation row with the
+observation weights alone, and the report is the pooled plug-in. Its target weights each fold by
+its share of the weight mass:
+
+$$
+\tilde\psi^{s}_{0n} = \sum_{v=1}^V \frac{W_v}{W}\,\Psi_{d_{nv}}(P_0),\qquad
+W_v = \sum_{i \in v} w_i,\quad W = \sum_v W_v,
+$$
+
+so $W_v/W = n_v/n$ without weights. At equal masses it is the fold-evaluated target
+$\tilde\psi_{0n}$.
+
+| step | what the fit computes | source |
+| --- | --- | --- |
+| fluctuation | one $\varepsilon$ on the pooled validation rows, with the observation weights | polle, Algorithm 4; JCI, Appendix B |
+| estimate | $\hat\psi = \sum_v (W_v/W)\,\psi^*_{nv}$, the weighted mean of $\bar Q^*(d_i, W_i)$ over every row. Under one pooled $\varepsilon$ this plug-in equals the one-step estimate at $\bar Q^*$ | polle, Algorithm 4 |
+| influence curve | $\phi_i = w_i\,(Z_i - \hat\psi)$ with $Z_i = H_i\,(Y_i - \bar Q^*(A_i, W_i)) + \bar Q^*(d_i, W_i)$, centred at the pooled estimate | polle, Algorithm 4 |
+| variance | $\{n(n-1)\}^{-1}\sum_i (\phi_i - \bar\phi)^2$, the centred rule of the stacked regime report. The pooled score is solved, so $\bar\phi = 0$ to solver tolerance and this is $W^{-2}\sum_i w_i^2 (Z_i - \hat\psi)^2$ times $n/(n-1)$ on the mean-one weight scale. Under `id=` it is the cluster-robust variance of the cluster totals | polle, Algorithm 4, with the factor $n/(n-1)$ |
+
+"polle" is Nordland and Holst (2026), whose Algorithm 4 weights the folds by $n_m/N$ and centres
+the variance at the pooled estimate. Asymptotic linearity follows from JCI, Theorem 6, with the
+weights $W_v/W$ in place of $1/V$. That substitution is this package's step, and the proof does
+not use the weights. Conditions C1 to C6 are unchanged.
+
+The stacked variance is not conservative at finite n. Write $\psi_v$ for fold $v$'s plug-in,
+$s_v = n_v^{-1}\sum_{i \in v} H_i(Y_i - \bar Q^*_i)$, and $D_i = Z_i - \psi_{v(i)}$ for the
+fold-evaluated curve. Then, unweighted,
+
+$$
+\sum_i (Z_i - \hat\psi)^2 = \sum_i D_i^2 + 2\sum_v n_v(\psi_v - \hat\psi)\,s_v
++ \sum_v n_v(\psi_v - \hat\psi)^2 .
+$$
+
+The pooled $\varepsilon$ solves only $\sum_v n_v s_v = 0$, so the cross term can be negative and
+larger than the last term. Both extra terms are $o_P(1)$ under C3. Under `targeting_scheme="fold"`
+each fold's $\varepsilon_v$ sets $s_v = 0$, so the cross term vanishes, and the target stays
+$\tilde\psi^{s}_{0n}$.
+
+| composition | result |
+| --- | --- |
+| known weights, `targeting_scheme="fold"`, `id=`, a rule learner | admitted, experimental. Each changes only the rule, the fluctuation or the variance rule that the construction reads |
+| `repeats` above 1 on rows | admitted, experimental. The fit reports the mean of the split estimates, and the variance is the centred rule applied to the mean of the split curves, each centred at its own pooled estimate |
+| `repeats` above 1 with `id=` | refused, row 10 of the table below |
+| `strata=` | admitted, experimental. Stratum $s$ targets $\sum_v (W_{v,s}/W_s)\,\Psi_{s,d_{nv}}(P_0)$, with $W_{v,s}$ the weight mass of fold $v$ in the stratum, and the shipped stratified fluctuation solves each stratum's pooled score under that weighting |
+| `strata=` with `id=` | refused, row 8 of the table below, as under fold evaluation |
+| the omitted-variable bound | refused as an implementation gap, [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2): its combined representer would average the fold rules with the weights $W_v/W$, and no witness checks its bias |
+
+The stacked report motivates its own use with clusters. When cluster sizes depend on the outcome,
+the fold-evaluated point carries a ratio bias of order $V/J$, and the stacked point a smaller one:
+at 200 clusters in 5 folds the [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md)
+measured 0.13 and 0.02 empirical SDs for the arm-indexed fit it reads ([CV-TMLE](cv-tmle.md)).
+No study yet measures a
+stacked learned-rule fit. Its key reads `stacked`, which no row covers, so every stacked fit reads
+experimental. A fit with unequal cluster sizes also keeps the `unequal_clusters` qualifier.
+
+`tests/unit/test_learned_rule_stacked.py` holds the witnesses. On an exact discrete law whose
+three unequal folds learn different rules, it rebuilds $Z_i$ from the oracle mechanism and
+checks the identity above against the stored variance. There the cross term is $-0.44$ and the
+last term $0.07$, and a mutation that drops the cross term fails. Under fold targeting each $s_v$
+is 0. On an unequal cluster plan, unweighted and weighted, the point is
+$\sum_v (W_v/W)\psi^*_{nv}$, and the $1/V$ weighting fails by a declared amount. A fit of four
+splits reports their mean, and each stratum estimate weights its folds by $W_{v,s}/W_s$ while
+each stratum's pooled score is solved. `cleverly.datasets.learned_rule_truth` weights the
+refitted fold rules by the fit's own `fold_weights`.
+
 #### Refusals and the result record
 
-The fit needs `CrossFitting(enabled=True, fold_evaluation=True)` and no full-refit bootstrap.
+The fit needs cross-fitting with at least two folds, `CrossFitting(enabled=True)`, and no
+full-refit bootstrap. Either report runs.
 `refuse_learned_rule_composition` in
 [`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
 refuses every other composition before any learner, in the order that the table gives. A refusal
@@ -1543,10 +1615,9 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 7 | estimated weights, `weights_estimated=True` | X11 (k2) |
 | 8 | `strata=` with clusters, `id=` | [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). The remedy is a fit without one of the two |
 | 9 | `cross_fit=False`, or one fold | X11 (a) |
-| 10 | `cv_evaluation=False` | X11 (e) |
-| 11 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
-| 12 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
-| 13 | `loss="blip"` with `weights=` and a learner whose `fit` takes no `sample_weight`, or a `SuperLearner` with such a member | a declaration error. The unweighted fit would learn the rule of the unweighted population |
+| 10 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
+| 11 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
+| 12 | `loss="blip"` with `weights=` and a learner whose `fit` takes no `sample_weight`, or a `SuperLearner` with such a member | a declaration error. The unweighted fit would learn the rule of the unweighted population |
 
 The first two rows run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
 constructor also refuse a fold policy that the shared rules forbid, before the data exist. On a
@@ -1559,17 +1630,18 @@ gives the fields of a split.
 
 | field | content |
 | --- | --- |
-| `seed`, `estimate` | the seed of the split, and its estimate $\hat\psi_r$ |
-| `fold_sizes`, `fold_weights` | the validation rows of each fold, and the weight $1/V$ of each fold |
-| `fold_estimates` | $\psi^*_{nv}$ for each fold |
+| `seed`, `scheme`, `estimate` | the seed of the split, the report (`"fold_evaluated"` or `"stacked"`), and its estimate $\hat\psi_r$ |
+| `fold_sizes`, `fold_masses`, `fold_weights` | the validation rows of each fold, its weight mass $W_v$ on the mean-one weight scale, and its weight in the target: $1/V$ under fold evaluation and $W_v/W$ under the stacked report |
+| `fold_estimates` | $\psi^*_{nv}$ for each fold. Under the stacked report each is descriptive: the weighted mean of $\bar Q^*(d_i, W_i)$ over the fold's rows at the pooled fluctuation, which does not solve the fold's score |
 | `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
 | `blip_quantiles` | quantiles of the outer outcome regression's blip on each fold's validation rows. For the plug-in rule this is the rule's own score, so its mass at 0 speaks to C3. Under a rule learner it describes that regression, not the rule |
 | `score_quantiles` | under a rule learner, quantiles of the rule learner's score minus its threshold on each fold's validation rows: $\hat b_v(w)$ for the blip, $\hat P_v(\tilde D > 0 \mid w) - 1/2$ for the classification. Its mass at 0 speaks to C3. Empty for the plug-in rule and for a frozen rule |
 | `inner_seeds` | the seed of each fold's inner cross-fit and rule learner, empty for the plug-in rule |
 
 The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
-`loss` and `learner` name the rule learner, and `rule`, `target` and `quantile_levels` give the
-rule class of that loss, the target kind and the levels of both quantile fields.
+`loss` and `learner` name the rule learner, and `scheme`, `rule`, `target` and `quantile_levels`
+give the report, the rule class of that loss, the target kind and the levels of both quantile
+fields.
 `result.summary(detail="full")` prints the target line of `LearnedRuleRecord.describe()` under
 Method details, which gives the range of the split estimates and of the treated shares over every
 split. The rule of each row in split $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`.
@@ -1596,9 +1668,10 @@ representer from `fold_rules`
 The bound is a point bound: its limits and `benchmark()` refuse. A fit of several splits refuses as
 an implementation gap, because the bound of their mean would read the average of every split's fold
 rules, which is not built. So does a fit with baseline strata
-([baseline strata of a learned rule](#learned-rules)), and
+([baseline strata of a learned rule](#learned-rules)), and so does the stacked report, whose
+value averages the fold rules with the weights $W_v/W$ rather than $1/V$.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, the
-mean over splits and the strata. A `FrozenLearnedRule` replay refuses, because it holds no fold
+mean over splits, the strata and the stacked report. A `FrozenLearnedRule` replay refuses, because it holds no fold
 rule.
 
 The E-value and the missingness tilt read `unavailable`, because the package does not implement

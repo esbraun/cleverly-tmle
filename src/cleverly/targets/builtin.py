@@ -154,10 +154,12 @@ _LEARNED_RULE_ID = Identification(
         "consistency: Y = Y^a when A = a",
         *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
-        "the target is data-adaptive: it is the average over the outer folds of the value "
-        "of the rule learned on each fold's training rows, so it depends on the realized "
-        "split and on the fitted rules. It is not the value of one rule fitted on all rows, "
-        "and it is not the value of the optimal rule",
+        "the target is data-adaptive: it is a weighted average over the outer folds of the "
+        "value of the rule learned on each fold's training rows, with weight 1/V under "
+        "fold evaluation (cv_evaluation=True) and the fold's share of the rows, or of the "
+        "weight mass under weights=, under the stacked report (cv_evaluation=False), so it "
+        "depends on the realized split and on the fitted rules. It is not the value of one "
+        "rule fitted on all rows, and it is not the value of the optimal rule",
         "C1, a bounded outcome: Y lies in [0, 1] after the declared transform, so a binary "
         "outcome or a continuous one with a declared q_bounds",
         "C2, strong positivity: g0(a | W) >= delta > 0 for both arms almost surely; "
@@ -794,8 +796,8 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         requires_binary_treatment=True,
         in_default_set=True,
         description=(
-            "average over the outer folds of the value of the rule learned on each fold's "
-            "training rows"
+            "weighted average over the outer folds of the value of the rule learned on each "
+            "fold's training rows"
         ),
     ),
     Target(

@@ -39,7 +39,8 @@ the witness of the known-weights composition (``test_learned_rule_compositions.p
 
 The remaining classes run on the continuous support law: the admitted compositions (known
 weights, a rule learner, the mean over splits with its band), the refusals (clusters, fold
-targeting, the omitted-variable bound, an empty stratum in a validation fold), and the
+targeting, the omitted-variable bound, an empty stratum in a validation fold, whose remedy is
+the stacked report), and the
 surfaces that read the fit (persistence, the frozen-rule replay, simulated confounding, and
 the placebo, whose null inside a stratum is the stratum's outcome mean).
 """
@@ -653,21 +654,21 @@ class TestTheRefusals:
         bound = omitted_variable_bounds(unstratified, NAME, cf_y=0.05, cf_d=0.05)
         assert bound.lower < bound.psi < bound.upper
 
-    def test_an_empty_stratum_in_a_validation_fold_refuses_without_the_stacked_remedy(
-        self,
-    ) -> None:
+    def test_an_empty_stratum_in_a_validation_fold_names_the_stacked_report(self) -> None:
+        """The remedy is the stacked report, as for an arm fit (X11 (e)), and it fits."""
         frame = _strata_frame()
         rare = frame.index[frame["S"] == 0][:3]
         frame.loc[frame.index.difference(rare), "S"] = np.clip(
             frame.loc[frame.index.difference(rare), "S"], 1, None
         )
-        error = _refused(
+        _refused(
             lambda: _fit(frame, **never_fit_learners()),
             "validation fold",
-            "without strata=",
+            "use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))",
             error=DataError,
         )
-        assert "cv_evaluation=False" not in str(error)
+        stacked = _fit(frame, cv_evaluation=False)
+        assert all(np.isfinite(estimate.psi) for estimate in stacked.estimates.values())
 
 
 class TestTheSurfaces:

@@ -641,9 +641,10 @@ def point_key(
     if data.known_treatment is not None:
         qualifiers.add("known_mechanism")
     if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
-        # The learned-rule study draws equal cluster sizes only, and unequal sizes that depend
+        # The learned-rule studies draw equal cluster sizes only, and unequal sizes that depend
         # on the outcome put a ratio bias in the fold-evaluated point, so a learned-rule row
-        # never covers unequal sizes unless it declares them.
+        # never covers unequal sizes unless it declares them. The stacked report (X11 (e)) keys
+        # ``stacked`` and keeps the qualifier until its declared cluster cell passes.
         qualifiers.add("unequal_clusters")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":

@@ -231,10 +231,12 @@ rule. The table gives what the result holds.
 | `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row, `1.0` for treat |
 | `learned.summary()` | a line that states the target |
 
-The fit needs the fold-evaluated CV-TMLE, `CrossFitting(enabled=True, fold_evaluation=True)`. The
-default `CrossFitting()` refuses before any learner and names that remedy. The fit also needs a
-binary treatment, complete outcomes, iid rows without weights, and no strata or intermediate
-variable. `CausalStudy.identify` refuses each of those designs.
+Use `CrossFitting(n_folds=5, fold_evaluation=True)`, as above. It scores each fold's rule on that
+fold alone and gives every fold equal weight, and the studies above measure that setting. The
+default `CrossFitting()` also runs: it scores all held-out rows together and weights each fold by
+its share of the rows. Its result is marked experimental until a study measures it. Either way the
+fit needs cross-fitting with at least two folds, a binary treatment, complete outcomes and no
+intermediate variable. A fit that lacks one of them refuses before any model is fitted.
 
 A refit that relearned the rules would estimate the value of other rules. So the `subset`,
 `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` tests of `refute`,
