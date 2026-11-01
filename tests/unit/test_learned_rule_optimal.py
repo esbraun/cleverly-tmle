@@ -34,8 +34,7 @@ import pandas as pd
 import pytest
 from scipy.special import expit
 from sklearn.dummy import DummyClassifier
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
 
 from cleverly import (
     CausalStudy,
@@ -73,6 +72,7 @@ from tests import discrete_law as exact
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.studies import _learned_rule_arms_law as arms_law
 from tests.studies import _learned_rule_law as law
+from tests.studies import _learned_rule_optimal_law as optimal_law
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
@@ -340,88 +340,16 @@ class TestTheExactLaw:
 
 def _wrong_limit_q(a: Any, w1: np.ndarray, w2: float, amplitude: float) -> np.ndarray:
     """``P(Y = 1 | A = a, W)`` of the wrong-limit law, the RM30 base with an even blip."""
-    blip = amplitude * (w1**2 - 0.5)
-    return np.asarray(expit(0.2 + 0.5 * w1 - 0.3 * w2 + np.asarray(a) * blip), dtype=float)
+    return optimal_law.wrong_limit_qbar(a, w1, w2, amplitude)
 
 
-def _base_q(a: Any, w1: np.ndarray, w2: float) -> np.ndarray:
-    """``P(Y = 1 | A = a, W)`` of the RM30 ``non_exceptional`` law."""
-    return np.asarray(law.qbar0(a, w1, w2, "non_exceptional"), dtype=float)
-
-
-def _limit_blip(qbar: Any) -> dict[float, np.ndarray]:
-    """The blip of the population limit of the study's main-terms outcome learner.
-
-    The learner is a logistic regression on every pairwise product of ``(A, W1, W2)``, whose
-    limit solves the population score equations.  The quadrature rows carry the trapezoid
-    weight of :data:`law.GRID`, the probability of ``W2``, ``g0(a | W)`` and
-    ``P(Y = y | a, W)``, so the weighted fit is that limit up to the quadrature.
-    """
-    grid = law.GRID
-    step = np.full(grid.size, grid[1] - grid[0])
-    step[[0, -1]] /= 2.0
-    designs, outcomes, weights = [], [], []
-    for w2 in law.W2_LEVELS:
-        treated = law.g0(grid, w2)
-        for a in (0.0, 1.0):
-            g = treated if a else 1.0 - treated
-            q = qbar(a, grid, w2)
-            for y in (0.0, 1.0):
-                designs.append(
-                    np.column_stack([np.full(grid.size, a), grid, np.full(grid.size, w2)])
-                )
-                outcomes.append(np.full(grid.size, y))
-                weights.append(step * 0.25 * g * (q if y else 1.0 - q))
-    features = PolynomialFeatures(2, interaction_only=True, include_bias=False)
-    design = features.fit_transform(np.vstack(designs))
-    weight = np.concatenate(weights)
-    model = LogisticRegression(C=1e6, max_iter=10_000, tol=1e-12).fit(
-        design, np.concatenate(outcomes), sample_weight=weight * weight.size / weight.sum()
-    )
-    out = {}
-    for w2 in law.W2_LEVELS:
-        rows = np.column_stack([np.ones(grid.size), grid, np.full(grid.size, w2)])
-        control = rows.copy()
-        control[:, 0] = 0.0
-        out[w2] = (
-            model.predict_proba(features.transform(rows))[:, 1]
-            - model.predict_proba(features.transform(control))[:, 1]
-        )
-    return out
-
-
-def _value(rule: dict[float, np.ndarray], qbar: Any) -> tuple[float, float]:
-    """``Psi_d(P0)`` and ``Var D*(d, Qbar0, g0)`` of a rule on the grid, as ``law.rule_value``."""
-    value = second = 0.0
-    for w2 in law.W2_LEVELS:
-        treat = np.asarray(rule[w2], dtype=float)
-        q = qbar(treat, law.GRID, w2)
-        treated = law.g0(law.GRID, w2)
-        g = np.where(treat > 0.5, treated, 1.0 - treated)
-        value += 0.5 * np.trapezoid(q, law.GRID) / 2.0
-        second += 0.5 * np.trapezoid(q * (1.0 - q) / g + q**2, law.GRID) / 2.0
-    return float(value), float(second - value**2)
-
-
-@cache
 def _gap(amplitude: float | None) -> tuple[float, float, float]:
     """The gap ``Psi_d0 - Psi_d1``, the variance of ``d1``'s curve and ``d1``'s treated share.
 
+    The study law module's quadrature, which the declared ``optimal_target_control`` reads too.
     ``amplitude=None`` reads the ``non_exceptional`` law, the mutation of the law.
     """
-
-    def qbar(a: Any, w1: np.ndarray, w2: float) -> np.ndarray:
-        if amplitude is None:
-            return _base_q(a, w1, w2)
-        return _wrong_limit_q(a, w1, w2, amplitude)
-
-    limit = _limit_blip(qbar)
-    d1 = {w2: limit[w2] > 0.0 for w2 in law.W2_LEVELS}
-    d0 = {w2: qbar(1.0, law.GRID, w2) > qbar(0.0, law.GRID, w2) for w2 in law.W2_LEVELS}
-    optimal, _ = _value(d0, qbar)
-    limit_value, variance = _value(d1, qbar)
-    share = float(np.mean([np.mean(d1[w2]) for w2 in law.W2_LEVELS]))
-    return optimal - limit_value, variance, share
+    return optimal_law.target_gap(amplitude)
 
 
 class TestWf2TargetGap:
