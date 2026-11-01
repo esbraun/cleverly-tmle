@@ -245,10 +245,9 @@ def test_the_declared_numbers() -> None:
     assert study.REFERENCE == "natural course"
     assert study.CLASSIFIER_PLANS == ("ordered", "full")
     assert (common.CAP, common.STEP, common.FACTOR, common.KNEE) == (5.5, 0.5, 1.25, 3.0)
-    # The owner's rule: the method merges on its Python studies, and the lmtp runs follow.
-    assert record.comparator_state == "pending"
-    assert (record.reference, record.pending_reference) == (None, "lmtp")
-    assert "Study queue" in record.pending_reason
+    # The parity check read exact (amendment 2026-10-18), so lmtp is the declared reference.
+    assert record.comparator_state == "compared"
+    assert (record.reference, record.pending_reference) == ("lmtp", None)
     assert properties.CALIBRATION_REPLICATES == DECLARED_CALIBRATION
     assert {
         (family, label): (n, replicates) for family, label, n, replicates in properties.FIT_SETS

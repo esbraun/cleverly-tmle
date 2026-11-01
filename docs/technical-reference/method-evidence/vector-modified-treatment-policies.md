@@ -8,18 +8,22 @@ node. Both read the ratio from the joint density that a `JointPolicy` induces
 [vector nodes](../longitudinal-tmle.md#vector-nodes-with-a-continuous-component) sections state
 the estimators, their conditions and their exact-law evidence.
 
-**Status of this page.** The study is registered, and its Python phases have run. The 20 truth
-tests and the 36 property cells pass (`performance-tests.csv`, `properties.csv`). The property
-rows were fitted at commit `8b0e5b9b` on two machines.
+**Status of this page.** The study is registered, and both phases have run. The 40 truth tests
+(20 for each implementation), the 20 paired comparisons with `lmtp` and the 36 property cells
+pass (`performance-tests.csv`, `equivalence.csv`, `properties.csv`).
+
+The property rows were fitted at commit `8b0e5b9b` on two machines. The primary rows of both
+implementations were fitted at commit `40a39a1a` with 1,000 samples per scenario. Their
+`cleverly` estimates match the earlier Python-only run of the same samples to within
+$2 \times 10^{-15}$.
 [Provenance revisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/provenance-revisions.md)
-records that run.
-The evidence label is "Python property evidence, with comparator runs pending". The evidence has
-two parts.
+records the property run and the one result-neutral adapter edit since the primary run. The
+evidence label is "comparator-backed". The evidence has two parts.
 
 | part | what it is | status |
 | --- | --- | --- |
 | Python property evidence | exact laws with closed-form efficiency bounds, interval calibration with two controls, double robustness in four nuisance configurations, and three necessity pairs | complete: 20 of 20 truth tests and 36 of 36 property cells pass. It decides whether the method ships |
-| `lmtp` comparator runs | the pinned `lmtp` 1.5.4 fits the same samples with vector `trt` nodes, and the study pairs the results | pending. The study record sets `pending_reference="lmtp"`, so no paired row is published. The runs register in a later change, and a finding in them does not block the method. The fast-tier witnesses and the Python property cells carry the claim until then |
+| `lmtp` comparator runs | the pinned `lmtp` 1.5.4 fits the same samples with vector `trt` nodes, and the study pairs the results | complete: 20 of 20 `lmtp` truth tests and 20 of 20 paired rows pass. The longitudinal pairs agree to about $3 \times 10^{-10}$, inside the exactness gate of $10^{-6}$. The largest point-pair difference is $1.25 \times 10^{-5}$, 0.6% of its margin |
 
 The publication policy is `reporting`. A red cell stays red on this page and in the
 [red-cell ledger](red-cells.md), with the owner row that names it.
@@ -57,38 +61,88 @@ makes the pair an exactness witness. Every relative gap below $10^{-4}$, with a 
 named numerical cause, makes it a margin-read pair. Any other reading blocks the declaration until
 the cause is found.
 
+Two of the 1,000 `longitudinal_vector_mixed` samples, replicates 459 and 479, raise a
+`PositivityWarning` at node $(F_2, D_2)$ for `dose up` and `flag scaled`. In both samples the
+largest observed $D_2$ (5.34 and 5.46) lies below the cap of 5.5. The binned density covers only
+the observed range, so 3 to 20 shifted doses fall above its top edge and read an estimated
+density of zero. The law's support is $[0, 6]$, so positivity holds. The warning flags the binned
+model, as its text says, and both implementations read the same ratios.
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | two nodes, each a binary flag and a truncated-normal dose | `ate_regimen[dose up vs natural course]` | difference in mean outcome between the plans "add 0.5 to each dose, capped at 5.5" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000489 to 0.000894 | 0.9510 | 1.0294 | pass |
+| two nodes, each a binary flag and a truncated-normal dose | `ate_regimen[dose up vs natural course]` | difference in mean outcome between the plans "add 0.5 to each dose, capped at 5.5" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000489 to 0.000894 | 0.9510 | 1.0294 | pass |
 | two nodes, each a binary flag and a truncated-normal dose | `ate_regimen[flag scaled vs natural course]` | difference in mean outcome between the plans "set each flag to one, and multiply the dose by 1.25 where the natural flag is one" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0017 to 0.0016 | 0.9510 | 0.9928 | pass |
+| two nodes, each a binary flag and a truncated-normal dose | `ate_regimen[flag scaled vs natural course]` | difference in mean outcome between the plans "set each flag to one, and multiply the dose by 1.25 where the natural flag is one" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.0017 to 0.0016 | 0.9510 | 0.9928 | pass |
 | two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[dose up]` | mean outcome under the plan add 0.5 to each dose, capped at 5.5 | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000840 to 0.0015 | 0.9520 | 1.0018 | pass |
+| two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[dose up]` | mean outcome under the plan add 0.5 to each dose, capped at 5.5 | R `lmtp` | -0.000840 to 0.0015 | 0.9520 | 1.0018 | pass |
 | two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[flag scaled]` | mean outcome under the plan set each flag to one, and multiply the dose by 1.25 where the natural flag is one | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0019 to 0.0020 | 0.9500 | 0.9572 | pass |
+| two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[flag scaled]` | mean outcome under the plan set each flag to one, and multiply the dose by 1.25 where the natural flag is one | R `lmtp` | -0.0019 to 0.0020 | 0.9500 | 0.9572 | pass |
 | two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[natural course]` | mean outcome under the plan leave the observed treatment mechanism unchanged | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000810 to 0.0010 | 0.9440 | 0.9994 | pass |
+| two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[natural course]` | mean outcome under the plan leave the observed treatment mechanism unchanged | R `lmtp` | -0.000810 to 0.0010 | 0.9440 | 0.9994 | pass |
 | one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ate_regimen[full vs natural course]` | difference in mean outcome between the plans "set the flag to one where the first dose is at least 3, scale the first dose where the flag is one, and move the second dose as in ordered" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000951 to 0.000852 | 0.9430 | 0.9776 | pass |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ate_regimen[full vs natural course]` | difference in mean outcome between the plans "set the flag to one where the first dose is at least 3, scale the first dose where the flag is one, and move the second dose as in ordered" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000951 to 0.000852 | 0.9430 | 0.9776 | pass |
 | one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ate_regimen[ordered vs natural course]` | difference in mean outcome between the plans "multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000909 to 0.000863 | 0.9510 | 1.0058 | pass |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ate_regimen[ordered vs natural course]` | difference in mean outcome between the plans "multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000909 to 0.000863 | 0.9510 | 1.0058 | pass |
 | one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[full]` | mean outcome under the plan set the flag to one where the first dose is at least 3, scale the first dose where the flag is one, and move the second dose as in ordered | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0015 to 0.000988 | 0.9540 | 1.0021 | pass |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[full]` | mean outcome under the plan set the flag to one where the first dose is at least 3, scale the first dose where the flag is one, and move the second dose as in ordered | R `lmtp` | -0.0015 to 0.000988 | 0.9540 | 1.0021 | pass |
 | one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[natural course]` | mean outcome under the plan leave the observed treatment mechanism unchanged | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0011 to 0.000618 | 0.9660 | 1.0554 | pass |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[natural course]` | mean outcome under the plan leave the observed treatment mechanism unchanged | R `lmtp` | -0.0011 to 0.000618 | 0.9660 | 1.0554 | pass |
 | one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[ordered]` | mean outcome under the plan multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3 | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0015 to 0.000984 | 0.9510 | 1.0332 | pass |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[ordered]` | mean outcome under the plan multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3 | R `lmtp` | -0.0015 to 0.000984 | 0.9510 | 1.0332 | pass |
 | a point treatment of two binary components | `ate_policy[a1 on vs natural course]` | difference in means under the modified treatment policies "set the first component to one" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0011 to 0.000736 | 0.9580 | 1.0219 | pass |
+| a point treatment of two binary components | `ate_policy[a1 on vs natural course]` | difference in means under the modified treatment policies "set the first component to one" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.0011 to 0.000736 | 0.9590 | 1.0220 | pass |
 | a point treatment of two binary components | `ate_policy[a2 off vs natural course]` | difference in means under the modified treatment policies "set the second component to zero where the first is one" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0010 to 0.000573 | 0.9630 | 1.0436 | pass |
+| a point treatment of two binary components | `ate_policy[a2 off vs natural course]` | difference in means under the modified treatment policies "set the second component to zero where the first is one" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.0010 to 0.000573 | 0.9630 | 1.0437 | pass |
 | a point treatment of two binary components | `ey_policy[a1 on]` | mean under the modified treatment policy set the first component to one | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0020 to 0.000659 | 0.9560 | 1.0125 | pass |
+| a point treatment of two binary components | `ey_policy[a1 on]` | mean under the modified treatment policy set the first component to one | R `lmtp` | -0.0020 to 0.000659 | 0.9560 | 1.0125 | pass |
 | a point treatment of two binary components | `ey_policy[a2 off]` | mean under the modified treatment policy set the second component to zero where the first is one | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0019 to 0.000513 | 0.9530 | 1.0340 | pass |
+| a point treatment of two binary components | `ey_policy[a2 off]` | mean under the modified treatment policy set the second component to zero where the first is one | R `lmtp` | -0.0019 to 0.000514 | 0.9540 | 1.0339 | pass |
 | a point treatment of two binary components | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0013 to 0.000438 | 0.9450 | 1.0094 | pass |
+| a point treatment of two binary components | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | R `lmtp` | -0.0013 to 0.000438 | 0.9450 | 1.0094 | pass |
 | a point treatment of one binary flag and one truncated-normal dose | `ate_policy[dose up vs natural course]` | difference in means under the modified treatment policies "add 0.5 to each dose, capped at 5.5" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000560 to 0.000410 | 0.9520 | 1.0031 | pass |
+| a point treatment of one binary flag and one truncated-normal dose | `ate_policy[dose up vs natural course]` | difference in means under the modified treatment policies "add 0.5 to each dose, capped at 5.5" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000564 to 0.000407 | 0.9560 | 1.0039 | pass |
 | a point treatment of one binary flag and one truncated-normal dose | `ate_policy[flag scaled vs natural course]` | difference in means under the modified treatment policies "set each flag to one, and multiply the dose by 1.25 where the natural flag is one" against "leave the observed treatment mechanism unchanged" | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0012 to 0.0010 | 0.9410 | 0.9825 | pass |
+| a point treatment of one binary flag and one truncated-normal dose | `ate_policy[flag scaled vs natural course]` | difference in means under the modified treatment policies "set each flag to one, and multiply the dose by 1.25 where the natural flag is one" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.0012 to 0.0010 | 0.9440 | 0.9825 | pass |
 | a point treatment of one binary flag and one truncated-normal dose | `ey_policy[dose up]` | mean under the modified treatment policy add 0.5 to each dose, capped at 5.5 | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0011 to 0.0010 | 0.9450 | 0.9889 | pass |
+| a point treatment of one binary flag and one truncated-normal dose | `ey_policy[dose up]` | mean under the modified treatment policy add 0.5 to each dose, capped at 5.5 | R `lmtp` | -0.0011 to 0.0010 | 0.9460 | 0.9889 | pass |
 | a point treatment of one binary flag and one truncated-normal dose | `ey_policy[flag scaled]` | mean under the modified treatment policy set each flag to one, and multiply the dose by 1.25 where the natural flag is one | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.0015 to 0.0015 | 0.9320 | 0.9518 | pass |
+| a point treatment of one binary flag and one truncated-normal dose | `ey_policy[flag scaled]` | mean under the modified treatment policy set each flag to one, and multiply the dose by 1.25 where the natural flag is one | R `lmtp` | -0.0015 to 0.0015 | 0.9340 | 0.9521 | pass |
 | a point treatment of one binary flag and one truncated-normal dose | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | `cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment | -0.000838 to 0.000958 | 0.9420 | 0.9938 | pass |
+| a point treatment of one binary flag and one truncated-normal dose | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | R `lmtp` | -0.000838 to 0.000958 | 0.9420 | 0.9938 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The `lmtp` runs have not run, so this
-study publishes no paired row, and `equivalence.csv` is empty. The change that registers the runs
-adds the paired table here.
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two nodes, each a binary flag and a truncated-normal dose | `ate_regimen[dose up vs natural course]` | difference in mean outcome between the plans "add 0.5 to each dose, capped at 5.5" against "leave the observed treatment mechanism unchanged" | 4.494e-11 | 3.537e-08 | 1.0000 | 0 | matching implementation | 1.050e-09 vs 0.0500 | equivalent |
+| two nodes, each a binary flag and a truncated-normal dose | `ate_regimen[flag scaled vs natural course]` | difference in mean outcome between the plans "set each flag to one, and multiply the dose by 1.25 where the natural flag is one" against "leave the observed treatment mechanism unchanged" | 3.336e-11 | 1.089e-08 | 1.0000 | 0 | matching implementation | 4.051e-10 vs 0.0500 | equivalent |
+| two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[dose up]` | mean outcome under the plan add 0.5 to each dose, capped at 5.5 | 4.495e-11 | 2.135e-08 | 1.0000 | 0 | matching implementation | 6.712e-10 vs 0.0500 | equivalent |
+| two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[flag scaled]` | mean outcome under the plan set each flag to one, and multiply the dose by 1.25 where the natural flag is one | 3.338e-11 | 9.341e-09 | 1.0000 | 0 | matching implementation | 5.202e-10 vs 0.0500 | equivalent |
+| two nodes, each a binary flag and a truncated-normal dose | `ey_regimen[natural course]` | mean outcome under the plan leave the observed treatment mechanism unchanged | 1.822e-14 | 1.086e-11 | 1.0000 | 0 | matching implementation | 4.375e-11 vs 0.0500 | equivalent |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ate_regimen[full vs natural course]` | difference in mean outcome between the plans "set the flag to one where the first dose is at least 3, scale the first dose where the flag is one, and move the second dose as in ordered" against "leave the observed treatment mechanism unchanged" | 1.293e-10 | 7.804e-08 | 1.0000 | 0 | matching implementation | 2.875e-09 vs 0.0500 | equivalent |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ate_regimen[ordered vs natural course]` | difference in mean outcome between the plans "multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3" against "leave the observed treatment mechanism unchanged" | 1.268e-10 | 7.787e-08 | 1.0000 | 0 | matching implementation | 9.930e-09 vs 0.0500 | equivalent |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[full]` | mean outcome under the plan set the flag to one where the first dose is at least 3, scale the first dose where the flag is one, and move the second dose as in ordered | -1.462e-10 | 6.284e-08 | 1.0000 | 0 | matching implementation | 7.615e-09 vs 0.0500 | equivalent |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[natural course]` | mean outcome under the plan leave the observed treatment mechanism unchanged | -2.755e-10 | 1.772e-07 | 1.0000 | 0 | matching implementation | 2.661e-09 vs 0.0500 | equivalent |
+| one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier | `ey_regimen[ordered]` | mean outcome under the plan multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3 | -1.487e-10 | 6.551e-08 | 1.0000 | 0 | matching implementation | 5.108e-09 vs 0.0500 | equivalent |
+| a point treatment of two binary components | `ate_policy[a1 on vs natural course]` | difference in means under the modified treatment policies "set the first component to one" against "leave the observed treatment mechanism unchanged" | 1.577e-07 | 0.000091 | 1.0004 | -0.0010 | matching implementation | 0.000610 vs 0.0500 | equivalent |
+| a point treatment of two binary components | `ate_policy[a2 off vs natural course]` | difference in means under the modified treatment policies "set the second component to zero where the first is one" against "leave the observed treatment mechanism unchanged" | -2.830e-07 | 0.000190 | 1.0004 | 0 | matching implementation | 0.000622 vs 0.0500 | equivalent |
+| a point treatment of two binary components | `ey_policy[a1 on]` | mean under the modified treatment policy set the first component to one | 1.577e-07 | 0.000066 | 1.0003 | 0 | matching implementation | 0.000406 vs 0.0500 | equivalent |
+| a point treatment of two binary components | `ey_policy[a2 off]` | mean under the modified treatment policy set the second component to zero where the first is one | -2.830e-07 | 0.000130 | 1.0002 | -0.0010 | matching implementation | 0.000432 vs 0.0500 | equivalent |
+| a point treatment of two binary components | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | -7.878e-13 | 4.883e-10 | 1.0000 | 0 | matching implementation | 6.476e-10 vs 0.0500 | equivalent |
+| a point treatment of one binary flag and one truncated-normal dose | `ate_policy[dose up vs natural course]` | difference in means under the modified treatment policies "add 0.5 to each dose, capped at 5.5" against "leave the observed treatment mechanism unchanged" | 0.000004 | 0.0040 | 1.0014 | -0.0040 | matching implementation | 0.0040 vs 0.0500 | equivalent |
+| a point treatment of one binary flag and one truncated-normal dose | `ate_policy[flag scaled vs natural course]` | difference in means under the modified treatment policies "set each flag to one, and multiply the dose by 1.25 where the natural flag is one" against "leave the observed treatment mechanism unchanged" | 0.000013 | 0.0061 | 1.0011 | -0.0030 | matching implementation | 0.0023 vs 0.0500 | equivalent |
+| a point treatment of one binary flag and one truncated-normal dose | `ey_policy[dose up]` | mean under the modified treatment policy add 0.5 to each dose, capped at 5.5 | 0.000004 | 0.0019 | 1.0005 | -0.0010 | matching implementation | 0.0013 vs 0.0500 | equivalent |
+| a point treatment of one binary flag and one truncated-normal dose | `ey_policy[flag scaled]` | mean under the modified treatment policy set each flag to one, and multiply the dose by 1.25 where the natural flag is one | 0.000013 | 0.0045 | 1.0012 | -0.0020 | matching implementation | 0.0016 vs 0.0500 | equivalent |
+| a point treatment of one binary flag and one truncated-normal dose | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | -2.432e-10 | 1.473e-07 | 1.0000 | 0 | matching implementation | 2.438e-08 vs 0.0500 | equivalent |
+<!-- /generated -->
 
 ## Theory properties
 
@@ -165,10 +219,10 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 1000 | paired replications |
 | `n` | 2000 | observations per paired replication |
-| `independent_tests_passed` | 20 | truth tests passing |
-| `independent_tests_total` | 20 | truth tests reported |
-| `paired_tests_passed` | 0 | paired comparisons passing |
-| `paired_tests_total` | 0 | paired comparisons reported |
+| `independent_tests_passed` | 40 | truth tests passing |
+| `independent_tests_total` | 40 | truth tests reported |
+| `paired_tests_passed` | 20 | paired comparisons passing |
+| `paired_tests_total` | 20 | paired comparisons reported |
 | `property_cells_passed` | 36 | property cells passing |
 | `property_cells_total` | 36 | property cells reported |
 | `max_standardized_bias` | 0.0464 | largest primary standardized bias |
@@ -205,6 +259,8 @@ the committed results and checked at the precision printed.
 | `margin:preimage_displacement` | 0.1000 | minimum preimage necessity displacement |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `lmtp` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limits
 
@@ -215,5 +271,4 @@ the committed results and checked at the precision printed.
 | the classifier is a one-feature oracle | the classifier route reads the correctly specified logistic model of the plan's log ratio. The study says nothing about the rate or the interval of a learned classifier |
 | the density of $D_2$ and the map of $D_2$ may read the shifted $D_1$ without a failing cell | those defects move the outcome-wrong positives by 0.42 and -0.19 SD only. The fast-tier mutation witnesses in `tests/unit/test_vector_density_mutations.py` carry them |
 | the point pairs compare two constructions | `TMLE` targets with the covariate submodel over the observed and the policy values, and `lmtp` with a ratio-weighted intercept. The pairs read under the default margins and are not exactness checks |
-| the `lmtp` comparison is pending | the agreement table is empty until the reference runs register. The Python cells carry the claim until then |
 | a policy must be known and fixed | a policy learned from the sample, or one that depends on the law, is outside this evidence |
