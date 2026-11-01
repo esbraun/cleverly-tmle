@@ -442,6 +442,8 @@ def test_rule_l3_moves_one_label() -> None:
 
 def _other_x11_sample_seeds() -> set[int]:
     """Every sample seed a declared run of the RM30 and other X11 studies draws."""
+    from tests.studies import learned_rule_arms as h
+    from tests.studies import learned_rule_arms_properties as h_properties
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_contrast as g
@@ -470,6 +472,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (f1, f1.PRIMARY_REPLICATES, f1_properties),
         (f2, f2.PRIMARY_REPLICATES, f2_properties),
         (g, g.PRIMARY_REPLICATES, g_properties),
+        (h, h.PRIMARY_REPLICATES, h_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY, primary, module.PROPERTY_DRAWS, module.suffixes(record.STUDY)

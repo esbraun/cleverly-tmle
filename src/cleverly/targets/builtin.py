@@ -162,13 +162,17 @@ _LEARNED_RULE_ID = Identification(
         "rule fitted on all rows, and it is not the value of the optimal rule",
         "C1, a bounded outcome: Y lies in [0, 1] after the declared transform, so a binary "
         "outcome or a continuous one with a declared q_bounds",
-        "C2, strong positivity: g0(a | W) >= delta > 0 for both arms almost surely; "
+        "C2, strong positivity: g0(a | W) >= delta > 0 for every arm almost surely; "
         "g_bounds regularizes the fitted denominator only",
         "C3, a limiting rule: the fold curves converge in L2(P0) to the curve of one fixed "
         "rule d1 (van der Laan and Luedtke 2015, Theorem 6). It holds when the limit blip "
         "of the outcome learner, or the limit score of a declared rule learner, sits at "
         "its threshold on a set of probability zero, and it fails at an exceptional law "
-        "with a consistent learner, where the interval can under-cover",
+        "with a consistent learner, where the interval can under-cover. With more than two "
+        "arms the plug-in rule is the argmax of the outcome learner over the arms, and C3 "
+        "asks that the limit's top two arms tie only on a set of probability zero (its "
+        "best arm is unique almost surely), the package's own step: the sources are "
+        "silent on multi-arm exceptional laws",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
         "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
         "with g = g0, a negligible remainder-replacement error, and the remainder "
@@ -880,7 +884,6 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ey_learned_rule,
         identification=_LEARNED_RULE_ID,
         parameter_axis="learned_rule",
-        requires_binary_treatment=True,
         in_default_set=True,
         description=(
             "weighted average over the outer folds of the value of the rule learned on each "
@@ -894,7 +897,6 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ey_known_regime,
         identification=_REGIME_ID,
         parameter_axis="learned_rule",
-        requires_binary_treatment=True,
         in_default_set=True,
         description=(
             "counterfactual mean under each known regime declared beside a learned rule, "
@@ -908,7 +910,6 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ate_learned_rule,
         identification=_LEARNED_RULE_CONTRAST_ID,
         parameter_axis="learned_rule",
-        requires_binary_treatment=True,
         in_default_set=True,
         description=(
             "contrast of the learned-rule value with each known regime declared beside it, "

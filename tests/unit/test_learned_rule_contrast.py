@@ -706,7 +706,7 @@ class TestTheOtherSurfaces:
             support.law_frame(203, 1), outcome_learner=support.misspecified_learner()
         )
         split, solo = result.extra["learned_rule"].splits[0], alone.extra["learned_rule"].splits[0]
-        assert split.treated_shares == solo.treated_shares
+        assert split.arm_shares == solo.arm_shares
         assert split.estimate == result.estimates[LEARNED].psi
 
     def test_a_round_trip_keeps_every_name(self) -> None:

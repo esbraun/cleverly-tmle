@@ -26,7 +26,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
@@ -124,7 +124,7 @@ def _frame(kind: str = "binary") -> Any:
     frame = support.law_frame(120, 3)
     if kind == "continuous":
         frame["A"] = frame["A"] + frame["W1"]
-    if kind == "multi_arm":
+    if kind.startswith("multi_arm"):
         frame["A"] = np.arange(len(frame)) % 3
     if kind == "delta":
         frame["Delta"] = (np.arange(len(frame)) % 5 != 0).astype(float)
@@ -141,7 +141,8 @@ def _frame(kind: str = "binary") -> Any:
 _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "binary": {},
     "continuous": {"treatment_kind": "continuous"},
-    "multi_arm": {},
+    "multi_arm_blip": {},
+    "multi_arm_classification": {},
     "delta": {"delta": "Delta"},
     "intermediate": {"intermediate": "Z"},
     "estimated_weights": {"weights": "w", "weights_estimated": True},
@@ -171,12 +172,31 @@ def _refused(call: Any, item: str) -> str:
 #: The data rows: the declarations that no setting repairs.
 DATA_ROWS: dict[str, str] = {
     "continuous": "F27",
-    "multi_arm": "X11 (d)",
+    "multi_arm_blip": "X11 (d2)",
+    "multi_arm_classification": "X11 (d2)",
     "delta": "F27",
     "intermediate": "X11 (j)",
     "estimated_weights": "X11 (k2)",
     "strata_clusters": "X28",
 }
+
+#: The declared rule of each data row whose refusal reads the rule: a rule learner on more
+#: than two arms (X11 (d2)).  Every other row uses the plug-in rule, which more than two arms
+#: admit (X11 (d)).
+DATA_RULES: dict[str, LearnedRule] = {
+    "multi_arm_blip": LearnedRule(loss="blip", learner=LinearRegression()),
+    "multi_arm_classification": LearnedRule(
+        loss="weighted_classification", learner=LogisticRegression()
+    ),
+}
+
+
+def _data_engine(kind: str, **overrides: Any) -> TMLE:
+    """The engine of a data row, with the rule that row reads."""
+    if kind in DATA_RULES:
+        overrides = {"learned_rule": DATA_RULES[kind], **overrides}
+    return _engine(**overrides)
+
 
 #: The fold-policy setting rows, each with its item.  Each names the configuration that fits.
 SCHEME_ROWS: dict[str, tuple[dict[str, Any], str]] = {
@@ -226,7 +246,7 @@ class TestEachRowRefusesBeforeAnyLearner:
 
     @pytest.mark.parametrize("kind", list(DATA_ROWS))
     def test_the_data_rows(self, kind: str) -> None:
-        _refused(lambda: _fit(_engine(), kind), DATA_ROWS[kind])
+        _refused(lambda: _fit(_data_engine(kind), kind), DATA_ROWS[kind])
 
     @pytest.mark.parametrize("row", list(SCHEME_ROWS))
     def test_the_setting_rows(self, row: str) -> None:
@@ -290,7 +310,7 @@ class TestTheOrder:
     @pytest.mark.parametrize("row", list(SCHEME_ROWS))
     def test_a_data_row_comes_before_every_setting_row(self, kind: str, row: str) -> None:
         overrides, _ = SCHEME_ROWS[row]
-        message = _refused(lambda: _fit(_engine(**overrides), kind), DATA_ROWS[kind])
+        message = _refused(lambda: _fit(_data_engine(kind, **overrides), kind), DATA_ROWS[kind])
         assert LEARNED_RULE_CONFIGURATION not in message
 
     def test_a_continuous_treatment_is_not_told_to_declare_a_shift(self) -> None:
@@ -732,7 +752,8 @@ class TestTheStudyRefusesTheSameRows:
 
     @pytest.mark.parametrize("kind", list(DATA_ROWS))
     def test_identify_refuses_the_data_rows(self, kind: str) -> None:
-        _refused(lambda: self._study(kind).identify(LearnedRuleValue()), DATA_ROWS[kind])
+        rule = DATA_RULES.get(kind, LearnedRule())
+        _refused(lambda: self._study(kind).identify(LearnedRuleValue(rule=rule)), DATA_ROWS[kind])
 
     def test_the_default_method_fits_the_stacked_report(self) -> None:
         """The default ``CrossFitting()`` is the stacked report, which X11 (e) admits."""

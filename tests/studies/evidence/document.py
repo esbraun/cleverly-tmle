@@ -693,6 +693,14 @@ def measured(row: Any) -> str:
                 f"margin {render(float(row.bias_margin))}, {measured}"
             )
         return f"{measured}, SE ratio {render(float(row.se_ratio))}"
+    if family == "rule_margin_diagnostic":
+        # X11 PR H: the four summary columns of the margin diagnostic, with no verdict.
+        return (
+            f"limit disagreement {render(float(row.mean_limit_disagreement))}, "
+            f"near-tie share {render(float(row.mean_near_tie_share))}, "
+            f"min arm share {render(float(row.mean_min_arm_share))}, "
+            f"lost-arm share {render(float(row.lost_arm_share))}"
+        )
     if family in {"contrast_covariance", "independent_se_diagnostic"}:
         # X11 PR G: a contrast read at another SE. Its rows carry no bootstrap SE-ratio
         # interval, so the point ratio is printed beside the coverage interval.

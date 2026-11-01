@@ -703,14 +703,16 @@ class NuisanceEstimates:
     #: which is every fit but a cross-fitted :class:`~cleverly.AdaptiveIPTW`.  See
     #: :class:`FoldMechanisms` and :meth:`at_fold`.
     fold_mechanisms: FoldMechanisms | None = None
-    #: ``(n, V)`` booleans, or ``None`` for every fit that did not ask for them: entry
-    #: ``[i, v]`` is ``True`` where the outcome regression fitted on fold ``v``'s training
-    #: rows predicts a positive blip :math:`\bar Q_v(1, W_i) - \bar Q_v(0, W_i)` at row ``i``,
-    #: with ``1`` the higher arm code.  :func:`fit_nuisances` fills it under
-    #: ``fold_plug_in_rules=True`` from the fold models that made the out-of-fold
-    #: predictions.  A plug-in learned-rule fit moves it into its regime set
+    #: ``(n, V)`` ``int8`` arm indices, or ``None`` for every fit that did not ask for them:
+    #: entry ``[i, v]`` is the index, in the sorted arm codes, of the arm
+    #: :math:`\arg\max_a \bar Q_v(a, W_i)` that the outcome regression fitted on fold
+    #: ``v``'s training rows predicts best at row ``i``, a tie going to the lowest arm code.
+    #: At two arms it is ``1`` exactly where the blip :math:`\bar Q_v(1, W_i) - \bar Q_v(0,
+    #: W_i)` is positive.  :func:`fit_nuisances` fills it under ``fold_plug_in_rules=True``
+    #: from the fold models that made the out-of-fold predictions.  A plug-in learned-rule
+    #: fit moves it into its regime set
     #: (:func:`~cleverly.interventions.learned.learned_rule_treat`) and clears it here.
-    fold_plug_in_rules: BoolArray | None = None
+    fold_plug_in_rules: np.ndarray | None = None
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
         """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
@@ -1626,12 +1628,13 @@ def _fit_outcome_by_arm(
         place of an independent ``companion``.  ``companion_queries`` then name the arm of
         each of these rows.
     fold_plug_in_rules : bool
-        Also return, under :data:`_RULE_SIGN`, the ``(K, n)`` booleans
-        :math:`\bar Q_k(1, W_i) > \bar Q_k(0, W_i)` of every fold's two per-arm models at
-        every row of ``data``.  The higher arm is fitted second, and its fold worker
-        compares against the lower arm's slab of the same fold, so the higher arm hands
-        back no float slab.  It needs a binary treatment, no ``companion``, no
-        ``companion_rows`` and every fold.
+        Also return, under :data:`_RULE_ARM`, the ``(K, n)`` ``int8`` indices of
+        :math:`\\arg\\max_a \\bar Q_k(a, W_i)` over every fold's per-arm models at every row
+        of ``data``, a tie going to the lowest arm code.  The arms are fitted in code
+        order, and each fold worker after the first compares its model with the running
+        best of the same fold, keeping the earlier arm on a tie, so the last arm hands
+        back no float slab.  It needs a treatment of at least two arms, no ``companion``,
+        no ``companion_rows`` and every fold.
 
     Returns
     -------
@@ -1673,11 +1676,11 @@ def _fit_outcome_by_arm(
     if companion_rows is not None:
         companion_designs = {"x": train_design[np.asarray(companion_rows)]}
     if fold_plug_in_rules and (
-        companion_designs or only is not None or len(arms) != 2 or companion_queries
+        companion_designs or only is not None or len(arms) < 2 or companion_queries
     ):
         raise ValueError(
-            "fold_plug_in_rules=True reads every fold of a binary treatment, with no companion "
-            "rows and no companion queries"
+            "fold_plug_in_rules=True reads every fold of an arm-coded treatment, with no "
+            "companion rows and no companion queries"
         )
 
     eligible = {arm: mask & (treatment == arm) for arm in arms}
@@ -1688,13 +1691,20 @@ def _fit_outcome_by_arm(
     per_arm_companion: dict[float, dict[str, FloatArray]] = {}
     diagnostics: list[SuperLearnerDiagnostics] = []
     signs: np.ndarray | None = None
-    lower_slab: np.ndarray | None = None
-    for arm in arms:
+    best_slab: np.ndarray | None = None
+    best_index: np.ndarray | None = None
+    for position, arm in enumerate(arms):
         reduce: CompanionReduce | None = None
         if fold_plug_in_rules:
             companion_designs = {"x": train_design}
-            if lower_slab is not None:
-                reduce = functools.partial(_by_arm_rule_sign, lower=lower_slab)
+            if best_slab is not None:
+                reduce = functools.partial(
+                    _by_arm_rule_step,
+                    best=best_slab,
+                    index=best_index,
+                    position=position,
+                    last=position == len(arms) - 1,
+                )
         predictions, at_companion, arm_diagnostics = cross_fit_companion(
             learner,
             train_design,
@@ -1716,11 +1726,13 @@ def _fit_outcome_by_arm(
         diagnostics.extend(arm_diagnostics)
         if not fold_plug_in_rules:
             per_arm_companion[arm] = at_companion
-        elif lower_slab is None:
-            lower_slab = at_companion["x"]
+        elif best_slab is None:
+            best_slab = at_companion["x"]
+        elif position < len(arms) - 1:
+            best_slab, best_index = at_companion["best"], at_companion["index"]
         else:
-            signs = at_companion[_RULE_SIGN]
-    del lower_slab
+            signs = at_companion[_RULE_ARM]
+    del best_slab, best_index
 
     out = {
         name: _gather_by_arm(
@@ -1730,7 +1742,7 @@ def _fit_outcome_by_arm(
     }
     at_companion_out: dict[str, np.ndarray] = {}
     if signs is not None:
-        at_companion_out[_RULE_SIGN] = signs
+        at_companion_out[_RULE_ARM] = signs
     elif companion_designs:
         where = data if companion is None else companion
         for name, query in companion_queries.items():
@@ -1750,34 +1762,70 @@ def _rule_key(arm: float) -> str:
     return f"rule@{arm}"
 
 
-#: The companion name of every fold's plug-in rule at every row, ``(K, n)`` booleans.
-_RULE_SIGN = "rule_sign"
+#: The companion name of every fold's plug-in rule at every row, ``(K, n)`` ``int8`` arm
+#: indices.
+_RULE_ARM = "rule_arm"
 
 
-def _pooled_rule_sign(
-    fold: int, values: dict[str, FloatArray], *, lower: float, higher: float
+def plug_in_arm(predictions: Sequence[np.ndarray]) -> np.ndarray:
+    r"""The index of the best arm at every row, a tie going to the lowest arm code.
+
+    The plug-in rule :math:`\arg\max_a \bar Q(a, w)` over the arms in sorted code order.
+    ``numpy.argmax`` returns the first maximum, so a tie between two or more arms assigns
+    the lowest of their codes (the convention of polle, Nordland and Holst 2026).  At two
+    arms it is ``1`` exactly where :math:`\bar Q(1, w) - \bar Q(0, w) > 0`.
+
+    Parameters
+    ----------
+    predictions : sequence of numpy.ndarray
+        One ``(n,)`` prediction per arm, in sorted code order.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(n,)`` ``int8`` arm indices.
+    """
+    return np.asarray(np.argmax(np.vstack(predictions), axis=0), dtype=np.int8)
+
+
+def _pooled_rule_arm(
+    fold: int, values: dict[str, FloatArray], *, arms: Sequence[float]
 ) -> dict[str, np.ndarray]:
-    """Reduce one fold's pooled model at both arms of every row to its plug-in rule.
+    """Reduce one fold's pooled model at every arm of every row to its plug-in rule.
 
     Runs inside the fold worker (:data:`CompanionReduce`), so the worker hands back ``n``
-    booleans in place of ``2n`` floats.  A tie, a blip of exactly zero, assigns the lower arm.
+    one-byte indices in place of ``Kn`` floats.  A tie assigns the lowest arm code
+    (:func:`plug_in_arm`).
     """
     out = dict(values)
-    treated = out.pop(_rule_key(higher))
-    control = out.pop(_rule_key(lower))
-    out[_RULE_SIGN] = np.asarray(treated - control > 0.0, dtype=bool)
+    out[_RULE_ARM] = plug_in_arm([out.pop(_rule_key(arm)) for arm in arms])
     return out
 
 
-def _by_arm_rule_sign(
-    fold: int, values: dict[str, FloatArray], *, lower: np.ndarray
+def _by_arm_rule_step(
+    fold: int,
+    values: dict[str, FloatArray],
+    *,
+    best: np.ndarray,
+    index: np.ndarray | None,
+    position: int,
+    last: bool,
 ) -> dict[str, np.ndarray]:
-    """Compare one fold's higher-arm model at every row with the fold's lower-arm slab.
+    """Compare one fold's model of arm ``position`` at every row with the fold's running best.
 
-    Runs inside the fold worker of the higher arm (:func:`_fit_outcome_by_arm`), so that arm
-    hands back booleans.  A tie assigns the lower arm.
+    Runs inside the fold worker of each arm after the first (:func:`_fit_outcome_by_arm`).
+    ``best`` is the largest prediction of the arms before it, and ``index`` the index of
+    that arm (``None`` after the first arm, whose index is 0).  The new arm replaces the
+    best only where it is strictly larger, so a tie keeps the lower arm code, as
+    :func:`plug_in_arm` does.  The last arm hands back the indices only.
     """
-    return {_RULE_SIGN: np.asarray(values["x"] - lower[fold] > 0.0, dtype=bool)}
+    current = np.asarray(values["x"], dtype=float)
+    better = current > best[fold]
+    previous = np.zeros(current.shape, dtype=np.int8) if index is None else index[fold]
+    chosen = np.where(better, np.int8(position), previous).astype(np.int8)
+    if last:
+        return {_RULE_ARM: chosen}
+    return {"best": np.where(better, current, best[fold]), "index": chosen}
 
 
 def _design_key(arm: float, level: float | None) -> str:
@@ -2074,26 +2122,34 @@ def fit_nuisances(
     for the outcome regression at further ``(n,)`` doses, returned on
     :attr:`NuisanceEstimates.outcome_probes` under the same keys.
 
-    ``fold_plug_in_rules=True`` also evaluates each fold's outcome regression at both arms
-    of every row, in the same fold loop, and returns the sign of each fold's blip on
-    :attr:`NuisanceEstimates.fold_plug_in_rules`: the plug-in rule of every fold at every
-    row, as booleans.  A plug-in learned-rule fit asks for it, so the omitted-variable
-    bound can read every fold's rule without a refit.  The pooled regression reduces its
-    two predictions to the sign inside each fold worker, so no ``(V, n)`` float slab is
-    kept.  The per-arm regression keeps the lower arm's ``(V, n)`` float slab until the
-    higher arm's fold workers have compared against it.  It needs a binary arm-coded
-    treatment and no intermediate variable or companion, which the learned-rule refusal
-    table guarantees.
+    ``fold_plug_in_rules=True`` also evaluates each fold's outcome regression at every arm
+    of every row, in the same fold loop, and returns the index of each fold's best arm on
+    :attr:`NuisanceEstimates.fold_plug_in_rules`: the plug-in rule
+    :math:`\\arg\\max_a \\bar Q_v(a, w)` of every fold at every row, as ``int8`` indices into
+    the sorted arm codes, a tie going to the lowest code (:func:`plug_in_arm`).  A plug-in
+    learned-rule fit asks for it, so the omitted-variable bound can read every fold's rule
+    without a refit.  The pooled regression reduces its ``K`` predictions to the index
+    inside each fold worker, so no ``(V, n)`` float slab is kept.  The per-arm regression
+    keeps a running best ``(V, n)`` float slab and its index until the last arm's fold
+    workers have compared against it.  It needs an arm-coded treatment and no intermediate
+    variable or companion, which the learned-rule refusal table guarantees.
     """
     if fold_plug_in_rules and (
         not fit_outcome
-        or not data.is_binary_treatment
+        or data.treatment_kind != "discrete"
         or data.has_intermediate
         or companion is not None
     ):
         raise ValueError(
-            "fold_plug_in_rules=True reads the blip of a binary arm-coded treatment, and needs "
-            "a fitted outcome regression, no intermediate variable and no companion"
+            "fold_plug_in_rules=True reads the outcome regression at every arm of an "
+            "arm-coded treatment, and needs a fitted outcome regression, no intermediate "
+            "variable and no companion"
+        )
+    if fold_plug_in_rules and data.n_arms > np.iinfo(np.int8).max + 1:
+        raise ValueError(
+            f"fold_plug_in_rules=True stores int8 arm codes, which hold at most 128 arms, and "
+            f"the treatment has {data.n_arms}. This is a defect in cleverly: the data layer "
+            "caps a treatment at MAX_TREATMENT_LEVELS levels."
         )
     if data.composite_view:
         raise ValueError(
@@ -2400,7 +2456,7 @@ def fit_nuisances(
     outcome_out: dict[str, FloatArray]
     probes = dict(probe_doses or {})
     companion_estimates: CompanionEstimates | None = None
-    fold_rules: BoolArray | None = None
+    fold_rules: np.ndarray | None = None
     if not fit_outcome:
         # The outcome-free path of an estimator that weights the observed outcomes
         # (`AdaptiveIPTW`): no outcome learner runs, and every outcome accessor raises.
@@ -2464,7 +2520,7 @@ def fit_nuisances(
             # the blip inside the fold worker so that no float slab reaches the parent.
             for arm in arms:
                 companion_designs[_rule_key(arm)] = designs[_design_key(arm, levels[0])]
-            pooled_reduce = functools.partial(_pooled_rule_sign, lower=arms[0], higher=arms[1])
+            pooled_reduce = functools.partial(_pooled_rule_arm, arms=tuple(arms))
         outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
@@ -2522,7 +2578,7 @@ def fit_nuisances(
 
         if fold_plug_in_rules:
             fold_rules = np.ascontiguousarray(
-                np.asarray(outcome_companion.pop(_RULE_SIGN), dtype=bool).T
+                np.asarray(outcome_companion.pop(_RULE_ARM), dtype=np.int8).T
             )
 
         companion_estimates = None

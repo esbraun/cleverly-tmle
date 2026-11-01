@@ -298,7 +298,7 @@ class TestTheRecord:
         estimates = [split.estimate for split in record.splits]
         assert f"mean over {R} random splits" in line
         assert f"{min(estimates):.4g} to {max(estimates):.4g}" in line
-        shares = [share for split in record.splits for share in split.treated_shares]
+        shares = [fold[1] for split in record.splits for fold in split.arm_shares]
         assert f"{min(shares):.3g} to {max(shares):.3g}" in line
 
     def test_the_summary_notes_say_mean(self) -> None:

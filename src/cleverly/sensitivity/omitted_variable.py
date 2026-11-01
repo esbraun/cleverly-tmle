@@ -449,8 +449,26 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     weights the fold rules by :math:`W_v/W`, and no witness checks the bound of that
     combined representer.  An in-sample fit (``cross_fit=False``) has one rule :math:`d_n`,
     whose combined representer is the known-regime representer
-    :math:`1\{a = d_n(w)\}/g`, so it passes unless it has strata.
+    :math:`1\{a = d_n(w)\}/g`, so it passes unless it has strata.  A treatment with more
+    than two arms (X11 (d)) refuses as an implementation gap (X11 (n2)): the combined
+    representer is :math:`g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}` over every arm,
+    and no witness checks the bias or :math:`\nu^2` of a learned argmax rule against it.
     """
+    n_arms = int(getattr(result.data, "n_arms", 2))
+    if n_arms > 2:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"the omitted-variable bound of a learned-rule value over {n_arms} arms is not "
+            "built. The combined representer would average the fold rules' one-hot "
+            "densities over every arm, and no witness checks the bias of a learned argmax "
+            "rule against it (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Bound a fixed rule on the same treatment with "
+                "TMLE(interventions=[Rule(..., rule_kind='known')]), whose regime bound "
+                "covers every arm, or bound a two-arm learned-rule fit."
+            ),
+            roadmap="X11",
+        )
     n_splits = int(getattr(result, "n_repeats", 1))
     if n_splits > 1:
         return Refusal(
@@ -1737,12 +1755,12 @@ def _combined_rule_regimes(nuisance: NuisanceEstimates) -> RegimeSet:
     regimes = nuisance.regimes
     rules = fold_rules(nuisance)
     assert regimes is not None and rules is not None
-    treated = np.mean(rules, axis=1, dtype=float)
     # Known regimes declared beside the rule (X11 (c)) keep their own densities, so their
-    # columns of the clever covariate are the ones the fit was targeted with.
+    # columns of the clever covariate are the ones the fit was targeted with.  Column 0 is
+    # the share of the fold rules that assign each arm, read from the arm codes.
     values = np.array(regimes.values, dtype=float)
-    values[:, 1, 0] = treated
-    values[:, 0, 0] = 1.0 - treated
+    for arm in range(values.shape[1]):
+        values[:, arm, 0] = np.mean(rules == arm, axis=1, dtype=float)
     return RegimeSet(regimes.names, values, regimes.reference)
 
 

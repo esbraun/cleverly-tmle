@@ -1799,6 +1799,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR G (``learned-rule-contrast``): each contrast at the SE it would have if the
         # learned and the known value were independent, reported with no verdict.
         "independent_se_diagnostic",
+        # X11 PR H (``learned-rule-arms``): how far the fitted rules over three arms sit from the
+        # outcome learner's limit rule, reported with no verdict.
+        "rule_margin_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",

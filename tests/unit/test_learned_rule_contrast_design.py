@@ -401,6 +401,8 @@ def _other_x11_sample_seeds() -> set[int]:
     """Every sample seed a declared run of the RM30 and the other X11 studies draws."""
     from tests.studies import fold_evaluated_strata as e1
     from tests.studies import fold_evaluated_strata_properties as e1_properties
+    from tests.studies import learned_rule_arms as h
+    from tests.studies import learned_rule_arms_properties as h_properties
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_cvtmle as gated
@@ -427,6 +429,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (e2, e2_properties),
         (f1, f1_properties),
         (f2, f2_properties),
+        (h, h_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY,
