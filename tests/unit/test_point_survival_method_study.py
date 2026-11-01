@@ -234,6 +234,25 @@ def test_the_per_arm_witness_shows_the_both_arm_defect_and_nothing_else() -> Non
     assert (witness.loc[differ, "mean_se_ratio"] <= WITNESS_ARM1_SE_RATIO).all()
 
 
+#: The largest mean standard-error ratio gap, survtmle against this package, that any paired
+#: row may show.  In the first registered run arm 0, whose weights were right, read at most
+#: 0.00035, and the arm-1 rows the both-arm defect reached read 0.011 to 0.050.
+SE_RATIO_AGREEMENT = 0.002
+
+
+def test_the_per_arm_comparator_matches_this_packages_standard_errors() -> None:
+    """The correctness witness: with right weights, both sides' standard errors agree on every row.
+
+    The witness above shows the per-arm call differs from the both-arm one; this shows it
+    differs in the right direction, onto this package's influence-curve standard errors.
+    """
+    import pandas as pd
+
+    paired = pd.read_csv(study.STUDY.artifacts / "equivalence.csv", float_precision="round_trip")
+    assert len(paired) == sum(len(names) for names in study.ESTIMANDS.values())
+    assert (paired["se_ratio_difference"].abs() <= SE_RATIO_AGREEMENT).all()
+
+
 def test_the_primary_fit_is_the_paired_construction() -> None:
     """Two replications: estimands, rows and a nonzero targeting step on both scenarios."""
     with warnings.catch_warnings():

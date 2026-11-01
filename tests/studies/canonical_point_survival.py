@@ -410,17 +410,23 @@ def reference_artifacts(
     rows["estimate_gap"] = (rows["joint_estimate"] - rows["estimate"]).abs()
     rows["se_ratio"] = rows["joint_std_error"] / rows["std_error"]
     rows["se_log_ratio"] = np.log(rows["se_ratio"]).abs()
-    summary = (
-        rows.groupby(["scenario", "estimand", "arm", "horizon"], sort=True)
-        .agg(
-            replicates=("replicate", "size"),
-            max_abs_estimate_gap=("estimate_gap", "max"),
-            max_abs_se_log_ratio=("se_log_ratio", "max"),
-            mean_se_ratio=("se_ratio", "mean"),
-        )
-        .reset_index()
+    keys = ["scenario", "estimand", "arm", "horizon"]
+    groups = rows.groupby(keys, sort=True)
+    summary = groups.agg(
+        replicates=("replicate", "size"),
+        max_abs_estimate_gap=("estimate_gap", "max"),
+        max_abs_se_log_ratio=("se_log_ratio", "max"),
+        mean_se_ratio=("se_ratio", "mean"),
     )
-    return {WITNESS_FILE: summary}
+    # The replicate behind each maximum, so a failed gate can be traced to its sample.
+    for column, source in (
+        ("max_estimate_gap_replicate", "estimate_gap"),
+        ("max_se_log_ratio_replicate", "se_log_ratio"),
+    ):
+        summary[column] = rows.loc[groups[source].idxmax(), [*keys, "replicate"]].set_index(keys)[
+            "replicate"
+        ]
+    return {WITNESS_FILE: summary.reset_index()}
 
 
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
