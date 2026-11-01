@@ -13,7 +13,7 @@ from scripts.check_release import validate_tag
 
 def test_runtime_version_matches_distribution_metadata() -> None:
     assert cleverly.__version__ == version("cleverly")
-    assert re.fullmatch(r"0\.1\.(?:0|[1-9][0-9]*)", cleverly.__version__)
+    assert re.fullmatch(r"0\.2\.(?:0|[1-9][0-9]*)", cleverly.__version__)
 
 
 def test_distribution_metadata_describes_the_release() -> None:
