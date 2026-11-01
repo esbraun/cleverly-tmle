@@ -5,16 +5,23 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "e30621824be3d5c477654a21552f49b64e2190e5",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "3828b2a83a65618fa91a1f7b6749d0b59af32611",
       "cleverly_worktree_clean": false,
       "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.0.6",
+      "pandas": "3.1.0",
       "scikit_learn": "1.9.1"
     },
-    "reference": null
+    "reference": {
+      "implementation": "survtmle",
+      "survtmle_version": "1.1.1",
+      "survtmle_tarball_sha256": "d286799265f35f2ae7631f2f1714936ff2b1866cdd95a2848c252482f9ce23d0",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "survtmle(method='hazard') per horizon t0 with tol=1/n, maxIter=100 and gtol=1e-3; glm.trt='W1 + W2'; glm.ftime and glm.ctime with one intercept and three slopes per visit and no shared term; the initial estimate is a second call with tol=Inf",
+      "pairing": "read under the default margins; survtmle fluctuates one cause at a time and stops at max |meanIC| <= 1/n or at maxIter = 100; a fit stopped at maxIter above 1/n stays in the paired rows"
+    }
   },
   "configuration": {
     "replicates": 1600,
@@ -22,6 +29,10 @@
     "seed": 20261070,
     "resampling_seed": 2026107001,
     "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01,
+      "survtmle": 0.01
+    },
     "scenarios": {
       "survival": [
         "risk_regimen[arm0 @ t=1]",
@@ -98,50 +109,37 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_point_survival_hazard.py": "b03865d7e4d3b58a6abee8ed59ab4caad2cf6ba5cc20142471388638f344195a",
-    "tests/studies/point_survival_hazard_properties.py": "bfa4d5ac31039c14dd7982a2cf8ee06d6077e0d05bc31cad6c3e4bb4658b336a",
-    "tests/studies/canonical_point_survival.py": "8e2c8f06106b411c1983df94ddf7216f128c042bc7af315a35eeda60313f4af5",
-    "tests/studies/point_survival_properties.py": "48f8f86dec8bb34a25809b90d0c2ea5f466de31dae1e833780f2629c80c38fcc",
+    "tests/studies/canonical_point_survival_hazard.py": "ed441a9c316d8daba353aa9425516b4bd84b7cbad8e62aa3af931339c4388f34",
+    "tests/studies/point_survival_hazard_properties.py": "23f8c30356ffabaa6f832fe64970240af82f9ba513a07e943f74174a748dbfc9",
+    "tests/studies/canonical_point_survival.py": "290d9ee0efd175df4ebe4ea774b937058b0c05ebc8d592c78ae86c3600e8fec8",
+    "tests/studies/point_survival_properties.py": "fe1988fbdb87a39c4d91174fd1474ff62bff677e504502dee46dba36649c711f",
     "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
-    "tests/studies/canonical_ltmle.py": "3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
     "src/cleverly/datasets/survival_point.py": "138e133d67043844d55aa179dc2676eea7449672ddbc0cd6bac888c2739577e2",
-    "src/cleverly/longitudinal/hazard.py": "3d1394b06b5198a604ac77e389f731c97f98d2c39a97c91a0bfe69ae575eebdf",
-    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "src/cleverly/longitudinal/hazard.py": "5846548fa9f178f6b87229b46167d4b94f4c74931edbcc268b1e7a497a00fb72",
+    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
-    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
-    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9",
     "tests/canonical/survtmle/Dockerfile": "97177ff7e76f3544acad0f8fde5ee77eae2c84f484a58d00558253518532f513",
     "tests/canonical/point_survival_hazard_runner.R": "aee95d210d2ae41863c18226c3d462b3399deb7f3c2244c573b7f49e297316c8",
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/survtmle/Dockerfile": "97177ff7e76f3544acad0f8fde5ee77eae2c84f484a58d00558253518532f513",
+    "tests/canonical/point_survival_hazard_runner.R": "aee95d210d2ae41863c18226c3d462b3399deb7f3c2244c573b7f49e297316c8",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
   "sha256": {
-    "replicates.parquet": "cb265035a394aecef40edc43b199d57f713aa7cf3cd5d8297371fb5fab92eee0",
-    "summary.csv": "f73c25745ac83be57ce9378f34c34be4c6ed4947949bf9f8d8f064e69b720080",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "f80cf410d0bc6c73bc6c336eb89e78714a3a112455a1abe870c7a3bcee53395a",
+    "replicates.parquet": "8cd0365de4056470f6250f51f52ce79a84151a9a61ec71fcdb06fda2d0d2e6d7",
+    "summary.csv": "53e5d6b0cc03fc54d69b6e0f5d9140eb83b726976def9242cec499382c2c78a8",
+    "equivalence.csv": "902d17341f072cda10ef2499460173eede08d644e220fe9dcb8232e2c231a198",
+    "performance-tests.csv": "b373bbd3773229628497f7e53a2e70951c5342b3ae3bda4c4b65b0af597c4749",
     "property-replicates.parquet": "23f2639e995707dfe58c82f701887f6901c0d0a85e71e81f6c087da55664821a",
     "properties.csv": "603b78eb8068f37a7b9c0bde1805ebf1fa8c0f1ffe591f733047adb6457284da"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "survtmle",
-    "reason": "the survtmle comparator runs are queued as Study queue row 20 in TRACKER.md",
-    "metadata": {
-      "survtmle_version": "1.1.1",
-      "survtmle_tarball_sha256": "d286799265f35f2ae7631f2f1714936ff2b1866cdd95a2848c252482f9ce23d0",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "reference_construction": "survtmle(method='hazard') per horizon t0 with tol=1/n, maxIter=100 and gtol=1e-3; glm.trt='W1 + W2'; glm.ftime and glm.ctime with one intercept and three slopes per visit and no shared term; the initial estimate is a second call with tol=Inf",
-      "pairing": "read under the default margins; survtmle fluctuates one cause at a time and stops at max |meanIC| <= 1/n or at maxIter = 100; a fit stopped at maxIter above 1/n stays in the paired rows"
-    },
-    "declared_sources_sha256": {
-      "tests/canonical/survtmle/Dockerfile": "97177ff7e76f3544acad0f8fde5ee77eae2c84f484a58d00558253518532f513",
-      "tests/canonical/point_survival_hazard_runner.R": "aee95d210d2ae41863c18226c3d462b3399deb7f3c2244c573b7f49e297316c8",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
-    }
   }
 }
