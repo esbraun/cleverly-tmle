@@ -990,9 +990,16 @@ Contrasts with known regimes, part (c), now ship
 set on the same folds, and reports its value and its contrast with the learned rule. The
 contrast's curve is the difference of the two curves, by the joint normality of the two
 asymptotically linear estimators, a step no source states. A static arm is spelled
-`Static(a)`, and arm estimands keep their refusal. The key carries the qualifier
-`known_regimes`, so no learned-rule row covers such a fit, and every one reads experimental
-until the `learned-rule-contrast` study registers. The simultaneous band and another parameter
+`Static(a)`, and arm estimands keep their refusal.
+
+The key carries the qualifier `known_regimes`. The
+[contrast study](technical-reference/method-evidence/learned-rule-contrast.md) calibrates the
+plug-in rule beside `Static(1)` and `Static(0)` on rows at n = 2,000 with ten folds, so such a
+fit reads supported under either report (rows `T44.fold_evaluated` and `T44.stacked`). Under a
+misspecified treated arm it measured coverage at or above 0.92 with a correct maximum-likelihood
+$g$, not a conservative interval. Weights, clusters, strata, fold targeting, a rule learner,
+several splits, the in-sample fit and supplied treatment probabilities beside known regimes read
+experimental. The simultaneous band and another parameter
 axis are part (c2): the fit skips its default band and `summary()` says why, and
 `simultaneous_bands()` refuses those estimates. The bound of a contrast joins part (n2).
 
@@ -1003,10 +1010,15 @@ Nordland and Holst (2026), Sections 3.1 to 3.4. At two arms it is the binary rul
 C3 for the argmax, no tie between the top two arms of the learner's limit on a set of positive
 mass, is the package's own step, because the sources are silent on multi-arm exceptional laws.
 
-The stored fold rules are `int8` arm codes. The key's treatment reads `arms3` at three arms, so every such
-fit reads experimental until the `learned-rule-arms` study registers. The rule learners over more
-than two arms are part (d2), and the omitted-variable bound over more than two arms joins part
-(n2).
+The stored fold rules are `int8` arm codes, and the key's treatment reads `arms3` at three arms.
+The [three-arm study](technical-reference/method-evidence/learned-rule-arms.md) calibrates the
+plug-in rule over three arms under the fold-evaluated report on rows at n = 2,000 with ten folds,
+on one law whose learners' limits meet the no-tie condition, so such a fit reads supported (row
+`T45`). When one arm's outcome regression is misspecified it measured coverage at or above 0.92
+with a correct maximum-likelihood $g$, not a conservative interval. Four or more arms, and three
+arms with weights, clusters, strata, fold targeting, several splits, the stacked report, the
+in-sample fit or known regimes, read experimental. The rule learners over more than two arms are
+part (d2), and the omitted-variable bound over more than two arms joins part (n2).
 
 The value of the optimal rule, part (f), now ships
 ([the value of the optimal rule](technical-reference/point-treatment-tmle.md#learned-rules)).
