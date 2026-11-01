@@ -205,6 +205,11 @@ class StudyRecord:
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
+    #: Scenarios whose keys carry a point claim only: an estimated mechanism whose reported
+    #: standard error is a diagnostic with no validity claim (``AdaptiveIPTW`` withholds it as
+    #: inference).  Their truth rows pass on the bias leg alone; coverage and the SE ratio are
+    #: still published.  Their paired rows run no calibration leg (:meth:`se_comparable`).
+    point_only_scenarios: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -299,6 +304,9 @@ class StudyRecord:
     failure_bound: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        unknown = self.point_only_scenarios - set(self.scenarios)
+        if unknown:
+            raise ValueError(f"point_only_scenarios names undeclared scenarios: {sorted(unknown)}")
         undeclared = self.bias_row_families - set(self.property_cells)
         if undeclared:
             raise ValueError(
@@ -453,6 +461,10 @@ class StudyRecord:
             f"{scenario}:{estimand}",
             self.comparison_overrides.get(f"{scenario}:*", self.comparison),
         )
+
+    def se_comparable(self, scenario: str, estimand: str) -> bool:
+        """Whether a paired cell compares the two standard errors (its calibration leg)."""
+        return estimand not in self.incomparable_se and scenario not in self.point_only_scenarios
 
     def reported(self, implementation: str) -> Mapping[str, tuple[str, ...]]:
         """Scenario -> the estimands ``implementation`` reports.

@@ -238,6 +238,21 @@ INITIAL_AGREEMENT = 1e-10
 #: targeting step from none.  No verdict reads it.
 WITNESS_MULTIPLE = 10.0
 
+#: The known-mechanism scenarios (H2): the only ones whose standard errors carry a claim.
+KNOWN = frozenset(
+    {
+        "pd_known_arms",
+        "pd_known_arms_one_step",
+        "pd_known_regimes",
+        "pd_known_regimes_one_step",
+        "st_known",
+    }
+)
+#: Every other scenario declares its mechanism estimated, so its standard error is the Theorem 1
+#: curve the package withholds as inference: its truth rows pass on bias alone and its paired
+#: rows run no calibration leg (Eric, 2026-11-01, review M3; restores X21-plan rev 3.4).
+POINT_ONLY = frozenset(SCENARIOS) - KNOWN
+
 #: Scenario -> the scenario whose stream it draws: the first scenario of each draw.
 SEED_OWNERS: dict[str, str] = {}
 _first: dict[str, str] = {}
@@ -348,6 +363,7 @@ STUDY = StudyRecord(
     properties_module="tests.studies.adaptive_iptw_pairing_properties",
     property_cells={},
     extra_artifacts=("agreement.csv",),
+    point_only_scenarios=frozenset(POINT_ONLY),
     publication_policy="reporting",
 )
 

@@ -772,10 +772,15 @@ class TestPublishedVerdicts:
             ],
             index=published.index,
         )
+        point_only = (
+            published["point_only"].astype(bool)
+            if "point_only" in published
+            else pd.Series(False, index=published.index)
+        )
+        assert set(published.loc[point_only, "scenario"]) <= set(study.point_only_scenarios)
         assert published["passed"].equals(
             published["bias_equivalent"]
-            & published["coverage_valid"]
-            & published["se_calibrated"]
+            & (point_only | (published["coverage_valid"] & published["se_calibrated"]))
             & accounted
         )
 

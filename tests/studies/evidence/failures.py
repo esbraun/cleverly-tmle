@@ -1003,6 +1003,9 @@ def _truth_payload(
     record, group, key, k, own, seed = payload
     implementation, scenario, estimand = key
     legs = truth_legs(group, k, record=record, seed=seed)
+    if scenario in record.point_only_scenarios:
+        # A point-only cell passes on its bias leg alone (StudyRecord.point_only_scenarios).
+        legs = [leg for leg in legs if leg.name == "bias"]
     return _rows(
         table="performance",
         implementation=implementation,
@@ -1042,7 +1045,7 @@ def _paired_payload(
         reference_failed,
         record=record,
         truth=float(group["truth"].iloc[0]),
-        comparable=estimand not in record.incomparable_se,
+        comparable=record.se_comparable(scenario, estimand),
         seed=seed,
         subject_failed=subject_failed,
     )

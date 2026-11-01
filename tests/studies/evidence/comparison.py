@@ -282,7 +282,7 @@ def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[
         replicates=margins.bootstrap_replicates,
         seed=seed,
     )
-    comparable = estimand not in record.incomparable_se
+    comparable = record.se_comparable(str(group["scenario"].iloc[0]), estimand)
     calibration_upper = (
         upper_bound(samples["calibration_excess"], confidence_level=margins.confidence_level)
         if comparable
@@ -383,7 +383,7 @@ def equivalence(
             )
         rmse_ratio = float(cell.loc[subject, "rmse"] / cell.loc[reference, "rmse"])
         coverage_difference = float(cell.loc[subject, "coverage"] - cell.loc[reference, "coverage"])
-        se_comparable = estimand not in record.incomparable_se
+        se_comparable = record.se_comparable(scenario, estimand)
         calibration_excess = float(
             max(
                 0.0,

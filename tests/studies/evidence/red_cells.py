@@ -1017,10 +1017,12 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         key = (str(row.implementation), str(row.scenario), str(row.estimand))
         gate = truth_gates.get(key, (True, ""))
         # A cell red on its own legs is red by its truth gate, whatever its accounting says.
-        own = all(
-            bool(getattr(row, leg, True))
-            for leg in ("bias_equivalent", "coverage_valid", "se_calibrated")
+        legs = (
+            ("bias_equivalent",)
+            if bool(getattr(row, "point_only", False))
+            else ("bias_equivalent", "coverage_valid", "se_calibrated")
         )
+        own = all(bool(getattr(row, leg, True)) for leg in legs)
         red_key = RedKey(record.slug, "truth", "/".join(key))
         if red_key in REPORTING_TRUTH_ROWS:
             fails_by = REPORTING_TRUTH_ROWS[red_key]
