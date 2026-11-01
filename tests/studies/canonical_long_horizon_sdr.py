@@ -111,7 +111,9 @@ import pandas as pd
 from tests import discrete_law_longitudinal_horizon as law_
 from tests.discrete_law_longitudinal_horizon import Law
 from tests.parallel import STUDY_JOBS
+from tests.studies import long_horizon_reference as reference_
 from tests.studies.evidence import replication
+from tests.studies.evidence.parity import ParityCell, ParityDeclaration, ReferenceSample
 from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.long_horizon_common import G_BOUNDS
@@ -417,3 +419,38 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Replication ``replicate`` of ``scenario``, from this study's own seed stream."""
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
+
+
+# ----------------------------------------------------------------------------- the X59 comparator
+#: The comparator's cells (X59 plan section 2.2): every Wald row of every scenario.  With
+#: fold-free supplied ratios the five-fold recursion is ``lmtp::cf_sdr``'s, so the five-fold
+#: scenario is paired too.
+REFERENCE_SCENARIOS = reference_.reported_cells(SCENARIOS)
+#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.
+COMPARATOR_DECLARATION = {
+    "reference_scenarios": REFERENCE_SCENARIOS,
+    "paired_role": "descriptive",
+}
+#: The G1 cells (section 4.2, B1 and B2): ``coin`` at two arms, ``mix`` at three.
+G1_CELLS = (
+    ("sdr_binary_k3", "ey_regimen[coin]"),
+    ("sdr_binary_k4", "ey_regimen[coin]"),
+    ("sdr_binary_k5", "ey_regimen[coin]"),
+    ("sdr_categorical_k5", "ey_regimen[mix]"),
+    ("sdr_categorical_k5_crossfit", "ey_regimen[mix]"),
+    ("sdr_categorical_k5_mix", "ey_regimen[mix]"),
+    ("sdr_policy_k5", "ey_regimen[mix]"),
+    ("sdr_policy_k5_mix", "ey_regimen[mix]"),
+)
+#: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+REFERENCE_TIERS = {
+    name: 2 if name in {scenario for scenario, _ in G1_CELLS} else 4 for name in REFERENCE_SCENARIOS
+}
+PARITY = ParityDeclaration(
+    cells=tuple(ParityCell("G1", name, estimand) for name, estimand in G1_CELLS)
+)
+
+
+def reference_sample(scenario: str, n: int, replicate: int) -> ReferenceSample:
+    """The R ``lmtp`` input of one replicate, from this study's seed stream."""
+    return reference_.sample(STUDY, SCENARIOS, "lmtp_sdr", scenario, n, replicate)

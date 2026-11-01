@@ -122,7 +122,9 @@ import pandas as pd
 from tests import discrete_law_longitudinal_horizon as law_
 from tests.discrete_law_longitudinal_horizon import Law
 from tests.parallel import STUDY_JOBS
+from tests.studies import long_horizon_reference as reference_
 from tests.studies.evidence import replication
+from tests.studies.evidence.parity import ParityCell, ParityDeclaration, ReferenceSample
 from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.long_horizon_common import G_BOUNDS
@@ -394,3 +396,34 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Replication ``replicate`` of ``scenario``, from this study's own seed stream."""
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
+
+
+# ----------------------------------------------------------------------------- the X59 comparator
+#: The comparator's cells (X59 plan section 2.2): every Wald row of every one-fold scenario.
+#: The five-fold scenario has no counterpart: ``cleverly`` fits the pooled update and ``lmtp``
+#: ``9996b04`` a per-fold one (section 4.4), so it stays unpaired.
+REFERENCE_SCENARIOS = reference_.reported_cells(
+    SCENARIOS, unpaired_scenarios=("categorical_k5_crossfit",)
+)
+#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.
+COMPARATOR_DECLARATION = {
+    "reference_scenarios": REFERENCE_SCENARIOS,
+    "paired_role": "descriptive",
+}
+#: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+REFERENCE_TIERS = {
+    name: 2 if "ey_regimen[mix]" in cells else 4 for name, cells in REFERENCE_SCENARIOS.items()
+}
+#: G1 on ``ey_regimen[mix]``, the all-policy plan, in every one-fold scenario that fits it.
+PARITY = ParityDeclaration(
+    cells=tuple(
+        ParityCell("G1", name, "ey_regimen[mix]")
+        for name, tier in REFERENCE_TIERS.items()
+        if tier == 2
+    )
+)
+
+
+def reference_sample(scenario: str, n: int, replicate: int) -> ReferenceSample:
+    """The R ``lmtp`` input of one replicate, from this study's seed stream."""
+    return reference_.sample(STUDY, SCENARIOS, "lmtp_tmle", scenario, n, replicate)

@@ -113,7 +113,9 @@ import pandas as pd
 
 from tests import discrete_law_longitudinal_horizon as law_
 from tests.parallel import STUDY_JOBS
+from tests.studies import long_horizon_reference as reference_
 from tests.studies.evidence import replication
+from tests.studies.evidence.parity import ParityCell, ParityDeclaration, ReferenceSample
 from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.long_horizon_common import G_BOUNDS
@@ -348,3 +350,40 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Replication ``replicate`` of ``scenario``, from this study's own seed stream."""
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
+
+
+# ----------------------------------------------------------------------------- the X59 comparator
+#: The comparator's cells (X59 plan section 2.1): every Wald row but the stochastic plans, which
+#: ``ltmle`` takes no stochastic intervention for.  ``__bca`` rows are not paired.
+REFERENCE_SCENARIOS = reference_.reported_cells(
+    SCENARIOS, unpaired_plans={"binary_k5": ("coin", "coinlast")}
+)
+#: The fields the comparator run declares.  The registration commit moves them into ``STUDY``
+#: with ``reference="ltmle"``; ``reference_replicates`` is fixed by the declaration commit from
+#: the section 6 sizing rule.  Every margins pair is descriptive (section 4.4): the exact claims
+#: are the parity gates below.
+COMPARATOR_DECLARATION = {
+    "reference_scenarios": REFERENCE_SCENARIOS,
+    "paired_role": "descriptive",
+}
+#: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+REFERENCE_TIERS = {"binary_k3": 2, "binary_k4": 2, "binary_k5": 2, "binary_k5_msm": 4}
+#: The scenarios whose G-C and witness rows need ``cleverly``'s untargeted plug-in.
+PARITY_SCENARIOS = frozenset({"binary_k3", "binary_k4", "binary_k5"})
+#: G-P and G-C on every paired Wald estimand of ``binary_k3`` to ``binary_k5`` (section 4.2).
+#: Both tolerances are declared from the smoke maxima by the declaration commit.
+PARITY = ParityDeclaration(
+    cells=tuple(
+        ParityCell(gate, name, estimand)
+        for gate in ("G-P", "G-C")
+        for name in sorted(PARITY_SCENARIOS)
+        for estimand in REFERENCE_SCENARIOS[name]
+    )
+)
+
+
+def reference_sample(scenario: str, n: int, replicate: int) -> ReferenceSample:
+    """The R ``ltmle`` input of one replicate, from this study's seed stream."""
+    return reference_.sample(
+        STUDY, SCENARIOS, "ltmle", scenario, n, replicate, parity_scenarios=PARITY_SCENARIOS
+    )
