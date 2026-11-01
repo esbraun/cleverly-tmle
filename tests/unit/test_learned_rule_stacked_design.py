@@ -89,6 +89,24 @@ def test_the_fold_evaluated_ratio_bias_is_rebuilt_from_the_law() -> None:
     assert 4 < oracle["fold_evaluated"] / oracle["stacked"] < 25
 
 
+#: The same oracle at 40 clusters, the smallest count on the normal reference that shares the
+#: ``dependence="clustered"`` key (200,000 draws, label 20267504): fold-evaluated -0.2855,
+#: stacked -0.0276, each with MC SE 0.0015. Declared before the run, so that any extension of
+#: the stacked row below 200 clusters rests on a declared bias (design review finding 2).
+DECLARED_RATIO_BIAS_J40 = {"fold_evaluated": -0.2855, "stacked": -0.0276}
+
+
+def test_the_ratio_bias_at_forty_clusters_is_declared() -> None:
+    """At J = 40 the fold-evaluated bias grows about as ``V / sqrt(J)`` in SDs, against
+    ``1 / sqrt(J)`` for the stacked point."""
+    oracle = law.ratio_bias_oracle(50_000, 20267505, clusters=40)
+    for report, declared in DECLARED_RATIO_BIAS_J40.items():
+        allowed = 4.0 * float(np.hypot(oracle[f"{report}_se"], 0.0015))
+        assert abs(oracle[report] - declared) <= allowed, (report, oracle)
+    ratio = DECLARED_RATIO_BIAS_J40["fold_evaluated"] / DECLARED_RATIO_BIAS["fold_evaluated"]
+    assert 1.8 < ratio < 2.8  # sqrt(200 / 40) = 2.24
+
+
 def test_equal_sizes_carry_no_fold_average_bias() -> None:
     """The deliberate-mutation control of the oracle: equal sizes remove the denominator that
     varies, and with it the fold-evaluated bias."""
@@ -144,9 +162,13 @@ def test_the_manifest_lists_the_fit_path() -> None:
 
 
 def test_the_unequal_clusters_rule_is_declared() -> None:
-    """The rule names the clustered cell, its bias verdict and all three of its controls."""
+    """The rule names the clustered cell, its bias verdict, all three of its controls, and the
+    reporting row's paired difference, without which the fold-evaluated report would pass it
+    too (design review finding 1)."""
     text = " ".join(study.UNEQUAL_CLUSTERS_RULE)
     for cell in (
+        "fold_evaluated_reporting/clustered__fold_evaluated",
+        "paired_error_difference + 2.576 * paired_error_difference_se < 0",
         "clustered__declared",
         "clustered__row_variance_control",
         "clustered__shrunken_se_control",

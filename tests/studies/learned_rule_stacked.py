@@ -92,13 +92,25 @@ PROPERTY_CELLS = {
 #: stacked learned-rule fit (plan section 2, "_support.py"; plan review finding 3). The
 #: registering change drops the qualifier from fits keyed ``stacked`` if and only if every
 #: clause holds on the committed artifact; otherwise it stays, and the registered clustered row
-#: names it. The fold-evaluated report keeps the qualifier either way.
+#: names it. The last clause shows that the run measured what sets the stacked report apart:
+#: at 200 clusters the fold-evaluated report would pass the first two clauses too, so only the
+#: paired difference shows that the sizes were informative and that the stacked fit weights by
+#: ``W_v / W``.
+#:
+#: The fold-evaluated report keeps the qualifier either way, by theory and not by this run: its
+#: ratio bias is ``O(V / J)`` in absolute terms, so ``O(V / sqrt(J))`` in SDs, against
+#: ``O(1 / sqrt(J))`` for the stacked point. The law's oracle puts it at about -0.12 SD at 200
+#: clusters and -0.29 SD at 40 (``test_learned_rule_stacked_design``). At 200 clusters its
+#: interval would pass the same bands, so registration must not say it fails in this cell.
 UNEQUAL_CLUSTERS_RULE = (
     "clustered__declared passes the interval_calibration rule (coverage and SE-ratio bands)",
     "clustered__declared establishes its bias inside the margin (bias_equivalent)",
     "clustered__row_variance_control, clustered__shrunken_se_control and "
     "clustered__noise_control each fail as declared",
     "no clustered replication was lost beyond the failure bound",
+    "the fold_evaluated_reporting/clustered__fold_evaluated row's paired_error_difference is "
+    "negative with its upper 99% bound below zero "
+    "(paired_error_difference + 2.576 * paired_error_difference_se < 0)",
 )
 
 #: What a dropped qualifier would claim, and no more: stacked learned-rule fits with ``id=`` at
