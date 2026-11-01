@@ -68,7 +68,7 @@ Delete every comment and empty section before publication.
 **Full diff:** [`vPREVIOUS...v0.1.N`](COMPARE-URL)
 ```
 
-During the alpha series, `cleverly` deprecates nothing. A release removes or renames an API, and
+`cleverly` deprecates nothing. A release removes or renames an API, and
 `Upgrade notes` names the replacement.
 
 ## Prepare the notes

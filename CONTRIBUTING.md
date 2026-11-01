@@ -1,6 +1,6 @@
 # Contributing to cleverly
 
-`cleverly` is alpha software for causal studies built on targeted maximum likelihood estimation.
+`cleverly` is beta software for causal studies built on targeted maximum likelihood estimation.
 One person maintains it, so a review can take several days. Open an issue before you start a large
 change.
 
@@ -10,7 +10,7 @@ The full guides live in the documentation site.
 | --- | --- |
 | setup, branch names, the checks, documentation and docstring rules | [Contributing](https://esbraun.github.io/cleverly-tmle/development/contributing.html) |
 | the commit style, the pull request body, what CI does and does not check | [Pull requests](https://esbraun.github.io/cleverly-tmle/development/pull-requests.html) |
-| alpha versions, package checks, tags, and Trusted Publishing | [Releases](https://esbraun.github.io/cleverly-tmle/development/releases.html) |
+| the version rule, package checks, tags, and Trusted Publishing | [Releases](https://esbraun.github.io/cleverly-tmle/development/releases.html) |
 | which checks a change needs | [Fast tests and validation studies](https://esbraun.github.io/cleverly-tmle/development/testing-strategy.html) |
 | designing and registering a validation study | [Method benchmarking strategy](https://esbraun.github.io/cleverly-tmle/development/method-benchmarking.html) |
 

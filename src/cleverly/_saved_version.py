@@ -44,10 +44,10 @@ def warn_on_version_mismatch(
         "pickle dump)"
     )
     _warn(
-        f"this {what} was saved by {by}, and this is cleverly {__version__}. Alpha releases "
-        "keep no compatibility for saved objects, so cleverly loads it as saved, with no "
-        "migration. Its statuses, reports and cached assessments can differ from what this "
-        "version computes. Fit the analysis again with this version.",
+        f"this {what} was saved by {by}, and this is cleverly {__version__}. cleverly "
+        "keeps no compatibility for saved objects between versions, so this load reads it as "
+        "saved, with no migration. Its statuses, reports and cached assessments can differ "
+        "from what this version computes. Fit the analysis again with this version.",
         VersionMismatchWarning,
         stacklevel=stacklevel,
         # A load warning, not a fit's: no fit is running to record it.

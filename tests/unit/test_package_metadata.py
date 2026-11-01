@@ -23,7 +23,7 @@ def test_distribution_metadata_describes_the_release() -> None:
     assert package["License-Expression"] == "MIT"
     assert package.get_all("License-File") == ["LICENSE"]
     classifiers = package.get_all("Classifier", [])
-    assert "Development Status :: 3 - Alpha" in classifiers
+    assert "Development Status :: 4 - Beta" in classifiers
     assert not any(classifier.startswith("License ::") for classifier in classifiers)
     assert any(
         url == "Issues, https://github.com/esbraun/cleverly-tmle/issues"

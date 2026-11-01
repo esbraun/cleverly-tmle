@@ -1,6 +1,6 @@
 # Working on cleverly
 
-`cleverly` is alpha software under heavy development. Treat the current architecture as
+`cleverly` is beta software under active development. Treat the current architecture as
 provisional: inspect the code and tests before changing it, and do not preserve an implementation
 shape solely because this file, a plan, or an investigation note once described it. Code and tests
 determine current behavior.
@@ -21,7 +21,7 @@ This file collects working agreements for coding agents. Related guidance is rou
 
 ## Compatibility
 
-`cleverly` is alpha, and it keeps no backward compatibility: not for saved results, pickled
+`cleverly` is in beta, and it keeps no backward compatibility: not for saved results, pickled
 objects, or `CausalStudy` objects, and not for the public API.
 
 - Do not write migration code, pickle backfills, `__setstate__` field renames, re-stamps of saved

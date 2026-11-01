@@ -4,7 +4,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](https://github.com/esbraun/cleverly-tmle/blob/main/LICENSE)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
+[![Status: beta](https://img.shields.io/badge/status-beta-2e7d32.svg)](https://pypi.org/classifiers/)
 
 `cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
 estimation (TMLE), organized around the causal question before the estimation method.
@@ -20,9 +20,9 @@ cross-fitting, diagnostics, sensitivity analysis, and structured persistence. It
 polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
 [narwhals](https://narwhals-dev.github.io/narwhals/).
 
-> [!WARNING]
-> `cleverly` is alpha software, and releases use `0.1.N` versions. Pin a version for reproducible
-> work. A result that one release saves loads in another release with a warning, and the load does
+> [!NOTE]
+> `cleverly` is beta software and ready for use. The public API can still change between releases,
+> so pin a version for reproducible work. A result that one release saves loads in another release with a warning, and the load does
 > not migrate it. Unsupported combinations fail before nuisance fitting instead of returning an
 > approximation to another causal question.
 
