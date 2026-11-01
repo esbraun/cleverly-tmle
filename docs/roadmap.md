@@ -974,10 +974,14 @@ The in-sample fit of part (a) now ships
 ([one rule fitted on all rows](technical-reference/point-treatment-tmle.md#learned-rules)).
 `cross_fit=False` learns one rule on every row and estimates the value of that full-sample rule,
 a different target, under the Donsker condition of van der Laan and Luedtke (2015), Theorem 5.
-Its key reads the learner families, so the `learned-rule-in-sample` study can cover parametric
-learners. No row covers it yet, so every in-sample fit reads experimental, and an adaptive
-learner also warns. Every remedy that offers it to a learned-rule caller names the change of
-target.
+Its key reads the learner families. The
+[in-sample study](technical-reference/method-evidence/learned-rule-in-sample.md) calibrates the
+plug-in rule with a parametric outcome and treatment learner at n = 2,000, so such a fit on rows
+reads supported (row `T43`). Its point leans +0.16 and +0.21 error SDs optimistic there, and a
+parametric rule that does not settle (C3a) leans further, which no check detects. An adaptive
+learner warns and reads experimental, as does a fit with a rule learner, known treatment
+probabilities, weights, clusters or strata. Every remedy that offers the in-sample fit to a
+learned-rule caller names the change of target.
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).

@@ -2422,6 +2422,28 @@ def _learned_rule_stacked_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _learned_rule_in_sample_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-in-sample`` (X11 PR F2, X11 (a)).
+
+    Each runs the study's own in-sample fit with its declared parametric outcome learner on a
+    draw of its law at the primary size, up to the classifier.
+    """
+    module, slug = "learned_rule_in_sample", "learned-rule-in-sample"
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            "T43",
+            slug,
+            scenario,
+            "_learned_rule_in_sample_law.py:258",
+            module,
+            lambda study: study.draw_from_seed(scenario, 2_000, 0)[0],
+            lambda study, frame: study.law.fit(frame, study.law.InteractionLogistic(), 0),
+        )
+
+    return (case("non_exceptional"), case("misspecified_limit"))
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2744,6 +2766,7 @@ CASES: tuple[RowCase, ...] = (
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),
+    *_learned_rule_in_sample_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

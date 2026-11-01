@@ -1645,15 +1645,26 @@ that declares `cleverly_learner_family = "parametric"`, and it meets C5a. Every 
 adaptive, a scikit-learn `Pipeline` included. An adaptive in-sample fit reads experimental with
 a condition that names its adaptive learners, and it warns (`InSampleLearnerWarning`) that the
 interval needs a Donsker class and that cross-fitting removes that condition. Cross-fitted learned-rule keys hold no
-family, so the rows of the cross-fitted studies keep matching their fits. No study yet measures
-an in-sample learned-rule fit, so every one reads experimental.
+family, so the rows of the cross-fitted studies keep matching their fits.
+
+The [in-sample study](method-evidence/learned-rule-in-sample.md) calibrates the plug-in rule with
+a parametric outcome learner and a parametric treatment learner at n = 2,000, on a correctly
+specified and a misspecified RM30 law, so such a fit on rows reads supported (row `T43`). Every
+other in-sample learned-rule fit reads experimental. The point leans optimistic, by +0.16 and
++0.21 error SDs at that size, because the rule is chosen and scored on the same rows; theory makes
+the lean vanish beside the SE once the rule settles (C3a), and it was measured at n = 2,000 only.
+The study's weak-limit diagnostic shows C3a failing for a parametric learner: with a limit blip
+of 0.037 and 0.049 the rule flipped in 19.4% of draws, and the targeted point leaned +1.07 SDs on
+those draws. Such a fit keys the same row, and no check in the package detects it. At this size
+the calibration verdicts cannot tell $\Psi_{d_n}(P_0)$ from the fold average $\tilde\psi_{0n}$
+(gap SD 0.008 and 0.015 error SDs), so the witnesses below establish the target.
 
 | composition | result |
 | --- | --- |
 | known weights | admitted, experimental. The rule is the plug-in of the weighted outcome regression on every row, the rule of the weighted population, as in [fold targeting, weights and clusters](#learned-rules) |
 | `id=` | admitted, experimental. The shipped in-sample variance of the cluster totals and its few-cluster $t$ reference ([F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals)) apply, a natural extension from iid rows |
 | `strata=` | admitted, experimental. The one rule is read stratum by stratum, and each stratum estimate is the plug-in over the stratum's rows under the shipped stratified fluctuation |
-| a rule learner, known treatment probabilities | admitted, experimental |
+| a rule learner, known treatment probabilities | admitted, experimental: the in-sample study fits neither, so the key's `rule_learner_family` or `known` treatment family matches no row |
 | `strata=` with `id=` | refused, row 8 of the table below |
 | `n_bootstrap` above 0 | refused, row 10 of the table below. Its remedy keeps the in-sample fit, with `n_bootstrap=0` |
 | `repeats` above 1, or `cross_fit=True` with one fold | the shared fold-policy refusal. Its in-sample offer reads "fit the value of the full-sample rule with cross_fit=False, a different target from the cross-fitted learned-rule value" |

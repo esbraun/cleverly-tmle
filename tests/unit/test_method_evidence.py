@@ -1786,6 +1786,11 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # on the same clustered draws and folds, its bias and the paired error difference
         # reported with no verdict.
         "fold_evaluated_reporting",
+        # X11 PR F2 (``learned-rule-in-sample``): the in-sample fit read against the
+        # fold-average target of the same draw, and the targeted and untargeted fits of a
+        # learner whose rule flips between samples, each reported with no verdict.
+        "target_distinction",
+        "weak_limit_necessity",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",

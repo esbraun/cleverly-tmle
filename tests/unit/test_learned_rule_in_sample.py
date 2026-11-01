@@ -21,7 +21,9 @@ rev 2.1, section 3), with W-a3 and W-a4 as rev 2 replaced them:
   unsolved by more than 1e-3 and moves the point by more than 0.01 on a fixed draw.
 
 The label is option C: under the in-sample scheme only, the support key reads the learner
-families, and an adaptive learner makes the fit warn.  A wave-1 study fit keeps its row.
+families, and an adaptive learner makes the fit warn.  A wave-1 study fit keeps its row, a fit
+whose outcome and treatment learners are both parametric reads T43, and a rule learner keeps a
+parametric fit off that row.
 """
 
 from __future__ import annotations
@@ -609,9 +611,9 @@ class TestTheLabel:
         assert options["outcome_learner_family"] == "parametric"
         assert options["treatment_learner_family"] == "parametric"
         assert in_sample_learner_condition(result.estimator, result.data) is None
-        # No in-sample row is registered until the learned-rule-in-sample study runs.
-        assert result.estimates[support.NAME].support.label == "experimental"
-        assert result.estimates[support.NAME].support.row is None
+        # The learned-rule-in-sample study registers T43 for these two families.
+        assert result.estimates[support.NAME].support.label == "supported"
+        assert result.estimates[support.NAME].support.row == "T43"
 
     def test_a_rule_learner_keys_its_family(self) -> None:
         rule = LearnedRule(loss="blip", learner=LinearRegression())
@@ -622,6 +624,9 @@ class TestTheLabel:
             )
         options = dict(result.config.support_key.options)
         assert options["rule_learner_family"] == "parametric"
+        # The mutation of T43's match: every learner is parametric, but no study measured a
+        # rule learner in sample, so the extra family keeps the fit off the row.
+        assert result.estimates[support.NAME].support.label == "experimental"
 
     @staticmethod
     def _adaptive_role(role: str, **overrides: Any) -> Any:

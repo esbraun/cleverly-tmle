@@ -279,8 +279,21 @@ full_sample = study.estimate(LearnedRuleValue(), method=in_sample, random_state=
 ```
 
 The mark is your statement that the model has fixed terms, and cleverly does not test it. With
-it the fit gives no warning. No study measures this fit yet, so its result is still marked
-experimental.
+it the fit gives no warning. The result is marked supported when both models have fixed terms,
+the rule comes from the outcome model as above, the outcome is binary, and the fit has no
+weights, clusters or strata. An
+[in-sample study](../technical-reference/method-evidence/learned-rule-in-sample.md) measures
+this fit at n = 2,000. Over 14,400 samples of each of two settings, its 95% interval covered the
+value of the chosen rule 0.947 to 0.950 of the time.
+
+The in-sample fit chooses the rule and estimates its value on the same rows, so the estimate
+leans optimistic. When the rule is stable this is small: about 0.16 to 0.21 of a standard error
+at 2,000 rows in that study, the only size it measured, and theory expects more at smaller
+sizes. When the estimated benefit of treatment is close to zero for many people, the rule can
+change from sample to sample, and the lean grows: about 1.07 standard errors in the 19% of
+samples where the rule changed. The interval still covered about 94% of the time in that case,
+and cleverly cannot tell that it has happened. The cross-fitted estimate (the default) scores
+each rule on rows that did not choose it, and it does not lean this way.
 
 Every one of these fits needs, among other things, a binary treatment, complete outcomes and no
 intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of

@@ -667,6 +667,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
     from tests.studies.learned_rule_split_mean import STUDY as LEARNED_RULE_SPLIT_MEAN
     from tests.studies.learned_rule_stacked import STUDY as LEARNED_RULE_STACKED
@@ -731,6 +732,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_LEARNERS,
         LEARNED_RULE_STRATA,
         LEARNED_RULE_STACKED,
+        LEARNED_RULE_IN_SAMPLE,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
