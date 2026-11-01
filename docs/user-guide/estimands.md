@@ -282,6 +282,15 @@ The mark is your statement that the model has fixed terms, and cleverly does not
 it the fit gives no warning. No study measures this fit yet, so its result is still marked
 experimental.
 
+To compare the learned rule with a fixed policy, such as treating everyone, fit the estimator
+directly: `TMLE(learned_rule=LearnedRule(), interventions=[Static(1)], simultaneous=False)`. It
+reports the learned rule's value, the fixed policy's value `ey_known_regime[always 1]`, and their
+difference `ate_learned_rule[learned rule vs always 1]`, all on the same folds. The interval of
+the difference treats the two values as jointly normal, a step that no published source states
+for a learned rule, and no study measures it yet, so these results are marked experimental. A
+plain arm estimand such as `ate` refuses beside a learned rule, and its message names this
+spelling.
+
 Every one of these fits needs, among other things, a binary treatment, complete outcomes and no
 intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of
 them refuses before any model is fitted. The refusal table under

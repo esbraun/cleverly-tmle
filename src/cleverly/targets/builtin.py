@@ -195,6 +195,27 @@ _LEARNED_RULE_ID = Identification(
     ),
 )
 
+_LEARNED_RULE_CONTRAST_ID = Identification(
+    assumptions=(
+        *_LEARNED_RULE_ID.assumptions,
+        "positivity for each known regime: g0(a | W) > 0 wherever the regime assigns arm a "
+        "with positive probability, and each known regime is a known function of W",
+        "joint asymptotic linearity: the learned-rule estimator (Theorem 6 or Corollary 3) "
+        "and each known-regime estimator are asymptotically linear on the same folds, so "
+        "the stack is jointly normal and the contrast's curve is the difference of the two "
+        "curves. No source states the joint result; it is the package's step from the two "
+        "marginal results",
+    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        "the remainder of each side is as for its own estimand; on Corollary 3's route "
+        "(g a maximum-likelihood fit in a correct model) each true curve is D_j minus its "
+        "projection on the mechanism's tangent space, the projection is linear, so the "
+        "contrast's variance from D_L - D_K is conservative"
+    ),
+    references=_LEARNED_RULE_ID.references,
+)
+
 _IPSI_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
@@ -498,14 +519,79 @@ def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     return _difference_against_reference(ctx, "ate_regime")
 
 
+#: The regime code of the learned rule in a learned-rule fit's regime set.  The known
+#: regimes of ``interventions=`` follow it, at codes ``1`` to ``K`` (X11 (c)).
+LEARNED_RULE_CODE = 0.0
+
+
 def _ey_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
     """The fold-average value of the rule learned inside each training fold.
 
     On the fold-evaluated fit, ``ctx`` is one validation fold, and the context's regime
     density is that fold's own one-hot rule.  The regime mean of that density is the fold
-    plug-in, and the estimator averages the folds with weight ``1/V``.
+    plug-in, and the estimator averages the folds with weight ``1/V``.  The learned rule
+    is code ``0``, and a known regime declared beside it is reported by
+    ``ey_known_regime``.
     """
-    return _level_per_code(ctx, "ey_learned_rule")
+    mean = ctx.means[LEARNED_RULE_CODE]
+    return [
+        ctx.finish(
+            parameter_name("ey_learned_rule", arm=ctx.label(LEARNED_RULE_CODE)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+            reads=(LEARNED_RULE_CODE,),
+        )
+    ]
+
+
+def _ey_known_regime(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{g*}]`` for every known regime declared beside a learned rule (X11 (c)).
+
+    The known regimes are codes ``1`` to ``K`` of the learned-rule fit's regime set, on
+    the folds of the learned rule.  A fit without ``interventions=`` has none, and its
+    estimand list never holds this target.
+    """
+    return [
+        ctx.finish(
+            parameter_name("ey_known_regime", arm=ctx.label(code)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+            reads=(code,),
+        )
+        for code, mean in sorted(ctx.means.items())
+        if code != LEARNED_RULE_CODE
+    ]
+
+
+def _ate_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
+    r"""The learned-rule value against each known regime, one contrast each (X11 (c)).
+
+    By default each contrast is :math:`\tilde\psi_{0n} - \Psi_K(P_0)`, the learned rule
+    minus the known regime :math:`K`.  ``reference=`` naming the learned rule makes the
+    regime set's reference code ``0``, and each contrast is then
+    :math:`\Psi_K(P_0) - \tilde\psi_{0n}`, with the same curve up to sign.  Every contrast
+    reads the learned rule, so a contrast of two known regimes is never reported here.
+    """
+    learned = ctx.means[LEARNED_RULE_CODE]
+    flip = ctx.reference == LEARNED_RULE_CODE
+    out = []
+    for code, known in sorted(ctx.means.items()):
+        if code == LEARNED_RULE_CODE:
+            continue
+        first, second = (known, learned) if flip else (learned, known)
+        arm, versus = (code, LEARNED_RULE_CODE) if flip else (LEARNED_RULE_CODE, code)
+        out.append(
+            ctx.finish(
+                parameter_name("ate_learned_rule", arm=ctx.label(arm), versus=ctx.label(versus)),
+                first.psi - second.psi,
+                first.influence_curve - second.influence_curve,
+                "difference",
+                reads=(arm, versus),
+            )
+        )
+    return out
 
 
 def _ey_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -798,6 +884,34 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         description=(
             "weighted average over the outer folds of the value of the rule learned on each "
             "fold's training rows"
+        ),
+    ),
+    Target(
+        name="ey_known_regime",
+        group="regime",
+        scale="level",
+        build=_ey_known_regime,
+        identification=_REGIME_ID,
+        parameter_axis="learned_rule",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description=(
+            "counterfactual mean under each known regime declared beside a learned rule, "
+            "E[Y^{g*}], on the folds of the learned rule"
+        ),
+    ),
+    Target(
+        name="ate_learned_rule",
+        group="regime",
+        scale="difference",
+        build=_ate_learned_rule,
+        identification=_LEARNED_RULE_CONTRAST_ID,
+        parameter_axis="learned_rule",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description=(
+            "contrast of the learned-rule value with each known regime declared beside it, "
+            "the learned rule minus the regime unless reference= names the learned rule"
         ),
     ),
     Target(

@@ -288,7 +288,8 @@ class SupportKey:
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
-        ``rule_learner_blip`` or ``rule_learner_weighted_classification``. A longitudinal key
+        ``rule_learner_blip`` or ``rule_learner_weighted_classification``, and one with known
+        regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
@@ -686,6 +687,11 @@ def point_key(
         # stacked row T42.clustered does: its study's declared cluster cell, whose sizes rise
         # with the outcome effect, passed the pre-declared rule (X11 (e)).
         qualifiers.add("unequal_clusters")
+    known_regimes = tuple(getattr(estimator, "interventions", None) or ())
+    if getattr(estimator, "learned_rule", None) is not None and known_regimes:
+        # Known regimes beside a learned rule (X11 (c)) add regime values and contrasts that
+        # no learned-rule row measured, so a row covers such a fit only if it declares them.
+        qualifiers.add("known_regimes")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
         # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the

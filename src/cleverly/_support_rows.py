@@ -743,6 +743,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # learner, ``rule_learner_family``), which no P11 row declares, so every in-sample
     # learned-rule fit reads experimental until the ``learned-rule-in-sample`` study registers
     # a row of parametric (or known) families.
+    # X11 (c): known regimes beside a learned rule (``interventions=``) key the qualifier
+    # ``known_regimes``, which no P11 row declares, so every contrast fit reads experimental until
+    # the ``learned-rule-contrast`` study registers its rows.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.

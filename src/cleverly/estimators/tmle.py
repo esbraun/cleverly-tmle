@@ -210,7 +210,9 @@ from ..interventions.learned import (
     _learned_rule_regimes,
     check_fold_rules,
     in_sample_learner_condition,
+    learned_rule_band_refusal,
     learned_rule_configuration_refusal,
+    learned_rule_estimands,
     learned_rule_record,
     learned_rule_scheme_refusal,
     learned_rule_split,
@@ -757,9 +759,14 @@ class TMLE:
         plug-in over the fold's rows in the stratum, with the fold-evaluated stratum
         construction, and under the stacked report the pooled plug-in over the stratum's rows;
         strata refuse beside clusters and fold targeting.
-        It refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
-        ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
-        missing outcomes, ``intermediate=`` and estimated weights.
+        Known regimes in ``interventions=`` beside it are more columns of the same regime set,
+        on the same folds: the fit also reports each regime's value (``ey_known_regime``) and
+        its contrast with the learned rule (``ate_learned_rule``), the rule minus the regime,
+        or the regime minus the rule with ``reference=`` naming the rule (experimental; the
+        contrast's curve is the difference of the two curves).  Such a fit refuses
+        ``simultaneous=True``.  It refuses ``policies=``, ``incremental=``, ``msm=`` and an arm
+        estimand beside it, and a continuous or multi-arm treatment, missing outcomes,
+        ``intermediate=`` and estimated weights.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
         rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
@@ -1864,6 +1871,9 @@ class TMLE:
             refusal = fold_evaluated_strata_refusal(data, estimands)
             if refusal is not None:
                 raise refusal
+        band = learned_rule_band_refusal(self, estimands, data.has_strata)
+        if band is not None:
+            raise CapabilityError.from_refusal(band)
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -2240,8 +2250,9 @@ class TMLE:
             and not has_t_reference(banded)
         ):
             # A learned-rule fit reports the mean over its splits, which is linear, so the
-            # band reads the mean curves as it reads the curves of one split. Several
-            # estimates reach here only from a learned-rule fit with baseline strata.
+            # band reads the mean curves as it reads the curves of one split. A learned-rule
+            # fit reaches here with several estimates only with baseline strata: the
+            # preflight refuses the band of a fit with known regimes (X11 (c2)).
             if self.learned_rule is None:
                 refuse_after_repeats(
                     self.repeats,
@@ -2895,7 +2906,9 @@ class TMLE:
         """
         # A vector treatment with a dose component has no arms, as a continuous one has none.
         arms = 0 if data.treatment_kind == "vector" else data.n_arms
-        estimands = resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
+        estimands = learned_rule_estimands(
+            self, resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
+        )
         if not data.has_missing_outcome:
             return estimands
         if self.estimands == "all":
@@ -3854,6 +3867,8 @@ class TMLE:
         if self.incremental:
             # Resolved from the tilt *names*, for the reason the regime branch gives.
             return self._reference_incremental()
+        if self.learned_rule is not None:
+            return self._reference_learned()
         if self.interventions:
             # Resolved from the regime *names* rather than from an evaluated RegimeSet,
             # so the config -- built before any nuisance is fitted -- can record it, and
@@ -4182,7 +4197,17 @@ class TMLE:
             if fold_rules is not None:
                 # The diagonal at fit time, so a defect surfaces here and not at the bound.
                 check_fold_rules(fold_rules, treat, estimates.folds)
-            return _learned_rule_regimes(treat, self.learned_rule.name, margin, fold_rules)
+            # Known regimes beside the rule (X11 (c)) are more columns of the same set, on
+            # the same folds; the fold rules and the margin stay on the learned column 0.
+            known = RegimeSet.evaluate(self.interventions, data) if self.interventions else None
+            return _learned_rule_regimes(
+                treat,
+                self.learned_rule.name,
+                margin,
+                fold_rules,
+                known=known,
+                reference=self._reference_learned(),
+            )
         if not self.interventions:
             return None
         reference = None if self.reference is None else str(self.reference)
@@ -4227,6 +4252,23 @@ class TMLE:
             n_jobs=self.n_jobs,
             outcome_by_arm=self.outcome_by_arm,
         )
+
+    def _reference_learned(self) -> float:
+        """The reference code of a learned-rule fit: ``0`` for the rule, ``1`` otherwise.
+
+        The learned rule is code ``0`` and the known regimes of ``interventions=`` follow it
+        (X11 (c)).  With ``reference=`` naming the learned rule, or with no known regime, the
+        code is ``0``, and each contrast is a known regime minus the rule.  Otherwise it is
+        ``1``, and each contrast is the rule minus a known regime.
+        :func:`~cleverly.interventions.learned.learned_rule_configuration_refusal` has
+        already refused any other ``reference=``.
+        """
+        assert self.learned_rule is not None
+        if not self.interventions or (
+            self.reference is not None and str(self.reference) == self.learned_rule.name
+        ):
+            return 0.0
+        return 1.0
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""

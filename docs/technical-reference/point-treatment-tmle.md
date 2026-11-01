@@ -1679,6 +1679,68 @@ and a fit with an estimated $g$ moves the point by more than 0.01. A cross-fitte
 [gated study](method-evidence/learned-rule-cvtmle.md) configuration keeps its row `T24`.
 `cleverly.datasets.learned_rule_truth` refits the one rule on every row.
 
+#### Contrasts with known regimes
+
+`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])` fits the learned rule beside known
+regimes. Each known regime $K$ of `interventions=` is one more column of the fit's regime set,
+after the learned rule, on the same folds, and one fluctuation targets every column. The fit
+reports three kinds of parameter. `ey_learned_rule[...]` is the learned-rule value of the
+fit's report, `ey_known_regime[K]` targets $\Psi_K(P_0)$, and `ate_learned_rule[... vs K]`
+targets $\tilde\psi_{0n} - \Psi_K(P_0)$, one contrast per known regime. With `reference=` naming
+the learned rule, each contrast is $\Psi_K(P_0) - \tilde\psi_{0n}$, with the same curve up to
+sign.
+
+| step | what the fit computes |
+| --- | --- |
+| regime set | the learned column $d_i$ at code 0, then each known regime's density at codes 1 to $K$; `fold_rules` and the margin stay on the learned column |
+| fluctuation | the shipped regime fluctuation over every column: one $\varepsilon$ per column, on the pooled validation rows, so each column's fold-average score is solved |
+| known value | the regime estimate of its column under the fit's report: fold-evaluated, stacked or in sample |
+| contrast | the learned point minus the known point, with the curve $D_{L,i} - D_{K,i}$ on the same folds. Under fold evaluation the variance is $V^{-2}\sum_v n_v^{-2}\sum_{i \in v}(D_{L,i} - D_{K,i})^2$, and under the stacked or in-sample report it is the centred rule of the difference |
+| repeats | every name reports the mean over splits, so a known regime reports the mean here and the median when it is fitted alone |
+
+No source states a joint result for the learned-rule value and a known regime. The package's
+step is that each estimator is asymptotically linear with a fixed curve: the learned rule by JCI,
+Theorem 6 or Corollary 3, under C1 to C6, and the known regime by the regime TMLE. The stack is
+then jointly normal with covariance $P_0[\phi\phi^\top]$, and the contrast's curve is $D_L - D_K$
+on the same folds. Nordland and Holst (2026), Sections 5.1 and 6, merge influence curves the same
+way in software. Under the first branch of C4 the contrast variance is consistent.
+
+On the Corollary 3 route, $g$ a maximum-likelihood fit in a correct model and $\bar Q$
+misspecified, each true curve is $D_j - \Pi(D_j \mid T_g)$ if Corollary 3's $D_g$ term is the
+projection on the mechanism's tangent space $T_g$. The projection is linear, so the contrast's
+true curve would be $(D_L - D_K) - \Pi(D_L - D_K \mid T_g)$, with variance at most
+$\mathrm{Var}(D_L - D_K)$, and the reported contrast variance would be conservative. This change
+did not read Corollary 3's printed $D_g$, so the conservative claim on that route is not made
+here. The [roadmap](../roadmap.md#x11-learned-policy-follow-ups) records the check that the
+contrast study needs before it can gate a misspecified-limit cell.
+
+A static arm is the known regime `Static(a)`, and an arm estimand such as `ate` refuses with that
+spelling as its remedy. `ey_regime` and `ate_regime` refuse with the names of this fit. Every
+reported contrast reads the learned rule, so `reference=` naming a known regime refuses, and a
+contrast of two known regimes is a regime fit of its own. A known regime with the learned rule's
+name refuses, and so do `reference=` and the two contrast targets on a fit without
+`interventions=`. The learned-rule value is always reported, because every contrast reads it and
+the record describes it.
+
+| composition | result |
+| --- | --- |
+| either report, the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1 on rows | admitted, experimental. The key carries the qualifier `known_regimes`, which no row declares, so no learned-rule row covers a contrast fit |
+| `simultaneous=True` with two or more estimates | refused before any learner, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The remedy is `simultaneous=False` |
+| `policies=`, `incremental=` or `msm=` | refused, X11 (c2), row 2 of the table below |
+| `repeats` above 1 with `id=`, and `strata=` with `id=` | refused, rows 9 and 8 |
+| the omitted-variable bound | the bound of each value runs, the learned-rule value as a point bound and each known value as a regime bound. The bound of a contrast refuses, X11 (n2) |
+
+`tests/unit/test_learned_rule_contrast.py` holds the witnesses. At unequal folds with a
+misspecified outcome regression, the contrast's point, variance and curve equal the difference
+rebuilt longhand from the targeted fit, under either report. A stub outcome regression whose blip
+has the sign of $W_1$ makes every fold rule $\mathbb 1\{W_1 > 0\}$, and every value, contrast,
+curve and value bound then equals the shipped regime fit of `Rule(1{W1 > 0})` and `Static(1)`
+on the same folds, bit for bit, at a nonzero $\varepsilon$. With `repeats=4` every name is the
+mean of four single-split fits. The joint standard error is more than 5 times
+$|se_L - se_K|$ and below 0.7 times $\sqrt{se_L^2 + se_K^2}$, and misaligning the two curves by
+one row raises it by more than half. Each column's fold-average score is solved, and the
+fluctuation of the learned column alone leaves the known score above 0.01.
+
 #### Refusals and the result record
 
 A cross-fitted fit needs at least two folds, `CrossFitting(enabled=True)`, and every fit needs
@@ -1695,7 +1757,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | order | request | item |
 | ---: | --- | --- |
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `interventions=`, `policies=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) |
+| 2 | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; an arm estimand; or a contrast declaration that the fit cannot report ([contrasts with known regimes](#learned-rules)) | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2) for another axis. The others are declaration errors whose remedy is the spelling that runs: `Static(a)` for an arm |
 | 3 | a continuous treatment | F27 |
 | 4 | a treatment with more than two arms | X11 (d) |
 | 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |
@@ -1763,9 +1825,11 @@ an implementation gap, because the bound of their mean would read the average of
 rules, which is not built. So does a fit with baseline strata
 ([baseline strata of a learned rule](#learned-rules)), and so does the stacked report, whose
 value averages the fold rules with the weights $W_v/W$ rather than $1/V$.
+On a fit with known regimes the bound of each value runs, and the bound of a contrast refuses
+([contrasts with known regimes](#learned-rules)).
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, the
-mean over splits, the strata and the stacked report. A `FrozenLearnedRule` replay refuses, because it holds no fold
-rule.
+mean over splits, the strata, the stacked report and the contrasts. A `FrozenLearnedRule` replay
+refuses, because it holds no fold rule.
 
 The E-value and the missingness tilt read `unavailable`, because the package does not implement
 them for this target, and

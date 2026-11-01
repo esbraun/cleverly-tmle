@@ -200,16 +200,26 @@ class TestEachRowRefusesBeforeAnyLearner:
     @pytest.mark.parametrize(
         ("overrides", "item"),
         [
-            ({"interventions": [Static(1)]}, "X11 (c)"),
-            ({"reference": "learned rule"}, "X11 (c)"),
-            ({"estimands": ("ate",)}, "X11 (c)"),
-            ({"policies": [Shift(0.5, cap=None)]}, "X11 (c)"),
-            ({"incremental": [Incremental(2.0)]}, "X11 (c)"),
-            ({"msm": MSM.linear()}, "X11 (c)"),
+            ({"reference": "learned rule"}, "interventions=[Static(1)]"),
+            ({"estimands": ("ate",)}, "interventions=[Static(1)]"),
+            ({"estimands": ("ate_learned_rule",)}, "interventions=[Static(1)]"),
+            ({"interventions": [Static(1)], "reference": "always 1"}, "a regime contrast"),
+            ({"interventions": [Static(1)], "reference": "nope"}, "reference='learned rule'"),
+            ({"interventions": [Static(1, name="learned rule")]}, "LearnedRule(name=...)"),
+            ({"policies": [Shift(0.5, cap=None)]}, "X11 (c2)"),
+            ({"incremental": [Incremental(2.0)]}, "X11 (c2)"),
+            ({"msm": MSM.linear()}, "X11 (c2)"),
+            ({"interventions": [Static(1)], "msm": MSM.linear()}, "X11 (c2)"),
         ],
     )
     def test_row_2_another_axis_or_a_contrast(self, overrides: dict[str, Any], item: str) -> None:
+        """Known regimes beside the rule run (X11 (c)); another axis and arm estimands refuse."""
         _refused(lambda: _engine(**overrides), item)
+
+    def test_row_2_admits_known_regimes(self) -> None:
+        """``interventions=`` and ``reference=`` naming the rule pass the configuration rows."""
+        _engine(interventions=[Static(1)])
+        _engine(interventions=[Static(1), Static(0)], reference="learned rule")
 
     @pytest.mark.parametrize("kind", list(DATA_ROWS))
     def test_the_data_rows(self, kind: str) -> None:
@@ -257,8 +267,8 @@ class TestEachRowRefusesBeforeAnyLearner:
     def test_a_copied_estimator_meets_the_same_rows(self) -> None:
         """The preflight asks the first two rows again, for a configuration no constructor saw."""
         estimator = _engine()
-        estimator.interventions = (Static(1),)
-        _refused(lambda: _fit(estimator), "X11 (c)")
+        estimator.incremental = (Incremental(2.0),)
+        _refused(lambda: _fit(estimator), "X11 (c2)")
 
     def test_a_learned_rule_that_is_not_a_learned_rule(self) -> None:
         with pytest.raises(DataError, match="LearnedRule"):
@@ -285,7 +295,7 @@ class TestTheOrder:
     def test_the_contrast_row_comes_before_the_data_rows(self) -> None:
         estimator = _engine()
         estimator.estimands = ("ate",)
-        _refused(lambda: _fit(estimator, "delta"), "X11 (c)")
+        _refused(lambda: _fit(estimator, "delta"), "interventions=[Static(1)]")
 
 
 class TestEachRemedyRunsAsWritten:
@@ -320,27 +330,39 @@ class TestEachRemedyRunsAsWritten:
         result = support.fit(estimands=None)
         assert set(result.estimates) == {support.NAME}
 
+    def test_the_static_arm_remedy_fits_the_contrast(self) -> None:
+        """An arm estimand is told to declare the arm as ``Static``, and that call fits."""
+        message = _refused(lambda: _engine(estimands=("ate",)), "interventions=[Static(1)]")
+        assert "with estimands=None" in message
+        settings = eval("dict(interventions=[Static(1)])", {"Static": Static})
+        result = support.fit(estimands=None, **settings)
+        assert "ate_learned_rule[learned rule vs always 1]" in result.estimates
+
     @pytest.mark.parametrize(
         ("overrides", "ending"),
         [
-            ({"reference": "learned rule"}, "alone, without reference="),
             (
-                {"estimands": ("ate",)},
-                "alone, with estimands=None, and fit the other target in a fit of its own",
+                {"reference": "learned rule"},
+                "or drop reference= to fit the learned-rule value alone.",
             ),
             (
-                {"interventions": [Static(1)], "reference": "learned rule"},
-                "alone, without interventions= or reference=, and fit the other target in a fit of its own",
+                {"policies": [Shift(0.5, cap=None)]},
+                "Fit the learned-rule value without policies=, and fit the other target in a "
+                "fit of its own.",
+            ),
+            (
+                {"interventions": [Static(1)], "reference": "always 1"},
+                "TMLE(interventions=[...], reference=...), a fit of its own.",
             ),
         ],
-        ids=["lone_reference", "arm_estimand", "regime_and_reference"],
+        ids=["lone_reference", "another_axis", "known_reference"],
     )
     def test_the_contrast_remedy_names_what_was_declared(
         self, overrides: dict[str, Any], ending: str
     ) -> None:
-        """A lone ``reference=`` names no other target, so its remedy drops the keyword."""
-        message = _refused(lambda: _engine(**overrides), "X11 (c)")
-        assert message.endswith(f"Fit the learned-rule value {ending}."), message
+        """Each remedy names the keyword to drop or to change, and what it then fits."""
+        message = _refused(lambda: _engine(**overrides), "")
+        assert message.endswith(ending), message
 
 
 def _as_written(message: str, *keywords: str) -> dict[str, Any]:
