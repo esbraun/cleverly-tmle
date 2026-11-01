@@ -444,6 +444,8 @@ def _other_x11_sample_seeds() -> set[int]:
     """Every sample seed a declared run of the RM30 and other X11 studies draws."""
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
+    from tests.studies import learned_rule_contrast as g
+    from tests.studies import learned_rule_contrast_properties as g_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
@@ -467,6 +469,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (e2, e2.PRIMARY_REPLICATES, e2_properties),
         (f1, f1.PRIMARY_REPLICATES, f1_properties),
         (f2, f2.PRIMARY_REPLICATES, f2_properties),
+        (g, g.PRIMARY_REPLICATES, g_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY, primary, module.PROPERTY_DRAWS, module.suffixes(record.STUDY)
@@ -474,10 +477,11 @@ def _other_x11_sample_seeds() -> set[int]:
     return seeds
 
 
-#: The two sample seeds this study shares with another X11 study, each a draw at n = 1,000 here
-#: against an RM30-law draw at n = 2,000 there: (this study's draw, the other draw). Seeds are
-#: 32-bit, and about 48,000 against the other X11 studies' 231,000 seeds expect two or three
-#: coincidences by chance. ``learned-rule-strata`` shares none.
+#: The three sample seeds this study shares with another X11 study, each a draw at n = 1,000
+#: here against an RM30-law draw at n = 2,000 there: (this study's draw, the other draw). Seeds
+#: are 32-bit, and about 48,000 against the other X11 studies' 231,000 seeds expect two or three
+#: coincidences by chance. ``learned-rule-strata`` shares none. ``learned-rule-contrast`` (X11
+#: PR G), declared later, shares the third (``test_learned_rule_contrast_design``).
 SHARED_SEEDS = {
     ("primary", "binary_weighted", 541): ("learned-rule-split-mean", "misspecified_limit", 1_507),
     ("interval_calibration", "weighted", 8_646): (
@@ -485,14 +489,19 @@ SHARED_SEEDS = {
         "interval_calibration/non_exceptional__correctly_specified",
         8_206,
     ),
+    ("interval_calibration", "weighted", 6_514): (
+        "learned-rule-contrast",
+        "conservative_coverage/misspecified_limit",
+        1_088,
+    ),
 }
 
 
-def test_no_sample_seed_is_another_x11_studys_but_two_w1_prefixes() -> None:
-    """The study's samples share no seed with each other, and two with another X11 study.
+def test_no_sample_seed_is_another_x11_studys_but_three_w1_prefixes() -> None:
+    """The study's samples share no seed with each other, and three with another X11 study.
 
     This law draws ``W1`` first, as RM30 does, so a shared seed shares a prefix of ``W1``. Each
-    of the two pairs draws 1,000 rows here and 2,000 there, so the two samples share
+    of the three pairs draws 1,000 rows here and 2,000 there, so the two samples share
     their first 1,000 values of ``W1`` and nothing else: ``W2`` starts after the ``W1`` block,
     whose length differs. That is the precedent of ``learned-rule-learners``, whose shared seed
     with ``learned-rule-compositions`` is the same kind (``test_learned_rule_study_harness``).

@@ -359,6 +359,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import fold_evaluated_strata as e1
     from tests.studies import fold_evaluated_strata_properties as e1_properties
     from tests.studies import learned_rule_compositions_properties as composition_properties
+    from tests.studies import learned_rule_contrast as g
+    from tests.studies import learned_rule_contrast_properties as g_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
@@ -379,6 +381,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (e1, e1_properties),
         (e2, e2_properties),
         (f1, f1_properties),
+        (g, g_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY,
