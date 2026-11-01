@@ -1725,7 +1725,7 @@ the record describes it.
 | composition | result |
 | --- | --- |
 | either report, the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1 on rows | admitted, experimental. The key carries the qualifier `known_regimes`, which no row declares, so no learned-rule row covers a contrast fit |
-| `simultaneous=True` with two or more estimates | refused before any learner, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The remedy is `simultaneous=False` |
+| `simultaneous=True`, the default | no band over a known value or a contrast, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The fit skips the band and `summary()` says why, as for a Student $t$ reference, and `simultaneous_bands()` called on those estimates raises `CapabilityError` (`inference_gap`). The stratified band of the learned-rule value alone still runs when only `ey_learned_rule` is requested |
 | `policies=`, `incremental=` or `msm=` | refused, X11 (c2), row 2 of the table below |
 | `repeats` above 1 with `id=`, and `strata=` with `id=` | refused, rows 9 and 8 |
 | the omitted-variable bound | the bound of each value runs, the learned-rule value as a point bound and each known value as a regime bound. The bound of a contrast refuses, X11 (n2) |
@@ -1740,6 +1740,11 @@ mean of four single-split fits. The joint standard error is more than 5 times
 $|se_L - se_K|$ and below 0.7 times $\sqrt{se_L^2 + se_K^2}$, and misaligning the two curves by
 one row raises it by more than half. Each column's fold-average score is solved, and the
 fluctuation of the learned column alone leaves the known score above 0.01.
+
+Inside each baseline stratum, and under known weights, the contrast's point and curve are the
+differences, and its variance is the report's rule applied to that curve. With the constructor's
+defaults the fit skips the band and says so in `summary()`, and `simultaneous_bands()` called on
+a known value or a contrast refuses.
 
 #### Refusals and the result record
 
@@ -1757,7 +1762,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | order | request | item |
 | ---: | --- | --- |
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; an arm estimand; or a contrast declaration that the fit cannot report ([contrasts with known regimes](#learned-rules)) | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2) for another axis. The others are declaration errors whose remedy is the spelling that runs: `Static(a)` for an arm |
+| 2 | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; an arm estimand; or a contrast declaration that the fit cannot report ([contrasts with known regimes](#learned-rules)) | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2) for another axis. The others are redirections (`api_redirection`: `Static(a)` for an arm, and `ey_known_regime` or `ate_learned_rule` for `ey_regime` or `ate_regime`) or declaration errors (`invalid_declaration`), each with the spelling that runs as its remedy |
 | 3 | a continuous treatment | F27 |
 | 4 | a treatment with more than two arms | X11 (d) |
 | 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |

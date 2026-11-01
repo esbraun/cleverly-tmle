@@ -55,7 +55,6 @@ __all__ = [
     "BLIP_QUANTILE_LEVELS",
     "CONTRAST_TARGETS",
     "LEARNED_RULE_ARM_REMEDY",
-    "LEARNED_RULE_BAND_REFUSAL",
     "LEARNED_RULE_BENCHMARK_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
     "LEARNED_RULE_EVALUE_REFUSAL",
@@ -76,10 +75,10 @@ __all__ = [
     "freeze_learned_rule",
     "frozen_rule_replay",
     "in_sample_learner_condition",
-    "learned_rule_band_refusal",
     "learned_rule_configuration_refusal",
     "learned_rule_estimands",
     "learned_rule_record",
+    "learned_rule_retarget_refusal",
     "learned_rule_scheme_refusal",
     "learned_rule_split",
     "learned_rule_splits_refusal",
@@ -1318,55 +1317,10 @@ def _arm_estimands(estimands: Any) -> tuple[str, ...]:
 
 #: The targets of a learned-rule fit that read a known regime declared beside the rule
 #: (X11 (c)).  A fit without ``interventions=`` reports neither, and refuses either by name.
+#: No simultaneous band covers them: ``simultaneous_bands()`` refuses them with
+#: :data:`~cleverly.inference.multiplier.KNOWN_REGIME_BAND_REFUSAL`, and a fit skips its
+#: default band (X11 (c2)).
 CONTRAST_TARGETS: tuple[str, ...] = ("ey_known_regime", "ate_learned_rule")
-
-
-#: Why a learned-rule fit with known regimes builds no simultaneous band (X11 (c2)).
-LEARNED_RULE_BAND_REFUSAL = Refusal(
-    RefusalReason.INFERENCE_GAP,
-    "simultaneous=True builds a joint band over the learned-rule value, the known-regime "
-    "values and their contrasts, and that band is not implemented. Joint normality of the "
-    "stack gives each contrast's interval, and a band over a data-adaptive value and fixed "
-    f"regimes has no witness ({_X11.format(part='c2')}).",
-    alternative=(
-        "Set simultaneous=False, which keeps each estimate's own interval, or fit the "
-        "learned-rule value without interventions=."
-    ),
-    roadmap="X11",
-)
-
-
-def learned_rule_band_refusal(
-    estimator: Any, estimands: Sequence[str], strata: bool
-) -> Refusal | None:
-    """Return :data:`LEARNED_RULE_BAND_REFUSAL` when a contrast fit would build a band.
-
-    A band needs two estimates.  The learned-rule value is one, and each known-regime
-    target is one per declared regime; baseline strata add a value per stratum.
-
-    Parameters
-    ----------
-    estimator : TMLE
-        The estimator.
-    estimands : sequence of str
-        The resolved estimand names.
-    strata : bool
-        Whether the data declare baseline strata.
-
-    Returns
-    -------
-    Refusal or None
-        The refusal, or ``None`` when the fit has no known regime, no band, or one estimate.
-    """
-    if getattr(estimator, "learned_rule", None) is None or not getattr(
-        estimator, "interventions", ()
-    ):
-        return None
-    if not getattr(estimator, "simultaneous", False):
-        return None
-    known = len(estimator.interventions)
-    count = sum(known if name in CONTRAST_TARGETS else 1 for name in estimands)
-    return LEARNED_RULE_BAND_REFUSAL if count > 1 or (strata and count) else None
 
 
 def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, ...]:
@@ -1410,24 +1364,54 @@ def _requested(estimands: Any) -> tuple[str, ...]:
     return (estimands,) if isinstance(estimands, str) else tuple(estimands)
 
 
-def _contrast_refusal(estimator: Any) -> Refusal | None:
+def learned_rule_retarget_refusal(estimator: Any, requested: Sequence[str]) -> Refusal | None:
+    """The refusal of a retarget that asks a learned-rule fit for a target it cannot report.
+
+    :meth:`~cleverly.estimators.TMLE.retarget` can name any target of the fit's axis, and a
+    known-regime target on a fit without ``interventions=`` would otherwise return no
+    estimate.  It refuses as the constructor refuses the same request.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+    requested : sequence of str
+        The targets the retarget names.
+
+    Returns
+    -------
+    Refusal or None
+        The ``INVALID_DECLARATION`` refusal, or ``None``.
+    """
+    if getattr(estimator, "learned_rule", None) is None:
+        return None
+    if getattr(estimator, "interventions", ()):
+        return None
+    if not any(name in CONTRAST_TARGETS for name in requested):
+        return None
+    return _contrast_refusal(estimator, requested)
+
+
+def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) -> Refusal | None:
     """The refusal of a known-regime contrast that the learned-rule fit cannot report.
 
     Three declarations: a known-regime target without ``interventions=``, ``reference=``
     without ``interventions=``, and ``reference=`` naming a known regime, which would ask for
     a contrast of two known regimes.  A known regime that takes the learned rule's name is
-    refused too, because every reported name would be ambiguous.
+    refused too, because every reported name would be ambiguous.  ``requested`` replaces
+    the estimator's ``estimands=`` for a retarget, which names its own targets.
     """
     interventions = tuple(getattr(estimator, "interventions", ()) or ())
     reference = getattr(estimator, "reference", None)
     rule = estimator.learned_rule
     names = [str(item.name) for item in interventions]
     if not interventions:
-        asked = [
-            name
-            for name in _requested(getattr(estimator, "estimands", None))
-            if name in CONTRAST_TARGETS
-        ]
+        written = (
+            _requested(getattr(estimator, "estimands", None))
+            if requested is None
+            else tuple(requested)
+        )
+        asked = [name for name in written if name in CONTRAST_TARGETS]
         if asked or reference is not None:
             named = [
                 *([f"estimands={asked}"] if asked else []),
@@ -1756,7 +1740,9 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     order   request                                              item
     ======  ===================================================  ===================
     1       ``CTMLE`` or ``DRTMLE``                              F27
-    2       another axis keyword, ``reference=``, arm estimands  X11 (c)
+    2       another axis keyword                                 X11 (c2)
+            an arm estimand or ``ey_regime`` (a redirection)     none, a redirection
+            a contrast declaration the fit cannot report         none, a declaration
     3       a continuous treatment                               F27
     4       more than two arms                                   X11 (d)
     5       missing outcomes, ``delta=``                         F27
@@ -1768,6 +1754,10 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     11      ``loss="blip"`` with ``weights=`` and a learner      none, a declaration
             whose ``fit`` takes no ``sample_weight``
     ======  ===================================================  ===================
+
+    The simultaneous band is no row. A fit with known regimes skips the band over their
+    values and contrasts, and ``summary()`` says why;
+    :func:`~cleverly.inference.simultaneous_bands` called on them refuses (X11 (c2)).
 
     ``cross_fit=False`` is no row: it fits the value of the one rule learned on every row
     (X11 (a)).  ``cross_fit=True`` with one fold, and ``repeats`` above 1 without

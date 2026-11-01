@@ -188,7 +188,7 @@ from ..inference.influence import (
     reduced_correction_parts,
     stamp_inference,
 )
-from ..inference.multiplier import MultiplierKind, simultaneous_bands
+from ..inference.multiplier import MultiplierKind, known_regime_estimates, simultaneous_bands
 from ..inference.results import attach_bootstrap
 from ..interventions import (
     Incremental,
@@ -210,10 +210,10 @@ from ..interventions.learned import (
     _learned_rule_regimes,
     check_fold_rules,
     in_sample_learner_condition,
-    learned_rule_band_refusal,
     learned_rule_configuration_refusal,
     learned_rule_estimands,
     learned_rule_record,
+    learned_rule_retarget_refusal,
     learned_rule_scheme_refusal,
     learned_rule_split,
     learned_rule_treat,
@@ -763,10 +763,11 @@ class TMLE:
         on the same folds: the fit also reports each regime's value (``ey_known_regime``) and
         its contrast with the learned rule (``ate_learned_rule``), the rule minus the regime,
         or the regime minus the rule with ``reference=`` naming the rule (experimental; the
-        contrast's curve is the difference of the two curves).  Such a fit refuses
-        ``simultaneous=True``.  It refuses ``policies=``, ``incremental=``, ``msm=`` and an arm
-        estimand beside it, and a continuous or multi-arm treatment, missing outcomes,
-        ``intermediate=`` and estimated weights.
+        contrast's curve is the difference of the two curves).  Such a fit builds no
+        simultaneous band over those estimates, and ``summary()`` says why.  It refuses
+        ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, and a
+        continuous or multi-arm treatment, missing outcomes, ``intermediate=`` and estimated
+        weights.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
         rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
@@ -1871,15 +1872,14 @@ class TMLE:
             refusal = fold_evaluated_strata_refusal(data, estimands)
             if refusal is not None:
                 raise refusal
-        band = learned_rule_band_refusal(self, estimands, data.has_strata)
-        if band is not None:
-            raise CapabilityError.from_refusal(band)
-        if self.simultaneous and len(estimands) > 1:
+        if self.simultaneous and len(estimands) > 1 and self.learned_rule is None:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
             # refusing on the flag would refuse every single-estimand repeated fit over a
             # band the fit would never build.  One estimand can still expand into several
             # estimates, so the construction site refuses again once the count is known.
+            # A learned-rule fit reports the mean over splits, not the median, so it is
+            # exempt here as it is there; its known-regime band is skipped (X11 (c2)).
             refuse_after_repeats(
                 self.repeats,
                 operation="simultaneous=True",
@@ -2236,6 +2236,10 @@ class TMLE:
         # refuses, because that is an explicit request.
         # A band over an estimate with a Student t reference is skipped for the same
         # reason: no source gives a t-calibrated joint band, and ``summary()`` says so.
+        # So is a band over the known-regime values and contrasts of a learned-rule fit
+        # (X11 (c2)): no witness covers a band over a data-adaptive value and fixed regimes.
+        # The learned-rule value's own stratified band still runs when those are not
+        # reported.
         # An estimate whose parameter status withholds its interval stays out of the band,
         # which is then a joint statement over the others, and below two of them no band is
         # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
@@ -2248,11 +2252,12 @@ class TMLE:
             and len(banded) > 1
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
+            and not known_regime_estimates(banded)
         ):
             # A learned-rule fit reports the mean over its splits, which is linear, so the
             # band reads the mean curves as it reads the curves of one split. A learned-rule
-            # fit reaches here with several estimates only with baseline strata: the
-            # preflight refuses the band of a fit with known regimes (X11 (c2)).
+            # fit reaches here with several estimates only with baseline strata, because
+            # the band of a known-regime value or contrast is skipped above.
             if self.learned_rule is None:
                 refuse_after_repeats(
                     self.repeats,
@@ -4638,6 +4643,11 @@ class TMLE:
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=f"{route}.",
             )
+        # A known-regime target of a learned-rule fit without ``interventions=`` would
+        # report nothing; it refuses as the constructor refuses it (X11 (c)).
+        contrast = learned_rule_retarget_refusal(self, requested)
+        if contrast is not None:
+            raise CapabilityError.from_refusal(contrast)
         if self.cv_evaluation and not nuisance.folds.is_single:
             # The fit refuses these before any learner; a direct call can still name a
             # target outside the fold-evaluated stratum construction (X28).

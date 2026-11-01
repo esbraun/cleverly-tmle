@@ -1203,6 +1203,14 @@ def support_for(
             nearest_id, axes = classification.nearest
             nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
+            if nearest is not None and "qualifiers" in axes:
+                # Name the qualifiers that differ, so a reader learns which declaration
+                # keeps the row from covering the fit.
+                differing = sorted(classification.key.qualifiers ^ nearest.key.qualifiers)
+                axes = tuple(
+                    f"qualifiers ({' and '.join(differing)})" if axis == "qualifiers" else axis
+                    for axis in axes
+                )
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
     elif not row.licenses(kind, classification.key.family):

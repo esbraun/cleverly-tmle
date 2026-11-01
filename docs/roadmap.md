@@ -929,7 +929,7 @@ own contract, witnesses and registered study before it ships, as the learned-rul
 | part | the request that the contract refuses | published source | readiness |
 | --- | --- | --- | --- |
 | (b) learned longitudinal regimens | `DynamicRegimen(..., rule_kind="estimated")` | van der Laan and Luedtke (2015), Sections 2 and 7, at two time points | published support; pending source read |
-| (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous=True` on a fit with `interventions=` | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
+| (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
 | (d) categorical treatments | a treatment with more than two arms | Nordland and Holst (2026), Section 3.4, for discrete actions | source audit |
 | (f) the value of the optimal rule | no request reaches it | van der Laan and Luedtke (2015), Section 7.2, last paragraph; Luedtke and van der Laan (2016), *Annals of Statistics* | published support; pending source read |
 
@@ -988,7 +988,8 @@ asymptotically linear estimators, a step no source states. A static arm is spell
 `Static(a)`, and arm estimands keep their refusal. The key carries the qualifier
 `known_regimes`, so no learned-rule row covers such a fit, and every one reads experimental
 until the `learned-rule-contrast` study registers. The simultaneous band and another parameter
-axis are part (c2), and the bound of a contrast joins part (n2).
+axis are part (c2): the fit skips its default band and `summary()` says why, and
+`simultaneous_bands()` refuses those estimates. The bound of a contrast joins part (n2).
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).

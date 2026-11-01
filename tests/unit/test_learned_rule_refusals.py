@@ -47,6 +47,7 @@ from cleverly.exceptions import (
     DataError,
     MethodConfigurationError,
     PositivityWarning,
+    RefusalReason,
 )
 from cleverly.interventions import Incremental, LearnedRule, Rule, Shift, Static
 from cleverly.interventions.learned import (
@@ -203,6 +204,8 @@ class TestEachRowRefusesBeforeAnyLearner:
             ({"reference": "learned rule"}, "interventions=[Static(1)]"),
             ({"estimands": ("ate",)}, "interventions=[Static(1)]"),
             ({"estimands": ("ate_learned_rule",)}, "interventions=[Static(1)]"),
+            ({"interventions": [Static(1)], "estimands": ("ey_regime",)}, "ey_known_regime"),
+            ({"interventions": [Static(1)], "estimands": ("ate_regime",)}, "ate_learned_rule"),
             ({"interventions": [Static(1)], "reference": "always 1"}, "a regime contrast"),
             ({"interventions": [Static(1)], "reference": "nope"}, "reference='learned rule'"),
             ({"interventions": [Static(1, name="learned rule")]}, "LearnedRule(name=...)"),
@@ -331,12 +334,37 @@ class TestEachRemedyRunsAsWritten:
         assert set(result.estimates) == {support.NAME}
 
     def test_the_static_arm_remedy_fits_the_contrast(self) -> None:
-        """An arm estimand is told to declare the arm as ``Static``, and that call fits."""
+        """An arm estimand is told to declare the arm as ``Static``, and that call fits.
+
+        The call runs with the constructor's defaults, ``simultaneous=True`` among them,
+        because the remedy prints no other setting.
+        """
         message = _refused(lambda: _engine(estimands=("ate",)), "interventions=[Static(1)]")
         assert "with estimands=None" in message
         settings = eval("dict(interventions=[Static(1)])", {"Static": Static})
-        result = support.fit(estimands=None, **settings)
+        result = _default_fit(estimands=None, **settings)
         assert "ate_learned_rule[learned rule vs always 1]" in result.estimates
+        assert result.simultaneous is None
+
+    @pytest.mark.parametrize("asked", ["ey_regime", "ate_regime"])
+    def test_the_regime_redirection_fits_as_written(self, asked: str) -> None:
+        """``ey_regime`` and ``ate_regime`` name this fit's targets, and both spellings fit."""
+        with pytest.raises(CapabilityError) as caught:
+            _engine(interventions=[Static(1)], estimands=(asked,))
+        assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+        message = _refused(
+            lambda: _engine(interventions=[Static(1)], estimands=(asked,)), "ey_known_regime"
+        )
+        assert "or estimands=None for all three." in message
+        names = ["ey_learned_rule", "ey_known_regime", "ate_learned_rule"]
+        assert f"estimands={names}" in message
+        for estimands in (names, None):
+            result = _default_fit(interventions=[Static(1)], estimands=estimands)
+            assert list(result.estimates) == [
+                support.NAME,
+                "ey_known_regime[always 1]",
+                "ate_learned_rule[learned rule vs always 1]",
+            ]
 
     @pytest.mark.parametrize(
         ("overrides", "ending"),
@@ -363,6 +391,23 @@ class TestEachRemedyRunsAsWritten:
         """Each remedy names the keyword to drop or to change, and what it then fits."""
         message = _refused(lambda: _engine(**overrides), "")
         assert message.endswith(ending), message
+
+
+def _default_fit(**overrides: Any) -> Any:
+    """Fit with the constructor's defaults, except the explicit learners and the folds."""
+    estimator = TMLE(
+        learned_rule=LearnedRule(),
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        random_state=0,
+        **support.FOLD_EVALUATED,
+        **overrides,
+    )
+    assert estimator.simultaneous
+    return estimator.fit(
+        support.law_frame(), outcome="Y", treatment="A", covariates=support.COVARIATES
+    ).single()
 
 
 def _as_written(message: str, *keywords: str) -> dict[str, Any]:
@@ -535,6 +580,19 @@ class TestRetargetKeepsTheLearnedRuleAxis:
     def test_another_axis_refuses(self, result: Any, estimands: tuple[str, ...]) -> None:
         with pytest.raises(CapabilityError, match="rule learned inside each training fold"):
             result.estimator.retarget(result.data, result.nuisance, estimands=estimands)
+
+    @pytest.mark.parametrize("asked", ["ey_known_regime", "ate_learned_rule"])
+    def test_a_known_regime_target_without_known_regimes_refuses(
+        self, result: Any, asked: str
+    ) -> None:
+        """As the constructor refuses it, rather than returning no estimate."""
+        with pytest.raises(CapabilityError) as caught:
+            result.estimator.retarget(result.data, result.nuisance, estimands=(asked,))
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "interventions=[Static(1)]" in str(caught.value)
+        with pytest.raises(CapabilityError) as constructed:
+            support.learned_tmle(estimands=(asked,))
+        assert constructed.value.refusal == caught.value.refusal
 
 
 def test_a_longitudinal_design_cites_x11_b() -> None:

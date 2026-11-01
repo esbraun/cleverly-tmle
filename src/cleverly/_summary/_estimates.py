@@ -100,8 +100,18 @@ def plain_support_reason(reason: str) -> str:
         The same facts in words a reader of the analysis can use.
     """
 
+    def axis_words(axis: str) -> str:
+        named = re.fullmatch(r"qualifiers \(([^)]*)\)", axis)
+        if named is None:
+            return vocabulary.SUPPORT_AXES.get(axis, axis)
+        words = dict.fromkeys(
+            vocabulary.SUPPORT_QUALIFIERS.get(name, name.replace("_", " "))
+            for name in named[1].split(" and ")
+        )
+        return " and ".join(words)
+
     def nearest(match: re.Match[str]) -> str:
-        axes = [vocabulary.SUPPORT_AXES.get(axis, axis) for axis in match[1].split(", ")]
+        axes = [axis_words(axis) for axis in match[1].split(", ")]
         return f"The nearest validated kind of fit differs in {', '.join(axes)}."
 
     text = re.sub(

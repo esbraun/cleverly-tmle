@@ -21,6 +21,7 @@ import numpy as np
 
 from .._inference_status import (
     MINIMUM_INTERVAL_CLUSTERS,
+    NO_KNOWN_REGIME_BANDS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
@@ -55,6 +56,7 @@ from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
     bootstrap_is_diagnostic,
 )
+from ..inference.multiplier import known_regime_estimates
 from ..targets import TARGETS
 from ._method_summary import method_facts
 
@@ -136,6 +138,9 @@ def base_summary_facts(result: TMLEResult) -> SummaryFacts:
     learned = result.extra.get("learned_rule")
     if learned is not None:
         details.append(learned.describe())
+        known = _known_regimes_line(result)
+        if known is not None:
+            details.append(known)
     return SummaryFacts(
         title=vocabulary.ESTIMATE_TITLE.format(method=vocabulary.method_short_name(method)),
         method=record.method or vocabulary.method_name(method),
@@ -657,14 +662,17 @@ def _fit_notes(
     if result.data.is_weighted:
         notes.append(note("weighted_population", vocabulary.NOTE_TEXTS["weighted_population"]))
     if result.n_repeats > 1:
+        if result.config.parameter_axis != "learned_rule":
+            text = "repeated_splits"
+        elif getattr(result.estimator, "interventions", ()):
+            # A known regime's value targets the same fixed parameter in every split.
+            text = "repeated_splits_mean_known"
+        else:
+            text = "repeated_splits_mean"
         notes.append(
             note(
                 "repeated_splits",
-                vocabulary.NOTE_TEXTS[
-                    "repeated_splits_mean"
-                    if result.config.parameter_axis == "learned_rule"
-                    else "repeated_splits"
-                ].format(repeats=result.n_repeats, spread=spread),
+                vocabulary.NOTE_TEXTS[text].format(repeats=result.n_repeats, spread=spread),
             )
         )
     if config.cross_fit and config.crossfit.n_folds != config.n_folds:
@@ -839,11 +847,16 @@ def _assumptions(result: TMLEResult) -> SummarySection:
         lines.extend(f"- {_with_arm_label(result, item)}" for item in seen)
         lines.extend(f"- {item}" for item in _missing_data_assumptions(result))
     try:
-        available = result.sensitivity.capability("omitted_confounding").available
+        capability = result.sensitivity.capability("omitted_confounding")
     except (KeyError, AttributeError):
-        available = False
-    if available:
+        capability = None
+    if capability is not None and capability.available:
         lines.append(vocabulary.SENSITIVITY_POINTER)
+    elif capability is not None and "estimand" in capability.requires_arguments:
+        # A fit of several rows defers the bare request on its estimand: the bound runs
+        # once a row is named, as on a learned-rule fit with fixed rules beside it, whose
+        # values can each be bounded though their contrasts cannot.
+        lines.append(vocabulary.SENSITIVITY_POINTER_ONE_ROW)
     return SummarySection(vocabulary.SECTION_ASSUMPTIONS, tuple(lines))
 
 
@@ -1016,6 +1029,21 @@ def _cluster_fact(data: CausalData) -> str:
     return fact
 
 
+def _known_regimes_line(result: TMLEResult) -> str | None:
+    """The Method details line naming the fixed rules beside a learned rule, or ``None``."""
+    estimator = result.estimator
+    interventions = tuple(getattr(estimator, "interventions", ()) or ())
+    if not interventions:
+        return None
+    rule = getattr(estimator, "learned_rule", None)
+    reference = getattr(estimator, "reference", None)
+    flipped = rule is not None and reference is not None and str(reference) == rule.name
+    return vocabulary.LEARNED_RULE_KNOWN_REGIMES.format(
+        names=", ".join(str(item.name) for item in interventions),
+        contrast=vocabulary.LEARNED_RULE_CONTRAST_DIRECTION[flipped],
+    )
+
+
 def _band_settings(result: TMLEResult) -> list[str]:
     """Why a fit with several rows has no simultaneous band, when it would have had one."""
     estimates = result.estimates
@@ -1029,6 +1057,8 @@ def _band_settings(result: TMLEResult) -> list[str]:
         return [NO_SIMULTANEOUS_BANDS]
     if t_reference:
         return [NO_T_REFERENCE_BANDS]
+    if known_regime_estimates(estimates):
+        return [NO_KNOWN_REGIME_BANDS]
     withheld = [name for name, estimate in estimates.items() if not estimate.supplies_inference]
     if withheld:
         return [

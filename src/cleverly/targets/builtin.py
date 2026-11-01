@@ -209,9 +209,10 @@ _LEARNED_RULE_CONTRAST_ID = Identification(
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
         "the remainder of each side is as for its own estimand; on Corollary 3's route "
-        "(g a maximum-likelihood fit in a correct model) each true curve is D_j minus its "
-        "projection on the mechanism's tangent space, the projection is linear, so the "
-        "contrast's variance from D_L - D_K is conservative"
+        "(g a maximum-likelihood fit in a correct model), if Corollary 3's D_g term is the "
+        "projection of D_j on the mechanism's tangent space, each true curve is D_j minus "
+        "that projection, the projection is linear, and the contrast's variance from "
+        "D_L - D_K would be conservative; that form of D_g is not checked (X11 (c))"
     ),
     references=_LEARNED_RULE_ID.references,
 )

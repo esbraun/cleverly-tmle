@@ -125,7 +125,7 @@ not a free one.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -149,6 +149,20 @@ T_REFERENCE_BAND_REFUSAL = Refusal(
     "and no source read here gives a simultaneous band at that count.",
     alternative="Report the pointwise intervals, which use the t reference.",
     roadmap="F28",
+)
+
+#: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
+KNOWN_REGIME_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() has no joint result over a learned-rule value, the known-regime "
+    "values beside it (ey_known_regime) and their contrasts (ate_learned_rule). Joint "
+    "normality of the stack gives each contrast's own interval, and a band over a "
+    "data-adaptive value and fixed regimes has no witness (X11 (c2) in docs/roadmap.md).",
+    alternative=(
+        "Report the pointwise intervals, or pass simultaneous_bands() the estimates without "
+        "the ey_known_regime and ate_learned_rule ones."
+    ),
+    roadmap="X11",
 )
 
 __all__ = [
@@ -521,7 +535,10 @@ def simultaneous_bands(
         gives a t-calibrated band. Also, with code ``inference_gap``, if any estimate
         declares ``covariance_rule="second_moment"``. The multiplier draws center each
         influence curve, which matches the raw second moment only on a mean-zero curve,
-        and this function does not check the mean.
+        and this function does not check the mean. Also, with code ``inference_gap``, if
+        any estimate is a known-regime value (``ey_known_regime``) or a contrast of the
+        learned rule with a known regime (``ate_learned_rule``): no joint result covers a
+        band over a data-adaptive value and fixed regimes (X11 (c2)).
     """
     items = _checked_items(estimates)
     n = items[0][1].n
@@ -565,6 +582,8 @@ def _checked_items(
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
     if any(estimate.reference_df is not None for _, estimate in items):
         raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
+    if known_regime_estimates(name for name, _ in items):
+        raise CapabilityError.from_refusal(KNOWN_REGIME_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]
@@ -584,6 +603,30 @@ def _checked_items(
     if len(lengths) != 1:
         raise ValueError(f"influence curves have inconsistent lengths: {lengths}")
     return items
+
+
+def known_regime_estimates(names: Iterable[str]) -> list[str]:
+    """The names among ``names`` that read a known regime beside a learned rule.
+
+    Each is an ``ey_known_regime`` or ``ate_learned_rule`` parameter, a stratum alias
+    included, and no band covers it (:data:`KNOWN_REGIME_BAND_REFUSAL`).
+
+    Parameters
+    ----------
+    names : iterable of str
+        Reported parameter names.
+
+    Returns
+    -------
+    list of str
+        The names whose stem is in
+        :data:`~cleverly.interventions.learned.CONTRAST_TARGETS`, in order.
+    """
+    # Imported here: the interventions package imports this one.
+    from ..interventions.learned import CONTRAST_TARGETS
+    from ..targets.base import parameter_stem
+
+    return [name for name in names if parameter_stem(name) in CONTRAST_TARGETS]
 
 
 def _band_endpoints(

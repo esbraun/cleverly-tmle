@@ -37,21 +37,22 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 
+from cleverly._inference_status import NO_KNOWN_REGIME_BANDS
+from cleverly._summary import vocabulary
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
-from cleverly.inference import influence_variance
+from cleverly.inference import influence_variance, simultaneous_bands
+from cleverly.inference.multiplier import KNOWN_REGIME_BAND_REFUSAL
 from cleverly.interventions import LearnedRule, Rule, Static
-from cleverly.interventions.learned import (
-    LEARNED_RULE_BAND_REFUSAL,
-    freeze_learned_rule,
-    frozen_rule_replay,
-)
+from cleverly.interventions.learned import freeze_learned_rule, frozen_rule_replay
 from cleverly.sensitivity import omitted_variable_bounds
 from cleverly.validation import refute
 from cleverly.validation.refute import _placebo_null
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit.test_learned_rule_in_sample import SignStub
+from tests.unit.test_learned_rule_strata import FIT as STRATA_FIT
+from tests.unit.test_learned_rule_strata import _strata_frame
 
 #: The reported names of a fit with the default rule beside ``Static(1)``.
 LEARNED = support.NAME
@@ -387,6 +388,12 @@ class TestWc4Covariance:
         assert se_c < W_C4_INDEPENDENT * float(np.hypot(se_l, se_k))
 
     def test_control_misaligned_rows_change_the_se(self) -> None:
+        """A power check that the joint SE sees the pairing of rows, not a library mutation.
+
+        W-c1 is the witness for pairing: it rebuilds the contrast variance from the two
+        curves at rel 1e-12, so a known column taken from another split, which moves the SE
+        by about 2%, fails it already.
+        """
         learned, known, tests = _curves()
         se_c = self._se()[2]
         rolled = float(np.sqrt(_cross_validated(learned - np.roll(known, 1), tests)))
@@ -486,10 +493,7 @@ class TestTheCompositions:
             support.learned_tmle(interventions=[Static(1)]).fit(frame, weights="w", **FIT).single()
         )
         assert result.config.support_key.weighting == "fixed"
-        estimates = result.estimates
-        assert estimates[CONTRAST].psi == pytest.approx(
-            estimates[LEARNED].psi - estimates[KNOWN].psi, rel=1e-12, abs=1e-15
-        )
+        _assert_the_difference(result.estimates, "", cv_evaluation=True)
 
     def test_clusters(self) -> None:
         frame = support.law_frame(400, 0).assign(c=np.arange(400) // 4)
@@ -505,12 +509,28 @@ class TestTheCompositions:
             .fit(support.law_frame(400, 0), strata=["W2"], **FIT)
             .single()
         )
-        for label in ("W2=0.0", "W2=1.0"):
-            contrast = result.estimates[f"{CONTRAST}[{label}]"]
-            learned = result.estimates[f"{LEARNED}[{label}]"]
-            known = result.estimates[f"{KNOWN}[{label}]"]
-            assert contrast.psi == pytest.approx(learned.psi - known.psi, rel=1e-12, abs=1e-15)
+        for label in ("[W2=0.0]", "[W2=1.0]"):
+            _assert_the_difference(result.estimates, label, cv_evaluation=cv_evaluation)
         assert {"known_regimes", "strata"} <= result.config.support_key.qualifiers
+
+
+def _assert_the_difference(estimates: Any, label: str, *, cv_evaluation: bool) -> None:
+    """The contrast's point and curve are the differences, and its variance reads its curve.
+
+    The variance is the stored-curve rule of the report: :math:`n^{-2}\\sum_i c_i^2` of the
+    fold-evaluated curve, and the centred rule under the stacked report.
+    """
+    contrast, learned, known = (estimates[f"{name}{label}"] for name in (CONTRAST, LEARNED, KNOWN))
+    assert contrast.psi == pytest.approx(learned.psi - known.psi, rel=1e-12, abs=1e-15)
+    curve = np.asarray(contrast.influence_curve, dtype=float)
+    difference = np.asarray(learned.influence_curve) - np.asarray(known.influence_curve)
+    np.testing.assert_allclose(curve, difference, rtol=0, atol=1e-14)
+    # Nonzero witness: the two curves differ, so the difference is not either one.
+    assert float(np.max(np.abs(difference))) > 1e-2
+    expected = (
+        float(np.sum(curve**2)) / curve.size**2 if cv_evaluation else influence_variance(curve)
+    )
+    assert contrast.variance == pytest.approx(expected, rel=1e-12)
 
 
 # ------------------------------------------------------------------------------- refusals
@@ -520,26 +540,130 @@ def _engine(**overrides: Any) -> TMLE:
     return support.learned_tmle(**{**never_fit_learners(), **overrides})
 
 
+def _flat(text: Any) -> str:
+    """``text`` with its line wrapping undone, so a sentence is found across lines."""
+    return " ".join(str(text).split())
+
+
+def _default_fit(frame: Any = None, **overrides: Any) -> Any:
+    """A contrast fit with the constructor's defaults, except the learners and the folds."""
+    estimator = TMLE(
+        learned_rule=LearnedRule(),
+        interventions=[Static(1)],
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        random_state=0,
+        **{**support.FOLD_EVALUATED, **overrides},
+    )
+    assert estimator.simultaneous
+    frame = support.law_frame() if frame is None else frame
+    return estimator.fit(frame, **FIT).single()
+
+
 class TestTheBand:
-    def test_the_band_of_a_contrast_fit_refuses_before_any_learner(self) -> None:
-        NeverFit.calls = 0
+    """The default band is skipped beside known regimes, and a direct band call refuses."""
+
+    def test_the_default_fit_skips_the_band_and_says_why(self) -> None:
+        result = _default_fit()
+        assert list(result.estimates) == [LEARNED, KNOWN, CONTRAST]
+        assert result.simultaneous is None
+        assert _flat(NO_KNOWN_REGIME_BANDS) in _flat(result.summary(detail="full"))
+
+    def test_control_without_known_regimes_the_band_runs(self) -> None:
+        """Nonzero witness: the same default fit with strata and no known regime builds one."""
+        lone = (
+            TMLE(
+                learned_rule=LearnedRule(),
+                outcome_learner=support.outcome_learner(),
+                treatment_learner=support.treatment_learner(),
+                n_folds=5,
+                random_state=0,
+                **support.FOLD_EVALUATED,
+            )
+            .fit(support.law_frame(), strata=["W2"], **FIT)
+            .single()
+        )
+        assert lone.simultaneous is not None
+        assert _flat(NO_KNOWN_REGIME_BANDS) not in _flat(lone.summary(detail="full"))
+
+    @pytest.mark.parametrize("settings", [{"repeats": 2}, {"cv_evaluation": False}])
+    def test_repeats_and_the_stacked_report_skip_it_too(self, settings: dict[str, Any]) -> None:
+        result = _default_fit(**settings)
+        assert result.simultaneous is None
+        assert _flat(NO_KNOWN_REGIME_BANDS) in _flat(result.summary(detail="full"))
+
+    def test_strata_beside_known_regimes_skip_it(self) -> None:
+        result = (
+            TMLE(
+                learned_rule=LearnedRule(),
+                interventions=[Static(1)],
+                outcome_learner=support.outcome_learner(),
+                treatment_learner=support.treatment_learner(),
+                n_folds=5,
+                random_state=0,
+                **support.FOLD_EVALUATED,
+            )
+            .fit(support.law_frame(), strata=["W2"], **FIT)
+            .single()
+        )
+        assert f"{CONTRAST}[W2=0.0]" in result.estimates
+        assert result.simultaneous is None
+
+    def test_the_learned_value_s_stratified_band_runs_beside_known_regimes(self) -> None:
+        """Only the learned-rule value requested: its shipped stratified band still runs."""
+        result = (
+            TMLE(
+                learned_rule=LearnedRule(),
+                interventions=[Static(1)],
+                estimands=("ey_learned_rule",),
+                outcome_learner=support.outcome_learner(),
+                treatment_learner=support.treatment_learner(),
+                n_folds=5,
+                random_state=0,
+                **support.FOLD_EVALUATED,
+            )
+            .fit(support.law_frame(), strata=["W2"], **FIT)
+            .single()
+        )
+        assert set(result.estimates) == {LEARNED, f"{LEARNED}[W2=0.0]", f"{LEARNED}[W2=1.0]"}
+        assert result.simultaneous is not None
+        assert set(result.simultaneous.bands) == set(result.estimates)
+
+    @pytest.mark.parametrize(
+        "names",
+        [
+            [LEARNED, KNOWN, CONTRAST],
+            [LEARNED, KNOWN],
+            [LEARNED, CONTRAST],
+            [CONTRAST],
+        ],
+        ids=["all", "value_and_known", "value_and_contrast", "contrast_alone"],
+    )
+    def test_simultaneous_bands_refuses_a_known_value_or_contrast(self, names: list[str]) -> None:
+        estimates = _default_fit().estimates
         with pytest.raises(CapabilityError) as caught:
-            _engine(interventions=[Static(1)], simultaneous=True).fit(support.law_frame(), **FIT)
-        assert NeverFit.calls == 0
-        assert caught.value.refusal == LEARNED_RULE_BAND_REFUSAL
+            simultaneous_bands({name: estimates[name] for name in names})
+        assert caught.value.refusal == KNOWN_REGIME_BAND_REFUSAL
+        assert caught.value.refusal.reason is RefusalReason.INFERENCE_GAP
         assert "X11 (c2)" in str(caught.value)
 
-    def test_the_remedy_runs_as_written(self) -> None:
-        assert "simultaneous=False" in LEARNED_RULE_BAND_REFUSAL.alternative
-        result = support.fit(interventions=[Static(1)], simultaneous=False)
-        assert result.simultaneous is None
+    def test_simultaneous_bands_refuses_a_stratum_alias(self) -> None:
+        result = (
+            support.learned_tmle(interventions=[Static(1)])
+            .fit(support.law_frame(), strata=["W2"], **FIT)
+            .single()
+        )
+        aliases = [f"{CONTRAST}[W2=0.0]", f"{CONTRAST}[W2=1.0]"]
+        with pytest.raises(CapabilityError) as caught:
+            simultaneous_bands({name: result.estimates[name] for name in aliases})
+        assert caught.value.refusal == KNOWN_REGIME_BAND_REFUSAL
 
     def test_one_estimate_builds_no_band_and_runs(self) -> None:
         """A band needs two estimates, so one requested value meets no refusal."""
-        result = support.fit(
-            interventions=[Static(1)], simultaneous=True, estimands=("ey_learned_rule",)
-        )
+        result = _default_fit(estimands=("ey_learned_rule",))
         assert list(result.estimates) == [LEARNED]
+        assert result.simultaneous is None
 
     def test_the_learned_rule_value_is_always_reported(self) -> None:
         """Every contrast reads it and the record describes it, so a contrast-only list adds it."""
@@ -585,3 +709,62 @@ class TestTheOtherSurfaces:
         loaded = loads(dumps(result))
         assert list(loaded.estimates) == list(result.estimates)
         assert loaded.nuisance.regimes.names == ("learned rule", "always 1")
+
+    def test_a_stratum_placebo_reads_the_stratum_mean_and_a_stratum_contrast_zero(
+        self,
+    ) -> None:
+        """A known-regime stratum alias reads its stratum's outcome mean, its contrast 0."""
+        result = (
+            support.learned_tmle(interventions=[Static(1)])
+            .fit(_strata_frame(), strata=("S",), **STRATA_FIT)
+            .single()
+        )
+        data = result.data
+        means = {
+            data.stratum_label(code): float(np.mean(data.outcome[data.strata == code]))
+            for code in range(data.n_strata)
+        }
+        # Nonzero witness: the strata's outcome means differ, so E[Y] cannot pass for them.
+        assert max(means.values()) - min(means.values()) > 0.2, means
+        for label, mean in means.items():
+            for name in (LEARNED, KNOWN):
+                assert _placebo_null(result, f"{name}[{label}]") == pytest.approx(mean, rel=1e-12)
+            assert _placebo_null(result, f"{CONTRAST}[{label}]") == 0.0
+
+
+class TestTheSummary:
+    """A contrast fit's summary names the fixed rules, the band, the bound and the reason."""
+
+    @pytest.fixture(scope="class")
+    def full(self) -> str:
+        return str(_planted().summary(detail="full"))
+
+    def test_the_method_details_name_the_fixed_rules(self, full: str) -> None:
+        line = vocabulary.LEARNED_RULE_KNOWN_REGIMES.format(
+            names="always 1", contrast=vocabulary.LEARNED_RULE_CONTRAST_DIRECTION[False]
+        )
+        assert _flat(line) in _flat(full)
+
+    def test_reference_naming_the_rule_flips_the_described_direction(self) -> None:
+        result = support.fit(interventions=[Static(1)], reference="learned rule")
+        text = _flat(result.summary(detail="full"))
+        assert vocabulary.LEARNED_RULE_CONTRAST_DIRECTION[True] in text
+        assert vocabulary.LEARNED_RULE_CONTRAST_DIRECTION[False] not in text
+
+    def test_the_bound_pointer_stays(self, full: str) -> None:
+        """Each value can be bounded, so the pointer names the one-row call."""
+        assert _flat(vocabulary.SENSITIVITY_POINTER_ONE_ROW) in _flat(full)
+
+    def test_the_experimental_reason_names_the_fixed_rules(self, full: str) -> None:
+        text = _flat(full)
+        assert vocabulary.SUPPORT_QUALIFIERS["known_regimes"] in text
+        assert vocabulary.SUPPORT_AXES["qualifiers"] not in text
+        reason = _planted().estimates[LEARNED].support.reason
+        assert "differing on qualifiers (known_regimes)" in reason
+
+    def test_the_repeats_note_says_a_fixed_rule_s_target_is_fixed(self) -> None:
+        text = _flat(_repeated()[0].summary())
+        assert "A fixed rule's value has the same target in every split." in text
+        alone = _flat(support.fit(repeats=2).summary())
+        assert "A fixed rule's value" not in alone
+        assert "so each split has its own target" in alone

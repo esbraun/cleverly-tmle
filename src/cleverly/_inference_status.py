@@ -33,6 +33,7 @@ __all__ = [
     "MINIMUM_INTERVAL_CLUSTERS",
     "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
+    "NO_KNOWN_REGIME_BANDS",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
     "PARAMETER_STATUSES",
@@ -135,6 +136,16 @@ NO_T_REFERENCE_BANDS: Final[str] = (
     f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and uses a t reference, and "
     "no source gives a band calibrated to a t reference, so the fit reports one-at-a-time "
     "intervals only."
+)
+
+#: The line a result summary prints when a learned-rule fit with known regimes skips its
+#: default band. It names no roadmap item, as no summary does; the refusal of
+#: ``simultaneous_bands()`` called on these estimates names X11 (c2).
+NO_KNOWN_REGIME_BANDS: Final[str] = (
+    "No simultaneous bands: no source or validation study covers a joint band over the "
+    "value of a learned treatment rule and the fixed rules beside it, so the fit reports "
+    "one-at-a-time intervals only. simultaneous_bands() refuses these rows and says what "
+    "is missing."
 )
 
 
