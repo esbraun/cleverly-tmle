@@ -1,0 +1,109 @@
+{
+  "schema_version": 2,
+  "study": "Learned treatment rules over three arms",
+  "slug": "learned-rule-arms",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-arms",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "1b7db678431f6850ec342ed63b8a4fce1b37b0b9",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 2000,
+    "seed": 20268111,
+    "resampling_seed": 20268112,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-arms": 0.01
+    },
+    "scenarios": {
+      "three_arms": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>) at n = 2000 on a three-arm treatment; every other setting the constructor's default; repeats=1",
+    "rule": "argmax_a Qbar_v(a, w) over the arms 0, 1, 2 of each fold's outcome model; ties to the lowest arm code",
+    "outcome_learners": {
+      "declared": "ArmLogistic('declared'): LogisticRegression(C=inf, max_iter=5000, tol=1e-10) on A1, A2, W1, W2, A1W1, A1W2, A2W1, A2W2, A2W1^2 of the design (A1, A2, W1, W2)",
+      "missing_quadratic": "ArmLogistic('missing_quadratic'): LogisticRegression(C=inf, max_iter=5000, tol=1e-10) on A1, A2, W1, W2, A1W1, A1W2, A2W1, A2W2 of the design (A1, A2, W1, W2)",
+      "drop_w1": "ArmLogistic('drop_w1'): LogisticRegression(C=inf, max_iter=5000, tol=1e-10) on A1, A2, W2, A1W2, A2W2 of the design (A1, A2, W1, W2)"
+    },
+    "treatment_learner": "LogisticRegression(C=inf, max_iter=5000) on (W1, W2): the multinomial MLE, a correct model",
+    "law": "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5); g0(a | W) proportional to exp(eta_a), eta_0 = 0, eta_1 = 0.7 W1 + 0.2 W2, eta_2 = -0.4 W1 + 0.2 W2; logit Qbar0(a, W) = 0.2 + 0.5 W1 - 0.3 W2 + b_a(W), b_0 = 0, b_1 = -1 + 6 W1, b_2 = -1.75 - 6 W1 - W2 - 4 (W1^2 - 1/3)",
+    "cells": {
+      "declared": "the primary and interval_calibration (SE x 0.80 and noise controls)",
+      "missing_quadratic": "conservative_coverage: bias leg and coverage interval lower bound >= 0.92; control SE x 0.60, coverage interval upper bound < 0.92 (Corollary 3's route, by the paper's analogy; predicted SE ratio 1.0004, so not a test of conservativeness)",
+      "drop_w1": "targeting_necessity: targeted value against the untargeted plug-in"
+    },
+    "margin_condition": "gate a law cell when every arm's limit share >= 0.1 and the limit's P(top-two gap < 0.01) <= 0.02; both law cells meet it",
+    "variance": "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the stored curve",
+    "truth": "per replication: refit each fold's outcome learner on the fit's training rows with the package's fit_on_rows, take the argmax at the three arms, require it to equal the fit's rule on every validation row and the stored fold rule on every row (rule L4), and integrate Qbar0(d_v(W), W) by the trapezoid rule on 4001 points of W1 for each W2; weight 1/V",
+    "oracle_se": "sqrt(V^-2 sum_v Var D*(d_v) / n_v) at the fold rules; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_arms.py": "215a6733e338f1daa9749b97e1773941141cc2fa0dab6918542641c8bf88f017",
+    "tests/studies/learned_rule_arms_properties.py": "b6d7eea68b7c0fadff8eb5dc2982d9c5012e7ce88ffc8196aec12673bd46243e",
+    "tests/studies/_learned_rule_arms_law.py": "697a3998a66862c1b16a477d848184a459b3509304107bb34ed303ca5e9c8db0",
+    "tests/studies/_learned_rule_law.py": "c1d481a71a7eb36730712ddb1e7016ddc2e95e48b5e88aff5e119518f3151ef0",
+    "src/cleverly/estimators/tmle.py": "666f0e3e213e496c7c6ef9bb05e874000210af85f3a843d8eebe9c4cb5a93cf5",
+    "src/cleverly/estimators/_nuisance.py": "dbef8ca33f9f98b28968b07e2088531a7c8cb4c1c956c86afadfabfc8251baf8",
+    "src/cleverly/interventions/learned.py": "6903c6e1c9985f2d9f9624cd3bf7faaebf662dba52b747d5a4c571e158f87f1d",
+    "src/cleverly/interventions/base.py": "3b9db3199ad83dc5297396648e0c41acc755dcde5a675cf291da5de59692aa2b",
+    "src/cleverly/targets/builtin.py": "f799c949654a282bd54f86e712945e1980dec13d2e44067a76a6e38b62cc9b21",
+    "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
+    "src/cleverly/learners/_fitting.py": "3b6e8a9bd6d8b1499c3a86b6980929c3454147b9992e613744b3cbb87657f817",
+    "src/cleverly/_support.py": "9ac8cc28941b882c48d7c8ce27ebc65d977ade4aa73c961f5b91af90ffca26ad",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "bf779c2507d5dd9d513e87f7e54cf97d1e9ac63938431aecf4617e45d056a59a",
+    "summary.csv": "34b4a4ac675c6067e64cd4990624f063b4e1164336c7341f923f1d34b24be7a6",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "976506da4fa4e2d2e5722f31905062eda05ff4bada30a307a58a13a7ae82cb89",
+    "property-replicates.parquet": "bb82c4b25e9da432ebb14a1b51838affdb13271af1fee1f1f989c00c41fdf3e5",
+    "properties.csv": "aee7b9a6b13a65212220791efb297f26784234a15c00a988179d037ee2567e6d",
+    "harness.csv.gz": "48f75630cecc2216cfd338bb11ea4a0a015a129c60183d5d61370683aacb2cb6"
+  }
+}
