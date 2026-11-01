@@ -58,10 +58,10 @@ PACKAGES = {
 def declared_sample_seeds() -> set[int]:
     """Every sample seed a declared run of any X11 study under this run form draws.
 
-    That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2) and
-    ``learned-rule-stacked`` (X11 PR F1) among them, and
-    ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any of them
-    must avoid the declared seeds of all of them.
+    That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2),
+    ``learned-rule-stacked`` (X11 PR F1) and ``learned-rule-in-sample`` (X11 PR F2) among them,
+    and ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any of
+    them must avoid the declared seeds of all of them.
     """
     from tests.studies import fold_evaluated_strata as strata
     from tests.studies import fold_evaluated_strata_properties as strata_properties
@@ -70,6 +70,8 @@ def declared_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
+    from tests.studies import learned_rule_in_sample as in_sample
+    from tests.studies import learned_rule_in_sample_properties as in_sample_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_split_mean as split_mean
@@ -120,6 +122,12 @@ def declared_sample_seeds() -> set[int]:
         stacked.PRIMARY_REPLICATES,
         stacked_properties.PROPERTY_DRAWS,
         stacked_properties.suffixes(stacked.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        in_sample.STUDY,
+        in_sample.PRIMARY_REPLICATES,
+        in_sample_properties.PROPERTY_DRAWS,
+        in_sample_properties.suffixes(in_sample.STUDY),
     )
     return seeds
 

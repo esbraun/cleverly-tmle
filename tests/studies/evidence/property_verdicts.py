@@ -1017,6 +1017,9 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     # a marginal curve without its share term. Both report an SE below the spread.
     "unnormalised_curve_control": "below",
     "share_dropped_control": "below",
+    # X11 PR F2: an interpolating learner fitted in sample, where condition C5a fails, read
+    # with its own curve's SE against the value of its own rule.
+    "interpolating_control": "below",
 }
 
 #: The calibration controls whose deliberately invalid interval misses the truth while its
