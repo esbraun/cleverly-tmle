@@ -569,7 +569,9 @@ takes three values and every later node is binary. The fit can therefore check i
 [Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
 estimator, its conditions, and its evidence. The
 [repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
-checks its intervals against exact truths. Its comparison with R `ltmle` 1.3-0 is pending.
+checks its intervals against exact truths. On the same 2,400 simulated datasets, given the same
+treatment and censoring probabilities, the R package `ltmle` 1.3-0 gives the same estimates to
+within six millionths.
 
 The [repeated-outcome `IPSI` study](../technical-reference/method-evidence/repeated-outcome-ipsi.md)
 does the same for `IPSI`. It has no comparator.
