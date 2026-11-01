@@ -723,6 +723,11 @@ learned-rule-split-mean,interval_calibration,independent splits se ratio below b
 learned-rule-split-mean,interval_calibration,noise se ratio below band,se_high
 learned-rule-split-mean,interval_calibration,se ratio below band,se_high
 learned-rule-split-mean,interval_calibration,se ratio in calibration band,se/0.05
+learned-rule-stacked,interval_calibration,coverage in calibration band,bias
+learned-rule-stacked,interval_calibration,noise se ratio below band,se_high
+learned-rule-stacked,interval_calibration,row variance se ratio below band,se_high
+learned-rule-stacked,interval_calibration,se ratio below band,se_high
+learned-rule-stacked,interval_calibration,se ratio in calibration band,se/0.05
 learned-rule-strata,interval_calibration,coverage in calibration band,bias
 learned-rule-strata,interval_calibration,noise se ratio below band,se_high
 learned-rule-strata,interval_calibration,se ratio below band,se_high

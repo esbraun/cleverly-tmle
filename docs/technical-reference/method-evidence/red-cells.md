@@ -387,7 +387,7 @@ row. A move to `gated` is a separate registry decision.
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 76 | 0 |
 | [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
-| [node bounds on survival fits](survival-node-bounds.md) | 27 | 0 |
+| [node bounds on survival fits](survival-node-bounds.md) | 51 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |

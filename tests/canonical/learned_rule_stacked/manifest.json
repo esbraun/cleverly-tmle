@@ -1,0 +1,112 @@
+{
+  "schema_version": 2,
+  "study": "Stacked report of the learned-rule value",
+  "slug": "learned-rule-stacked",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-stacked",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "ae3088abd7711136a45ba7486d5b5c7413346278",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20263071,
+    "resampling_seed": 20263072,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-stacked": 0.01
+    },
+    "scenarios": {
+      "rows": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "weighted": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "clustered": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=False, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>) at nominal n = 2000; weights='w' (weighted); id='cluster' (clustered); repeats=1",
+    "reporting_fit": "the same with cv_evaluation=True on every clustered calibration draw",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": {
+      "rows": "RM30 non_exceptional, drawn by RM30's draw",
+      "weighted": "RM30 misspecified_limit, weight w = 1 + 1.5 * 1{W1 > 0}, drawn by the learned-rule-compositions draw",
+      "clustered": "RM30 non_exceptional logit plus 1.0 z_j, z_j ~ N(0, 1) per cluster; size N_j = 5 + Binomial(10, expit(1.5 z_j)); 200 clusters; Qbar0 the size-biased marginal over z by 64-node Gauss-Hermite quadrature"
+    },
+    "variance": {
+      "rows": "{n (n - 1)}^-1 sum_i (phi_i - phibar)^2, phibar = 0 to solver tolerance",
+      "weighted": "the same rule of phi_i = w_i (Z_i - psi), mean-one weights",
+      "clustered": "J var(T_j; ddof=1) / n^2 of the cluster totals T_j, normal reference"
+    },
+    "truth": "per replication: refit each fold's outcome learner on the fit's own training rows with its weights and clusters, require the fit's rule on every validation row, integrate each fold rule's value by the trapezoid rule on 4001 points of W1 for each W2 (and the Hermite rule in z for clustered), and weight fold v by W_v / W from the fit's weights and folds, checked against the record's fold_weights; the reporting fit's truth weights the same values by 1 / V",
+    "oracle_se": "sqrt(sum_v omega_v^2 Var D_v / n_v), row-level; descriptive",
+    "variance_terms": "cross_term and between_term: the two extra terms of the stacked variance identity over the fold-evaluated second moment; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_stacked.py": "87838ff0e14b4659a778bcad742e401a1c7aa57c789e173c4dc51c30d5e4ba19",
+    "tests/studies/learned_rule_stacked_properties.py": "5946356ca7a3558b616ec7af4e42f9aa4f14cf4a2114e5842988b99819fc86ab",
+    "tests/studies/_learned_rule_stacked_law.py": "f4e73a8b3191d8047fe360caeac641ac28249deea0d706717957db1461474601",
+    "tests/studies/_learned_rule_compositions_law.py": "e902d710039f83906540a22363e07de32a10ecaaaeac7d20063c9bc49bb681d3",
+    "tests/studies/_learned_rule_law.py": "190f9827d9787081034a2ae067a9998891ea8cfdfb108d3337a25ed36b4af5cb",
+    "src/cleverly/estimators/tmle.py": "a43d90b18b3cbaf91a9072eeb8928b719918bb6c0d9765c3005eb1ee7a792310",
+    "src/cleverly/estimators/_nuisance.py": "a4f592ecd4785ec0849b4c0871cea3e65944f01ceb0285cacb651201b8fa13b7",
+    "src/cleverly/interventions/learned.py": "eeac77983c04bb2a57099ec59af93e653c4f6f5b8e3faf8d11875181837416a1",
+    "src/cleverly/inference/cluster.py": "67fdf6bb2b744eb7c9109c66c707970afc633e42077c0c596d4a3c9e3c35671a",
+    "src/cleverly/learners/crossfit.py": "8ac87b6cac40c85e4020acd1231789b50748f44d71fac0f754f0e6cbd96fefae",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "7469a5be45ec8aa78cfeda5d680f4a360cd1dd68d598fda13acf93d4d51a0c61",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e9d80861b2a35dccff2fd979903f11652e98b9cff8cd6cca9f7bc14fb250552a",
+    "summary.csv": "9a643708e7399cecbd5343542436eb68c9a35c08de78f199d1c9012afc9ff16a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "21b0a59a6f68269a302b231fa935278e1ad546524c4659d1a503bd26cc9e7941",
+    "property-replicates.parquet": "5b50429e384df19f6abcaeec75f2ddd2e221425440f6404eee78c596a63c815c",
+    "properties.csv": "7006f11bcde627907550211165651c5ebd006b6693e934c2bc966f6e50908c3b",
+    "harness.csv.gz": "124657c985633d815cc6df125f3b335ea0f12ad12216e465b244a83aabc61cbe"
+  }
+}

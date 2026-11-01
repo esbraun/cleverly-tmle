@@ -214,6 +214,7 @@ from ..interventions.learned import (
     learned_rule_treat,
     mean_over_splits,
     refuse_learned_rule_composition,
+    stacked_fold_estimates,
 )
 from ..interventions.policy import (
     JointPolicy,
@@ -733,16 +734,21 @@ class TMLE:
         and the sensitivity analyses follow the setting, so a truncation or missingness
         sweep perturbs the same fold-evaluated estimator the headline reports.
     learned_rule:
-        A :class:`~cleverly.interventions.LearnedRule` to estimate the fold-average value of the
-        rule learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
+        A :class:`~cleverly.interventions.LearnedRule` to estimate the value of the rules
+        learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
         contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
-        ``cross_fit=True``, ``cv_evaluation=True`` and ``n_bootstrap=0``, and refuses every other
-        scheme before any learner, with that remedy.  Either targeting scheme runs, and so do
-        known observation weights and clusters.  ``repeats=R`` above 1 reports the mean over the
-        ``R`` splits, never the median, and refuses beside clusters.  With ``strata=`` the fit
-        also reports the value inside each baseline stratum: the fold average of each fold
-        rule's plug-in over the fold's rows in the stratum, with the fold-evaluated stratum
-        construction of ``cv_evaluation``; strata refuse beside clusters and fold targeting.
+        ``cross_fit=True`` with at least two folds and ``n_bootstrap=0``, and refuses every other
+        scheme before any learner, with that remedy.  ``cv_evaluation=True`` reports the
+        fold-evaluated value, the ``1/V`` average of the fold values.  ``cv_evaluation=False``
+        (the default) reports the stacked value, which weights fold ``v`` by its share
+        ``W_v / W`` of the weight mass and centres the curve at the pooled estimate.  Either
+        targeting scheme runs, and so do known observation weights and clusters.
+        ``repeats=R`` above 1 reports the mean over the ``R`` splits, never the median, and
+        refuses beside clusters.  With ``strata=`` the fit also reports the value inside each
+        baseline stratum: under ``cv_evaluation=True`` the fold average of each fold rule's
+        plug-in over the fold's rows in the stratum, with the fold-evaluated stratum
+        construction, and under the stacked report the pooled plug-in over the stratum's rows;
+        strata refuse beside clusters and fold targeting.
         It refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
         ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
         missing outcomes, ``intermediate=`` and estimated weights.
@@ -2148,26 +2154,35 @@ class TMLE:
                 "the requested split collapsed to one. Use fewer-stratified data, or "
                 "fit without fold-evaluated CV-TMLE."
             )
-        # A learned-rule fit is fold-evaluated, so the check above leaves ``cv_detail`` set.
-        # The second test is for the type checker.
-        if self.learned_rule is not None and cv_detail is not None:
-            # One record per split. ``cv_detail.fold_estimates`` describes the first split
-            # only, so each split's fold estimates are read from its own detail. The record
-            # describes the marginal value; with baseline strata its fold values are the
-            # share mixtures of the fold's stratum plug-ins.
+        if self.learned_rule is not None:
+            # One record per split, built for either report. ``cv_detail.fold_estimates``
+            # describes the first split only, so a fold-evaluated split's fold estimates are
+            # read from its own detail; with baseline strata they are the share mixtures of
+            # the fold's stratum plug-ins. A stacked split has no detail without fold
+            # targeting, so its fold values are read from its targeted fit, and they are
+            # descriptive. The record describes the marginal value.
             name = parameter_name("ey_learned_rule", arm=self.learned_rule.name)
+            scheme = "fold_evaluated" if self.cv_evaluation else "stacked"
             splits = []
-            for nuisance, seed, detail, report in zip(
-                nuisances, draw_seeds, details, per_repeat, strict=True
+            for nuisance, seed, detail, report, repeat in zip(
+                nuisances, draw_seeds, details, per_repeat, repeats, strict=True
             ):
-                assert detail is not None
+                if self.cv_evaluation:
+                    assert detail is not None
+                    fold_values: Sequence[float] = detail.fold_estimates[name]
+                else:
+                    fold_values = stacked_fold_estimates(
+                        nuisance, repeat.fluctuations["regime"].targeted, data.weights
+                    )
                 splits.append(
                     learned_rule_split(
                         self.learned_rule,
                         nuisance,
-                        detail.fold_estimates[name],
+                        fold_values,
                         seed=seed,
                         estimate=report[name].psi,
+                        scheme=scheme,
+                        weights=data.weights,
                     )
                 )
             extra = {**extra, "learned_rule": learned_rule_record(self.learned_rule, splits)}
@@ -2373,10 +2388,12 @@ class TMLE:
 
         The median rule of :func:`~cleverly.inference.influence.median_estimates` for every
         target but the learned-rule value.  A learned-rule fit reports the mean over its
-        splits (:func:`~cleverly.interventions.learned.mean_over_splits`), with the
-        variance :math:`n^{-2}\\sum_i \\bar\\phi_i^2` of the averaged fold-evaluated
-        curve, because each split defines its own target and the median of the split
-        estimates estimates no defined parameter.  ``refuse_learned_rule_composition``
+        splits (:func:`~cleverly.interventions.learned.mean_over_splits`), because each
+        split defines its own target and the median of the split estimates estimates no
+        defined parameter.  The variance is the split's own rule applied to the averaged
+        curve: :math:`n^{-2}\\sum_i \\bar\\phi_i^2` for the fold-evaluated report, and
+        :func:`~cleverly.inference.influence_variance` for the stacked report, whose split
+        curves are each centred at their own pooled estimate.  ``refuse_learned_rule_composition``
         refuses ``repeats`` above 1 with clusters, so the rows here are independent.
 
         Parameters
@@ -2391,7 +2408,10 @@ class TMLE:
         """
         if self.learned_rule is None or len(per_repeat) == 1:
             return median_estimates(per_repeat)
-        return mean_over_splits(per_repeat, variance=_second_moment_over_n_squared)
+        return mean_over_splits(
+            per_repeat,
+            variance=_second_moment_over_n_squared if self.cv_evaluation else influence_variance,
+        )
 
     # ------------------------------------------------------------- internals
 
@@ -3898,7 +3918,7 @@ class TMLE:
         if self.cv_evaluation:
             # The fold-evaluated stratum estimate needs every stratum, and every arm inside
             # it, in every validation fold of every draw (X28).
-            refuse_empty_stratum_folds(data, folds, learned_rule=self.learned_rule is not None)
+            refuse_empty_stratum_folds(data, folds)
         self._preflight_missing_outcome_folds(data, estimands, folds)
         self._preflight_training_support(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))
@@ -3925,9 +3945,6 @@ class TMLE:
             if self.cv_evaluation
             else 'one pooled fluctuation (targeting_scheme="pooled")'
         )
-        # The learned-rule value has no stacked report (X11 (e)), so its remedy is the fold
-        # count alone.
-        or_stacked = "" if self.learned_rule is not None else f", or use {stacked}"
         weights = data.weights if data.is_weighted else None
         for draw in folds:
             if draw.is_single:
@@ -3949,7 +3966,7 @@ class TMLE:
                         reason=RefusalReason.INVALID_DECLARATION,
                         alternative=(
                             f"Request at most {n_clusters // 2} folds "
-                            f"(CrossFitting(n_folds=...)){or_stacked}."
+                            f"(CrossFitting(n_folds=...)), or use {stacked}."
                         ),
                     )
 

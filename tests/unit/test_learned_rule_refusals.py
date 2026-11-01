@@ -65,12 +65,16 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 #: The engine settings of :data:`LEARNED_RULE_CONFIGURATION`, each as the message prints it.
 ENGINE_REMEDY = (
     "cross_fit=True",
-    "cv_evaluation=True",
     "n_bootstrap=0",
 )
 
-#: The method remedy that ends each method-layer fold-policy sentence.
-METHOD_REMEDY = "CrossFitting(enabled=True, fold_evaluation=True)"
+#: The method remedy that ends each method-layer fold-policy sentence.  Either report fits,
+#: so the requirement names no ``fold_evaluation``.
+METHOD_REMEDY = "CrossFitting(enabled=True)"
+
+#: The clause both remedies end with: the default is the stacked report, which no
+#: registered study covers, so each remedy names the fold-evaluated report.
+REGISTERED_PATH = "gives the fold-evaluated report that the registered studies cover"
 
 #: The two routes a learned-rule message must not offer: an in-sample fit, which X11 (a)
 #: refuses, and a shift, which X11 (c) holds beside ``learned_rule=``.
@@ -144,7 +148,6 @@ DATA_ROWS: dict[str, str] = {
 #: The fold-policy setting rows, each with its item.  Each names the configuration that fits.
 SCHEME_ROWS: dict[str, tuple[dict[str, Any], str]] = {
     "in_sample": ({"cross_fit": False, "cv_evaluation": False}, "X11 (a)"),
-    "stacked": ({"cv_evaluation": False}, "X11 (e)"),
     "bootstrap": ({"n_bootstrap": 10}, "F27"),
 }
 
@@ -185,7 +188,16 @@ class TestEachRowRefusesBeforeAnyLearner:
     def test_the_setting_rows(self, row: str) -> None:
         overrides, item = SCHEME_ROWS[row]
         message = _refused(lambda: _fit(_engine(**overrides)), item)
-        assert "cv_evaluation=True" in message and "fold_evaluation=True" in message
+        assert LEARNED_RULE_CONFIGURATION in message and METHOD_REMEDY in message
+
+    def test_the_stacked_report_reads_its_row(self) -> None:
+        """``cv_evaluation=False`` fits the stacked report (X11 (e)), keyed and registered."""
+        result = support.fit(cv_evaluation=False)
+        estimate = result.estimates[support.NAME]
+        assert result.extra["learned_rule"].scheme == "stacked"
+        assert result.config.support_key.splitting == ("stacked",)
+        assert estimate.support.label == "supported"
+        assert estimate.support.row == "T42.rows"
 
     def test_one_fold_refuses_at_construction(self) -> None:
         """The shared fold-policy sentence offers an in-sample fit, and this one does not."""
@@ -211,7 +223,7 @@ class TestTheOrder:
     def test_a_data_row_comes_before_every_setting_row(self, kind: str, row: str) -> None:
         overrides, _ = SCHEME_ROWS[row]
         message = _refused(lambda: _fit(_engine(**overrides), kind), DATA_ROWS[kind])
-        assert "fold_evaluation=True" not in message
+        assert LEARNED_RULE_CONFIGURATION not in message
 
     def test_a_continuous_treatment_is_not_told_to_declare_a_shift(self) -> None:
         """``_check_shifts`` would suggest ``policies=``, which the contrast row then refuses."""
@@ -294,6 +306,7 @@ def _method_as_written(message: str) -> CrossFitting:
     """Return :data:`METHOD_REMEDY`, found verbatim at the end of ``message``, evaluated."""
     assert message.endswith(f"{_LEARNED_RULE_METHOD_CLAUSE}."), message
     assert METHOD_REMEDY in _LEARNED_RULE_METHOD_CLAUSE
+    assert _LEARNED_RULE_METHOD_CLAUSE.endswith(REGISTERED_PATH)
     return eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})
 
 
@@ -311,6 +324,25 @@ def _study_fit(cross_fitting: CrossFitting) -> Any:
         cross_fitting=cross_fitting,
     )
     return study.identify(LearnedRuleValue()).estimate(method, simultaneous=False)
+
+
+def test_each_remedy_names_the_registered_path_and_it_fits_the_fold_evaluated_report() -> None:
+    """The default of both layers is the stacked report, so each remedy ends by naming the
+    fold-evaluated report.  The keyword each one prints, run as written, fits that report."""
+    assert LEARNED_RULE_CONFIGURATION.endswith(REGISTERED_PATH)
+    assert _LEARNED_RULE_METHOD_CLAUSE.endswith(REGISTERED_PATH)
+    engine = _as_written(LEARNED_RULE_CONFIGURATION, "cross_fit=True", "cv_evaluation=True")
+    fit = support.fit(**engine)
+    assert fit.extra["learned_rule"].scheme == "fold_evaluated"
+    clause = "CrossFitting(fold_evaluation=True)"
+    for text in (LEARNED_RULE_CONFIGURATION, _LEARNED_RULE_METHOD_CLAUSE):
+        assert clause in text
+    method = eval(clause, {"CrossFitting": CrossFitting})
+    assert _study_fit(method).extra["learned_rule"].scheme == "fold_evaluated"
+    assert (
+        _study_fit(eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})).extra["learned_rule"].scheme
+        == "stacked"
+    )
 
 
 class TestEachSharedRefusalRemedyRunsAsWritten:
@@ -519,12 +551,16 @@ class TestTheStudyRefusesTheSameRows:
     def test_identify_refuses_the_data_rows(self, kind: str) -> None:
         _refused(lambda: self._study(kind).identify(LearnedRuleValue()), DATA_ROWS[kind])
 
-    def test_the_default_method_refuses_with_the_fold_evaluated_remedy(self) -> None:
+    def test_the_default_method_fits_the_stacked_report(self) -> None:
+        """The default ``CrossFitting()`` is the stacked report, which X11 (e) admits."""
         effect = self._study("binary").identify(LearnedRuleValue())
-        message = _refused(
-            lambda: effect.estimate(**never_fit_learners(), simultaneous=False), "X11 (e)"
+        result = effect.estimate(
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+            simultaneous=False,
         )
-        assert "CrossFitting(enabled=True, fold_evaluation=True)" in message
+        assert result.extra["learned_rule"].scheme == "stacked"
+        assert np.isfinite(result.estimates[support.NAME].psi)
 
     #: The setting rows on the method, each with its exception and item.  One fold refuses in
     #: ``CrossFitting`` itself, before the estimand is known, so it raises the configuration
@@ -537,7 +573,6 @@ class TestTheStudyRefusesTheSameRows:
             MethodConfigurationError,
             "X11 (a)",
         ),
-        "stacked": ({}, {}, CapabilityError, "X11 (e)"),
         "bootstrap": ({"fold_evaluation": True}, {"n_bootstrap": 10}, CapabilityError, "F27"),
     }
 
@@ -677,16 +712,16 @@ class TestTheCompositionRemediesRunAsWritten:
         ).fit(frame, weights="w", weights_estimated=True, **fit)
         assert np.isfinite(fixed.single().estimates["ey_regime[w1]"].psi)
 
-    def test_one_cluster_in_a_fold_offers_the_fold_count_alone(self) -> None:
-        """The stacked report that arm fits are offered is refused for a learned rule."""
+    def test_one_cluster_in_a_fold_offers_the_fold_count_or_the_stacked_report(self) -> None:
+        """A learned rule is offered the stacked report, as arm fits are (X11 (e)), and both fit."""
         frame = support.law_frame(120, 3).assign(c=np.arange(120) % 6)
         fit = {"outcome": "Y", "treatment": "A", "covariates": support.COVARIATES}
         with pytest.raises(CapabilityError) as caught:
             support.learned_tmle().fit(frame, id="c", **fit)
         message = str(caught.value)
         assert "Request at most 3 folds" in message
-        assert "cv_evaluation=False" not in message
-        assert "stacked" not in message
+        assert "or use the stacked report (cv_evaluation=False" in message
         assert not any(route in message for route in FORBIDDEN)
-        result = support.learned_tmle(n_folds=3).fit(frame, id="c", **fit).single()
-        assert np.isfinite(result.estimates[support.NAME].psi)
+        for settings in ({"n_folds": 3}, {"cv_evaluation": False}):
+            result = support.learned_tmle(**settings).fit(frame, id="c", **fit).single()
+            assert np.isfinite(result.estimates[support.NAME].psi)

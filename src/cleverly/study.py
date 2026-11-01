@@ -2039,18 +2039,20 @@ class RegimeContrast:
 
 @dataclass(frozen=True)
 class LearnedRuleValue:
-    """Request the fold-average value of a treatment rule learned inside each training fold.
+    """Request the value of the treatment rules learned inside each training fold.
 
-    The target is data-adaptive.  It is the average over the outer folds of the value of
-    the rule learned on each fold's training rows, so it depends on the realized split and
-    on the fitted rules.  It is not the value of one rule fitted on all rows, and it is not
-    the value of the optimal rule.  Van der Laan and Luedtke (2015), Section 7 and
+    The target is data-adaptive.  It is a weighted average over the outer folds of the
+    value of the rule learned on each fold's training rows, so it depends on the realized
+    split and on the fitted rules.  It is not the value of one rule fitted on all rows, and
+    it is not the value of the optimal rule.  Van der Laan and Luedtke (2015), Section 7 and
     Appendix B, define it and its cross-validated TMLE.  The interval can under-cover when
     the effect is zero or near zero for a share of units, where no limiting rule exists.
 
-    The fit needs the fold-evaluated CV-TMLE, ``CrossFitting(enabled=True,
-    fold_evaluation=True)``.  The default ``CrossFitting()`` refuses before any learner
-    and names that remedy.
+    The fit needs cross-fitting with at least two folds.  The fold-evaluated report,
+    ``CrossFitting(fold_evaluation=True)``, weights each fold by ``1/V``.  The default
+    ``CrossFitting()`` gives the stacked report, which weights each fold by its share of
+    the rows (of the weight mass under weights), and reads experimental until its study
+    registers.
 
     Parameters
     ----------
@@ -2061,7 +2063,7 @@ class LearnedRuleValue:
     --------
     cleverly.interventions.LearnedRule : The rule this estimand holds.
     RegimeMean : The value of a known rule, fixed before the fit.
-    cleverly.CrossFitting : The fold-evaluated configuration this estimand needs.
+    cleverly.CrossFitting : The cross-fitting that chooses the fold-evaluated or stacked report.
 
     Examples
     --------
@@ -2075,8 +2077,8 @@ class LearnedRuleValue:
     name: str = field(default="ey_learned_rule", init=False)
     definition: str = field(
         default=(
-            "average over the outer folds of the value of the rule learned on each fold's "
-            "training rows"
+            "weighted average over the outer folds of the value of the rule learned on each "
+            "fold's training rows"
         ),
         init=False,
     )
@@ -2577,8 +2579,10 @@ class BackdoorMeanContrast:
                 "with probability above 1/2, fitted",
             }[loss]
             return (
-                f"(1/V) sum_v E_W[{regression('d_v(W)')}], where d_v(W) = 1 when "
-                f"{learned} on the training rows of outer fold v"
+                f"sum_v omega_v E_W[{regression('d_v(W)')}], where d_v(W) = 1 when "
+                f"{learned} on the training rows of outer fold v, and omega_v is 1/V under "
+                "fold evaluation and fold v's share of the rows (of the weight mass under "
+                "weights=) under the stacked report"
             )
         if self.axis == "arm":
             reference = self.reference_arm
@@ -4163,8 +4167,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
         ``available`` is per method name. A configuration of an available method can still
         refuse before any learner.  For :class:`LearnedRuleValue`, the default
-        ``TMLEMethod()`` refuses (X11 (e) in ``docs/roadmap.md``), and
-        ``TMLEMethod(cross_fitting=CrossFitting(fold_evaluation=True))`` fits.
+        ``TMLEMethod()`` fits the stacked report, and
+        ``TMLEMethod(cross_fitting=CrossFitting(fold_evaluation=True))`` fits the
+        fold-evaluated report; ``CrossFitting(enabled=False)`` refuses (X11 (a) in
+        ``docs/roadmap.md``).
         """
         point = not self.functional.longitudinal
         target = self.functional.target

@@ -982,7 +982,8 @@ A mutation control that reads the selected mechanism instead of the refit gives 
 
 #### The point bound of a learned-rule value
 
-A [learned-rule fit](point-treatment-tmle.md#learned-rules) of one split gets a point bound. With
+A fold-evaluated [learned-rule fit](point-treatment-tmle.md#learned-rules) of one split gets a
+point bound. With
 the fold rules $d_1, \dots, d_V$ held fixed, the reported value is the linear functional
 
 $$
@@ -1022,6 +1023,7 @@ $1\{A = d_{v(i)}(W_i)\} / g$, which belongs to no functional of $\bar Q$ alone.
 | `benchmark()` | refused with `implementation_gap`. Its refit would relearn the rules |
 | `weights=`, `id=`, `targeting_scheme="fold"` | admitted. The regime bound admits each of them, and none changes the functional or its representer. $\sigma^2$ and $\nu^2$ take the observation-weighted mean over every row, so the bound is of the fixed rules' value in the weighted population |
 | `repeats` above 1 | refused with `implementation_gap`. The mean over $R$ splits is linear in $\bar Q$, with representer $\bar g^\star / g$ and $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$, so the bound is well posed. It needs a choice of $g$ and $\sigma^2$ across splits and is not built ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)). The remedy is `repeats=1` |
+| the stacked report, `cv_evaluation=False` | refused with `implementation_gap`. Its value weights fold $v$'s rule by $W_v/W$, so the combined representer would be $\sum_v (W_v/W) 1\{a = d_v\} / g$, and no witness checks the bias against it ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)). The remedy is the fold-evaluated fit, `cv_evaluation=True` |
 
 Two conditions are this bound's own. For each row, $V - 1$ of the $V$ rules were learned on rows
 that include it. $\hat\nu^2$ is consistent for the fixed rules' $\nu^2$ when the rule class is
