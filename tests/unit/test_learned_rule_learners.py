@@ -336,7 +336,7 @@ class TestTheRecord:
                 seed=split.inner_seeds[fold],
             )
             np.testing.assert_array_equal(refit.treat(covariates[test]), rule[test])
-            assert np.mean(rule[test]) == split.treated_shares[fold]
+            assert np.mean(rule[test]) == split.arm_shares[fold][1]
             # The score quantiles describe the rule learner's score, not the outer blip.
             margin = refit.margin(covariates[test])
             np.testing.assert_allclose(
@@ -345,7 +345,7 @@ class TestTheRecord:
                 rtol=0,
                 atol=1e-12,
             )
-            assert split.score_quantiles[fold] != split.blip_quantiles[fold]
+            assert split.score_quantiles[fold] != split.gap_quantiles[fold]
 
     def test_a_frozen_rule_keeps_the_loss_and_the_rule(self) -> None:
         result = _blip_fit()

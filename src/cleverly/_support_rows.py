@@ -745,6 +745,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # X11 (c): known regimes beside a learned rule (``interventions=``) key the qualifier
     # ``known_regimes``, which no P11 row declares, so every contrast fit reads experimental until
     # the ``learned-rule-contrast`` study registers its rows.
+    # X11 (d): the plug-in rule over K > 2 arms keys ``treatment=("arms{K}",)``, and every P11
+    # row declares ``binary``, so every such fit reads experimental until the
+    # ``learned-rule-arms`` study registers its rows.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.

@@ -213,12 +213,19 @@ fold_evaluated = TMLEMethod(
 learned = study.estimate(LearnedRuleValue(), method=fold_evaluated, random_state=3)
 record = learned.extra["learned_rule"]
 (split,) = record.splits  # one split into five folds
-shares = split.treated_shares
+shares = split.arm_shares  # per fold: (share left untreated, share treated)
 ```
 
 The rule of fold $v$ treats a unit when the outcome regression fitted on the other folds predicts
 a higher outcome under treatment. A tie assigns control. The outcome learner therefore sets the
 rule, so give it the treatment-by-covariate terms that the rule can depend on.
+
+The treatment can also have three or more options. The rule then gives each unit the option with
+the highest predicted outcome, and a tie goes to the first option in sorted order. No validation
+study covers that case yet, so cleverly marks the estimate experimental. The two rule learners
+described in [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules),
+`loss="blip"` and `loss="weighted_classification"`, compare two options only, so with more than
+two they raise `CapabilityError` and name the default rule as the way out.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
 rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not
@@ -227,8 +234,8 @@ the value of the optimal rule. The table gives what the result holds.
 | where | content |
 | --- | --- |
 | `learned.estimates` | one parameter, `ey_learned_rule[learned rule]` |
-| `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip. Under the default `CrossFitting()` the fold estimates describe each fold's part of one pooled estimate, not separate estimates |
-| `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row, `1.0` for treat |
+| `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the share of each fold's rows that the rule gives each option (`arm_shares`, in the order of `record.arms`), and quantiles of the gap between the two highest predicted outcomes (`gap_quantiles`). Under the default `CrossFitting()` the fold estimates describe each fold's part of one pooled estimate, not separate estimates |
+| `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row with two options, `1.0` for treat. With more options, `values[:, a, 0]` is `1.0` for the option the rule gives |
 | `learned.summary()` | a line that states the target |
 
 Use `CrossFitting(n_folds=5, fold_evaluation=True)`, as above. It scores each fold's rule on that

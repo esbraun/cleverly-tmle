@@ -2212,7 +2212,12 @@ class TMLE:
                         weights=data.weights,
                     )
                 )
-            extra = {**extra, "learned_rule": learned_rule_record(self.learned_rule, splits)}
+            extra = {
+                **extra,
+                "learned_rule": learned_rule_record(
+                    self.learned_rule, splits, data.treatment_levels
+                ),
+            }
         result = TMLEResult(
             estimates=estimates,
             repeats=tuple(repeats),
@@ -4201,7 +4206,7 @@ class TMLE:
             )
             if fold_rules is not None:
                 # The diagonal at fit time, so a defect surfaces here and not at the bound.
-                check_fold_rules(fold_rules, treat, estimates.folds)
+                check_fold_rules(fold_rules, treat, estimates.folds, n_arms=data.n_arms)
             # Known regimes beside the rule (X11 (c)) are more columns of the same set, on
             # the same folds; the fold rules and the margin stay on the learned column 0.
             known = RegimeSet.evaluate(self.interventions, data) if self.interventions else None
@@ -4212,6 +4217,7 @@ class TMLE:
                 fold_rules,
                 known=known,
                 reference=self._reference_learned(),
+                n_arms=data.n_arms,
             )
         if not self.interventions:
             return None

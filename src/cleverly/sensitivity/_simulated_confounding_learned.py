@@ -75,7 +75,7 @@ def validate_learned_rule_replay(result: Any, estimand: str, key: Any) -> tuple[
         or len(result.nuisances) != 1
         or regimes is None
         or regimes.names != (rule.name,)
-        or np.asarray(regimes.values).shape != (result.data.n, 2, 1)
+        or np.asarray(regimes.values).shape != (result.data.n, result.data.n_arms, 1)
         or key.value != rule.name
         or record.name != rule.name
         or record.n_splits != 1
@@ -84,7 +84,8 @@ def validate_learned_rule_replay(result: Any, estimand: str, key: Any) -> tuple[
     ):
         raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     values = np.asarray(regimes.values, dtype=float)
-    if not np.array_equal(values[:, 0, 0] + values[:, 1, 0], np.ones(result.data.n)) or not (
+    # One-hot over the arms: each row's realized rule assigns exactly one arm.
+    if not np.array_equal(values[:, :, 0].sum(axis=1), np.ones(result.data.n)) or not (
         np.all((values == 0.0) | (values == 1.0))
     ):
         raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)

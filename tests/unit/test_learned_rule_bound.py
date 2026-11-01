@@ -164,7 +164,7 @@ class TestTheStoredRules:
     ) -> None:
         rules = _rules(result)
         nuisance = result.repeats[0].nuisance
-        assert rules.shape == (400, 5) and rules.dtype == bool
+        assert rules.shape == (400, 5) and rules.dtype == np.int8
         # One byte per row and fold: the memory cost of the matrix.
         assert rules.nbytes == 400 * 5
         own = rules[np.arange(400), np.asarray(nuisance.folds.assignment)]
@@ -195,7 +195,7 @@ class TestTheStoredRules:
         frame = support.law_frame(400, 1)
         result = support.fit(frame, outcome_by_arm=True)
         rules = _rules(result)
-        assert rules.shape == (400, 5) and rules.dtype == bool
+        assert rules.shape == (400, 5) and rules.dtype == np.int8
         np.testing.assert_array_equal(
             rules, _by_hand_by_arm(result, frame, support.outcome_learner())
         )
@@ -240,7 +240,7 @@ class TestTheStoredRules:
         recorded = _spy_fold_rules(monkeypatch)
         result = support.fit(support.law_frame(400, 1), learned_rule=rule)
         rules = _rules(result)
-        assert rules.shape == (400, 5) and rules.dtype == bool
+        assert rules.shape == (400, 5) and rules.dtype == np.int8
         assert [fold for fold, _ in recorded] == list(range(5))
         covariates = result.data.covariates
         for fold, fold_rule in recorded:

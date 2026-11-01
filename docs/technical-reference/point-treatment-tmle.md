@@ -1241,12 +1241,16 @@ depends on the realized split and on the rules that the fit learns:
 $$
 \tilde\psi_{0n} = \frac1V \sum_{v=1}^V \Psi_{d_{nv}}(P_0),\qquad
 \Psi_d(P) = E_P\,\bar Q_P(d(W), W),\qquad
-d_{nv}(w) = \mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}.
+d_{nv}(w) = \arg\max_a \bar Q_{nv}(a, w).
 $$
 
 Here $\bar Q_{nv}$ is the outcome regression that the fit trains on the training rows of fold
-$v$, and $d_{nv}$ is its plug-in rule, the default `LearnedRule()`. A tie assigns control. Under
-the rule learners described below, a declared learner fits the rule on the same training rows
+$v$, and $d_{nv}$ is its plug-in rule, the default `LearnedRule()`. A tie assigns the lowest arm
+code. At two arms the rule is $\mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}$, and a tie
+assigns control. A treatment with more than two arms takes the argmax over every arm
+([more than two arms](#learned-rules)).
+
+Under the rule learners described below, a declared learner fits the rule on the same training rows
 instead, and the target keeps its form. The target is not the value of one rule fitted on all
 rows, which the in-sample fit of [one rule fitted on all rows](#learned-rules)
 estimates, and it is not the value of the optimal rule, which
@@ -1278,8 +1282,8 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 | id | condition |
 | --- | --- |
 | C1 | a bounded outcome: a binary outcome, or a continuous outcome with a declared `q_bounds` |
-| C2 | strong positivity. `g_bounds` regularizes the fitted denominator only |
-| C3 | a limiting rule: the fold curves converge to the curve of one fixed rule |
+| C2 | strong positivity at every arm. `g_bounds` regularizes the fitted denominator only |
+| C3 | a limiting rule: the fold curves converge to the curve of one fixed rule. Over more than two arms the package asks that the top two arms of the learner's limit tie on a set of probability zero |
 | C4 | the fold-average remainder is $o_P(n^{-1/2})$. Alternatively, Corollary 3 requires Theorem 6 with $g=g_0$, negligible remainder replacement, and the linearization in Equation (14). Under these conditions, each fold's maximum-likelihood mechanism fit in a correct model gives a conservative interval |
 | C5 | no Donsker condition, so the learners can be flexible |
 | C6 | iid rows; or, under `id=`, iid clusters of bounded size whose number grows with $n$, with a fixed number of folds and at least 2 clusters in every validation fold; known, fixed and bounded observation weights under `weights=`; no missing outcomes or intermediate variable |
@@ -1369,7 +1373,9 @@ learner=...)` learn each fold's rule from a pseudo-outcome instead of reading it
 regression. Luedtke and van der Laan (2016, *International Journal of Biostatistics*) give the two
 losses: Section 4.1 the blip losses with a known or an estimated mechanism, Section 4.3 the
 weighted classification, and Appendix A the doubly robust versions. The pseudo-outcome below is
-this package's choice of the doubly robust blip pseudo-outcome, written for one time point:
+this package's choice of the doubly robust blip pseudo-outcome, written for one time point and
+a binary treatment. Both losses compare two arms, so a treatment with more than two arms refuses
+them ([more than two arms](#learned-rules)):
 
 $$
 \tilde D_i = \frac{2A_i - 1}{g(A_i \mid W_i)}\bigl(Y_i - \bar Q(A_i, W_i)\bigr)
@@ -1757,6 +1763,44 @@ differences, and its variance is the report's rule applied to that curve. With t
 defaults the fit skips the band and says so in `summary()`, and `simultaneous_bands()` called on
 a known value or a contrast refuses.
 
+#### More than two arms
+
+On a treatment with $K > 2$ arms the plug-in rule is
+$d_{nv}(w) = \arg\max_a \bar Q_{nv}(a, w)$ over every arm, and a tie between two or more arms
+assigns the lowest of their arm codes. That is the convention of Nordland and Holst (2026). At
+$K = 2$ it is the rule $\mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}$ above, and the
+fit is the binary fit bit for bit. The clever covariate stays
+$H_i = \mathbb 1\{A_i = d_i\} / g_{n,v(i)}(A_i \mid W_i)$, with the multinomial mechanism of the
+fit. The regime density of the learned column is one-hot over the $K$ arms, so the fluctuation,
+the variance and both reports are the shipped ones.
+
+Nordland and Holst (2026), Theorem 3.1 and the influence curve of Section 3.4 under a limiting
+policy, cover a finite action set, with positivity at every arm. JCI, Theorem 6, reads the
+treatment only through the class of the rule, so C1 to C6 carry over with C2 at every arm. C3 for
+an argmax asks that the top two arms of the learner's limit $\bar Q_1$ tie on a set of
+probability zero. The sources are silent on multi-arm exceptional laws, so that form of C3 is the
+package's own step. A limit can also lose an arm entirely, which C3 allows: the rule then never
+assigns that arm.
+
+| composition | result |
+| --- | --- |
+| the plug-in rule under either report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule | admitted, experimental. The key's treatment reads `arms3` (for three arms) in place of `binary`, and no row declares it until a study registers one |
+| `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 4 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (d2). Both pseudo-outcomes compare two arms. The remedy is the plug-in rule `LearnedRule()`, or a fixed rule `TMLE(interventions=[Rule(..., rule_kind="known")])` |
+| the omitted-variable bound | refused, X11 (n2): no witness checks the bias of a learned argmax rule against the combined representer over every arm. A fixed rule's regime bound covers every arm |
+| `simulated_confounding` and the `refute` tests that hold the rules | run, with each row's realized arm held fixed. Over more than two arms `simulated_confounding` swaps one declared `arm_pair`, as for any multi-arm fit |
+
+`tests/unit/test_learned_rule_arms.py` holds the witnesses. At two arms six configurations
+(pooled and per-arm regression, the stacked report, the in-sample fit, the blip learner and a
+contrast) reproduce the pinned estimates, stored fold rules and bound of the two-arm
+implementation bit for bit, two levels coded as strings give the numeric fit, and every two-arm support
+key and row is unchanged. A stub outcome regression whose argmax is a known function of $W_1$
+makes every fold rule that function, and the fit then equals the shipped fit of
+`Rule(..., rule_kind="known")` on three arms, alone and beside `Static(2)`, under either report,
+at a nonzero $\varepsilon$. Exact ties between two and between three arms assign the lowest code
+under the pooled and the per-arm regression, and the last-code mutation moves the tied rows or
+breaks the stored diagonal. The record's arm shares are those of the rule on each fold, and they
+match the population shares of the stub's argmax regions, which an arm-index shift fails.
+
 #### Refusals and the result record
 
 A cross-fitted fit needs at least two folds, `CrossFitting(enabled=True)`, and every fit needs
@@ -1775,7 +1819,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | 2 | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; an arm estimand; or a contrast declaration that the fit cannot report ([contrasts with known regimes](#learned-rules)) | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2) for another axis. The others are redirections (`api_redirection`: `Static(a)` for an arm, and `ey_known_regime` or `ate_learned_rule` for `ey_regime` or `ate_regime`) or declaration errors (`invalid_declaration`), each with the spelling that runs as its remedy |
 | 3 | a continuous treatment | F27 |
-| 4 | a treatment with more than two arms | X11 (d) |
+| 4 | a rule learner, `loss="blip"` or `loss="weighted_classification"`, on a treatment with more than two arms | X11 (d2). The remedy is the plug-in rule, `LearnedRule()` |
 | 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |
 | 6 | `intermediate=` | X11 (j) |
 | 7 | estimated weights, `weights_estimated=True` | X11 (k2) |
@@ -1799,22 +1843,28 @@ gives the fields of a split.
 | `seed`, `scheme`, `estimate` | the seed of the split, the scheme (`"fold_evaluated"`, `"stacked"`, or `"in_sample"` under `cross_fit=False`), and its estimate $\hat\psi_r$ |
 | `fold_sizes`, `fold_masses`, `fold_weights` | the validation rows of each fold, its weight mass $W_v$ on the mean-one weight scale, and its weight in the target: $1/V$ under fold evaluation and $W_v/W$ under the stacked report. An in-sample fit has one pseudo-fold of every row, with weight 1, whose estimate is the fit's |
 | `fold_estimates` | $\psi^*_{nv}$ for each fold. Under the stacked report each is descriptive: the weighted mean of $\bar Q^*(d_i, W_i)$ over the fold's rows at the pooled fluctuation, which does not solve the fold's score |
-| `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
-| `blip_quantiles` | quantiles of the outer outcome regression's blip on each fold's validation rows. For the plug-in rule this is the rule's own score, so its mass at 0 speaks to C3. Under a rule learner it describes that regression, not the rule |
+| `arm_shares` | for each fold, the share of its validation rows that its rule assigns to each arm, in arm-code order, the order of the record's `arms`. At two arms the second share is the share the rule treats |
+| `gap_quantiles` | quantiles of the outer outcome regression's top-two gap, $\max_a \bar Q_v(a, W) - \max_{a \ne d_v(W)} \bar Q_v(a, W)$, on each fold's validation rows; at two arms the absolute blip. For the plug-in rule this is the margin of the rule's own argmax, so its mass at 0 speaks to C3. Under a rule learner it describes that regression, not the rule |
 | `score_quantiles` | under a rule learner, quantiles of the rule learner's score minus its threshold on each fold's validation rows: $\hat b_v(w)$ for the blip, $\hat P_v(\tilde D > 0 \mid w) - 1/2$ for the classification. Its mass at 0 speaks to C3. Empty for the plug-in rule and for a frozen rule |
 | `inner_seeds` | the seed of each fold's inner cross-fit and rule learner, empty for the plug-in rule |
 
 The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
-`loss` and `learner` name the rule learner, and `scheme`, `rule`, `target` and `quantile_levels`
-give the report, the rule class of that loss, the target kind and the levels of both quantile
-fields.
+`loss` and `learner` name the rule learner, `arms` the treatment levels in arm-code order, and
+`scheme`, `rule`, `target` and `quantile_levels` give the report, the rule class of that loss,
+the target kind and the levels of both quantile fields.
+
 `result.summary(detail="full")` prints the target line of `LearnedRuleRecord.describe()` under
 Method details, which gives the range of the split estimates and of the treated shares over every
-split. The rule of each row in split $r$ is `result.repeats[r].nuisance.regimes.values[:, 1, 0]`.
-The regime set also holds `fold_rules`, an $n \times V$ boolean matrix of every fold's rule at
-every row, evaluated while each fold's model was in memory. Its entry at each row's own fold is
-the row's rule, which the fit checks. A `FrozenLearnedRule` replay holds one realized rule per row
-and its regime set has no `fold_rules` attribute, so read the matrix with
+split, or over more than two arms the range of each arm's share. The rule of each row in split
+$r$ is the arm whose entry of the one-hot density `result.repeats[r].nuisance.regimes.values[:, :, 0]`
+is 1, which `cleverly.interventions.learned.realized_arms` returns as arm codes; at two arms it is
+`values[:, 1, 0]`.
+
+The regime set also holds `fold_rules`, an $n \times V$ matrix of `int8` arm
+codes of every fold's rule at every row, evaluated while each fold's model was in memory. Its
+entry at each row's own fold is the row's rule, which the fit checks. A `FrozenLearnedRule` holds
+the arm code of one realized rule per row, with the treatment levels of its fit, and a refit with
+other levels refuses. Its replay's regime set has no `fold_rules` attribute, so read the matrix with
 `cleverly.interventions.learned.fold_rules`, which returns `None` there. The fit keeps no fitted fold model, and the saved folds, learner templates and
 seeds, with the inner seeds of a rule learner, replay it.
 
@@ -1843,9 +1893,10 @@ rules, which is not built. So does a fit with baseline strata
 value averages the fold rules with the weights $W_v/W$ rather than $1/V$.
 On a fit with known regimes the bound of each value runs, and the bound of a contrast refuses
 ([contrasts with known regimes](#learned-rules)).
+So does a fit over more than two arms ([more than two arms](#learned-rules)).
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, the
-mean over splits, the strata, the stacked report and the contrasts. A `FrozenLearnedRule` replay
-refuses, because it holds no fold rule.
+mean over splits, the strata, the stacked report, the contrasts and more than two arms. A
+`FrozenLearnedRule` replay refuses, because it holds no fold rule.
 
 The E-value and the missingness tilt read `unavailable`, because the package does not implement
 them for this target, and

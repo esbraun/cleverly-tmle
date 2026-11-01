@@ -15,14 +15,18 @@ stacked report (``cv_evaluation=False``) targets
 mass of validation fold :math:`v` (its row count without weights) and :math:`W` their sum.  The
 two coincide at equal masses.  The
 default rule is the plug-in rule
-:math:`d_{nv}(w) = \mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}` of the outcome
-regression :math:`\bar Q_{nv}` fitted on those rows.  ``LearnedRule(loss="blip")`` and
+:math:`d_{nv}(w) = \arg\max_a \bar Q_{nv}(a, w)` of the outcome regression
+:math:`\bar Q_{nv}` fitted on those rows, over every arm of the treatment, with a tie
+assigned to the lowest arm code (polle, Nordland and Holst 2026).  At two arms it is
+:math:`\mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}`, and at more than two arms
+(X11 (d)) it is the argmax over all of them.  ``LearnedRule(loss="blip")`` and
 ``LearnedRule(loss="weighted_classification")`` learn it with a declared learner from a doubly
 robust pseudo-outcome instead (Luedtke and van der Laan 2016, *International Journal of
 Biostatistics*, Sections 4.1 to 4.3), which :mod:`cleverly.interventions._rule_learners` fits.
-Van der Laan and Luedtke (2015), Section 7 and Appendix B, define the target and its
-cross-validated TMLE for any rule learned on the training rows, and polle's Algorithm 4
-(Nordland and Holst 2026) gives the stacked weighting :math:`n_v / n`.  The estimator reuses the
+Both losses are binary, so they refuse a treatment with more than two arms (X11 (d2)).  Van der
+Laan and Luedtke (2015), Section 7 and Appendix B, define the target and its cross-validated
+TMLE for any rule learned on the training rows, and polle's Algorithm 4 (Nordland and Holst
+2026) gives the stacked weighting :math:`n_v / n`.  The estimator reuses the
 regime fluctuation with one pooled :math:`\varepsilon`, and either the fold-evaluated report
 with the cross-validated variance or the stacked report with the curve centred at the pooled
 estimate.  This module adds the fold-local rule, the result record, the mean over a fixed
@@ -84,6 +88,7 @@ __all__ = [
     "learned_rule_splits_refusal",
     "learned_rule_treat",
     "mean_over_splits",
+    "realized_arms",
     "refuse_learned_rule_composition",
     "stacked_fold_estimates",
 ]
@@ -91,8 +96,9 @@ __all__ = [
 #: The loss of each rule learner, the ``loss=`` of :class:`LearnedRule`.
 LOSSES: tuple[str, ...] = ("plug_in", "blip", "weighted_classification")
 
-#: The rule class of each loss, in words.  The record quotes the one of its fit.  ``1`` and
-#: ``0`` stand for the higher and the lower of the two sorted arm codes.
+#: The rule class of each loss, in words.  The record quotes the one of its fit.  For the
+#: pseudo-outcome losses, which read two arms only, ``1`` and ``0`` stand for the higher and
+#: the lower of the two sorted arm codes.
 _TIE = "where 1 is the higher arm code and 0 the lower; a tie assigns the lower arm code"
 _PSEUDO = (
     "the doubly robust blip pseudo-outcome D = (2A - 1) / g(A | W) (Y - Qbar(A, W)) + "
@@ -107,9 +113,11 @@ _WEIGHTED = (
 )
 RULE_CLASS: dict[str, str] = {
     "plug_in": (
-        "the plug-in rule 1{Qbar_v(1, W) - Qbar_v(0, W) > 0} of the outcome regression fitted "
-        f"on the training rows of each outer fold, {_TIE}. Under weights= the regression is "
-        "the weighted one, so the rule is the plug-in rule of the weighted population"
+        "the plug-in rule argmax_a Qbar_v(a, W) of the outcome regression fitted on the "
+        "training rows of each outer fold, over every arm of the treatment, where a tie "
+        "between two or more arms assigns the lowest of their arm codes. At two arms it is "
+        f"1{{Qbar_v(1, W) - Qbar_v(0, W) > 0}}, {_TIE}. Under weights= the regression is the "
+        "weighted one, so the rule is the plug-in rule of the weighted population"
     ),
     "blip": (
         "the rule 1{b_v(W) > 0} of the declared learner b_v, a regression of "
@@ -135,7 +143,8 @@ TARGET_KIND: dict[str, str] = {
 #: every row (``cross_fit=False``), whose target is the value of that full-sample rule.
 SCHEMES: tuple[str, ...] = tuple(TARGET_KIND)
 
-#: The quantile levels of the estimated blip that the record keeps for each fold.
+#: The quantile levels of the top-two gap and of a rule learner's score that the record
+#: keeps for each fold.
 BLIP_QUANTILE_LEVELS: tuple[float, ...] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 #: The configuration that fits the learned-rule value.  Every refusal whose remedy is a
@@ -260,19 +269,23 @@ def _gap(condition: str, alternative: str, roadmap: str) -> Refusal:
 class LearnedRule:
     """Declare the rule whose fold-average value a fit estimates.
 
-    The rule is learned inside each outer training fold.  ``1`` and ``0`` stand for the
-    higher and the lower of the two sorted arm codes, and a tie assigns the lower arm code.
-    ``loss=`` picks how the rule is learned:
+    The rule is learned inside each outer training fold.  ``loss=`` picks how the rule is
+    learned:
 
     - ``"plug_in"``, the default: the plug-in rule of the fit's own outcome regression,
-      ``d_v(w) = 1{Qbar_v(1, w) - Qbar_v(0, w) > 0}``, where ``Qbar_v`` is fitted on the
-      training rows of fold ``v``.  It needs no learner beyond the outcome regression and
-      no fit beyond the cross-fitted nuisances.
+      ``d_v(w) = argmax_a Qbar_v(a, w)`` over every arm, where ``Qbar_v`` is fitted on the
+      training rows of fold ``v`` and a tie between arms assigns the lowest arm code.  At
+      two arms it is ``1{Qbar_v(1, w) - Qbar_v(0, w) > 0}``.  It needs no learner beyond
+      the outcome regression and no fit beyond the cross-fitted nuisances.
     - ``"blip"``: ``learner`` regresses a doubly robust blip pseudo-outcome on the
       covariates, and the rule treats where the fitted blip is positive.
     - ``"weighted_classification"``: ``learner`` classifies the sign of the same
       pseudo-outcome with its absolute value as the sample weight, and the rule treats where
       the fitted probability of a positive sign exceeds one half.
+
+    The two pseudo-outcome losses read a binary treatment: ``1`` and ``0`` stand for the
+    higher and the lower of the two sorted arm codes, a tie assigns the lower one, and a
+    treatment with more than two arms refuses them (X11 (d2)).
 
     The pseudo-outcome of a training row is
     ``(2A - 1) / g(A | W) (Y - Qbar(A, W)) + Qbar(1, W) - Qbar(0, W)``, with ``Qbar`` and
@@ -445,19 +458,25 @@ class FrozenLearnedRule(LearnedRule):
     learner : object or None
         The rule learner of the original rule, kept for the same reason.
     treat : numpy.ndarray
-        One boolean per row of the original fit: ``True`` where that row's fold rule assigns
-        the higher arm code.  A subset or resampled refit passes the value of each kept row's
-        source row.
+        One ``int8`` arm code per row of the original fit: the code
+        (:attr:`~cleverly.data.CausalData.arm_codes`, ``0`` to ``K - 1`` in the sorted
+        order of the treatment levels) of the arm that row's fold rule assigns.  A subset
+        or resampled refit passes the value of each kept row's source row.
+    levels : tuple
+        The treatment levels of the original fit, in code order.  A refit whose levels
+        differ refuses, because its codes would name other arms.  Empty skips the check.
     """
 
-    treat: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=bool), compare=False)
+    treat: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int8), compare=False)
+    levels: tuple[Any, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         super().__post_init__()
         values = np.asarray(self.treat)
-        if values.ndim != 1 or values.dtype != bool:
-            raise DataError("FrozenLearnedRule treat= holds one boolean per row")
+        if values.ndim != 1 or values.dtype != np.int8 or np.any(values < 0):
+            raise DataError("FrozenLearnedRule treat= holds one int8 arm code per row")
         object.__setattr__(self, "treat", values.copy())
+        object.__setattr__(self, "levels", tuple(self.levels))
 
     def rows(self, rows: np.ndarray) -> FrozenLearnedRule:
         """Return the frozen rule of the rows ``rows`` of the original fit, in that order.
@@ -534,8 +553,8 @@ def freeze_learned_rule(result: Any) -> FrozenLearnedRule:
     Returns
     -------
     FrozenLearnedRule
-        The rule of the fit under its own name, loss and learner. ``treat`` is ``True``
-        where the row's fold rule assigns the higher arm code.
+        The rule of the fit under its own name, loss and learner. ``treat`` is the arm
+        code that each row's fold rule assigns, and ``levels`` the fit's treatment levels.
 
     Raises
     ------
@@ -545,9 +564,15 @@ def freeze_learned_rule(result: Any) -> FrozenLearnedRule:
     refusal = learned_rule_splits_refusal("freeze_learned_rule", result.n_repeats)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
-    values = np.asarray(result.nuisance.regimes.values[:, 1, 0], dtype=float) > 0.5
+    values = realized_arms(result.nuisance.regimes)
     rule = result.estimator.learned_rule
-    return FrozenLearnedRule(rule.name, values, loss=rule.loss, learner=rule.learner)
+    return FrozenLearnedRule(
+        rule.name,
+        values,
+        tuple(result.data.treatment_levels),
+        loss=rule.loss,
+        learner=rule.learner,
+    )
 
 
 def frozen_rule_replay(estimator: Any, rule: FrozenLearnedRule, rows: Any = None) -> Any:
@@ -584,10 +609,11 @@ def learned_rule_treat(
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     """Return the rule of every row of a learned-rule fit, its margin, and every fold's rule.
 
-    A frozen rule returns its values.  The plug-in rule reads the out-of-fold blip of the
-    cross-fitted outcome regression or, in sample, the blip of the regression fitted on every
-    row.  A pseudo-outcome loss fits its rule learner inside each outer training fold, or on
-    every row in sample (:func:`~cleverly.interventions._rule_learners.rule_learner_treat`),
+    A frozen rule returns its values.  The plug-in rule reads the out-of-fold predictions of
+    the cross-fitted outcome regression at every arm or, in sample, those of the regression
+    fitted on every row, and takes the best arm, a tie going to the lowest arm code.  A
+    pseudo-outcome loss fits its rule learner inside each outer training fold, or on every row
+    in sample (:func:`~cleverly.interventions._rule_learners.rule_learner_treat`),
     and never reads the outer out-of-fold predictions.
 
     Each fold's rule is also evaluated at every row while its fitted model is in memory: the
@@ -615,21 +641,23 @@ def learned_rule_treat(
     Returns
     -------
     treat : numpy.ndarray
-        One boolean per row: ``True`` where the rule of the row's fold assigns the higher
-        arm code.
+        One ``int8`` arm code per row (:attr:`~cleverly.data.CausalData.arm_codes`): the
+        arm that the rule of the row's fold assigns.
     margin : numpy.ndarray or None
         For a pseudo-outcome loss, the score of the row's fold rule minus its threshold,
         :math:`\\hat b_v(W_i)` or :math:`\\hat P_v(\\tilde D > 0 \\mid W_i) - 1/2`.
-        ``None`` for the plug-in rule, whose score is the blip, and for a frozen rule.
+        ``None`` for the plug-in rule, whose score is the top-two gap, and for a frozen
+        rule.
     fold_rules : numpy.ndarray or None
-        ``(n, V)`` booleans: column ``v`` is fold ``v``'s rule at every row.  ``None`` for
-        a frozen rule, which holds one realized rule per row and no fold rule.
+        ``(n, V)`` ``int8`` arm codes: column ``v`` is fold ``v``'s rule at every row.
+        ``None`` for a frozen rule, which holds one realized rule per row and no fold rule.
 
     Raises
     ------
     DataError
-        If a frozen rule holds another number of rows than the refit, or if an inner
-        training complement of a pseudo-outcome loss lacks an arm or an outcome class.
+        If a frozen rule holds another number of rows than the refit, or treatment levels
+        other than the refit's, or if an inner training complement of a pseudo-outcome
+        loss lacks an arm or an outcome class.
     RuntimeError
         If a plug-in rule meets nuisances fitted without every fold's rule.  No
         declaration reaches it.
@@ -640,6 +668,18 @@ def learned_rule_treat(
             raise DataError(
                 f"the frozen learned rule holds {rule.treat.size} rows, and the refit has {n}"
             )
+        levels = tuple(data.treatment_levels)
+        if rule.levels and rule.levels != levels:
+            raise DataError(
+                f"the frozen learned rule was fitted on the treatment levels "
+                f"{list(rule.levels)}, and the refit has {list(levels)}, so its arm codes "
+                "would name other arms"
+            )
+        if int(np.max(rule.treat, initial=0)) >= data.n_arms:
+            raise DataError(
+                f"the frozen learned rule assigns an arm code above {data.n_arms - 1}, the "
+                f"last code of the refit's {data.n_arms} arms"
+            )
         return rule.treat, None, None
     if rule.loss == "plug_in":
         if nuisance.fold_plug_in_rules is None:
@@ -647,7 +687,8 @@ def learned_rule_treat(
                 "a plug-in learned-rule fit reached its rule without every fold's rule at "
                 "every row. This is a defect in cleverly: TMLE asks the nuisance fit for them."
             )
-        return _blip(nuisance) > 0.0, None, np.asarray(nuisance.fold_plug_in_rules, dtype=bool)
+        realized, _ = _plug_in_rule(nuisance)
+        return realized, None, np.asarray(nuisance.fold_plug_in_rules, dtype=np.int8)
     return rule_learner_treat(
         data,
         nuisance.folds,
@@ -691,15 +732,18 @@ class LearnedRuleSplit:
         fold's score, so a fold value is not an estimate of :math:`\Psi_{d_{nv}}(P_0)`
         with its own interval, and only their weighted sum is reported.  In sample the one
         value is the estimate.
-    treated_shares : tuple of float
-        The share of each fold's validation rows that its rule assigns to the higher
-        arm code.
-    blip_quantiles : tuple of tuple of float
-        For each fold, quantiles of the outer outcome regression's blip
-        ``Qbar_v(1, W) - Qbar_v(0, W)`` on its validation rows, at
-        :data:`BLIP_QUANTILE_LEVELS`, on the scale the outcome regression is fitted on.
-        For the plug-in rule this is the rule's own score, whose mass at 0 speaks to C3.
-        Under a pseudo-outcome loss it describes the outer outcome regression, not the rule.
+    arm_shares : tuple of tuple of float
+        For each fold, the share of its validation rows that its rule assigns to each arm,
+        in arm-code order (:attr:`LearnedRuleRecord.arms`).  Each fold's shares sum to 1.
+        At two arms the second share is the share the rule treats.
+    gap_quantiles : tuple of tuple of float
+        For each fold, quantiles of the top-two gap of the outer outcome regression,
+        :math:`\max_a \bar Q_v(a, W) - \max_{a \ne d_v(W)} \bar Q_v(a, W)`, on its
+        validation rows, at :data:`BLIP_QUANTILE_LEVELS`, on the scale the outcome
+        regression is fitted on.  At two arms it is the absolute blip
+        :math:`|\bar Q_v(1, W) - \bar Q_v(0, W)|`.  For the plug-in rule it is the margin
+        of the rule's own argmax, whose mass at 0 speaks to C3.  Under a pseudo-outcome
+        loss it describes the outer outcome regression, not the rule.
     score_quantiles : tuple of tuple of float
         For a pseudo-outcome loss, for each fold, quantiles of the rule learner's score
         minus its threshold on the fold's validation rows, at :data:`BLIP_QUANTILE_LEVELS`:
@@ -723,8 +767,8 @@ class LearnedRuleSplit:
     fold_sizes: tuple[int, ...]
     fold_masses: tuple[float, ...]
     fold_estimates: tuple[float, ...]
-    treated_shares: tuple[float, ...]
-    blip_quantiles: tuple[tuple[float, ...], ...]
+    arm_shares: tuple[tuple[float, ...], ...]
+    gap_quantiles: tuple[tuple[float, ...], ...]
     score_quantiles: tuple[tuple[float, ...], ...]
     inner_seeds: tuple[int, ...]
 
@@ -756,8 +800,10 @@ class LearnedRuleRecord:
     """Record what a learned-rule fit estimated, under ``result.extra["learned_rule"]``.
 
     The fitted fold models are not kept.  The realized rule of each row in split ``r`` is
-    ``result.repeats[r].nuisance.regimes.values[:, 1, 0]``, and the folds, the learner
-    templates and the seeds replay the fit.  A fit of ``repeats=R`` holds one
+    the arm whose entry of the one-hot density
+    ``result.repeats[r].nuisance.regimes.values[:, :, 0]`` is 1
+    (:func:`realized_arms`), and the folds, the learner templates and the seeds replay the
+    fit.  A fit of ``repeats=R`` holds one
     :class:`LearnedRuleSplit` per split, and reports the mean of their estimates.
 
     Parameters
@@ -771,6 +817,9 @@ class LearnedRuleRecord:
     learner : str or None
         The plain name of the rule learner of a pseudo-outcome loss, or ``None`` for the
         plug-in rule.
+    arms : tuple of str
+        The treatment levels in arm-code order, the order of each split's
+        :attr:`LearnedRuleSplit.arm_shares`.
 
     Attributes
     ----------
@@ -785,6 +834,7 @@ class LearnedRuleRecord:
     splits: tuple[LearnedRuleSplit, ...]
     loss: str
     learner: str | None
+    arms: tuple[str, ...]
 
     @property
     def n_splits(self) -> int:
@@ -819,16 +869,20 @@ class LearnedRuleRecord:
         str
             The target, the fold count, the source of the definition, how the rules are
             learned, which record field describes a rule learner's score, and the range of
-            the treated share over the folds.  The stacked report also gives the range of
-            the fold weights.  A fit of several
+            the treated share over the folds, or at more than two arms of each arm's share.
+            The stacked report also gives the range of the fold weights.  A fit of several
             splits also names the split count, and gives both ranges over every split.
         """
-        shares = [share for split in self.splits for share in split.treated_shares]
-        low, high = min(shares), max(shares)
         if self.scheme == "in_sample":
-            return self._describe_in_sample(low)
+            return self._describe_in_sample()
         learned = {
-            "plug_in": "Each rule is the plug-in rule of the fold's outcome regression.",
+            "plug_in": (
+                "Each rule is the plug-in rule of the fold's outcome regression."
+                if len(self.arms) == 2
+                else "Each rule is the plug-in rule of the fold's outcome regression: the "
+                f"arm of {len(self.arms)} with the highest predicted outcome, a tie going to "
+                "the first arm in sorted order."
+            ),
             "blip": (
                 f"Each rule is learned by {self.learner}, a regression of a doubly robust "
                 "blip pseudo-outcome on the covariates (loss='blip')."
@@ -842,7 +896,7 @@ class LearnedRuleRecord:
         if self.loss != "plug_in":
             learned += (
                 " The record's score_quantiles give the rule learner's score minus its "
-                "threshold on each fold's validation rows, and its blip_quantiles describe "
+                "threshold on each fold's validation rows, and its gap_quantiles describe "
                 "the outer outcome regression, not the rule."
             )
         source = (
@@ -873,23 +927,54 @@ class LearnedRuleRecord:
             return (
                 f"Target: {average} of the {self.splits[0].n_folds} rules learned on the "
                 f"training folds{weighting}, {evaluated}. "
-                f"{source} Unweighted share of rows the rules treat, by fold: "
-                f"{low:.3g} to {high:.3g}."
+                f"{source} {self._shares('by fold')}"
             )
         estimates = [split.estimate for split in self.splits]
         return (
             f"Target: the mean over {self.n_splits} random splits of {average} of "
             f"the rules learned on the training folds of each split{weighting}, {evaluated}. "
             f"{source} Estimate of each split: "
-            f"{min(estimates):.4g} to {max(estimates):.4g}. Unweighted share of rows the "
-            f"rules treat, by fold over every split: {low:.3g} to {high:.3g}."
+            f"{min(estimates):.4g} to {max(estimates):.4g}. "
+            f"{self._shares('by fold over every split')}"
         )
 
-    def _describe_in_sample(self, share: float) -> str:
+    def _shares(self, over: str) -> str:
+        """The sentence of the rules' arm shares: the treated share at two arms, else each arm's.
+
+        ``over`` names what the range runs over, such as ``"by fold"``.  An in-sample fit
+        (``over=""``) has one share per arm and no range.
+        """
+        columns = list(
+            zip(*(fold for split in self.splits for fold in split.arm_shares), strict=True)
+        )
+        if len(self.arms) == 2:
+            low, high = min(columns[1]), max(columns[1])
+            if not over:
+                return f"Unweighted share of rows the rule treats: {low:.3g}."
+            return f"Unweighted share of rows the rules treat, {over}: {low:.3g} to {high:.3g}."
+        if not over:
+            parts = "; ".join(
+                f"A = {arm}: {column[0]:.3g}"
+                for arm, column in zip(self.arms, columns, strict=True)
+            )
+            return f"Unweighted share of rows the rule assigns to each arm: {parts}."
+        parts = "; ".join(
+            f"A = {arm}: {min(column):.3g} to {max(column):.3g}"
+            for arm, column in zip(self.arms, columns, strict=True)
+        )
+        return f"Unweighted share of rows the rules assign to each arm, {over}: {parts}."
+
+    def _describe_in_sample(self) -> str:
         """The summary line of an in-sample fit (``cross_fit=False``), which has one rule."""
         learned = {
             "plug_in": (
                 "The rule is the plug-in rule of the outcome regression fitted on every row."
+                + (
+                    ""
+                    if len(self.arms) == 2
+                    else f" It assigns the arm of {len(self.arms)} with the highest predicted "
+                    "outcome, a tie going to the first arm in sorted order."
+                )
             ),
             "blip": (
                 f"The rule is learned on every row by {self.learner}, a regression of a doubly "
@@ -905,8 +990,7 @@ class LearnedRuleRecord:
             "Target: the value of the one rule learned on every row, estimated on the same "
             "rows (cross_fit=False). It is the value of that full-sample rule, a different "
             "target from the fold average of a cross-fitted fit (van der Laan and Luedtke "
-            f"2015, Section 6). {learned} Unweighted share of rows the rule treats: "
-            f"{share:.3g}."
+            f"2015, Section 6). {learned} {self._shares('')}"
         )
 
 
@@ -999,17 +1083,47 @@ def mean_over_splits(
     return out
 
 
-def _blip(nuisance: NuisanceEstimates) -> np.ndarray:
-    """The out-of-fold blip ``Qbar_v(1, W_i) - Qbar_v(0, W_i)`` at every row.
+def _plug_in_rule(nuisance: NuisanceEstimates) -> tuple[np.ndarray, np.ndarray]:
+    r"""The out-of-fold plug-in rule at every row and its top-two gap.
 
-    Row ``i`` of fold ``v`` carries the prediction of the outcome regression fitted on the
-    training complement of ``v``, so the blip at a row never reads that row.  The refusal
-    table refuses a treatment with more than two arms first.
+    Row ``i`` of fold ``v`` carries the predictions of the outcome regression fitted on the
+    training complement of ``v`` at every arm, so the rule at a row never reads that row.
+    The rule is :math:`\arg\max_a \bar Q_v(a, W_i)`, a tie going to the lowest arm code
+    (:func:`~cleverly.estimators._nuisance.plug_in_arm`, the reduction the fold workers
+    apply to :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.fold_plug_in_rules`).
+    The gap is the best prediction minus the second best, 0 at a tie, and at two arms the
+    absolute blip.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The ``int8`` arm code of every row, and the gap of every row.
     """
-    control, treated = nuisance.outcome.levels
-    return np.asarray(nuisance.outcome.arms[treated], dtype=float) - np.asarray(
-        nuisance.outcome.arms[control], dtype=float
-    )
+    from ..estimators._nuisance import plug_in_arm
+
+    predictions = [
+        np.asarray(nuisance.outcome.arms[level], dtype=float) for level in nuisance.outcome.levels
+    ]
+    ordered = np.sort(np.vstack(predictions), axis=0)
+    return plug_in_arm(predictions), ordered[-1] - ordered[-2]
+
+
+def realized_arms(regimes: RegimeSet | None) -> np.ndarray:
+    """Return the arm code of each row's realized rule, from the learned column's density.
+
+    Parameters
+    ----------
+    regimes : RegimeSet
+        The regime set of a learned-rule fit, whose column 0 is the one-hot density of each
+        row's fold rule over the arms.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(n,)`` ``int8`` arm codes, the arm whose density entry is 1.
+    """
+    assert regimes is not None
+    return np.asarray(np.argmax(np.asarray(regimes.values[:, :, 0]), axis=1), dtype=np.int8)
 
 
 @dataclass(frozen=True)
@@ -1021,7 +1135,8 @@ class _LearnedRuleRegimes(RegimeSet):
     names : tuple of str
         The one regime label.
     values : numpy.ndarray
-        ``(n, 2, 1)`` one-hot densities of each row's own fold rule.
+        ``(n, K, R)`` densities: column 0 is the one-hot density of each row's own fold rule
+        over the ``K`` arms, and any further column a known regime's.
     reference : float
         The code of the one regime.
     margin : numpy.ndarray or None
@@ -1029,10 +1144,10 @@ class _LearnedRuleRegimes(RegimeSet):
         (:func:`learned_rule_treat`), or ``None``.  :func:`learned_rule_split` records its
         quantiles.
     fold_rules : numpy.ndarray or None
-        ``(n, V)`` booleans, ``True`` where fold ``v``'s rule assigns row ``i`` the higher
-        arm code, or ``None`` for a frozen rule.  Row ``i``'s entry at its own fold is the
-        realized rule ``values[i, 1, 0]``.  The omitted-variable bound reads every column
-        (:func:`fold_rules`).
+        ``(n, V)`` ``int8`` arm codes, the arm fold ``v``'s rule assigns row ``i``, or
+        ``None`` for a frozen rule.  Row ``i``'s entry at its own fold is its realized rule,
+        the arm of the 1 in ``values[i, :, 0]``.  The omitted-variable bound reads every
+        column (:func:`fold_rules`).
     """
 
     margin: np.ndarray | None = None
@@ -1050,8 +1165,8 @@ def fold_rules(nuisance: NuisanceEstimates) -> np.ndarray | None:
     Returns
     -------
     numpy.ndarray or None
-        ``(n, V)`` booleans in the order of ``nuisance.folds``, or ``None`` when the split
-        stores none: a frozen rule's replay, which holds one realized rule per row.
+        ``(n, V)`` ``int8`` arm codes in the order of ``nuisance.folds``, or ``None`` when
+        the split stores none: a frozen rule's replay, which holds one realized rule per row.
 
     Raises
     ------
@@ -1064,11 +1179,13 @@ def fold_rules(nuisance: NuisanceEstimates) -> np.ndarray | None:
     if rules is None:
         return None
     assert regimes is not None
-    realized = np.asarray(regimes.values[:, 1, 0], dtype=float) > 0.5
-    return check_fold_rules(rules, realized, nuisance.folds)
+    values = np.asarray(regimes.values)
+    return check_fold_rules(rules, realized_arms(regimes), nuisance.folds, n_arms=values.shape[1])
 
 
-def check_fold_rules(rules: np.ndarray, realized: np.ndarray, folds: Folds) -> np.ndarray:
+def check_fold_rules(
+    rules: np.ndarray, realized: np.ndarray, folds: Folds, *, n_arms: int | None = None
+) -> np.ndarray:
     """Check every fold's rule at every row against each row's realized rule.
 
     The fit runs it when it builds the regime set, and :func:`fold_rules` runs it again on
@@ -1077,33 +1194,41 @@ def check_fold_rules(rules: np.ndarray, realized: np.ndarray, folds: Folds) -> n
     Parameters
     ----------
     rules : numpy.ndarray
-        ``(n, V)`` booleans, column ``v`` the rule of fold ``v`` at every row.
+        ``(n, V)`` ``int8`` arm codes, column ``v`` the rule of fold ``v`` at every row.
     realized : numpy.ndarray
-        ``(n,)`` booleans, the rule of each row's own fold.
+        ``(n,)`` ``int8`` arm codes, the rule of each row's own fold.
     folds : Folds
         The split whose folds the columns follow.
+    n_arms : int or None
+        The number of arms, which every code must stay below, or ``None`` to skip that
+        check.
 
     Returns
     -------
     numpy.ndarray
-        ``rules`` as booleans.
+        ``rules`` as ``int8`` arm codes.
 
     Raises
     ------
     RuntimeError
-        If the shape does not match the split, or if the entry of some row at its own fold
-        differs from its realized rule.  The fit evaluates both from one fitted model, so
-        this is a defect in cleverly.
+        If the dtype or the shape does not match the split, if a code names no arm, or if
+        the entry of some row at its own fold differs from its realized rule.  The fit
+        evaluates both from one fitted model, so this is a defect in cleverly.
     """
-    rules = np.asarray(rules, dtype=bool)
+    rules = np.asarray(rules)
     assignment = np.asarray(folds.assignment, dtype=int)
-    if rules.shape != (assignment.size, folds.n_folds):
+    if rules.dtype != np.int8 or rules.shape != (assignment.size, folds.n_folds):
         raise RuntimeError(
-            f"the stored fold rules have shape {rules.shape}, and the split has "
-            f"{assignment.size} rows and {folds.n_folds} folds. This is a defect in "
-            "cleverly."
+            f"the stored fold rules have dtype {rules.dtype} and shape {rules.shape}, and the "
+            f"split needs int8 arm codes for {assignment.size} rows and {folds.n_folds} "
+            "folds. This is a defect in cleverly."
         )
-    realized = np.asarray(realized, dtype=bool)
+    if np.any(rules < 0) or (n_arms is not None and np.any(rules >= n_arms)):
+        raise RuntimeError(
+            f"a stored fold rule names an arm code outside 0 to {n_arms}. This is a defect "
+            "in cleverly."
+        )
+    realized = np.asarray(realized, dtype=np.int8)
     own = rules[np.arange(assignment.size), assignment]
     if not np.array_equal(own, realized):
         raise RuntimeError(
@@ -1121,11 +1246,13 @@ def _learned_rule_regimes(
     fold_rules: np.ndarray | None = None,
     known: RegimeSet | None = None,
     reference: float = 0.0,
+    *,
+    n_arms: int = 2,
 ) -> RegimeSet:
     """The fold-local rule of every row, then any known regimes, as a :class:`RegimeSet`.
 
-    The density of the rule is one-hot: ``values[i, 1, 0]`` is ``1`` when the rule of row
-    ``i``'s fold assigns it the higher arm code, and ``values[i, 0, 0]`` is ``1`` otherwise.
+    The density of the rule is one-hot over the arms: ``values[i, a, 0]`` is ``1`` for the
+    arm code ``a`` that the rule of row ``i``'s fold assigns, and ``0`` at every other arm.
     The rule's column is built directly, so no regime declaration is checked: the rule is
     learned, and the target that reads it is the learned-rule value, not a regime mean.
     The known regimes of ``interventions=`` (X11 (c)) follow as codes ``1`` to ``K``, with
@@ -1135,29 +1262,31 @@ def _learned_rule_regimes(
     Parameters
     ----------
     treat : numpy.ndarray
-        The rule of every row (:func:`learned_rule_treat`).
+        The ``int8`` arm code of the rule of every row (:func:`learned_rule_treat`).
     name : str
         The name of the regime, the rule's label.
     margin : numpy.ndarray or None
         The rule learner's score minus its threshold at every row, or ``None``.
     fold_rules : numpy.ndarray or None
-        Every fold's rule at every row, ``(n, V)`` booleans, or ``None`` for a frozen rule.
+        Every fold's rule at every row, ``(n, V)`` ``int8`` arm codes, or ``None`` for a
+        frozen rule.
     known : RegimeSet or None
         The evaluated known regimes declared beside the rule, or ``None``.
     reference : float
         The code contrasts are taken against: ``0`` when ``reference=`` names the learned
         rule or no known regime is declared, and ``1`` otherwise, which the contrast target
         reads as "the learned rule minus each known regime".
+    n_arms : int
+        The number of arms of the treatment.
 
     Returns
     -------
     RegimeSet
-        The rule, named ``name``, then the known regimes, over the two arms.
+        The rule, named ``name``, then the known regimes, over the ``n_arms`` arms.
     """
-    treat = np.asarray(treat, dtype=bool)
-    values = np.zeros((treat.size, 2, 1), dtype=float)
-    values[:, 1, 0] = treat
-    values[:, 0, 0] = ~treat
+    treat = np.asarray(treat, dtype=np.int8)
+    values = np.zeros((treat.size, n_arms, 1), dtype=float)
+    values[np.arange(treat.size), treat, 0] = 1.0
     names: tuple[str, ...] = (name,)
     if known is not None:
         values = np.concatenate([values, np.asarray(known.values, dtype=float)], axis=2)
@@ -1169,7 +1298,7 @@ def _learned_rule_regimes(
         values,
         float(reference),
         None if margin is None else np.asarray(margin, dtype=float),
-        None if fold_rules is None else np.asarray(fold_rules, dtype=bool),
+        None if fold_rules is None else np.asarray(fold_rules, dtype=np.int8),
     )
 
 
@@ -1247,9 +1376,10 @@ def learned_rule_split(
     LearnedRuleSplit
         The per-fold summaries of the split.
     """
-    blip = _blip(nuisance)
+    _, gap = _plug_in_rule(nuisance)
     assert nuisance.regimes is not None
-    treat = np.asarray(nuisance.regimes.values[:, 1, 0], dtype=float) > 0.5
+    treat = realized_arms(nuisance.regimes)
+    n_arms = int(np.asarray(nuisance.regimes.values).shape[1])
     tests = [np.asarray(test) for _, test in nuisance.folds]
     learns = rule.loss != "plug_in" and not isinstance(rule, FrozenLearnedRule)
     margin = getattr(nuisance.regimes, "margin", None) if learns else None
@@ -1261,9 +1391,12 @@ def learned_rule_split(
         fold_sizes=tuple(int(test.size) for test in tests),
         fold_masses=tuple(float(np.sum(weights[test])) for test in tests),
         fold_estimates=tuple(float(value) for value in fold_estimates),
-        treated_shares=tuple(float(np.mean(treat[test])) for test in tests),
-        blip_quantiles=tuple(
-            tuple(float(value) for value in np.quantile(blip[test], BLIP_QUANTILE_LEVELS))
+        arm_shares=tuple(
+            tuple(float(share) for share in np.bincount(treat[test], minlength=n_arms) / test.size)
+            for test in tests
+        ),
+        gap_quantiles=tuple(
+            tuple(float(value) for value in np.quantile(gap[test], BLIP_QUANTILE_LEVELS))
             for test in tests
         ),
         score_quantiles=(
@@ -1278,7 +1411,9 @@ def learned_rule_split(
     )
 
 
-def learned_rule_record(rule: LearnedRule, splits: Sequence[LearnedRuleSplit]) -> LearnedRuleRecord:
+def learned_rule_record(
+    rule: LearnedRule, splits: Sequence[LearnedRuleSplit], arms: Sequence[Any]
+) -> LearnedRuleRecord:
     """Build the record of a learned-rule fit from the records of its splits.
 
     Parameters
@@ -1287,6 +1422,9 @@ def learned_rule_record(rule: LearnedRule, splits: Sequence[LearnedRuleSplit]) -
         The declared rule.
     splits : sequence of LearnedRuleSplit
         One record per split, in the order of ``result.repeats``.
+    arms : sequence
+        The treatment levels in arm-code order (:attr:`~cleverly.data.CausalData.
+        treatment_levels`).
 
     Returns
     -------
@@ -1300,6 +1438,7 @@ def learned_rule_record(rule: LearnedRule, splits: Sequence[LearnedRuleSplit]) -
         splits=tuple(splits),
         loss=rule.loss,
         learner=None if rule.learner is None else learner_name(rule.learner),
+        arms=tuple(str(arm) for arm in arms),
     )
 
 
@@ -1541,27 +1680,38 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
     return _contrast_refusal(estimator)
 
 
-def _data_refusal(data: CausalData) -> Refusal | None:
+def _data_refusal(data: CausalData, rule: LearnedRule | None = None) -> Refusal | None:
     """The data rows of the learned-rule refusal table: the declarations no setting repairs.
 
     ``docs/technical-reference/point-treatment-tmle.md``, "Learned rules", holds the table.
+    ``rule`` is the declared rule, which the row of a rule learner on more than two arms
+    reads.  ``None`` skips that row.
     """
     if data.is_continuous_treatment:
         return _gap(
             "a learned rule over a continuous treatment is refused. No reviewed source "
             f"defines a learned rule over a dose for the learned-rule value ({_F27}). The "
-            "learned-rule value needs a binary treatment.",
+            "learned-rule value needs an arm-coded treatment.",
             "A fit without learned_rule= can use "
             "TMLE(policies=[ModifiedPolicy(..., policy_kind='known')]) for a fixed policy on a "
             "continuous treatment.",
             "F27",
         )
-    if not data.is_binary_treatment:
+    if (
+        rule is not None
+        and rule.loss != "plug_in"
+        and not isinstance(rule, FrozenLearnedRule)
+        and not data.is_binary_treatment
+    ):
         return _gap(
-            f"a learned rule over a treatment with {data.n_arms} arms is refused. Van der "
-            "Laan and Luedtke (2015) derive the learned-rule value for a binary treatment, "
-            f"and {_X11.format(part='d')} holds categorical treatments.",
-            f"{_FIXED_RULE} estimates a fixed rule on a categorical treatment.",
+            f"LearnedRule(loss={rule.loss!r}) over a treatment with {data.n_arms} arms is "
+            "refused. Its pseudo-outcome (2A - 1) / g(A | W) (Y - Qbar(A, W)) + Qbar(1, W) - "
+            "Qbar(0, W) and its rule 1{score > threshold} compare two arms, and no multi-arm "
+            "loss is implemented (Luedtke and van der Laan 2016 state both losses for a "
+            f"binary treatment; {_X11.format(part='d2')}).",
+            "LearnedRule() (loss='plug_in') learns the argmax rule over every arm from the "
+            f"fit's own outcome regression, and {_FIXED_RULE} estimates a fixed rule on a "
+            "categorical treatment.",
             "X11",
         )
     if data.has_missing_outcome:
@@ -1728,7 +1878,9 @@ def in_sample_learner_condition(estimator: Any, data: CausalData) -> Refusal | N
     )
 
 
-def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> None:
+def refuse_learned_rule_composition(
+    data: CausalData, estimator: Any = None, *, rule: LearnedRule | None = None
+) -> None:
     """Refuse a learned-rule request that the learned-rule contract does not cover.
 
     The checks follow the refusal table of the learned-rule contract in
@@ -1744,7 +1896,9 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
             an arm estimand or ``ey_regime`` (a redirection)     none, a redirection
             a contrast declaration the fit cannot report         none, a declaration
     3       a continuous treatment                               F27
-    4       more than two arms                                   X11 (d)
+    4       a rule learner (``loss="blip"`` or                   X11 (d2)
+            ``"weighted_classification"``) on more than two
+            arms
     5       missing outcomes, ``delta=``                         F27
     6       ``intermediate=``                                    X11 (j)
     7       estimated weights, ``weights_estimated=True``        X11 (k2)
@@ -1764,8 +1918,11 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     cross-fitting, meet the shared fold-policy refusals, whose in-sample offer names that
     change of target.
 
+    More than two arms is no row: the plug-in rule is the argmax over every arm (X11 (d)).
+
     ``TMLE`` runs it first in its preflight, before any learner.
-    ``CausalStudy.identify`` runs it with no estimator, so the data rows refuse there.
+    ``CausalStudy.identify`` runs it with no estimator and the estimand's rule, so the data
+    rows refuse there.
 
     Parameters
     ----------
@@ -1773,6 +1930,9 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
         The prepared data of the fit.
     estimator : TMLE or None
         The estimator, or ``None`` for the checks that read the data alone.
+    rule : LearnedRule or None
+        The declared rule when no estimator is passed, for the row of a rule learner on
+        more than two arms.  The estimator's ``learned_rule`` otherwise.
 
     Raises
     ------
@@ -1780,8 +1940,10 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
         If the request meets a row of the table.
     """
     refusal = None if estimator is None else learned_rule_configuration_refusal(estimator)
+    if estimator is not None:
+        rule = estimator.learned_rule
     if refusal is None:
-        refusal = _data_refusal(data)
+        refusal = _data_refusal(data, rule)
     if refusal is None and estimator is not None:
         refusal = learned_rule_scheme_refusal(estimator, data)
     if refusal is None and estimator is not None:
