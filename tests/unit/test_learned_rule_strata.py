@@ -60,7 +60,7 @@ from sklearn.linear_model import LinearRegression
 from cleverly import CausalStudy, LearnedRuleValue, PointTreatment, load
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError, RefusalReason
+from cleverly.exceptions import CapabilityError, ConvergenceWarning, DataError, RefusalReason
 from cleverly.interventions import LearnedRule
 from cleverly.interventions.learned import fold_rules, freeze_learned_rule, frozen_rule_replay
 from cleverly.sensitivity import (
@@ -667,7 +667,12 @@ class TestTheRefusals:
             "use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))",
             error=DataError,
         )
-        stacked = _fit(frame, cv_evaluation=False)
+        # Fewer rows than folds guarantee an empty validation fold for the stratum, and
+        # the stratum's iterative fluctuation stops at a relative score near 5e-4 on them. The
+        # remedy is shown by the fit running, so the warning is expected and pinned here.
+        with pytest.warns(ConvergenceWarning):
+            stacked = _fit(frame, cv_evaluation=False)
+        assert stacked.extra["learned_rule"].scheme == "stacked"
         assert all(np.isfinite(estimate.psi) for estimate in stacked.estimates.values())
 
 

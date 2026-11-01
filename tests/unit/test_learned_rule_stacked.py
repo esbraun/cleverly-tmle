@@ -19,8 +19,8 @@ of the stacked regime report, :math:`\{n(n-1)\}^{-1}\sum_i (\phi_i - \bar\phi)^2
 
   with :math:`D_i = Z_i - \psi_{v(i)}` and :math:`s_v` the fold mean of :math:`D`, matches the
   stored variance. The cross term is negative and larger than the between-fold term, so the
-  stacked variance is not conservative at finite n; a mutation that drops it fails. Under fold
-  targeting each :math:`s_v` is 0 and so is the cross term. On the continuous law at equal folds
+  stacked variance is not conservative at finite n; a variance without it misses the stored
+  value. Under fold targeting each :math:`s_v` is 0 and so is the cross term. On the continuous law at equal folds
   the fold-evaluated fit at the same split stores :math:`\sum_i D_i^2 / n^2`, and the identity
   holds across the two fits.
 * W-e2 (weighting, mutation): an unequal cluster ``split_plan``, unweighted and weighted, gives a
@@ -37,6 +37,8 @@ of the stacked regime report, :math:`\{n(n-1)\}^{-1}\sum_i (\phi_i - \bar\phi)^2
 * The record is built for the stacked report, ``learned_rule_truth`` reads its fold weights, the
   summary names the report, the fit reads experimental under its own ``stacked`` key, and the
   omitted-variable bound refuses as an implementation gap.
+* The stacked record survives ``save``, ``dumps`` and ``retarget``. A blip rule learner builds it,
+  and under ``id=`` the stored variance is the cluster-total rule, rebuilt by hand.
 """
 
 from __future__ import annotations
@@ -48,8 +50,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import SplitPlan
+from cleverly import SplitPlan, load
 from cleverly.estimators import TMLE
+from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference import influence_variance
 from cleverly.interventions import LearnedRule
@@ -58,6 +61,7 @@ from cleverly.learners import random_partition
 from cleverly.sensitivity import omitted_variable_bounds
 from tests.conftest import OracleTreatment
 from tests.unit import _learned_rule_support as support
+from tests.unit import test_learned_rule_learners as learners
 from tests.unit import test_learned_rule_strata as exact
 
 pytestmark = pytest.mark.xdist_group("learned_rule_stacked")
@@ -182,7 +186,7 @@ class TestTheVarianceIdentity:
         assert terms["cross"] < -terms["between"] < 0.0, terms
         assert stored < terms["within"]
 
-    def test_control_dropping_the_cross_term_fails(self) -> None:
+    def test_a_variance_without_the_cross_term_misses_the_stored_value(self) -> None:
         fit = _exact()
         estimate, n = fit.estimates[NAME], fit.data.n
         terms = _terms(*_longhand(fit), estimate.psi)
@@ -411,7 +415,17 @@ class TestTheRecordAndTheSurfaces:
         assert record.scheme == "stacked"
         assert record.target == "fold-mass-weighted data-adaptive value"
         line = record.describe()
-        assert "the stacked report" in line and "weighted by each fold's share" in line
+        assert line.startswith(
+            "Target: the average of the values of the 5 rules learned on the training folds, "
+            "weighted by each fold's share of the rows (fold weights "
+        ), line
+        assert "(the stacked report)" in line and "weights=" not in line
+
+    def test_a_weighted_record_names_the_total_weight(self) -> None:
+        line = _unequal(True).extra["learned_rule"].describe()
+        assert "weighted by each fold's share of the total weight (fold weights " in line, line
+        assert "share of the rows" not in _unequal(True).extra["learned_rule"].describe()
+        assert "share of the rows" in _unequal(False).extra["learned_rule"].describe()
 
     def test_the_fold_evaluated_record_keeps_one_over_v(self) -> None:
         (split,) = _unequal_fold_evaluated().extra["learned_rule"].splits
@@ -450,6 +464,64 @@ class TestTheRecordAndTheSurfaces:
         assert "X11 (n2)" in message and "W_v / W" in message
         # The remedy, the fold-evaluated report, runs the bound.
         assert omitted_variable_bounds(support.fit(), NAME, cf_y=0.05, cf_d=0.05) is not None
+
+
+class TestThePersistenceAndTheCompositions:
+    """The stacked record survives a round trip and ``retarget``, and the admitted rule
+    learner and cluster compositions build it."""
+
+    @pytest.mark.parametrize("route", ["save", "dumps"])
+    def test_a_round_trip_keeps_the_stacked_record(self, route: str, tmp_path: Any) -> None:
+        result = _unequal(True)
+        restored = (
+            load(result.save(tmp_path / "stacked.joblib"))
+            if route == "save"
+            else loads(dumps(result))
+        )
+        record, saved = result.extra["learned_rule"], restored.extra["learned_rule"]
+        assert saved == record
+        assert saved.scheme == "stacked"
+        (split,), (saved_split,) = record.splits, saved.splits
+        assert saved_split.fold_masses == split.fold_masses
+        assert saved_split.fold_weights == split.fold_weights
+        # The witness is not the 1/V weighting, which a lost field would fall back to.
+        assert saved_split.fold_weights != (0.2,) * 5
+        estimate, kept = result.estimates[NAME], restored.estimates[NAME]
+        assert kept.psi == estimate.psi and kept.variance == estimate.variance
+
+    def test_retarget_reproduces_the_stacked_fit(self) -> None:
+        result = _unequal(True)
+        estimates, _ = result.estimator.retarget(
+            result.data, result.nuisance, estimands=("ey_learned_rule",)
+        )
+        estimate = result.estimates[NAME]
+        assert estimates[NAME].psi == pytest.approx(estimate.psi, abs=1e-12)
+        np.testing.assert_allclose(
+            estimates[NAME].influence_curve, estimate.influence_curve, rtol=0, atol=1e-12
+        )
+        assert estimates[NAME].variance == pytest.approx(estimate.variance, rel=1e-10)
+
+    def test_a_stacked_blip_fit_builds_its_record(self) -> None:
+        result = support.fit(cv_evaluation=False, learned_rule=learners.blip_rule())
+        (split,) = result.extra["learned_rule"].splits
+        assert split.scheme == "stacked"
+        assert len(split.score_quantiles) == len(split.fold_sizes)
+        assert all(len(levels) > 0 for levels in split.score_quantiles)
+        assert float(np.dot(split.fold_weights, split.fold_estimates)) == pytest.approx(
+            result.estimates[NAME].psi, abs=1e-12
+        )
+
+    def test_the_clustered_variance_is_the_cluster_total_rule(self) -> None:
+        """``J / (J - 1)`` times the sum of squared centred cluster totals, over ``n^2``."""
+        fit = _unequal(False)
+        curve = fit.estimates[NAME].influence_curve
+        totals = pd.Series(curve).groupby(_clustered()["c"].to_numpy()).sum().to_numpy()
+        clusters, n = totals.size, fit.data.n
+        assert clusters == 60
+        by_hand = clusters / (clusters - 1) * float(np.sum((totals - totals.mean()) ** 2)) / n**2
+        assert fit.estimates[NAME].variance == pytest.approx(by_hand, rel=1e-12)
+        # The row rule of the same curve differs, so the check reads the cluster rule.
+        assert abs(influence_variance(curve) / by_hand - 1.0) > 0.05
 
 
 @cache

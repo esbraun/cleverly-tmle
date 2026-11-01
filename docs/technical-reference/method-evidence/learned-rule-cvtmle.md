@@ -20,7 +20,7 @@ rejects it. A zero-row equivalence artifact records the absence of a comparator.
 | candidate | why it is not a comparator |
 | --- | --- |
 | R `tmle3mopttx` at `3c0e843` | it weights the folds by $n_v / n$ and centres the curve at the pooled estimate. Its `sl3` metalearner reads every fold's predictions, so a fold's rule is not a function of that fold's training rows alone |
-| R `polle` | its Algorithm 4 pools doubly robust scores, a different construction that [X11](../../roadmap.md#x11-learned-policy-follow-ups) part (e) holds |
+| R `polle` | its Algorithm 4 pools the scores of all validation rows and weights each fold by its share of the rows, a different construction, which ships as the experimental [stacked report](../point-treatment-tmle.md#learned-rules) |
 | R `DynTxRegime` | it estimates a rule and its value by IPW or AIPW, with no fold-average CV-TMLE target |
 
 ## What was tested

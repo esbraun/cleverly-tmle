@@ -1561,7 +1561,7 @@ $$
 $$
 
 The pooled $\varepsilon$ solves only $\sum_v n_v s_v = 0$, so the cross term can be negative and
-larger than the last term. Both extra terms are $o_P(1)$ under C3. Under `targeting_scheme="fold"`
+larger than the last term. Divided by $n$, both extra terms are $o_P(1)$ under C3. Under `targeting_scheme="fold"`
 each fold's $\varepsilon_v$ sets $s_v = 0$, so the cross term vanishes, and the target stays
 $\tilde\psi^{s}_{0n}$.
 
@@ -1585,7 +1585,7 @@ experimental. A fit with unequal cluster sizes also keeps the `unequal_clusters`
 `tests/unit/test_learned_rule_stacked.py` holds the witnesses. On an exact discrete law whose
 three unequal folds learn different rules, it rebuilds $Z_i$ from the oracle mechanism and
 checks the identity above against the stored variance. There the cross term is $-0.44$ and the
-last term $0.07$, and a mutation that drops the cross term fails. Under fold targeting each $s_v$
+last term $0.07$, and a variance without the cross term misses the stored value. Under fold targeting each $s_v$
 is 0. On an unequal cluster plan, unweighted and weighted, the point is
 $\sum_v (W_v/W)\psi^*_{nv}$, and the $1/V$ weighting fails by a declared amount. A fit of four
 splits reports their mean, and each stratum estimate weights its folds by $W_{v,s}/W_s$ while

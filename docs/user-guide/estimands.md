@@ -180,8 +180,8 @@ Write one item as a one-item tuple.
 ## Learned treatment rules
 
 Use `LearnedRuleValue` to estimate the value of a treatment rule that the fit learns from the data.
-The fit learns one rule inside each training fold and reports the average of the values of those
-rules. The interval can under-cover when the effect is zero or near zero for a share of units.
+The fit learns one rule inside each training fold and reports an average of the values of those
+rules, weighted by fold (equal weights in the example below). The interval can under-cover when the effect is zero or near zero for a share of units.
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) states the
 conditions.
 
@@ -227,16 +227,20 @@ rule. The table gives what the result holds.
 | where | content |
 | --- | --- |
 | `learned.estimates` | one parameter, `ey_learned_rule[learned rule]` |
-| `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip |
+| `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip. Under the default `CrossFitting()` the fold estimates describe each fold's part of one pooled estimate, not separate estimates |
 | `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row, `1.0` for treat |
 | `learned.summary()` | a line that states the target |
 
 Use `CrossFitting(n_folds=5, fold_evaluation=True)`, as above. It scores each fold's rule on that
 fold alone and gives every fold equal weight, and the studies above measure that setting. The
 default `CrossFitting()` also runs: it scores all held-out rows together and weights each fold by
-its share of the rows. Its result is marked experimental until a study measures it. Either way the
-fit needs cross-fitting with at least two folds, a binary treatment, complete outcomes and no
-intermediate variable. A fit that lacks one of them refuses before any model is fitted.
+its share of the rows (of the total weight, when you pass `weights=`). Its result is marked
+experimental until a study measures it.
+
+Either way the fit needs, among other things, cross-fitting with at least two folds, a binary
+treatment, complete outcomes and no intermediate variable. A fit that lacks one of them refuses
+before any model is fitted. The refusal table under
+[Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) lists the rest.
 
 A refit that relearned the rules would estimate the value of other rules. So the `subset`,
 `random_common_cause`, `bootstrap_stability` and `bootstrap_measurement_error` tests of `refute`,

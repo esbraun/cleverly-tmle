@@ -69,8 +69,12 @@ ENGINE_REMEDY = (
 )
 
 #: The method remedy that ends each method-layer fold-policy sentence.  Either report fits,
-#: so it names no ``fold_evaluation``.
+#: so the requirement names no ``fold_evaluation``.
 METHOD_REMEDY = "CrossFitting(enabled=True)"
+
+#: The clause both remedies end with: the default is the stacked report, which no
+#: registered study covers, so each remedy names the fold-evaluated report.
+REGISTERED_PATH = "gives the fold-evaluated report that the registered studies cover"
 
 #: The two routes a learned-rule message must not offer: an in-sample fit, which X11 (a)
 #: refuses, and a shift, which X11 (c) holds beside ``learned_rule=``.
@@ -301,6 +305,7 @@ def _method_as_written(message: str) -> CrossFitting:
     """Return :data:`METHOD_REMEDY`, found verbatim at the end of ``message``, evaluated."""
     assert message.endswith(f"{_LEARNED_RULE_METHOD_CLAUSE}."), message
     assert METHOD_REMEDY in _LEARNED_RULE_METHOD_CLAUSE
+    assert _LEARNED_RULE_METHOD_CLAUSE.endswith(REGISTERED_PATH)
     return eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})
 
 
@@ -318,6 +323,25 @@ def _study_fit(cross_fitting: CrossFitting) -> Any:
         cross_fitting=cross_fitting,
     )
     return study.identify(LearnedRuleValue()).estimate(method, simultaneous=False)
+
+
+def test_each_remedy_names_the_registered_path_and_it_fits_the_fold_evaluated_report() -> None:
+    """The default of both layers is the stacked report, so each remedy ends by naming the
+    fold-evaluated report.  The keyword each one prints, run as written, fits that report."""
+    assert LEARNED_RULE_CONFIGURATION.endswith(REGISTERED_PATH)
+    assert _LEARNED_RULE_METHOD_CLAUSE.endswith(REGISTERED_PATH)
+    engine = _as_written(LEARNED_RULE_CONFIGURATION, "cross_fit=True", "cv_evaluation=True")
+    fit = support.fit(**engine)
+    assert fit.extra["learned_rule"].scheme == "fold_evaluated"
+    clause = "CrossFitting(fold_evaluation=True)"
+    for text in (LEARNED_RULE_CONFIGURATION, _LEARNED_RULE_METHOD_CLAUSE):
+        assert clause in text
+    method = eval(clause, {"CrossFitting": CrossFitting})
+    assert _study_fit(method).extra["learned_rule"].scheme == "fold_evaluated"
+    assert (
+        _study_fit(eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})).extra["learned_rule"].scheme
+        == "stacked"
+    )
 
 
 class TestEachSharedRefusalRemedyRunsAsWritten:

@@ -129,10 +129,14 @@ BLIP_QUANTILE_LEVELS: tuple[float, ...] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 #: The configuration that fits the learned-rule value.  Every refusal whose remedy is a
 #: configuration names it, and ``tests/unit/test_learned_rule_refusals.py`` fits it.  Either
-#: report fits, so it names neither ``cv_evaluation`` value.
+#: report fits, so the requirement names neither ``cv_evaluation`` value.  Its last clause
+#: names the fold-evaluated report, because the default is the stacked report, which no
+#: registered study covers.
 LEARNED_RULE_CONFIGURATION = (
     "cross_fit=True on the engine, or CrossFitting(enabled=True) on the method, with n_folds "
-    "of at least 2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)"
+    "of at least 2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method); "
+    "cv_evaluation=True on the engine (CrossFitting(fold_evaluation=True) on the method) "
+    "gives the fold-evaluated report that the registered studies cover"
 )
 
 #: The way out of a shared refusal that a drawn split raises.  The learned-rule value has
@@ -807,28 +811,35 @@ class LearnedRuleRecord:
         )
         if self.scheme == "stacked":
             weights = [weight for split in self.splits for weight in split.fold_weights]
-            average = (
-                "the average, weighted by each fold's share of the rows (of the weight mass "
-                f"under weights=), {min(weights):.3g} to {max(weights):.3g}, of the values"
+            # Each fold mass is the fold's row count exactly when no weights were passed.
+            weighted = any(
+                tuple(float(size) for size in split.fold_sizes) != split.fold_masses
+                for split in self.splits
+            )
+            share = "the total weight" if weighted else "the rows"
+            average = "the average of the values"
+            weighting = (
+                f", weighted by each fold's share of {share} (fold weights "
+                f"{min(weights):.3g} to {max(weights):.3g})"
             )
             evaluated = (
                 "each evaluated on the fold it did not train on and pooled over every "
                 "validation row (the stacked report)"
             )
         else:
-            average = "the average value"
+            average, weighting = "the average value", ""
             evaluated = "each estimated on the fold it did not train on"
         if self.n_splits == 1:
             return (
                 f"Target: {average} of the {self.splits[0].n_folds} rules learned on the "
-                f"training folds, {evaluated}. "
+                f"training folds{weighting}, {evaluated}. "
                 f"{source} Unweighted share of rows the rules treat, by fold: "
                 f"{low:.3g} to {high:.3g}."
             )
         estimates = [split.estimate for split in self.splits]
         return (
             f"Target: the mean over {self.n_splits} random splits of {average} of "
-            f"the rules learned on the training folds of each split, {evaluated}. "
+            f"the rules learned on the training folds of each split{weighting}, {evaluated}. "
             f"{source} Estimate of each split: "
             f"{min(estimates):.4g} to {max(estimates):.4g}. Unweighted share of rows the "
             f"rules treat, by fold over every split: {low:.3g} to {high:.3g}."
@@ -854,7 +865,9 @@ def mean_over_splits(
         \bar\phi_i = \frac1R\sum_r \phi_{r,i}.
 
     The variance is ``variance(phibar)``, the split's own rule applied to the averaged
-    curve: :math:`n^{-2}\sum_i \bar\phi_i^2` for the fold-evaluated report.  The median of
+    curve: :math:`n^{-2}\sum_i \bar\phi_i^2` for the fold-evaluated report, and
+    :func:`~cleverly.inference.influence_variance`, the centred rule, for the
+    stacked report.  The median of
     the split estimates estimates no defined parameter, so it is never used here.
 
     A parameter status of one split passes to the mean, as it passes to the median
