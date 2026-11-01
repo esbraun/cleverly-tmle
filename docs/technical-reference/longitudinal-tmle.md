@@ -1116,8 +1116,8 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
 
 The registered study [point survival hazard](method-evidence/point-survival-hazard.md) validates
-the per-horizon algorithm on repeated samples of two exact laws. Its `survtmle` comparator runs
-are pending.
+the per-horizon algorithm on repeated samples of two exact laws. Its 21 paired comparisons with R
+`survtmle`, `method = "hazard"`, pass under the default margins.
 
 The registered study [point survival curve](method-evidence/point-survival-curve.md) validates the
 one-step walk on repeated samples of the `survival` law and on further exact laws in its property

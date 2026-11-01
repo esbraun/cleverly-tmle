@@ -701,8 +701,9 @@ on a design with one baseline treatment:
 [per-horizon targeting](../technical-reference/method-evidence/point-survival-hazard.md),
 [one-step targeting](../technical-reference/method-evidence/point-survival-curve.md) and
 [five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
-The first two await their R comparator runs (`survtmle` and `tmle3`), and the cross-fitted one has
-no comparator, because no package fits that construction. The one-step study also holds one cell
+The per-horizon study agrees with the R package `survtmle` on the same samples. The one-step
+study awaits its run against the R package `tmle3`, and the cross-fitted one has no comparison,
+because no package fits that construction. The one-step study also holds one cell
 that fits the default iterated-mean model with `isotonic=True` on a law with treatment at two nodes. Its curve rises steeply
 enough that the projection never moved a level, so no study yet measures an interval at a level
 that the projection moved.

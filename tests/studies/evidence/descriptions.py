@@ -1061,7 +1061,7 @@ IMPLEMENTATIONS: dict[str, str] = {
         "`cleverly` cross-fitted point-treatment survival with hazard targeting"
     ),
     "cleverly-held-policy-ltmle": "`cleverly` LTMLE with a policy at a held baseline treatment",
-    "survtmle": 'R `survtmle`, `method="mean"`',
+    "survtmle": "R `survtmle`",
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
     "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-ltmle-derived": "`cleverly` LTMLE ratio contrast",
