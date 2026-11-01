@@ -24,12 +24,22 @@ The study pairs each fit with R `survtmle` 1.1.1, `method = "mean"` (Benkeser, C
 | treatment model | a logistic regression on `W1 + W2` | `glm.trt = "W1 + W2"` |
 | censoring model | a logistic regression on the arm, `W1` and `W2` at each visit | one pooled `glm` with one intercept and three slopes for each visit, which factorises by visit into the same model |
 | sequential regressions | a quasibinomial regression on `W1 + W2` for each arm. The hazard is logistic in the visit, the arm and `W`, so the iterated means are misspecified on purpose | `glm.ftime = "trt * (W1 + W2)"` |
-| targeting | the intercept of each node, with the clever covariate in the loss weight | one logistic fluctuation for each cause, with the clever covariates of both arms |
+| targeting | the intercept of each node, with the clever covariate in the loss weight | one logistic fluctuation for each cause on the clever covariate, in one call for each arm (`trtOfInterest`) |
 | intervals | pointwise 95% Wald from the influence curve | the same, from the `survtmle` influence curve |
 
-The two targeting submodels differ. The arms have disjoint support, so the scores separate by
-arm and the two solve the same equations along different paths. The paired rows therefore read
-under the default margins.
+The two targeting submodels differ, but both solve the same equations along different paths. The
+paired rows therefore read under the default margins.
+
+The comparator calls `survtmle` once per arm. In a call with both arms, `survtmle` 1.1.1's mean
+method builds the observed data's clever covariates from the copy of the data set to the first
+arm (`makeWideDataList.R` reads `dataList[[2]]`), so arm 1 is weighted by the censoring survival
+predicted under arm 0. Dropout here depends on the arm, so arm 1's fluctuation and influence curve
+are wrong after visit 1. The first registered run made that call: its arm-1 standard errors ran 1
+to 5 percent below this package's while arm 0 agreed within 0.04 percent, and eight of its arm-1
+and contrast rows read `superior` on coverage for that reason. The runner still makes the
+both-arm call as a witness, and `reference-witness.csv` compares it with the per-arm calls. Arm 0,
+and both arms at visit 1, must agree to fitting tolerance, and arm 1's standard error after visit
+1 must differ (`tests/unit/test_point_survival_method_study.py`).
 
 The `initial_estimate` column is not one quantity on the two sides. Here it is the mean of the
 node-1 regression, which is fitted on pseudo-outcomes that the later nodes already targeted. The

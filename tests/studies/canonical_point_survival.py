@@ -21,10 +21,21 @@ the efficient influence function over the law's support
   on both sides.
 
 The two estimators differ in their targeting submodel: this package fluctuates each node's
-intercept with the clever covariate in the loss weight, and ``survtmle`` fits one logistic
-fluctuation per cause with the clever covariates of both arms.  The arms have disjoint support,
-so the score separates by arm and the two solve the same equations, along different paths.
-The paired rows are read under the default margins.
+intercept with the clever covariate in the loss weight, and ``survtmle`` fits a logistic
+fluctuation per cause on the unweighted clever covariate.  Both solve the same equations,
+along different paths.  The paired rows are read under the default margins.
+
+**One survtmle call per arm.**  ``survtmle`` 1.1.1's mean method builds its observed wide frame
+from the counterfactual copy of the first arm of ``trtOfInterest`` (``makeWideDataList.R``
+reads ``dataList[[2]]``), so in a call with both arms, arm 1's clever covariate divides by the
+censoring survival predicted at ``trt = 0``.  Dropout here depends on ``A``, so arm 1's
+targeting and influence curve used the wrong weights after visit 1: the first registered run
+made that call, and its arm-1 standard errors ran 1 to 5 percent below this package's while
+arm 0 agreed within 0.04 percent.  The runner now calls once per arm with ``trtOfInterest``.  The
+both-arm call stays as a witness, and :func:`reference_artifacts` writes
+``reference-witness.csv``: per estimand, how far the both-arm call's estimate and standard
+error sit from the per-arm call's.  Arm 0 and visit 1 must agree to fitting tolerance, and arm
+1 after visit 1 must not, which shows the per-arm call changed the weights it was meant to.
 
 **The scenarios.**  ``survival`` (five integer visits; the risks of both arms and their
 difference at visits 1, 3 and 5) and ``competing`` (four visits, two causes; the incidences
@@ -64,6 +75,7 @@ replication that raises is never redrawn: a failed replication fails the run.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -74,6 +86,7 @@ from cleverly.longitudinal import LTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import point_survival_common as common
 from tests.studies.canonical_ltmle import R_BASE_IMAGE, regimen_rows
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -119,6 +132,11 @@ def _names(scenario: str) -> tuple[str, ...]:
 
 
 ESTIMANDS = {scenario: _names(scenario) for scenario in SCENARIOS}
+
+#: The per-arm workaround's witness, written by :func:`reference_artifacts`.
+WITNESS_FILE = "reference-witness.csv"
+#: The columns the runner's rows carry beside the published schema: the both-arm call's values.
+WITNESS_COLUMNS = ("joint_estimate", "joint_std_error")
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "double_robustness": tuple(
@@ -187,6 +205,7 @@ STUDY = StudyRecord(
     properties_module="tests.studies.point_survival_properties",
     property_cells=PROPERTY_CELLS,
     publication_policy="reporting",
+    extra_artifacts=(WITNESS_FILE,),
 )
 
 REFERENCE_METADATA = {
@@ -196,7 +215,9 @@ REFERENCE_METADATA = {
     "reference_construction": (
         "survtmle(method='mean') per horizon t0, glm.trt='W1 + W2', glm.ftime='trt*(W1 + W2)', "
         "glm.ctime with one intercept and three slopes per visit and no shared term; the "
-        "initial estimate is a second call with Gcomp=TRUE"
+        "initial estimate is a second call with Gcomp=TRUE; one targeted call per arm "
+        "(trtOfInterest), because survtmle 1.1.1's both-arm mean call weights every arm by the "
+        "first arm's censoring survival"
     ),
     "pairing": "read under the default margins; the targeting submodels differ by construction",
 }
@@ -356,6 +377,58 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
 def truth_table() -> Mapping[str, Mapping[str, float]]:
     """The declared truth of every primary estimand, by scenario."""
     return TRUTH
+
+
+def reference_artifacts(
+    *,
+    reference: Any,
+    here: Path,
+    samples: Path,
+    truths_path: Path,
+    reference_results: Path,
+    output: Path,
+    cores: int,
+) -> dict[str, pd.DataFrame]:
+    """Summarise the both-arm survtmle call against the per-arm calls, per estimand.
+
+    ``max_abs_estimate_gap`` is the largest absolute gap between the two calls' estimates over
+    the replications, ``max_abs_se_log_ratio`` the largest absolute log ratio of their
+    standard errors, and ``mean_se_ratio`` the mean of the both-arm standard error over the
+    per-arm one.  ``tests/unit/test_point_survival_method_study.py`` reads the file.
+    """
+    del reference, here, samples, truths_path, output, cores
+    rows = pd.read_csv(reference_results, float_precision="round_trip")
+    missing = [column for column in WITNESS_COLUMNS if column not in rows.columns]
+    if missing:
+        raise RuntimeError(f"survtmle rows lack the witness columns {missing}")
+    rows["horizon"] = rows["estimand"].str.extract(r"@ t=(\d+)\]", expand=False).astype(int)
+    rows["arm"] = np.where(
+        rows["estimand"].str.startswith("ate_regimen"),
+        "contrast",
+        rows["estimand"].str.extract(r"\[(arm\d)", expand=False),
+    )
+    rows["estimate_gap"] = (rows["joint_estimate"] - rows["estimate"]).abs()
+    rows["se_ratio"] = rows["joint_std_error"] / rows["std_error"]
+    rows["se_log_ratio"] = np.log(rows["se_ratio"]).abs()
+    summary = (
+        rows.groupby(["scenario", "estimand", "arm", "horizon"], sort=True)
+        .agg(
+            replicates=("replicate", "size"),
+            max_abs_estimate_gap=("estimate_gap", "max"),
+            max_abs_se_log_ratio=("se_log_ratio", "max"),
+            mean_se_ratio=("se_ratio", "mean"),
+        )
+        .reset_index()
+    )
+    return {WITNESS_FILE: summary}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The witness reads the surviving reference rows, so a failed fit only drops its rows."""
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"per-arm witness (surviving rows)": pd.DataFrame()}, missing={}
+    )
 
 
 __all__ = ["STUDY", "TRUTH", "draw_and_fit", "fit"]
