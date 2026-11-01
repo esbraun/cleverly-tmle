@@ -196,8 +196,21 @@ LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", 
 #: linear functional of the outcome regression with a known Riesz representer, read off
 #: the fit's own clever covariate.  :func:`axis_parameters` turns a fit's codes into names.
 AXIS_ESTIMANDS: frozenset[str] = frozenset(
-    {"ey_regime", "ate_regime", "ey_policy", "ate_policy", "msm", "ey_learned_rule"}
+    {
+        "ey_regime",
+        "ate_regime",
+        "ey_policy",
+        "ate_policy",
+        "msm",
+        "ey_learned_rule",
+        "ey_known_regime",
+    }
 )
+
+#: The stem of a contrast of the learned rule with a known regime (X11 (c)).  Its bound is
+#: refused by name: no witness checks the bias of the difference of the combined
+#: representer and a known regime's representer (X11 (n2)).
+LEARNED_RULE_CONTRAST_STEM = "ate_learned_rule"
 
 #: The stem of the learned-rule value (X11 part (n)).  With the fold rules held fixed it is
 #: the regime functional of the stochastic regime that averages them, so it reuses the
@@ -592,12 +605,15 @@ def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
         regimes = result.repeats[0].nuisance.regimes
         if regimes is None:
             return {}
-        name = parameter_name(LEARNED_RULE_STEM, arm=regimes.labels[0.0])
-        return (
-            {name: ArmParameter(name, LEARNED_RULE_STEM, "regime", 0.0)}
-            if name in result.estimates
-            else {}
-        )
+        # The learned-rule value, then the value of each known regime declared beside the
+        # rule (X11 (c)), which is a regime parameter of its own column.
+        learned: dict[str, ArmParameter] = {}
+        for code in regimes.codes:
+            stem = LEARNED_RULE_STEM if code == 0.0 else "ey_known_regime"
+            name = parameter_name(stem, arm=regimes.labels[code])
+            if name in result.estimates:
+                learned[name] = ArmParameter(name, stem, "regime", code)
+        return learned
     if axis not in _AXIS_GROUPS:
         return {}
     group = _AXIS_GROUPS[axis][0]
@@ -1322,6 +1338,20 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         The reported parameter and the arms it is a functional of.
     """
     stem = parameter_stem(estimand)
+    if stem == LEARNED_RULE_CONTRAST_STEM:
+        raise CapabilityError(
+            f"the omitted-variable bound of {estimand!r}, a contrast of the learned rule "
+            "with a known regime, is not built. With the fold rules held fixed it is a "
+            "linear functional whose representer is the combined representer of the rules "
+            "minus the known regime's, and no witness checks its bias against that "
+            "difference (X11 (n2) in docs/roadmap.md).",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Bound each value on its own: ey_learned_rule[...] and ey_known_regime[...] "
+                "of this fit."
+            ),
+            roadmap="X11",
+        )
     if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
@@ -1708,7 +1738,9 @@ def _combined_rule_regimes(nuisance: NuisanceEstimates) -> RegimeSet:
     rules = fold_rules(nuisance)
     assert regimes is not None and rules is not None
     treated = np.mean(rules, axis=1, dtype=float)
-    values = np.empty((treated.size, 2, 1), dtype=float)
+    # Known regimes declared beside the rule (X11 (c)) keep their own densities, so their
+    # columns of the clever covariate are the ones the fit was targeted with.
+    values = np.array(regimes.values, dtype=float)
     values[:, 1, 0] = treated
     values[:, 0, 0] = 1.0 - treated
     return RegimeSet(regimes.names, values, regimes.reference)

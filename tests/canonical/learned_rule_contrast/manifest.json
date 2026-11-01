@@ -1,0 +1,116 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule contrasts with known regimes",
+  "slug": "learned-rule-contrast",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-contrast",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "c67bb0b53b52a3c82db5752ddb67576f564c67ea",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 2000,
+    "seed": 20263091,
+    "resampling_seed": 20263092,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-contrast": 0.01
+    },
+    "scenarios": {
+      "non_exceptional": [
+        "ey_learned_rule[learned rule]",
+        "ey_known_regime[always 1]",
+        "ey_known_regime[always 0]",
+        "ate_learned_rule[learned rule vs always 1]",
+        "ate_learned_rule[learned rule vs always 0]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), interventions=[Static(1), Static(0)], n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>) at n = 2000; every other setting the constructor's default (simultaneous=True, whose band the fit skips); repeats=1",
+    "stacked_fit": "the same with cv_evaluation=False, on the same draw and fold seed",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "parameters": {
+      "value": "ey_learned_rule[learned rule]",
+      "known_1": "ey_known_regime[always 1]",
+      "known_0": "ey_known_regime[always 0]",
+      "contrast_1": "ate_learned_rule[learned rule vs always 1]",
+      "contrast_0": "ate_learned_rule[learned rule vs always 0]"
+    },
+    "laws": {
+      "non_exceptional": "RM30 law with blip 0.1 + W1; calibration bands",
+      "misspecified_limit": "RM30 law with blip 0.8 W1 + W1^2 - 0.3; bias leg and coverage floor 0.92 only (Corollary 3's route, by the paper's analogy); the omitted projection term is negligible here (predicted SE ratio at most 1.0005), so the cells measure coverage under a misspecified treated arm, not conservativeness"
+    },
+    "variance": "fold-evaluated: V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of each curve, D_L - D_K for a contrast; stacked: the centred rule {n (n - 1)}^-1 sum_i (phi_i - phibar)^2 of the stored curve, the difference of the two curves for a contrast",
+    "truth": "per replication: refit each fold's outcome learner on the fit's training rows with the package's fit_on_rows, require the fit's rule on every validation row (rule L4), integrate each fold rule's value by the trapezoid rule on 4001 points of W1 for each W2 with the known Qbar0, and weight fold v by the report's fold weight (1/V, or n_v/n stacked), checked against the record's fold_weights; a known regime's truth is E Qbar0(a, W) by the same rule; a contrast's is the difference",
+    "oracle_se": "sqrt(sum_v omega_v^2 Var D_v / n_v) of each curve at the fold rules; descriptive",
+    "conservative_coverage": "misspecified_limit: bias leg and coverage interval lower bound >= 0.92; control: SE x 0.60, coverage interval upper bound < 0.92",
+    "contrast_covariance": "each contrast with se = |se_L - se_K| (correlation one); coverage interval upper bound < 0.80",
+    "independent_se_diagnostic": "each contrast with se = sqrt(se_L^2 + se_K^2) (independence); diagnostic, no verdict",
+    "targeting_necessity": "RM30's drop_w1_learner, fold-evaluated, contrast against Static(0): targeted against the untargeted difference of the initial plug-ins",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_contrast.py": "8f1865cc2f9b91fe12d26973e02432da37f4051b9a123d67726030bb6bc090b9",
+    "tests/studies/learned_rule_contrast_properties.py": "b3f9eeb0442124da445473f80801faffa297e6eed99d0db657375eca3792b694",
+    "tests/studies/_learned_rule_contrast_law.py": "f019c7425d77c1c2061f02ef74b5966eef9e16ce4339f918746f123cdd312cdf",
+    "tests/studies/_learned_rule_law.py": "c1d481a71a7eb36730712ddb1e7016ddc2e95e48b5e88aff5e119518f3151ef0",
+    "src/cleverly/estimators/tmle.py": "717f271acc48dcbbef8ba30ece59d5eaad04a12b3639cc50ead561f0edeb4c74",
+    "src/cleverly/estimators/_nuisance.py": "a4f592ecd4785ec0849b4c0871cea3e65944f01ceb0285cacb651201b8fa13b7",
+    "src/cleverly/interventions/learned.py": "81738858cd84495fef23569d90cbb0200c30b9cfd7c64008c6251b62d6fd2516",
+    "src/cleverly/interventions/base.py": "3b9db3199ad83dc5297396648e0c41acc755dcde5a675cf291da5de59692aa2b",
+    "src/cleverly/targets/builtin.py": "a87a458385657166be5386dd9c49dcbfbcc55e543a2fe0f193563c41fccd2dd8",
+    "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
+    "src/cleverly/_support.py": "9ac8cc28941b882c48d7c8ce27ebc65d977ade4aa73c961f5b91af90ffca26ad",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "ddfd45a94ce6c8cd8ad896a34f6d608be316a27aa0e8b1ea79661f164979c22b",
+    "summary.csv": "059e03e6062430f4c8519f7f231dcc2053287db5d2a104569f652e7ede13295f",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "f121fa3d27bd65ffb5b761eddf6a02c9d5783d55339cfc6f014557a7c83b16bc",
+    "property-replicates.parquet": "d8bc84a07716bcaf71d83079477493daa5b55f6ca7c02624181b0c4120f486a6",
+    "properties.csv": "2a46ecfa02242836fdc47e3d34b79ecdd6847310bbd7ae528da89ec1126fb54f",
+    "harness.csv.gz": "1e64f7553e6fb89b55997b001ef503774bebff4e0cc515b2a85e57697c97136f"
+  }
+}

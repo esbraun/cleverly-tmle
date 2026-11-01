@@ -27,7 +27,8 @@ regime fluctuation with one pooled :math:`\varepsilon`, and either the fold-eval
 with the cross-validated variance or the stacked report with the curve centred at the pooled
 estimate.  This module adds the fold-local rule, the result record, the mean over a fixed
 number of splits (:func:`mean_over_splits`) and the refusals.  No new submodel, fluctuation or
-influence curve enters.
+influence curve enters.  Known regimes declared beside the rule (X11 (c)) are more columns of
+the same regime set, and a contrast's curve is the difference of the two columns' curves.
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
+    "CONTRAST_TARGETS",
     "LEARNED_RULE_ARM_REMEDY",
     "LEARNED_RULE_BENCHMARK_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
@@ -74,7 +76,9 @@ __all__ = [
     "frozen_rule_replay",
     "in_sample_learner_condition",
     "learned_rule_configuration_refusal",
+    "learned_rule_estimands",
     "learned_rule_record",
+    "learned_rule_retarget_refusal",
     "learned_rule_scheme_refusal",
     "learned_rule_split",
     "learned_rule_splits_refusal",
@@ -278,7 +282,9 @@ class LearnedRule:
 
     The object has no ``density`` method, so it never enters ``interventions=`` as a known
     regime.  Pass it as ``TMLE(learned_rule=LearnedRule())`` or
-    ``LearnedRuleValue(rule=LearnedRule())``.
+    ``LearnedRuleValue(rule=LearnedRule())``.  Known regimes passed beside it,
+    ``TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])``, are reported with their
+    contrasts against the learned rule.
 
     Parameters
     ----------
@@ -1113,13 +1119,18 @@ def _learned_rule_regimes(
     name: str,
     margin: np.ndarray | None = None,
     fold_rules: np.ndarray | None = None,
+    known: RegimeSet | None = None,
+    reference: float = 0.0,
 ) -> RegimeSet:
-    """The fold-local rule of every row, as a one-regime :class:`RegimeSet`.
+    """The fold-local rule of every row, then any known regimes, as a :class:`RegimeSet`.
 
-    The density is one-hot: ``values[i, 1, 0]`` is ``1`` when the rule of row ``i``'s fold
-    assigns it the higher arm code, and ``values[i, 0, 0]`` is ``1`` otherwise.  The set
-    is built directly, so no regime declaration is checked: the rule is learned, and the
-    target that reads it is the learned-rule value, not a regime mean.
+    The density of the rule is one-hot: ``values[i, 1, 0]`` is ``1`` when the rule of row
+    ``i``'s fold assigns it the higher arm code, and ``values[i, 0, 0]`` is ``1`` otherwise.
+    The rule's column is built directly, so no regime declaration is checked: the rule is
+    learned, and the target that reads it is the learned-rule value, not a regime mean.
+    The known regimes of ``interventions=`` (X11 (c)) follow as codes ``1`` to ``K``, with
+    the densities :meth:`RegimeSet.evaluate` gave them, so one fluctuation targets every
+    column on the same folds.
 
     Parameters
     ----------
@@ -1131,22 +1142,32 @@ def _learned_rule_regimes(
         The rule learner's score minus its threshold at every row, or ``None``.
     fold_rules : numpy.ndarray or None
         Every fold's rule at every row, ``(n, V)`` booleans, or ``None`` for a frozen rule.
+    known : RegimeSet or None
+        The evaluated known regimes declared beside the rule, or ``None``.
+    reference : float
+        The code contrasts are taken against: ``0`` when ``reference=`` names the learned
+        rule or no known regime is declared, and ``1`` otherwise, which the contrast target
+        reads as "the learned rule minus each known regime".
 
     Returns
     -------
     RegimeSet
-        One regime, named ``name``, over the two arms.
+        The rule, named ``name``, then the known regimes, over the two arms.
     """
     treat = np.asarray(treat, dtype=bool)
     values = np.zeros((treat.size, 2, 1), dtype=float)
     values[:, 1, 0] = treat
     values[:, 0, 0] = ~treat
+    names: tuple[str, ...] = (name,)
+    if known is not None:
+        values = np.concatenate([values, np.asarray(known.values, dtype=float)], axis=2)
+        names = (name, *known.names)
     if margin is None and fold_rules is None:
-        return RegimeSet((name,), values, 0.0)
+        return RegimeSet(names, values, float(reference))
     return _LearnedRuleRegimes(
-        (name,),
+        names,
         values,
-        0.0,
+        float(reference),
         None if margin is None else np.asarray(margin, dtype=float),
         None if fold_rules is None else np.asarray(fold_rules, dtype=bool),
     )
@@ -1294,13 +1315,162 @@ def _arm_estimands(estimands: Any) -> tuple[str, ...]:
     )
 
 
+#: The targets of a learned-rule fit that read a known regime declared beside the rule
+#: (X11 (c)).  A fit without ``interventions=`` reports neither, and refuses either by name.
+#: No simultaneous band covers them: ``simultaneous_bands()`` refuses them with
+#: :data:`~cleverly.inference.multiplier.KNOWN_REGIME_BAND_REFUSAL`, and a fit skips its
+#: default band (X11 (c2)).
+CONTRAST_TARGETS: tuple[str, ...] = ("ey_known_regime", "ate_learned_rule")
+
+
+def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, ...]:
+    """Resolve the estimands of a learned-rule fit: the value first, then its contrasts.
+
+    The learned-rule axis registers :data:`CONTRAST_TARGETS` in its default report, and they
+    read the known regimes of ``interventions=``.  A fit without them reports the learned-rule
+    value alone.  An explicit request of either without ``interventions=`` refuses first, in
+    :func:`learned_rule_configuration_refusal`.  The learned-rule value is always reported,
+    first: the record ``result.extra["learned_rule"]`` describes it, and every contrast
+    reads it.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+    names : sequence of str
+        The resolved estimand names.
+
+    Returns
+    -------
+    tuple of str
+        ``names`` with ``ey_learned_rule`` first, and without the contrast targets on a
+        learned-rule fit with no known regime.  Any other fit's ``names`` unchanged.
+    """
+    if getattr(estimator, "learned_rule", None) is None:
+        return tuple(names)
+    known = bool(getattr(estimator, "interventions", ()))
+    rest = [
+        name
+        for name in names
+        if name != "ey_learned_rule" and (known or name not in CONTRAST_TARGETS)
+    ]
+    return ("ey_learned_rule", *rest)
+
+
+def _requested(estimands: Any) -> tuple[str, ...]:
+    """The estimand names a caller wrote, or ``()`` for the default or ``"all"``."""
+    if estimands is None or estimands == "all":
+        return ()
+    return (estimands,) if isinstance(estimands, str) else tuple(estimands)
+
+
+def learned_rule_retarget_refusal(estimator: Any, requested: Sequence[str]) -> Refusal | None:
+    """The refusal of a retarget that asks a learned-rule fit for a target it cannot report.
+
+    :meth:`~cleverly.estimators.TMLE.retarget` can name any target of the fit's axis, and a
+    known-regime target on a fit without ``interventions=`` would otherwise return no
+    estimate.  It refuses as the constructor refuses the same request.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+    requested : sequence of str
+        The targets the retarget names.
+
+    Returns
+    -------
+    Refusal or None
+        The ``INVALID_DECLARATION`` refusal, or ``None``.
+    """
+    if getattr(estimator, "learned_rule", None) is None:
+        return None
+    if getattr(estimator, "interventions", ()):
+        return None
+    if not any(name in CONTRAST_TARGETS for name in requested):
+        return None
+    return _contrast_refusal(estimator, requested)
+
+
+def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) -> Refusal | None:
+    """The refusal of a known-regime contrast that the learned-rule fit cannot report.
+
+    Three declarations: a known-regime target without ``interventions=``, ``reference=``
+    without ``interventions=``, and ``reference=`` naming a known regime, which would ask for
+    a contrast of two known regimes.  A known regime that takes the learned rule's name is
+    refused too, because every reported name would be ambiguous.  ``requested`` replaces
+    the estimator's ``estimands=`` for a retarget, which names its own targets.
+    """
+    interventions = tuple(getattr(estimator, "interventions", ()) or ())
+    reference = getattr(estimator, "reference", None)
+    rule = estimator.learned_rule
+    names = [str(item.name) for item in interventions]
+    if not interventions:
+        written = (
+            _requested(getattr(estimator, "estimands", None))
+            if requested is None
+            else tuple(requested)
+        )
+        asked = [name for name in written if name in CONTRAST_TARGETS]
+        if asked or reference is not None:
+            named = [
+                *([f"estimands={asked}"] if asked else []),
+                *(["reference="] if reference is not None else []),
+            ]
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"{' and '.join(named)} on a learned-rule fit read a known regime declared "
+                "beside the rule with interventions=, and this fit declares none. Its one "
+                "estimand is the learned-rule value, which has no contrast.",
+                alternative=(
+                    "Declare the known regimes to compare against, for example "
+                    "interventions=[Static(1)], or drop "
+                    f"{' and '.join(named)} to fit the learned-rule value alone."
+                ),
+            )
+        return None
+    if rule.name in names:
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"the learned rule and a known regime of interventions= are both named "
+            f"{rule.name!r}, so the reported values and contrasts could not tell them apart.",
+            alternative=(
+                "Give the learned rule another name, LearnedRule(name=...), or rename the regime."
+            ),
+        )
+    if reference is not None and str(reference) != rule.name:
+        if str(reference) in names:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"reference={reference!r} names a known regime. On a learned-rule fit every "
+                "contrast reads the learned rule: the learned rule minus each known regime by "
+                "default, and each known regime minus the learned rule with reference= naming "
+                "the learned rule. A contrast of two known regimes is a regime contrast, which "
+                "a learned-rule fit does not report.",
+                alternative=(
+                    f"Leave reference=None, or pass reference={rule.name!r}. Fit the contrast "
+                    "of two known regimes with "
+                    "TMLE(interventions=[...], reference=...), a fit of its own."
+                ),
+            )
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"reference={reference!r} is neither the learned rule {rule.name!r} nor one of "
+            f"the known regimes {names}.",
+            alternative=f"Leave reference=None, or pass reference={rule.name!r}.",
+        )
+    return None
+
+
 def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
     """Return the refusal of a learned-rule estimator that no data can change, or ``None``.
 
     The first two rows of the learned-rule refusal table in
     ``docs/technical-reference/point-treatment-tmle.md``: a collaborative or doubly robust
-    estimator, and ``learned_rule=`` beside another axis keyword, ``reference=`` or an arm
-    estimand.  The engine asks it at construction and again first in its preflight.
+    estimator, and ``learned_rule=`` beside another axis keyword or an arm estimand.  Known
+    regimes beside the rule (``interventions=``, and ``reference=`` naming the learned rule)
+    pass (X11 (c)); a contrast declaration they cannot report refuses here too.  The engine
+    asks it at construction and again first in its preflight.
 
     Parameters
     ----------
@@ -1310,7 +1480,8 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The refusal, an ``IMPLEMENTATION_GAP`` record, or ``None``.
+        The refusal, an ``IMPLEMENTATION_GAP`` or ``INVALID_DECLARATION`` record, or
+        ``None``.
     """
     method = getattr(estimator, "_assessment_method", "tmle")
     if method != "tmle":
@@ -1321,14 +1492,6 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
             f"Fit the ordinary TMLE with learned_rule= and {LEARNED_RULE_CONFIGURATION}.",
             "F27",
         )
-    contrasts = [
-        keyword
-        for keyword, value in (
-            ("interventions=", getattr(estimator, "interventions", ())),
-            ("reference=", getattr(estimator, "reference", None) is not None),
-        )
-        if value
-    ]
     axes = [
         keyword
         for keyword, value in (
@@ -1338,39 +1501,44 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
         )
         if value
     ]
-    arm = _arm_estimands(getattr(estimator, "estimands", None))
-    if not (contrasts or axes or arm):
-        return None
-    reasons = []
-    roadmap = "F17"
-    if contrasts or arm:
-        named = [*contrasts, *([f"estimands={list(arm)}"] if arm else [])]
-        reasons.append(
-            f"A contrast with a known regime or an arm ({', '.join(named)}) follows by "
-            f"linearity of the fold-local curves, and {_X11.format(part='c')} holds it"
-        )
-        roadmap = "X11"
     if axes:
-        reasons.append(
-            f"Another parameter axis ({', '.join(axes)}) needs a fit of its own, because one "
-            "fluctuation cannot solve the score equations of two axes, and "
-            f"{_X11.format(part='c')} holds the joint fit"
+        return _gap(
+            "learned_rule= estimates a data-adaptive value, and beside it known regimes of "
+            f"interventions=. Another parameter axis ({', '.join(axes)}) needs a fit of its "
+            "own, because one fluctuation cannot solve the score equations of two axes, and "
+            f"{_X11.format(part='c2')} holds the joint fit.",
+            f"Fit the learned-rule value without {' or '.join(axes)}, and fit the other "
+            "target in a fit of its own.",
+            "X11",
         )
-    # The remedy names what the caller declared: the keywords to drop, estimands=None for
-    # an arm estimand, and a fit of its own for another target.  reference= names no target.
-    steps = [
-        *([f"without {' or '.join([*contrasts, *axes])}"] if contrasts or axes else []),
-        *(["with estimands=None"] if arm else []),
-    ]
-    other = [keyword for keyword in [*contrasts, *axes] if keyword != "reference="] or arm
-    return _gap(
-        "learned_rule= estimates one data-adaptive value, the fold average of the values of "
-        f"rules learned inside each training fold. {'. '.join(reasons)}.",
-        f"Fit the learned-rule value alone, {' and '.join(steps)}"
-        + (", and fit the other target in a fit of its own" if other else "")
-        + ".",
-        roadmap,
-    )
+    other = _arm_estimands(getattr(estimator, "estimands", None))
+    regime = [name for name in other if name in ("ey_regime", "ate_regime")]
+    if regime:
+        return Refusal(
+            RefusalReason.API_REDIRECTION,
+            f"estimands={regime} are the estimands of a regime fit without learned_rule=. On "
+            "a learned-rule fit, a known regime of interventions= reports its value as "
+            "ey_known_regime and its contrast with the learned rule as ate_learned_rule.",
+            alternative=(
+                "Request estimands=['ey_learned_rule', 'ey_known_regime', 'ate_learned_rule'], "
+                "or estimands=None for all three."
+            ),
+        )
+    arm = [name for name in other if name not in regime]
+    if arm:
+        return Refusal(
+            RefusalReason.API_REDIRECTION,
+            f"learned_rule= reports the learned-rule value and its contrasts with known "
+            f"regimes, and estimands={list(arm)} name arm estimands, which index the "
+            "treatment arms rather than regimes. A contrast with a static arm is a contrast "
+            "with the known regime that always assigns that arm.",
+            alternative=(
+                "Declare the arm as a static known regime beside the rule, "
+                "interventions=[Static(1)] for the higher arm code, with estimands=None, and "
+                "read ate_learned_rule[...] for the contrast."
+            ),
+        )
+    return _contrast_refusal(estimator)
 
 
 def _data_refusal(data: CausalData) -> Refusal | None:
@@ -1572,7 +1740,9 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     order   request                                              item
     ======  ===================================================  ===================
     1       ``CTMLE`` or ``DRTMLE``                              F27
-    2       another axis keyword, ``reference=``, arm estimands  X11 (c)
+    2       another axis keyword                                 X11 (c2)
+            an arm estimand or ``ey_regime`` (a redirection)     none, a redirection
+            a contrast declaration the fit cannot report         none, a declaration
     3       a continuous treatment                               F27
     4       more than two arms                                   X11 (d)
     5       missing outcomes, ``delta=``                         F27
@@ -1584,6 +1754,10 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     11      ``loss="blip"`` with ``weights=`` and a learner      none, a declaration
             whose ``fit`` takes no ``sample_weight``
     ======  ===================================================  ===================
+
+    The simultaneous band is no row. A fit with known regimes skips the band over their
+    values and contrasts, and ``summary()`` says why;
+    :func:`~cleverly.inference.simultaneous_bands` called on them refuses (X11 (c2)).
 
     ``cross_fit=False`` is no row: it fits the value of the one rule learned on every row
     (X11 (a)).  ``cross_fit=True`` with one fold, and ``repeats`` above 1 without
