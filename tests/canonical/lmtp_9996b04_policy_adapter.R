@@ -26,14 +26,15 @@ lmtp_9996b04_policy_tmle <- function(
   fold_assignment,
   copies,
   learners_outcome = "SL.glm",
-  control = lmtp::lmtp_control(.trim = 1, .learners_outcome_folds = 2)
+  control = lmtp::lmtp_control(.trim = 1, .learners_outcome_folds = 2),
+  unscreened = integer(0)
 ) {
   # data: one row per unit, natural columns.  draws: one n x copies matrix per node, the
   # shifted arm of each copy.  ratios: n x T per-node ratios at the natural arm.
   # RM39a2 (M7): every argument is evaluated here, outside any stage.
   invisible(list(
     data, draws, ratios, trt, outcome, baseline, time_vary, cens, fold_assignment, copies,
-    learners_outcome, control
+    learners_outcome, control, unscreened
   ))
   n <- nrow(data)
   if (length(draws) != length(trt)) stop("one draw matrix per treatment node is required")
@@ -55,6 +56,8 @@ lmtp_9996b04_policy_tmle <- function(
     as.numeric(kept & taken)
   }, numeric(n))
   screen_policy_ratios(ratios, matrix(support, nrow = n))
+  # The shipped screen holds only the first node to mean one; every node is (crossfit adapter).
+  horizon_ratio_moments(ratios, unscreened)
 
   unit <- rep(seq_len(n), each = copies)
   natural <- data[unit, , drop = FALSE]

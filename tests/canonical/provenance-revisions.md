@@ -465,3 +465,10 @@ The smoke of queue row 50 found that the two-node ratio screen's Pearson correla
 heavy-tailed five-node products, so `lmtp_9996b04_crossfit_adapter.R` now screens them by rank
 correlation (`check_horizon_density_ratios`). The commit refreshed the declaration digests of
 `long-horizon-categorical-ltmle` and `long-horizon-sdr` the same way. No reference process has run.
+
+The next smoke round showed that the rank screen failed too, at 0.0090: lmtp's own main-effects
+GLM estimate of the ratios cannot represent a dynamic plan's ratio past the first node, so no
+correlation with it can screen a correct input. The screen now holds every node's supplied
+ratio to its exact mean of one over the units still on the path (`horizon_ratio_moments`), and
+the policy adapter applies the same check. The declaration digests were refreshed again, and no
+reference process has run.

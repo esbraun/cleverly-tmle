@@ -18,7 +18,8 @@ Run from the repository root, with Docker for every step but ``identity``, ``qbo
 
 ``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3), and for ``run``,
 ``mutations``, ``qbound`` and ``timing`` also ``ltmle-parity`` or ``lmtp-parity`` (section 5).
-A parity record's subject phase runs first (``python tests/canonical/<dir>/regenerate.py``).
+A parity record commits no subject before its declared run, so its smoke fits the subject on
+the prefix into ``--out``'s ``subject`` directory and pairs the reference with it (``--subject``).
 Every step prints what it read and ends with ``PASS`` or ``FAIL`` (``timing``, ``sizing`` and
 ``declared-sources`` print numbers only).  A smoke run writes outside the committed
 directories, at the smoke prefix of :data:`SMOKE_PREFIX` replicates, and the driver writes its
@@ -73,6 +74,9 @@ STUDIES = {
 }
 #: The studies whose committed subject rows the identity gate refits.
 IDENTITY_STUDIES = ("ltmle", "categorical", "sdr")
+#: The parity records: no subject rows are committed before their first run, so a smoke fits
+#: their subject first (:func:`smoke_subject`) and pairs the reference with it.
+PARITY_STUDIES = ("ltmle-parity", "lmtp-parity")
 #: The smoke prefix: the first eight replicates of every paired scenario (section 4.1).
 SMOKE_PREFIX = 8
 #: The images G0 compares.
@@ -81,8 +85,13 @@ SHIPPED_IMAGE = "cleverly-lmtp-crossfit:1.5.4"
 #: G0's tolerances: the validation-row score and each R learner against cleverly's fit.
 SCORE_TOLERANCE = 1e-8
 LEARNER_TOLERANCE = 1e-8
-#: The identity gate's tolerance on estimate, standard error and initial estimate (B4).
-IDENTITY_TOLERANCE = 1e-12
+#: The identity gate's bound on estimate, standard error and initial estimate (B4): the
+#: re-execution tests' ``|refit - committed| <= atol + rtol |committed|``, because a refit on
+#: another platform differs in the last bits, and an MSM term, a projection of several plans'
+#: estimates, carries a few of their ULPs (row 50: 1.16e-12 on an intercept of about 0.53).
+IDENTITY_RTOL = 1e-12
+IDENTITY_ATOL = 1e-12
+IDENTITY_QUANTITIES = ("estimate", "std_error", "initial_estimate")
 
 
 def _module(study: str) -> Any:
@@ -351,11 +360,14 @@ def identity_report(
                         "scenario": name,
                         "replicate": replicate,
                         "estimand": row.estimand,
-                        "estimate": abs(float(row.estimate) - float(kept["estimate"])),
-                        "std_error": abs(float(row.std_error) - float(kept["std_error"])),
-                        "initial_estimate": abs(
-                            float(row.initial_estimate) - float(kept["initial_estimate"])
-                        ),
+                        **{
+                            quantity: abs(float(getattr(row, quantity)) - float(kept[quantity]))
+                            for quantity in IDENTITY_QUANTITIES
+                        },
+                        **{
+                            f"committed_{quantity}": float(kept[quantity])
+                            for quantity in IDENTITY_QUANTITIES
+                        },
                         "folds_match": folds_match,
                         "ratios_match": ratios_match,
                     }
@@ -363,14 +375,28 @@ def identity_report(
     return pd.DataFrame(out)
 
 
+def identity_failures(report: pd.DataFrame) -> list[str]:
+    """Each refit cell outside the bound, and each written input that differs from its fit."""
+    failures = []
+    for row in report.itertuples(index=False):
+        cell = f"{row.scenario} r{row.replicate} {row.estimand}"
+        for quantity in IDENTITY_QUANTITIES:
+            gap = float(getattr(row, quantity))
+            bound = IDENTITY_ATOL + IDENTITY_RTOL * abs(
+                float(getattr(row, f"committed_{quantity}"))
+            )
+            if not gap <= bound:
+                failures.append(f"{cell} {quantity}: |refit - committed| {gap:.3g} > {bound:.3g}")
+        if not row.folds_match:
+            failures.append(f"{cell}: the written folds are not the fit's")
+        if not row.ratios_match:
+            failures.append(f"{cell}: the written ratios are not the fit's weights")
+    return failures
+
+
 def identity_passed(report: pd.DataFrame) -> bool:
-    """Whether every refit row equals its committed row and every written input matches its fit."""
-    if report.empty:
-        return False
-    worst = float(report[["estimate", "std_error", "initial_estimate"]].to_numpy().max())
-    return bool(
-        worst <= IDENTITY_TOLERANCE and report["folds_match"].all() and report["ratios_match"].all()
-    )
+    """Whether every refit row is its committed row and every written input matches its fit."""
+    return bool(not report.empty and not identity_failures(report))
 
 
 def identity(study: str, replicates: int) -> int:
@@ -384,6 +410,8 @@ def identity(study: str, replicates: int) -> int:
         "ratios match:", bool(report["ratios_match"].all()),
         flush=True,
     )  # fmt: skip
+    for failure in identity_failures(report):
+        print("FAIL", failure, flush=True)
     return _verdict(identity_passed(report))
 
 
@@ -406,6 +434,9 @@ def smoke_run(
     """
     target = out / mutation if target is None else target
     variables = {"CLEVERLY_X59_MUTATION": mutation, **dict(env or {})}
+    subject = (
+        smoke_subject(study, out, prefix=prefix, jobs=jobs) if study in PARITY_STUDIES else None
+    )
     command = [
         sys.executable,
         str(CANONICAL / STUDIES[study][1] / "regenerate.py"),
@@ -417,10 +448,38 @@ def smoke_run(
         "--output",
         str(target),
         *(("--cache", str(cache)) if cache is not None else ()),
+        *(("--subject", str(subject), "--replicates", str(prefix)) if subject is not None else ()),
     ]
     shown = " ".join(f"{name}={value}" for name, value in variables.items())
     print("$", shown, " ".join(command), flush=True)
     subprocess.run(command, check=True, env={**os.environ, **variables}, cwd=ROOT)
+    return target
+
+
+def smoke_subject(study: str, out: Path, *, prefix: int, jobs: int) -> Path:
+    """A parity record's subject phase on the smoke prefix, into ``out/subject``, once.
+
+    The record commits no subject rows before its declared run, so the smoke fits them here
+    (Python only: the record is pending, so no reference runs) and the reference-only runs pair
+    them through ``--subject``.  The fit is deterministic, so a finished one is reused.
+    """
+    target = out / "subject"
+    if (target / "manifest.json").exists():
+        print(f"reusing the smoke subject in {target}", flush=True)
+        return target
+    command = [
+        sys.executable,
+        str(CANONICAL / STUDIES[study][1] / "regenerate.py"),
+        "--replicates",
+        str(prefix),
+        "--skip-properties",
+        "--jobs",
+        str(jobs),
+        "--output",
+        str(target),
+    ]
+    print("$", " ".join(command), flush=True)
+    subprocess.run(command, check=True, cwd=ROOT)
     return target
 
 

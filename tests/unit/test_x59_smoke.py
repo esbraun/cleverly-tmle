@@ -31,18 +31,27 @@ def test_the_identity_gate_refits_the_committed_rows(study: str, scenario: str) 
 
 
 def test_the_identity_gate_fails_on_a_moved_row() -> None:
-    """A deliberate mutation: one estimate off by 1e-9 fails the 1e-12 gate."""
+    """A deliberate mutation: an estimate off by 1e-9 fails; last-bit noise passes."""
     report = pd.DataFrame(
         {
+            "scenario": ["a", "b"],
+            "replicate": [0, 0],
+            "estimand": ["ey[x]", "msm[(intercept)]"],
             "estimate": [0.0, 1e-9],
             "std_error": [0.0, 0.0],
             "initial_estimate": [0.0, 0.0],
+            "committed_estimate": [0.5, 0.53],
+            "committed_std_error": [0.01, 0.01],
+            "committed_initial_estimate": [0.5, 0.53],
             "folds_match": [True, True],
             "ratios_match": [True, True],
         }
     )
-    assert not x59_smoke.identity_passed(report)
-    assert x59_smoke.identity_passed(report.assign(estimate=0.0))
+    assert x59_smoke.identity_failures(report) == [
+        "b r0 msm[(intercept)] estimate: |refit - committed| 1e-09 > 1.53e-12"
+    ]
+    # Row 50's cross-platform gap on the MSM intercept is inside the bound.
+    assert x59_smoke.identity_passed(report.assign(estimate=[0.0, 1.16e-12]))
     assert not x59_smoke.identity_passed(report.assign(estimate=0.0, ratios_match=False))
 
 

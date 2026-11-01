@@ -286,3 +286,42 @@ def test_the_policy_screen_reads_a_zero_pattern_built_apart_from_the_ratios(
             assert np.logical_xor(broken > 0, support).sum() == 1
             checked += 1
     assert checked
+
+
+# ---- the supplied-ratio moment screen (X59 smoke row 50) -----------------------------------
+def _node_z(ratios: np.ndarray) -> np.ndarray:
+    """``horizon_ratio_moments``: each node's (mean - 1) / SE over the units still on the path."""
+    out, prior = [], np.ones(len(ratios), dtype=bool)
+    for t in range(ratios.shape[1]):
+        values = ratios[prior, t]
+        out.append((values.mean() - 1.0) / (values.std(ddof=1) / np.sqrt(values.size)))
+        prior &= ratios[:, t] > 0
+    return np.asarray(out)
+
+
+@pytest.mark.parametrize(("module", "name"), [(s2, "categorical_k5"), (s3, "sdr_binary_k5")])
+def test_every_node_ratio_averages_one_and_a_wrong_formula_does_not(module, name) -> None:  # type: ignore[no-untyped-def]
+    from tests.studies.evidence.seeds import replicate_seed
+
+    scenario = next(s for s in module.SCENARIOS if s.name == name)
+    n, K, m = module.STUDY.n_of(name), scenario.K, scenario.m
+    frame = law_.draw(K, m, n, replicate_seed(module.STUDY, name, 0), scenario.law)
+    for plan in scenario.plans:
+        ratios = reference_.ratios(frame, plan, K, m)
+        assert np.abs(_node_z(ratios)).max() < 5.0, plan
+        stay = np.column_stack(
+            [np.nan_to_num(frame[f"pc{t}"].to_numpy(float)) for t in range(1, K + 1)]
+        )
+        wrong_arm = ratios.copy()
+        for t in range(1, K + 1):
+            arm = np.nan_to_num(frame[f"A{t}"].to_numpy(float)).astype(int)
+            g = np.column_stack([frame[f"g{t}_{k}"].to_numpy(float) for k in range(m)])
+            other = g[np.arange(n), (arm + 1) % m]
+            wrong_arm[:, t - 1] = np.where(
+                ratios[:, t - 1] > 0, ratios[:, t - 1] * g[np.arange(n), arm] / other, 0.0
+            )
+        late = ratios.copy()
+        late[:, 1:] = np.where(ratios[:, 1:] > 0, ratios[:, :-1], 0.0)
+        # The controls: no censoring factor, another arm's g, the previous node's ratio.
+        for broken in (ratios * stay, wrong_arm, late):
+            assert np.abs(_node_z(broken)).max() > 5.0, plan

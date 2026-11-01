@@ -363,10 +363,10 @@
       "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
       "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
       "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
-      "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "50d2d633aef6f7703bc05ea984dbbddb097f83f4fa6653afac7810e15683fa06",
-      "tests/canonical/lmtp_9996b04_policy_adapter.R": "c0e5c656312a51d82a3026f9b7fa1a1e7598afabd15d8f4efe366f2224b21185",
+      "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "9e6109397289ab86320b4d21ef1abfe7325d52e86dd1a2502de53eee8bb8ce70",
+      "tests/canonical/lmtp_9996b04_policy_adapter.R": "3b1633040c3375cd6b6d9902c0a38422fb06a7b8247c9de2013cfa932cb7a252",
       "tests/canonical/lmtp_horizon_learners.R": "ce4cb5f0cebd9a83889b0cb74de86d291447c6cc6636bd10c16bba067de79642",
-      "tests/canonical/long_horizon_lmtp_adapter.R": "7772bc5fe338a7643b3880affb2af20509ba57ad6ee9bbc1e653d2fe7140e14b"
+      "tests/canonical/long_horizon_lmtp_adapter.R": "346d7927dbe38925541374bc1d9d6a88d2cd18ae3b8d2b48ee6b47850b993197"
     }
   }
 }

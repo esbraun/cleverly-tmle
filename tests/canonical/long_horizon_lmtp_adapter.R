@@ -112,6 +112,8 @@ horizon_lmtp_plan <- function(frame, plan, comparator) {
   })
   horizon_learner_state(ratios, policy, m, K, mutation, folds = as.integer(frame$fold))
   learner <- horizon_learner(comparator)
+  # Declared mutation 1 scales the node-2 ratio on purpose; the moment screen skips that node.
+  unscreened <- if (mutation == 1L) 2L else integer(0)
   # An integer id: the learner indexes its follower state by it (horizon_unit_ids).
   frame$..unit <- seq_len(nrow(frame))
   followers <- horizon_followers(!is.na(as.matrix(frame[trt])), ratios)
@@ -149,7 +151,8 @@ horizon_lmtp_plan <- function(frame, plan, comparator) {
       id = "..unit",
       fold_assignment = frame$fold,
       learners_outcome = learner,
-      density_ratios = ratios
+      density_ratios = ratios,
+      unscreened = unscreened
     )
     if (!identical(fit$fold_assignment, as.integer(frame$fold))) {
       stop("lmtp did not retain the supplied fold assignment")
@@ -167,7 +170,8 @@ horizon_lmtp_plan <- function(frame, plan, comparator) {
       cens = cens,
       fold_assignment = frame$fold,
       copies = copies,
-      learners_outcome = learner
+      learners_outcome = learner,
+      unscreened = unscreened
     )
     rows <- rep(seq_len(nrow(frame)), each = copies)
     horizon_check_q(fit$predictions, followers[rows, , drop = FALSE], plan)

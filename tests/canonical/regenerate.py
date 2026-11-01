@@ -929,6 +929,14 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
                 "of the declared prefix; a smoke run, refused into the committed directory"
             ),
         )
+        parser.add_argument(
+            "--subject",
+            type=Path,
+            help=(
+                "with --reference-prefix: pair the subject rows of this directory's run instead "
+                "of the committed ones, for a record that has committed none yet"
+            ),
+        )
     if reference is None and study.STUDY.comparator_state == "pending":
         parser.add_argument(
             "--reference-jobs",
@@ -974,6 +982,11 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
             parser.error("--reference-prefix needs --reference-only")
         if arguments.reference_prefix < 2:
             parser.error("--reference-prefix must be >= 2")
+    if getattr(arguments, "subject", None) is not None and (
+        getattr(arguments, "reference_prefix", None) is None
+    ):
+        # A declared run pairs the committed subject; another subject is a smoke's.
+        parser.error("--subject needs --reference-only and --reference-prefix")
     if getattr(arguments, "reference_only", False):
         if getattr(arguments, "reuse_subject", False) or getattr(
             arguments, "skip_reference", False
@@ -1149,8 +1162,6 @@ _REFERENCE_INPUTS = "reference-inputs.json"
 _SUBJECT_PLUGINS = "subject-plugins.csv"
 #: The parity artefacts of a study that declares ``PARITY``.
 PARITY_ARTIFACTS = ("parity.csv", "parity-replicates.csv")
-#: The sample size at which the archive's column list is read off each scenario.
-_COLUMN_PROBE_N = 200
 
 
 def compared_record(study: ModuleType, arguments: argparse.Namespace, here: Path) -> StudyRecord:
@@ -1230,9 +1241,14 @@ def _paired_keys(record: StudyRecord, n: int) -> list[tuple[str, int, int]]:
     ]
 
 
-def _archive_columns(module: ModuleType, scenario: str) -> list[str]:
-    """One scenario archive's columns: the keys, then what the scenario's hook writes."""
-    sample = module.reference_sample(scenario, _COLUMN_PROBE_N, 0)
+def _archive_columns(module: ModuleType, scenario: str, n: int) -> list[str]:
+    """One scenario archive's columns: the keys, then what the scenario's hook writes.
+
+    Read off replicate 0 at the scenario's own size, which the archive pairs first.  A smaller
+    probe is a different sample: its plug-in can leave the Q bound that every paired replicate
+    keeps (X59 smoke row 50: ``binary_k3`` at n = 200).
+    """
+    sample = module.reference_sample(scenario, n, 0)
     keys = ["scenario", "replicate", "row"]
     return keys + [column for column in sample.frame.columns if column not in keys]
 
@@ -1364,7 +1380,8 @@ def write_reference_inputs(
         name: tuple(cells) for name, cells in record.reported(str(record.reference)).items()
     }
     names = [name for name in record.scenarios if name in reported]
-    columns = {name: _archive_columns(study, name) for name in names}
+    sizes = record.sizes(n)
+    columns = {name: _archive_columns(study, name, sizes[name]) for name in names}
     worker = functools.partial(_reference_input, study.__name__, columns, reported)
     truths: dict[str, list[dict[str, Any]]] = {name: [] for name in names}
     plugins: list[dict[str, Any]] = []
@@ -1423,7 +1440,7 @@ def _reference_only_phase(
     as ``--reuse-subject`` checks them.  The inputs are re-drawn from the seeds, reused from the
     scratch when a finished phase of the same paired keys and reference environment is there.
     """
-    phase = _committed_subject(study, arguments, here)
+    phase = _committed_subject(study, arguments, _subject_directory(arguments, here))
     phase.paths = {
         name: scratch / name for name in ("truth.csv", "reference-results.csv", _SUBJECT_PLUGINS)
     }
@@ -1811,6 +1828,12 @@ def _property_artifacts(
     return None, ()
 
 
+def _subject_directory(arguments: argparse.Namespace, here: Path) -> Path:
+    """Where a reference-only run reads its subject: ``--subject``, else the committed one."""
+    subject = getattr(arguments, "subject", None)
+    return here if subject is None else Path(subject)
+
+
 def _committed_subject_provenance(here: Path) -> dict[str, Any]:
     """The committed subject provenance a reference-only manifest carries forward (B4).
 
@@ -2151,7 +2174,11 @@ def _regenerate(
             **dict(study.CONFIGURATION or {}),
             **_property_failure_bound(properties, arguments, here),
         },
-        **(_committed_subject_provenance(here) if reference_only else {}),
+        **(
+            _committed_subject_provenance(_subject_directory(arguments, here))
+            if reference_only
+            else {}
+        ),
     )
     context.completed = True
 

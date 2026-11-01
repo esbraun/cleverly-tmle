@@ -287,3 +287,45 @@ def test_the_prefix_declaration_is_checked() -> None:
     assert record.replicates_of(synthetic.REFERENCE, "a") == 10
     assert record.replicates_of(synthetic.SUBJECT, "a") == record.replicates
     assert parity.ParityDeclaration(cells=()).tolerance["G-P"] is None
+
+
+def test_every_draw_of_the_inputs_is_at_the_scenario_size(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The column probe once drew replicate 0 at n = 200, whose plug-in left the Q bound that
+    # the declared size keeps (X59 smoke row 50).
+    sizes: list[int] = []
+    original = synthetic.reference_sample
+
+    def recorded(scenario: str, n: int, replicate: int) -> Any:
+        sizes.append(n)
+        return original(scenario, n, replicate)
+
+    monkeypatch.setattr(synthetic, "reference_sample", recorded)
+    record = dataclasses.replace(synthetic.compared(), reference_replicates={"a": 2, "b": 2})
+    regenerate.write_reference_inputs(synthetic, record, 60, tmp_path, jobs=1)
+    assert sizes and set(sizes) == {60}
+
+
+def test_a_smoke_pairs_a_subject_that_is_not_committed_yet(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The parity records commit no subject before their declared run, so their smoke fits the
+    # subject into its own directory and pairs the reference with it (X59 smoke row 50).
+    here = tmp_path / "study"
+    here.mkdir()
+    for name, payload in PROPERTY_FILES.items():
+        (here / name).write_bytes(payload)
+    subject = tmp_path / "subject"
+    _main(monkeypatch, here, "--skip-properties", "--output", str(subject))
+    assert not (here / "manifest.json").exists()
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, here, "--reference-only", "--subject", str(subject))
+    smoke = tmp_path / "smoke"
+    _main(
+        monkeypatch, here, "--reference-only", "--reference-prefix", "7",
+        "--subject", str(subject), "--output", str(smoke),
+    )  # fmt: skip
+    rows = read_rows(smoke / "replicates.parquet")
+    assert _subject(rows).equals(_subject(read_rows(subject / "replicates.parquet")))
+    assert set(_reference_rows(rows)["replicate"]) == set(range(7))
