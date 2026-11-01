@@ -275,10 +275,14 @@ class TestThePropertyPath:
         assert (control["truth"] != positive["truth"]).all()
         assert (control["estimate"] != positive["estimate"]).all()
 
-    def test_the_reporting_rows_read_the_declared_fit_against_the_fold_average(self) -> None:
+    @pytest.mark.parametrize("scenario", law.SCENARIOS)
+    def test_the_reporting_rows_read_the_declared_fit_against_the_fold_average(
+        self, scenario: str
+    ) -> None:
         rows = _property_rows()
-        reporting = rows.loc[rows["property"] == study.REPORTING_FAMILY].set_index("replicate")
-        positive = rows.loc[rows["cell"] == "non_exceptional__declared"].set_index("replicate")
+        reporting = rows.loc[rows["cell"] == f"{scenario}__fold_average"].set_index("replicate")
+        positive = rows.loc[rows["cell"] == f"{scenario}__declared"].set_index("replicate")
+        assert len(reporting) == CAP and set(reporting["property"]) == {study.REPORTING_FAMILY}
         assert set(reporting["role"]) == {"diagnostic"}
         np.testing.assert_array_equal(reporting["estimate"], positive["estimate"])
         np.testing.assert_array_equal(reporting["std_error"], positive["std_error"])
@@ -287,7 +291,9 @@ class TestThePropertyPath:
         others = rows.loc[rows["property"] != study.REPORTING_FAMILY]
         assert others[list(properties.REPORTING_COLUMNS)].isna().all().all()
         summary = properties.summarize_properties(rows)
-        reported = summary.loc[summary["property"] == study.REPORTING_FAMILY]
+        family = summary.loc[summary["property"] == study.REPORTING_FAMILY]
+        assert set(family["cell"]) == set(study.REPORTING_CELLS)
+        reported = family.loc[family["cell"] == f"{scenario}__fold_average"]
         assert len(reported) == 1 and set(reported["role"]) == {"diagnostic"}
         assert reported["passed"].all() and reported["property_passed"].all()
         assert reported[list(properties.REPORTING_SUMMARY)].notna().all().all()
@@ -325,7 +331,41 @@ class TestThePropertyPath:
         weak_summary = summary.loc[summary["property"] == "weak_limit_necessity"]
         assert weak_summary["passed"].all() and weak_summary["property_passed"].all()
         assert weak_summary["weak_limit_displacement"].notna().all()
+        assert weak_summary["weak_limit_flip_share"].between(0.0, 1.0).all()
         assert property_failures.rule_for("weak_limit_necessity", properties) is None
+
+    def test_the_weak_limit_report_splits_the_bias_by_flip(self) -> None:
+        """The flip share and the two subset biases recompute from the targeted rows, and they
+        average back to the arm's standardized bias. One replicate is moved off the limit
+        rule's value and the other onto it, so both subsets are populated (the nonzero
+        witness)."""
+        rows = _property_rows()
+        family = rows["property"] == study.WEAK_LIMIT_FAMILY
+        targeted = family & (rows["cell"] == f"{study.WEAK_LIMIT_LABEL}__targeted")
+        rows.loc[family, "truth"] = study.WEAK_LIMIT_RULE_VALUE
+        first = rows.loc[targeted, "replicate"].min()
+        rows.loc[family & (rows["replicate"] == first), "truth"] = 0.524415
+        summary = properties.summarize_properties(rows)
+        weak = summary.loc[summary["property"] == study.WEAK_LIMIT_FAMILY]
+        error = (rows.loc[targeted, "estimate"] - rows.loc[targeted, "truth"]).to_numpy(float)
+        flipped = (rows.loc[targeted, "replicate"] == first).to_numpy()
+        spread = np.std(error, ddof=1)
+        expected = {
+            "weak_limit_flip_share": flipped.mean(),
+            "weak_limit_settled_bias": error[~flipped].mean() / spread,
+            "weak_limit_flipped_bias": error[flipped].mean() / spread,
+        }
+        for column, value in expected.items():
+            np.testing.assert_allclose(weak[column].to_numpy(float), value, rtol=1e-12)
+        share = expected["weak_limit_flip_share"]
+        average = (1 - share) * expected["weak_limit_settled_bias"] + share * expected[
+            "weak_limit_flipped_bias"
+        ]
+        assert average == pytest.approx(error.mean() / spread)
+        np.testing.assert_array_equal(
+            properties.flipped_draws(pd.Series([study.WEAK_LIMIT_RULE_VALUE, 0.524415])),
+            [False, True],
+        )
 
     def test_the_shared_rules_reproduce_the_studys_verdicts(self) -> None:
         rows = _property_rows()
@@ -345,7 +385,7 @@ class TestThePropertyPath:
         ("lost", "cost"),
         [
             (("interval_calibration", "non_exceptional__declared", 1), 5),
-            (("interval_calibration", "misspecified_limit__declared", 1), 3),
+            (("interval_calibration", "misspecified_limit__declared", 1), 4),
             (("targeting_necessity", "non_exceptional", 1), 2),
             (("weak_limit_necessity", "non_exceptional_drop_w1", 1), 2),
         ],
@@ -354,7 +394,8 @@ class TestThePropertyPath:
         self, lost: tuple[str, str, int], cost: int, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A lost ``non_exceptional`` draw costs its positive, its two derived controls, the
-        interpolating control and the reporting row."""
+        interpolating control and the reporting row; a ``misspecified_limit`` draw all but the
+        interpolating control."""
         cached = _property_rows()
         derived = {c.split("/", 1)[1] for cs in properties.DERIVED_CELLS.values() for c in cs}
 

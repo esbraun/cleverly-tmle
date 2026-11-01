@@ -14,17 +14,28 @@ learner and the truth harness of :mod:`tests.studies._learned_rule_law` without 
     the rule converges to the rule of its population projection (condition C3a with a
     misspecified limit), and the correct treatment model carries the remainder (C4a).
 
-Three outcome learners. Each is a class, because the support key reads a learner's class
+Four outcome learners. Each is a class, because the support key reads a learner's class
 (:func:`cleverly._support.learner_family`) and reads every ``Pipeline`` as adaptive.
 
 :class:`InteractionLogistic`
     The declared learner: RM30's logistic regression on every pairwise product of
     ``(A, W1, W2)``, a fixed dimension with nothing selected from the data, marked
     ``cleverly_learner_family = "parametric"``. Condition C5a holds for it.
+:class:`WithoutW1MainLogistic`
+    The ``targeting_necessity`` learner: the same logistic regression on
+    ``(A, W2, A W1, A W2)``, without the ``W1`` main effect, marked parametric. Its limit
+    blip crosses zero once at an interior ``W1`` (about -0.08) with slope about 0.37 at each
+    ``W2``, so sampling error moves its rule's boundary a little and flips no whole level,
+    and the rule settles as n grows (C3a). The control arm's regression misses its ``W1``
+    slope, so the fluctuation must remove the plug-in's bias.
 :class:`DropW1Logistic`
-    The ``targeting_necessity`` learner: RM30's ``drop_w1_learner`` (``A`` and ``W2`` only),
-    marked parametric the same way. Its limit blip is nonzero at both values of ``W2``, so its
-    rule settles and C3a holds; the fluctuation does all the adjusting.
+    The ``weak_limit_necessity`` diagnostic's learner: RM30's ``drop_w1_learner`` (``A`` and
+    ``W2`` only), marked parametric the same way, the plan's original necessity learner. Its
+    limit blip is constant in ``W1``, 0.037 and 0.049 at the two values of ``W2``, small
+    beside its sampling error at n = 2,000: on the exact law its rule differs from the limit
+    rule in about 17.5% of samples, so C3a fails at this n and the in-sample point carries a
+    winner's-curse bias. That is why it was replaced as the necessity learner (the design
+    record, D2). It is published with no verdict.
 :class:`ClippedInterpolatingTree`
     The control learner: ``DecisionTreeClassifier(min_samples_leaf=1, random_state=0)``, which
     interpolates a binary outcome, with ``predict_proba`` clipped to ``[0.01, 0.99]``. It
@@ -158,8 +169,9 @@ class DropW1Logistic(_Wrapped):
     Columns ``A`` and ``W2`` of the design, their product, then the same logistic regression.
     It is the learner the plan names for the bias control. Its limit blip is 0.037 and 0.049
     on the probability scale at the two values of ``W2``, small beside its sampling error at
-    n = 2,000, so the one rule flips between draws and the in-sample targeted arm carries an
-    optimism bias (the design record, D2). It is reported, with no verdict.
+    n = 2,000 (z of 1.18 and 1.53), so its rule differs from the limit rule in about 17.5% of
+    samples: C3a fails at this n, and the in-sample targeted arm carries a winner's-curse
+    bias (the design record, D2). It is reported, with no verdict.
     """
 
     cleverly_learner_family: ClassVar[str] = "parametric"

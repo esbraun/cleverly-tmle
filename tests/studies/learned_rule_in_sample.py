@@ -44,11 +44,12 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_
 
 #: The primary replications of each law. The primary gate reads the bias leg (the 99% interval
 #: of the mean error inside 0.25 error SDs), and the in-sample estimator carries an optimism bias
-#: of about +0.12 (``non_exceptional``) and +0.19 (``misspecified_limit``) error SDs at
-#: n = 2,000 on the pilot. 8,400 is the smallest multiple of 400 whose predictive pass
-#: probability of both bias legs is at least 0.95 (0.9526; 8,000 gives 0.9476), by the rule of
-#: ``test_learned_rule_in_sample_design``. The design record (D3) states why.
-PRIMARY_REPLICATES = 8_400
+#: of about +0.12 (``non_exceptional``, 4,000 pilot draws) and +0.21 (``misspecified_limit``,
+#: 8,000 pilot and review-probe draws pooled) error SDs at n = 2,000. 14,400 is the smallest
+#: multiple of 400 whose predictive pass probability of both bias legs is at least 0.95 (0.9529;
+#: 14,000 gives 0.9498), by the rule of ``test_learned_rule_in_sample_design``. The design
+#: record states why (D3) and why the count moved from 8,400 before the run (D6).
+PRIMARY_REPLICATES = 14_400
 PRIMARY_N = 2_000
 SEED = 20263081
 RESAMPLING_SEED = 20263082
@@ -75,21 +76,32 @@ POSITIVE = "declared"
 #: SE-ratio interval must fall below the band. Its truth is the value of its own rule.
 INTERPOLATING = "interpolating_control"
 
-#: The reporting family: the declared ``non_exceptional`` estimate and interval read against the
+#: The reporting family: the declared estimate and interval of each law read against the
 #: fold-average target of the same draw's 10-fold rules, with the role ``diagnostic``. No margin
 #: is read and no verdict forms. It measures how far the in-sample target sits from the
-#: cross-fitted one at this size, which no calibration verdict can see.
+#: cross-fitted one at this size, which no calibration verdict can see. Both laws carry a cell:
+#: on ``misspecified_limit`` the limit rule is not the optimal one, so the value has a
+#: first-order sensitivity to the rule's boundary (the design record, review fix 7).
 REPORTING_FAMILY = "target_distinction"
-REPORTING_CELL = "non_exceptional__fold_average"
+REPORTING_CELLS = tuple(f"{label}__fold_average" for label in law.SCENARIOS)
 
 #: The weak-margin diagnostic of the bias control (the design record, D2): the plan's
 #: ``drop_w1_learner`` (marked parametric), whose limit blip is 0.037 and 0.049 on the
-#: probability scale, too small at n = 2,000 for its one rule to settle. Its targeted and
-#: untargeted arms are published with the role ``diagnostic``, no margin and no verdict, beside
-#: the declared ``targeting_necessity`` family, which uses a learner with a strong limit blip.
+#: probability scale, too small at n = 2,000 for its one rule to settle (condition C3a fails at
+#: this n). On the exact law its rule differs from its limit rule in about 17.5% of samples.
+#: Its targeted and untargeted arms are published with the role ``diagnostic``, no margin and
+#: no verdict, beside the declared ``targeting_necessity`` family, whose learner has a strong
+#: limit blip. The summary publishes the share of draws whose rule flipped and the targeted
+#: arm's bias on settled and on flipped draws.
 WEAK_LIMIT_FAMILY = "weak_limit_necessity"
 WEAK_LIMIT_LABEL = "non_exceptional_drop_w1"
 WEAK_LIMIT_CELLS = (f"{WEAK_LIMIT_LABEL}__targeted", f"{WEAK_LIMIT_LABEL}__untargeted")
+
+#: The value on ``non_exceptional`` of the ``drop_w1`` limit rule, which treats every row (its
+#: limit blip is positive at both values of ``W2``). A ``drop_w1`` rule is constant in ``W1``,
+#: so it takes one of four values, and a draw's truth differs from this one exactly when its
+#: rule flipped at some level of ``W2`` (``test_learned_rule_in_sample_design``).
+WEAK_LIMIT_RULE_VALUE = 0.5316158567592173
 
 
 PROPERTY_CELLS = {
@@ -102,15 +114,19 @@ PROPERTY_CELLS = {
         f"non_exceptional__{INTERPOLATING}",
     ),
     "targeting_necessity": ("non_exceptional__targeted", "non_exceptional__untargeted"),
-    REPORTING_FAMILY: (REPORTING_CELL,),
+    REPORTING_FAMILY: REPORTING_CELLS,
     WEAK_LIMIT_FAMILY: WEAK_LIMIT_CELLS,
 }
 
-#: The support row the registering change adds if, and only if, every ``interval_calibration``
-#: verdict and the ``targeting_necessity`` verdicts pass as declared: family P11, ``splitting``
-#: ``in_sample``, and the key options below, exactly. It covers the plug-in rule with a
-#: parametric outcome and a parametric treatment learner, where C5a holds. No cell fits a rule
-#: learner or supplies ``treatment_probabilities=``, so the row declares no
+#: The support row the registering change adds if, and only if, these verdicts pass as declared:
+#: the primary performance tests of both laws (bias leg, coverage floor, SE sanity), every
+#: ``interval_calibration`` verdict, and the ``targeting_necessity`` verdicts. The row is family
+#: P11, ``splitting`` ``in_sample``, with the key options below, exactly. A red primary bias leg
+#: or a red positive calibration cell is diagnosed as finite-sample in-sample optimism, not a
+#: defect, unless the investigation finds one; the cell is published red under ``reporting``
+#: with an owner row, and no P11 row is added (the design record, "Support row"). It covers the
+#: plug-in rule with a parametric outcome and a parametric treatment learner, where C5a holds.
+#: No cell fits a rule learner or supplies ``treatment_probabilities=``, so the row declares no
 #: ``rule_learner_family`` and no ``known`` treatment family, and those fits stay experimental
 #: (impl review open question 2).
 SUPPORT_OPTIONS = {
@@ -201,10 +217,13 @@ CONFIGURATION = {
     ),
     "weak_limit_necessity": (
         "the same pair with DropW1Logistic (RM30's drop_w1_learner, marked parametric), "
-        "whose limit blip is weak at n = 2000; diagnostic, no verdict"
+        "whose limit blip is weak at n = 2000; diagnostic, no verdict; the summary publishes "
+        "the share of draws whose rule differs from the limit rule (truth != "
+        "WEAK_LIMIT_RULE_VALUE) and the targeted arm's mean error on settled and on flipped "
+        "draws, in the targeted arm's error SD"
     ),
     "target_distinction": (
-        "the declared non_exceptional estimate and interval read against (1/10) sum_v "
+        "the declared estimate and interval of each law read against (1/10) sum_v "
         "Psi_{d_v}(P0), d_v the declared learner's plug-in rule on the training rows of "
         "make_folds(n, 10, random_state=<fold seed>); descriptive"
     ),

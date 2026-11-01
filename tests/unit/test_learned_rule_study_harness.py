@@ -96,10 +96,11 @@ class TestTheSeedRules:
         # another study (``test_learned_rule_strata_design``). X11's learned-rule-stacked (X11 PR
         # F1) adds 6,000 primary and 26,400 property seeds, of which four equal a seed of
         # another X11 study (``test_learned_rule_stacked_design``). X11's learned-rule-in-sample
-        # (X11 PR F2) adds 16,800 primary and 16,800 property seeds, of which two equal a seed of
-        # another X11 study (``test_learned_rule_in_sample_design``).
+        # (X11 PR F2) adds 28,800 primary and 16,800 property seeds, of which one pair coincides
+        # inside the study and two equal a seed of another X11 study
+        # (``test_learned_rule_in_sample_design``).
         assert len(declared) == (
-            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799 + 32_396 + 33_598
+            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799 + 32_396 + 45_597
         )
         for study in (
             gated,

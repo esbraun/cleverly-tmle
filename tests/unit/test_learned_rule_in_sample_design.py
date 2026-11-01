@@ -3,7 +3,7 @@
 Each number here was fixed before any registered run. The law checks call no sampler: they read
 the population projection of each declared learner and integrate on the RM30 grid. The pilot
 readings and the sizing rules that read them are pinned. The declared seeds are only computed,
-never drawn from, except the two shared ones, whose draws show which variables they share.
+never drawn from, except the shared ones, whose draws show which variables they share.
 """
 
 from __future__ import annotations
@@ -80,6 +80,26 @@ def test_the_necessity_learner_has_a_strong_limit_blip() -> None:
     assert optimal == pytest.approx(0.577115, abs=2e-6)
 
 
+def test_the_necessity_learners_rule_moves_continuously() -> None:
+    """At each ``W2``, ``WithoutW1MainLogistic``'s limit blip crosses zero once, at an interior
+    ``W1`` (about -0.08), with a slope of about 0.37 there. Sampling error moves the rule's
+    boundary along ``W1`` and flips no whole level, so the rule settles as n grows (C3a), the
+    condition D2 replaced the plan's learner for (the design record)."""
+    blips = law.limit_blips("non_exceptional", law.without_w1_main_learner())
+    for w2, root in ((0.0, -0.0857), (1.0, -0.0801)):
+        blip = blips[w2]
+        (crossing,) = np.flatnonzero(np.diff(np.sign(blip)) != 0)
+        lower, upper = base.GRID[crossing], base.GRID[crossing + 1]
+        found = lower - blip[crossing] * (upper - lower) / (blip[crossing + 1] - blip[crossing])
+        assert found == pytest.approx(root, abs=1e-3)
+        assert -0.9 < found < 0.9
+        slope = (blip[crossing + 1] - blip[crossing]) / (upper - lower)
+        assert slope == pytest.approx(0.372, abs=0.005)
+    # The deliberate mutation: the plan's learner has no crossing at either level.
+    weak = law.limit_blips("non_exceptional", base.drop_w1_learner())
+    assert all((np.sign(blip) == 1).all() for blip in weak.values())
+
+
 def test_the_weak_limit_learner_has_a_weak_limit_blip() -> None:
     """``DropW1Logistic``'s limit blip is constant in ``W1``: 0.037 at ``W2 = 0`` and 0.049 at
     ``W2 = 1``, small beside its sampling error at n = 2,000 (the design record, D2)."""
@@ -87,6 +107,76 @@ def test_the_weak_limit_learner_has_a_weak_limit_blip() -> None:
     for w2, declared in ((0.0, 0.037), (1.0, 0.049)):
         assert np.ptp(blips[w2]) < 1e-9
         assert blips[w2][0] == pytest.approx(declared, abs=5e-4)
+
+
+def _cell_moments(w2: float, a: float) -> tuple[float, float]:
+    """``P(A = a, W2 = w2)`` and ``P(Y = 1 | A = a, W2 = w2)`` on ``non_exceptional``, by the
+    trapezoid rule on the RM30 grid (``W1`` uniform on [-1, 1], ``W2`` a fair coin)."""
+    treated = base.g0(base.GRID, w2)
+    arm = treated if a else 1.0 - treated
+    mass = 0.5 * np.trapezoid(arm, base.GRID) / 2.0
+    outcome = 0.5 * np.trapezoid(arm * base.qbar0(a, base.GRID, w2, "non_exceptional"), base.GRID)
+    return float(mass), float(outcome / 2.0 / mass)
+
+
+def _flip_probability(w2: float, n: int) -> tuple[float, float, float]:
+    """The limit blip, its SE at ``n`` rows and ``P(rule flips)`` of ``drop_w1`` at ``w2``.
+
+    The learner is saturated in ``(A, W2)``, so its blip at each ``W2`` is the difference of two
+    cell means of ``Y``, and its rule treats that level when the difference is positive. The
+    probability is the normal one for that difference.
+    """
+    (control_mass, control), (treated_mass, treated) = (_cell_moments(w2, a) for a in (0, 1))
+    blip = treated - control
+    se = np.sqrt(
+        treated * (1 - treated) / (n * treated_mass) + control * (1 - control) / (n * control_mass)
+    )
+    return blip, float(se), float(norm.cdf(-blip / se))
+
+
+#: The exact-law flip probability of the ``drop_w1`` rule at each ``W2`` at n = 2,000, and
+#: the pilot's share of draws whose rule flipped at that level (446 and 254 of 4,000).
+FLIP_PROBABILITIES = {0.0: 0.1186, 1.0: 0.0632}
+PILOT_FLIP_SHARES = {0.0: 446 / 4_000, 1.0: 254 / 4_000}
+
+
+def test_the_weak_limit_rule_flips_in_one_sample_in_six() -> None:
+    """The reason D2 replaced the plan's learner, computed from the law before any draw: at
+    n = 2,000 the ``drop_w1`` rule differs from its limit rule at ``W2 = 0`` with probability
+    0.119 and at ``W2 = 1`` with probability 0.063, about 17.5% of samples in all. Condition
+    C3a (the rule settles) fails at this n, so its in-sample targeted arm measures the winner's
+    curse of an unsettled rule, not the fluctuation."""
+    limits = law.limit_blips("non_exceptional", base.drop_w1_learner())
+    for w2, declared in FLIP_PROBABILITIES.items():
+        blip, se, probability = _flip_probability(w2, study.PRIMARY_N)
+        assert blip == pytest.approx(limits[w2][0], abs=1e-6)
+        assert probability == pytest.approx(declared, abs=2e-3)
+        assert probability == pytest.approx(PILOT_FLIP_SHARES[w2], abs=0.015)
+        assert blip / se < 2.0
+    either = 1.0 - np.prod([1.0 - p for p in FLIP_PROBABILITIES.values()])
+    assert either == pytest.approx(0.175, abs=2e-3)
+    # The deliberate mutation: at 20 times the rows the same rule has settled.
+    assert all(_flip_probability(w2, 40_000)[2] < 1e-5 for w2 in base.W2_LEVELS)
+
+
+def test_the_weak_limit_rule_value_tells_a_flipped_draw() -> None:
+    """``WEAK_LIMIT_RULE_VALUE`` is the value of the ``drop_w1`` limit rule (treat every row),
+    and each of the three other rules the learner can learn sits at least 7e-3 from it, so
+    ``report_weak_limit`` reads a flip from a draw's truth."""
+    limit = law.population_rule("non_exceptional", base.drop_w1_learner())
+    assert all(rule.all() for rule in limit.values())
+    value, _ = base.rule_value(limit, "non_exceptional")
+    assert value == pytest.approx(study.WEAK_LIMIT_RULE_VALUE, abs=1e-12)
+    others = [
+        base.rule_value(
+            {0.0: np.full(base.GRID.shape, low), 1.0: np.full(base.GRID.shape, high)},
+            "non_exceptional",
+        )[0]
+        for low, high in ((False, True), (True, False), (False, False))
+    ]
+    gap = min(abs(other - value) for other in others)
+    assert gap > 7e-3
+    assert gap / properties.FLIP_TOLERANCE >= 1e3
 
 
 # ------------------------------------------------------------------------ the declaration
@@ -104,7 +194,10 @@ def test_the_cells() -> None:
             "non_exceptional__interpolating_control",
         ),
         "targeting_necessity": ("non_exceptional__targeted", "non_exceptional__untargeted"),
-        "target_distinction": ("non_exceptional__fold_average",),
+        "target_distinction": (
+            "non_exceptional__fold_average",
+            "misspecified_limit__fold_average",
+        ),
         "weak_limit_necessity": (
             "non_exceptional_drop_w1__targeted",
             "non_exceptional_drop_w1__untargeted",
@@ -224,12 +317,41 @@ def _own_sample_seeds() -> set[int]:
     )
 
 
-def test_the_sample_seeds_are_distinct() -> None:
+#: The one pair of this study's own draws that share a sample seed. Rule L3 judges a sample
+#: seed against the seeds of the same law, and these two draw different laws: primary
+#: ``misspecified_limit`` replicate 13,424 and ``interval_calibration``
+#: ``non_exceptional__declared`` replicate 834. The sampler is the same at the same n, so the
+#: two share ``W1``, ``W2`` and ``A`` on all 2,000 rows, not ``Y`` (another blip). Each is one
+#: draw of 14,400 or 7,200, and no verdict reads the two cells jointly. It appeared when D6
+#: moved the primary count from 8,400.
+OWN_SHARED = (
+    ("primary", "misspecified_limit", 13_424),
+    ("interval_calibration", "non_exceptional__declared", 834),
+)
+
+
+def _seed_of(family: str, setting: str, replicate: int) -> int:
+    if family == "primary":
+        return replicate_seed(study.STUDY, setting, replicate)
+    resolved = properties.suffixes(study.STUDY)
+    return stream_seed(
+        study.STUDY, "property_sample", family, setting, replicate, *resolved[family, setting]
+    )
+
+
+def test_the_sample_seeds_are_distinct_but_one_declared_pair() -> None:
     total = len(study.SCENARIOS) * study.PRIMARY_REPLICATES + sum(
         draw.replicates for draw in properties.PROPERTY_DRAWS
     )
-    assert total == 33_600
-    assert len(_own_sample_seeds()) == total
+    assert total == 45_600
+    assert len(_own_sample_seeds()) == total - 1
+    first, second = OWN_SHARED
+    assert _seed_of(*first) == _seed_of(*second)
+    here = base.draw("misspecified_limit", 2_000, _seed_of(*first))
+    there = base.draw("non_exceptional", 2_000, _seed_of(*second))
+    for column in ("W1", "W2", "A"):
+        np.testing.assert_array_equal(here[column].to_numpy(), there[column].to_numpy())
+    assert not np.array_equal(here["Y"].to_numpy(), there["Y"].to_numpy())
 
 
 def _other_x11_sample_seeds() -> set[int]:
@@ -268,7 +390,7 @@ def _other_x11_sample_seeds() -> set[int]:
 
 
 #: The two sample seeds this study shares with another X11 study. Seeds are 32-bit, and about
-#: 33,600 against the other X11 studies' 310,956 expect two or three coincidences by chance.
+#: 45,600 against the other X11 studies' 310,956 expect about 3.3 coincidences by chance.
 #: The primary draw shares ``W1``, ``W2`` and ``A`` on all 2,000 rows with the split-mean
 #: calibration draw (the same sampler at the same n, another blip, so not ``Y``). The calibration
 #: draw shares the first 1,000 values of ``W1`` with the E2 diagnostic draw at n = 1,000 (the E1
@@ -339,6 +461,19 @@ PILOT_DRAWS = 4_000
 PILOT_SE_RATIOS = (1.0093, 1.0206)
 PILOT_BIASES = (0.1231, 0.1898)
 
+#: The design reviewer's probe of the declared ``misspecified_limit`` fit (4,000 throwaway draws
+#: at n = 2,000 from labels 99117731 and 99117732, which no declared stream reads): its
+#: standardized bias, and the reading of the pilot's and the probe's 8,000 draws pooled. The
+#: primary count reads the pooled value (the design record, D6).
+PROBE_DRAWS = 4_000
+PROBE_BIAS = 0.2206
+POOLED_DRAWS = PILOT_DRAWS + PROBE_DRAWS
+POOLED_BIAS = 0.2052
+
+#: The bias reading of each primary law that sizes the primary count, and the draws it rests on:
+#: ``non_exceptional`` from the pilot, ``misspecified_limit`` from the pooled draws.
+PRIMARY_BIAS_READINGS = ((PILOT_BIASES[0], PILOT_DRAWS), (POOLED_BIAS, POOLED_DRAWS))
+
 #: The ``WithoutW1MainLogistic`` pilot (4,000 draws on ``non_exceptional``, cell index 3 of the
 #: label): the targeted arm's standardized bias, the untargeted arm's bias in its own SDs, and
 #: the paired displacement in targeted-arm SDs.
@@ -376,9 +511,14 @@ def bias_pass(
     )
 
 
-def _smallest(biases: Sequence[float]) -> int:
+def _pass(readings: Sequence[tuple[float, int]], replicates: int) -> float:
+    """The product of the bias legs' pass probabilities, each from its own pilot size."""
+    return float(np.prod([bias_pass(b, replicates, pilot) for b, pilot in readings]))
+
+
+def _smallest(readings: Sequence[tuple[float, int]]) -> int:
     for replicates in range(400, 40_001, 400):
-        if np.prod([bias_pass(b, replicates) for b in biases]) >= tools.FAMILY_TARGET:
+        if _pass(readings, replicates) >= tools.FAMILY_TARGET:
             return replicates
     raise AssertionError("no count reaches the target")
 
@@ -398,22 +538,40 @@ def test_the_calibration_count_is_the_per_arm_rule() -> None:
     assert all(abs(ratio - 1.0) <= half for ratio in PILOT_SE_RATIOS)
 
 
+def test_the_pooled_reading_is_the_two_readings_weighted_by_draws() -> None:
+    """The pilot and the probe agree within 1.4 combined SEs, and the pooled reading sits
+    between them, weighted by their draws."""
+    pooled = (PILOT_BIASES[1] * PILOT_DRAWS + PROBE_BIAS * PROBE_DRAWS) / POOLED_DRAWS
+    assert abs(POOLED_BIAS - pooled) < 1e-4
+    combined = np.sqrt(1.0 / PILOT_DRAWS + 1.0 / PROBE_DRAWS)
+    assert abs(PROBE_BIAS - PILOT_BIASES[1]) / combined < 1.4
+
+
 def test_the_primary_count_is_the_bias_leg_rule() -> None:
-    """Both primary bias legs at 8,400 pass with probability 0.9526; 8,000 gives 0.9476. The
-    per-arm SE rule alone would give 7,200, at which the ``misspecified_limit`` bias leg is far
-    likelier to miss (the design record, D3)."""
-    assert study.PRIMARY_REPLICATES == _smallest(PILOT_BIASES) == 8_400
-    at = np.prod([bias_pass(b, 8_400) for b in PILOT_BIASES])
-    below = np.prod([bias_pass(b, 8_000) for b in PILOT_BIASES])
-    assert at == pytest.approx(0.9526, abs=1e-4) and below == pytest.approx(0.9476, abs=1e-4)
+    """Both primary bias legs at 14,400 pass with probability 0.9529 at the pooled reading;
+    14,000 gives 0.9498. The per-arm SE rule alone would give 7,200 (the design record, D3).
+    The count declared on the pilot reading alone, 8,400, would pass with probability 0.857
+    at the pooled reading, which is why it moved before the run (D6)."""
+    assert study.PRIMARY_REPLICATES == _smallest(PRIMARY_BIAS_READINGS) == 14_400
+    assert _pass(PRIMARY_BIAS_READINGS, 14_400) == pytest.approx(0.9529, abs=1e-4)
+    assert _pass(PRIMARY_BIAS_READINGS, 14_000) == pytest.approx(0.9498, abs=1e-4)
+    # The first declaration: the pilot reading alone set 8,400 (0.9526), which the pooled
+    # reading puts at 0.857.
+    pilot_only = tuple((bias, PILOT_DRAWS) for bias in PILOT_BIASES)
+    assert _smallest(pilot_only) == 8_400
+    assert _pass(pilot_only, 8_400) == pytest.approx(0.9526, abs=1e-4)
+    assert _pass(PRIMARY_BIAS_READINGS, 8_400) == pytest.approx(0.857, abs=1e-3)
     # The deliberate mutation: the RM30 primary count of 2,000 would miss.
-    assert bias_pass(PILOT_BIASES[1], 2_000) < 0.6
+    assert bias_pass(POOLED_BIAS, 2_000, POOLED_DRAWS) < 0.6
 
 
 def test_the_necessity_count_is_the_bias_leg_rule() -> None:
     """The positive arm's bias leg sets 1,200 (0.959); the control's bias and the displacement
     are many standard errors past their thresholds there."""
-    assert _smallest([NECESSITY_PILOT["targeted_bias"]]) == properties.NECESSITY_REPLICATES
+    assert (
+        _smallest([(NECESSITY_PILOT["targeted_bias"], PILOT_DRAWS)])
+        == properties.NECESSITY_REPLICATES
+    )
     assert properties.NECESSITY_REPLICATES == 1_200
     assert bias_pass(NECESSITY_PILOT["targeted_bias"], 1_200) == pytest.approx(0.9587, abs=1e-4)
     se = np.sqrt(1.0 / properties.NECESSITY_REPLICATES + 1.0 / PILOT_DRAWS)
@@ -421,11 +579,13 @@ def test_the_necessity_count_is_the_bias_leg_rule() -> None:
     assert NECESSITY_PILOT["displacement"] - properties.TARGETING_DISPLACEMENT > 20 * se
 
 
-def test_the_weak_limit_learner_would_miss_its_bias_leg() -> None:
-    """The reason D2 replaced the plan's learner: its targeted arm's bias leg passes with
+def test_a_learner_whose_rule_flips_would_miss_its_bias_leg() -> None:
+    """A consequence of the flips, not the reason for D2: a learner whose rule differs from its
+    limit rule in 17.5% of samples (``test_the_weak_limit_rule_flips_in_one_sample_in_six``)
+    carries a winner's-curse bias, and at the pilot's +0.30 SD its bias leg would pass with
     probability under 0.2 at any count up to 40,000."""
     assert (
-        max(bias_pass(WEAK_LIMIT_PILOT["targeted_bias"], r) for r in (1_200, 8_400, 40_000)) < 0.2
+        max(bias_pass(WEAK_LIMIT_PILOT["targeted_bias"], r) for r in (1_200, 14_400, 40_000)) < 0.2
     )
 
 
