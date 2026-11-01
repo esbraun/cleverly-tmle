@@ -54,6 +54,8 @@ fixture <- function(n = 400L, censored = TRUE) {
   ratio_coin <- matrix(0, n, 3)
   for (t in 1:3) {
     previous <- if (t == 1) rep(0, n) else frame[[paste0("A", t - 1)]]
+    # Units that left before node t carry NA; rbinom would warn on their NA probability.
+    previous[is.na(previous)] <- 0
     if (t > 1) {
       frame[[paste0("L", t)]] <- ifelse(alive, rbinom(n, 1, plogis(-0.3 + 0.4 * previous)), NA)
     }
@@ -70,7 +72,8 @@ fixture <- function(n = 400L, censored = TRUE) {
     ratio_coin[, t] <- ifelse(observed, 0.5 / (g_arm * stay), 0)
     alive <- observed
   }
-  frame$Y <- ifelse(alive, rbinom(n, 1, plogis(-0.2 + 0.3 * frame$L3 + 0.5 * frame$A3)), NA)
+  last <- function(x) ifelse(is.na(x), 0, x)
+  frame$Y <- ifelse(alive, rbinom(n, 1, plogis(-0.2 + 0.3 * last(frame$L3) + 0.5 * last(frame$A3))), NA)
   frame$..unit <- seq_len(n)
   coin <- lapply(1:3, function(t) matrix(rep(c(0, 0, 1, 1), n), nrow = n, byrow = TRUE))
   list(frame = frame, ratio_always = ratio_always, ratio_coin = ratio_coin, coin = coin)
@@ -189,7 +192,11 @@ if (mode == "packages") {
   # and the design columns x1..xp.  The smoke writes cleverly's prediction beside each
   # prediction row, and compares R's.
   predictions <- lapply(split(input, input$case), function(case) {
+    # The cases have different widths, so the shared file pads a narrower case with empty
+    # columns; keep the columns this case fills.
     columns <- grep("^x[0-9]+$", names(case), value = TRUE)
+    columns <- columns[colSums(!is.na(case[columns])) > 0]
+    if (anyNA(case[columns])) stop(sprintf("learner case %s has missing design values", case$case[[1]]))
     train <- case[case$role == "fit", ]
     test <- case[case$role == "predict", ]
     design <- as.matrix(train[columns])
