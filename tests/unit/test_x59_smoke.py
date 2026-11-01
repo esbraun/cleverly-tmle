@@ -91,3 +91,22 @@ def test_the_sizing_step_reads_the_timing_files(
     printed = capsys.readouterr().out
     assert "tier 2 at 100, tier 4 at 100" in printed
     assert "ltmle:exact: 100" in printed
+
+
+@pytest.mark.filterwarnings("ignore::tests.studies.fractional_glm.QuasiBinomialSeparationWarning")
+def test_the_subject_mutation_moves_g_p_against_an_unmutated_reference(tmp_path: Path) -> None:
+    """The committed subject row stands in for an R row that equals it: the mutation must show."""
+    from tests.studies import canonical_long_horizon_ltmle as s1
+    from tests.studies.evidence.manifest import read_rows, write_rows
+
+    committed = read_rows(s1.STUDY.artifact("replicates.parquet"))
+    wald = set(s1.REFERENCE_SCENARIOS["binary_k3"])
+    held = committed.loc[
+        (committed["scenario"] == "binary_k3")
+        & (committed["replicate"] == 0)
+        & committed["estimand"].isin(wald)
+    ]
+    (tmp_path / "none").mkdir()
+    write_rows(held.assign(implementation="ltmle"), tmp_path / "none" / "replicates.parquet")
+    (tmp_path / "declared-tolerances.json").write_text('{"G-P": 1e-06, "G-C": 1e-06}\n')
+    assert x59_smoke.main(["subject-mutation", "ltmle", "--out", str(tmp_path)]) == 0

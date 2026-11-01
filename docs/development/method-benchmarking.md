@@ -525,6 +525,31 @@ To rerun the property families against the committed Python rows, pass `--reuse-
 driver offers the flag only when no reference process runs. It checks the committed rows against
 their manifest hash and the declared budget, and then it fits no subject model.
 
+### Run the comparator on committed subject rows
+
+A comparator can be added to a study without refitting the subject. Pass `--reference-only` to
+the study's `regenerate.py`. The driver keeps the committed subject rows and property files,
+re-draws each paired replicate from its seed, runs only the reference, and writes a manifest that
+carries the committed subject provenance forward. The study module supplies the comparator's
+inputs through a `reference_sample(scenario, n, replicate)` hook, which returns the sample, the
+truths and the subject's untargeted values (`tests.studies.evidence.parity.ReferenceSample`). No
+`cleverly` fit runs in this mode.
+
+| field or flag | what it does |
+| --- | --- |
+| `reference_replicates` | `StudyRecord` field. Maps a paired scenario to the number of leading replicates the reference fits. A scenario it omits pairs every replicate. Each count is at least 2 and at most `replicates` |
+| `COMPARATOR_DECLARATION` | Study-module mapping of the record fields the comparator run declares, such as `reference_replicates`, `reference_scenarios` and `paired_role`. A `--reference-only` run of a pending record promotes the record with them. The registration commit then moves them into the `StudyRecord` |
+| `--reference-prefix N` | Pairs the first `N` replicates of every paired scenario, for a smoke run. The driver refuses it into the committed directory, so pass `--output` |
+| `--reference-jobs J` | Worker processes that write the comparator inputs |
+
+The subject keeps all `replicates` rows. Equivalence, failure accounting and the paired tables read
+each cell on its paired prefix only. A study that defines `PARITY` (a
+`tests.studies.evidence.parity.ParityDeclaration`) also gets `parity.csv` and
+`parity-replicates.csv`. Those tables hold the per-replicate exact gates, and
+`tests/unit/test_x59_parity.py` recomputes them from the committed rows. A tolerance left at `None`
+refuses to read until the declaration commit sets it from the smoke maxima.
+`tests/canonical/x59_smoke.py` runs the smoke steps of the long-horizon studies, one command each.
+
 ## Red cells
 
 Diagnose every red cell before you route it. The table gives the route for each diagnosis.

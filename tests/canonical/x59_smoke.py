@@ -6,6 +6,7 @@ Run from the repository root, with Docker for every step but ``identity`` and ``
     python -m tests.canonical.x59_smoke identity ltmle
     python -m tests.canonical.x59_smoke run ltmle --out runs/x59/ltmle
     python -m tests.canonical.x59_smoke mutations ltmle --out runs/x59/ltmle
+    python -m tests.canonical.x59_smoke subject-mutation ltmle --out runs/x59/ltmle
     python -m tests.canonical.x59_smoke memory categorical --container-mb 32000
     python -m tests.canonical.x59_smoke timing sdr --out runs/x59/timing
     python -m tests.canonical.x59_smoke sizing --timings runs/x59/timing --workers 12 \\
@@ -356,6 +357,67 @@ def mutations(study: str, out: Path, prefix: int, jobs: int) -> int:
     return _verdict(all(detected.values()))
 
 
+def subject_mutation(study: str, out: Path) -> int:
+    """M2's ``cleverly``-side mutation: the node-K fluctuation skipped, against the smoke R rows.
+
+    Refits the subject Wald-only under :func:`tests.studies.long_horizon_mutations.skip_update`
+    on every replicate the unmutated smoke run paired, and reads the parity table against that
+    run's reference rows at the declared tolerances.  ``LTMLE`` scenarios only: ``SDR`` fits no
+    fluctuation, and its G1 cells (``mix``, ``coin``) are plans every observed unit follows, so a
+    follower-mask mutation cannot move them; the R-side mutations cover ``SDR``.
+    """
+    from tests import discrete_law_longitudinal_horizon as law_
+    from tests.canonical import regenerate
+    from tests.studies import long_horizon_mutations as mutations_
+    from tests.studies import long_horizon_primary as primary
+    from tests.studies.evidence import parity
+    from tests.studies.evidence.manifest import read_rows
+    from tests.studies.evidence.seeds import replicate_seed
+
+    module = _module(study)
+    declared = json.loads((out / "declared-tolerances.json").read_text())
+    declaration = parity.ParityDeclaration(
+        cells=module.PARITY.cells, tolerance={**dict(module.PARITY.tolerance), **declared}
+    )
+    smoke = out / "none"
+    rows = read_rows(smoke / "replicates.parquet")
+    here = CANONICAL / STUDIES[study][1]
+    record = regenerate.compared_record(
+        module, argparse.Namespace(reference_prefix=None, output=here), here
+    )
+    estimators = getattr(module, "ESTIMATORS", None) or {
+        scenario.name: ("SDR" if study == "sdr" else "LTMLE") for scenario in module.SCENARIOS
+    }
+    table = {scenario.name: scenario for scenario in module.SCENARIOS}
+    reference = rows.loc[rows["implementation"] == record.reference]
+    refits = []
+    for (name, replicate), _ in reference.groupby(["scenario", "replicate"]):
+        if estimators[name] != "LTMLE":
+            continue
+        scenario = table[name]
+        n = record.n_of(name)
+        frame = law_.draw(
+            scenario.K, scenario.m, n, replicate_seed(record, name, int(replicate)), scenario.law
+        )
+        with mutations_.skip_update({scenario.K}):
+            result = primary.fit(frame, scenario, "LTMLE", bootstrap=False)
+        refits += primary.rows(record, result, scenario, int(replicate), n)
+    if not refits:
+        print("no LTMLE scenario is paired; the cleverly-side mutation does not apply", flush=True)
+        return 0
+    mutated = pd.DataFrame(refits)
+    kept = reference.loc[reference["scenario"].isin(set(mutated["scenario"]))]
+    paired = pd.concat([mutated.loc[:, kept.columns.intersection(mutated.columns)], kept])
+    cells = tuple(cell for cell in declaration.cells if cell.gate != "G-C")
+    scoped = parity.ParityDeclaration(
+        cells=tuple(c for c in cells if c.scenario in set(mutated["scenario"])),
+        tolerance=declaration.tolerance,
+    )
+    result_table = parity.parity_table(paired, None, record=record, declaration=scoped)
+    print(f"skip_update(K): maxima {json.dumps(parity.smoke_maxima(result_table))}", flush=True)
+    return _verdict(parity.mutation_detected(result_table, scoped))
+
+
 # ----------------------------------------------------------------------------- memory and timing
 def memory(study: str, container_mb: float, runs: Path) -> int:
     """M7: the largest per-worker peak the driver's calibration measured, and the worker count."""
@@ -476,7 +538,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     step = steps.add_parser("identity")
     step.add_argument("study", choices=IDENTITY_STUDIES)
     step.add_argument("--replicates", type=int, default=SMOKE_PREFIX)
-    for name in ("run", "mutations"):
+    for name in ("run", "mutations", "subject-mutation"):
         step = steps.add_parser(name)
         step.add_argument("study", choices=STUDIES)
         step.add_argument("--out", type=Path, required=True)
@@ -504,6 +566,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run(arguments.study, arguments.out, arguments.prefix, arguments.jobs)
     if arguments.step == "mutations":
         return mutations(arguments.study, arguments.out, arguments.prefix, arguments.jobs)
+    if arguments.step == "subject-mutation":
+        return subject_mutation(arguments.study, arguments.out)
     if arguments.step == "memory":
         from tests.canonical.regenerate import runs_root
 

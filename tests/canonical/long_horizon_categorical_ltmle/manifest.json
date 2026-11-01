@@ -365,7 +365,7 @@
       "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "0151d703c3c025d857696d15f27f48a5d1740b25cf49eec023d5d425a65a11b3",
       "tests/canonical/lmtp_9996b04_policy_adapter.R": "34a7d35428292f99c8acff17e26ff142cb4c002253771ac711983614a82da3ae",
       "tests/canonical/lmtp_horizon_learners.R": "23f34af876ed2cb9291febb1b4566981ace8f89ee40c4f80b7508fed5e5d30d6",
-      "tests/canonical/long_horizon_lmtp_adapter.R": "6508dfb700fe1b4eb09f0b1d6eb2d284e3d9a1717e73ed917e94b48c4b8e7950"
+      "tests/canonical/long_horizon_lmtp_adapter.R": "ad04564204fa186fd4b471e5eca6d99db87ae7c821df3c355e3f95580b3bd753"
     }
   }
 }
