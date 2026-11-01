@@ -21,10 +21,10 @@ FROM cleverly-lmtp-crossfit:1.5.4
 
 RUN install2.r --error --skipinstalled Rcpp future.apply assertthat abind \
     && Rscript -e "download.file('https://cran.r-project.org/src/contrib/Archive/origami/origami_1.0.7.tar.gz', '/tmp/origami.tar.gz', mode = 'wb')" \
-    && echo "TODO-at-first-build-origami-1.0.7-tarball-sha256  /tmp/origami.tar.gz" | sha256sum -c - \
+    && echo "b44034541ac358e0686682684c40e9a1de8d78c7913e56e4d3dbe41a2a55c62c  /tmp/origami.tar.gz" | sha256sum -c - \
     && R CMD INSTALL /tmp/origami.tar.gz \
-    && Rscript -e "download.file('https://github.com/nt-williams/lmtp/archive/9996b04.tar.gz', '/tmp/lmtp.tar.gz', mode = 'wb')" \
-    && echo "TODO-at-first-build-lmtp-9996b04-tarball-sha256  /tmp/lmtp.tar.gz" | sha256sum -c - \
+    && Rscript -e "download.file('https://github.com/nt-williams/lmtp/archive/9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9.tar.gz', '/tmp/lmtp.tar.gz', mode = 'wb')" \
+    && echo "b3c5896272cf6c07127764c1880758fdb5020506a271b453e907a7b69bebb2ab  /tmp/lmtp.tar.gz" | sha256sum -c - \
     && R CMD INSTALL /tmp/lmtp.tar.gz \
     && Rscript -e "stopifnot(as.character(packageVersion('ife')) == '0.2.3', as.character(packageVersion('lmtp')) == '1.5.5', as.character(packageVersion('origami')) == '1.0.7')" \
     && mkdir -p /opt/cleverly \

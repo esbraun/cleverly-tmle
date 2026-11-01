@@ -415,7 +415,7 @@
     "metadata": {},
     "declared_sources_sha256": {
       "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
-      "tests/canonical/lmtp_9996b04/Dockerfile": "4a28618b8ae285e405fbc298b23402937aaf6f5e849851496e7e3739e249323f",
+      "tests/canonical/lmtp_9996b04/Dockerfile": "f84d552bcad2d1ad712b04ebd009e327b469cd5f27e0b54e0c3845d11dc4c281",
       "tests/canonical/long_horizon_sdr/run_study.R": "7581546aa74331def9941cd5b87243ecb2aa52a32adfd5b61b97ccb5a580a8ac",
       "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
       "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
