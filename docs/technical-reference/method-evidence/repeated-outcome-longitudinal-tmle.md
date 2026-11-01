@@ -6,8 +6,9 @@ and horizon $h$. The section [repeated outcomes](../longitudinal-tmle.md#repeate
 the estimator and its exact-law evidence. The declared comparator is R
 [`ltmle`](https://www.jstatsoft.org/article/view/v081i01) 1.3-0 with `survivalOutcome = FALSE`.
 
-The R runs paired with the Python runs on the same 2,400 draws. The Agreement section holds the 13
-paired verdicts and the parity check against R's own targeting move.
+The R runs used the same 2,400 draws as the Python runs. The
+[agreement section](#agreement-with-the-canonical-implementation) holds the 13 paired verdicts and
+the parity check against R's own targeting move.
 
 The study reports each unique parameter once. The dynamic plan equals the always-treated plan at the
 first node, so its mean and contrast at $t = 1$ duplicate those of `always`. A fast test checks that
