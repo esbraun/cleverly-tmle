@@ -33,7 +33,7 @@ bullet against the merged change. The pull request link lets a reader inspect th
 Delete every comment and empty section before publication.
 
 ```markdown
-# cleverly 0.1.N
+# cleverly 0.2.N
 
 <!-- Optional. Use one factual sentence when the release has a coherent theme. -->
 
@@ -65,7 +65,7 @@ Delete every comment and empty section before publication.
 
 - Name ([#PR](PR-URL))
 
-**Full diff:** [`vPREVIOUS...v0.1.N`](COMPARE-URL)
+**Full diff:** [`vPREVIOUS...v0.2.N`](COMPARE-URL)
 ```
 
 `cleverly` deprecates nothing. A release removes or renames an API, and

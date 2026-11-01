@@ -29,11 +29,12 @@ release-notes-0.1.2
 `src/cleverly/_version.py` is the sole version source. Hatch reads that file when it creates
 distribution metadata. The installed package exposes the same value as `cleverly.__version__`.
 
-The first published version is `0.1.0`. Each later alpha release increments only the patch
-component to produce `0.1.N`. A release-bearing pull request changes the version before review.
+The alpha series ran from `0.1.0` to `0.1.7`. The beta series starts at `0.2.0`, and each later
+beta release increments only the patch component to produce `0.2.N`. A release-bearing pull
+request changes the version before review.
 
 A release-bearing pull request is a change that the maintainer plans to tag after merge. Ordinary
-pull requests do not change the version. The maintainer chooses the next policy after the alpha
+pull requests do not change the version. The maintainer chooses the next policy after the beta
 series ends.
 
 ## Review a release
@@ -41,10 +42,10 @@ series ends.
 Prepare the release in a pull request from `main`.
 
 1. Draft the notes with the [release notes template](release-notes-template.md).
-2. Change `__version__` in `src/cleverly/_version.py` to the next unused `0.1.N` value.
+2. Change `__version__` in `src/cleverly/_version.py` to the next unused `0.2.N` value.
 3. Run every pull request check, including the package checks.
 4. Merge the reviewed pull request into `main`.
-5. Create the matching `v0.1.N` tag on the reviewed `main` commit.
+5. Create the matching `v0.2.N` tag on the reviewed `main` commit.
 6. Push the tag, and review both publishing environments in GitHub Actions.
 7. Create the GitHub release from the tag, and paste the reviewed notes.
 

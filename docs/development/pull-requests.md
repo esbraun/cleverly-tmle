@@ -89,7 +89,7 @@ mirror the first five jobs. `minimal-install` has no session, because it install
 backend and nothing else. The package job builds both distribution formats before it creates clean smoke-test
 environments.
 
-A release-bearing pull request changes `src/cleverly/_version.py` to the next unused `0.1.N`
+A release-bearing pull request changes `src/cleverly/_version.py` to the next unused `0.2.N`
 version. Read [releases](releases.md) for the version and tag rules.
 
 The `docs` job builds the site that `.github/workflows/pages.yml` deploys, and it treats every

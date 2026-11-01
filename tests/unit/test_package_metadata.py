@@ -35,7 +35,7 @@ def test_release_tag_matches_the_source_version() -> None:
     assert validate_tag(f"v{cleverly.__version__}") == cleverly.__version__
 
 
-@pytest.mark.parametrize("tag", ["0.1.0", "v0.2.0", "v0.1.01", "v0.1.0rc1"])
+@pytest.mark.parametrize("tag", ["0.2.0", "v0.1.8", "v0.2.01", "v0.2.0b1"])
 def test_release_tag_refuses_other_forms(tag: str) -> None:
     with pytest.raises(ValueError, match="must have the form"):
         validate_tag(tag)

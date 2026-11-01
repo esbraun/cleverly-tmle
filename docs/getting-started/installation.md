@@ -17,10 +17,10 @@ sklearn-compatible objects directly:
 python -m pip install "cleverly[all]"
 ```
 
-Pin the complete version you analysed with, for example 0.1.7:
+Pin the complete version you analysed with, for example 0.2.0:
 
 ```bash
-python -m pip install "cleverly[all]==0.1.7"
+python -m pip install "cleverly[all]==0.2.0"
 ```
 
 `cleverly` is beta software and ready for use. A later release can still contain a public API
