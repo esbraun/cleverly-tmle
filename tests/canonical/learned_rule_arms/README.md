@@ -43,9 +43,11 @@ Each count is the smallest multiple of 400, at least 1,000, whose predictive pas
 a 4,000-draw pilot of every cell (throwaway seeds, no failed fit, rule L4 on every row) is at
 least 0.95. The primary bias leg and the necessity bias leg give the floor, 1,200. The
 calibration positive (pilot SE ratio 0.9986) gives 3,200 by the per-arm rule (0.952). The
-coverage cells (pilot coverage 0.9515, control 0.751) give 1,200 (0.953); with the coverage known
-at one pilot SE lower, that count passes with 0.907. `test_learned_rule_arms_design` recomputes
-every number.
+coverage cells (pilot coverage 0.9515, control 0.751) give 1,200 (0.953). The design review ran
+a second 4,000-draw pilot of the two law cells. On it alone the declared rules give the same
+counts. Pooled with the first pilot, the coverage reads 0.9525, and with the coverage known at
+one pooled SE lower (0.950) the 1,200 draws pass with 0.953. `test_learned_rule_arms_design`
+recomputes every number.
 
 ## What registration must state
 
@@ -53,8 +55,12 @@ every number.
   reported curve omits the treatment model's projection term, which Corollary 2 of van der Laan
   and Luedtke (2015) makes conservative for a maximum-likelihood `g` in a correct model,
   extended to the cross-validated TMLE by analogy only. On this law the predicted SE ratio of
-  that term is 1.0004, so the cells measure coverage under a misspecified outcome model, not
+  that term is 1.0004, so the cells measure coverage under an outcome model misspecified in one
+  arm's regression (arm 2's quadratic; arms 0 and 1 are exact at the limit), not
   conservativeness. Quote each positive's realized SE ratio beside its coverage.
+- `drop_w1` is the targeting-necessity pair and reads bias only. Its fold rules have not
+  settled at n = 2,000 (arm 1 leads arm 0 by 0.0245 at `W2 = 0` at the limit), so quote the
+  targeted arm's SE ratio and coverage as a weak-margin reading, not as calibration evidence.
 - The claim holds for a correctly specified multinomial treatment model fitted by maximum
   likelihood. A known `g` and a super-learner `g` are not measured.
 - One law, one size, ten folds, no weights; the rule's margin condition holds at both

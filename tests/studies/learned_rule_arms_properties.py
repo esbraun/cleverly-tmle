@@ -10,8 +10,10 @@ Four families, in the order the declaration reads them. Every fit is at n = 2,00
     estimate.
 ``conservative_coverage``
     The ``missing_quadratic`` learner, held to the bias leg and to a coverage interval whose lower
-    bound is at or above the calibration floor, with no SE-ratio gate (Corollary 3's route). The
-    control is the same estimate with its SE times
+    bound is at or above the calibration floor, with no SE-ratio gate (Corollary 3's route). On
+    this law the omitted projection term predicts an SE ratio of 1.0004, so the cells measure
+    coverage when the outcome model is misspecified (in arm 2's regression only), not
+    conservativeness. The control is the same estimate with its SE times
     :data:`~tests.studies.learned_rule_arms.COVERAGE_SHRINK`, whose coverage interval must lie
     wholly below the floor.
 ``targeting_necessity``
@@ -373,8 +375,9 @@ def coverage_verdicts(summary: pd.DataFrame, *, floor: float) -> None:
 
     A positive passes when its bias is established inside the margin and the lower bound of its
     exact coverage interval is at or above ``floor``; its SE ratio is published and read by no
-    verdict, because the claim admits a conservative interval. A control passes when its coverage
-    interval lies wholly below ``floor``.
+    verdict, because the claim is one-sided: it admits over-coverage, and it does not assert that
+    the interval is conservative. A control passes when its coverage interval lies wholly below
+    ``floor``.
     """
     family = summary["property"] == COVERAGE_FAMILY
     positive = family & (summary["role"] == "positive")

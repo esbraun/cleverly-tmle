@@ -601,15 +601,29 @@ def test_the_calibration_count_survives_one_adverse_pilot_se() -> None:
 
 
 def _coverage_pass(
-    replicates: int, coverage: float | None = None, pilot: int | None = PILOT_DRAWS
+    replicates: int,
+    coverage: float | None = None,
+    known: bool = False,
+    readings: Mapping[str, float] | None = None,
 ) -> float:
+    """The coverage family's pass probability. ``readings`` defaults to the declared pilot's
+    ``missing_quadratic`` row with :data:`PILOT_COVERAGE_CONTROL`; a review reading passes its
+    own ``bias``, ``coverage``, ``control`` and ``draws``. ``known`` reads the coverages as known
+    (the conditional stress test); the bias leg keeps its predictive pilot error."""
     floor = study.STUDY.margins.calibration_coverage[0]
-    readings = PILOT["missing_quadratic"]
+    if readings is None:
+        readings = {
+            **PILOT["missing_quadratic"],
+            "control": PILOT_COVERAGE_CONTROL,
+            "draws": PILOT_DRAWS,
+        }
+    draws = int(readings["draws"])
     coverage = readings["coverage"] if coverage is None else coverage
+    pilot = None if known else draws
     return (
-        bias_pass(readings["bias"], replicates)
+        bias_pass(readings["bias"], replicates, draws)
         * floor_pass(coverage, replicates, floor, pilot)
-        * ceiling_pass(PILOT_COVERAGE_CONTROL, replicates, floor, pilot)
+        * ceiling_pass(readings["control"], replicates, floor, pilot)
     )
 
 
@@ -622,12 +636,88 @@ def test_the_coverage_count_is_the_predictive_rule() -> None:
 
 
 def test_the_coverage_count_is_thin_under_one_adverse_pilot_se() -> None:
-    """Disclosed, not resized: with the true coverage known at one pilot SE below the reading
-    (0.948), the cells pass with 0.907 at 1,200 and would with 0.976 at 1,600."""
+    """On the declared pilot alone, with the true coverage known at one pilot SE below the
+    reading (0.948), the cells pass with 0.907 at 1,200 and would with 0.976 at 1,600. The
+    review's second pilot superseded this reading (:data:`REVIEW_PROBE`); the count stands."""
     reading = PILOT["missing_quadratic"]["coverage"]
     shifted = reading - np.sqrt(reading * (1 - reading) / PILOT_DRAWS)
-    assert _coverage_pass(1_200, shifted, None) == pytest.approx(0.907, abs=1e-3)
-    assert _coverage_pass(1_600, shifted, None) == pytest.approx(0.976, abs=1e-3)
+    assert _coverage_pass(1_200, shifted, known=True) == pytest.approx(0.907, abs=1e-3)
+    assert _coverage_pass(1_600, shifted, known=True) == pytest.approx(0.976, abs=1e-3)
+
+
+#: The design review's second pilot (``reviews/x11/X11-H-study-design-review.md``, finding 1):
+#: the pilot script run unchanged but for the throwaway label 99137761 and its cell loop, 4,000
+#: draws each of ``missing_quadratic`` and ``declared``, no failed fit, no solver warning, rule
+#: L4 on every row and stored fold rule. ``pooled`` reads the two pilots' 8,000 draws together.
+#: ``ratio`` and ``primary_bias`` are ``declared``'s; ``bias``, ``coverage`` and ``control``
+#: (the x 0.6 coverage control) are ``missing_quadratic``'s.
+REVIEW_PROBE: dict[str, dict[str, float]] = {
+    "probe": {
+        "draws": 4_000,
+        "ratio": 0.9991,
+        "primary_bias": 0.0378,
+        "bias": 0.0066,
+        "coverage": 0.9535,
+        "control": 0.7668,
+    },
+    "pooled": {
+        "draws": 8_000,
+        "ratio": 0.9988,
+        "primary_bias": 0.0135,
+        "bias": 0.0002,
+        "coverage": 0.9525,
+        "control": 0.7588,
+    },
+}
+
+
+def _probe_counts(reading: Mapping[str, float]) -> tuple[int, int, int]:
+    draws = int(reading["draws"])
+    primary = _smallest(lambda r: bias_pass(reading["primary_bias"], r, draws))
+    calibration = tools.per_arm_replicates([reading["ratio"]], draws)["R"]
+    coverage = _smallest(lambda r: _coverage_pass(r, readings=reading))
+    return primary, calibration, coverage
+
+
+def test_the_review_probe_gives_at_most_the_declared_counts() -> None:
+    """The declared rules, unchanged, on the review's second pilot reproduce the declared
+    counts (coverage at 0.979), and on the pooled 8,000 draws give 1,200, 2,800 and 1,200, at
+    which the declared counts pass with 0.975 (calibration) and 0.976 (coverage). With the
+    coverage known at one pooled SE below the pooled reading (0.950), 1,200 passes with 0.953.
+    The counts err toward more draws, and none was resized (design review finding 1)."""
+    declared = (
+        study.PRIMARY_REPLICATES,
+        properties.CALIBRATION_REPLICATES,
+        properties.COVERAGE_REPLICATES,
+    )
+    probe, pooled = REVIEW_PROBE["probe"], REVIEW_PROBE["pooled"]
+    assert _probe_counts(probe) == declared == (1_200, 3_200, 1_200)
+    assert _coverage_pass(1_200, readings=probe) == pytest.approx(0.979, abs=1e-3)
+    assert _probe_counts(pooled) == (1_200, 2_800, 1_200)
+    draws = int(pooled["draws"])
+    calibration = tools.per_arm_pass([pooled["ratio"]], draws, declared[1])[0]
+    assert calibration == pytest.approx(0.975, abs=1e-3)
+    assert _coverage_pass(declared[2], readings=pooled) == pytest.approx(0.976, abs=1e-3)
+    reading = pooled["coverage"]
+    shifted = reading - np.sqrt(reading * (1 - reading) / draws)
+    assert shifted == pytest.approx(0.950, abs=1e-3)
+    assert _coverage_pass(1_200, shifted, known=True, readings=pooled) == pytest.approx(
+        0.953, abs=1e-3
+    )
+
+
+def test_the_review_probe_matches_the_declared_pilot_where_both_read() -> None:
+    """The pooled readings are the two pilots' means, so a mistyped pin fails here."""
+    probe, pooled = REVIEW_PROBE["probe"], REVIEW_PROBE["pooled"]
+    pairs = (
+        ("ratio", PILOT["declared"]["ratio"]),
+        ("primary_bias", PILOT["declared"]["bias"]),
+        ("bias", PILOT["missing_quadratic"]["bias"]),
+        ("coverage", PILOT["missing_quadratic"]["coverage"]),
+        ("control", PILOT_COVERAGE_CONTROL),
+    )
+    for key, first in pairs:
+        assert pooled[key] == pytest.approx((first + probe[key]) / 2, abs=1e-4), key
 
 
 def test_the_necessity_count_is_the_bias_leg_rule() -> None:

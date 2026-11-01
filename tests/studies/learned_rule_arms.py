@@ -22,9 +22,10 @@ size, n = 2,000. It fits three outcome learners on it:
     1.8%. The fit's curve omits the treatment model's projection term, which Corollary 2 of van
     der Laan and Luedtke (2015) makes conservative for an MLE of :math:`g` in a correct model,
     extended to cross-validated TMLE by analogy only. The predicted SE ratio of that term on this
-    law is 1.0004, so the ``conservative_coverage`` cells measure coverage under a misspecified
-    outcome model, not conservativeness: the bias leg and a coverage interval at or above the
-    calibration floor, with no SE calibration.
+    law is 1.0004, so the ``conservative_coverage`` cells measure coverage when one arm's outcome
+    regression is misspecified (arm 2's; arms 0 and 1 are exact at the limit), not
+    conservativeness: the bias leg and a coverage interval at or above the calibration floor,
+    with no SE calibration.
 ``drop_w1``
     The outcome model without ``W1`` (``targeting_necessity``): the targeted value against the
     untargeted plug-in, whose limit is biased by the confounding through ``W1``.
@@ -137,7 +138,9 @@ COVERAGE_SHRINK = 0.60
 #: The bias control (plan section 5): the ``drop_w1`` learner on ``three_arms``. The positive arm
 #: is the targeted value; the control is the same fit's untargeted fold average of the initial
 #: plug-ins. The learner's limit rule is arm 1 everywhere, and its plug-in limit is 0.129 above
-#: that rule's value, 9.4 SEs at n = 2,000 (``test_learned_rule_arms_design``).
+#: that rule's value, 9.4 SEs at n = 2,000 (``test_learned_rule_arms_design``). Its fold rules
+#: have not settled at n = 2,000 (the limit margin is 0.0245 at ``W2 = 0``), so the family reads
+#: bias only; the cross-fitted target follows each fold's rule.
 NECESSITY_FAMILY = "targeting_necessity"
 NECESSITY_LABEL = "drop_w1"
 NECESSITY_CELLS = (f"{NECESSITY_LABEL}__targeted", f"{NECESSITY_LABEL}__untargeted")

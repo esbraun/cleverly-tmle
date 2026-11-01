@@ -9,6 +9,7 @@ SE ratio.
 
 from __future__ import annotations
 
+import warnings
 from functools import cache
 from typing import Any
 
@@ -16,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone
+from sklearn.linear_model import LogisticRegression
 
 from cleverly._support import learner_family
 from cleverly.exceptions import DataError
@@ -115,6 +117,30 @@ class TestTheLearners:
         frame = _frame()
         model = clone(learner).fit(frame[["W1", "W2"]].to_numpy(), frame["A"].to_numpy())
         assert model.coef_.shape == (3, 2)
+
+    def test_the_treatment_learner_fits_without_a_warning(self) -> None:
+        """``C=np.inf`` is the spelling scikit-learn 1.8 and later keep for the unpenalized fit;
+        the deprecated ``penalty=None`` raises a ``FutureWarning`` there (design review
+        finding 4)."""
+        frame = _frame()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            law.treatment_learner().fit(frame[["W1", "W2"]].to_numpy(), frame["A"].to_numpy())
+
+    def test_c_infinity_is_the_penalty_none_fit(self) -> None:
+        """The condition the deviation from ``penalty=None`` rests on: the library maps both
+        spellings to one solver path, so the coefficients agree. Skipped where ``penalty=None``
+        warns, as it does from scikit-learn 1.8 until its removal."""
+        frame = _frame()
+        x, a = frame[["W1", "W2"]].to_numpy(), frame["A"].to_numpy()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            reference = LogisticRegression(penalty=None, max_iter=5000).fit(x, a)
+        if caught:
+            pytest.skip(f"penalty=None warns here: {caught[0].category.__name__}")
+        model = law.treatment_learner().fit(x, a)
+        np.testing.assert_allclose(model.coef_, reference.coef_, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(model.intercept_, reference.intercept_, rtol=0, atol=1e-12)
 
     def test_the_declared_limit_is_the_true_regression(self) -> None:
         for w2 in law.W2_LEVELS:
