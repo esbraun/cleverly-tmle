@@ -997,6 +997,44 @@ ARMS.update(
 #: and ``clustered`` labels are shared, so :data:`STUDY_ARMS` scopes their words to the study.
 ARMS["rows"] = "the learned-rule law with the blip 0.1 + W1 on rows, in ten equal folds"
 
+#: The parameter labels of ``learned-rule-contrast`` (X11 PR G, X11 (c)), one arm per law,
+#: report and parameter, ``<law>_<report>_<tag>``, and the necessity label. Mirrored from
+#: ``tests.studies._learned_rule_contrast_law.TAGS`` and ``REPORTS``, which this module cannot
+#: import.
+_CONTRAST_LAWS = {
+    "non_exceptional": (
+        "the learned-rule law with the blip 0.1 + W1, whose interaction logistic outcome "
+        "learner is correct"
+    ),
+    "misspecified_limit": (
+        "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose interaction logistic "
+        "outcome learner has no W1^2 term"
+    ),
+}
+_CONTRAST_REPORTS = {
+    "fold_evaluated": "the fold-evaluated report",
+    "stacked": "the stacked report",
+}
+_CONTRAST_TAGS = {
+    "value": "the learned-rule value",
+    "known_1": "the value of Static(1)",
+    "known_0": "the value of Static(0)",
+    "contrast_1": "the learned-rule value minus the value of Static(1)",
+    "contrast_0": "the learned-rule value minus the value of Static(0)",
+}
+ARMS.update(
+    {
+        f"{law}_{report}_{tag}": f"{law_words}, {tag_words} under {report_words}"
+        for law, law_words in _CONTRAST_LAWS.items()
+        for report, report_words in _CONTRAST_REPORTS.items()
+        for tag, tag_words in _CONTRAST_TAGS.items()
+    }
+)
+ARMS["drop_w1_contrast_0"] = (
+    "the learned-rule law with the blip 0.1 + W1 and RM30's drop_w1 outcome learner, the "
+    "learned-rule value minus the value of Static(0) under the fold-evaluated report"
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1791,6 +1829,21 @@ PROPERTIES: dict[str, str] = {
         "the targeted and untargeted in-sample learned-rule fits of an outcome learner whose "
         "limit benefit is near zero, so that its rule flips between samples, with the flip "
         "share and the bias on settled and on flipped draws, reported rather than gated"
+    ),
+    "conservative_coverage": (
+        "the interval of each parameter covers at least as often as the calibration band's "
+        "lower end when the outcome model cannot represent the treated arm: the bias inside "
+        "its margin and the exact coverage interval at or above 0.92, with no SE-ratio gate "
+        "and no claim that the interval is conservative"
+    ),
+    "contrast_covariance": (
+        "the contrast's standard error keeps the covariance of the learned and the known "
+        "value: the same contrast with the SE it would have if the two had correlation one "
+        "must under-cover"
+    ),
+    "independent_se_diagnostic": (
+        "the SE ratio and coverage of each contrast with the SE it would have if the learned "
+        "and the known value were independent, reported rather than gated"
     ),
     "sparse_event_diagnostic": (
         "the coverage and SE ratio of the fold-evaluated and the stacked stratified fits on a "
@@ -6249,6 +6302,114 @@ CELLS.update(
             "the learned-rule law with the blip 0.1 + W1: the same drop_w1 fit's initial "
             "plug-in mean at its own rule, with no fluctuation",
             "none. The cell reports the bias and the displacement from the targeted arm",
+        ),
+    }
+)
+
+
+#: ``learned-rule-contrast`` (X11 PR G, X11 (c)): the learned rule beside ``Static(1)`` and
+#: ``Static(0)`` in one fit, with each known value and each contrast. The laws and learners are
+#: RM30's; the cell names are those of ``tests/studies/learned_rule_contrast.py``.
+_CONTRAST_SLUG = "learned-rule-contrast"
+IMPLEMENTATIONS["cleverly-learned-rule-contrast"] = (
+    "`cleverly` cross-validated TMLE of the learned-rule value beside two known regimes: each "
+    "fold's plug-in rule and Static(1) and Static(0) as columns of one regime set on the same "
+    "folds, one pooled fluctuation over every column, and each contrast's curve the difference "
+    "of the two curves"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_CONTRAST_SLUG, "ey_learned_rule[learned rule]"): (
+            "fold average of the values of the rules learned on each training fold"
+        ),
+        (_CONTRAST_SLUG, "ey_known_regime[always 1]"): "mean outcome if everyone is treated",
+        (_CONTRAST_SLUG, "ey_known_regime[always 0]"): "mean outcome if no one is treated",
+        (_CONTRAST_SLUG, "ate_learned_rule[learned rule vs always 1]"): (
+            "the learned-rule value minus the mean outcome if everyone is treated"
+        ),
+        (_CONTRAST_SLUG, "ate_learned_rule[learned rule vs always 0]"): (
+            "the learned-rule value minus the mean outcome if no one is treated"
+        ),
+    }
+)
+STUDY_SCENARIOS[(_CONTRAST_SLUG, "non_exceptional")] = (
+    "learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome learner, "
+    "fold-evaluated report"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_CONTRAST_SLUG, "interval_calibration", f"non_exceptional_{report}_{tag}", "declared"): (
+            "the declared fit beside Static(1) and Static(0), with the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _CONTRAST_TAGS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _CONTRAST_SLUG,
+            "conservative_coverage",
+            f"misspecified_limit_{report}_{tag}",
+            "declared",
+        ): (
+            "the declared fit beside Static(1) and Static(0), with the correct logistic "
+            "treatment model fitted by maximum likelihood",
+            "bias interval inside the margin, and the coverage interval's lower end at or "
+            "above 0.92; the SE ratio is read by no verdict",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _CONTRAST_TAGS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _CONTRAST_SLUG,
+            "conservative_coverage",
+            f"misspecified_limit_{report}_{tag}",
+            "shrunken_coverage_control",
+        ): (
+            "the declared fit's standard errors multiplied by 0.60",
+            "the coverage interval must lie wholly below 0.92",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _CONTRAST_TAGS
+    }
+)
+_CONTRAST_SE_CELLS = {
+    ("contrast_covariance", "correlation_one_control"): (
+        "the declared contrast with the standard error abs(se_L - se_K), which it would have if "
+        "the learned and the known value had correlation one",
+        "the coverage interval must lie wholly below 0.80",
+    ),
+    ("independent_se_diagnostic", "independent_se"): (
+        "the declared contrast with the standard error sqrt(se_L^2 + se_K^2), which it would "
+        "have if the learned and the known value were independent",
+        "none. The cell reports the SE ratio and the coverage",
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        (_CONTRAST_SLUG, family, f"{law}_{report}_{tag}", kind): words
+        for (family, kind), words in _CONTRAST_SE_CELLS.items()
+        for law in _CONTRAST_LAWS
+        for report in _CONTRAST_REPORTS
+        for tag in ("contrast_1", "contrast_0")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_CONTRAST_SLUG, "targeting_necessity", "drop_w1_contrast_0", "targeted"): (
+            "the declared fit beside Static(1) and Static(0) with drop_w1, a saturated outcome "
+            "learner in (A, W2) with no W1 term, so targeting does the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_CONTRAST_SLUG, "targeting_necessity", "drop_w1_contrast_0", "untargeted"): (
+            "the same fit's initial plug-in contrast, the difference of the fold-weighted "
+            "untargeted values, with no fluctuation",
+            "bias interval must fall entirely outside the margin",
         ),
     }
 )

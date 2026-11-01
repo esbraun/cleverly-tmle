@@ -405,8 +405,9 @@ def coverage_verdicts(summary: pd.DataFrame, *, floor: float) -> None:
 
     A positive passes when its bias is established inside the margin and the lower bound of its
     exact coverage interval is at or above ``floor``; its SE ratio is published and read by no
-    verdict, because the claim admits a conservative interval. A control passes when its coverage
-    interval lies wholly below ``floor``.
+    verdict, because the claim is one-sided: it admits over-coverage, and it does not assert that
+    the interval is conservative. A control passes when its coverage interval lies wholly below
+    ``floor``.
     """
     family = summary["property"] == COVERAGE_FAMILY
     positive = family & (summary["role"] == "positive")

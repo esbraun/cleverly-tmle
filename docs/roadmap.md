@@ -989,9 +989,16 @@ Contrasts with known regimes, part (c), now ship
 set on the same folds, and reports its value and its contrast with the learned rule. The
 contrast's curve is the difference of the two curves, by the joint normality of the two
 asymptotically linear estimators, a step no source states. A static arm is spelled
-`Static(a)`, and arm estimands keep their refusal. The key carries the qualifier
-`known_regimes`, so no learned-rule row covers such a fit, and every one reads experimental
-until the `learned-rule-contrast` study registers. The simultaneous band and another parameter
+`Static(a)`, and arm estimands keep their refusal.
+
+The key carries the qualifier `known_regimes`. The
+[contrast study](technical-reference/method-evidence/learned-rule-contrast.md) calibrates the
+plug-in rule beside `Static(1)` and `Static(0)` on rows at n = 2,000 with ten folds, so such a
+fit reads supported under either report (rows `T44.fold_evaluated` and `T44.stacked`). Under a
+misspecified treated arm it measured coverage at or above 0.92 with a correct maximum-likelihood
+$g$, not a conservative interval. Weights, clusters, strata, fold targeting, a rule learner,
+several splits, the in-sample fit and supplied treatment probabilities beside known regimes read
+experimental. The simultaneous band and another parameter
 axis are part (c2): the fit skips its default band and `summary()` says why, and
 `simultaneous_bands()` refuses those estimates. The bound of a contrast joins part (n2).
 

@@ -300,9 +300,18 @@ estimator itself, because `CausalStudy` has no way to declare the comparison yet
 `TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, where `Static(1)` treats everyone.
 The fit reports three rows: the learned rule's value, the fixed policy's value
 `ey_known_regime[always 1]`, and their difference `ate_learned_rule[learned rule vs always 1]`.
+
 Both values come from the same rows and the same fitted models, and the interval of the
 difference uses the correlation between the two estimates, measured on those rows. No published
-source proves that interval for a learned rule and no study has measured it, so all three rows
+source proves that interval for a learned rule, so a
+[study](../technical-reference/method-evidence/learned-rule-contrast.md) measured it instead.
+With 2,000 rows, ten folds and fixed-term logistic models, beside always-treat and never-treat,
+each 95% interval covered its target 0.946 to 0.956 of the time over 5,600 samples. When the
+outcome model left out a term the treated outcomes needed, coverage stayed between 0.942 and
+0.951. That study measured a correct treatment model only.
+
+The three rows are marked supported when the fit uses the default cross-fitting with one split
+and the rule comes from the outcome model, with no weights, clusters or strata. Otherwise they
 are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
 its message names this spelling.
 

@@ -80,6 +80,7 @@ learned-rule-learners
 learned-rule-strata
 learned-rule-stacked
 learned-rule-in-sample
+learned-rule-contrast
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies

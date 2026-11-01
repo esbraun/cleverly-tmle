@@ -25,8 +25,10 @@ The witnesses are the plan's (``X11-wave2-plan.md`` rev 2.1, section 4):
 - W-c5 (scores): each column's fold-average score is solved by the joint fluctuation.  The
   mutation that targets the learned column alone leaves the known regime's score unsolved.
 
-The label: a qualifier ``known_regimes`` keeps every learned-rule row from covering a contrast fit,
-so each such fit reads experimental until a study registers.
+The label: a qualifier ``known_regimes`` keeps every learned-rule row without it from covering a
+contrast fit.  The ``learned-rule-contrast`` study registers ``T44.fold_evaluated`` and
+``T44.stacked`` for a fit on rows under each report; fold targeting, weights, clusters and strata
+beside known regimes match no row and read experimental.
 """
 
 from __future__ import annotations
@@ -446,9 +448,10 @@ class TestTheLabel:
         [{}, {"cv_evaluation": False}],
         ids=["fold_evaluated", "stacked"],
     )
-    def test_a_contrast_fit_keys_known_regimes_and_reads_experimental(
+    def test_a_contrast_fit_keys_known_regimes_and_reads_its_own_row(
         self, settings: dict[str, Any]
     ) -> None:
+        """The learned-rule-contrast study registers one row per report (X11 PR G)."""
         alone = support.fit(**settings)
         contrast = support.fit(interventions=[Static(1)], **settings)
         assert alone.estimates[LEARNED].support.label == "supported"
@@ -456,9 +459,13 @@ class TestTheLabel:
         assert "known_regimes" in key.qualifiers
         assert "known_regimes" not in alone.config.support_key.qualifiers
         assert key.family == alone.config.support_key.family
+        report = "stacked" if settings else "fold_evaluated"
+        # The fit alone keeps the plug-in row of its report, and the contrast fit moves to T44.
+        alone_rows = {"fold_evaluated": "T24", "stacked": "T42.rows"}
+        assert alone.estimates[LEARNED].support.row == alone_rows[report]
         for estimate in contrast.estimates.values():
-            assert estimate.support.label == "experimental"
-            assert estimate.support.row is None
+            assert estimate.support.label == "supported"
+            assert estimate.support.row == f"T44.{report}"
 
     @pytest.mark.filterwarnings("ignore::cleverly.exceptions.InSampleLearnerWarning")
     def test_the_in_sample_contrast_keeps_the_learner_families(self) -> None:
@@ -755,11 +762,21 @@ class TestTheSummary:
         """Each value can be bounded, so the pointer names the one-row call."""
         assert _flat(vocabulary.SENSITIVITY_POINTER_ONE_ROW) in _flat(full)
 
-    def test_the_experimental_reason_names_the_fixed_rules(self, full: str) -> None:
-        text = _flat(full)
+    def test_the_experimental_reason_names_the_fixed_rules(self) -> None:
+        """A weighted contrast fit matches no row, and its nearest row lacks the fixed rules.
+
+        Its nearest row is a learned-rule row with weights and no ``known_regimes``, so the
+        reason names the qualifier in words.  A fit on rows reads ``T44`` and has no reason.
+        """
+        frame = support.law_frame(400, 0)
+        frame["w"] = np.random.default_rng(1).uniform(0.5, 2.0, len(frame))
+        result = (
+            support.learned_tmle(interventions=[Static(1)]).fit(frame, weights="w", **FIT).single()
+        )
+        text = _flat(result.summary(detail="full"))
         assert vocabulary.SUPPORT_QUALIFIERS["known_regimes"] in text
         assert vocabulary.SUPPORT_AXES["qualifiers"] not in text
-        reason = _planted().estimates[LEARNED].support.reason
+        reason = result.estimates[LEARNED].support.reason
         assert "differing on qualifiers (known_regimes)" in reason
 
     def test_the_repeats_note_says_a_fixed_rule_s_target_is_fixed(self) -> None:
