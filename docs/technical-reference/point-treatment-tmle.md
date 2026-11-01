@@ -1283,7 +1283,7 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 | --- | --- |
 | C1 | a bounded outcome: a binary outcome, or a continuous outcome with a declared `q_bounds` |
 | C2 | strong positivity at every arm. `g_bounds` regularizes the fitted denominator only |
-| C3 | a limiting rule: the fold curves converge to the curve of one fixed rule. Over more than two arms the package asks that the top two arms of the learner's limit tie on a set of probability zero |
+| C3 | a limiting rule: the fold curves converge to the curve of one fixed rule. Over more than two arms the package asks that the top two arms of the learner's limit tie only on a set of probability zero (its best arm is unique almost surely) |
 | C4 | the fold-average remainder is $o_P(n^{-1/2})$. Alternatively, Corollary 3 requires Theorem 6 with $g=g_0$, negligible remainder replacement, and the linearization in Equation (14). Under these conditions, each fold's maximum-likelihood mechanism fit in a correct model gives a conservative interval |
 | C5 | no Donsker condition, so the learners can be flexible |
 | C6 | iid rows; or, under `id=`, iid clusters of bounded size whose number grows with $n$, with a fixed number of folds and at least 2 clusters in every validation fold; known, fixed and bounded observation weights under `weights=`; no missing outcomes or intermediate variable |
@@ -1769,7 +1769,8 @@ On a treatment with $K > 2$ arms the plug-in rule is
 $d_{nv}(w) = \arg\max_a \bar Q_{nv}(a, w)$ over every arm, and a tie between two or more arms
 assigns the lowest of their arm codes. That is the convention of Nordland and Holst (2026). At
 $K = 2$ it is the rule $\mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}$ above, and the
-fit is the binary fit bit for bit. The clever covariate stays
+estimates, curves, stored fold rules and bound are the binary fit's bit for bit. The record's
+`gap_quantiles` then holds the absolute blip, where the signed blip was stored before. The clever covariate stays
 $H_i = \mathbb 1\{A_i = d_i\} / g_{n,v(i)}(A_i \mid W_i)$, with the multinomial mechanism of the
 fit. The regime density of the learned column is one-hot over the $K$ arms, so the fluctuation,
 the variance and both reports are the shipped ones.
@@ -1777,8 +1778,8 @@ the variance and both reports are the shipped ones.
 Nordland and Holst (2026), Theorem 3.1 and the influence curve of Section 3.4 under a limiting
 policy, cover a finite action set, with positivity at every arm. JCI, Theorem 6, reads the
 treatment only through the class of the rule, so C1 to C6 carry over with C2 at every arm. C3 for
-an argmax asks that the top two arms of the learner's limit $\bar Q_1$ tie on a set of
-probability zero. The sources are silent on multi-arm exceptional laws, so that form of C3 is the
+an argmax asks that the top two arms of the learner's limit $\bar Q_1$ tie only on a set of
+probability zero, so that its best arm is unique almost surely. The sources are silent on multi-arm exceptional laws, so that form of C3 is the
 package's own step. A limit can also lose an arm entirely, which C3 allows: the rule then never
 assigns that arm.
 

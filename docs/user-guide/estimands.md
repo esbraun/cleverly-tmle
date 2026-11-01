@@ -235,7 +235,7 @@ the value of the optimal rule. The table gives what the result holds.
 | --- | --- |
 | `learned.estimates` | one parameter, `ey_learned_rule[learned rule]` |
 | `learned.extra["learned_rule"].splits` | for each split into folds, the fold sizes, the fold estimates, the share of each fold's rows that the rule gives each option (`arm_shares`, in the order of `record.arms`), and quantiles of the gap between the two highest predicted outcomes (`gap_quantiles`). Under the default `CrossFitting()` the fold estimates describe each fold's part of one pooled estimate, not separate estimates |
-| `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row with two options, `1.0` for treat. With more options, `values[:, a, 0]` is `1.0` for the option the rule gives |
+| `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row with two options, `1.0` for treat. With more options, column `a` is `1.0` for the option at position `a` of `record.arms`, and `cleverly.interventions.learned.realized_arms` returns those positions |
 | `learned.summary()` | a line that states the target |
 
 Use `CrossFitting(n_folds=5, fold_evaluation=True)`, as above. It scores each fold's rule on that

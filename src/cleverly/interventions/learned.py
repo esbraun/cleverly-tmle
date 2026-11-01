@@ -1121,8 +1121,14 @@ def realized_arms(regimes: RegimeSet | None) -> np.ndarray:
     -------
     numpy.ndarray
         ``(n,)`` ``int8`` arm codes, the arm whose density entry is 1.
+
+    Raises
+    ------
+    ValueError
+        If ``regimes`` is ``None``.
     """
-    assert regimes is not None
+    if regimes is None:
+        raise ValueError("realized_arms needs the regime set of a learned-rule fit")
     return np.asarray(np.argmax(np.asarray(regimes.values[:, :, 0]), axis=1), dtype=np.int8)
 
 
@@ -1178,7 +1184,8 @@ def fold_rules(nuisance: NuisanceEstimates) -> np.ndarray | None:
     rules = getattr(regimes, "fold_rules", None)
     if rules is None:
         return None
-    assert regimes is not None
+    if regimes is None:
+        raise ValueError("realized_arms needs the regime set of a learned-rule fit")
     values = np.asarray(regimes.values)
     return check_fold_rules(rules, realized_arms(regimes), nuisance.folds, n_arms=values.shape[1])
 
@@ -1224,10 +1231,10 @@ def check_fold_rules(
             "folds. This is a defect in cleverly."
         )
     if np.any(rules < 0) or (n_arms is not None and np.any(rules >= n_arms)):
-        raise RuntimeError(
-            f"a stored fold rule names an arm code outside 0 to {n_arms}. This is a defect "
-            "in cleverly."
+        named = (
+            "a negative arm code" if n_arms is None else f"an arm code outside 0 to {n_arms - 1}"
         )
+        raise RuntimeError(f"a stored fold rule names {named}. This is a defect in cleverly.")
     realized = np.asarray(realized, dtype=np.int8)
     own = rules[np.arange(assignment.size), assignment]
     if not np.array_equal(own, realized):
@@ -1423,8 +1430,8 @@ def learned_rule_record(
     splits : sequence of LearnedRuleSplit
         One record per split, in the order of ``result.repeats``.
     arms : sequence
-        The treatment levels in arm-code order (:attr:`~cleverly.data.CausalData.
-        treatment_levels`).
+        The treatment levels in arm-code order
+        (:attr:`~cleverly.data.CausalData.treatment_levels`).
 
     Returns
     -------

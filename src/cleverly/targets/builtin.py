@@ -170,8 +170,9 @@ _LEARNED_RULE_ID = Identification(
         "its threshold on a set of probability zero, and it fails at an exceptional law "
         "with a consistent learner, where the interval can under-cover. With more than two "
         "arms the plug-in rule is the argmax of the outcome learner over the arms, and C3 "
-        "asks that the limit's top two arms tie on a set of probability zero, the "
-        "package's own step: the sources are silent on multi-arm exceptional laws",
+        "asks that the limit's top two arms tie only on a set of probability zero (its "
+        "best arm is unique almost surely), the package's own step: the sources are "
+        "silent on multi-arm exceptional laws",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
         "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
         "with g = g0, a negligible remainder-replacement error, and the remainder "

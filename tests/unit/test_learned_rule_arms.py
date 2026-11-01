@@ -43,6 +43,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import CausalStudy, LearnedRuleValue, PointTreatment
+from cleverly.data.validate import MAX_TREATMENT_LEVELS
 from cleverly.estimators import TMLE
 from cleverly.estimators import _nuisance as nuisance_module
 from cleverly.exceptions import (
@@ -103,6 +104,41 @@ def arms_frame(n: int = 600, seed: int = 0) -> pd.DataFrame:
     p = softmax(np.column_stack([np.zeros(n), 0.3 * w1, 0.1 - 0.2 * w2]), axis=1)
     a = (rng.uniform(size=n)[:, None] > np.cumsum(p, axis=1)).sum(axis=1)
     logit = 0.2 + 0.5 * w1 - 0.3 * w2 + (a == 1) * (w1 - 0.5) + (a == 2) * (-w1 - 0.1)
+    y = rng.binomial(1, expit(logit)).astype(float)
+    return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Y": y})
+
+
+def four_arms_frame(n: int = 800, seed: int = 0) -> pd.DataFrame:
+    """Draw ``n`` rows of a four-arm law whose per-arm plug-in rules use every arm.
+
+    The law is :func:`arms_frame`'s with a fourth arm: treatment scores
+    ``(0, 0.3 W1, 0.1 - 0.2 W2, -0.2 W1)`` and an added blip ``1{A = 3}(0.8 W2 - 0.5)``.
+
+    Parameters
+    ----------
+    n : int
+        Rows to draw.
+    seed : int
+        Seed of the draw.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``W1``, ``W2``, ``A`` (integer codes 0 to 3) and ``Y``.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.uniform(-1.0, 1.0, n)
+    w2 = rng.binomial(1, 0.5, n).astype(float)
+    p = softmax(np.column_stack([np.zeros(n), 0.3 * w1, 0.1 - 0.2 * w2, -0.2 * w1]), axis=1)
+    a = (rng.uniform(size=n)[:, None] > np.cumsum(p, axis=1)).sum(axis=1)
+    logit = (
+        0.2
+        + 0.5 * w1
+        - 0.3 * w2
+        + (a == 1) * (w1 - 0.5)
+        + (a == 2) * (-w1 - 0.1)
+        + (a == 3) * (0.8 * w2 - 0.5)
+    )
     y = rng.binomial(1, expit(logit)).astype(float)
     return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Y": y})
 
@@ -410,22 +446,24 @@ class TestTheArgmaxRule:
         assert set(np.unique(rules)) == {0, 1, 2}
         assert np.any(rules != rules[:, :1])
 
-    def test_each_column_of_a_per_arm_regression_is_its_fold_s_argmax(self) -> None:
+    @pytest.mark.parametrize("n_arms", [3, 4], ids=["arms3", "arms4"])
+    def test_each_column_of_a_per_arm_regression_is_its_fold_s_argmax(self, n_arms: int) -> None:
+        """Four arms run the per-arm step that carries an index into an arm before the last."""
         learner = LogisticRegression(max_iter=1000)
-        result = fit(outcome_by_arm=True, outcome_learner=learner)
-        frame = arms_frame()
+        frame = arms_frame() if n_arms == 3 else four_arms_frame()
+        result = fit(frame, outcome_by_arm=True, outcome_learner=learner)
         covariates = frame[list(COVARIATES)].to_numpy()
         treatment, outcome = frame["A"].to_numpy(), frame["Y"].to_numpy()
         rules = _stored(result)
         for fold, (train, _) in enumerate(result.nuisance.folds):
             rows = np.asarray(train)
             predictions = []
-            for arm in (0, 1, 2):
+            for arm in range(n_arms):
                 own = rows[treatment[rows] == arm]
                 model = clone(learner).fit(covariates[own], outcome[own])
                 predictions.append(model.predict_proba(covariates)[:, 1])
             np.testing.assert_array_equal(rules[:, fold], np.argmax(predictions, axis=0))
-        assert set(np.unique(rules)) == {0, 1, 2}
+        assert set(np.unique(rules)) == set(range(n_arms))
 
     @pytest.mark.parametrize("cv_evaluation", [True, False], ids=["fold_evaluated", "stacked"])
     def test_wd4_the_stub_fit_is_the_known_rule_fit(self, cv_evaluation: bool) -> None:
@@ -620,10 +658,21 @@ class TestTheStoredRules:
         rules = np.array(_stored(result))
         rules[rules == 2] = 3
         realized = rules[np.arange(600), np.asarray(nuisance.folds.assignment)]
-        with pytest.raises(RuntimeError, match="outside 0 to 3"):
+        with pytest.raises(RuntimeError, match="outside 0 to 2"):
             check_fold_rules(rules, realized, nuisance.folds, n_arms=3)
         # Without the arm count the same matrix passes the diagonal check.
         check_fold_rules(rules, realized, nuisance.folds)
+
+    def test_the_treatment_level_cap_fits_the_int8_fold_rule_store(self) -> None:
+        """The fold rules are stored as ``int8`` arm codes, which hold at most 128 arms.
+
+        The data layer's level cap is what keeps the guard in ``fit_nuisances`` unreachable.
+        """
+        assert np.iinfo(np.int8).max + 1 >= MAX_TREATMENT_LEVELS
+
+    def test_realized_arms_refuses_a_fit_without_regimes(self) -> None:
+        with pytest.raises(ValueError, match="regime set of a learned-rule fit"):
+            realized_arms(None)
 
     def test_a_corrupted_diagonal_is_a_defect(self) -> None:
         from dataclasses import replace

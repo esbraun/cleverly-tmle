@@ -2147,8 +2147,9 @@ def fit_nuisances(
         )
     if fold_plug_in_rules and data.n_arms > np.iinfo(np.int8).max + 1:
         raise ValueError(
-            f"fold_plug_in_rules=True stores int8 arm codes, which hold at most 128 arms; the "
-            f"treatment has {data.n_arms}"
+            f"fold_plug_in_rules=True stores int8 arm codes, which hold at most 128 arms, and "
+            f"the treatment has {data.n_arms}. This is a defect in cleverly: the data layer "
+            "caps a treatment at MAX_TREATMENT_LEVELS levels."
         )
     if data.composite_view:
         raise ValueError(
