@@ -236,13 +236,12 @@ def split_columns(result: Any, truth: Truth) -> dict[str, float]:
     }
 
 
-def population_rule(law: str, points: int = 4_001) -> dict[float, np.ndarray]:
-    """The rule of the declared learner's population projection on ``law``, on the RM30 grid.
+def population_model(law: str, points: int = 4_001) -> Any:
+    """The declared outcome learner fitted to its population projection on ``law``.
 
     Each grid point of ``(W1, W2)`` carries its trapezoid mass, each arm its propensity and each
     outcome its probability, so the weighted log-likelihood the learner maximises is the
-    population one. The learner's ridge is removed. Under C3 every split's rules converge to
-    this rule, so the mean curve converges to the curve of one split at it.
+    population one. The learner's ridge is removed.
     """
     grid = np.linspace(-1.0, 1.0, points)
     mass = np.full(points, 2.0 / (points - 1))
@@ -263,6 +262,16 @@ def population_rule(law: str, points: int = 4_001) -> dict[float, np.ndarray]:
     model.fit(
         np.vstack(design), np.concatenate(outcome), model__sample_weight=weights / weights.mean()
     )
+    return model
+
+
+def population_rule(law: str, points: int = 4_001) -> dict[float, np.ndarray]:
+    """The rule of the declared learner's population projection on ``law``, on the RM30 grid.
+
+    The projection is :func:`population_model`. Under C3 every split's rules converge to this
+    rule, so the mean curve converges to the curve of one split at it.
+    """
+    model = population_model(law, points)
     return {
         w2: base._blip(model, np.column_stack([base.GRID, np.full_like(base.GRID, w2)])) > 0.0
         for w2 in base.W2_LEVELS

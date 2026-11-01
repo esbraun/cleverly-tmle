@@ -15,7 +15,7 @@ and the stacked one (`cv_evaluation=False`, X11 (e)).
 | part | declaration |
 | --- | --- |
 | learners | outcome: RM30's `Pipeline(PolynomialFeatures(2, interaction_only=True), LogisticRegression(C=1e6))` on `(A, W1, W2)`; treatment: RM30's logistic regression on `(W1, W2)`, a correct model fitted by maximum likelihood |
-| laws | RM30 `non_exceptional` (correctly specified; calibration bands) and `misspecified_limit` (the outcome model cannot represent the blip; bias leg and coverage floor only), one size n = 2,000 |
+| laws | RM30 `non_exceptional` (correctly specified; calibration bands) and `misspecified_limit` (the outcome model cannot represent the blip; bias leg and coverage floor only), one size n = 2,000. On `misspecified_limit` the projection term the curves omit is negligible (predicted SE ratio at most 1.0005), so its cells measure coverage under a misspecified treated arm, not conservativeness |
 | primary | 1,200 replications of `non_exceptional`, fold-evaluated report, all five parameters. The bias legs would pass at 800 with predictive probability 0.999; the study's floor of 1,000 draws for a gated cell sets 1,200 |
 | truth | per replication: refit each fold's outcome learner on the fit's training rows, require the fit's rule on every validation row (rule L4), integrate each fold rule's value on 4,001 points of `W1` for each `W2` with the known `Qbar0`, and weight fold `v` by the report's weight (`1/V` fold-evaluated, `n_v/n` stacked), checked against the record's `fold_weights`. A known regime's truth is `E Qbar0(a, W)`; a contrast's is the difference. `oracle_se` is descriptive |
 | `interval_calibration` | `non_exceptional`, both reports, all five parameters: 10 positives, each with the shrunken-SE control (factor 0.80) and the noise control (one efficiency-bound unit, the per-parameter bounds in `TAG_BOUNDS`). 5,600 draws: the arm-pooled rule on the five fold-evaluated positives of a 4,000-draw pilot (family-wise 0.951). Each draw fits both reports |
@@ -49,17 +49,22 @@ experimental.
 
 ## What registration must state
 
-- The `misspecified_limit` cells claim coverage at or above the floor, not SE calibration. The
+- The `misspecified_limit` cells claim coverage at or above the floor 0.92 when the outcome
+  model cannot represent the treated arm, not SE calibration and not conservativeness. The
   reported curves omit the treatment model's projection term. Corollary 2 of van der Laan and
   Luedtke (2015) makes that variance conservative for a maximum-likelihood `g` in a correct
   model, and the paper extends the claim to the cross-validated TMLE by analogy only
-  (`reviews/x11/X11-G-corollary3-reading.md` in the plans repository). The claim rests on that
-  analogy. The pilot did not show the predicted over-coverage there: two SE ratios read 0.977.
-  Quote each positive's realized SE ratio beside its coverage.
-- The claim holds for a correctly specified treatment model fitted by maximum likelihood. A
-  known `g` and a super-learner `g` are not measured; a super-learner `g` is report only.
+  (`reviews/x11/X11-G-corollary3-reading.md` in the plans repository). On this law the omitted
+  term is negligible (predicted SE ratio at most 1.0005), so the study does not test that
+  analogy. Quote each positive's realized SE ratio beside its coverage. The `known_0` cells read
+  an outcome arm the model represents correctly, so they are not misspecified-outcome evidence.
+- The misspecified-outcome coverage was measured only with a correct logistic treatment model
+  fitted by maximum likelihood. A known `g` and a super-learner `g` are not measured.
 - The stacked report was measured at ten equal folds without weights, where its point is the
   fold-evaluated one. Unequal folds and weighted fits under the stacked report are not measured.
+- Both rows' keys also cover fold counts other than 10, `reference=` naming the learned rule,
+  known dynamic `Rule` regimes and more than two known regimes. None is measured; each rests on
+  the unit witnesses and the linearity argument.
 - The necessity pair reads the contrast against `Static(0)` only; quote why.
 - Intervals are pointwise; strata, weights, clusters and rule learners with known regimes are
   not measured here.
