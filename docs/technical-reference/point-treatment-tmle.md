@@ -1612,15 +1612,20 @@ $\{n(n-1)\}^{-1}\sum_i (\phi_i - \bar\phi)^2$ of the regime report. The score is
 $\bar\phi = 0$ to solver tolerance, and this is $n/(n-1)$ times $n^{-2}\sum_i \phi_i^2$.
 
 JCI, Theorem 5, licenses the interval. C1, C2 and C6 stay, and three conditions replace C3 to C5.
+In sample, a continuous outcome without `q_bounds` is scaled by its observed range, as the shipped
+in-sample TMLE does, so C1's declared `q_bounds` is needed only under cross-fitting.
 
 | id | condition |
 | --- | --- |
-| C3a | $d_n$ converges to a fixed rule $d_1$, and $P_0\{D^*(d_n, \bar Q^*_n, g_n) - D^*(d_1, \bar Q_{d_1}, g_0)\}^2 \to 0$. JCI prints $O_P(1)$ in its Equation (12); the proof needs convergence to 0 |
+| C3a | $d_n$ converges to a fixed rule $d_1$, and $P_0\{D^*(d_n, \bar Q^*_n, g_n) - D^*(d_1, \bar Q_1, g_1)\}^2 \to 0$, with $(\bar Q_1, g_1)$ the limits of the targeted outcome fit and the treatment fit. Neither limit need be the truth, because C4a carries the remainder. JCI prints $O_P(1)$ in its Equation (12); the proof needs convergence to 0 |
 | C4a | the remainder $R_1$ is the product remainder of the outcome and treatment fits, $o_P(n^{-1/2})$, the first branch of C4. It is 0 with known treatment probabilities (`treatment_probabilities=`), and with $g$ a maximum-likelihood fit in a correct model the interval is conservative (JCI, Corollary 2) |
 | C5a | $D^*(d_n, \bar Q^*_n, g_n)$ lies in a $P_0$-Donsker class with probability tending to 1. It limits how adaptive the rule, the outcome regression and the fitted treatment model can be, and it replaces C5 |
 
-The non-exceptional law is not assumed: $d_n$ need only converge to some $d_1$. No data check
-confirms C5a, so the support label carries it.
+The non-exceptional law is not assumed: $d_n$ need only converge to some $d_1$. At an exceptional
+law the blip is 0 on a set of positive probability, and the rule of a consistent outcome learner
+need not converge there, so C3a can fail. A misspecified outcome model whose limiting blip is
+nonzero almost everywhere can restore it. No data check confirms C5a, so the support label
+carries it.
 
 Under the in-sample scheme only, the support key
 reads the family of each learner the fit uses (`outcome_learner_family`,
@@ -1629,8 +1634,8 @@ reads the family of each learner the fit uses (`outcome_learner_family`,
 is the exact class `LogisticRegression`, `LinearRegression` or `GLM`, or a fixed-dimension class
 that declares `cleverly_learner_family = "parametric"`, and it meets C5a. Every other learner is
 adaptive, a scikit-learn `Pipeline` included. An adaptive in-sample fit reads experimental with
-a condition that names its adaptive learners, and it warns that the interval needs a Donsker
-class and that cross-fitting removes that condition. Cross-fitted learned-rule keys hold no
+a condition that names its adaptive learners, and it warns (`InSampleLearnerWarning`) that the
+interval needs a Donsker class and that cross-fitting removes that condition. Cross-fitted learned-rule keys hold no
 family, so the rows of the cross-fitted studies keep matching their fits. No study yet measures
 an in-sample learned-rule fit, so every one reads experimental.
 
@@ -1643,7 +1648,7 @@ an in-sample learned-rule fit, so every one reads experimental.
 | `strata=` with `id=` | refused, row 8 of the table below |
 | `n_bootstrap` above 0 | refused, row 10 of the table below. Its remedy keeps the in-sample fit, with `n_bootstrap=0` |
 | `repeats` above 1, or `cross_fit=True` with one fold | the shared fold-policy refusal. Its in-sample offer reads "fit the value of the full-sample rule with cross_fit=False, a different target from the cross-fitted learned-rule value" |
-| the omitted-variable bound | runs, with its limits. With one rule the combined representer is the known-regime representer $\mathbb 1\{a = d_n(w)\}/g$, and the limits rest on C5a, which the interval already needs. No `ovb_limit` row licenses them, so they read as descriptive |
+| the omitted-variable bound | runs, with its limits. With one rule the combined representer is the known-regime representer $\mathbb 1\{a = d_n(w)\}/g$, and the limits need the same Donsker condition for the bound's curves of $\theta$, $\sigma^2$ and $\nu^2$, which the learner families that meet C5a also give. No `ovb_limit` row licenses them, so they read as descriptive |
 
 Every remedy that offers an in-sample fit to a learned-rule caller names the change of target in
 those words, never as a bare "fit in sample": the shared fold-policy sentences on the engine,
@@ -1660,8 +1665,8 @@ differs on at least 1% of the rows. A rule learner's rule is reproduced from the
 On a fixed draw of the study law, at least one fold rule of a 10-fold split disagrees with the
 full-sample rule on at least 2% of the truth grid, and the fold-rule harness of the learned-rule
 studies refuses the in-sample fit by its rule L4. With `treatment_probabilities=` the score is
-solved at the supplied probabilities, and the mutation that substitutes an estimated $g$ leaves
-it unsolved and moves the point by more than 0.01. A cross-fitted fit of the
+solved at the supplied probabilities. $H$ rebuilt at an estimated $g$ leaves the score unsolved,
+and a fit with an estimated $g$ moves the point by more than 0.01. A cross-fitted fit of the
 [gated study](method-evidence/learned-rule-cvtmle.md) configuration keeps its row `T24`.
 `cleverly.datasets.learned_rule_truth` refits the one rule on every row.
 
@@ -1741,7 +1746,10 @@ representer from `fold_rules`
 
 The bound of a cross-fitted fit is a point bound: its limits and `benchmark()` refuse. The
 in-sample fit's bound publishes its limits ([one rule fitted on all rows](#learned-rules)),
-and its `benchmark()` refuses too, because a refit relearns the rule. A fit of several splits refuses as
+and its `benchmark()` refuses too. Its one rule is every row's rule, so a short model that holds
+it fixed is well posed, and that benchmark is not built.
+
+The bound of a fit of several splits refuses as
 an implementation gap, because the bound of their mean would read the average of every split's fold
 rules, which is not built. So does a fit with baseline strata
 ([baseline strata of a learned rule](#learned-rules)), and so does the stacked report, whose

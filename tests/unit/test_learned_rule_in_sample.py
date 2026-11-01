@@ -39,11 +39,13 @@ from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.datasets import learned_rule_truth, make_treatment_rules, treatment_rule_value
 from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_on_rows
 from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import InSampleLearnerWarning
 from cleverly.inference import influence_variance
 from cleverly.interventions import LearnedRule, Rule
 from cleverly.interventions._rule_learners import fit_fold_rule, inner_seed
@@ -59,7 +61,7 @@ IN_SAMPLE: dict[str, Any] = {"cross_fit": False, "cv_evaluation": False}
 #: are Pipelines, which ``learner_family`` reads as adaptive.
 WARNING = "This in-sample learned-rule fit"
 
-pytestmark = pytest.mark.filterwarnings(f"ignore:{WARNING}:UserWarning")
+pytestmark = pytest.mark.filterwarnings("ignore::cleverly.exceptions.InSampleLearnerWarning")
 
 #: The declared shares and moves of the witnesses, each below the value the fixed draw gives.
 W_A2_ROW_SHARE = 0.01  # observed 0.018
@@ -222,7 +224,7 @@ def _law_fits() -> tuple[Any, Any]:
 
     fit = {"outcome": "Y", "treatment": "A", "covariates": list(law.COVARIATES)}
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=WARNING)
+        warnings.simplefilter("ignore", InSampleLearnerWarning)
         in_sample = estimator(**IN_SAMPLE).fit(frame, **fit).single()
     cross_fitted = estimator(cv_evaluation=True).fit(frame, **fit).single()
     return in_sample, cross_fitted
@@ -353,6 +355,33 @@ class TestWa3TheTargetIsTheFullSampleRule:
         value, variance = law.rule_value(grid, "non_exceptional")
         assert 0.0 < value < 1.0 and variance > 0.0
 
+    def test_the_study_harness_reads_the_one_rule_of_an_in_sample_fit(self) -> None:
+        """``_learned_rule_law.fold_rule`` learns a single fold's rule on every row.
+
+        So the harness checks rule L4 on every row, its truth is the value of the one
+        full-sample rule refitted independently here, and its oracle SE is ``sqrt(v / n)``.
+        Without the branch the plug-in refit has no training rows and fails.
+        """
+        in_sample, _ = _law_fits()
+        n = in_sample.data.n
+        truth = law.harness(in_sample, law.outcome_learner(), "non_exceptional")
+        model = _full_sample_model(in_sample, law.outcome_learner())
+        grid = {
+            w2: law._blip(model, np.column_stack([law.GRID, np.full_like(law.GRID, w2)])) > 0.0
+            for w2 in law.W2_LEVELS
+        }
+        value, variance = law.rule_value(grid, "non_exceptional")
+        assert truth.rows_checked == n
+        assert truth.fold_values == pytest.approx((value,), abs=1e-12)
+        assert truth.truth == pytest.approx(value, abs=1e-12)
+        assert truth.oracle_se == pytest.approx(np.sqrt(variance / n), rel=1e-12)
+
+    def test_the_study_fold_rule_reproduces_an_in_sample_rule_learner(self) -> None:
+        result = _fit(learned_rule=LearnedRule(loss="blip", learner=LinearRegression()))
+        covariates = np.asarray(result.data.covariates, dtype=float)
+        rule = law.fold_rule(result, None, 0)
+        assert np.array_equal(rule(covariates), law.rule_of(result))
+
     def test_the_truth_helper_refits_the_full_sample_rule(self) -> None:
         """``learned_rule_truth`` of an in-sample fit is the value of the one full-sample rule,
         refitted here independently, and differs from a fold rule's value."""
@@ -477,7 +506,8 @@ class TestTheRecord:
         line = result.extra["learned_rule"].describe()
         assert line.startswith("Target: the value of the one rule learned on every row")
         assert "a different target from the fold average" in line
-        assert "Theorem 5" in line
+        # The condition and the warning state the Donsker class; the target line does not.
+        assert "Donsker" not in line
 
     def test_a_round_trip_keeps_the_record(self, result: Any) -> None:
         restored = loads(dumps(result))
@@ -552,11 +582,15 @@ class TestTheLabel:
     """Option C: the in-sample key reads the learner families; cross-fitted keys do not."""
 
     def test_an_adaptive_learner_keys_adaptive_and_warns(self) -> None:
-        with pytest.warns(UserWarning, match="Donsker class") as caught:
+        with pytest.warns(InSampleLearnerWarning, match="Donsker class") as caught:
             result = support.fit(**IN_SAMPLE)
         message = str(caught[0].message)
         assert message.startswith(WARNING)
-        assert "Cross-fitting (cross_fit=True with n_folds of at least 2) removes" in message
+        # Both spellings of the remedy: the engine's and the method's.
+        assert (
+            "Cross-fitting (cross_fit=True with n_folds of at least 2; "
+            "CrossFitting(enabled=True) on the method) removes"
+        ) in message
         assert "a different target" in message
         options = dict(result.config.support_key.options)
         assert options["outcome_learner_family"] == "adaptive"
@@ -588,6 +622,60 @@ class TestTheLabel:
             )
         options = dict(result.config.support_key.options)
         assert options["rule_learner_family"] == "parametric"
+
+    @staticmethod
+    def _adaptive_role(role: str, **overrides: Any) -> Any:
+        """Fit in sample with a parametric outcome learner and one adaptive ``role``."""
+        with pytest.warns(InSampleLearnerWarning) as caught:
+            result = support.fit(outcome_learner=InteractionLogistic(), **IN_SAMPLE, **overrides)
+        (warning,) = [item for item in caught if item.category is InSampleLearnerWarning]
+        message = str(warning.message)
+        assert f"uses an adaptive {role}." in message, message
+        assert "outcome learner" not in message, message
+        condition = in_sample_learner_condition(result.estimator, result.data)
+        assert condition is not None and role in condition.condition
+        assert condition in result.config.support_conditions
+        return result
+
+    def test_an_adaptive_rule_learner_alone_warns(self) -> None:
+        """Only the rule role can make this fit warn: its outcome learner is parametric."""
+        rule = LearnedRule(loss="blip", learner=DecisionTreeRegressor(max_depth=2))
+        result = self._adaptive_role("rule learner", learned_rule=rule)
+        options = dict(result.config.support_key.options)
+        assert options["outcome_learner_family"] == "parametric"
+        assert options["treatment_learner_family"] == "parametric"
+        assert options["rule_learner_family"] == "adaptive"
+
+    def test_an_adaptive_treatment_learner_alone_warns(self) -> None:
+        result = self._adaptive_role(
+            "treatment learner", treatment_learner=DecisionTreeClassifier(max_depth=2)
+        )
+        options = dict(result.config.support_key.options)
+        assert options["outcome_learner_family"] == "parametric"
+        assert options["treatment_learner_family"] == "adaptive"
+
+    def test_known_probabilities_beside_an_adaptive_treatment_learner_do_not_warn(self) -> None:
+        """The fit does not learn ``g`` under ``treatment_probabilities=``: the key reads known."""
+        frame = support.law_frame()
+        g1 = expit(0.3 * frame["W1"] - 0.2 * frame["W2"]).to_numpy()
+        estimator = support.learned_tmle(
+            outcome_learner=InteractionLogistic(),
+            treatment_learner=DecisionTreeClassifier(max_depth=2),
+            **IN_SAMPLE,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", InSampleLearnerWarning)
+            result = estimator.fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=support.COVARIATES,
+                treatment_probabilities=np.column_stack([1.0 - g1, g1]),
+            ).single()
+        options = dict(result.config.support_key.options)
+        assert options["treatment_learner_family"] == "known"
+        # The same learner without the supplied probabilities warns: the test above.
+        assert in_sample_learner_condition(result.estimator, result.data) is None
 
     def test_the_cross_fitted_key_holds_no_family(self) -> None:
         for settings in ({"cv_evaluation": True}, {"cv_evaluation": False}):

@@ -24,6 +24,7 @@ __all__ = [
     "ConvergenceWarning",
     "DataError",
     "DataWarning",
+    "InSampleLearnerWarning",
     "LongitudinalError",
     "MethodConfigurationError",
     "MonteCarloWarning",
@@ -228,6 +229,19 @@ class PositivityWarning(UserWarning):
     Practical positivity violations inflate the influence curve and can make
     the influence-curve based confidence intervals anti-conservative. See
     :mod:`cleverly.sensitivity.positivity` for diagnostics.
+    """
+
+
+class InSampleLearnerWarning(UserWarning):
+    """An in-sample fit uses an adaptive learner, so its interval may be too narrow.
+
+    An in-sample learned-rule fit (``cross_fit=False``) learns one rule on every row and
+    estimates the value of that rule on the same rows.  Its interval needs condition C5a of
+    the learned-rule contract: the influence curve at the fitted rule, outcome regression and
+    treatment model lies in a Donsker class (van der Laan and Luedtke 2015, Theorem 5).  A
+    learner of fixed form gives that, and an adaptive learner fitted on every row need not.
+    Cross-fitting removes the condition, and it estimates the cross-fitted learned-rule
+    value, a different target.  The fit runs and reads experimental.
     """
 
 

@@ -1045,8 +1045,9 @@ An in-sample fit ([one rule fitted on all rows](point-treatment-tmle.md#learned-
 has one rule $d_n$, so $g^\star(a \mid w) = 1\{a = d_n(w)\}$ and the combined representer is the
 known-regime representer at $d_n$. The limits above are withheld because rules applied to rows
 they were learned on need a Donsker-type condition that C5 excludes. The in-sample fit assumes
-that condition already (C5a), so its limits run under it. No `ovb_limit` row covers them, so they
-read as descriptive. `tests/unit/test_learned_rule_in_sample.py` checks that the bound and its
+that condition for its interval's curve (C5a). The limits need it for the bound's curves too,
+which the learner families that meet C5a also give, so the limits run under it. No `ovb_limit`
+row covers them, so they read as descriptive. `tests/unit/test_learned_rule_in_sample.py` checks that the bound and its
 limits equal those of the known rule fitted in sample.
 
 `tests/unit/test_learned_rule_bound.py` checks these claims:

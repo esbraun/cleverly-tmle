@@ -400,7 +400,8 @@ def fold_rule(
 ) -> Callable[[np.ndarray], np.ndarray]:
     """Refit fold ``fold``'s rule of ``result`` and return it as a function of the covariates.
 
-    ``source`` names the rows the fit learned the rule on.  The plug-in rule refits
+    ``source`` names the rows the fit learned the rule on.  An in-sample fit's one
+    pseudo-fold learned its rule on every row, so its training rows are all rows.  The plug-in rule refits
     ``learner``, the fit's outcome learner, through the package's own ``fit_on_rows`` with the
     fit's own weights.  A rule learner on the training rows refits through the package's
     ``fit_fold_rule`` with the fold's recorded inner seed; on the validation rows it refits
@@ -413,6 +414,10 @@ def fold_rule(
     data = result.data
     nuisance = result.nuisance
     train, test = list(nuisance.folds)[fold]
+    if getattr(nuisance.folds, "is_single", False):
+        # An in-sample fit (cross_fit=False) has one pseudo-fold with an empty training
+        # set, and it learns its one rule on every row. A cross-fitted fit never reaches this.
+        train = np.arange(data.n)
     rule = getattr(getattr(result, "estimator", None), "learned_rule", None) or LearnedRule()
     if source == "validation":
         if rule.loss == "plug_in":

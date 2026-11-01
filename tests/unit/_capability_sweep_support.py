@@ -211,9 +211,12 @@ def fit_learned_rule() -> Any:
     """The fold-evaluated learned-rule fit of :mod:`tests.unit._learned_rule_support`.
 
     The fit cross-fits in five folds, the fold-evaluated report that the registered
-    learned-rule studies measure.  A refit relearns the rules, so ``refute`` and ``benchmark`` read unavailable, as do
-    the E-value, the omitted-variable bound, simulated confounding and the missingness
-    tilt (F27 in ``docs/roadmap.md``).  The summarize rows and ``truncation_curve`` run.
+    learned-rule studies measure.  The point rows of the omitted-variable bound run on the
+    fit's fold rules, held fixed (X11 part (n)).  A refit relearns the rules, so
+    ``benchmark`` reads unavailable, and the E-value and the missingness tilt do too (F27
+    in ``docs/roadmap.md``).  ``refute`` asks for an explicit estimand, and this direct fit
+    records no identification for ``simulated_confounding``, so both read unavailable here.
+    The summarize rows and ``truncation_curve`` run.
     """
     return learned_rule_support.fit()
 

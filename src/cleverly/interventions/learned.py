@@ -52,9 +52,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
+    "LEARNED_RULE_ARM_REMEDY",
     "LEARNED_RULE_BENCHMARK_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
     "LEARNED_RULE_EVALUE_REFUSAL",
+    "LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL",
     "LEARNED_RULE_LIMITS",
     "LEARNED_RULE_REMEDY",
     "LEARNED_RULE_TILT_REFUSAL",
@@ -149,19 +151,24 @@ LEARNED_RULE_CONFIGURATION = (
 #: full-sample rule (X11 (a)), so this remedy names the change.
 LEARNED_RULE_REMEDY = LEARNED_RULE_IN_SAMPLE
 
+#: The way out of the arm minimum on a learned-rule fit.  The in-sample fit changes the
+#: target, so the remedy that keeps the cross-fitted target comes first: more units at the
+#: rare arm.  A one-unit arm gives no sound fit under either scheme.
+LEARNED_RULE_ARM_REMEDY = f"collect more observations at the rare arm, or {LEARNED_RULE_IN_SAMPLE}"
+
 #: The roadmap part that holds the limits and the benchmark of the learned-rule bound.
 _X11_N2 = "X11 (n2) in docs/roadmap.md"
 
 #: The reason every sensitivity analysis of a learned-rule fit shares.  Each analysis
 #: appends the roadmap row that holds its own missing work.
 _LEARNED_RULE_TARGET = (
-    "this sensitivity analysis of the learned-rule value is not implemented. The target averages "
-    "the values of rules learned inside each training fold, and a refit relearns those "
-    "rules, so a refitted or perturbed fit estimates a different target"
+    "this sensitivity analysis of the learned-rule value is not implemented. The target is the "
+    "value of the rules the fit learned, and a refit relearns them, so a refitted or perturbed "
+    "fit estimates a different target"
 )
 
-#: Why ``benchmark`` refuses a learned-rule fit.  The omitted-variable bound itself reads
-#: the fit's own fold rules, held fixed, and needs no refit.
+#: Why ``benchmark`` refuses a cross-fitted learned-rule fit.  The omitted-variable bound
+#: itself reads the fit's own fold rules, held fixed, and needs no refit.
 LEARNED_RULE_BENCHMARK_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "benchmark refits the model without the named covariates, and on a learned-rule fit the "
@@ -172,6 +179,23 @@ LEARNED_RULE_BENCHMARK_REFUSAL = Refusal(
     alternative=(
         "Read omitted_variable_bounds() and robustness_value() at declared strengths, which "
         "hold the fit's fold rules fixed and refit nothing."
+    ),
+    roadmap="X11",
+)
+
+#: Why ``benchmark`` refuses an in-sample learned-rule fit (``cross_fit=False``).  Its one
+#: rule is every row's rule, so the frozen-rule replay holds it, and a short model that keeps
+#: it fixed is well posed.  That benchmark is not built.
+LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "benchmark refits the model without the named covariates, and on a learned-rule fit the "
+    "refit relearns the rule, so the short model would estimate the value of another rule. "
+    "This in-sample fit (cross_fit=False) has one rule, the rule of every row, so a short "
+    "model that holds it fixed, as the frozen-rule replay does, is well posed. That "
+    f"benchmark is not built ({_X11_N2}).",
+    alternative=(
+        "Read omitted_variable_bounds() and robustness_value() at declared strengths, which "
+        "hold the fit's rule fixed and refit nothing."
     ),
     roadmap="X11",
 )
@@ -401,9 +425,9 @@ class FrozenLearnedRule(LearnedRule):
     A replay that relearns the rule inside each training fold estimates the value of other
     rules, so its target moves with the perturbation.  This rule carries the realized rule of
     every row of the original fit instead.  A refit with the original folds then evaluates
-    the value of these fixed rules fold-wise, with the ``1/V`` weights of the learned-rule
-    record.  Simulated confounding and the refutations that refit read it as confounding of
-    the value of these fixed rules, not of the learned-rule procedure.
+    the value of these fixed rules fold-wise, with the record's fold weights.  Simulated
+    confounding and the refutations that refit read it as confounding of the value of these
+    fixed rules, not of the learned-rule procedure.
 
     Parameters
     ----------
@@ -555,8 +579,9 @@ def learned_rule_treat(
     """Return the rule of every row of a learned-rule fit, its margin, and every fold's rule.
 
     A frozen rule returns its values.  The plug-in rule reads the out-of-fold blip of the
-    cross-fitted outcome regression.  A pseudo-outcome loss fits its rule learner inside
-    each outer training fold (:func:`~cleverly.interventions._rule_learners.rule_learner_treat`),
+    cross-fitted outcome regression or, in sample, the blip of the regression fitted on every
+    row.  A pseudo-outcome loss fits its rule learner inside each outer training fold, or on
+    every row in sample (:func:`~cleverly.interventions._rule_learners.rule_learner_treat`),
     and never reads the outer out-of-fold predictions.
 
     Each fold's rule is also evaluated at every row while its fitted model is in memory: the
@@ -873,10 +898,9 @@ class LearnedRuleRecord:
         return (
             "Target: the value of the one rule learned on every row, estimated on the same "
             "rows (cross_fit=False). It is the value of that full-sample rule, a different "
-            "target from the fold average of a cross-fitted fit, and its interval needs the "
-            "rule and the fitted outcome and treatment models to stay in a Donsker class "
-            f"(van der Laan and Luedtke 2015, Section 6, Theorem 5). {learned} Unweighted "
-            f"share of rows the rule treats: {share:.3g}."
+            "target from the fold average of a cross-fitted fit (van der Laan and Luedtke "
+            f"2015, Section 6). {learned} Unweighted share of rows the rule treats: "
+            f"{share:.3g}."
         )
 
 
@@ -1526,8 +1550,9 @@ def in_sample_learner_condition(estimator: Any, data: CausalData) -> Refusal | N
         "C5a; van der Laan and Luedtke 2015, Theorem 5), which an adaptive learner fitted on "
         "every row need not do, and then the interval can be too narrow",
         alternative=(
-            "Cross-fitting (cross_fit=True with n_folds of at least 2) removes condition C5a, "
-            "and it estimates the cross-fitted learned-rule value, a different target. In "
+            "Cross-fitting (cross_fit=True with n_folds of at least 2; CrossFitting(enabled=True) "
+            "on the method) removes condition C5a, and it estimates the cross-fitted "
+            "learned-rule value, a different target. In "
             "sample, a parametric learner meets C5a: LogisticRegression, LinearRegression, "
             "GLM, or a fixed-dimension class that declares cleverly_learner_family = "
             "'parametric'."

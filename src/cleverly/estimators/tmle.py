@@ -136,6 +136,7 @@ from ..exceptions import (
     CleverlyError,
     ConvergenceWarning,
     DataError,
+    InSampleLearnerWarning,
     MethodConfigurationError,
     PositivityWarning,
     Refusal,
@@ -202,6 +203,7 @@ from ..interventions import (
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
 from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
+    LEARNED_RULE_ARM_REMEDY,
     LEARNED_RULE_REMEDY,
     FrozenLearnedRule,
     LearnedRule,
@@ -743,8 +745,8 @@ class TMLE:
         contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
         ``n_bootstrap=0``, and a cross-fitted fit needs at least two folds.  ``cross_fit=False``
         learns one rule on every row and reports the value of that full-sample rule, a
-        different target, whose interval needs a Donsker class (experimental; X11 (a)).
-        ``cv_evaluation=True`` reports the
+        different target, whose interval needs a Donsker class (condition C5a of the
+        learned-rule contract; experimental).  ``cv_evaluation=True`` reports the
         fold-evaluated value, the ``1/V`` average of the fold values.  ``cv_evaluation=False``
         (the default) reports the stacked value, which weights fold ``v`` by its share
         ``W_v / W`` of the weight mass and centres the curve at the pooled estimate.  Either
@@ -3430,8 +3432,13 @@ class TMLE:
             folds,
             subject=f"cross-fitted {names.get(self._assessment_method, 'TMLE')}",
             # The default remedy fits in sample, which on a learned-rule fit changes the
-            # target to the value of the full-sample rule, so its remedy says so.
-            **({"remedy": LEARNED_RULE_REMEDY} if self.learned_rule is not None else {}),
+            # target to the value of the full-sample rule, so its remedy says so. The arm
+            # minimum also offers more units at the rare arm, which keeps the target.
+            **(
+                {"remedy": LEARNED_RULE_REMEDY, "arm_remedy": LEARNED_RULE_ARM_REMEDY}
+                if self.learned_rule is not None
+                else {}
+            ),
         )
 
     def _check_training_support(
@@ -3442,6 +3449,7 @@ class TMLE:
         subject: str,
         where: str = "repeat {repeat}, fold {fold}",
         remedy: str = _IN_SAMPLE_ARM_INDEXED_REMEDY,
+        arm_remedy: str | None = None,
     ) -> None:
         """Ask one realized partition the three questions above, under a caller's name.
 
@@ -3465,6 +3473,9 @@ class TMLE:
         remedy : str
             The way out that the refusal names. The default fits in sample, which is true
             of an outer split and not of a split that an in-sample fit draws itself.
+        arm_remedy : str or None
+            The way out of the arm minimum, which no split can meet. ``None`` reads
+            ``remedy``.
         """
         treatment = np.asarray(data.treatment, dtype=float)
         arms = np.asarray(() if _has_no_arms(data) else data.arm_codes, dtype=float)
@@ -3480,6 +3491,7 @@ class TMLE:
             what = f"cell of the categorical components of {data.treatment_name!r}"
             noun = "cell"
             remedy = f"{remedy}, or pass ratio='classifier', which fits no cell probabilities"
+        arm_way_out = remedy if arm_remedy is None else arm_remedy
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
         for arm in arms:
@@ -3490,7 +3502,7 @@ class TMLE:
                     f"units, and {describe(arm)} appears in {count} {unit}(s). "
                     f"A split moves whole {unit}s, so every partition leaves some training "
                     f"complement without that {noun} and no fold count or seed can fit the "
-                    f"treatment mechanism; {remedy}"
+                    f"treatment mechanism; {arm_way_out}"
                 )
         if data.family == "binomial":
             # The sample minimum the outcome classes owe, stated for the same reason the
@@ -4356,6 +4368,9 @@ class TMLE:
     def _warn_on_in_sample_learned_rule(self, data: CausalData) -> None:
         """Warn that an in-sample learned-rule interval needs a Donsker class.
 
+        The warning is an :class:`~cleverly.exceptions.InSampleLearnerWarning`, so a caller
+        or a study can count or filter it by category.
+
         The condition of :func:`~cleverly.interventions.learned.in_sample_learner_condition`
         labels the fit experimental, and a label is read only by a caller who looks.  The
         warning says it at the fit, with the remedy that removes the condition.
@@ -4364,7 +4379,11 @@ class TMLE:
         if condition is None:
             return
         text = condition.condition
-        _warn(f"{text[:1].upper()}{text[1:]}. {condition.alternative}", UserWarning, stacklevel=3)
+        _warn(
+            f"{text[:1].upper()}{text[1:]}. {condition.alternative}",
+            InSampleLearnerWarning,
+            stacklevel=3,
+        )
 
     def _warn_on_estimated_weights(self, data: CausalData) -> None:
         """Warn that a bootstrap does not rescue inference for estimated weights.

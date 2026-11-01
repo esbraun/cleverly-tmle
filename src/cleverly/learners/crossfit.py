@@ -339,7 +339,8 @@ def _cross_fit_policy_refusal(
             + _in_sample_offer(
                 " or set repeats=1",
                 learned_rule,
-                f", or set repeats=1 and {LEARNED_RULE_IN_SAMPLE}",
+                " for the cross-fitted learned-rule value, or set repeats=1 and "
+                f"{LEARNED_RULE_IN_SAMPLE}",
             ),
         )
     if cross_fit and n_folds < 2:

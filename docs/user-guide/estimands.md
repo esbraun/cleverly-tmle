@@ -239,10 +239,43 @@ experimental until a study measures it.
 
 `CrossFitting(enabled=False)` runs too, and it answers a different question. It learns one rule
 from all the rows and reports the value of that one rule, scored on the same rows that chose it.
-Its interval holds only when the models cannot bend to fit noise: a fixed set of terms with
-nothing selected from the data. The fit therefore warns unless every model is a
-`LogisticRegression`, a `LinearRegression`, a `GLM`, or a class you mark with
-`cleverly_learner_family = "parametric"`. No study measures this fit yet, so its result is marked
+Its interval rests on two things: the rule settles as the data grow, and the models are simple
+enough not to chase noise in the rows that chose the rule. A model with a fixed set of terms and
+nothing selected from the data is simple enough. cleverly reads this from the model's class: a
+`LogisticRegression`, a `LinearRegression`, a `GLM`, or a class marked
+`cleverly_learner_family = "parametric"` passes, and any other model, the pipeline above
+included, makes the fit warn with `InSampleLearnerWarning`.
+
+To declare that the pipeline above has fixed terms, subclass it and add the mark:
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from cleverly import CrossFitting, LearnedRuleValue, ModelSpec, TMLEMethod
+
+
+class FixedTerms(Pipeline):
+    cleverly_learner_family = "parametric"
+
+
+in_sample = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=FixedTerms(
+            [
+                ("terms", PolynomialFeatures(2, interaction_only=True, include_bias=False)),
+                ("fit", LogisticRegression(max_iter=1000)),
+            ]
+        ),
+        treatment_learner=LogisticRegression(max_iter=1000),
+    ),
+    cross_fitting=CrossFitting(enabled=False),
+)
+full_sample = study.estimate(LearnedRuleValue(), method=in_sample, random_state=3)
+```
+
+The mark is your statement that the model has fixed terms, and cleverly does not test it. With
+it the fit gives no warning. No study measures this fit yet, so its result is still marked
 experimental.
 
 Every one of these fits needs, among other things, a binary treatment, complete outcomes and no
@@ -257,8 +290,9 @@ the fit's own rules. The `placebo` test refits as the fit did: under random trea
 has the value of the mean outcome, which is what it reads against. The generated-outcome tests
 refuse, because a learned rule has no generated truth yet.
 
-The omitted-variable bound, the E-value and the missingness tilt read `unavailable` for this
-target. The support report and `truncation_curve` run.
+The omitted-variable bound runs for this target. It gives a point bound under cross-fitting, and
+in sample it also gives its one-sided limits. `benchmark()`, the E-value and the missingness tilt
+read `unavailable`. The support report and `truncation_curve` run.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.

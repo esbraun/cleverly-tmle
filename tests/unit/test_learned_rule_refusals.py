@@ -20,6 +20,7 @@ witnesses check the clause that follows it.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, ClassVar
 
 import numpy as np
@@ -40,12 +41,20 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
+from cleverly.exceptions import (
+    CapabilityError,
+    ConvergenceWarning,
+    DataError,
+    MethodConfigurationError,
+    PositivityWarning,
+)
 from cleverly.interventions import Incremental, LearnedRule, Rule, Shift, Static
 from cleverly.interventions.learned import (
+    LEARNED_RULE_ARM_REMEDY,
     LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
     LEARNED_RULE_EVALUE_REFUSAL,
+    LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL,
     LEARNED_RULE_REMEDY,
     LEARNED_RULE_TILT_REFUSAL,
 )
@@ -70,7 +79,7 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 #: The in-sample remedies these witnesses run use the support module's Pipeline learners, so
 #: each fit warns that its interval needs condition C5a (``test_learned_rule_in_sample.py``).
-pytestmark = pytest.mark.filterwarnings("ignore:This in-sample learned-rule fit:UserWarning")
+pytestmark = pytest.mark.filterwarnings("ignore::cleverly.exceptions.InSampleLearnerWarning")
 
 #: The engine settings of :data:`LEARNED_RULE_CONFIGURATION`, each as the message prints it.
 ENGINE_REMEDY = (
@@ -535,11 +544,18 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
             support.fit(frame, **never_fit_learners())
         assert NeverFit.calls == 0
         message = str(caught.value)
-        assert LEARNED_RULE_REMEDY in message
+        assert message.endswith(LEARNED_RULE_ARM_REMEDY)
+        # The way out that keeps the cross-fitted target comes first.
+        assert "collect more observations at the rare arm, or " in message
         _offers_no_silent_target_change(message)
-        # The remedy, as written: the in-sample fit of the full-sample rule.
+        # The in-sample remedy, as written. This is a reachability check, not an estimate:
+        # a one-unit arm gives no sound fit under either scheme, so the fit clips every
+        # unit's propensity and its fluctuation has no finite solution.
         settings = _as_written(message, "cross_fit=False")
-        result = support.fit(frame, cv_evaluation=False, **settings)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            result = support.fit(frame, cv_evaluation=False, **settings)
         assert result.extra["learned_rule"].scheme == "in_sample"
 
     def test_the_drawn_complement(self) -> None:
@@ -563,8 +579,13 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         assert NeverFit.calls == 0
         assert _POST_DRAW_REMEDY.format(remedy=LEARNED_RULE_REMEDY) in message
         _offers_no_silent_target_change(message)
+        # The in-sample remedy, as written. This is a reachability check, not an estimate:
+        # two treated units in 40 rows clip every unit's propensity in sample too.
         settings = _as_written(message, "cross_fit=False")
-        result = support.fit(frame, cv_evaluation=False, **settings)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            result = support.fit(frame, cv_evaluation=False, **settings)
         assert result.extra["learned_rule"].scheme == "in_sample"
 
     def test_the_outcome_scale(self) -> None:
@@ -748,6 +769,23 @@ class TestTheAssessmentRows:
         with pytest.raises(CapabilityError) as caught:
             evalue(result, support.NAME)
         assert LEARNED_RULE_EVALUE_REFUSAL in str(caught.value)
+
+    def test_the_in_sample_benchmark_names_its_one_rule(self) -> None:
+        """An in-sample fit has one rule, so the stated reason is the missing build."""
+        result = support.fit(cross_fit=False, cv_evaluation=False)
+        assert benchmark_refusal(result, ["W2"]) is LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL
+        with pytest.raises(CapabilityError) as caught:
+            benchmark(result, ["W2"], estimand=support.NAME)
+        message = str(caught.value)
+        assert LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL.condition in message
+        assert "training fold" not in message
+        assert "X11 (n2)" in message
+        row = result.sensitivity.capability("benchmark")
+        assert not row.available
+        assert "training fold" not in (row.reason or "")
+        # The shared target sentence of the E-value and the tilt holds for either scheme.
+        for text in (LEARNED_RULE_EVALUE_REFUSAL, LEARNED_RULE_TILT_REFUSAL):
+            assert "training fold" not in text
 
 
 class TestALearnedRuleIsNotARegime:

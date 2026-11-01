@@ -151,6 +151,7 @@ from ..inference.influence import spread_name
 from ..interventions.base import RegimeSet
 from ..interventions.learned import (
     LEARNED_RULE_BENCHMARK_REFUSAL,
+    LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL,
     LEARNED_RULE_LIMITS,
     fold_rules,
 )
@@ -433,7 +434,9 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     bias of either against :math:`E[\Delta\bar Q\,\Delta\alpha]`.  The stacked report
     (``cv_evaluation=False``) refuses as an implementation gap (X11 (n2)) too: its value
     weights the fold rules by :math:`W_v/W`, and no witness checks the bound of that
-    combined representer.
+    combined representer.  An in-sample fit (``cross_fit=False``) has one rule :math:`d_n`,
+    whose combined representer is the known-regime representer
+    :math:`1\{a = d_n(w)\}/g`, so it passes unless it has strata.
     """
     n_splits = int(getattr(result, "n_repeats", 1))
     if n_splits > 1:
@@ -455,9 +458,9 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
             RefusalReason.IMPLEMENTATION_GAP,
             "the omitted-variable bound of a learned-rule value with baseline strata "
             "(strata=) is not built. The value inside a stratum needs the combined "
-            "representer of the fold rules restricted to the stratum's rows of each fold, "
-            "and the marginal value is the share mixture of fold-evaluated stratum values, "
-            "and no witness checks the bias of either against the combined representer "
+            "representer of the fit's rules restricted to the stratum's rows, and the "
+            "marginal value is the share mixture of the stratum values, and no witness "
+            "checks the bias of either against the combined representer "
             "(X11 (n2) in docs/roadmap.md).",
             alternative=(
                 "Fit the learned-rule value without strata= and run the omitted-variable "
@@ -3044,6 +3047,8 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
         before any refusal.
     """
     if getattr(result.config, "parameter_axis", None) == "learned_rule":
+        if _in_sample_learned_rule(result):
+            return LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL
         return LEARNED_RULE_BENCHMARK_REFUSAL
     if result.data.known_treatment is not None:
         return Refusal(
