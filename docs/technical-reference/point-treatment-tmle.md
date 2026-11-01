@@ -1722,14 +1722,15 @@ then jointly normal with covariance $P_0[\phi\phi^\top]$, and the contrast's cur
 on the same folds. Nordland and Holst (2026), Sections 5.1 and 6, merge influence curves the same
 way in software. Under the first branch of C4 the contrast variance is consistent.
 
-On the Corollary 3 route, $g$ a maximum-likelihood fit in a correct model and $\bar Q$
-misspecified, each true curve is $D_j - \Pi(D_j \mid T_g)$ if Corollary 3's $D_g$ term is the
-projection on the mechanism's tangent space $T_g$. The projection is linear, so the contrast's
-true curve would be $(D_L - D_K) - \Pi(D_L - D_K \mid T_g)$, with variance at most
-$\mathrm{Var}(D_L - D_K)$, and the reported contrast variance would be conservative. This change
-did not read Corollary 3's printed $D_g$, so the conservative claim on that route is not made
-here. The [roadmap](../roadmap.md#x11-learned-policy-follow-ups) records the check that the
-contrast study needs before it can gate a misspecified-limit cell.
+With $\bar Q$ misspecified, Corollary 3's $D_g$ is whatever term makes the $g$-remainder
+asymptotically linear (eq. 14), not a projection. The projection is Corollary 2 (eq. 11): for a
+maximum-likelihood $g$ in a correct model each true curve is $D_j - \Pi(D_j \mid T_g)$, so the
+reported variance is conservative, and the paper extends this to the cross-validated TMLE only
+by analogy. The projection is linear, so when both columns share the one fitted $g$ the
+contrast's true curve is $(D_L - D_K) - \Pi(D_L - D_K \mid T_g)$, with variance at most
+$\mathrm{Var}(D_L - D_K)$. That step for the contrast is the package's own derivation, not a
+statement in the paper. With a known $g$ the variance is exact, and with a misspecified or
+flexible $g$ neither result applies.
 
 A static arm is the known regime `Static(a)`, and an arm estimand such as `ate` refuses with that
 spelling as its remedy. `ey_regime` and `ate_regime` refuse with the names of this fit. Every
@@ -1741,7 +1742,8 @@ the record describes it.
 
 | composition | result |
 | --- | --- |
-| either report, the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1 on rows | admitted, experimental. The key carries the qualifier `known_regimes`, which no row declares, so no learned-rule row covers a contrast fit |
+| either report on rows, with pooled targeting, the plug-in rule and `repeats=1` | supported (rows `T44.fold_evaluated` and `T44.stacked`), measured by the [contrast study](method-evidence/learned-rule-contrast.md) beside `Static(1)` and `Static(0)` at n = 2,000 with ten folds. Each row labels the learned value, every known value and every contrast |
+| the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1, supplied treatment probabilities | admitted, experimental. The key carries the qualifier `known_regimes` beside an axis or qualifier that neither `T44` row declares |
 | `simultaneous=True`, the default | no band over a known value or a contrast, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The fit skips the band and `summary()` says why, as for a Student $t$ reference, and `simultaneous_bands()` called on those estimates raises `CapabilityError` (`inference_gap`). The stratified band of the learned-rule value alone still runs when only `ey_learned_rule` is requested |
 | `policies=`, `incremental=` or `msm=` | refused, X11 (c2), row 2 of the table below |
 | `repeats` above 1 with `id=`, and `strata=` with `id=` | refused, rows 9 and 8 |
@@ -1762,6 +1764,18 @@ Inside each baseline stratum, and under known weights, the contrast's point and 
 differences, and its variance is the report's rule applied to that curve. With the constructor's
 defaults the fit skips the band and says so in `summary()`, and `simultaneous_bands()` called on
 a known value or a contrast refuses.
+
+The [contrast study](method-evidence/learned-rule-contrast.md) calibrates all five parameters
+of a fit beside `Static(1)` and `Static(0)` under both reports on RM30's correctly specified law:
+SE ratios of 0.975 to 1.004 and coverage of 0.946 to 0.956 over 5,600 draws. On the law whose
+outcome model cannot represent the treated arm, with the correct logistic $g$ fitted by maximum
+likelihood, every parameter covers at or above 0.92 (0.942 to 0.951) at SE ratios of 0.991 to
+1.004. There the omitted projection term is negligible (a predicted SE ratio of at most 1.0005),
+so the study measures coverage under a misspecified treated arm and does not test the
+conservative-variance route. The contrast's SE keeps the covariance: at correlation one the
+contrasts cover 0.04 to 0.09, and as if independent their SE ratios are 1.34 to 1.48. Other fold
+counts, `reference=` naming the rule, dynamic known rules and more than two known regimes share
+the rows' key and rest on the witnesses above.
 
 #### More than two arms
 

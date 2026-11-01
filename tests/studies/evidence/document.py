@@ -683,6 +683,23 @@ def measured(row: Any) -> str:
                 f"on flipped draws {render(float(row.weak_limit_flipped_bias))} SD"
             )
         return measured
+    if family == "conservative_coverage":
+        # X11 PR G: a positive answers to its bias leg and its coverage floor, a control to a
+        # coverage ceiling. The SE ratio is published beside them, and no verdict reads it.
+        measured = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        if str(row.role) == "positive":
+            measured = (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+                f"margin {render(float(row.bias_margin))}, {measured}"
+            )
+        return f"{measured}, SE ratio {render(float(row.se_ratio))}"
+    if family in {"contrast_covariance", "independent_se_diagnostic"}:
+        # X11 PR G: a contrast read at another SE. Its rows carry no bootstrap SE-ratio
+        # interval, so the point ratio is printed beside the coverage interval.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "unbounded_fit":
         # The unbounded fit's accuracy, and the RMSE of both fits on the same draws.
         return (

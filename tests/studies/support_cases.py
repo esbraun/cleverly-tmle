@@ -2444,6 +2444,37 @@ def _learned_rule_in_sample_cases() -> tuple[RowCase, ...]:
     return (case("non_exceptional"), case("misspecified_limit"))
 
 
+def _learned_rule_contrast_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-contrast`` (X11 PR G, X11 (c)).
+
+    Each runs the study's own fit beside ``Static(1)`` and ``Static(0)`` under one report on a
+    draw of its law at the primary size, up to the classifier.
+    """
+    module, slug = "_learned_rule_contrast_law", "learned-rule-contrast"
+
+    def case(report: str, scenario: str) -> RowCase:
+        return _observed(
+            f"T44.{report}",
+            slug,
+            scenario,
+            f"{module}.py:98",
+            module,
+            lambda study: study.base.draw(scenario, 2_000, 0),
+            lambda study, frame: study.fit(
+                frame,
+                study.base.outcome_learner(),
+                0,
+                study.ARMS,
+                cv_evaluation=study.REPORTS[report],
+            ),
+        )
+
+    return (
+        case("fold_evaluated", "non_exceptional"),
+        case("stacked", "misspecified_limit"),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2767,6 +2798,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),
     *_learned_rule_in_sample_cases(),
+    *_learned_rule_contrast_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
