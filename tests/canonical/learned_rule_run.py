@@ -58,7 +58,8 @@ PACKAGES = {
 def declared_sample_seeds() -> set[int]:
     """Every sample seed a declared run of any X11 study under this run form draws.
 
-    That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2) among them, and
+    That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2) and
+    ``learned-rule-stacked`` (X11 PR F1) among them, and
     ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any of them
     must avoid the declared seeds of all of them.
     """
@@ -73,6 +74,8 @@ def declared_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_split_mean as split_mean
     from tests.studies import learned_rule_split_mean_properties as split_mean_properties
+    from tests.studies import learned_rule_stacked as stacked
+    from tests.studies import learned_rule_stacked_properties as stacked_properties
     from tests.studies import learned_rule_strata as learned_strata
     from tests.studies import learned_rule_strata_properties as learned_strata_properties
 
@@ -111,6 +114,12 @@ def declared_sample_seeds() -> set[int]:
         learned_strata.PRIMARY_REPLICATES,
         learned_strata_properties.PROPERTY_DRAWS,
         learned_strata_properties.suffixes(learned_strata.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        stacked.STUDY,
+        stacked.PRIMARY_REPLICATES,
+        stacked_properties.PROPERTY_DRAWS,
+        stacked_properties.suffixes(stacked.STUDY),
     )
     return seeds
 
@@ -176,9 +185,10 @@ def _property_harness_check(
         fitted = rows.loc[rows["rule_rows_checked"] > 0]
         # A fit of R splits checks every row once per split (``learned-rule-split-mean``).
         checks = getattr(properties, "RULE_CHECKS_PER_ROW", 1)
-        agreement = (
-            (fitted["rule_rows_checked"] == checks * fitted["n"]).groupby(fitted["cell"]).all()
-        )
+        # A clustered draw publishes the nominal n and its realized row count as ``rows``
+        # (``learned-rule-stacked``).
+        size = fitted["rows"] if "rows" in fitted else fitted["n"]
+        agreement = (fitted["rule_rows_checked"] == checks * size).groupby(fitted["cell"]).all()
         print(
             f"rule agreement 1 on every fitted row, by cell:\n{agreement.to_string()}", flush=True
         )
