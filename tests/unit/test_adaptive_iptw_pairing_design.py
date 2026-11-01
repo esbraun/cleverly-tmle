@@ -385,3 +385,11 @@ def test_the_package_tilts_each_fold_slab_along_its_own_covariate() -> None:
             per_row = _slab(g, ind, y, folds, degree, lower, own_fold_tilt=False)
             assert abs(slab - row["estimate"]) / row["std_error"] <= 1e-4
             assert abs(per_row - row["estimate"]) / row["std_error"] > 1e-4
+
+
+def test_the_configuration_names_no_key_the_record_owns() -> None:
+    # write_manifest refuses such a key only at the end of a run (queue row 49's smoke).
+    from tests.studies.evidence.manifest import RECORD_CONFIGURATION_KEYS
+
+    assert not RECORD_CONFIGURATION_KEYS & set(study.CONFIGURATION)
+    assert not RECORD_CONFIGURATION_KEYS & set(study.REFERENCE_METADATA)

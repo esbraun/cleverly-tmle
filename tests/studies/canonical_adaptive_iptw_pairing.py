@@ -393,7 +393,7 @@ CONFIGURATION = {
     "max_iter": gate.MAX_ITER,
     "degree": dict(gate.DEGREE),
     "draws": {name: [draw.law, draw.n, draw.folds] for name, draw in DRAWS.items()},
-    "scenarios": {name: [scenario.draw, scenario.fit] for name, scenario in SCENARIOS.items()},
+    "scenario_fits": {name: [scenario.draw, scenario.fit] for name, scenario in SCENARIOS.items()},
 }
 
 
