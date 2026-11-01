@@ -18,6 +18,11 @@
 #   unit influence curves are written at 17 digits, so the comparison is byte identity.
 # * learners: on cleverly-lmtp:9996b04.  Reads /out/learner-input.csv, which the smoke writes
 #   with cleverly's own node fits beside it, and writes R's predictions to learners.csv.
+# * followers: on cleverly-lmtp:9996b04.  Reads /out/followers-cases.csv, which names one
+#   archive sample per case (S2 respond and mixlast, S3 low), and fits each case's plan through
+#   long_horizon_lmtp_adapter.R, so the plan-stratified learner runs inside lmtp's own
+#   run_ensemble dispatch.  The learner logs each node's follower count and coefficients to
+#   followers-<case>.csv, which the smoke compares with cleverly's follower sets and node-K fit.
 # * packages: on both images.  Writes the installed package list, so a cross-image identity
 #   failure can be told from dependency drift.
 
@@ -198,6 +203,25 @@ if (mode == "packages") {
     data.frame(case = test$case, row = test$row, r_prediction = if (family == "gaussian") eta else plogis(eta))
   })
   write_csv(do.call(rbind, predictions), "learners.csv")
+} else if (mode == "followers") {
+  if (!pinned) stop("the follower gate runs on lmtp 1.5.5 (9996b04) only")
+  source("/fixture/lmtp_sdr_adapter.R")
+  source("/fixture/lmtp_9996b04_crossfit_adapter.R")
+  source("/fixture/lmtp_9996b04_policy_adapter.R")
+  source("/fixture/lmtp_horizon_learners.R")
+  source("/fixture/long_horizon_lmtp_adapter.R")
+  cases <- read.csv(file.path(out, "followers-cases.csv"), stringsAsFactors = FALSE)
+  for (index in seq_len(nrow(cases))) {
+    case <- cases[index, ]
+    frame <- as.data.frame(data.table::fread(file.path(out, case$sample)))
+    frame <- horizon_typed(frame[order(frame$row), ])
+    log <- file.path(out, sprintf("followers-%s.csv", case$case))
+    unlink(log)
+    Sys.setenv(CLEVERLY_X59_FOLLOWER_LOG = log)
+    horizon_lmtp_plan(frame, case$plan, case$comparator)
+    Sys.unsetenv("CLEVERLY_X59_FOLLOWER_LOG")
+    if (!file.exists(log)) stop(sprintf("case %s: the learner never ran", case$case))
+  }
 } else {
   stop(sprintf("unknown G0 mode %s", mode))
 }

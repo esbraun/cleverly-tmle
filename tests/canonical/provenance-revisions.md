@@ -452,7 +452,11 @@ process ran for the committed rows, so the declared digests describe no committe
 the subject rows, the property files and every recorded artifact hash are unchanged. The
 reference-only run writes the manifest's reference provenance from the bytes it runs.
 
-The first X59 review changed the declared sources again: the runners read their read-chunk size
-from the driver and time each replicate's fit. Each declaration digest was refreshed in the same commit with
-`python -m tests.canonical.x59_smoke declared-sources`. No reference process has run, so the
+The first X59 review changed the declared sources again. The runners read their read-chunk size
+from the driver and time each replicate's fit. The adapters check the Q bound on followers only
+and record a failed check as the replicate's failure. The policy screen reads a support built
+from the draws, and the learner counts its followers and can log them for G0. The `lmtp_9996b04`
+image is now built `FROM` the shipped `lmtp_crossfit` image, whose Dockerfile the two `lmtp`
+studies now declare. Each commit that changed a declared source refreshed the declaration digests
+with `python -m tests.canonical.x59_smoke declared-sources`. No reference process has run, so the
 refreshed digests describe no committed result.

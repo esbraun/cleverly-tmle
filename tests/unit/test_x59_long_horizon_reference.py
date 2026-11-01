@@ -245,3 +245,44 @@ def test_the_harness_default_chunk_fits_one_replicate_at_a_time() -> None:
     # scenarios, so their fits would run one at a time on any number of workers.
     largest = max(n for _, _, n in _declared_scenarios())
     assert max(count for count, _ in _fitted_per_chunk(largest, 30, 64_000)) <= 1
+
+
+# ---- the policy screen's zero pattern (review item 12) -----------------------------------------
+def _support(frame, plan: str, K: int) -> np.ndarray:  # type: ignore[no-untyped-def]
+    """``lmtp_9996b04_policy_adapter.R``'s support: some copy takes the observed arm, kept."""
+    shifts = sorted(c for c in frame.columns if c.startswith(f"shift__{plan}__1__"))
+    out = np.zeros((len(frame), K), dtype=bool)
+    for t in range(1, K + 1):
+        observed = frame[f"A{t}"].to_numpy(float)
+        draws = np.column_stack(
+            [frame[f"shift__{plan}__{t}__{c + 1}"].to_numpy(float) for c in range(len(shifts))]
+        )
+        taken = (draws == np.where(np.isnan(observed), -1.0, observed)[:, None]).any(axis=1)
+        kept = ~np.isnan(observed) & (np.nan_to_num(frame[f"C{t}"].to_numpy(float)) == 1.0)
+        out[:, t - 1] = kept & taken
+    return out
+
+
+def test_the_policy_screen_reads_a_zero_pattern_built_apart_from_the_ratios(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(reference_, "plugins", lambda frame, scenario: {})
+    checked = 0
+    for name in ("sdr_policy_k5", "sdr_policy_k5_mix"):
+        frame = s3.reference_sample(name, 2_000, 0).frame
+        K = int(frame["design__K"].iloc[0])
+        for column in [c for c in frame.columns if c.startswith("policy__")]:
+            plan = column.removeprefix("policy__")
+            if not int(frame[column].iloc[0]):
+                continue
+            ratios = np.column_stack(
+                [frame[f"ratio__{plan}__{t}"].to_numpy(float) for t in range(1, K + 1)]
+            )
+            support = _support(frame, plan, K)
+            assert np.array_equal(ratios > 0, support), (name, plan)
+            # The control: a ratio zeroed where the plan has mass is a disagreement.
+            broken = ratios.copy()
+            broken[np.argwhere(support)[0][0], np.argwhere(support)[0][1]] = 0.0
+            assert np.logical_xor(broken > 0, support).sum() == 1
+            checked += 1
+    assert checked

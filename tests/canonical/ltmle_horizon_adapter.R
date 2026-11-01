@@ -72,16 +72,31 @@ horizon_gform <- function(frame, K) {
   unname(gform)
 }
 
-horizon_q_predictions <- function(fit, frame, K, qform) {
-  # Each node's untargeted prediction on the units at risk there (A_t observed), from the
-  # coefficients ltmle reports.  The design carries no arm term, so a unit's prediction is the
-  # plan's whether or not the unit followed.
+horizon_followers <- function(frame, abar, K) {
+  # units x K: at risk at node t (A_t observed) and following the plan through t - 1, the units
+  # whose node-t prediction cleverly's clip reads (long_horizon_reference.plugin's risk sets).
+  at_risk <- !is.na(as.matrix(frame[paste0("A", seq_len(K))]))
+  followed <- matrix(TRUE, nrow(frame), K)
+  if (K > 1L) {
+    for (t in 2:K) {
+      earlier <- frame[[paste0("A", t - 1L)]]
+      followed[, t] <- followed[, t - 1L] & !is.na(earlier) & earlier == abar[, t - 1L]
+    }
+  }
+  at_risk & followed
+}
+
+horizon_q_predictions <- function(fit, frame, K, qform, abar) {
+  # Each node's untargeted prediction on the followers at risk there (horizon_followers), from
+  # the coefficients ltmle reports.  The design carries no arm term, so the prediction is the
+  # plan's.
   if (length(fit$fit$Q) != K) {
     stop(sprintf("ltmle reports %d Q regressions for %d nodes", length(fit$fit$Q), K))
   }
+  followers <- horizon_followers(frame, abar, K)
   lapply(seq_len(K), function(t) {
     table <- fit$fit$Q[[t]]
-    rows <- !is.na(frame[[paste0("A", t)]])
+    rows <- followers[, t]
     if (inherits(table, "no.Y.variation")) return(rep(unname(table$Y.value), sum(rows)))
     coefficients <- table[, "Estimate"]
     if (anyNA(coefficients)) stop(sprintf("node %d's Q regression has an undefined coefficient", t))
@@ -114,15 +129,15 @@ horizon_ltmle_arguments <- function(frame, plan, K, mutation, gcomp = FALSE) {
 horizon_ltmle_call <- function(arguments, label) {
   # The warning policy and the cumulative-g-bound stop of ltmle_regimen_adapter.R's
   # regimen_ltmle_fit, stated again because that function reads the two-node law's W1 + W2
-  # design back.  Only the binary-censoring notice is muffled; any other warning stops the
-  # run (RM39a2: study_fatal_error is never recorded as a group failure).
+  # design back.  Only the binary-censoring notice is muffled.  Any other warning is an error
+  # raised inside the fit, so study_stage records it as this replicate's failure.
   fit <- withCallingHandlers(
     study_stage("ltmle", do.call(ltmle, arguments)),
     warning = function(condition) {
       if (grepl("Cnodes|censoring", conditionMessage(condition), ignore.case = TRUE)) {
         invokeRestart("muffleWarning")
       }
-      study_fatal_error(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
+      stop(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)), call. = FALSE)
     }
   )
   # The exact mechanism is supplied, so a binding cumulative bound is a defect of the pairing.
@@ -150,14 +165,18 @@ horizon_ltmle_plan <- function(frame, plan) {
   targeted <- horizon_ltmle_call(arguments, plan)
   # The untargeted run: the same regressions without the fluctuation, for G-C.
   untargeted <- horizon_ltmle_call(horizon_ltmle_arguments(frame, plan, K, mutation, TRUE), plan)
-  predictions <- unlist(horizon_q_predictions(untargeted, frame, K, arguments$Qform))
-  outside <- sum(predictions < horizon_q_bounds[[1]] | predictions > horizon_q_bounds[[2]])
-  if (outside > 0) {
-    stop(sprintf(
-      "plan %s: %d untargeted Q predictions leave [%g, %g], where cleverly's clip would bind",
-      plan, outside, horizon_q_bounds[[1]], horizon_q_bounds[[2]]
-    ))
-  }
+  predictions <- unlist(horizon_q_predictions(untargeted, frame, K, arguments$Qform, arguments$abar))
+  # A recorded failure of this replicate, not a stop of the run; the smoke's qbound step checks
+  # every declared replicate in Python before any run.
+  study_stage("ltmle Q bound", {
+    outside <- sum(predictions < horizon_q_bounds[[1]] | predictions > horizon_q_bounds[[2]])
+    if (outside > 0) {
+      stop(sprintf(
+        "plan %s: %d untargeted Q predictions leave [%g, %g], where cleverly's clip would bind",
+        plan, outside, horizon_q_bounds[[1]], horizon_q_bounds[[2]]
+      ))
+    }
+  })
   list(
     estimate = unname(targeted$estimates[["tmle"]]),
     ic = as.numeric(targeted$IC$tmle),

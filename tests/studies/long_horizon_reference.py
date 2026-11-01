@@ -185,15 +185,16 @@ def _reached_density(frame: pd.DataFrame, plan: str, K: int, m: int, t: int) -> 
     return out
 
 
-def plugin(frame: pd.DataFrame, plan: str, K: int, m: int) -> tuple[float, float, float]:
-    """The untargeted sequential regression, and the range of the predictions it carries.
+def followers(
+    frame: pd.DataFrame, plan: str, K: int, m: int
+) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray], dict[int, np.ndarray]]:
+    """The plan's risk and follower sets at each node, and its density on the reached rows.
 
-    The arithmetic of :func:`tests.studies.long_horizon_common.untargeted_plugin` with the
-    declared GLM (``tests/unit/test_x59_long_horizon_reference.py`` holds the two equal), plus
-    the smallest and largest carried prediction over the units at risk, for the Q-bound check.
+    ``risk[t]``: observed at ``t`` and following through ``t - 1``, the rows whose node-``t``
+    prediction is carried.  ``fol[t]``: also given mass by the plan at the observed arm and
+    uncensored at ``t``, the rows ``cleverly`` fits the node-``t`` regression on.
     """
     n = len(frame)
-    policy = law_.policy_nodes(plan, K)
     follow = np.ones(n, dtype=bool)
     risk: dict[int, np.ndarray] = {}
     fol: dict[int, np.ndarray] = {}
@@ -206,6 +207,18 @@ def plugin(frame: pd.DataFrame, plan: str, K: int, m: int) -> tuple[float, float
         positive = dens[t][np.arange(n), arm] > 0
         fol[t] = observed & positive & (np.nan_to_num(frame[f"C{t}"].to_numpy(float)) == 1.0)
         follow = fol[t]
+    return risk, fol, dens
+
+
+def plugin(frame: pd.DataFrame, plan: str, K: int, m: int) -> tuple[float, float, float]:
+    """The untargeted sequential regression, and the range of the predictions it carries.
+
+    The arithmetic of :func:`tests.studies.long_horizon_common.untargeted_plugin` with the
+    declared GLM (``tests/unit/test_x59_long_horizon_reference.py`` holds the two equal), plus
+    the smallest and largest carried prediction over the units at risk, for the Q-bound check.
+    """
+    policy = law_.policy_nodes(plan, K)
+    risk, fol, dens = followers(frame, plan, K, m)
     target = np.nan_to_num(frame["Y"].to_numpy(float))
     low, high = np.inf, -np.inf
     for t in range(K, 0, -1):

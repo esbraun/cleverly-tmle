@@ -1,25 +1,33 @@
 """The X59 smoke (``X59-plan.md`` section 4.1, local queue row A): one command per step.
 
-Run from the repository root, with Docker for every step but ``identity`` and ``sizing``::
+Run from the repository root, with Docker for every step but ``identity``, ``qbound``,
+``declared-sources`` and ``sizing``::
 
     python -m tests.canonical.x59_smoke g0 --out runs/x59/g0
     python -m tests.canonical.x59_smoke identity ltmle
+    python -m tests.canonical.x59_smoke qbound ltmle --out runs/x59/qbound --jobs 4
     python -m tests.canonical.x59_smoke run ltmle --out runs/x59/ltmle
     python -m tests.canonical.x59_smoke mutations ltmle --out runs/x59/ltmle
     python -m tests.canonical.x59_smoke subject-mutation ltmle --out runs/x59/ltmle
-    python -m tests.canonical.x59_smoke memory categorical --container-mb 32000
+    python -m tests.canonical.x59_smoke memory categorical --container-mb 32000 \\
+        --out runs/x59/memory
     python -m tests.canonical.x59_smoke timing sdr --out runs/x59/timing
     python -m tests.canonical.x59_smoke sizing --timings runs/x59/timing --workers 12 \\
         --tier1 30 --tier3 17
+    python -m tests.canonical.x59_smoke declared-sources ltmle categorical sdr
 
 ``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3), and for ``run``,
-``mutations`` and ``timing`` also ``ltmle-parity`` or ``lmtp-parity`` (section 5).  A parity
-record's subject phase runs first (``python tests/canonical/<dir>/regenerate.py``).  Every step prints what it
-read and ends with ``PASS`` or ``FAIL`` (``memory``, ``timing`` and ``sizing`` print numbers
-only).  A smoke run writes outside the committed directories, at the smoke prefix of
-:data:`SMOKE_PREFIX` replicates, and the driver writes its parity table at the floor tolerance
-(:func:`tests.studies.evidence.parity.smoke_declaration`), so its maxima are on disk for the
-declaration commit.  No step reads a margins value, and no step changes a committed file.
+``mutations``, ``qbound`` and ``timing`` also ``ltmle-parity`` or ``lmtp-parity`` (section 5).
+A parity record's subject phase runs first (``python tests/canonical/<dir>/regenerate.py``).
+Every step prints what it read and ends with ``PASS`` or ``FAIL`` (``timing``, ``sizing`` and
+``declared-sources`` print numbers only).  A smoke run writes outside the committed
+directories, at the smoke prefix of :data:`SMOKE_PREFIX` replicates, and the driver writes its
+parity table at the floor tolerance (:func:`tests.studies.evidence.parity.smoke_declaration`),
+so its maxima are on disk for the declaration commit; ``run`` fails a maximum that would
+declare a tolerance above :data:`tests.studies.evidence.parity.TOLERANCE_CEILING`.  No step
+reads a margins value, and no step but ``declared-sources`` changes a committed file: the
+commit that fills the Dockerfile hashes, or edits any declared R source, runs it to refresh
+the pending manifests' declared digests in the same commit.
 """
 
 from __future__ import annotations
@@ -141,17 +149,107 @@ def learner_cases(seed: int = 7) -> tuple[pd.DataFrame, pd.DataFrame]:
     return pd.concat(inputs, ignore_index=True), pd.concat(expected, ignore_index=True)
 
 
+#: G0's follower-mapping cases: (case, study, scenario, plan), each fitted through the real
+#: lmtp dispatch at its declared size and replicate 0.  ``respond`` is deterministic,
+#: ``mixlast`` has a known stochastic node (the replicated branch), ``low`` runs SDR.
+FOLLOWER_CASES = (
+    ("s2_respond", "categorical", "categorical_k5", "respond"),
+    ("s2_mixlast", "categorical", "categorical_k5", "mixlast"),
+    ("s3_low", "sdr", "sdr_categorical_k5", "low"),
+)
+
+
+def follower_cases(out: Path) -> dict[str, dict[str, Any]]:
+    """Write each case's archive sample and return cleverly's follower counts and node-K fit.
+
+    The counts are :func:`tests.studies.long_horizon_reference.followers` at every node; the
+    node-K regression is ``QuasiBinomialGLM`` on the node-K followers with ``cleverly``'s
+    design, whose target is the observed outcome in both estimators.
+    """
+    from sklearn.base import clone
+
+    from tests import discrete_law_longitudinal_horizon as law_
+    from tests.studies import long_horizon_common as common
+    from tests.studies import long_horizon_reference as reference_
+    from tests.studies.fractional_glm import QuasiBinomialGLM
+
+    rows = []
+    expected: dict[str, dict[str, Any]] = {}
+    for case, study, name, plan in FOLLOWER_CASES:
+        module = _module(study)
+        scenario = next(s for s in module.SCENARIOS if s.name == name)
+        n = module.STUDY.n_of(name)
+        frame = module.reference_sample(name, n, 0).frame.copy()
+        frame.insert(0, "row", range(len(frame)))
+        sample = f"followers-input-{case}.csv"
+        frame.to_csv(out / sample, index=False, float_format="%.17g")
+        rows.append({"case": case, "sample": sample, "plan": plan, "comparator": STUDIES[study][2]})
+        _, fol, _ = reference_.followers(frame, plan, scenario.K, scenario.m)
+        policy = law_.policy_nodes(plan, scenario.K)
+        design = common._design(frame, scenario.K, scenario.m, policy)
+        kept = fol[scenario.K]
+        target = np.nan_to_num(frame["Y"].to_numpy(float))
+        model = clone(QuasiBinomialGLM()).fit(design[kept], target[kept])
+        expected[case] = {
+            "units": {t: int(fol[t].sum()) for t in fol},
+            "coefficients": np.concatenate([model.intercept_, model.coef_[0]]),
+            "K": scenario.K,
+        }
+    pd.DataFrame(rows).to_csv(out / "followers-cases.csv", index=False)
+    return expected
+
+
+def follower_checks(out: Path, expected: Mapping[str, Mapping[str, Any]]) -> dict[str, bool]:
+    """Each case's R follower counts at every node, and its node-K coefficients at 1e-8."""
+    checks: dict[str, bool] = {}
+    for case, held in expected.items():
+        log = pd.read_csv(out / f"followers-{case}.csv")
+        for node, units in held["units"].items():
+            seen = sorted(set(log.loc[log["node"] == node, "units"]))
+            checks[f"{case} node {node}: R fits {seen} followers, cleverly {units}"] = seen == [
+                units
+            ]
+        final = log.loc[log["node"] == held["K"], "coefficients"]
+        gaps = [
+            float(np.max(np.abs(np.array(text.split(";"), dtype=float) - held["coefficients"])))
+            if len(text.split(";")) == len(held["coefficients"])
+            else np.inf
+            for text in final
+        ]
+        gap = max(gaps, default=np.inf)
+        checks[f"{case} node {held['K']}: max |R - cleverly| coefficient {gap:.3g}"] = bool(
+            gap <= LEARNER_TOLERANCE
+        )
+    return checks
+
+
+def package_drift(out: Path) -> list[str]:
+    """The packages both images hold at different versions, ``lmtp`` aside."""
+    packages = {
+        version: pd.read_csv(out / f"packages-{version}.csv").set_index("Package")["Version"]
+        for version in ("1.5.4", "1.5.5")
+    }
+    common = packages["1.5.4"].index.intersection(packages["1.5.5"].index)
+    return [
+        f"{name} {packages['1.5.4'][name]} / {packages['1.5.5'][name]}"
+        for name in common
+        if name != "lmtp" and packages["1.5.4"][name] != packages["1.5.5"][name]
+    ]
+
+
 def g0(out: Path, *, build: bool = True) -> int:
     """G0: the image builds, the adapters agree across the two pins, the learners equal cleverly."""
     out.mkdir(parents=True, exist_ok=True)
     if build:
-        _docker("build", "-t", PINNED_IMAGE, str(CANONICAL / "lmtp_9996b04"))
+        # The pinned image is built FROM the shipped one, so the shipped one comes first.
         _docker("build", "-t", SHIPPED_IMAGE, str(CANONICAL / "lmtp_crossfit"))
+        _docker("build", "-t", PINNED_IMAGE, str(CANONICAL / "lmtp_9996b04"))
     inputs, expected = learner_cases()
+    followed = follower_cases(out)
     inputs.to_csv(out / "learner-input.csv", index=False, float_format="%.17g")
     mounts = ["-v", f"{CANONICAL}:/fixture:ro", "-v", f"{out.resolve()}:/out"]
     for image, modes in (
-        (PINNED_IMAGE, ("packages", "image", "adapters", "learners")),
+        (PINNED_IMAGE, ("packages", "image", "adapters", "learners", "followers")),
         (SHIPPED_IMAGE, ("packages", "adapters")),
     ):
         for mode in modes:
@@ -171,17 +269,12 @@ def g0(out: Path, *, build: bool = True) -> int:
         left = pinned.loc[pinned["fit"] == fit].reset_index(drop=True)
         right = shipped.loc[shipped["fit"] == fit].reset_index(drop=True)
         checks[f"{fit}: byte identity across the two images"] = left.equals(right)
-    packages = {
-        version: pd.read_csv(out / f"packages-{version}.csv").set_index("Package")["Version"]
-        for version in ("1.5.4", "1.5.5")
-    }
-    common = packages["1.5.4"].index.intersection(packages["1.5.5"].index)
-    drift = [
-        f"{name} {packages['1.5.4'][name]} / {packages['1.5.5'][name]}"
-        for name in common
-        if packages["1.5.4"][name] != packages["1.5.5"][name]
-    ]
+    # The pinned image is the shipped one plus origami and lmtp, so no common package drifts;
+    # a drift here explains a byte-identity failure above and fails G0 itself.
+    drift = package_drift(out)
     print("package versions that differ across the images:", drift or "none", flush=True)
+    checks["no package but lmtp differs across the images"] = not drift
+    checks.update(follower_checks(out, followed))
     learned = pd.read_csv(out / "learners.csv", float_precision="round_trip")
     merged = expected.merge(learned, on=["case", "row"], how="left")
     worst = merged.assign(gap=(merged["python"] - merged["r_prediction"]).abs()).groupby("case")[
@@ -348,6 +441,14 @@ def run(study: str, out: Path, prefix: int, jobs: int) -> int:
     table = pd.read_csv(target / "parity.csv", float_precision="round_trip")
     maxima = parity.smoke_maxima(table)
     print("smoke maxima:", json.dumps(maxima), flush=True)
+    # Every paired cell's maximum, so the declaration commit reads where each gate's comes from.
+    cells = table.loc[table["gate"] != "witness"]
+    print(
+        cells.loc[:, ["gate", "scenario", "estimand", "paired_replicates", "max_abs_difference"]]
+        .sort_values(["gate", "max_abs_difference"], ascending=[True, False])
+        .to_string(index=False),
+        flush=True,
+    )
     try:
         declared = {
             gate: parity.declared_tolerance(maxima[gate])

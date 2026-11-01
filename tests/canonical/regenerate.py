@@ -166,11 +166,15 @@ class Reference:
     worker_memory_mb: float | None = None
     #: ``(factor, share, reason)`` in place of the harness defaults 1.25 and 0.85.
     memory_override: tuple[float, float, str] | None = None
+    #: ``(image, context)`` of the image this one is built ``FROM``, built first.  Its
+    #: Dockerfile is a reference source, and the image content key covers its layers.
+    base: tuple[str, Path] | None = None
 
     def files(self, here: Path) -> list[Path]:
         context = self.build_context or here
         root = self.runner_root or here
         return [
+            *((self.base[1] / "Dockerfile",) if self.base is not None else ()),
             context / "Dockerfile",
             root / self.runner,
             *(root / name for name in self.extra_files),
@@ -201,6 +205,8 @@ class Reference:
             raise ValueError("an alternate reference runner requires mount_runner=True")
         # A failure file left by an earlier run in the same scratch would read as this run's.
         failures_path(output).unlink(missing_ok=True)
+        if self.base is not None:
+            build_image(*self.base)
         build_image(self.image, context)
         active = _ACTIVE.get()
         if active is not None and self.interpreter == "Rscript":

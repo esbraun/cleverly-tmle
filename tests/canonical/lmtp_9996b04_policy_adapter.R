@@ -42,9 +42,19 @@ lmtp_9996b04_policy_tmle <- function(
       stop(sprintf("node %d draws are not %d x %d", node, n, copies))
     }
   }
-  # The supplied ratio is zero exactly where the observed arm leaves the plan or the unit
-  # leaves the observation, so the zero pattern is the screen's own density argument.
-  screen_policy_ratios(ratios, ratios)
+  # The plan's mass at the observed arm, built from the draws alone: the draws give each arm
+  # its quarters of the copies, so some copy takes the observed arm exactly where the plan
+  # gives that arm mass.  A unit keeps it only while observed and uncensored at the node.  The
+  # supplied ratios are computed apart, so the screen compares two constructions of one zero
+  # pattern (tests/unit/test_x59_long_horizon_reference.py holds the same construction).
+  support <- vapply(seq_along(trt), function(node) {
+    observed <- data[[trt[[node]]]]
+    kept <- !is.na(observed)
+    if (!is.null(cens)) kept <- kept & !is.na(data[[cens[[node]]]]) & data[[cens[[node]]]] == 1
+    taken <- rowSums(draws[[node]] == ifelse(is.na(observed), -1, observed)) > 0
+    as.numeric(kept & taken)
+  }, numeric(n))
+  screen_policy_ratios(ratios, matrix(support, nrow = n))
 
   unit <- rep(seq_len(n), each = copies)
   natural <- data[unit, , drop = FALSE]

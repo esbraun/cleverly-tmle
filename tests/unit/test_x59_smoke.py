@@ -127,3 +127,43 @@ def test_the_subject_mutation_moves_g_p_against_an_unmutated_reference(tmp_path:
     write_rows(held.assign(implementation="ltmle"), tmp_path / "none" / "replicates.parquet")
     (tmp_path / "declared-tolerances.json").write_text('{"G-P": 1e-06, "G-C": 1e-06}\n')
     assert x59_smoke.main(["subject-mutation", "ltmle", "--out", str(tmp_path)]) == 0
+
+
+def test_the_follower_cases_name_declared_plans() -> None:
+    for _, study, name, plan in x59_smoke.FOLLOWER_CASES:
+        scenario = next(s for s in x59_smoke._module(study).SCENARIOS if s.name == name)
+        assert plan in scenario.plans and scenario.n_folds == 1
+
+
+def test_the_follower_check_fails_a_count_or_a_coefficient_off(tmp_path: Path) -> None:
+    coefficients = np.array([0.25, -1.5, 0.75])
+    expected = {"case": {"units": {1: 40, 2: 30}, "coefficients": coefficients, "K": 2}}
+
+    def log(units: tuple[int, int], final: np.ndarray) -> None:
+        pd.DataFrame(
+            {
+                "node": [1, 2],
+                "family": ["quasibinomial"] * 2,
+                "rows": list(units),
+                "units": list(units),
+                "coefficients": ["0", ";".join(f"{value:.17g}" for value in final)],
+            }
+        ).to_csv(tmp_path / "followers-case.csv", index=False)
+
+    log((40, 30), coefficients)
+    assert all(x59_smoke.follower_checks(tmp_path, expected).values())
+    log((40, 29), coefficients)
+    assert not all(x59_smoke.follower_checks(tmp_path, expected).values())
+    log((40, 30), coefficients + np.array([0.0, 1e-6, 0.0]))
+    assert not all(x59_smoke.follower_checks(tmp_path, expected).values())
+
+
+def test_package_drift_names_every_shared_package_but_lmtp(tmp_path: Path) -> None:
+    for version, collapse in (("1.5.4", "2.1.2"), ("1.5.5", "2.0.19")):
+        pd.DataFrame(
+            {
+                "Package": ["collapse", "lmtp", "origami"][: 2 + (version == "1.5.5")],
+                "Version": [collapse, version, "1.0.7"][: 2 + (version == "1.5.5")],
+            }
+        ).to_csv(tmp_path / f"packages-{version}.csv", index=False)
+    assert x59_smoke.package_drift(tmp_path) == ["collapse 2.1.2 / 2.0.19"]

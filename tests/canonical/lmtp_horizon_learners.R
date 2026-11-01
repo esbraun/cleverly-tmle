@@ -32,11 +32,14 @@
 
 horizon_state <- new.env(parent = emptyenv())
 
-horizon_learner_state <- function(ratios, policy_nodes, m, horizon, mutation = 0L) {
+horizon_learner_state <- function(ratios, policy_nodes, m, horizon, mutation = 0L, folds = NULL) {
   # ratios: units x K per-node ratios of the plan about to be fitted, rows in unit order.
+  # folds: each unit's outer fold, so a fit can count the followers its training folds hold.
   if (!is.matrix(ratios) || ncol(ratios) != horizon) {
     stop("the learner state needs one ratio column per node")
   }
+  if (!is.null(folds) && length(folds) != nrow(ratios)) stop("one outer fold per unit is required")
+  horizon_state$folds <- folds
   follow <- ratios > 0
   for (node in seq_len(horizon)[-1]) follow[, node] <- follow[, node] & follow[, node - 1L]
   horizon_state$followers <- follow
@@ -131,17 +134,53 @@ horizon_irls <- function(design, target, max_iter = 100L, tol = 1e-10) {
   coefficient
 }
 
+horizon_unit_ids <- function(column) {
+  # The callers' id is the integer row of the unit (..unit); anything else cannot index the state.
+  if (!is.numeric(column) || anyNA(column) || any(column != round(column)) || any(column < 1)) {
+    stop("the regression's unit id is not a positive integer row number")
+  }
+  as.integer(column)
+}
+
+horizon_log <- function(node, family, rows, units, coefficient) {
+  # G0's follower-mapping check (x59_smoke.py g0) sets CLEVERLY_X59_FOLLOWER_LOG; runs do not.
+  path <- study_env("CLEVERLY_X59_FOLLOWER_LOG")
+  if (!nzchar(path)) return(invisible(FALSE))
+  line <- data.frame(
+    node = node, family = family, rows = rows, units = units,
+    coefficients = paste(sprintf("%.17g", coefficient), collapse = ";")
+  )
+  write.table(
+    line, path, sep = ",", row.names = FALSE, col.names = !file.exists(path),
+    append = file.exists(path)
+  )
+  invisible(TRUE)
+}
+
 horizon_fit <- function(data, y, id, family, stratified) {
   node <- horizon_node_of(data)
   rows <- rep(TRUE, nrow(data))
+  units <- horizon_unit_ids(data[[id]])
   if (stratified) {
     follow <- horizon_state$followers
     if (is.null(follow)) stop("the horizon learner was called before its state was set")
-    units <- as.integer(data[[id]])
-    if (anyNA(units) || max(units) > nrow(follow)) {
+    if (max(units) > nrow(follow)) {
       stop("the regression's unit ids do not index the learner state; set it for this plan")
     }
     rows <- follow[units, node]
+    # Every follower of the training folds must reach the fit: a unit lmtp dropped, or an id
+    # that names another unit, changes this count.
+    folds <- horizon_state$folds
+    if (!is.null(folds)) {
+      held <- unique(folds[unique(units)])
+      expected <- sum(follow[folds %in% held, node])
+      handed <- length(unique(units[rows]))
+      if (handed != expected) {
+        stop(sprintf(
+          "node %d: the regression holds %d followers, its training folds %d", node, handed, expected
+        ))
+      }
+    }
   }
   design <- horizon_design(data[rows, , drop = FALSE], node, stratified)
   target <- as.numeric(data[[y]][rows])
@@ -153,6 +192,7 @@ horizon_fit <- function(data, y, id, family, stratified) {
   } else {
     horizon_irls(design, target)
   }
+  horizon_log(node, family, sum(rows), length(unique(units[rows])), coefficient)
   structure(
     list(coefficient = coefficient, node = node, family = family, stratified = stratified,
       columns = colnames(design), rows = sum(rows)),

@@ -64,18 +64,32 @@ horizon_learner <- function(comparator) {
   stop(sprintf("CLEVERLY_X59_LEARNER=%s is not a declared learner", choice))
 }
 
-horizon_check_q <- function(predictions, at_risk, plan) {
-  # predictions: rows x 2K (natural then shifted); at_risk: rows x K.
-  risk <- cbind(at_risk, at_risk)
-  values <- predictions[risk]
-  values <- values[!is.na(values)]
-  outside <- sum(values < horizon_q_bounds[[1]] | values > horizon_q_bounds[[2]])
-  if (outside > 0) {
-    stop(sprintf(
-      "plan %s: %d outcome predictions leave [%g, %g], where cleverly's clip would bind",
-      plan, outside, horizon_q_bounds[[1]], horizon_q_bounds[[2]]
-    ))
+horizon_followers <- function(at_risk, ratios) {
+  # rows x K: at risk at node t and following the plan through t - 1 (every earlier ratio
+  # positive), the rows whose node-t predictions cleverly's clip reads.
+  followed <- matrix(TRUE, nrow(at_risk), ncol(at_risk))
+  if (ncol(at_risk) > 1L) {
+    for (t in 2:ncol(at_risk)) followed[, t] <- followed[, t - 1L] & ratios[, t - 1L] > 0
   }
+  at_risk & followed
+}
+
+horizon_check_q <- function(predictions, followers, plan) {
+  # predictions: rows x 2K (natural then shifted); followers: rows x K (horizon_followers).
+  # A recorded failure of this replicate, not a stop of the run; the smoke's qbound step checks
+  # every declared replicate in Python before any run.
+  study_stage("lmtp Q bound", {
+    risk <- cbind(followers, followers)
+    values <- predictions[risk]
+    values <- values[!is.na(values)]
+    outside <- sum(values < horizon_q_bounds[[1]] | values > horizon_q_bounds[[2]])
+    if (outside > 0) {
+      stop(sprintf(
+        "plan %s: %d outcome predictions leave [%g, %g], where cleverly's clip would bind",
+        plan, outside, horizon_q_bounds[[1]], horizon_q_bounds[[2]]
+      ))
+    }
+  })
   invisible(TRUE)
 }
 
@@ -96,10 +110,11 @@ horizon_lmtp_plan <- function(frame, plan, comparator) {
   draws <- lapply(nodes, function(node) {
     as.matrix(frame[horizon_columns(frame, "shift", plan, node, sprintf("__%d", seq_len(copies)))])
   })
-  horizon_learner_state(ratios, policy, m, K, mutation)
+  horizon_learner_state(ratios, policy, m, K, mutation, folds = as.integer(frame$fold))
   learner <- horizon_learner(comparator)
+  # An integer id: the learner indexes its follower state by it (horizon_unit_ids).
   frame$..unit <- seq_len(nrow(frame))
-  at_risk <- !is.na(as.matrix(frame[trt]))
+  followers <- horizon_followers(!is.na(as.matrix(frame[trt])), ratios)
 
   if (comparator == "lmtp_sdr") {
     fit <- lmtp_sdr_with_folds(
@@ -139,7 +154,7 @@ horizon_lmtp_plan <- function(frame, plan, comparator) {
     if (!identical(fit$fold_assignment, as.integer(frame$fold))) {
       stop("lmtp did not retain the supplied fold assignment")
     }
-    horizon_check_q(fit$predictions, at_risk, plan)
+    horizon_check_q(fit$predictions, followers, plan)
   } else {
     fit <- lmtp_9996b04_policy_tmle(
       frame[variables],
@@ -154,7 +169,8 @@ horizon_lmtp_plan <- function(frame, plan, comparator) {
       copies = copies,
       learners_outcome = learner
     )
-    horizon_check_q(fit$predictions, at_risk[rep(seq_len(nrow(frame)), each = copies), , drop = FALSE], plan)
+    rows <- rep(seq_len(nrow(frame)), each = copies)
+    horizon_check_q(fit$predictions, followers[rows, , drop = FALSE], plan)
   }
   list(estimate = fit$estimate, ic = fit$ic, initial = fit$initial)
 }

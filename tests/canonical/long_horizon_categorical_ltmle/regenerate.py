@@ -32,6 +32,8 @@ if __name__ == "__main__":
                 "long_horizon_lmtp_adapter.R",
             ),
             build_context=ROOT / "tests" / "canonical" / "lmtp_9996b04",
+            # The 9996b04 image is built FROM the shipped lmtp 1.5.4 image.
+            base=("cleverly-lmtp-crossfit:1.5.4", ROOT / "tests" / "canonical" / "lmtp_crossfit"),
             runner_root=ROOT / "tests" / "canonical",
         ),
     )
