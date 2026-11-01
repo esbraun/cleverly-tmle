@@ -310,6 +310,14 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
         "ey_learned_rule": "learned-rule value: a replay relearns the rules, so its target moves",
+        "ey_known_regime": (
+            "known regime beside a learned rule: no study request declares one, and a direct TMLE "
+            "fit carries no identification metadata, so the surface never meets it"
+        ),
+        "ate_learned_rule": (
+            "known regime beside a learned rule: no study request declares one, and a direct TMLE "
+            "fit carries no identification metadata, so the surface never meets it"
+        ),
         "ey_rr_tilt": "risk-ratio tilt mean: no replay reading of its rule is declared",
         "ate_rr_tilt": "risk-ratio tilt contrast: refused fit-wide for the same reason",
     }
