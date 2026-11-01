@@ -1568,7 +1568,8 @@ $\tilde\psi^{s}_{0n}$.
 
 | composition | result |
 | --- | --- |
-| known weights, `targeting_scheme="fold"`, `id=`, a rule learner | admitted, experimental. Each changes only the rule, the fluctuation or the variance rule that the construction reads |
+| known weights (`weights=`) or `id=` at 40 clusters or more, with the plug-in rule, pooled targeting and `repeats=1` | admitted, supported by [the stacked study](method-evidence/learned-rule-stacked.md) (rows `T42`), as is such a fit on rows. Unequal cluster sizes are covered at the measured scope below |
+| `targeting_scheme="fold"`, a rule learner, weights with `id=`, fewer than 40 clusters | admitted, experimental. Each changes only the rule, the fluctuation or the variance rule that the construction reads |
 | `repeats` above 1 on rows | admitted, experimental. The fit reports the mean of the split estimates, and the variance is the centred rule applied to the mean of the split curves, each centred at its own pooled estimate |
 | `repeats` above 1 with `id=` | refused, row 9 of the table below |
 | `strata=` | admitted, experimental. Stratum $s$ targets $\sum_v (W_{v,s}/W_s)\,\Psi_{s,d_{nv}}(P_0)$, with $W_{v,s}$ the weight mass of fold $v$ in the stratum, and the shipped stratified fluctuation solves each stratum's pooled score under that weighting |
@@ -1579,9 +1580,17 @@ The stacked report motivates its own use with clusters. When cluster sizes depen
 the fold-evaluated point carries a ratio bias of order $V/J$, and the stacked point a smaller one:
 at 200 clusters in 5 folds the [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md)
 measured 0.13 and 0.02 empirical SDs for the arm-indexed fit it reads ([CV-TMLE](cv-tmle.md)).
-No study yet measures a
-stacked learned-rule fit. Its key reads `stacked`, which no row covers, so every stacked fit reads
-experimental. A fit with unequal cluster sizes also keeps the `unequal_clusters` qualifier.
+
+The registered [stacked study](method-evidence/learned-rule-stacked.md) calibrates the stacked
+learned-rule interval at nominal n = 2,000 with ten folds and the RM30 logistic learners, in
+three settings: equal folds on rows, the known weight $w = 1 + 1.5 \cdot 1\{W_1 > 0\}$, and 200
+clusters of size 5 to 15 whose size rises with the cluster's outcome effect. Its cluster cell
+passed the rule declared before the run, so the row `T42.clustered` covers a stacked fit with
+unequal cluster sizes, and its limits state that scope. A fit with 40 to 199 clusters shares the
+key and was not measured. On the same clustered draws the fold-evaluated report sat 0.11 stacked
+SDs below its target, inside the bias margin, and it keeps the `unequal_clusters` qualifier by
+the $V/\sqrt{J}$ order of its bias. The realized cross term moved the stacked SE by under 0.1%,
+which the study cannot resolve.
 
 `tests/unit/test_learned_rule_stacked.py` holds the witnesses. On an exact discrete law whose
 three unequal folds learn different rules, it rebuilds $Z_i$ from the oracle mechanism and

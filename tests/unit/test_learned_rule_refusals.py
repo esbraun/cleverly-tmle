@@ -221,13 +221,14 @@ class TestEachRowRefusesBeforeAnyLearner:
         message = _refused(lambda: _fit(_engine(**overrides)), item)
         assert LEARNED_RULE_CONFIGURATION in message and METHOD_REMEDY in message
 
-    def test_the_stacked_report_is_no_row(self) -> None:
-        """``cv_evaluation=False`` fits the stacked report (X11 (e)), keyed and experimental."""
+    def test_the_stacked_report_reads_its_row(self) -> None:
+        """``cv_evaluation=False`` fits the stacked report (X11 (e)), keyed and registered."""
         result = support.fit(cv_evaluation=False)
         estimate = result.estimates[support.NAME]
         assert result.extra["learned_rule"].scheme == "stacked"
         assert result.config.support_key.splitting == ("stacked",)
-        assert estimate.support.label == "experimental"
+        assert estimate.support.label == "supported"
+        assert estimate.support.row == "T42.rows"
 
     def test_the_in_sample_fit_is_no_row(self) -> None:
         """``cross_fit=False`` fits the full-sample rule's value (X11 (a)), keyed and experimental."""

@@ -35,8 +35,9 @@ of the stacked regime report, :math:`\{n(n-1)\}^{-1}\sum_i (\phi_i - \bar\phi)^2
   shipped stratified fluctuation solves each stratum's pooled score under that weighting, while
   each fold's own stratum score stays unsolved.
 * The record is built for the stacked report, ``learned_rule_truth`` reads its fold weights, the
-  summary names the report, the fit reads experimental under its own ``stacked`` key, and the
-  omitted-variable bound refuses as an implementation gap.
+  summary names the report, the fit reads its registered row T42 under its own ``stacked`` key
+  while fold targeting reads experimental, and the omitted-variable bound refuses as an
+  implementation gap.
 * The stacked record survives ``save``, ``dumps`` and ``retarget``. A blip rule learner builds it,
   and under ``id=`` the stored variance is the cluster-total rule, rebuilt by hand.
 """
@@ -448,10 +449,17 @@ class TestTheRecordAndTheSurfaces:
                 inner_seeds=(),
             )
 
-    def test_the_fit_reads_experimental_on_its_own_key(self) -> None:
+    def test_the_fit_reads_its_registered_row(self) -> None:
+        """``learned-rule-stacked`` registers T42; a composition it did not measure stays off."""
         result = support.fit(cv_evaluation=False)
         assert result.config.support_key.splitting == ("stacked",)
-        assert result.estimates[NAME].support.label == "experimental"
+        assert result.estimates[NAME].support.label == "supported"
+        assert result.estimates[NAME].support.row == "T42.rows"
+        # The mutation: fold targeting under the stacked report keys ``fold_targeted``, which
+        # no row of the study declares.
+        folded = support.fit(cv_evaluation=False, targeting_scheme="fold")
+        assert folded.config.support_key.splitting == ("fold_targeted",)
+        assert folded.estimates[NAME].support.label == "experimental"
         clustered = _unequal(False)
         assert "unequal_clusters" in clustered.config.support_key.qualifiers
 

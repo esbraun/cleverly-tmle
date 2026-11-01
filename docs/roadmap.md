@@ -951,16 +951,24 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
 clusters ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
 The [compositions study](technical-reference/method-evidence/learned-rule-compositions.md)
-measures each setting, so these fits read supported. A fit with unequal cluster sizes, or with
-both weights and clusters, reads experimental.
+measures each setting, so these fits read supported. A fold-evaluated fit with unequal cluster
+sizes, or any fit with both weights and clusters, reads experimental.
 
 The stacked report (`cv_evaluation=False`, the default `CrossFitting()`) of part (e) now ships
 ([the stacked report](technical-reference/point-treatment-tmle.md#learned-rules)). It weights
 fold $v$ by its share $W_v/W$ of the weight mass and centres the curve at the pooled estimate, as
-Nordland and Holst (2026), Algorithm 4, does. Its key reads `stacked`, which no row covers, so
-every stacked fit reads experimental until the `learned-rule-stacked` study registers. A stacked
-fit with unequal cluster sizes keeps the `unequal_clusters` qualifier unless that study's
-declared cluster cell passes. Its omitted-variable bound joins part (n2).
+Nordland and Holst (2026), Algorithm 4, does. The
+[stacked study](technical-reference/method-evidence/learned-rule-stacked.md) calibrates its
+interval with the plug-in rule at n = 2,000 with ten folds on rows, with a known weight, and with
+200 clusters whose size rises with the outcome effect, so such a fit with pooled targeting and
+`repeats=1` reads supported (rows `T42`).
+
+The stacked study's cluster cell passed the rule declared before the run, so the row
+`T42.clustered` covers unequal cluster sizes at that measured scope. The fold-evaluated report
+keeps the `unequal_clusters` qualifier, because its ratio bias grows as $V/\sqrt{J}$ in SDs. On
+the same draws it sits about 0.11 SD below its target, inside the bias margin. A stacked fit with
+strata, fold targeting, a rule learner, `repeats` above 1, or weights with clusters reads
+experimental. Its omitted-variable bound joins part (n2).
 
 The in-sample fit of part (a) now ships
 ([one rule fitted on all rows](technical-reference/point-treatment-tmle.md#learned-rules)).

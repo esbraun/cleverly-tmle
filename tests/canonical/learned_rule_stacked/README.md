@@ -22,13 +22,14 @@ the value of the rules the fit learned, weighted the same way.
 ## The `unequal_clusters` rule
 
 Declared before any run (`UNEQUAL_CLUSTERS_RULE` in `tests/studies/learned_rule_stacked.py`). The
-registering change drops the `unequal_clusters` qualifier from fits keyed `stacked` if and only
-if `clustered__declared` passes the calibration rule, establishes its bias inside the margin, all
-three of its controls fail as declared, no more clustered replications were lost than the
-failure bound allows, and the reporting row's paired error difference (fold-evaluated minus
-stacked) is negative with its upper 99% bound below zero. Otherwise the qualifier stays. A
-dropped qualifier claims only the measured scope: 200 clusters in 10 folds, sizes 5 to 15
-rising with the outcome effect. The fold-evaluated report keeps it either way, by theory: its
+registering change supports clustered fits keyed `stacked` that carry the `unequal_clusters`
+qualifier (support row `T42.clustered`, which declares the qualifier, so it stays visible in every
+key) if and only if `clustered__declared` passes the calibration rule, establishes its bias inside
+the margin, all three of its controls fail as declared, no more clustered replications were lost
+than the failure bound allows, and the reporting row's paired error difference (fold-evaluated
+minus stacked) is negative with its upper 99% bound below zero. Otherwise those fits stay
+experimental. The supported row claims only the measured scope: 200 clusters in 10 folds, sizes 5
+to 15 rising with the outcome effect. Fold-evaluated clustered fits get no such row, by theory: their
 ratio bias is about -0.12 SD at 200 clusters and -0.29 SD at 40 by the law's oracle.
 
 ## What registration must state

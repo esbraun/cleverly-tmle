@@ -16,10 +16,9 @@ repeats it on the observed-data law. The property study checks interval calibrat
 double robustness, cross-fitting, a joint band, a flexible learner, a continuous outcome,
 the rule, targeting, the outcome history, and the controls that must fail.
 
-The R runs of the fourth declaration are pending (TRACKER Study queue item 14(c)). The record
-declares `pending_reference="ltmle"`, so the committed artifacts hold the declared `cleverly`
-rows and the property study, and no R row. The change that registers the R rows moves the name
-to `reference` and reruns the study with `--skip-properties`.
+The committed artifacts hold the declared `cleverly` and R `ltmle` rows of the fourth
+declaration, paired on the same 2,400 draws, and the property study. The R rows came from a run
+with `--skip-properties`, which reuses the committed property files.
 
 Run a disposable smoke study from the repository root. It uses the declared sample size. At
 `n = 400`, a stratified regression at the rule's third node can be rank deficient, and the R

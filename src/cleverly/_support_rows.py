@@ -671,11 +671,12 @@ def _t_rows() -> tuple[SupportRow, ...]:
         )
     )
     # X11 (h), (k) and (l): the learned-rule value with fold targeting, known weights and
-    # clusters. Unequal cluster sizes key the qualifier ``unequal_clusters``, which no row
-    # declares, and a weighted clustered fit has no row either.
+    # clusters. Unequal cluster sizes key the qualifier ``unequal_clusters``, which only the
+    # stacked row T42.clustered declares, and a weighted clustered fit has no row either.
     equal_sizes = (
         "The study draws equal cluster sizes only. A fit with unequal sizes is experimental, "
-        "because sizes that depend on the outcome put a ratio bias in the fold-evaluated point."
+        "because sizes that depend on the outcome put a ratio bias in the fold-evaluated point. "
+        "The stacked report (cv_evaluation=False) at unequal sizes has its own row, T42.clustered."
     )
     rows.append(
         point_row(
@@ -735,9 +736,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
-    # X11 (e): the stacked report of the learned-rule value keys ``stacked``, which no P11 row
-    # declares, so every stacked learned-rule fit reads experimental until the
-    # ``learned-rule-stacked`` study registers its rows.
+    # X11 (e): the stacked report of the learned-rule value keys ``stacked``. The rows T42 of
+    # the ``learned-rule-stacked`` study cover it on rows, with a known weight and with clusters.
     # X11 (a): the in-sample fit of one rule learned on every row keys ``in_sample`` and the
     # learner families (``outcome_learner_family``, ``treatment_learner_family`` and, for a rule
     # learner, ``rule_learner_family``), which no P11 row declares, so every in-sample
@@ -977,6 +977,103 @@ def _t_rows() -> tuple[SupportRow, ...]:
                     ],
                 )
             )
+    # X11 (e) (X11 PR F1): the stacked report of the learned-rule value, ``cv_evaluation=False``
+    # with pooled targeting, keyed ``stacked``. Fold targeting keys ``fold_targeted``, strata
+    # key ``strata``, a rule learner keys ``rule_learner_<loss>`` and ``repeats`` above 1 keys
+    # ``repeated``, so each of those compositions matches no row, and neither does a weighted
+    # clustered fit or one under the t reference. The study's cluster cell passed every clause
+    # of its pre-declared ``UNEQUAL_CLUSTERS_RULE`` (``tests/studies/learned_rule_stacked.py``),
+    # so ``T42.clustered`` declares ``unequal_clusters`` with the measured scope in its limits,
+    # and ``point_key`` still adds the qualifier, which keeps every fold-evaluated row off such
+    # a fit. The numbers are the committed results (``tests/canonical/learned_rule_stacked``).
+    stacked_limits = [
+        "The study measures the pointwise stacked interval of the plug-in rule (LearnedRule()) "
+        "at nominal n = 2,000 with 10 folds, repeats=1, pooled targeting, complete data and "
+        "the RM30 logistic learners, in three settings: equal folds on rows, a known weight, "
+        "and 200 clusters. Strata, fold targeting, a rule-learner loss, repeats above 1 and "
+        "weights with clusters under the stacked report match no row. The key holds neither "
+        "the fold count, the sample size nor the learner, so another n, V or learner reads "
+        "supported and was not measured.",
+        "The target is data-adaptive: sum_v (W_v/W) Psi_{d_v}(P0), each fold weighted by its "
+        "share of the rows (of the weight mass under weights=). At unequal folds it is not the "
+        "fold-evaluated target. The calibration verdicts cannot tell the two targets apart in "
+        "these cells. The weighting rests on the unit witnesses and the harness's fold-weight "
+        "check.",
+        "The stacked variance is not guaranteed to be at least the fold-evaluated second "
+        "moment, because the cross term of the variance identity can be negative. Over the "
+        "primary replications the mean cross term is -0.09% to -0.16% and the between-fold "
+        "term +0.02% to +0.03% of that second moment, which moves the SE by under 0.1%, far "
+        "below the study's resolution, so no calibration reading is attributed to them. Both "
+        "terms scale as V/n and are unmeasured at a smaller n or a larger V.",
+        "The omitted-variable bound of a stacked fit refuses (X11 part (n2)).",
+        "No comparator: R polle's Algorithm 4 is the construction's source, not a pinned "
+        "comparator.",
+    ]
+    unequal_clusters_limits = [
+        "The cluster cell passed the study's pre-declared unequal_clusters rule, so this row "
+        "declares unequal cluster sizes. It claims only the measured scope: about 200 clusters "
+        "of size 5 to 15 in 10 folds, the size rising with the cluster's outcome effect "
+        "(size-curve correlation 0.891, curve ICC 0.077), with no weights. Fits with 40 to 199 "
+        "clusters share the key. The law's oracle puts the stacked ratio bias at about -0.03 SD "
+        "at 40 clusters, but the interval was not measured there. A fit under the t reference "
+        "(fewer than 40 clusters) matches no row.",
+        "The fold-evaluated report keeps unequal_clusters by theory, not by a failed verdict: "
+        "its ratio bias grows as V/sqrt(J) in SDs. On the same draws its error minus the "
+        "stacked report's error is -0.00213 (MC SE 0.000015), about -0.11 stacked SDs, and the "
+        "oracle puts its bias at about -0.29 SD at 40 clusters. At 200 clusters its interval "
+        "would pass the same bands.",
+    ]
+    for suffix, weighting, dependence, qualifiers, cell, extra in (
+        ("rows", "none", "iid", (), "rows", []),
+        (
+            "weighted",
+            "fixed",
+            "iid",
+            (),
+            "weighted",
+            [
+                "The study measures the known weight w = 1 + 1.5 * 1{W1 > 0} at the "
+                "misspecified_limit law. Its calibration SE ratio below 1 (0.986) matches the "
+                "fold-evaluated compositions cell of the same law (0.969) and is a property of "
+                "that law. Estimated weights refuse."
+            ],
+        ),
+        (
+            "clustered",
+            "none",
+            "clustered",
+            ("unequal_clusters",),
+            "clustered",
+            unequal_clusters_limits,
+        ),
+        (
+            "clustered_equal_sizes",
+            "none",
+            "clustered",
+            (),
+            "clustered",
+            [
+                "The cluster cell draws unequal sizes that rise with the outcome effect. Equal "
+                "sizes are the case in which neither report carries a ratio bias, and the same "
+                "variance rule applies, but no cell draws them under the stacked report. A "
+                "weighted clustered fit or a fit under the t reference matches no row.",
+            ],
+        ),
+    ):
+        rows.append(
+            point_row(
+                f"T42.{suffix}",
+                ["learned-rule-stacked"],
+                families=("P11",),
+                weighting=weighting,
+                splitting=("stacked",),
+                dependence=dependence,
+                qualifiers=qualifiers,
+                cells=[cell],
+                # Roadmap: X11.
+                limits=[*stacked_limits, *extra],
+            )
+        )
     rows.append(
         point_row(
             "T25",

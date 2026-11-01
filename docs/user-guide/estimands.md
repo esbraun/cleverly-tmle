@@ -234,8 +234,12 @@ the value of the optimal rule. The table gives what the result holds.
 Use `CrossFitting(n_folds=5, fold_evaluation=True)`, as above. It scores each fold's rule on that
 fold alone and gives every fold equal weight, and the studies above measure that setting. The
 default `CrossFitting()` also runs: it scores all held-out rows together and weights each fold by
-its share of the rows (of the total weight, when you pass `weights=`). Its result is marked
-experimental until a study measures it.
+its share of the rows (of the total weight, when you pass `weights=`). A
+[third study](../technical-reference/method-evidence/learned-rule-stacked.md) measures it with
+ten folds at n = 2,000, on rows, with known weights and with clusters. Over 8,800 samples of
+each setting its 95% interval covered the target 0.943 to 0.949 of the time. Prefer it when you
+pass `id=` and cluster sizes vary with the outcome: there the fold-evaluated estimate carries a
+small bias, about 0.11 standard errors in that study.
 
 `CrossFitting(enabled=False)` runs too, and it answers a different question. It learns one rule
 from all the rows and reports the value of that one rule, scored on the same rows that chose it.

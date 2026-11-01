@@ -1782,6 +1782,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR E2 (``learned-rule-strata``): the stratified and unstratified learned-rule fits
         # on binary laws with a weak margin at the rule boundary, reported with no verdict.
         "weak_margin_diagnostic",
+        # X11 PR F1 (``learned-rule-stacked``): the fold-evaluated report beside the stacked one
+        # on the same clustered draws and folds, its bias and the paired error difference
+        # reported with no verdict.
+        "fold_evaluated_reporting",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
@@ -2771,6 +2775,8 @@ _FAMILY = {
     "value_gain_": "harness",
     "boundary_disagreement_mean": "harness",
     "boundary_treated_share_mean": "harness",
+    "cross_term_mean": "harness",
+    "between_term_mean": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
     "subject_failures": "failures",
