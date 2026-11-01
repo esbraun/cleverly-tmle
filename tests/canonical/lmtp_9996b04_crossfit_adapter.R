@@ -12,7 +12,60 @@
 #
 # Everything else is the shipped adapter's: the same task, the supplied fold assignment, the
 # supplied ratios behind the same screen, and lmtp's own cf_tmle and theta_dr.  The shipped file
-# is sourced for lmtp_internal, fold_list and check_supplied_density_ratios, and is not edited.
+# is sourced for lmtp_internal and fold_list, and is not edited; the ratio screen is the
+# shipped one with a rank correlation (check_horizon_density_ratios, below).
+
+check_horizon_density_ratios <- function(density_ratios, estimated) {
+  # The shipped two-node screen (check_supplied_density_ratios in lmtp_crossfit_adapter.R) with
+  # one change: the cumulative products are compared by rank, not by Pearson correlation.  Over
+  # three to five nodes the product of lmtp's main-effects GLM ratios is heavy-tailed, so its
+  # Pearson correlation with the exact product is set by a few large weights: X59 smoke row 50
+  # read 0.4986 on S2 `respond` at K = 5 with every zero in place, and a cloud emulation of
+  # lmtp's classification fit on the same input reads Pearson 0.485 and Spearman 0.9999.  The
+  # screen exists to catch a wrong arm, node or censoring factor, which reorders the units, so
+  # a rank correlation over the units both sides keep on the path keeps that power.
+  if (!identical(dim(density_ratios), dim(estimated))) {
+    stop(sprintf(
+      "supplied density ratios are %s; lmtp's are %s",
+      paste(dim(density_ratios), collapse = " x "),
+      paste(dim(estimated), collapse = " x ")
+    ))
+  }
+  disagreeing <- sum(xor(density_ratios == 0, estimated == 0))
+  if (disagreeing > 0) {
+    stop(sprintf(
+      "the supplied density ratios follow a different path from lmtp's: %d of %d cells disagree on whether the unit is still on the regimen at that node",
+      disagreeing, length(estimated)
+    ))
+  }
+  if (!all(is.finite(density_ratios))) {
+    stop("the supplied density ratios contain non-finite values")
+  }
+  supplied <- apply(density_ratios, 1, prod)
+  fitted <- apply(estimated, 1, prod)
+  kept <- supplied > 0 & fitted > 0
+  agreement <- if (sum(kept) >= 3L) {
+    suppressWarnings(cor(supplied[kept], fitted[kept], method = "spearman"))
+  } else {
+    NA_real_
+  }
+  if (!is.finite(agreement) || agreement < 0.8) {
+    stop(sprintf(
+      "the supplied cumulative density ratio has rank correlation %.4f with lmtp's own estimate over the %d units both keep on the path; a correct formula orders the units as lmtp does",
+      agreement, sum(kept)
+    ))
+  }
+  first_node <- density_ratios[, 1]
+  spread <- stats::sd(first_node) / sqrt(length(first_node))
+  distance <- abs(mean(first_node) - 1)
+  if (!is.finite(mean(first_node)) || !is.finite(spread) || distance > 5 * spread) {
+    stop(sprintf(
+      "the supplied first-node density ratio averages %.4f, %.1f standard errors from one",
+      mean(first_node), if (is.finite(spread) && spread > 0) distance / spread else Inf
+    ))
+  }
+  invisible(TRUE)
+}
 
 source("/fixture/lmtp_crossfit_adapter.R")
 
@@ -80,7 +133,7 @@ lmtp_9996b04_tmle_with_folds <- function(
     task, learners_trt, FALSE, control, progress
   ))
   if (!is.null(density_ratios)) {
-    check_supplied_density_ratios(density_ratios, density$density_ratios)
+    check_horizon_density_ratios(density_ratios, density$density_ratios)
     density$density_ratios <- density_ratios
   }
   regressions <- study_stage("lmtp tmle", cf_tmle(

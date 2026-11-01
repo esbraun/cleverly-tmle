@@ -460,3 +460,8 @@ image is now built `FROM` the shipped `lmtp_crossfit` image, whose Dockerfile th
 studies now declare. Each commit that changed a declared source refreshed the declaration digests
 with `python -m tests.canonical.x59_smoke declared-sources`. No reference process has run, so the
 refreshed digests describe no committed result.
+
+The smoke of queue row 50 found that the two-node ratio screen's Pearson correlation misreads the
+heavy-tailed five-node products, so `lmtp_9996b04_crossfit_adapter.R` now screens them by rank
+correlation (`check_horizon_density_ratios`). The commit refreshed the declaration digests of
+`long-horizon-categorical-ltmle` and `long-horizon-sdr` the same way. No reference process has run.
