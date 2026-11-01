@@ -51,7 +51,7 @@ contrast_name <- function(horizon, cause) {
   else sprintf("ate_regimen[arm1 vs %s, %s @ t=%d]", reference, cause, horizon)
 }
 
-row_for <- function(scenario, replicate, name, estimate, initial, ic, n) {
+row_for <- function(scenario, replicate, name, estimate, initial, ic, n, joint) {
   truth <- truth_for(scenario, replicate, name)
   standard_error <- sqrt(sum(ic^2)) / n
   low <- estimate - z * standard_error
@@ -71,6 +71,10 @@ row_for <- function(scenario, replicate, name, estimate, initial, ic, n) {
     inference_scale = "identity",
     covered = as.integer(low <= truth && truth <= high),
     initial_estimate = initial,
+    # The both-arm call's estimate and standard error of the same quantity: the witness that
+    # reference_artifacts summarises.  The published schema drops these columns.
+    joint_estimate = joint$estimate,
+    joint_std_error = sqrt(sum(joint$ic^2)) / n,
     stringsAsFactors = FALSE,
     check.names = FALSE
   )
@@ -90,31 +94,56 @@ fit_scenario <- function(frame) {
       method = "mean", glm.trt = "W1 + W2", glm.ftime = "trt*(W1 + W2)",
       glm.ctime = ctime_formula(t0), verbose = FALSE
     )
-    fitted <- study_stage(
+    # survtmle 1.1.1's mean method builds its observed wide frame from the counterfactual copy
+    # of the first arm of trtOfInterest (makeWideDataList.R reads dataList[[2]]), so in a
+    # both-arm call every arm's clever covariate divides by the censoring survival predicted at
+    # trt = 0.  This law's censoring depends on A, so arm 1's targeting and influence curve
+    # would use the wrong weights.  The runner calls once per arm with trtOfInterest, which
+    # makes that arm the first copy.  The treatment model still reads every unit, and
+    # trt*(W1 + W2) fits the arms apart, so each per-arm call is the both-arm call with the
+    # right weights for its arm.
+    targeted <- lapply(arms, function(arm) {
+      study_stage("survtmle", suppressWarnings(do.call(
+        survtmle, c(arguments, list(trtOfInterest = arm, returnIC = TRUE))
+      )))
+    })
+    # The both-arm call is kept as a witness, and reference_artifacts summarises it.  Its arm 0
+    # weights are right, so arm 0 must match the per-arm fit to IRLS tolerance; its arm 1
+    # weights are wrong after visit 1, so arm 1's standard error should differ there.
+    joint <- study_stage(
       "survtmle", suppressWarnings(do.call(survtmle, c(arguments, list(returnIC = TRUE))))
     )
+    # The untargeted recursion skips the fluctuation, so no clever covariate enters it and
+    # one both-arm call serves both arms.
     initial <- study_stage(
       "survtmle", suppressWarnings(do.call(survtmle, c(arguments, list(Gcomp = TRUE))))
     )
     for (code in names(causes[[scenario]])) {
       cause <- causes[[scenario]][[code]]
       values <- list()
+      witness <- list()
       for (arm in names(arms)) {
         key <- sprintf("%d %s", arms[[arm]], code)
         column <- sprintf("IC%sstar.Z%d", code, arms[[arm]])
         values[[arm]] <- list(
-          estimate = fitted$est[key, 1], initial = initial$est[key, 1], ic = fitted$ic[[column]]
+          estimate = targeted[[arm]]$est[key, 1], initial = initial$est[key, 1],
+          ic = targeted[[arm]]$ic[[column]]
         )
+        witness[[arm]] <- list(estimate = joint$est[key, 1], ic = joint$ic[[column]])
         rows[[length(rows) + 1]] <- row_for(
           scenario, replicate, level_name(arm, t0, cause), values[[arm]]$estimate,
-          values[[arm]]$initial, values[[arm]]$ic, n
+          values[[arm]]$initial, values[[arm]]$ic, n, witness[[arm]]
         )
       }
       rows[[length(rows) + 1]] <- row_for(
         scenario, replicate, contrast_name(t0, cause),
         values$arm1$estimate - values$arm0$estimate,
         values$arm1$initial - values$arm0$initial,
-        values$arm1$ic - values$arm0$ic, n
+        values$arm1$ic - values$arm0$ic, n,
+        list(
+          estimate = witness$arm1$estimate - witness$arm0$estimate,
+          ic = witness$arm1$ic - witness$arm0$ic
+        )
       )
     }
   }
