@@ -19,9 +19,8 @@ import pandas as pd
 
 from cleverly.validation import (
     CoverageStudy,
+    EstimandSummary,
     ReplicationFailure,
-    ReplicationRecord,
-    summarize_replications,
 )
 from cleverly.validation._seeds import sample_seed_streams, validate_sample_seeds
 from tests.studies.evidence.inference import (
@@ -597,6 +596,16 @@ def spread_values(group: pd.DataFrame, *, truth_varies: bool) -> np.ndarray:
     return estimates - group["truth"].to_numpy(dtype=float)
 
 
+def cell_groups(rows: pd.DataFrame, family: str) -> dict[str, pd.DataFrame]:
+    """Each cell of one property and its rows, as a mask on the property and the cell selects them.
+
+    The rows keep their order and their index.  One pass replaces a mask over every row per
+    cell, which dominated the summary of a study with a million rows.
+    """
+    selected = rows.loc[rows["property"] == family]
+    return {str(cell): group for cell, group in selected.groupby("cell", sort=False)}
+
+
 def summary_interval(summary: pd.DataFrame, index: Any, prefix: str) -> Interval:
     """One already-computed interval, read back off a summary row by column prefix."""
     return Interval(
@@ -624,9 +633,8 @@ def paired_displacement(
     replication.  Arms that a recorded failure shortened read the replications both kept
     (:func:`paired`).
     """
-    selected = [
-        rows.loc[(rows["property"] == family) & (rows["cell"] == cell)] for cell in (left, right)
-    ]
+    family_rows = rows.loc[rows["property"] == family]
+    selected = [family_rows.loc[family_rows["cell"] == cell] for cell in (left, right)]
     try:
         kept = paired(*selected)
     except ValueError as error:
@@ -796,26 +804,58 @@ def error_summary(
     bias, spread, SE ratio and RMSE are the error's.  The caller publishes the mean estimate
     and the mean truth itself, because this summary's are the error's mean and zero.
     """
-    return summarize_replications(
-        tuple(
-            ReplicationRecord(
-                replicate=index,
-                seed=-1,
-                estimand="cell",
-                truth=0.0,
-                estimate=float(error),
-                std_error=float(std_error),
-                covered=bool(hit),
-                rejected=bool(reject),
-                inference_estimate=float(error),
-                alpha=alpha,
-            )
-            for index, (error, std_error, hit, reject) in enumerate(
-                zip(errors, std_errors, covered, rejected, strict=True)
-            )
-        ),
+    return cell_summary(
+        errors, np.zeros(len(errors)), std_errors, covered, rejected, n=n, alpha=alpha
+    )
+
+
+def _flags(values: Any) -> np.ndarray:
+    """Each value as ``bool(value)`` would give it, as the floats a summary stores."""
+    array = np.asarray(values)
+    if array.dtype.kind in "biuf":
+        # ``bool`` of a number is ``value != 0``, and of NaN ``True``, which ``!=`` also gives.
+        return (array != 0).astype(float)
+    return np.fromiter(map(bool, array), dtype=float, count=len(array))
+
+
+def cell_summary(
+    estimates: Any,
+    truths: Any,
+    std_errors: Any,
+    covered: Any,
+    rejected: Any,
+    *,
+    n: int,
+    alpha: float,
+) -> EstimandSummary:
+    """:func:`~cleverly.validation.summarize_replications` of one cell's records, from columns.
+
+    Each record of a cell has the estimand ``"cell"``, its estimate on the inference scale,
+    and the default status and support of
+    :class:`~cleverly.validation.ReplicationRecord`.  So the summary of the records is built
+    here from the cell's columns, value for value, without a record per row, which dominated
+    the summary of a study with a million rows.  ``tests/unit/test_evidence_framework.py``
+    checks that the two agree.
+    """
+    estimates = np.asarray(estimates, dtype=float)
+    columns = (truths, std_errors, covered, rejected)
+    if any(len(column) != len(estimates) for column in columns):
+        raise ValueError("the columns of a cell have different lengths")
+    if not len(estimates):
+        raise ValueError("no successful replication records for estimand 'cell'")
+    del alpha  # A record carries it, and no summary statistic reads it.
+    return EstimandSummary(
         estimand="cell",
+        truth=float(np.mean(np.asarray(truths, dtype=float))),
         n=n,
+        n_replicates=len(estimates),
+        estimates=estimates,
+        std_errors=np.asarray(std_errors, dtype=float),
+        covered=_flags(covered),
+        rejected=_flags(rejected),
+        inference_estimates=None if np.array_equal(estimates, estimates) else estimates.copy(),
+        inference="influence_curve",
+        support="experimental",
     )
 
 
@@ -853,28 +893,14 @@ def summarize_cells(
         else:
             truth = float(group["truth"].iloc[0])
             errors = estimates - truth
-            canonical = summarize_replications(
-                tuple(
-                    ReplicationRecord(
-                        replicate=int(replicate),
-                        seed=-1,
-                        estimand="cell",
-                        truth=float(draw_truth),
-                        estimate=float(estimate),
-                        std_error=float(std_error),
-                        covered=bool(covered),
-                        rejected=bool(rejected),
-                        inference_estimate=float(estimate),
-                        alpha=alpha,
-                    )
-                    # Iterating unused Arrow string columns dominates large study summaries.
-                    # Keep the record order and conversions, and read only its numeric fields.
-                    for replicate, draw_truth, estimate, std_error, covered, rejected in group[
-                        ["replicate", "truth", "estimate", "std_error", "covered", "rejected"]
-                    ].itertuples(index=False, name=None)
-                ),
-                estimand="cell",
+            canonical = cell_summary(
+                estimates,
+                group["truth"].to_numpy(),
+                group["std_error"].to_numpy(),
+                group["covered"].to_numpy(),
+                group["rejected"].to_numpy(),
                 n=int(group["n"].iloc[0]),
+                alpha=alpha,
             )
         bias = standardized_bias_verdict(errors, margin=margin, confidence_level=confidence_level)
         coverage = clopper_pearson(

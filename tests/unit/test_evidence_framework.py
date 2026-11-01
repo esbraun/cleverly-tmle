@@ -7,6 +7,7 @@ and they do it by exhibiting the rule that fails it beside the rule that does no
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import math
 from pathlib import Path
@@ -17,6 +18,7 @@ import pandas as pd
 import pytest
 from scipy.stats import binom, norm
 
+from cleverly.validation import ReplicationRecord, summarize_replications
 from tests.studies.evidence import claims
 from tests.studies.evidence.claims import matches
 from tests.studies.evidence.document import render
@@ -33,7 +35,14 @@ from tests.studies.evidence.inference import (
     upper_bound,
 )
 from tests.studies.evidence.pairing import paired_wide
-from tests.studies.evidence.properties import Rate, rate, require_accounted, summarize_cells
+from tests.studies.evidence.properties import (
+    Rate,
+    cell_groups,
+    cell_summary,
+    rate,
+    require_accounted,
+    summarize_cells,
+)
 from tests.studies.evidence.property_verdicts import (
     COVERAGE_CONTROLS,
     DIAGNOSTIC_ROLE,
@@ -1165,3 +1174,57 @@ class TestAReferenceWithABracketedKey:
         assert claims._REFERENCE.match(name) is None
         with pytest.raises(KeyError, match="not a known quantity"):
             claims.value(_seed_record(), name, self._data())
+
+
+def test_a_cell_summary_is_the_summary_of_the_cells_records() -> None:
+    """``cell_summary`` builds from columns what one record per row gives, field for field."""
+    rng = np.random.default_rng(20_261_031)
+    size = 40
+    estimates = rng.normal(size=size)
+    estimates[3] = np.nan
+    truths = rng.normal(size=size)
+    std_errors = rng.uniform(0.5, 1.5, size)
+    covered = rng.integers(0, 2, size)
+    rejected = rng.integers(0, 2, size).astype(float)
+    rejected[5] = np.nan
+    records = tuple(
+        ReplicationRecord(
+            replicate=index,
+            seed=-1,
+            estimand="cell",
+            truth=float(truth),
+            estimate=float(estimate),
+            std_error=float(std_error),
+            covered=bool(hit),
+            rejected=bool(reject),
+            inference_estimate=float(estimate),
+            alpha=0.05,
+        )
+        for index, (estimate, truth, std_error, hit, reject) in enumerate(
+            zip(estimates, truths, std_errors, covered, rejected, strict=True)
+        )
+    )
+    expected = summarize_replications(records, estimand="cell", n=400)
+    built = cell_summary(estimates, truths, std_errors, covered, rejected, n=400, alpha=0.05)
+    for field in dataclasses.fields(expected):
+        want, got = getattr(expected, field.name), getattr(built, field.name)
+        if isinstance(want, np.ndarray) or isinstance(got, np.ndarray):
+            np.testing.assert_array_equal(got, want, err_msg=field.name, strict=True)
+        else:
+            assert got == want, field.name
+
+
+def test_cell_groups_select_what_a_mask_selects() -> None:
+    rows = pd.DataFrame(
+        {
+            "property": ["a", "b", "a", "a", "b"],
+            "cell": ["x", "x", "y", "x", "y"],
+            "estimate": [1.0, 2.0, 3.0, 4.0, 5.0],
+        },
+        index=[10, 11, 12, 13, 14],
+    )
+    groups = cell_groups(rows, "a")
+    assert sorted(groups) == ["x", "y"]
+    for cell, group in groups.items():
+        masked = rows.loc[(rows["property"] == "a") & (rows["cell"] == cell)]
+        pd.testing.assert_frame_equal(group, masked)

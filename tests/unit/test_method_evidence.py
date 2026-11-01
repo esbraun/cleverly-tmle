@@ -3733,7 +3733,7 @@ class TestPropertyDifferential:
         parametrized = {
             value.values[0]
             for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
-            if mark.args[0] == "subject"
+            if mark.args[0] == ("subject", "kind")
             for value in mark.args[1]
         }
         assert parametrized == committed | set(job.SYNTHETIC_MODULES)
@@ -3741,12 +3741,15 @@ class TestPropertyDifferential:
 
     def test_the_differential_runs_every_perturbation(self) -> None:
         job = self._job()
-        kinds = {
-            value
+        cases = [
+            value.values
             for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
-            if mark.args[0] == "kind"
+            if mark.args[0] == ("subject", "kind")
             for value in mark.args[1]
-        }
+        ]
+        kinds = {kind for _, kind in cases}
+        # Every subject runs every kind, each on the worker group that judges it.
+        assert len(cases) == len(set(cases)) == len(job.SUBJECTS) * len(kinds)
         expected = {
             *property_failures.PERTURBATIONS,
             *property_failures.binding_perturbations(),
