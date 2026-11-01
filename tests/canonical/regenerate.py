@@ -982,8 +982,7 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     ``--refresh-python`` discards both.
     """
     paths = {
-        name: scratch / name
-        for name in (*_PYTHON_CACHE, "reference-results.csv", _SUBJECT_PLUGINS)
+        name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv", _SUBJECT_PLUGINS)
     }
     stamp = paths["python-phase.json"]
     if arguments.refresh_python:
@@ -1869,6 +1868,8 @@ def _regenerate(
     if reference is not None and declaration is not None:
         # X59: the exact gates read every paired replicate; the margins rows above describe.
         inputs = parity_inputs(phase)
+        if getattr(arguments, "reference_prefix", None) is not None:
+            declaration = parity.smoke_declaration(declaration)
         parity_table = parity.parity_table(rows, inputs, record=record, declaration=declaration)
         write_csv(inputs, out / "parity-replicates.csv")
         write_csv(parity_table, out / "parity.csv")

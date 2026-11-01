@@ -1,4 +1,4 @@
-"""Regenerate the long-horizon categorical LTMLE evidence; the R lmtp comparator is pending (X59)."""
+"""Regenerate the long-horizon categorical LTMLE evidence; the R lmtp comparator runs reference-only (X59)."""
 
 from pathlib import Path
 
@@ -15,13 +15,23 @@ if __name__ == "__main__":
         canonical_long_horizon_categorical_ltmle,
         long_horizon_categorical_ltmle_properties,
         here=Path(__file__).resolve().parent,
-        # Declared for the manifest only: a pending comparator runs no reference process.
+        # The record is pending: a full run fits no reference, and --reference-only runs it
+        # on the paired prefix of COMPARATOR_DECLARATION (X59).
         reference=Reference(
-            image="cleverly-lmtp-crossfit:1.5.4",
+            image="cleverly-lmtp:9996b04",
             runner="long_horizon_categorical_ltmle/run_study.R",
             mount_runner=True,
-            extra_files=("study_harness.R",),
-            build_context=ROOT / "tests" / "canonical" / "lmtp_crossfit",
+            extra_files=(
+                "study_harness.R",
+                "lmtp_sdr_adapter.R",
+                "lmtp_crossfit_adapter.R",
+                "lmtp_policy_adapter.R",
+                "lmtp_9996b04_crossfit_adapter.R",
+                "lmtp_9996b04_policy_adapter.R",
+                "lmtp_horizon_learners.R",
+                "long_horizon_lmtp_adapter.R",
+            ),
+            build_context=ROOT / "tests" / "canonical" / "lmtp_9996b04",
             runner_root=ROOT / "tests" / "canonical",
         ),
     )

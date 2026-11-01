@@ -441,3 +441,13 @@ reference process, so the recorded hash describes no committed result.
 The runner also sources `study_harness.R`. The pending manifest now lists that file among its
 declared sources, with the hash of its bytes at the run commit `77a31636`. The file has not changed
 since `182b6438`, which precedes the run. No reference ran, so the added entry changes no result.
+
+The three long-horizon studies (`long-horizon-ltmle`, `long-horizon-categorical-ltmle` and
+`long-horizon-sdr`) declare pending comparators that X59 runs reference-only. X59 replaced each
+declared stub `run_study.R` with its K-node runner, and pointed the two `lmtp` studies at the
+`lmtp_9996b04` image context. The new runners source `ltmle_horizon_adapter.R` (S1) and the
+`lmtp` adapters and learners of S2 and S3, so the three pending manifests now list those files
+among their declared sources, each with the hash of its bytes at the X59 commit. No reference
+process ran for the committed rows, so the declared digests describe no committed result, and
+the subject rows, the property files and every recorded artifact hash are unchanged. The
+reference-only run writes the manifest's reference provenance from the bytes it runs.

@@ -1,34 +1,25 @@
-# Comparator runner of the long-horizon SDR study: a declared stub.
+# Comparator runner of the long-horizon SDR study (X59, S3): R lmtp_sdr at
+# lmtp 9996b04 (1.5.5).
 #
-# The R lmtp comparator runs of this study are pending. Roadmap item X59 owns them: it
-# replaces this file with the K-node runner, moves the record's pending_reference to
-# reference, and regenerates the study. Until then the regeneration driver runs no reference
-# process, and the manifest records the bytes of this file as a declared source.
-#
-# published_row() states the row the X59 runner publishes, in the column order of
-# tests/studies/evidence/schema.py (REPLICATE_COLUMNS).
+# The fits are long_horizon_lmtp_adapter.R's, with the plan-stratified outcome learner of
+# lmtp_horizon_learners.R.  The plans and estimands are read from the truth table.
 
-published_row <- function(row) {
-  data.frame(
-    implementation = row$implementation,
-    scenario = row$scenario,
-    replicate = row$replicate,
-    n = row$n,
-    estimand = row$estimand,
-    truth = row$truth,
-    estimate = row$estimate,
-    inference_estimate = row$inference_estimate,
-    std_error = row$std_error,
-    ci_lower = row$ci_lower,
-    ci_upper = row$ci_upper,
-    inference_scale = row$inference_scale,
-    covered = row$covered,
-    initial_estimate = row$initial_estimate,
-    stringsAsFactors = FALSE
-  )
-}
+suppressPackageStartupMessages(library(lmtp))
+future::plan(future::sequential)
+source("/fixture/study_harness.R")
+source("/fixture/lmtp_sdr_adapter.R")
+source("/fixture/lmtp_9996b04_crossfit_adapter.R")
+source("/fixture/lmtp_9996b04_policy_adapter.R")
+source("/fixture/lmtp_horizon_learners.R")
+source("/fixture/long_horizon_lmtp_adapter.R")
+options(digits = 17)
 
-stop(
-  "the R lmtp comparator of this study is pending under roadmap item X59; ",
-  "this runner is a declared stub and fits no replication"
-)
+paths <- study_arguments("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
+truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
+if (as.character(packageVersion("lmtp")) != "1.5.5") stop("this runner needs lmtp 1.5.5 at 9996b04")
+
+fit_one <- function(frame) horizon_lmtp_replicate(frame, truths, "lmtp_sdr")
+
+expected <- length(unique(truths$replicate))
+results <- study_stream(paths$samples, fit_one, expected)
+study_collect(results, expected, paths$output, versions = study_version("lmtp"))

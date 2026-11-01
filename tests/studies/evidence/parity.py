@@ -153,6 +153,21 @@ class ParityDeclaration:
         return tuple(gate for gate in GATES if gate in present)
 
 
+def smoke_declaration(declaration: ParityDeclaration) -> ParityDeclaration:
+    """``declaration`` with every undeclared tolerance at :data:`PARITY_FLOOR`, for a smoke run.
+
+    A smoke run (``--reference-prefix``) exists to measure the maxima the declaration commit
+    reads, before any tolerance is declared.  Its table is written at the floor so the maxima
+    are on disk; its verdicts are not read, and the driver refuses a smoke run into the
+    committed directory.
+    """
+    tolerance = {
+        gate: PARITY_FLOOR if value is None else value
+        for gate, value in declaration.tolerance.items()
+    }
+    return ParityDeclaration(cells=declaration.cells, tolerance=tolerance)
+
+
 def declared_tolerance(smoke_maximum: float) -> float:
     """``max(PARITY_FLOOR, SMOKE_SCALE * smoke_maximum)``, the M1 rule for G-P and G-C."""
     if not math.isfinite(smoke_maximum) or smoke_maximum < 0.0:

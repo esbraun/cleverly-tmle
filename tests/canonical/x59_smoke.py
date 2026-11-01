@@ -1,0 +1,501 @@
+"""The X59 smoke (``X59-plan.md`` section 4.1, local queue row A): one command per step.
+
+Run from the repository root, with Docker for every step but ``identity`` and ``sizing``::
+
+    python -m tests.canonical.x59_smoke g0 --out runs/x59/g0
+    python -m tests.canonical.x59_smoke identity ltmle
+    python -m tests.canonical.x59_smoke run ltmle --out runs/x59/ltmle
+    python -m tests.canonical.x59_smoke mutations ltmle --out runs/x59/ltmle
+    python -m tests.canonical.x59_smoke memory categorical --container-mb 32000
+    python -m tests.canonical.x59_smoke timing sdr --out runs/x59/timing
+    python -m tests.canonical.x59_smoke sizing --timings runs/x59/timing --workers 12 \\
+        --tier1 30 --tier3 17
+
+``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3).  Every step prints what it
+read and ends with ``PASS`` or ``FAIL`` (``memory``, ``timing`` and ``sizing`` print numbers
+only).  A smoke run writes outside the committed directories, at the smoke prefix of
+:data:`SMOKE_PREFIX` replicates, and the driver writes its parity table at the floor tolerance
+(:func:`tests.studies.evidence.parity.smoke_declaration`), so its maxima are on disk for the
+declaration commit.  No step reads a margins value, and no step changes a committed file.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import importlib
+import json
+import os
+import subprocess
+import sys
+import time
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[2]
+CANONICAL = ROOT / "tests" / "canonical"
+
+#: Study name -> (study module, regenerate directory, comparator family).
+STUDIES = {
+    "ltmle": ("tests.studies.canonical_long_horizon_ltmle", "long_horizon_ltmle", "ltmle"),
+    "categorical": (
+        "tests.studies.canonical_long_horizon_categorical_ltmle",
+        "long_horizon_categorical_ltmle",
+        "lmtp_tmle",
+    ),
+    "sdr": ("tests.studies.canonical_long_horizon_sdr", "long_horizon_sdr", "lmtp_sdr"),
+}
+#: The smoke prefix: the first eight replicates of every paired scenario (section 4.1).
+SMOKE_PREFIX = 8
+#: The images G0 compares.
+PINNED_IMAGE = "cleverly-lmtp:9996b04"
+SHIPPED_IMAGE = "cleverly-lmtp-crossfit:1.5.4"
+#: G0's tolerances: the validation-row score and each R learner against cleverly's fit.
+SCORE_TOLERANCE = 1e-8
+LEARNER_TOLERANCE = 1e-8
+#: The identity gate's tolerance on estimate, standard error and initial estimate (B4).
+IDENTITY_TOLERANCE = 1e-12
+
+
+def _module(study: str) -> Any:
+    return importlib.import_module(STUDIES[study][0])
+
+
+def _docker(*arguments: str) -> None:
+    command = ["docker", *arguments]
+    print("$", " ".join(command), flush=True)
+    subprocess.run(command, check=True)
+
+
+def _verdict(passed: bool) -> int:
+    print("PASS" if passed else "FAIL", flush=True)
+    return 0 if passed else 1
+
+
+# ----------------------------------------------------------------------------- G0
+def learner_cases(seed: int = 7) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """G0's learner fixture: three node fits of S2's ``respond`` plan and cleverly's predictions.
+
+    A binary horizon target and a fractional earlier target (quasibinomial), and the same
+    fractional target by least squares, each on the followers of the plan with cleverly's design
+    (:func:`tests.studies.long_horizon_common._design`).
+    """
+    from sklearn.linear_model import LinearRegression
+
+    from tests import discrete_law_longitudinal_horizon as law_
+    from tests.studies import long_horizon_common as common
+    from tests.studies import long_horizon_reference as reference_
+    from tests.studies.fractional_glm import QuasiBinomialGLM
+
+    s2 = _module("categorical")
+    scenario = dataclasses.replace(
+        next(s for s in s2.SCENARIOS if s.name == "categorical_k3"), n=4000
+    )
+    frame = law_.draw(scenario.K, scenario.m, scenario.n, seed, scenario.law)
+    K, m = scenario.K, scenario.m
+    follow = np.cumprod(reference_.ratios(frame, "respond", K, m) > 0, axis=1).astype(bool)
+    X_K = common._design(frame, K, m, ())
+    y = np.nan_to_num(frame["Y"].to_numpy(float))
+    horizon = QuasiBinomialGLM().fit(X_K[follow[:, K - 1]], y[follow[:, K - 1]])
+    carried = horizon.predict(X_K)
+    X_prev = common._design(frame, K - 1, m, ())
+    rows = follow[:, K - 2]
+    fractional = QuasiBinomialGLM().fit(X_prev[rows], carried[rows])
+    linear = LinearRegression().fit(X_prev[rows], carried[rows])
+    cases = [
+        ("horizon", "quasibinomial", X_K, y, follow[:, K - 1], horizon.predict(X_K)),
+        ("fractional", "quasibinomial", X_prev, carried, rows, fractional.predict(X_prev)),
+        ("linear", "gaussian", X_prev, carried, rows, linear.predict(X_prev)),
+    ]
+    inputs, expected = [], []
+    for name, family, X, target, fit_rows, predicted in cases:
+        for role, mask in (("fit", fit_rows), ("predict", np.ones(len(X), dtype=bool))):
+            block = pd.DataFrame(X[mask], columns=[f"x{j + 1}" for j in range(X.shape[1])])
+            block.insert(0, "target", target[mask])
+            block.insert(0, "row", np.flatnonzero(mask))
+            block.insert(0, "role", role)
+            block.insert(0, "family", family)
+            block.insert(0, "case", name)
+            inputs.append(block)
+        expected.append(pd.DataFrame({"case": name, "row": np.arange(len(X)), "python": predicted}))
+    return pd.concat(inputs, ignore_index=True), pd.concat(expected, ignore_index=True)
+
+
+def g0(out: Path, *, build: bool = True) -> int:
+    """G0: the image builds, the adapters agree across the two pins, the learners equal cleverly."""
+    out.mkdir(parents=True, exist_ok=True)
+    if build:
+        _docker("build", "-t", PINNED_IMAGE, str(CANONICAL / "lmtp_9996b04"))
+        _docker("build", "-t", SHIPPED_IMAGE, str(CANONICAL / "lmtp_crossfit"))
+    inputs, expected = learner_cases()
+    inputs.to_csv(out / "learner-input.csv", index=False, float_format="%.17g")
+    mounts = ["-v", f"{CANONICAL}:/fixture:ro", "-v", f"{out.resolve()}:/out"]
+    for image, modes in (
+        (PINNED_IMAGE, ("packages", "image", "adapters", "learners")),
+        (SHIPPED_IMAGE, ("packages", "adapters")),
+    ):
+        for mode in modes:
+            _docker("run", "--rm", *mounts, image, "/fixture/lmtp_9996b04/g0.R", mode, "/out")
+    checks: dict[str, bool] = {}
+    image = pd.read_csv(out / "image.csv")
+    score = float(image["max_validation_score"].iloc[0])
+    checks[f"five-fold validation-row score {score:.3g} <= {SCORE_TOLERANCE:g}"] = (
+        score <= SCORE_TOLERANCE
+    )
+    checks["cf_tmle fits are the 9996b04 data.table"] = bool(
+        image["fits_class"].iloc[0] == "data.table"
+    )
+    pinned = pd.read_csv(out / "adapters-1.5.5.csv", dtype=str)
+    shipped = pd.read_csv(out / "adapters-1.5.4.csv", dtype=str)
+    for fit in ("tmle", "policy", "sdr_1", "sdr_5"):
+        left = pinned.loc[pinned["fit"] == fit].reset_index(drop=True)
+        right = shipped.loc[shipped["fit"] == fit].reset_index(drop=True)
+        checks[f"{fit}: byte identity across the two images"] = left.equals(right)
+    packages = {
+        version: pd.read_csv(out / f"packages-{version}.csv").set_index("Package")["Version"]
+        for version in ("1.5.4", "1.5.5")
+    }
+    common = packages["1.5.4"].index.intersection(packages["1.5.5"].index)
+    drift = [
+        f"{name} {packages['1.5.4'][name]} / {packages['1.5.5'][name]}"
+        for name in common
+        if packages["1.5.4"][name] != packages["1.5.5"][name]
+    ]
+    print("package versions that differ across the images:", drift or "none", flush=True)
+    learned = pd.read_csv(out / "learners.csv", float_precision="round_trip")
+    merged = expected.merge(learned, on=["case", "row"], how="left")
+    worst = merged.assign(gap=(merged["python"] - merged["r_prediction"]).abs()).groupby("case")[
+        "gap"
+    ]
+    for case, gap in worst.max().items():
+        checks[f"learner {case}: max |R - cleverly| {gap:.3g} <= {LEARNER_TOLERANCE:g}"] = bool(
+            np.isfinite(gap) and gap <= LEARNER_TOLERANCE
+        )
+    for name, passed in checks.items():
+        print(("ok   " if passed else "FAIL ") + name, flush=True)
+    return _verdict(all(checks.values()))
+
+
+# ----------------------------------------------------------------------------- identity (B4)
+def identity_report(
+    study: str, *, replicates: int = SMOKE_PREFIX, names: Sequence[str] | None = None
+) -> pd.DataFrame:
+    """B4: refit the first ``replicates`` of each paired scenario Wald-only at HEAD.
+
+    One row per scenario, replicate and Wald estimand: the absolute difference from the committed
+    row in estimate, standard error and initial estimate, whether the written fold column is the
+    fit's own, and for S2 and S3 whether the written ratios are the weights the fit divides by
+    (:func:`tests.studies.canonical_longitudinal_sdr.check_ratios`).
+    """
+    from tests import discrete_law_longitudinal_horizon as law_
+    from tests import longitudinal_horizon_plans as plans_
+    from tests.studies import long_horizon_primary as primary
+    from tests.studies import long_horizon_reference as reference_
+    from tests.studies.canonical_longitudinal_sdr import check_ratios, plans_of
+    from tests.studies.evidence.manifest import read_rows
+    from tests.studies.evidence.seeds import replicate_seed
+
+    module = _module(study)
+    record = module.STUDY
+    estimator = "SDR" if study == "sdr" else "LTMLE"
+    comparator = STUDIES[study][2]
+    committed = read_rows(record.artifact("replicates.parquet"))
+    table = {scenario.name: scenario for scenario in module.SCENARIOS}
+    out: list[dict[str, Any]] = []
+    for name in names or list(module.REFERENCE_SCENARIOS):
+        scenario = table[name]
+        n = record.n_of(name)
+        for replicate in range(replicates):
+            seed = replicate_seed(record, name, replicate)
+            frame = law_.draw(scenario.K, scenario.m, n, seed, scenario.law)
+            result = primary.fit(frame, scenario, estimator, bootstrap=False)
+            rows = pd.DataFrame(primary.rows(record, result, scenario, replicate, n))
+            held = committed.loc[
+                (committed["implementation"] == record.implementation)
+                & (committed["scenario"] == name)
+                & (committed["replicate"] == replicate)
+            ].set_index("estimand")
+            folds_match = bool(
+                np.array_equal(
+                    np.asarray(result.folds.assignment), reference_.folds(n, scenario.n_folds)
+                )
+            )
+            ratios_match = True
+            if comparator != "ltmle":
+                declared = plans_.regimens(scenario.plans, scenario.K, scenario.m)
+                for plan in plans_of(result, declared):
+                    written = reference_.ratios(frame, str(plan.label), scenario.K, scenario.m)
+                    try:
+                        check_ratios(result, plan, written)
+                    except AssertionError:
+                        ratios_match = False
+            for row in rows.itertuples(index=False):
+                if row.estimand not in held.index:
+                    continue
+                kept = held.loc[row.estimand]
+                out.append(
+                    {
+                        "scenario": name,
+                        "replicate": replicate,
+                        "estimand": row.estimand,
+                        "estimate": abs(float(row.estimate) - float(kept["estimate"])),
+                        "std_error": abs(float(row.std_error) - float(kept["std_error"])),
+                        "initial_estimate": abs(
+                            float(row.initial_estimate) - float(kept["initial_estimate"])
+                        ),
+                        "folds_match": folds_match,
+                        "ratios_match": ratios_match,
+                    }
+                )
+    return pd.DataFrame(out)
+
+
+def identity_passed(report: pd.DataFrame) -> bool:
+    """Whether every refit row equals its committed row and every written input matches its fit."""
+    if report.empty:
+        return False
+    worst = float(report[["estimate", "std_error", "initial_estimate"]].to_numpy().max())
+    return bool(
+        worst <= IDENTITY_TOLERANCE and report["folds_match"].all() and report["ratios_match"].all()
+    )
+
+
+def identity(study: str, replicates: int) -> int:
+    report = identity_report(study, replicates=replicates)
+    print(
+        report.groupby("scenario")[["estimate", "std_error", "initial_estimate"]].max().to_string(),
+        flush=True,
+    )
+    print(
+        "folds match:", bool(report["folds_match"].all()),
+        "ratios match:", bool(report["ratios_match"].all()),
+        flush=True,
+    )  # fmt: skip
+    return _verdict(identity_passed(report))
+
+
+# ----------------------------------------------------------------------------- smoke runs
+def smoke_run(study: str, out: Path, *, prefix: int, mutation: str = "none", jobs: int = 4) -> Path:
+    """A reference-only run of the first ``prefix`` replicates, into ``out/<mutation>``."""
+    target = out / mutation
+    environment = {**os.environ, "CLEVERLY_X59_MUTATION": mutation}
+    command = [
+        sys.executable,
+        str(CANONICAL / STUDIES[study][1] / "regenerate.py"),
+        "--reference-only",
+        "--reference-prefix",
+        str(prefix),
+        "--reference-jobs",
+        str(jobs),
+        "--output",
+        str(target),
+    ]
+    print("$", f"CLEVERLY_X59_MUTATION={mutation}", " ".join(command), flush=True)
+    subprocess.run(command, check=True, env=environment, cwd=ROOT)
+    return target
+
+
+def run(study: str, out: Path, prefix: int, jobs: int) -> int:
+    from tests.studies.evidence import parity
+
+    target = smoke_run(study, out, prefix=prefix, jobs=jobs)
+    table = pd.read_csv(target / "parity.csv", float_precision="round_trip")
+    maxima = parity.smoke_maxima(table)
+    declared = {gate: parity.declared_tolerance(value) for gate, value in maxima.items()}
+    print("smoke maxima:", json.dumps(maxima), flush=True)
+    print("tolerances the M1 rule declares from them:", json.dumps(declared), flush=True)
+    print("witness reach:", json.dumps(parity.witness_scenarios(table)), flush=True)
+    (out / "declared-tolerances.json").write_text(json.dumps(declared, indent=1) + "\n")
+    # G1's tolerance is declared already; a smoke G1 over it is a finding before any run.
+    g1 = table.loc[table["gate"] == "G1", "max_abs_difference"]
+    return _verdict(bool(g1.empty or float(g1.max()) <= parity.G1_TOLERANCE))
+
+
+def mutations(study: str, out: Path, prefix: int, jobs: int) -> int:
+    """M2: every declared mutation moves some gate by at least ten declared tolerances."""
+    from tests.studies import long_horizon_reference as reference_
+    from tests.studies.evidence import parity
+
+    path = out / "declared-tolerances.json"
+    if not path.exists():
+        raise SystemExit(f"run `x59_smoke run {study}` first: {path} holds the tolerances")
+    declared = json.loads(path.read_text())
+    module = _module(study)
+    declaration = parity.ParityDeclaration(
+        cells=module.PARITY.cells, tolerance={**dict(module.PARITY.tolerance), **declared}
+    )
+    detected: dict[str, bool] = {}
+    for mutation in reference_.MUTATIONS:
+        if mutation == "none":
+            continue
+        target = smoke_run(study, out, prefix=prefix, mutation=mutation, jobs=jobs)
+        table = pd.read_csv(target / "parity.csv", float_precision="round_trip")
+        detected[mutation] = parity.mutation_detected(table, declaration)
+        print(f"{mutation}: maxima {json.dumps(parity.smoke_maxima(table))}", flush=True)
+    print("detected:", json.dumps(detected), flush=True)
+    return _verdict(all(detected.values()))
+
+
+# ----------------------------------------------------------------------------- memory and timing
+def memory(study: str, container_mb: float, runs: Path) -> int:
+    """M7: the largest per-worker peak the driver's calibration measured, and the worker count."""
+    from tests.studies.evidence import parity
+
+    leaf = STUDIES[study][1]
+    peaks = []
+    for path in sorted(runs.rglob("*.calibration.json")):
+        if leaf not in str(path):
+            continue
+        measured = json.loads(path.read_text())
+        # study_harness.R's calibration file: one entry per calibrated replicate group, each
+        # with its measured per-worker cost in MB (peak growth or private memory after gc).
+        groups = [g for g in measured.get("groups", []) if g.get("per_worker") is not None]
+        for group in groups:
+            print(f"{path.name} {group['id']}: per_worker {group['per_worker']:.0f} MB", flush=True)
+        peaks += [float(group["per_worker"]) for group in groups]
+    peak = max(peaks)
+    workers = parity.worker_count(container_mb, peak)
+    print(f"peak {peak:.0f} MB per worker; w = {workers} in {container_mb:.0f} MB", flush=True)
+    return 0
+
+
+def timing(study: str, out: Path, replicates: int) -> int:
+    """R seconds per replicate for each paired scenario, one scenario per reference run."""
+    from tests.canonical import regenerate
+
+    module = _module(study)
+    reference = _reference(study)
+    here = CANONICAL / STUDIES[study][1]
+    base = regenerate.compared_record(
+        module, argparse.Namespace(reference_prefix=None, output=here), here
+    )
+    rows = []
+    for name in module.REFERENCE_SCENARIOS:
+        record = dataclasses.replace(
+            base,
+            reference_scenarios={name: base.reference_scenarios[name]},
+            reference_replicates={name: replicates},
+        )
+        scratch = out / study / name
+        scratch.mkdir(parents=True, exist_ok=True)
+        paths = regenerate.write_reference_inputs(module, record, base.n, scratch, jobs=4)
+        started = time.monotonic()
+        reference.run(
+            here,
+            paths["samples.csv.gz"],
+            paths["truth.csv"],
+            scratch / "reference.csv",
+            cores=1,
+        )
+        seconds = (time.monotonic() - started) / replicates
+        rows.append(
+            {
+                "study": study,
+                "scenario": name,
+                "tier": module.REFERENCE_TIERS[name],
+                "cpu_hours": seconds / 3600.0,
+            }
+        )
+        print(f"{name}: {seconds:.1f} s per replicate", flush=True)
+    frame = pd.DataFrame(rows)
+    frame.to_csv(out / f"timing-{study}.csv", index=False)
+    return 0
+
+
+def _reference(study: str) -> Any:
+    """The ``Reference`` the study's ``regenerate.py`` declares."""
+    import runpy
+
+    from tests.canonical import regenerate
+
+    captured: dict[str, Any] = {}
+    original = regenerate.main
+
+    def capture(*args: Any, reference: Any, **kwargs: Any) -> None:
+        captured["reference"] = reference
+
+    regenerate.main = capture  # type: ignore[assignment]
+    try:
+        runpy.run_path(str(CANONICAL / STUDIES[study][1] / "regenerate.py"), run_name="__main__")
+    finally:
+        regenerate.main = original
+    return captured["reference"]
+
+
+def sizing(timings: Path, workers: int, tier1: float, tier3: float) -> int:
+    """Section 6: every paired scenario's prefix, from the smoke timings and ``w`` alone."""
+    from tests.studies.evidence import parity
+
+    frame = pd.concat(
+        [pd.read_csv(path) for path in sorted(timings.glob("timing-*.csv"))], ignore_index=True
+    )
+    keys = [f"{row.study}:{row.scenario}" for row in frame.itertuples(index=False)]
+    sized = parity.reference_sizes(
+        dict(zip(keys, frame["cpu_hours"], strict=True)),
+        dict(zip(keys, frame["tier"].astype(int), strict=True)),
+        workers=workers,
+        tier1_cpu_hours=tier1,
+        tier3_cpu_hours=tier3,
+    )
+    print(
+        f"B = {sized.budget:.0f} CPU-h; tier 2 at {sized.tier2}, tier 4 at {sized.tier4}; "
+        f"{sized.cost:.1f} CPU-h, {sized.wall_hours:.1f} h on {sized.workers} workers",
+        flush=True,
+    )
+    for key, count in sized.counts.items():
+        print(f"  {key}: {count}", flush=True)
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m tests.canonical.x59_smoke")
+    steps = parser.add_subparsers(dest="step", required=True)
+    step = steps.add_parser("g0")
+    step.add_argument("--out", type=Path, default=Path("runs/x59/g0"))
+    step.add_argument("--no-build", action="store_true")
+    step = steps.add_parser("identity")
+    step.add_argument("study", choices=STUDIES)
+    step.add_argument("--replicates", type=int, default=SMOKE_PREFIX)
+    for name in ("run", "mutations"):
+        step = steps.add_parser(name)
+        step.add_argument("study", choices=STUDIES)
+        step.add_argument("--out", type=Path, required=True)
+        step.add_argument("--prefix", type=int, default=SMOKE_PREFIX)
+        step.add_argument("--jobs", type=int, default=4)
+    step = steps.add_parser("memory")
+    step.add_argument("study", choices=STUDIES)
+    step.add_argument("--container-mb", type=float, required=True)
+    step.add_argument("--runs", type=Path, default=None, help="default: the driver's runs root")
+    step = steps.add_parser("timing")
+    step.add_argument("study", choices=STUDIES)
+    step.add_argument("--out", type=Path, required=True)
+    step.add_argument("--replicates", type=int, default=2)
+    step = steps.add_parser("sizing")
+    step.add_argument("--timings", type=Path, required=True)
+    step.add_argument("--workers", type=int, required=True)
+    step.add_argument("--tier1", type=float, required=True)
+    step.add_argument("--tier3", type=float, required=True)
+    arguments = parser.parse_args(argv)
+    if arguments.step == "g0":
+        return g0(arguments.out, build=not arguments.no_build)
+    if arguments.step == "identity":
+        return identity(arguments.study, arguments.replicates)
+    if arguments.step == "run":
+        return run(arguments.study, arguments.out, arguments.prefix, arguments.jobs)
+    if arguments.step == "mutations":
+        return mutations(arguments.study, arguments.out, arguments.prefix, arguments.jobs)
+    if arguments.step == "memory":
+        from tests.canonical.regenerate import runs_root
+
+        return memory(arguments.study, arguments.container_mb, arguments.runs or runs_root())
+    if arguments.step == "timing":
+        return timing(arguments.study, arguments.out, arguments.replicates)
+    return sizing(arguments.timings, arguments.workers, arguments.tier1, arguments.tier3)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

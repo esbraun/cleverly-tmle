@@ -222,8 +222,9 @@
     "metadata": {},
     "declared_sources_sha256": {
       "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-      "tests/canonical/long_horizon_ltmle/run_study.R": "473d8cc5fef39fef2c5f55047f28d6c689a7e647a3a751eb5d74aa410351cf67",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+      "tests/canonical/long_horizon_ltmle/run_study.R": "02bc12a5179ae8c5b9d6b9e6761e2a019553114b4de623e464ca8c2c503404c4",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+      "tests/canonical/ltmle_horizon_adapter.R": "32dd427c6081192fc89ad17252594a3a59ad07a1a7f434b7d09c3f3c84e5105e"
     }
   }
 }
