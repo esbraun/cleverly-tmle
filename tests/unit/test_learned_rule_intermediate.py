@@ -16,7 +16,8 @@ The witnesses are the plan's (``X11-wave2-plan.md`` rev 2.1, section 7):
   at the two levels differ on a declared share of rows, and the level-1 fit equals the known
   rule ``1{W1 > 0.5}`` while a fit that ignores ``Z`` (the level-0 rule at level 1) does not.
 - W-j3 (mutation): the targeted fit solves the score of the clever covariate with
-  :math:`1\\{Z = z\\}/q`, and the covariate without that factor leaves a declared nonzero score.
+  :math:`1\\{Z = z\\}/q`, and the covariate without that factor leaves a declared nonzero score,
+  at two arms and over three, where ``g`` and ``q`` are read at each row's own arm.
 
 Rule L4 runs per level: a longhand refit of each fold's outcome regression gives the stored
 fold rules at each level, pooled, per arm and over three arms.  A Gateaux check at an exact
@@ -53,6 +54,7 @@ from cleverly.interventions.learned import (
 )
 from cleverly.sensitivity import omitted_variable_bounds
 from cleverly.validation import refute
+from cleverly.validation.refute import _placebo_null, refute_refusal
 from tests import discrete_law_cde as exact
 from tests.conftest import OracleDirectOutcome, OracleIntermediate, OracleTreatment
 
@@ -77,6 +79,9 @@ W_J2_GAP = 1e-2
 #: W-j3: the declared floor of the score of the covariate without 1{Z = z} / q on the W-j1 stub
 #: fit (observed 0.026 and 0.048 at the two levels).
 W_J3_UNSOLVED = 1.5e-2
+#: W-j3 over three arms: the declared floor of the same score on the learner fit of
+#: :func:`_three_arms` (observed 0.013 and 0.011 at the two levels).
+W_J3_UNSOLVED_ARMS = 5e-3
 #: The declared share of rows on which the learner's rules at the two levels differ on the
 #: fixture law (observed 0.36), and over three arms (observed 0.16).
 LEVEL_RULE_SHARE = 0.2
@@ -353,26 +358,38 @@ class TestWj2LevelsDiffer:
 def _scores(result: Any, z: float) -> tuple[float, float, np.ndarray]:
     """The fold-average score with ``H`` and with ``H`` without ``1{Z = z} / q``, and the curve.
 
-    ``H = 1{A = d} 1{Z = z} / (g(A | W) q(z | A, W))`` at the fit's bounds.  The curve is
+    ``H = 1{A = d} 1{Z = z} / (g(A | W) q(z | A, W))`` at the fit's bounds, with ``g`` and ``q``
+    read at each row's own arm, so it holds at any number of arms.  The curve is
     ``H (Y - Qbar*) + Qbar*(d, z, W) - psi_v`` on each validation fold.
     """
     data = result.data
     nuisance = result.nuisance
     targeted = result.fluctuations["regime"].targeted
     lower, upper = result.config.g_bounds
+    arms = np.asarray(nuisance.propensity.arms, dtype=float)
     a = np.asarray(data.treatment, dtype=float)
-    rule = np.asarray(nuisance.regimes.values[:, 1, 0], dtype=float)
-    g1 = np.clip(np.asarray(nuisance.propensity.arm(1.0), dtype=float), lower, upper)
-    g = np.where(a == 1.0, g1, 1.0 - g1)
+    index = np.searchsorted(arms, a)
+    assert np.array_equal(arms[index], a)
+    rows = np.arange(data.n)
+    rule = arms[np.argmax(np.asarray(nuisance.regimes.values[:, :, 0]), axis=1)]
+    by_arm = np.column_stack([np.asarray(nuisance.propensity.arm(arm)) for arm in arms])
+    if arms.size == 2:
+        # The binary fit bounds g(1 | W) and takes g(0 | W) as its complement.
+        g1 = np.clip(by_arm[:, 1], lower, upper)
+        by_arm = np.column_stack([1.0 - g1, g1])
+    else:
+        by_arm = np.clip(by_arm, lower, upper)
+    g = by_arm[rows, index]
     density = np.asarray(nuisance.intermediate_density(z, result.config.missingness_bound))
-    q = np.where(a == 1.0, density[:, 1], density[:, 0])
+    q = density[rows, index]
     at_level = (np.asarray(data.intermediate) == z).astype(float)
     on_rule = (a == rule).astype(float)
     h = on_rule * at_level / (g * q)
     h_mutated = on_rule / g
     y = np.asarray(nuisance.scaler.scale(data.outcome), dtype=float)
     residual = y - np.asarray(targeted.observed, dtype=float)
-    q_rule = np.where(rule == 1.0, targeted.arms[1.0], targeted.arms[0.0])
+    q_arms = np.column_stack([np.asarray(targeted.arms[arm], dtype=float) for arm in arms])
+    q_rule = q_arms[rows, np.searchsorted(arms, rule)]
     tests = [np.asarray(test) for _, test in nuisance.folds]
     curve = np.empty(data.n)
     for test in tests:
@@ -387,7 +404,7 @@ def _scores(result: Any, z: float) -> tuple[float, float, np.ndarray]:
 class TestWj3Mutation:
     @pytest.mark.parametrize("z", LEVELS)
     def test_the_score_of_the_clever_covariate_is_solved(self, z: float) -> None:
-        for result in (_planted()[z], _reduction("fold_evaluated")[0][z]):
+        for result in (_planted()[z], _reduction("fold_evaluated")[0][z], _three_arms()[z]):
             solved, _, _ = _scores(result, z)
             assert abs(solved) < 1e-10
 
@@ -395,6 +412,11 @@ class TestWj3Mutation:
     def test_control_dropping_the_intermediate_factor_leaves_a_score(self, z: float) -> None:
         _, mutated, _ = _scores(_reduction("fold_evaluated")[0][z], z)
         assert abs(mutated) > W_J3_UNSOLVED
+
+    @pytest.mark.parametrize("z", LEVELS)
+    def test_control_over_three_arms_dropping_the_factor_leaves_a_score(self, z: float) -> None:
+        _, mutated, _ = _scores(_three_arms()[z], z)
+        assert abs(mutated) > W_J3_UNSOLVED_ARMS
 
     @pytest.mark.parametrize("z", LEVELS)
     def test_the_curve_and_variance_are_the_longhand_ones(self, z: float) -> None:
@@ -671,7 +693,7 @@ class TestTheRefusals:
             outcome="Y", treatment="A", adjustment=tuple(COVARIATES), intermediate="Z"
         )
         study = CausalStudy(cde_frame(), design=design)
-        with pytest.raises(CapabilityError, match=r"X11 \(j2\)") as caught:
+        with pytest.raises(CapabilityError, match=r"X11 \(j3\)") as caught:
             study.identify(LearnedRuleValue())
         assert "TMLE(learned_rule=LearnedRule())" in str(caught.value)
         with pytest.raises(CapabilityError, match=r"X11 \(f3\)"):
@@ -709,6 +731,12 @@ class TestTheFrozenRule:
         replay = frozen_rule_replay(result.estimator, freeze_learned_rule(result))
         again = replay._fit_single(result.data, intermediate_value=1.0)
         assert again.estimates[NAME].psi == pytest.approx(result.estimates[NAME].psi, abs=1e-12)
+        line = again.extra["learned_rule"].describe()
+        assert "holds the intermediate at Z = 1, where the original fit learned it" in line
+        assert "reads the outcome regression" not in line
+        assert (
+            "reads the outcome regression at that level" in result.extra["learned_rule"].describe()
+        )
 
     def test_a_replay_at_another_level_refuses(self) -> None:
         result = _planted()[1.0]
@@ -725,9 +753,116 @@ class TestTheFrozenRule:
         with pytest.raises(CapabilityError, match="every level"):
             replay.fit(cde_frame(), **FIT)
 
-    def test_refute_runs_on_a_level(self) -> None:
-        outcome = refute(_planted()[0.0], estimand=NAME)
-        assert outcome.tests
+    def test_the_stability_tests_run_on_a_level(self) -> None:
+        outcome = refute(
+            _planted()[0.0], estimand=NAME, tests=("random_common_cause", "subset"), n_replicates=2
+        )
+        assert [test.name for test in outcome.tests] == ["random_common_cause", "subset"]
+
+
+def strong_z_frame(n: int = 600, seed: int = 0) -> pd.DataFrame:
+    """The fixture law with ``logit Qbar0 = -1 + 0.5 W1 + 2.5 Z + A (0.1 + W1 - 0.9 Z)``.
+
+    ``Z`` moves ``Y`` strongly given ``W``, so the value of every rule at level ``z`` under the
+    placebo law, ``E_W E(Y | Z = z, W)``, is far from the outcome mean ``E[Y]``.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.uniform(-1.0, 1.0, n)
+    w2 = rng.binomial(1, 0.5, n).astype(float)
+    a = rng.binomial(1, expit(0.3 * w1 - 0.2 * w2)).astype(float)
+    z = rng.binomial(1, expit(0.2 + 0.6 * a - 0.4 * w1)).astype(float)
+    y = rng.binomial(1, expit(-1.0 + 0.5 * w1 + 2.5 * z + a * (0.1 + w1 - 0.9 * z))).astype(float)
+    return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Z": z, "Y": y})
+
+
+def _strong_z_placebo_values(n: int = 400_000) -> tuple[float, dict[float, float]]:
+    """``E[Y]`` and ``E_W E(Y | Z = z, W)`` at each level of :func:`strong_z_frame`'s law.
+
+    The placebo permutes ``A`` alone, so ``E(Y | Z = z, W)`` mixes the arms with
+    ``P(A = a | Z = z, W)``.  Both are exact given ``W``, averaged over a large draw of ``W``.
+    """
+    rng = np.random.default_rng(1)
+    w1 = rng.uniform(-1.0, 1.0, n)
+    w2 = rng.binomial(1, 0.5, n).astype(float)
+    g = expit(0.3 * w1 - 0.2 * w2)
+
+    def q1(a: float) -> np.ndarray:
+        return expit(0.2 + 0.6 * a - 0.4 * w1)
+
+    def qbar(a: float, z: float) -> np.ndarray:
+        return expit(-1.0 + 0.5 * w1 + 2.5 * z + a * (0.1 + w1 - 0.9 * z))
+
+    mean = 0.0
+    values = {}
+    for z in LEVELS:
+        joint = {a: (g if a else 1.0 - g) * (q1(a) if z else 1.0 - q1(a)) for a in (0.0, 1.0)}
+        mean += float(np.mean(sum(joint[a] * qbar(a, z) for a in joint)))
+        given_z = sum(joint[a] * qbar(a, z) for a in joint) / (joint[0.0] + joint[1.0])
+        values[z] = float(np.mean(given_z))
+    return mean, values
+
+
+@cache
+def _strong_z() -> Any:
+    """The learner fit beside ``always 1`` on :func:`strong_z_frame`, at both levels."""
+    return fit_cde(strong_z_frame(), interventions=[Static(1)])
+
+
+#: The declared gap between ``E[Y]`` and the placebo value at each level on the strong-Z law
+#: (observed 0.27 and 0.17).
+STRONG_Z_GAP = 0.1
+CONTRAST = "ate_learned_rule[learned rule vs always 1]"
+
+
+class TestThePlaceboWithAnIntermediate:
+    """The placebo law gives no rule the value ``E[Y]`` when ``Z`` moves ``Y`` given ``W``."""
+
+    def test_the_law_has_teeth(self) -> None:
+        mean, values = _strong_z_placebo_values()
+        for z in LEVELS:
+            assert abs(values[z] - mean) > STRONG_Z_GAP
+
+    @pytest.mark.parametrize("z", LEVELS)
+    @pytest.mark.parametrize("name", [NAME, "ey_known_regime[always 1]"])
+    def test_a_level_placebo_refuses(self, z: float, name: str) -> None:
+        result = _strong_z()[z]
+        assert _placebo_null(result, name) is None
+        refusal = refute_refusal(result, estimand=name, tests=("placebo",))
+        assert refusal is not None
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert "E_W E(Y | Z = z, W)" in refusal.condition
+        assert "random_common_cause" in refusal.alternative
+        with pytest.raises(CapabilityError, match="no exact null"):
+            refute(result, estimand=name, tests=("placebo",), n_replicates=2)
+
+    def test_the_default_tests_refuse_on_a_level(self) -> None:
+        with pytest.raises(CapabilityError, match="no exact null"):
+            refute(_strong_z()[1.0], estimand=NAME)
+
+    def test_a_stratum_alias_refuses(self) -> None:
+        frame = cde_frame().assign(S=lambda d: (d["W1"] > 0.3).astype(int))
+        fit = {**FIT, "covariates": ["W1", "W2", "S"], "strata": "S"}
+        result = fit_cde(frame, fit, outcome_learner=StrataStub(), cv_evaluation=False)[0.0]
+        aliases = [name for name in result.estimates if name != NAME]
+        assert aliases
+        for name in aliases:
+            refusal = refute_refusal(result, estimand=name, tests=("placebo",))
+            assert refusal is not None
+            assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+
+    def test_the_contrast_placebo_runs_against_zero(self) -> None:
+        result = _strong_z()[1.0]
+        assert _placebo_null(result, CONTRAST) == 0.0
+        assert refute_refusal(result, estimand=CONTRAST, tests=("placebo",)) is None
+        test = refute(result, estimand=CONTRAST, tests=["placebo"], n_replicates=3).tests[0]
+        assert abs(float(np.mean(test.values))) < 0.1
+
+    def test_control_without_an_intermediate_the_level_placebo_runs(self) -> None:
+        frame = strong_z_frame()
+        fit = {key: value for key, value in FIT.items() if key != "intermediate"}
+        result = fit_cde(frame, {**fit, "covariates": [*COVARIATES, "Z"]})[None]
+        assert _placebo_null(result, NAME) == pytest.approx(float(np.mean(frame["Y"])))
+        assert refute_refusal(result, estimand=NAME, tests=("placebo",)) is None
 
 
 # -------------------------------------------------------------------- label and compositions

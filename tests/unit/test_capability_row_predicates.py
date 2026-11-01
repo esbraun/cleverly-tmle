@@ -608,6 +608,7 @@ class TestTheRefuteRowResolvesEachRequest:
             "noise_nodes",
             "negative_control_design",
             "future_treatment",
+            "learned_rule_placebo",
             "no_effect_null",
             "row_set_under_plan",
             "learned_rule_splits",

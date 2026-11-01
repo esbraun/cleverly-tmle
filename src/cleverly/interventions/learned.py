@@ -1029,6 +1029,12 @@ class LearnedRuleRecord:
             return ""
         name = self.intermediate_name or "Z"
         level = f"{name} = {self.intermediate_level:g}"
+        if self._frozen():
+            return (
+                f" Every rule holds the intermediate at {level}, where the original fit "
+                "learned it: the replay reads no outcome regression for the rules and holds "
+                "the frozen rules of that level."
+            )
         return (
             f" Every rule holds the intermediate at {level}: it reads the outcome regression "
             f"at that level, so it is the best treatment given {level}, not the best pair of "

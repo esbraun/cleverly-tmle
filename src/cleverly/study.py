@@ -3855,7 +3855,7 @@ class ExplicitAdjustmentProvider:
                 f"{type(actual).__name__} with PointTreatment(intermediate=...) has no "
                 "spelling on the method layer: ControlledDirectEffect wraps an arm contrast, "
                 "and no study estimand holds the learned rule at a level of the intermediate "
-                "(X11 (j2) in docs/roadmap.md).",
+                "(X11 (j3) in docs/roadmap.md).",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative=(
                     "TMLE(learned_rule=LearnedRule()).fit(..., intermediate=...) on the engine "

@@ -88,6 +88,7 @@ import numpy as np
 
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
+from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.delta import two_sided_pvalue
@@ -1438,6 +1439,18 @@ def _frozen_rule(result: Any) -> FrozenLearnedRule | None:
     return freeze_learned_rule(result) if _is_learned_rule_fit(result) else None
 
 
+def _is_learned_rule_level(result: Any, estimand: str) -> bool:
+    """Whether ``estimand`` is a level-scale name of a learned-rule fit.
+
+    The level-scale names are the learned-rule value, a known-regime value beside it
+    (X11 (c)), and their stratum aliases. A contrast beside the rule is not one.
+    """
+    if not (_is_learned_rule_fit(result) and estimand in result.estimates):
+        return False
+    declaration = _target_declaration(result, estimand)
+    return declaration is None or declaration.scale == "level"
+
+
 def _learned_rule_reference(result: Any, estimand: str) -> float:
     """Return the weighted outcome mean that the placebo law gives every rule's value.
 
@@ -1447,6 +1460,13 @@ def _learned_rule_reference(result: Any, estimand: str) -> float:
     permutations, so the ``t`` rule applies unchanged. A weighted fit weights it, because the
     fit's own value is weighted (X82 plan 5.1.1). A learned-rule fit refuses missing outcomes
     (F27), so every outcome is observed.
+
+    A fit that holds an intermediate at a level ``z`` (X11 (j)) has no such reference. The
+    placebo permutes the treatment alone, so the intermediate keeps its law given the
+    covariates, and every rule's value at ``z`` is ``E_W E(Y | Z = z, W)``. That value needs
+    its own outcome regression, so it is no exact null, and
+    :func:`_refuse_learned_rule_intermediate_placebo` refuses the placebo there before this
+    function is reached.
     """
     data = result.data
     rows = np.asarray(data.observed, dtype=bool)
@@ -1602,13 +1622,15 @@ def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     A contrast has its fixed no-effect value. A learned-rule level, the learned-rule value or
     a known-regime value beside it, reads against the outcome mean, because the placebo law
     gives every rule that value, and a stratum value against its stratum's outcome mean. A
-    contrast of the learned rule with a known regime (X11 (c)) is a contrast, so it reads 0.
-    An MSM coefficient reads against its placebo projection (:func:`_msm_reference`).
+    learned-rule level that holds an intermediate at a level has none
+    (:func:`_learned_rule_reference`). A contrast of the learned rule with a known regime
+    (X11 (c)) is a contrast, so it reads 0, with or without an intermediate. An MSM
+    coefficient reads against its placebo projection (:func:`_msm_reference`).
     """
-    if _is_learned_rule_fit(result) and estimand in result.estimates:
-        declaration = _target_declaration(result, estimand)
-        if declaration is None or declaration.scale == "level":
-            return _learned_rule_reference(result, estimand)
+    if _is_learned_rule_level(result, estimand):
+        if declares_intermediate(result):
+            return None
+        return _learned_rule_reference(result, estimand)
     reference = _working_model_reference(result, estimand)
     if reference is not None:
         return reference.value
@@ -1620,6 +1642,39 @@ def _no_effect_difference(value: float, null: float) -> float:
     if null == 1.0:
         return float(np.log(value))
     return value - null
+
+
+def _refuse_learned_rule_intermediate_placebo(
+    result: TMLEResult, request: _RefuteRequest
+) -> Refusal | None:
+    """Refuse the placebo on a learned-rule level that holds an intermediate at a level.
+
+    The placebo permutes the treatment alone, so the intermediate ``Z`` and the outcome keep
+    their joint law with the covariates. Under that law the value of every rule at level
+    ``z`` is ``E_W E(Y | Z = z, W)``, which is ``E[Y]`` only when ``Z`` carries no
+    information on ``Y`` given ``W``. Reading the refit against ``E[Y]`` would print a false
+    statistic, and the true value needs its own regression, so no exact null exists. A
+    contrast beside the rule keeps its null 0 and runs.
+    """
+    if "placebo" not in request.tests or not _is_learned_rule_level(result, request.estimand):
+        return None
+    if not declares_intermediate(result):
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"the placebo has no exact null for {request.estimand!r}. The fit holds the "
+        "intermediate at a level z, and the placebo permutes the treatment alone, so the "
+        "intermediate keeps its law given the covariates and every rule's value at z is "
+        "E_W E(Y | Z = z, W), not the outcome mean. That value needs its own outcome "
+        "regression, so it is no fixed reference the refits can be read against (X11 (j4) in "
+        "docs/roadmap.md).",
+        alternative=(
+            f"The stability tests run on this fit: refute(result, estimand="
+            f"{request.estimand!r}, tests=('random_common_cause', 'subset')). The placebo "
+            "runs on a contrast of the learned rule with a known regime, whose null is 0."
+        ),
+        roadmap="X11",
+    )
 
 
 def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
@@ -1829,6 +1884,7 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("noise_nodes", _refuse_noise_nodes),
     ("negative_control_design", _refuse_negative_control_design),
     ("future_treatment", _refuse_future_treatment),
+    ("learned_rule_placebo", _refuse_learned_rule_intermediate_placebo),
     ("no_effect_null", _refuse_no_effect_null),
     ("row_set_under_plan", _refuse_row_set_under_plan),
     ("learned_rule_splits", _refuse_learned_rule_splits),
