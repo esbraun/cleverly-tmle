@@ -331,8 +331,10 @@ def equivalence(
     verdicts = performance.set_index(["implementation", "scenario", "estimand"])["passed"]
     # A reference that reaches part of the study pairs only on its declared cells.
     paired_cells = record.paired_cells()
+    # A reference that fits a declared prefix pairs those replicates only (X59), so the
+    # subject's later replicates leave the cell before any leg reads it.
     cells = [
-        (key, group)
+        (key, group.loc[group["replicate"] < record.replicates_of(reference, str(key[0]))])
         for key, group in rows.groupby(["scenario", "estimand"], sort=True)
         if (str(key[0]), str(key[1])) in paired_cells
     ]
@@ -370,9 +372,10 @@ def equivalence(
         )
         mean_margin = margins.paired_difference * pooled_sd
 
-        if paired.dropped:
-            # A recorded comparator failure left the reference short.  The descriptive columns
-            # below compare the two implementations, so they read the replications both hold.
+        if paired.dropped or record.replicates_of(reference, str(scenario)) < record.replicates:
+            # A recorded comparator failure, or a declared prefix, left the reference short.
+            # The descriptive columns below compare the two implementations, so they read the
+            # replications both hold.
             shared = group.loc[group["replicate"].isin(paired.frame.index)]
             cell = summarize(shared, truth_varies=record.truth_varies_by_replicate).set_index(
                 "implementation"

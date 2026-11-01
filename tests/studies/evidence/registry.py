@@ -297,6 +297,15 @@ class StudyRecord:
     #: rule.  The manifest records the bound a run applied; the published claims quote it from
     #: there (:func:`tests.studies.evidence.failures.applied_bounds`).
     failure_bound: Mapping[str, float] = field(default_factory=dict)
+    #: Scenario -> the paired prefix: the reference fits replicates ``0 .. count - 1`` of that
+    #: scenario only (X59).  A scenario it omits pairs every declared replicate.
+    #:
+    #: A comparator that costs hours per replicate cannot refit every committed replicate, so a
+    #: record declares the prefix before the run, from timings alone.  The subject keeps every
+    #: replicate for its own truth rows; the paired comparison, the reference's truth rows and
+    #: its failure accounting read the prefix, and ``equivalence.csv`` records its count.  Read
+    #: a cell's count through :meth:`replicates_of`.
+    reference_replicates: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         undeclared = self.bias_row_families - set(self.property_cells)
@@ -304,6 +313,7 @@ class StudyRecord:
             raise ValueError(
                 f"bias_row_families names families the record does not declare: {sorted(undeclared)}"
             )
+        named_reference = self.reference or self.pending_reference
         if self.publication_policy not in ("gated", "reporting"):
             raise ValueError(
                 "publication_policy must be 'gated' or 'reporting'; "
@@ -313,7 +323,7 @@ class StudyRecord:
             raise ValueError(
                 f"paired_role must be 'gated' or 'descriptive'; got {self.paired_role!r}"
             )
-        if self.paired_role == "descriptive" and self.reference is None:
+        if self.paired_role == "descriptive" and named_reference is None:
             raise ValueError("a descriptive paired role needs a reference to pair with")
         if self.truth_varies_by_replicate and self.reference is not None:
             raise ValueError(
@@ -381,6 +391,26 @@ class StudyRecord:
             empty = sorted(name for name, names in self.reference_scenarios.items() if not names)
             if empty:
                 raise ValueError(f"reference_scenarios gives no estimand for {empty}")
+        if self.reference_replicates:
+            if named is None:
+                raise ValueError("reference_replicates needs a reference or a pending reference")
+            unknown_prefix = set(self.reference_replicates) - set(self.scenarios)
+            if unknown_prefix:
+                raise ValueError(
+                    f"reference_replicates names unknown scenarios: {sorted(unknown_prefix)}"
+                )
+            wrong_prefix = {
+                name: count
+                for name, count in self.reference_replicates.items()
+                if isinstance(count, bool)
+                or not isinstance(count, int)
+                or not 2 <= count <= self.replicates
+            }
+            if wrong_prefix:
+                raise ValueError(
+                    f"a reference prefix must be an integer in [2, {self.replicates}]; "
+                    f"got {wrong_prefix}"
+                )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
         # A bound may be declared for a pending comparator before its first run.
@@ -446,6 +476,16 @@ class StudyRecord:
         if n == self.n:
             return {scenario: self.n_of(scenario) for scenario in self.scenarios}
         return {scenario: int(n) for scenario in self.scenarios}
+
+    def replicates_of(self, implementation: str, scenario: str) -> int:
+        """The replicates of ``scenario`` that ``implementation`` reports.
+
+        The subject reports every declared replicate.  The reference reports the prefix that
+        :attr:`reference_replicates` declares for the scenario, else every replicate.
+        """
+        if implementation in (self.reference, self.pending_reference):
+            return int(self.reference_replicates.get(scenario, self.replicates))
+        return self.replicates
 
     def comparison_kind(self, scenario: str, estimand: str) -> str | None:
         """The kind of one equivalence row: an exact override, a scenario override, or the default."""

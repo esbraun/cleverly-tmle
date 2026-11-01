@@ -214,14 +214,20 @@ def validate_replicates(
                     "of its declared cells"
                 )
     counts = rows.groupby(["implementation", "scenario", "estimand"], sort=True).size()
-    wrong = counts[counts != record.replicates]
+    # A reference that fits a declared prefix reports that many replicates of its scenario.
+    declared_counts = pd.Series(
+        [record.replicates_of(str(key[0]), str(key[1])) for key in counts.index],
+        index=counts.index,
+    )
+    wrong = counts[counts != declared_counts]
     if failures is not None and not failures.empty:
         from tests.studies.evidence.failures import reconcile
 
         reconcile(rows, failures, record=record)
     elif not wrong.empty:
         raise ValueError(
-            f"{record.slug}: cells with a replication count other than {record.replicates}:\n"
+            f"{record.slug}: cells with a replication count other than the declared "
+            f"{record.replicates} (or the reference's declared prefix):\n"
             f"{wrong.to_string()}"
         )
     expected_n = rows["scenario"].map(record.sizes(record.n))

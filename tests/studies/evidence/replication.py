@@ -113,6 +113,10 @@ class PhaseResult:
         replicate without a sample.  The driver then writes one ``paired_input_missing``
         reference record per subject record.  False when every sample is written, so the
         reference fits the replicates the subject lost.
+    plugins : pandas.DataFrame or None
+        The subject's untargeted plug-in per ``scenario``, ``replicate`` and ``estimand``
+        (column ``subject_plugin``), for a study that declares exact parity gates
+        (:mod:`tests.studies.evidence.parity`); ``None`` otherwise.
     """
 
     rows: pd.DataFrame
@@ -120,6 +124,7 @@ class PhaseResult:
     truths: pd.DataFrame | None = None
     failures: pd.DataFrame | None = None
     reference_input_from_fit: bool = False
+    plugins: pd.DataFrame | None = None
 
 
 def records(outcomes: Outcomes) -> pd.DataFrame | None:

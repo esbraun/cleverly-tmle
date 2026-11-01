@@ -1053,17 +1053,17 @@ def test_reference_failures_labels_the_harness_records(tmp_path: Any) -> None:
     from tests.studies.evidence import failures
 
     results = tmp_path / "reference-results.csv"
-    study = SimpleNamespace(STUDY=canonical_tmle.STUDY)
-    assert regenerate._reference_failures(study, results) is None  # type: ignore[arg-type]
+    name = str(canonical_tmle.STUDY.reference)
+    assert regenerate._reference_failures(name, results) is None
 
     harness = [c for c in failures.FAILURE_COLUMNS if c != "implementation"]
     path = regenerate.failures_path(results)
     pd.DataFrame(columns=harness).to_csv(path, index=False)
-    assert regenerate._reference_failures(study, results) is None  # type: ignore[arg-type]
+    assert regenerate._reference_failures(name, results) is None
 
     rows = [_failure_record("", "4"), {**_failure_record("", "0"), "group_id": "g000000000"}]
     pd.DataFrame(rows).loc[:, harness].to_csv(path, index=False)
-    frame = regenerate._reference_failures(study, results)  # type: ignore[arg-type]
+    frame = regenerate._reference_failures(name, results)
     assert frame is not None
     assert tuple(frame.columns) == failures.FAILURE_COLUMNS
     assert set(frame["implementation"]) == {str(canonical_tmle.STUDY.reference)}

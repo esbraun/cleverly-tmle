@@ -143,9 +143,16 @@ def allowance(bound: float, replicates: int) -> int:
     return math.floor(bound * replicates + _FLOOR_SLACK)
 
 
-def allowed(record: StudyRecord, implementation: str) -> int:
-    """How many replicates of one cell may fail before the cell is red."""
-    return allowance(float(record.failure_bound.get(implementation, 0.0)), record.replicates)
+def allowed(record: StudyRecord, implementation: str, scenario: str | None = None) -> int:
+    """How many replicates of one cell may fail before the cell is red.
+
+    A reference that fits a declared prefix (:attr:`StudyRecord.reference_replicates`) is
+    allowed its bound of the prefix, so ``scenario`` names the cell's scenario.
+    """
+    replicates = (
+        record.replicates if scenario is None else record.replicates_of(implementation, scenario)
+    )
+    return allowance(float(record.failure_bound.get(implementation, 0.0)), replicates)
 
 
 #: The manifest configuration key that records the primary bounds a run applied.
@@ -326,7 +333,6 @@ def reconcile(rows: pd.DataFrame, failures: pd.DataFrame | None, *, record: Stud
     unknown = set(lost["implementation"]) - set(record.implementations)
     if unknown:
         raise ValueError(f"{record.slug}: failures of undeclared implementations {sorted(unknown)}")
-    every = set(range(record.replicates))
     failed = {
         key: set(group["replicate"].astype(int))
         for key, group in lost.groupby(["implementation", "scenario", "estimand"], sort=True)
@@ -335,6 +341,7 @@ def reconcile(rows: pd.DataFrame, failures: pd.DataFrame | None, *, record: Stud
     for key, group in rows.groupby(["implementation", "scenario", "estimand"], sort=True):
         survived = list(group["replicate"].astype(int))
         lost_here = failed.pop(key, set())
+        every = set(range(record.replicates_of(str(key[0]), str(key[1]))))
         if len(survived) != len(set(survived)):
             wrong.append(f"{key}: a replicate appears twice")
             continue
@@ -343,7 +350,7 @@ def reconcile(rows: pd.DataFrame, failures: pd.DataFrame | None, *, record: Stud
         elif set(survived) | lost_here != every:
             wrong.append(
                 f"{key}: {len(survived)} surviving and {len(lost_here)} failed replicates do not "
-                f"cover the declared {record.replicates}"
+                f"cover the declared {len(every)}"
             )
     for key in failed:
         wrong.append(f"{key}: every replicate failed, so nothing in this cell can be accounted for")
@@ -938,24 +945,25 @@ def _rows(
     for side, count in sorted(counted.items(), key=lambda item: item[0] != implementation):
         if side != implementation and not count:
             continue
-        allowance = allowed(record, side)
+        allowance = allowed(record, side, scenario)
         name = "failure bound" if side == implementation else f"{_side(record, side)} failure bound"
         bounds.append(Leg(name, float(count), float(allowance), "", count <= allowance))
     over = int(not all(leg.passed for leg in bounds))
     passed, reason = (gate or _gate)(over, 0, legs)
     subject = int(counted.get(record.implementation, 0))
     reference = int(counted.get(str(record.reference), 0)) if record.reference else 0
+    requested = record.replicates_of(implementation, scenario)
     return [
         {
             "table": table,
             "implementation": implementation,
             "scenario": scenario,
             "estimand": estimand,
-            "requested": record.replicates,
+            "requested": requested,
             "failed": failed,
-            "rate": failed / record.replicates,
+            "rate": failed / requested,
             "bound": float(record.failure_bound.get(implementation, 0.0)),
-            "allowed": allowed(record, implementation),
+            "allowed": allowed(record, implementation, scenario),
             "dropped_replications": dropped,
             "leg": leg.name,
             "complete_case": leg.complete_case,
@@ -1035,7 +1043,8 @@ def _paired_payload(
         columns="implementation",
         values=["estimate", "covered", "inference_estimate", "std_error"],
     ).sort_index()
-    replicates = pd.Index(range(record.replicates), name="replicate")
+    # A reference prefix pairs its own replicates only (X59).
+    replicates = pd.Index(range(record.replicates_of(reference, scenario)), name="replicate")
     wide = wide.reindex(replicates)
     legs, witness = paired_legs(
         wide,
@@ -1124,10 +1133,14 @@ def paired_accounting(
     own = _own(failures, record)
     # A subject loss in a cell the reference does not report has no paired row to correct.
     paired_cells = record.paired_cells()
+    # A replicate past the reference's declared prefix has no paired row either (X59).
     lost = lost.loc[
         [
             (str(scenario), str(estimand)) in paired_cells
-            for scenario, estimand in zip(lost["scenario"], lost["estimand"], strict=True)
+            and int(replicate) < record.replicates_of(reference, str(scenario))
+            for scenario, estimand, replicate in zip(
+                lost["scenario"], lost["estimand"], lost["replicate"], strict=True
+            )
         ]
     ]
     payloads = []

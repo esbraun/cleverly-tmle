@@ -60,7 +60,7 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import available_cores
-from tests.studies.evidence import failures, property_failures, replication
+from tests.studies.evidence import failures, parity, property_failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
 from tests.studies.evidence.manifest import read_rows, write_csv, write_manifest, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
@@ -336,8 +336,14 @@ def content_sha(path: Path) -> str:
 
     A gzip header carries a timestamp, so the archive bytes of two equal tables can differ.
     """
-    data = path.read_bytes()
-    return hashlib.sha256(gzip.decompress(data) if path.name.endswith(".gz") else data).hexdigest()
+    sha = hashlib.sha256()
+    # Streamed: a reference-only archive of the long-horizon studies runs to tens of GB, which
+    # must not be decompressed into memory to be hashed.  The digest is the same either way.
+    opener = gzip.open if path.name.endswith(".gz") else open
+    with opener(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1 << 24), b""):
+            sha.update(block)
+    return sha.hexdigest()
 
 
 def _git_bytes(*arguments: str) -> bytes:
@@ -870,6 +876,31 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
                 "study with no reference process to run (its comparator is pending or absent)"
             ),
         )
+    if reference is not None or study.STUDY.comparator_state == "pending":
+        parser.add_argument(
+            "--reference-only",
+            action="store_true",
+            help=(
+                "reuse the committed subject rows, re-draw the reference's declared replicate "
+                "prefix from its seeds and run only the reference (X59)"
+            ),
+        )
+        parser.add_argument(
+            "--reference-prefix",
+            type=int,
+            help=(
+                "with --reference-only: pair the first N replicates of every scenario instead "
+                "of the declared prefix; a smoke run, refused into the committed directory"
+            ),
+        )
+    if reference is None and study.STUDY.comparator_state == "pending":
+        parser.add_argument(
+            "--reference-jobs",
+            "--r-jobs",
+            dest="reference_jobs",
+            type=int,
+            help="reference-process concurrency of a --reference-only run (defaults to --jobs)",
+        )
     if reference is not None:
         parser.add_argument(
             "--skip-reference",
@@ -902,6 +933,18 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
         arguments.skip_properties = True
     if getattr(arguments, "reference_jobs", None) is not None and arguments.reference_jobs < 1:
         parser.error("--reference-jobs must be >= 1")
+    if getattr(arguments, "reference_prefix", None) is not None:
+        if not arguments.reference_only:
+            parser.error("--reference-prefix needs --reference-only")
+        if arguments.reference_prefix < 2:
+            parser.error("--reference-prefix must be >= 2")
+    if getattr(arguments, "reference_only", False):
+        if getattr(arguments, "reuse_subject", False) or getattr(
+            arguments, "skip_reference", False
+        ):
+            parser.error("--reference-only already reuses the subject and runs the reference")
+        # The committed property files keep their bytes: the subject's evidence is not rerun.
+        arguments.skip_properties = True
     return arguments
 
 
@@ -938,7 +981,10 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     replicate checkpoints, so the next run fits only the replicates it did not finish.
     ``--refresh-python`` discards both.
     """
-    paths = {name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv")}
+    paths = {
+        name: scratch / name
+        for name in (*_PYTHON_CACHE, "reference-results.csv", _SUBJECT_PLUGINS)
+    }
     stamp = paths["python-phase.json"]
     if arguments.refresh_python:
         stamp.unlink(missing_ok=True)
@@ -981,6 +1027,10 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
         write_csv(result.truths, paths["truth.csv"])
         files += ["samples.csv.gz", "truth.csv"]
     paths["python-failures.csv"].unlink(missing_ok=True)
+    paths[_SUBJECT_PLUGINS].unlink(missing_ok=True)
+    if result.plugins is not None:
+        write_csv(result.plugins, paths[_SUBJECT_PLUGINS])
+        files.append(_SUBJECT_PLUGINS)
     if result.failures is not None:
         write_csv(result.failures, paths["python-failures.csv"])
         files.append("python-failures.csv")
@@ -1056,6 +1106,262 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
     return _Phase(rows=rows, cached=True, subject_failures=recorded_failures)
 
 
+# ---- the reference-only phase (X59) ----------------------------------------------------------
+
+#: What a reference-only phase writes in its scratch, and the stamp that names a finished one.
+_REFERENCE_INPUTS = "reference-inputs.json"
+#: ``cleverly``'s untargeted plug-in per paired replicate, for the parity inputs.
+_SUBJECT_PLUGINS = "subject-plugins.csv"
+#: The parity artefacts of a study that declares ``PARITY``.
+PARITY_ARTIFACTS = ("parity.csv", "parity-replicates.csv")
+#: The sample size at which the archive's column list is read off each scenario.
+_COLUMN_PROBE_N = 200
+
+
+def compared_record(study: ModuleType, arguments: argparse.Namespace, here: Path) -> StudyRecord:
+    """The record a ``--reference-only`` run pairs under.
+
+    A pending record is promoted for the run: its pending comparator becomes the reference, and
+    the study module's ``COMPARATOR_DECLARATION`` adds the fields the comparator run declares
+    (the prefix, the unpaired cells, the paired role).  The registration commit makes those
+    fields the record's own once the runs land.  ``--reference-prefix N`` replaces the prefix
+    with the first ``N`` replicates of every paired scenario, for a smoke run, and is refused
+    into the committed directory.
+    """
+    record = study.STUDY
+    declaration = dict(getattr(study, "COMPARATOR_DECLARATION", {}) or {})
+    if record.comparator_state == "pending":
+        record = dataclasses.replace(
+            record,
+            reference=record.pending_reference,
+            pending_reference=None,
+            pending_reason="",
+            **declaration,
+        )
+    elif declaration:
+        raise RuntimeError(
+            f"{record.slug} is compared already; its COMPARATOR_DECLARATION belongs in the record"
+        )
+    prefix = getattr(arguments, "reference_prefix", None)
+    if prefix is not None:
+        if Path(arguments.output).resolve() == here.resolve():
+            raise RuntimeError(
+                "--reference-prefix is a smoke run; pass an --output outside the committed "
+                "directory"
+            )
+        paired = record.reported(str(record.reference))
+        record = dataclasses.replace(
+            record,
+            reference_replicates={name: min(prefix, record.replicates) for name in paired},
+        )
+    return record
+
+
+def _paired_keys(record: StudyRecord, n: int) -> list[tuple[str, int, int]]:
+    """``(scenario, replicate, n)`` of every paired replicate, replicate-major (M6)."""
+    reference = str(record.reference)
+    sizes = record.sizes(n)
+    counts = {name: record.replicates_of(reference, name) for name in record.reported(reference)}
+    return [
+        (name, replicate, sizes[name])
+        for replicate in range(max(counts.values(), default=0))
+        for name in record.scenarios
+        if name in counts and replicate < counts[name]
+    ]
+
+
+def _archive_columns(module: ModuleType, record: StudyRecord) -> list[str]:
+    """The archive's columns: each paired scenario's, first seen first, after the keys.
+
+    One archive holds every scenario, so its header is the union; a runner drops the columns
+    another scenario wrote (``typed`` in the long-horizon runners).
+    """
+    columns = ["scenario", "replicate", "row"]
+    for name in record.reported(str(record.reference)):
+        sample = module.reference_sample(name, _COLUMN_PROBE_N, 0)
+        columns += [column for column in sample.frame.columns if column not in columns]
+    return columns
+
+
+def _reference_input(
+    module_name: str,
+    columns: list[str],
+    reported: dict[str, tuple[str, ...]],
+    key: tuple[str, int, int],
+) -> tuple[bytes, list[dict[str, Any]], list[dict[str, Any]]]:
+    """One paired replicate of one scenario: its gzip CSV member, truth rows and plug-ins."""
+    import importlib
+    import io
+
+    scenario, replicate, n = key
+    module = importlib.import_module(module_name)
+    sample = module.reference_sample(scenario, n, replicate)
+    frame = sample.frame.copy()
+    unknown = sorted(set(frame.columns) - set(columns))
+    if unknown:
+        raise RuntimeError(f"{scenario} replicate {replicate} wrote undeclared columns {unknown}")
+    frame.insert(0, "row", range(len(frame)))
+    frame.insert(0, "replicate", replicate)
+    frame.insert(0, "scenario", scenario)
+    text = io.StringIO()
+    frame.reindex(columns=columns).to_csv(text, index=False, header=False, lineterminator="\n")
+    member = gzip.compress(text.getvalue().encode("utf-8"), mtime=0)
+    wanted = reported[scenario]
+    truths = [
+        {
+            "scenario": scenario,
+            "replicate": replicate,
+            "estimand": name,
+            "truth": sample.truths[name],
+        }
+        for name in wanted
+    ]
+    plugins = [
+        {"scenario": scenario, "replicate": replicate, "estimand": name, "subject_plugin": value}
+        for name, value in sample.plugins.items()
+        if name in wanted
+    ]
+    return member, truths, plugins
+
+
+def _ordered_map(function: Any, keys: list[Any], jobs: int) -> Iterator[Any]:
+    """``function`` over ``keys`` in order, at most ``2 jobs`` results in flight."""
+    if jobs <= 1:
+        yield from map(function, keys)
+        return
+    import concurrent.futures
+    import multiprocessing
+
+    context = multiprocessing.get_context("spawn")
+    with concurrent.futures.ProcessPoolExecutor(jobs, mp_context=context) as pool:
+        pending: list[Any] = []
+        queued = iter(keys)
+        for key in queued:
+            pending.append(pool.submit(function, key))
+            if len(pending) >= 2 * jobs:
+                break
+        while pending:
+            done = pending.pop(0)
+            yield done.result()
+            for key in queued:
+                pending.append(pool.submit(function, key))
+                break
+
+
+def write_reference_inputs(
+    study: ModuleType, record: StudyRecord, n: int, scratch: Path, *, jobs: int
+) -> dict[str, Path]:
+    """Re-draw the paired prefix from its seeds and write the comparator's inputs (M6).
+
+    No ``cleverly`` fit runs.  Each paired ``(scenario, replicate)`` is drawn by the study's own
+    ``reference_sample`` hook, which builds every column the runner reads from the law and the
+    plan.  The archive is one gzip file of concatenated members, replicate-major across the
+    scenarios, so ``study_stream`` reads one replicate's scenarios as one group.  Returns the
+    paths of the archive, the truth table and the plug-in table.
+    """
+    import functools
+
+    paths = {
+        "samples.csv.gz": scratch / "samples.csv.gz",
+        "truth.csv": scratch / "truth.csv",
+        _SUBJECT_PLUGINS: scratch / _SUBJECT_PLUGINS,
+    }
+    keys = _paired_keys(record, n)
+    if not keys:
+        raise RuntimeError(f"{record.slug}: the reference pairs no replicate")
+    columns = _archive_columns(study, record)
+    reported = {
+        name: tuple(cells) for name, cells in record.reported(str(record.reference)).items()
+    }
+    worker = functools.partial(_reference_input, study.__name__, columns, reported)
+    truths: list[dict[str, Any]] = []
+    plugins: list[dict[str, Any]] = []
+    archive = paths["samples.csv.gz"]
+    partial = archive.with_name(archive.name + ".partial")
+    with partial.open("wb") as stream:
+        stream.write(gzip.compress((",".join(columns) + "\n").encode("utf-8"), mtime=0))
+        for done, (member, truth_rows, plugin_rows) in enumerate(
+            _ordered_map(worker, keys, jobs), start=1
+        ):
+            stream.write(member)
+            truths += truth_rows
+            plugins += plugin_rows
+            if done % 50 == 0 or done == len(keys):
+                print(f"wrote {done}/{len(keys)} paired samples", flush=True)
+    partial.replace(archive)
+    write_csv(
+        pd.DataFrame(truths, columns=["scenario", "replicate", "estimand", "truth"]),
+        paths["truth.csv"],
+    )
+    write_csv(
+        pd.DataFrame(plugins, columns=["scenario", "replicate", "estimand", "subject_plugin"]),
+        paths[_SUBJECT_PLUGINS],
+    )
+    return paths
+
+
+def _reference_only_phase(
+    study: ModuleType,
+    record: StudyRecord,
+    arguments: argparse.Namespace,
+    here: Path,
+    scratch: Path,
+) -> _Phase:
+    """The committed subject, and the comparator inputs of the paired prefix (X59 section 3).
+
+    The subject rows and records are the committed ones, checked against the committed manifest
+    as ``--reuse-subject`` checks them.  The inputs are re-drawn from the seeds, reused from the
+    scratch when a finished phase of the same resume key is there.
+    """
+    phase = _committed_subject(study, arguments, here)
+    paths = {
+        name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv", _SUBJECT_PLUGINS)
+    }
+    stamp = scratch / _REFERENCE_INPUTS
+    keys = [list(key) for key in _paired_keys(record, arguments.n)]
+    if stamp.exists():
+        written = json.loads(stamp.read_text(encoding="utf-8"))
+        if written.get("keys") == keys and all(
+            paths[name].exists() for name in ("samples.csv.gz", "truth.csv", _SUBJECT_PLUGINS)
+        ):
+            print(f"reusing the reference inputs in {scratch}", flush=True)
+            RUN_NOTES.append(f"resumed from {scratch}, reused the reference inputs")
+            phase.paths = paths
+            return phase
+        stamp.unlink()
+    write_reference_inputs(study, record, arguments.n, scratch, jobs=arguments.jobs)
+    stamp.write_text(json.dumps({"keys": keys}, indent=1) + "\n", encoding="utf-8", newline="\n")
+    phase.paths = paths
+    return phase
+
+
+def parity_inputs(phase: _Phase) -> pd.DataFrame:
+    """``parity-replicates.csv``: the subject's plug-ins beside the reference's ``gcomp`` values.
+
+    The reference writes its untargeted estimate in an extra ``gcomp_estimate`` column of its
+    rows where it computes one; the shared replicate schema drops that column, so it travels
+    here.
+    """
+    plugins_path = phase.paths.get(_SUBJECT_PLUGINS)
+    plugins = (
+        pd.read_csv(plugins_path, float_precision="round_trip")
+        if plugins_path is not None and plugins_path.exists()
+        else pd.DataFrame(columns=["scenario", "replicate", "estimand", "subject_plugin"])
+    )
+    results = phase.reference_results
+    gcomp = pd.DataFrame(columns=["scenario", "replicate", "estimand", "reference_gcomp"])
+    if results is not None and results.exists():
+        held = pd.read_csv(results, float_precision="round_trip")
+        if "gcomp_estimate" in held.columns:
+            gcomp = held.loc[:, ["scenario", "replicate", "estimand", "gcomp_estimate"]].rename(
+                columns={"gcomp_estimate": "reference_gcomp"}
+            )
+    merged = plugins.merge(gcomp, on=["scenario", "replicate", "estimand"], how="outer")
+    return merged.loc[:, list(parity.INPUT_COLUMNS)].sort_values(
+        ["scenario", "replicate", "estimand"], ignore_index=True
+    )
+
+
 def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
     """What a cached reference result must have been written under, or ``None``.
 
@@ -1077,14 +1383,16 @@ def _reference_rows(
     arguments: argparse.Namespace,
     here: Path,
     phase: _Phase,
+    record: StudyRecord | None = None,
 ) -> pd.DataFrame:
+    record = study.STUDY if record is None else record
     # ``--skip-reference`` is only registered when the study declares a reference, so the one
     # ``getattr`` here stands in for a flag an unpaired study never carries.
     if getattr(arguments, "skip_reference", False):
         committed = read_rows(here / "replicates.parquet")
-        sizes = study.STUDY.sizes(arguments.n)
+        sizes = record.sizes(arguments.n)
         rows = committed.loc[
-            (committed["implementation"] == study.STUDY.reference)
+            (committed["implementation"] == record.reference)
             & (committed["replicate"] < arguments.replicates)
             & (committed["n"] == committed["scenario"].map(sizes).fillna(arguments.n))
         ]
@@ -1104,7 +1412,7 @@ def _reference_rows(
             )
         if committed_failures is not None:
             committed_failures = committed_failures.loc[
-                committed_failures["implementation"] == study.STUDY.reference
+                committed_failures["implementation"] == record.reference
             ]
             phase.reference_failures = _failures_below(committed_failures, arguments.replicates)
         return rows
@@ -1120,7 +1428,7 @@ def _reference_rows(
     ):
         print(f"reusing the cached reference phase in {cached_reference.parent}", flush=True)
         RUN_NOTES.append(f"resumed from {cached_reference.parent}, reused the reference phase")
-        phase.reference_failures = _reference_failures(study, cached_reference)
+        phase.reference_failures = _reference_failures(str(record.reference), cached_reference)
         return pd.read_csv(cached_reference)
     stamp.unlink(missing_ok=True)
     reference.run(
@@ -1133,7 +1441,7 @@ def _reference_rows(
     if expected is not None and reference.interpreter != "Rscript":
         # An R run writes its own stamp when it completes; any other reference gets it here.
         stamp.write_text(expected, encoding="utf-8", newline="\n")
-    phase.reference_failures = _reference_failures(study, cached_reference)
+    phase.reference_failures = _reference_failures(str(record.reference), cached_reference)
     return pd.read_csv(cached_reference)
 
 
@@ -1146,7 +1454,7 @@ def _failures_below(frame: pd.DataFrame, replicates: int) -> pd.DataFrame | None
     return None if kept.empty else kept.reset_index(drop=True)
 
 
-def _reference_failures(study: ModuleType, results: Path) -> pd.DataFrame | None:
+def _reference_failures(reference_name: str, results: Path) -> pd.DataFrame | None:
     """The harness's failure records beside ``results``, labelled with the reference's name.
 
     The harness does not know the implementation's name; the rows carry it, and every record
@@ -1158,7 +1466,7 @@ def _reference_failures(study: ModuleType, results: Path) -> pd.DataFrame | None
     raw = pd.read_csv(path, dtype={"scenarios": str, "replicates": str}, keep_default_na=False)
     if raw.empty:
         return None
-    raw.insert(0, "implementation", str(study.STUDY.reference))
+    raw.insert(0, "implementation", reference_name)
     frame = raw.loc[:, list(failures.FAILURE_COLUMNS)]
     for message, count in frame["message"].value_counts().items():
         print(f"recorded failure ({count}x): {message}", flush=True)
@@ -1279,6 +1587,20 @@ def _property_artifacts(
     return None, ()
 
 
+def _committed_subject_provenance(here: Path) -> dict[str, Any]:
+    """The committed subject provenance a reference-only manifest carries forward (B4).
+
+    The subject rows were written by the committed run, so the manifest keeps that run's
+    ``generated_with.subject`` and ``study_module_sha256``: re-stamping them would describe
+    bytes that never produced those rows.
+    """
+    committed = json.loads((here / "manifest.json").read_text(encoding="utf-8"))
+    return {
+        "subject_provenance": committed["generated_with"]["subject"],
+        "module_hashes": committed["study_module_sha256"],
+    }
+
+
 #: The manifest configuration key that records the property phase's declared failure bound.
 PROPERTY_FAILURE_BOUND_KEY = property_failures.PROPERTY_BOUND_KEY
 
@@ -1328,20 +1650,32 @@ def main(
             "cannot record the declared reference sources"
         )
     declared_reference = reference if pending else None
-    if pending:
+    arguments = _arguments(study, here, None if pending else reference)
+    base = study.STUDY
+    if getattr(arguments, "reference_only", False):
+        # A pending comparator runs here, on the committed subject rows (X59).
+        if reference is None:
+            raise RuntimeError(f"{base.slug}: --reference-only needs a Reference to run")
+        base = compared_record(study, arguments, here)
+        declared_reference = None
+        print(
+            f"reference-only run of {base.reference}: {len(_paired_keys(base, arguments.n))} "
+            "paired samples",
+            flush=True,
+        )
+    elif pending:
         reference = None
         print(
             f"comparator {study.STUDY.pending_reference} is pending "
             f"({study.STUDY.pending_reason}): no reference process runs",
             flush=True,
         )
-    arguments = _arguments(study, here, reference)
     RUN_NOTES.clear()
     declared = dataclasses.replace(
-        study.STUDY,
+        base,
         replicates=arguments.replicates,
         n=arguments.n,
-        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+        scenario_n=_declared_sizes(base, arguments.n),
     )
     key = run_key(declared)
     cache = getattr(arguments, "cache", None)
@@ -1370,6 +1704,7 @@ def main(
                         reference,
                         context,
                         declared_reference=declared_reference,
+                        base_record=base,
                     )
             finally:
                 _ACTIVE.reset(token)
@@ -1387,14 +1722,17 @@ def _regenerate(
     context: RunContext,
     *,
     declared_reference: Reference | None = None,
+    base_record: StudyRecord | None = None,
 ) -> None:
     out = arguments.output
     out.mkdir(parents=True, exist_ok=True)
+    base = study.STUDY if base_record is None else base_record
+    reference_only = getattr(arguments, "reference_only", False)
     record = dataclasses.replace(
-        study.STUDY,
+        base,
         replicates=arguments.replicates,
         n=arguments.n,
-        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+        scenario_n=_declared_sizes(base, arguments.n),
         artifacts=out,
     )
     skip_reference = getattr(arguments, "skip_reference", False)
@@ -1432,15 +1770,16 @@ def _regenerate(
     if record.scenario_n:
         print(f"scenario sizes: {dict(record.scenario_n)}", flush=True)
     scratch = context.scratch
-    phase = (
-        _committed_subject(study, arguments, here)
-        if getattr(arguments, "reuse_subject", False)
-        else _python_phase(study, arguments, scratch)
-    )
+    if reference_only:
+        phase = _reference_only_phase(study, record, arguments, here, scratch)
+    elif getattr(arguments, "reuse_subject", False):
+        phase = _committed_subject(study, arguments, here)
+    else:
+        phase = _python_phase(study, arguments, scratch)
     rows = phase.rows
     if reference is not None:
         rows = pd.concat(
-            [phase.rows, _reference_rows(study, reference, arguments, here, phase)],
+            [phase.rows, _reference_rows(study, reference, arguments, here, phase, record)],
             ignore_index=True,
         )
     reference_extra_frames: dict[str, pd.DataFrame] = {}
@@ -1525,10 +1864,21 @@ def _regenerate(
     for name, frame in extra_frames.items():
         compression = {"method": "gzip", "mtime": 0} if name.endswith(".csv.gz") else None
         write_csv(frame, paths[name], compression=compression)
+    declaration = getattr(study, "PARITY", None)
+    parity_table: pd.DataFrame | None = None
+    if reference is not None and declaration is not None:
+        # X59: the exact gates read every paired replicate; the margins rows above describe.
+        inputs = parity_inputs(phase)
+        parity_table = parity.parity_table(rows, inputs, record=record, declaration=declaration)
+        write_csv(inputs, out / "parity-replicates.csv")
+        write_csv(parity_table, out / "parity.csv")
+        artifact_names = (*artifact_names, *PARITY_ARTIFACTS)
 
     if arguments.primary_only:
         print(performance.to_string(index=False))
         print(paired.to_string(index=False))
+        if parity_table is not None:
+            print(parity_table.to_string(index=False))
         print(
             "primary-only probe: no property artefacts or publishable manifest were written",
             flush=True,
@@ -1557,6 +1907,7 @@ def _regenerate(
             **dict(study.CONFIGURATION or {}),
             **_property_failure_bound(properties, arguments, here),
         },
+        **(_committed_subject_provenance(here) if reference_only else {}),
     )
     context.completed = True
 
@@ -1616,6 +1967,8 @@ def _regenerate(
             )
         ]
     gates["failure accounting"] = accounted
+    if parity_table is not None:
+        gates["exact parity"] = parity.failed_gates(parity_table)
     reported = {
         name: frame for name, frame in gates.items() if frame is not None and not frame.empty
     }

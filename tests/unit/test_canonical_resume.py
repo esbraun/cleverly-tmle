@@ -166,13 +166,13 @@ def test_a_cached_reference_result_is_reused_only_under_its_key(
     context = regenerate.RunContext(record=RECORD, key=KEY, scratch=tmp_path, default_scratch=False)
     token = regenerate._ACTIVE.set(context)
     try:
-        regenerate._reference_rows(None, reference, arguments, here, phase)  # type: ignore[arg-type]
+        regenerate._reference_rows(None, reference, arguments, here, phase, RECORD)  # type: ignore[arg-type]
         assert runs, "a result with no key stamp was reused"
         runs.clear()
-        regenerate._reference_rows(None, reference, arguments, here, phase)  # type: ignore[arg-type]
+        regenerate._reference_rows(None, reference, arguments, here, phase, RECORD)  # type: ignore[arg-type]
         assert not runs, "a result under an equal key was rerun"
         context.key = {**KEY, "n": 51}
-        regenerate._reference_rows(None, reference, arguments, here, phase)  # type: ignore[arg-type]
+        regenerate._reference_rows(None, reference, arguments, here, phase, RECORD)  # type: ignore[arg-type]
         assert runs, "a result under another key was reused"
     finally:
         regenerate._ACTIVE.reset(token)
