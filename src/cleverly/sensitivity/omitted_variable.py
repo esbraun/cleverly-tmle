@@ -426,7 +426,11 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     regime that averages the fold rules has no value off the realized one.  Weights,
     clusters and fold targeting pass: part G's regime bound admits each of them, and none
     changes the functional or its representer (``docs/technical-reference/
-    validation-methods.md``, "The point bound of a learned-rule value").
+    validation-methods.md``, "The point bound of a learned-rule value").  A fit with
+    baseline strata refuses as an implementation gap (X11 (n2)): a stratum value needs the
+    combined representer restricted to the stratum's rows of each fold, and the marginal
+    value is the share mixture of fold-evaluated stratum values, and no witness checks the
+    bias of either against :math:`E[\Delta\bar Q\,\Delta\alpha]`.
     """
     n_splits = int(getattr(result, "n_repeats", 1))
     if n_splits > 1:
@@ -440,6 +444,21 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
                 "Refit with repeats=1 (CrossFitting(repeats=1) on the method), and run the "
                 "omitted-variable bound on that fit, which holds the rules of its one split "
                 "fixed."
+            ),
+            roadmap="X11",
+        )
+    if result.data.has_strata:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "the omitted-variable bound of a learned-rule value with baseline strata "
+            "(strata=) is not built. The value inside a stratum needs the combined "
+            "representer of the fold rules restricted to the stratum's rows of each fold, "
+            "and the marginal value is the share mixture of fold-evaluated stratum values, "
+            "and no witness checks the bias of either against the combined representer "
+            "(X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Fit the learned-rule value without strata= and run the omitted-variable "
+                "bound on that fit, which bounds the marginal value."
             ),
             roadmap="X11",
         )

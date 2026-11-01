@@ -104,6 +104,13 @@ ratio's denominator and this package does not.
   failed witness                                         cause is found and fixed
   =====================================================  =====================================
 
+  *Amendment, 2026-10-18, before the declared run.*  The parity check ran at ``main``
+  ``d063842c`` and printed ``exact``.  The R transcription of the log ratio showed no ratio or
+  feature mismatch over 4,896 grid points (largest gap ``6.39e-14``).  The largest ratio gap
+  was ``7.1e-10`` on the ordered plan and ``1.66e-11`` on the full plan.  The positive-ratio
+  fraction was 1 on both sides.  The ordered classifier scenario is therefore an exactness
+  witness under :data:`SMOKE_GATE`, the first row of the table.
+
 **Linear remainder.**  Every interval this study publishes is a Wald interval on the
 efficient influence function.  No interval is exposed to a non-linear remainder of the policy
 itself: each plan is a known function of observed values, so the target parameter needs no
@@ -360,15 +367,9 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly-vector-mtp",
-    pending_reference="lmtp",
+    reference="lmtp",
     comparison="matching implementation",
-    pending_reason=(
-        "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this "
-        "container lacks. The beta plans' Study queue owns them: item 30, the vector_mtp lmtp "
-        "parity fixture, and then item 31, the R smoke and the declared R run"
-    ),
-    # RM39b2 rev 3 section 6: the primary bound each side's next run applies, the pending
-    # comparator's included.
+    # RM39b2 rev 3 section 6: the primary bound each side's next run applies.
     failure_bound={"cleverly-vector-mtp": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_vector_mtp.py",
@@ -421,8 +422,8 @@ REFERENCE_METADATA = {
         POINT_MIXED: "default margins: the point fluctuations differ by construction",
         POINT_CATEGORICAL: "default margins: the point fluctuations differ by construction",
         ORDERED_CLASSIFIER: (
-            "exact under SMOKE_GATE if the parity check passes; margin-read only for a "
-            "diagnosed, named numerical cause below PARITY_TOLERANCE; otherwise blocked"
+            "exact under SMOKE_GATE: the parity check read every ratio gap below SMOKE_GATE "
+            "(amendment 2026-10-18)"
         ),
     },
 }

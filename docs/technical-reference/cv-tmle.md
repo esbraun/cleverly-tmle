@@ -122,15 +122,21 @@ differs from the mixture whenever the folds' stratum shares differ.
 
 With `repeats > 1` each estimate, marginal and stratum, is the median over draws of its own value,
 so the reported marginal is the median of the draws' mixtures and need not equal the mixture of
-the reported stratum medians. Each draw's marginal is that draw's mixture.
+the reported stratum medians. Each draw's marginal is that draw's mixture. The learned-rule
+value is the exception: it takes the mean over draws, so its marginal is the mixture of the
+stratum means and its band reads the mean curves.
 
-The construction covers the arm means and their linear contrasts (`ey`, `ate`) and the regime
-means and their contrasts (`ey_regime`, `ate_regime`), on complete data with rows as the unit. It
+The construction covers the arm means and their linear contrasts (`ey`, `ate`), the regime
+means and their contrasts (`ey_regime`, `ate_regime`), and the learned-rule value
+(`ey_learned_rule`, with each fold's one-hot rule as the regime,
+[baseline strata of a learned rule](point-treatment-tmle.md#learned-rules)),
+on complete data with rows as the unit. It
 inherits the conditions of the fold-evaluated estimate inside each stratum, positivity inside each
 stratum, and a fixed number of strata. `tests/unit/test_fold_evaluated_strata_exact.py` checks it
 on an exact discrete law. Each stratum estimate is the fold average of its plug-ins, each fold's
 stratum curve is the Gateaux derivative of the stratum functional at the fold's law, and each
-reported stratum score is solved. The share term of the marginal curve is the Gateaux
+reported stratum score is solved. `tests/unit/test_learned_rule_strata.py` checks the same
+identities for the learned-rule value, at fold rules that differ. The share term of the marginal curve is the Gateaux
 derivative of the share mixture with the stratum estimates held fixed. Its controls normalise by
 the global share, which leaves a nonzero curve mean, drop the share, and use the unstratified
 fold weights.
@@ -146,6 +152,16 @@ rows per stratum-fold. With more folds or smaller strata a validation fold can l
 and the fit then refuses with a `DataError`. On a binary outcome with few events in one
 stratum-arm the Wald interval of that stratum under-covers, and the stacked stratified fit does
 alike.
+
+The registered [learned-rule strata study](method-evidence/learned-rule-strata.md) calibrates the
+learned-rule value inside each stratum and marginally under the same construction, with the
+plug-in rule, at n = 1,000 with five folds and three strata, rows only and with a known weight.
+Such a fit with `repeats=1` and pointwise intervals reads supported. The study's laws put a
+margin at the rule boundary, where the five fold rules disagreed on about 8% (bounded) and 14%
+(binary) of the boundary stratum's rows. With a weaker margin the interval under-covers in every
+stratum, as the unstratified learned-rule fit does on the same draws
+([F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)). A rule
+learner, `repeats` above 1 and the band with strata read experimental.
 
 The omitted-variable bound of a marginal target reads the fit's mixture estimate and curve under
 the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as
@@ -219,7 +235,7 @@ does not need an identity among medians. The table compares the two engines.
 | in-fit contrast | median rule on the per-draw contrast | median rule on the per-draw contrast |
 | `contrast()`, `ratio()` | refused | computed per draw, then the median rule. A `transform=` sets the scale of the rule |
 | `covariance(names)` | refused | the matrix rule of equation (3.14) for the selected names |
-| simultaneous band | refused | the median of the per-draw critical values around the split-adjusted estimates |
+| simultaneous band | refused, except on a learned-rule fit, whose band reads the mean curves | the median of the per-draw critical values around the split-adjusted estimates |
 | bootstrap | runs as a diagnostic | refused |
 
 Chernozhukov et al. (2018, pp. C29-C30) state equation (3.14) as a variance-form matrix rule. The
@@ -448,8 +464,9 @@ Each row gives the shipped remedy in the message's own words.
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
 | `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." Under fold targeting the second remedy reads "one pooled fluctuation (targeting_scheme="pooled")". A learned-rule fit, which has no stacked report, reads the first remedy alone. The message names the setting, the cluster count, the fold count and the fold. Each fold's variance compares cluster totals inside the fold |
-| `cv_evaluation=True` with `strata=` and a target outside the arm and regime means and their contrasts, a missing outcome, an intermediate variable, or `id=` | `CapabilityError` before any learner | for a target, "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on the arm axis), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." For the others, "Use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). A cross-fitted missing treatment meets the composite refusal of X53 first, and a ratio or an MSM coefficient meets the `cv_evaluation=True` refusal of X61 first |
-| `cv_evaluation=True` with `strata=` and a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a stratum | `DataError` before the first learner | "Either use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False)), declare fewer baseline strata, or collect more observations at the rare level." The message names the fold, the stratum and the arm |
+| `cv_evaluation=True` with `strata=` and a target outside the arm and regime means and their contrasts and the learned-rule value, a missing outcome, an intermediate variable, or `id=` | `CapabilityError` before any learner | for a target, "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on the arm axis), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." For the others, "Use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). A cross-fitted missing treatment meets the composite refusal of X53 first, and a ratio or an MSM coefficient meets the `cv_evaluation=True` refusal of X61 first |
+| `cv_evaluation=True` with `strata=` and a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a stratum | `DataError` before the first learner | "Either use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False)), declare fewer baseline strata, or collect more observations at the rare level." A learned-rule fit, which has no stacked report, reads "Either declare fewer baseline strata, fit the learned-rule value without strata=, or collect more observations at the rare level." The message names the fold, the stratum and the arm |
+| `learned_rule=` with `strata=` and `id=` | `CapabilityError` before any learner | "Fit the clustered learned-rule value without strata=, or the stratified learned-rule value without id=." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
 | a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
 | a treatment arm held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that arm and no fold count or seed can fit the treatment mechanism; fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". Under `id=` the message says "clusters" in place of "rows" |

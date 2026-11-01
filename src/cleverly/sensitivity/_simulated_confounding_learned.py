@@ -21,6 +21,7 @@ from ..interventions.learned import (
     freeze_learned_rule,
     frozen_rule_replay,
 )
+from ..targets.base import parameter_name
 from ._simulated_confounding_common import (
     check_alias,
     check_only_declared_axis,
@@ -87,5 +88,6 @@ def validate_learned_rule_replay(result: Any, estimand: str, key: Any) -> tuple[
         np.all((values == 0.0) | (values == 1.0))
     ):
         raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
-    check_alias(result, estimand, key, estimand if key.stratum is None else key.alias, error)
+    # A stratum alias is composed from the marginal alias of the rule's value.
+    check_alias(result, estimand, key, parameter_name(key.estimand, arm=rule.name), error)
     return frozen_rule_replay(estimator, freeze_learned_rule(result)), (nuisance.folds,)

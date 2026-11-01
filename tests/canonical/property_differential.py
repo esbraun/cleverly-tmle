@@ -35,7 +35,9 @@ The RM39b2 remediation measured the pass at 5,797 cases, about 6,400 CPU-seconds
 fast-tier budget of about 120 seconds.  So it runs as the ``property-differential`` job of
 ``.github/workflows/ci.yml`` on every pull request that touches ``tests/studies/``,
 ``tests/canonical/``, ``src/cleverly/``, ``pyproject.toml``, ``uv.lock`` or the workflow.  Its file name is not a test file name, so the fast tier does not collect
-it.  ``tests/unit/test_method_evidence.py`` checks that :data:`SUBJECTS` lists every committed
+it.  The cases of a subject run in :func:`shards` worker groups, each kind in the group
+that :func:`shard_of` names, so that a large subject's thousand kinds do not queue on one
+worker.  ``tests/unit/test_method_evidence.py`` checks that :data:`SUBJECTS` lists every committed
 study, and that :data:`BINDINGS` names only subjects, perturbations and clauses that exist.
 
 Usage::
@@ -56,6 +58,7 @@ import json
 import math
 import sys
 import time
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -63,6 +66,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 from scipy.stats import norm
 
@@ -108,6 +112,52 @@ SUBJECTS = (
 
 #: The perturbations every subject runs, before its extra-column kinds.
 KINDS = (*property_failures.PERTURBATIONS, *property_failures.binding_perturbations())
+
+#: The committed rows per worker group of a subject.  A case's cost grows with its subject's
+#: rows, and the cases of one ``xdist_group`` run on one worker, so a subject of a million rows
+#: and a thousand kinds held in one group would run for hours on one core.  Its kinds are
+#: split into :func:`shards` groups instead, each kind in the group :func:`shard_of` names.
+SHARD_ROWS = 100_000
+
+
+@functools.cache
+def shards(subject: str) -> int:
+    """How many worker groups a subject's kinds are split into: one per :data:`SHARD_ROWS`.
+
+    Read off the row file's metadata, so that collection reads no rows.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+
+    Returns
+    -------
+    int
+        At least one, and one for a :data:`SYNTHETIC_MODULES` subject.
+    """
+    if subject in SYNTHETIC_MODULES:
+        return 1
+    path = _STUDIES[subject].artifact("property-replicates.parquet")
+    return max(1, math.ceil(pq.read_metadata(path).num_rows / SHARD_ROWS))
+
+
+def shard_of(subject: str, kind: str) -> int:
+    """The worker group of a subject that judges a kind, the same in every process.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+    kind : str
+        A :func:`kinds` entry, or any other :func:`judge` kind.
+
+    Returns
+    -------
+    int
+        From zero to ``shards(subject) - 1``.
+    """
+    return zlib.crc32(kind.encode()) % shards(subject)
 
 
 def subject_of(subject: str) -> tuple[ModuleType, StudyRecord]:
@@ -263,9 +313,12 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     return rows
 
 
-@functools.cache
+@functools.lru_cache(maxsize=4)
 def subject_rows(subject: str) -> pd.DataFrame:
-    """A subject's property rows, read or built once per process.
+    """A subject's property rows, read or built once per process while they are recent.
+
+    The cache holds a few subjects, because a worker runs groups of many subjects and the
+    largest row files hold over a million rows each.
 
     Parameters
     ----------
@@ -657,24 +710,48 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
 # ---- the CI job ------------------------------------------------------------------------------
 
 
+def _group(subject: str, kind: str = "none") -> Any:
+    """The worker group that judges a kind of a subject, so that its judgement is reused."""
+    return pytest.mark.xdist_group(f"{subject}#{shard_of(subject, kind)}")
+
+
 def _by_subject(subject: str, *values: Any) -> Any:
-    """One case, grouped on its subject's worker so that the subject's judgements are reused."""
-    return pytest.param(subject, *values, marks=pytest.mark.xdist_group(subject))
+    """One case of a subject, on the group that judges ``none``."""
+    return pytest.param(subject, *values, marks=_group(subject))
 
 
-@pytest.mark.parametrize("kind", KINDS)
-@pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
+def _subject_kinds() -> list[Any]:
+    return [
+        pytest.param(subject, kind, marks=_group(subject, kind))
+        for subject in SUBJECTS
+        for kind in KINDS
+    ]
+
+
+def _subject_shards() -> list[Any]:
+    return [
+        pytest.param(subject, shard, marks=pytest.mark.xdist_group(f"{subject}#{shard}"))
+        for subject in SUBJECTS
+        for shard in range(shards(subject))
+    ]
+
+
+@pytest.mark.parametrize(("subject", "kind"), _subject_kinds())
 def test_the_rules_agree_with_the_study_on_each_perturbation(subject: str, kind: str) -> None:
     """F10: a rule missing a conjunct, or reading a moved threshold, disagrees somewhere."""
     judged = judge(subject, kind)
     assert judged.wrong.empty, judged.wrong.to_string()
 
 
-@pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
-def test_the_rules_agree_with_the_study_on_each_extra_column(subject: str) -> None:
-    """L10: a scaling, a shift and a floor of each extra column in each cell, such as a count."""
+@pytest.mark.parametrize(("subject", "shard"), _subject_shards())
+def test_the_rules_agree_with_the_study_on_each_extra_column(subject: str, shard: int) -> None:
+    """L10: a scaling, a shift and a floor of each extra column in each cell, such as a count.
+
+    Each shard judges the extra-column kinds that :func:`shard_of` gives it, so the shards of a
+    subject judge every kind once between them.
+    """
     extra = property_failures.extra_perturbations(subject_rows(subject))
-    wrong = {kind: judge(subject, kind).wrong for kind in extra}
+    wrong = {kind: judge(subject, kind).wrong for kind in extra if shard_of(subject, kind) == shard}
     disagreeing = {kind: frame.to_string() for kind, frame in wrong.items() if not frame.empty}
     assert disagreeing == {}
 
@@ -713,8 +790,10 @@ def _rows(path: Path, columns: tuple[str, ...]) -> list[Any]:
     if not path.exists():
         return [None]
     table = pd.read_csv(path, dtype=str, keep_default_na=False).loc[:, list(columns)]
+    # A witness runs on the group that judges its kind; a reason, which judges ``none``, on
+    # the group that judges ``none``.
     return [
-        pytest.param(row, marks=pytest.mark.xdist_group(row[0]))
+        pytest.param(row, marks=_group(row[0], row[3] if columns == BINDING_COLUMNS else "none"))
         for row in table.itertuples(index=False, name=None)
     ]
 

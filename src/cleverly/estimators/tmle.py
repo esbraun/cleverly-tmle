@@ -249,7 +249,7 @@ from ..targets import (
     parameter_stem,
     targets_for,
 )
-from ..targets.base import READS_SINK, stratum_alias
+from ..targets.base import READS_SINK, parameter_name, stratum_alias
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
@@ -739,10 +739,13 @@ class TMLE:
         ``cross_fit=True``, ``cv_evaluation=True`` and ``n_bootstrap=0``, and refuses every other
         scheme before any learner, with that remedy.  Either targeting scheme runs, and so do
         known observation weights and clusters.  ``repeats=R`` above 1 reports the mean over the
-        ``R`` splits, never the median, and refuses beside clusters.  It refuses ``interventions=``,
-        ``policies=``, ``incremental=``, ``msm=``, ``reference=`` and an arm estimand beside it,
-        and a continuous or multi-arm treatment, missing outcomes, ``intermediate=``, estimated
-        weights and ``strata=``.
+        ``R`` splits, never the median, and refuses beside clusters.  With ``strata=`` the fit
+        also reports the value inside each baseline stratum: the fold average of each fold
+        rule's plug-in over the fold's rows in the stratum, with the fold-evaluated stratum
+        construction of ``cv_evaluation``; strata refuse beside clusters and fold targeting.
+        It refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
+        ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
+        missing outcomes, ``intermediate=`` and estimated weights.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
         rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
@@ -2149,8 +2152,10 @@ class TMLE:
         # The second test is for the type checker.
         if self.learned_rule is not None and cv_detail is not None:
             # One record per split. ``cv_detail.fold_estimates`` describes the first split
-            # only, so each split's fold estimates are read from its own detail.
-            (name,) = cv_detail.fold_estimates
+            # only, so each split's fold estimates are read from its own detail. The record
+            # describes the marginal value; with baseline strata its fold values are the
+            # share mixtures of the fold's stratum plug-ins.
+            name = parameter_name("ey_learned_rule", arm=self.learned_rule.name)
             splits = []
             for nuisance, seed, detail, report in zip(
                 nuisances, draw_seeds, details, per_repeat, strict=True
@@ -2202,13 +2207,17 @@ class TMLE:
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
         ):
-            refuse_after_repeats(
-                self.repeats,
-                operation="simultaneous=True",
-                text=_REPEATED_BANDS_TEXT,
-                reason=RefusalReason.INFERENCE_GAP,
-                alternative=_REPEATED_BANDS_ALTERNATIVE,
-            )
+            # A learned-rule fit reports the mean over its splits, which is linear, so the
+            # band reads the mean curves as it reads the curves of one split. Several
+            # estimates reach here only from a learned-rule fit with baseline strata.
+            if self.learned_rule is None:
+                refuse_after_repeats(
+                    self.repeats,
+                    operation="simultaneous=True",
+                    text=_REPEATED_BANDS_TEXT,
+                    reason=RefusalReason.INFERENCE_GAP,
+                    alternative=_REPEATED_BANDS_ALTERNATIVE,
+                )
             bands = simultaneous_bands(
                 banded,
                 alpha=self.alpha_sig,
@@ -3889,7 +3898,7 @@ class TMLE:
         if self.cv_evaluation:
             # The fold-evaluated stratum estimate needs every stratum, and every arm inside
             # it, in every validation fold of every draw (X28).
-            refuse_empty_stratum_folds(data, folds)
+            refuse_empty_stratum_folds(data, folds, learned_rule=self.learned_rule is not None)
         self._preflight_missing_outcome_folds(data, estimands, folds)
         self._preflight_training_support(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))

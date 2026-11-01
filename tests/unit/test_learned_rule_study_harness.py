@@ -25,6 +25,7 @@ from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
 from tests.studies import learned_rule_learners as learners
 from tests.studies import learned_rule_split_mean as split_mean
+from tests.studies import learned_rule_strata as learned_strata
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -87,8 +88,14 @@ class TestTheSeedRules:
         # X11's fold-evaluated-strata (X28) adds 8,000 primary and 40,000 property seeds, of
         # which two equal a seed of learned-rule-split-mean or learned-rule-cvtmle and share
         # only their first 1,000 values of W1 (``test_fold_evaluated_strata_design``).
-        assert len(declared) == 46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998
-        for study in (gated, boundary, compositions, split_mean, learners, strata):
+        # X11's learned-rule-strata (X11 PR E2) adds 8,000 primary and 70,800 property seeds,
+        # of which one pair coincides within the study (primary weighted replicate 642 and
+        # calibration unweighted replicate 4,245 draw the same rows-only sample) and none with
+        # another study (``test_learned_rule_strata_design``).
+        assert len(declared) == (
+            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799
+        )
+        for study in (gated, boundary, compositions, split_mean, learners, strata, learned_strata):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
             assert not seeds & declared

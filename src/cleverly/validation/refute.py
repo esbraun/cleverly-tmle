@@ -1438,16 +1438,37 @@ def _frozen_rule(result: Any) -> FrozenLearnedRule | None:
     return freeze_learned_rule(result) if _is_learned_rule_fit(result) else None
 
 
-def _learned_rule_reference(data: Any) -> float:
-    """Return the weighted mean of the observed outcomes, the placebo value of any rule.
+def _learned_rule_reference(result: Any, estimand: str) -> float:
+    """Return the weighted outcome mean that the placebo law gives every rule's value.
 
     Under the placebo law the value of every rule, learned or fixed, is ``E[Y]``, and this
-    mean estimates it. It is constant across permutations, so the ``t`` rule applies
-    unchanged. A weighted fit weights it, because the fit's own value is weighted (X82 plan
-    5.1.1). A learned-rule fit refuses missing outcomes (F27), so every outcome is observed.
+    mean estimates it. Inside baseline stratum ``s`` the value is ``E[Y | S = s]``, so a
+    stratum alias reads the weighted mean of its stratum's outcomes. It is constant across
+    permutations, so the ``t`` rule applies unchanged. A weighted fit weights it, because the
+    fit's own value is weighted (X82 plan 5.1.1). A learned-rule fit refuses missing outcomes
+    (F27), so every outcome is observed.
     """
-    observed = np.asarray(data.observed, dtype=bool)
-    return float(np.average(data.outcome[observed], weights=data.weights[observed]))
+    data = result.data
+    rows = np.asarray(data.observed, dtype=bool)
+    code = _learned_rule_stratum(result, estimand)
+    if code is not None:
+        rows = rows & (np.asarray(data.strata) == code)
+    return float(np.average(data.outcome[rows], weights=data.weights[rows]))
+
+
+def _learned_rule_stratum(result: Any, estimand: str) -> int | None:
+    """The stratum code of a learned-rule stratum alias, or ``None`` for the marginal value."""
+    from ..targets.base import parameter_name, stratum_alias
+
+    data = result.data
+    regimes = result.nuisance.regimes
+    if not data.has_strata or regimes is None:
+        return None
+    marginal = parameter_name("ey_learned_rule", arm=regimes.names[0])
+    for code in range(data.n_strata):
+        if estimand == stratum_alias(marginal, data.stratum_label(code)):
+            return code
+    return None
 
 
 def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
@@ -1576,11 +1597,12 @@ def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the value the placebo reads the refit against, or ``None`` when it has none.
 
     A contrast has its fixed no-effect value. A learned-rule level reads against the outcome
-    mean, because the placebo law gives every rule that value. An MSM coefficient reads
+    mean, because the placebo law gives every rule that value, and a learned-rule stratum
+    value against its stratum's outcome mean. An MSM coefficient reads
     against its placebo projection (:func:`_msm_reference`).
     """
     if _is_learned_rule_fit(result) and estimand in result.estimates:
-        return _learned_rule_reference(result.data)
+        return _learned_rule_reference(result, estimand)
     reference = _working_model_reference(result, estimand)
     if reference is not None:
         return reference.value
