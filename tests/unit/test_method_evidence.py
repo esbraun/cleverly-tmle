@@ -1176,7 +1176,8 @@ class TestPublishedVerdicts:
                 # clusters, and ``learned-rule-split-mean`` the mean single-split SE over
                 # sqrt(R), which treats the splits as independent. ``fold-evaluated-strata``
                 # declares the stratum curve without its fold share and the marginal curve
-                # without its share term.
+                # without its share term. ``learned-rule-in-sample`` declares an interpolating
+                # learner fitted in sample, read with its own curve's SE.
                 if suffix in (
                     "shrunken_se_control",
                     "term_dropped_control",
@@ -1185,6 +1186,7 @@ class TestPublishedVerdicts:
                     "independent_splits_control",
                     "unnormalised_curve_control",
                     "share_dropped_control",
+                    "interpolating_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
@@ -1784,6 +1786,11 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # on the same clustered draws and folds, its bias and the paired error difference
         # reported with no verdict.
         "fold_evaluated_reporting",
+        # X11 PR F2 (``learned-rule-in-sample``): the in-sample fit read against the
+        # fold-average target of the same draw, and the targeted and untargeted fits of a
+        # learner whose rule flips between samples, each reported with no verdict.
+        "target_distinction",
+        "weak_limit_necessity",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",

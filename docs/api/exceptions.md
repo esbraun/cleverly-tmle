@@ -13,6 +13,7 @@ or lifecycle use. Treat warnings as requests to inspect convergence, overlap, or
    cleverly.MethodConfigurationError
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
+   cleverly.InSampleLearnerWarning
    cleverly.MonteCarloWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning

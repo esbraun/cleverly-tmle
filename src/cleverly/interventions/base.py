@@ -685,7 +685,8 @@ _ESTIMATED_RULE = Refusal(
     alternative=(
         "Fix the rule before the fit, or learn it on data independent of the analysis "
         "sample, and declare rule_kind='known'. For a point treatment, LearnedRuleValue "
-        "estimates the average value of rules learned inside each training fold "
+        "estimates the average value of rules learned inside each training fold, or with "
+        "cross_fit=False the value of one rule learned on every row "
         "(docs/technical-reference/point-treatment-tmle.md, Learned rules)."
     ),
     roadmap="X11",

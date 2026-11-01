@@ -387,7 +387,7 @@ def rule_learner_treat(
     data : CausalData
         The prepared data of the fit.
     folds : Folds
-        The outer split.
+        The outer split.  A single fold (``cross_fit=False``) learns one rule on every row.
     loss : str
         ``"blip"`` or ``"weighted_classification"``.
     learner : object
@@ -419,9 +419,12 @@ def rule_learner_treat(
     margin = np.zeros(data.n, dtype=float)
     fold_rules = np.zeros((data.n, folds.n_folds), dtype=bool)
     for fold, (train, test) in enumerate(folds):
+        # One fold is the in-sample fit (cross_fit=False): its one rule is learned on every
+        # row, and its inner cross-fit runs over all of them.
+        rows_of_rule = np.arange(data.n) if folds.is_single else np.asarray(train)
         rule = fit_fold_rule(
             data,
-            np.asarray(train),
+            rows_of_rule,
             loss=loss,
             learner=learner,
             fit_inner=fit_inner,

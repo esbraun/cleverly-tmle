@@ -1782,6 +1782,16 @@ PROPERTIES: dict[str, str] = {
         "report on the same draws and folds, at 200 clusters whose size rises with the "
         "outcome, reported rather than gated"
     ),
+    "target_distinction": (
+        "the in-sample learned-rule fit read against the fold average of the rules that ten "
+        "training folds of the same draw learn, the target of the cross-fitted fit, with the "
+        "mean gap between the two targets, reported rather than gated"
+    ),
+    "weak_limit_necessity": (
+        "the targeted and untargeted in-sample learned-rule fits of an outcome learner whose "
+        "limit benefit is near zero, so that its rule flips between samples, with the flip "
+        "share and the bias on settled and on flipped draws, reported rather than gated"
+    ),
     "sparse_event_diagnostic": (
         "the coverage and SE ratio of the fold-evaluated and the stacked stratified fits on a "
         "binary law with few outcome events in one stratum-arm, reported rather than gated"
@@ -6143,4 +6153,102 @@ STUDY_ARM_CELLS[(_STACKED_SLUG, "fold_evaluated_reporting", "clustered", "fold_e
     "same folds and rules, read against the 1/V average of the same fold values",
     "none. The cell reports the fold-evaluated bias beside the stacked bias and their paired "
     "error difference",
+)
+
+
+#: ``learned-rule-in-sample`` (X11 PR F2, X11 (a)): one rule learned on every row and its value
+#: estimated on the same rows (``cross_fit=False``). The laws are RM30's; the learners are those
+#: of ``tests/studies/_learned_rule_in_sample_law.py``.
+_IN_SAMPLE_SLUG = "learned-rule-in-sample"
+IMPLEMENTATIONS["cleverly-learned-rule-in-sample"] = (
+    "`cleverly` in-sample TMLE of the learned-rule value: one plug-in rule learned from the "
+    "outcome regression fitted on every row, and one regime fluctuation at that rule on the "
+    "same rows"
+)
+STUDY_ESTIMANDS[_IN_SAMPLE_SLUG, "ey_learned_rule[learned rule]"] = (
+    "value of the one rule learned on every row"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_IN_SAMPLE_SLUG, "non_exceptional"): (
+            "learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome "
+            "learner"
+        ),
+        (_IN_SAMPLE_SLUG, "misspecified_limit"): (
+            "learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, an interaction logistic "
+            "outcome learner with no W1^2 term"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_IN_SAMPLE_SLUG, "non_exceptional"): (
+            "the learned-rule law with the blip 0.1 + W1, whose interaction logistic outcome "
+            "learner is correct"
+        ),
+        (_IN_SAMPLE_SLUG, "misspecified_limit"): (
+            "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose interaction "
+            "logistic outcome learner has no W1^2 term"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_IN_SAMPLE_SLUG, "interval_calibration", label, "declared"): (
+            "the declared in-sample fit with the study's parametric logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("non_exceptional", "misspecified_limit")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_IN_SAMPLE_SLUG, "target_distinction", label, "fold_average"): (
+            "every declared calibration fit read against the fold average (1/10) sum_v "
+            "Psi_{d_v}(P0) of the rules the declared learner learns on ten training folds of "
+            "the same draw",
+            "none. The cell reports the mean gap between the two targets, its SD over the "
+            "error SD, and the share of the grid on which the fold rules differ from the "
+            "full-sample rule",
+        )
+        for label in ("non_exceptional", "misspecified_limit")
+    }
+)
+STUDY_ARM_CELLS[
+    (_IN_SAMPLE_SLUG, "interval_calibration", "non_exceptional", "interpolating_control")
+] = (
+    "an interpolating tree (min_samples_leaf=1, probabilities clipped to [0.01, 0.99]), an "
+    "adaptive outcome learner fitted in sample on the same draw and read against the value of "
+    "its own rule",
+    "the SE-ratio interval must fall below the calibration band",
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_IN_SAMPLE_SLUG, "targeting_necessity", "non_exceptional", "targeted"): (
+            "the in-sample fit with WithoutW1MainLogistic, a parametric outcome learner with "
+            "no W1 main term, so targeting does the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_IN_SAMPLE_SLUG, "targeting_necessity", "non_exceptional", "untargeted"): (
+            "the same fit's initial plug-in mean at its own rule, with no fluctuation",
+            "bias interval must fall entirely outside the margin",
+        ),
+    }
+)
+#: ``non_exceptional_drop_w1`` is no arm of :data:`ARMS`, so these cells are read whole.
+CELLS.update(
+    {
+        ("weak_limit_necessity", "non_exceptional_drop_w1__targeted"): (
+            "the learned-rule law with the blip 0.1 + W1: the in-sample fit with RM30's "
+            "drop_w1 outcome learner, whose limit benefit (0.037 and 0.049) is too weak at "
+            "n = 2,000 for its rule to settle",
+            "none. The cell reports the bias, the share of draws whose rule flipped, and the "
+            "bias on settled and on flipped draws",
+        ),
+        ("weak_limit_necessity", "non_exceptional_drop_w1__untargeted"): (
+            "the learned-rule law with the blip 0.1 + W1: the same drop_w1 fit's initial "
+            "plug-in mean at its own rule, with no fluctuation",
+            "none. The cell reports the bias and the displacement from the targeted arm",
+        ),
+    }
 )

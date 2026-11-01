@@ -738,6 +738,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
     )
     # X11 (e): the stacked report of the learned-rule value keys ``stacked``. The rows T42 of
     # the ``learned-rule-stacked`` study cover it on rows, with a known weight and with clusters.
+    # X11 (a): the in-sample fit of one rule learned on every row keys ``in_sample`` and the
+    # learner families (``outcome_learner_family``, ``treatment_learner_family`` and, for a rule
+    # learner, ``rule_learner_family``). The row T43 of the ``learned-rule-in-sample`` study
+    # covers the plug-in rule with a parametric outcome and a parametric treatment learner.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.
@@ -1069,6 +1073,67 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 limits=[*stacked_limits, *extra],
             )
         )
+    # X11 (a) (X11 PR F2): the in-sample fit of one plug-in rule learned on every row,
+    # ``cross_fit=False``, keyed ``in_sample`` with the learner families. The row declares both
+    # families ``parametric`` and nothing else, because the study's declared support condition
+    # held: both primary tests, every ``interval_calibration`` verdict and the
+    # ``targeting_necessity`` verdicts passed. An adaptive learner keys ``adaptive``, known
+    # treatment probabilities key ``known`` and ``known_mechanism``, and a rule learner keys
+    # ``rule_learner_family`` and ``rule_learner_<loss>``, so each of those fits matches no row.
+    # The numbers are the committed results (``tests/canonical/learned_rule_in_sample``).
+    rows.append(
+        point_row(
+            "T43",
+            ["learned-rule-in-sample"],
+            families=("P11",),
+            splitting=("in_sample",),
+            options={
+                "outcome_learner_family": "parametric",
+                "treatment_learner_family": "parametric",
+            },
+            cells=["non_exceptional", "misspecified_limit"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise in-sample interval of the plug-in rule "
+                "(LearnedRule(), cross_fit=False) at n = 2,000 on two RM30 laws: one whose "
+                "interaction logistic outcome model is correct (non_exceptional) and one whose "
+                "model cannot represent the blip (misspecified_limit), both marked parametric, "
+                "with a correct logistic treatment model. Binary outcome and treatment, iid "
+                "rows, no weights. Rule learners, known treatment probabilities, weights, "
+                "clusters, strata, continuous outcomes and more than two arms match no row. "
+                "The key holds neither n nor the learner beyond its family, so another n or "
+                "another parametric learner reads supported and was not measured.",
+                "The target is Psi_{d_n}(P0), the value of the one rule learned on every row. "
+                "At this size the calibration verdicts cannot tell it from the fold-average "
+                "target of the cross-fitted fit: the SD of the gap between the two targets is "
+                "0.008 (non_exceptional) and 0.015 (misspecified_limit) error SDs. The unit "
+                "witnesses establish which rule the truth reads, and that known treatment "
+                "probabilities enter the clever covariate; no verdict here sees either.",
+                "The in-sample point is optimistic: the primary standardized bias is +0.16 "
+                "(non_exceptional) and +0.21 (misspecified_limit) error SDs. A passed bias leg "
+                "means within 0.25 SD at n = 2,000, not unbiased. The bias was measured at "
+                "n = 2,000 only. Theory makes it vanish beside the SE as n grows once the rule "
+                "settles (C3a), and smaller samples lean further.",
+                "The interval needs the learned rule to settle (C3a). For a fixed-form outcome "
+                "model whose limit benefit is near zero, the rule changes between samples and "
+                "the point leans further: with RM30's drop_w1 learner the rule flipped in "
+                "19.4% of draws, and the targeted bias was +0.13 SD on settled draws, +1.07 SD "
+                "on flipped ones and +0.31 SD overall, with coverage 0.938. The row covers such "
+                "fits, and no check in the package detects them.",
+                "The necessity learner WithoutW1MainLogistic replaced the plan's drop_w1 "
+                "learner before the run, because the drop_w1 rule does not settle at this n "
+                "(C3a): from the law it flips in about 17.5% of samples. Cross-fitted, the same "
+                "drop_w1 learner on the same law reads -0.009 SD (learned-rule-cvtmle).",
+                "Adaptive in-sample outcome learners are outside the row: they key adaptive "
+                "and warn (InSampleLearnerWarning), and the interpolating control's SE ratio "
+                "of 0.391, with coverage 0, shows why.",
+                "One declared misspecified_limit calibration draw of 7,200 raised two lbfgs "
+                "convergence warnings, in the fit and in its truth refit, and was kept. No "
+                "primary fit warned.",
+                "No comparator: no maintained package fits the in-sample learned-rule TMLE.",
+            ],
+        )
+    )
     rows.append(
         point_row(
             "T25",

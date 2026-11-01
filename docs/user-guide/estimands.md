@@ -221,8 +221,8 @@ a higher outcome under treatment. A tie assigns control. The outcome learner the
 rule, so give it the treatment-by-covariate terms that the rule can depend on.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
-rules. It is not the value of one rule fitted on all rows, and it is not the value of the optimal
-rule. The table gives what the result holds.
+rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not
+the value of the optimal rule. The table gives what the result holds.
 
 | where | content |
 | --- | --- |
@@ -241,9 +241,63 @@ each setting its 95% interval covered the target 0.943 to 0.949 of the time. Pre
 pass `id=` and cluster sizes vary with the outcome: there the fold-evaluated estimate carries a
 small bias, about 0.11 standard errors in that study.
 
-Either way the fit needs, among other things, cross-fitting with at least two folds, a binary
-treatment, complete outcomes and no intermediate variable. A fit that lacks one of them refuses
-before any model is fitted. The refusal table under
+`CrossFitting(enabled=False)` runs too, and it answers a different question. It learns one rule
+from all the rows and reports the value of that one rule, scored on the same rows that chose it.
+Its interval rests on two things: the rule settles as the data grow, and the models are simple
+enough not to chase noise in the rows that chose the rule. A model with a fixed set of terms and
+nothing selected from the data is simple enough. cleverly reads this from the model's class: a
+`LogisticRegression`, a `LinearRegression`, a `GLM`, or a class marked
+`cleverly_learner_family = "parametric"` passes, and any other model, the pipeline above
+included, makes the fit warn with `InSampleLearnerWarning`.
+
+To declare that the pipeline above has fixed terms, subclass it and add the mark:
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from cleverly import CrossFitting, LearnedRuleValue, ModelSpec, TMLEMethod
+
+
+class FixedTerms(Pipeline):
+    cleverly_learner_family = "parametric"
+
+
+in_sample = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=FixedTerms(
+            [
+                ("terms", PolynomialFeatures(2, interaction_only=True, include_bias=False)),
+                ("fit", LogisticRegression(max_iter=1000)),
+            ]
+        ),
+        treatment_learner=LogisticRegression(max_iter=1000),
+    ),
+    cross_fitting=CrossFitting(enabled=False),
+)
+full_sample = study.estimate(LearnedRuleValue(), method=in_sample, random_state=3)
+```
+
+The mark is your statement that the model has fixed terms, and cleverly does not test it. With
+it the fit gives no warning. The result is marked supported when both models have fixed terms,
+the rule comes from the outcome model as above, the outcome is binary, and the fit has no
+weights, clusters or strata. An
+[in-sample study](../technical-reference/method-evidence/learned-rule-in-sample.md) measures
+this fit at n = 2,000. Over 14,400 samples of each of two settings, its 95% interval covered the
+value of the chosen rule 0.947 to 0.950 of the time.
+
+The in-sample fit chooses the rule and estimates its value on the same rows, so the estimate
+leans optimistic. When the rule is stable this is small: about 0.16 to 0.21 of a standard error
+at 2,000 rows in that study, the only size it measured, and theory expects more at smaller
+sizes. When the estimated benefit of treatment is close to zero for many people, the rule can
+change from sample to sample, and the lean grows: about 1.07 standard errors in the 19% of
+samples where the rule changed. The interval still covered about 94% of the time in that case,
+and cleverly cannot tell that it has happened. The cross-fitted estimate (the default) scores
+each rule on rows that did not choose it, and it does not lean this way.
+
+Every one of these fits needs, among other things, a binary treatment, complete outcomes and no
+intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of
+them refuses before any model is fitted. The refusal table under
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) lists the rest.
 
 A refit that relearned the rules would estimate the value of other rules. So the `subset`,
@@ -253,8 +307,9 @@ the fit's own rules. The `placebo` test refits as the fit did: under random trea
 has the value of the mean outcome, which is what it reads against. The generated-outcome tests
 refuse, because a learned rule has no generated truth yet.
 
-The omitted-variable bound, the E-value and the missingness tilt read `unavailable` for this
-target. The support report and `truncation_curve` run.
+The omitted-variable bound runs for this target. It gives a point bound under cross-fitting, and
+in sample it also gives its one-sided limits. `benchmark()`, the E-value and the missingness tilt
+read `unavailable`. The support report and `truncation_curve` run.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.

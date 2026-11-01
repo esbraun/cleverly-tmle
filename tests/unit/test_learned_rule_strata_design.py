@@ -379,10 +379,18 @@ OWN_SHARED = (("primary", "weighted", 642), ("interval_calibration", "unweighted
 #: ``learned-rule-stacked`` (X11 PR F1), declared after this study, shares two: its ``rows``
 #: calibration replicate 1,784 (RM30's law at n = 2,000, so the first 1,000 values of ``W1``)
 #: and its ``clustered`` calibration replicate 7,192 (whose first draws are cluster effects, so
-#: no variable) (``test_learned_rule_stacked_design``).
+#: no variable) (``test_learned_rule_stacked_design``). ``learned-rule-in-sample`` (X11 PR F2)
+#: shares one: its ``misspecified_limit__declared`` calibration replicate 156 (RM30's law at
+#: n = 2,000), so the first 1,000 values of ``W1`` of this study's ``binary_weak`` diagnostic
+#: replicate 3,312 (``test_learned_rule_in_sample_design``).
 SHARED_SEEDS: dict[tuple[str, str, int], tuple[str, str, int]] = {
     ("interval_calibration", "binary_steep", 9_841): ("learned-rule-stacked", "rows", 1_784),
     ("interval_calibration", "weighted", 4_518): ("learned-rule-stacked", "clustered", 7_192),
+    ("weak_margin_diagnostic", "binary_weak", 3_312): (
+        "learned-rule-in-sample",
+        "misspecified_limit__declared",
+        156,
+    ),
 }
 
 
@@ -417,6 +425,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
+    from tests.studies import learned_rule_in_sample as f2
+    from tests.studies import learned_rule_in_sample_properties as f2_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_split_mean as split_mean
@@ -432,6 +442,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (learners, learner_properties),
         (e1, e1_properties),
         (f1, f1_properties),
+        (f2, f2_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY,
@@ -444,7 +455,7 @@ def _other_x11_sample_seeds() -> set[int]:
 
 def test_no_sample_seed_is_another_x11_studys() -> None:
     """The study shares no sample seed with an earlier X11 study, two with the later
-    ``learned-rule-stacked``, and the run form lists it.
+    ``learned-rule-stacked`` and one with ``learned-rule-in-sample``, and the run form lists it.
 
     ``learned_rule_run.declared_sample_seeds()`` is the union of this study's seeds and every
     other X11 study's, E1's among them (design record, D2), so a smoke run of any of them

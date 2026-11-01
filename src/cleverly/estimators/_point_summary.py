@@ -637,7 +637,10 @@ def _fit_notes(
     config = result.config
     specs = _learner_specs(result)
     iptw = result.extra.get("adaptive_iptw") is not None
-    if not config.cross_fit and specs is not None:
+    # An in-sample learned-rule fit (X11 (a)) states its own condition in its fit warning,
+    # and cross-fitting would change its target, so the generic advice is not printed.
+    learned = result.extra.get("learned_rule") is not None
+    if not config.cross_fit and specs is not None and not learned:
         data = result.data
         learners = [] if iptw else [specs["outcome"]]
         if config.fits_treatment and config.treatment_mechanism != "known":

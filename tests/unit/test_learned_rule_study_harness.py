@@ -23,6 +23,7 @@ from tests.studies import learned_rule_compositions as compositions
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
+from tests.studies import learned_rule_in_sample as in_sample
 from tests.studies import learned_rule_learners as learners
 from tests.studies import learned_rule_split_mean as split_mean
 from tests.studies import learned_rule_stacked as stacked
@@ -94,9 +95,12 @@ class TestTheSeedRules:
         # calibration unweighted replicate 4,245 draw the same rows-only sample) and none with
         # another study (``test_learned_rule_strata_design``). X11's learned-rule-stacked (X11 PR
         # F1) adds 6,000 primary and 26,400 property seeds, of which four equal a seed of
-        # another X11 study (``test_learned_rule_stacked_design``).
+        # another X11 study (``test_learned_rule_stacked_design``). X11's learned-rule-in-sample
+        # (X11 PR F2) adds 28,800 primary and 16,800 property seeds, of which one pair coincides
+        # inside the study and two equal a seed of another X11 study
+        # (``test_learned_rule_in_sample_design``).
         assert len(declared) == (
-            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799 + 32_396
+            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799 + 32_396 + 45_597
         )
         for study in (
             gated,
@@ -107,6 +111,7 @@ class TestTheSeedRules:
             strata,
             learned_strata,
             stacked,
+            in_sample,
         ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}

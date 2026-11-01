@@ -56,6 +56,7 @@ __all__ = [
     "classify_point_fit",
     "classify_structural_fit",
     "combine_support",
+    "in_sample_learned_rule_learners",
     "learner_family",
     "longitudinal_key",
     "point_key",
@@ -513,6 +514,45 @@ def _adaptive_iptw_learners(estimator: Any, data: Any) -> dict[str, str]:
     return {"mechanism_learner": mechanism, "reduced_learner": basis}
 
 
+def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]:
+    """The learner families of an in-sample learned-rule fit, as options of its key.
+
+    The interval of an in-sample learned-rule fit (``cross_fit=False``, X11 (a)) needs the
+    curve at the fitted rule, outcome regression and treatment model to lie in a Donsker
+    class (condition C5a; van der Laan and Luedtke 2015, Theorem 5), which a parametric
+    learner gives and an adaptive one need not. So, as for an AdaptiveIPTW fit, the key reads
+    the family of each learner the fit uses: ``outcome_learner_family``,
+    ``treatment_learner_family`` (``"known"`` when the data declare the treatment
+    probabilities, which the fit then does not learn), and ``rule_learner_family`` for a
+    pseudo-outcome loss. A cross-fitted learned-rule key holds none of them, so the rows of
+    the cross-fitted studies keep matching their fits.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, with ``learned_rule`` set and ``cross_fit=False``.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    dict of str to str
+        Each option and its family, ``"parametric"``, ``"adaptive"`` or ``"known"``.
+    """
+    families = {
+        "outcome_learner_family": learner_family(estimator.outcome_learner),
+        "treatment_learner_family": (
+            "known"
+            if data.known_treatment is not None
+            else learner_family(estimator.treatment_learner)
+        ),
+    }
+    rule = estimator.learned_rule
+    if rule.loss != "plug_in":
+        families["rule_learner_family"] = learner_family(rule.learner)
+    return families
+
+
 def _learner_type(learner: Any) -> type | None:
     """The class of a learner, or ``None`` when the estimator uses its default."""
     return None if learner is None else type(learner)
@@ -671,6 +711,11 @@ def point_key(
         # meet, so a row of parametric learners never covers a boosted or default fit.
         options["form"] = estimator.form
         options |= _adaptive_iptw_learners(estimator, data)
+    if getattr(estimator, "learned_rule", None) is not None and scheme == "in_sample":
+        # X11 (a): the in-sample interval needs condition C5a, a Donsker class, which the
+        # learner families decide. Only this scheme keys them, so the rows of the cross-fitted
+        # learned-rule studies, whose outcome learner is a Pipeline, keep matching their fits.
+        options |= in_sample_learned_rule_learners(estimator, data)
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
