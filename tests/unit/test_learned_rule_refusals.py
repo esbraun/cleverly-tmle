@@ -95,7 +95,7 @@ def _frame(kind: str = "binary") -> Any:
         frame["Z"] = (np.arange(len(frame)) % 2).astype(float)
     if kind == "estimated_weights":
         frame["w"] = 1.0 + 0.5 * frame["W2"]
-    if kind == "clusters":
+    if kind in ("clusters", "strata_clusters"):
         frame["c"] = np.arange(len(frame)) % 20
     return frame
 
@@ -108,7 +108,7 @@ _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "delta": {"delta": "Delta"},
     "intermediate": {"intermediate": "Z"},
     "estimated_weights": {"weights": "w", "weights_estimated": True},
-    "strata": {"strata": ("W2",)},
+    "strata_clusters": {"strata": ("W2",), "id": "c"},
     "clusters": {"id": "c"},
 }
 
@@ -138,7 +138,7 @@ DATA_ROWS: dict[str, str] = {
     "delta": "F27",
     "intermediate": "X11 (j)",
     "estimated_weights": "X11 (k2)",
-    "strata": "X11 (m)",
+    "strata_clusters": "X28",
 }
 
 #: The fold-policy setting rows, each with its item.  Each names the configuration that fits.
@@ -510,7 +510,7 @@ class TestTheStudyRefusesTheSameRows:
                 "delta": {"missingness": "Delta"},
                 "intermediate": {"intermediate": "Z"},
                 "estimated_weights": {"weights": "w", "weights_estimated": True},
-                "strata": {"strata": ("W2",)},
+                "strata_clusters": {"strata": ("W2",), "cluster": "c"},
             }.get(kind, {})
         )
         return CausalStudy(frame, design=PointTreatment(**design))

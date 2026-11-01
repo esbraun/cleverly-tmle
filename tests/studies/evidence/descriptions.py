@@ -966,6 +966,33 @@ ARMS.update(
     }
 )
 
+#: The parameter labels of ``learned-rule-strata`` (X11 PR E2, X11 (m)), one arm per setting
+#: and stratum, ``<setting>_<stratum>``. Mirrored from ``tests.studies._learned_rule_strata_law``,
+#: which this module cannot import.
+_LEARNED_STRATA_SETTINGS = {
+    "unweighted": "the bounded (beta) learned-rule law with baseline strata, rows only",
+    "weighted": (
+        "the bounded (beta) learned-rule law with baseline strata and the weight 1 + 1.5 W2"
+    ),
+    "binary_steep": "the binary learned-rule law with baseline strata, rows only",
+    "binary_steep_weighted": (
+        "the binary learned-rule law with baseline strata and the weight 1 + 1.5 W2"
+    ),
+    "binary_weak": (
+        "the binary learned-rule law with baseline strata and the weak blip 0.1 - 0.3 W1, rows only"
+    ),
+    "binary_moderate": (
+        "the binary learned-rule law with baseline strata and the blip -0.6 + 1.5 W1, rows only"
+    ),
+}
+ARMS.update(
+    {
+        f"{setting}_{part}": f"{law}, the learned-rule value {where}"
+        for setting, law in _LEARNED_STRATA_SETTINGS.items()
+        for part, where in _STRATA_PARTS.items()
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1739,6 +1766,11 @@ PROPERTIES: dict[str, str] = {
     "small_sample_calibration": (
         "the SE ratio and coverage of the in-sample fits at n = 2,000, where few units follow "
         "the rule to the last node, reported rather than gated"
+    ),
+    "weak_margin_diagnostic": (
+        "the coverage and SE ratio of the stratified learned-rule fit and of the unstratified "
+        "learned-rule fit on the same draws, on binary laws with a weak margin at the rule "
+        "boundary, reported rather than gated"
     ),
     "sparse_event_diagnostic": (
         "the coverage and SE ratio of the fold-evaluated and the stacked stratified fits on a "
@@ -5943,6 +5975,102 @@ STUDY_ARM_CELLS.update(
             "count",
         )
         for target in _STRATA_TARGETS
+        for part in _STRATA_PARTS
+    }
+)
+
+
+#: ``learned-rule-strata`` (X11 PR E2, X11 (m)): the learned-rule value inside baseline strata.
+_LEARNED_STRATA_SLUG = "learned-rule-strata"
+IMPLEMENTATIONS["cleverly-learned-rule-strata"] = (
+    "`cleverly` fold-evaluated learned-rule value with baseline strata: each stratum estimate "
+    "is the fold average of the stratum plug-ins at the fold's learned rule, and the marginal "
+    "is their share mixture"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "unweighted"): (
+            f"{_STRATA_LAW}; a beta outcome with the blip 0.1 + 1.5 W1, rows only"
+        ),
+        (_LEARNED_STRATA_SLUG, "weighted"): (
+            f"{_STRATA_LAW}; a beta outcome with the blip 0.1 + 1.5 W1 and the known weight "
+            "1 + 1.5 W2"
+        ),
+        (_LEARNED_STRATA_SLUG, "binary_steep"): (
+            f"{_STRATA_LAW}; a binary outcome with the blip -1.2 + 3.0 W1, rows only"
+        ),
+        (_LEARNED_STRATA_SLUG, "binary_steep_weighted"): (
+            f"{_STRATA_LAW}; a binary outcome with the blip -1.2 + 3.0 W1 and the known weight "
+            "1 + 1.5 W2"
+        ),
+    }
+)
+_LEARNED_STRATA_CALIBRATION = [
+    f"{setting}_{part}"
+    for setting in ("unweighted", "weighted", "binary_steep", "binary_steep_weighted")
+    for part in _STRATA_PARTS
+]
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "interval_calibration", label, "declared"): (
+            "the declared stratified learned-rule fit with correctly specified learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in _LEARNED_STRATA_CALIBRATION
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "interval_calibration", label, "unnormalised_curve_control"): (
+            "the same fit with each fold's stratum curve not divided by the fold's own stratum "
+            "share, so its SE is about the stratum share times the reported one",
+            _STRATA_BELOW,
+        )
+        for label in _LEARNED_STRATA_CALIBRATION
+        if not label.endswith("_all")
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "interval_calibration", label, "share_dropped_control"): (
+            "the same fit with the marginal curve missing its share term, the spread of the "
+            "stratum estimates over the strata",
+            _STRATA_BELOW,
+        )
+        for label in ("unweighted_all", "weighted_all")
+    }
+)
+_LEARNED_STRATA_NECESSITY = [f"unweighted_{part}" for part in ("s0", "s1", "s2")]
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "targeting_necessity", label, "targeted"): (
+            "the fit with an outcome learner that sees neither W1 nor the stratum, so its "
+            "initial plug-in is nearly the same in every stratum and its rule reads W2 alone; "
+            "the truth is the harness refit with that learner",
+            "bias interval inside the equivalence margin",
+        )
+        for label in _LEARNED_STRATA_NECESSITY
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "targeting_necessity", label, "untargeted"): (
+            "the same fit without its fluctuation: the fold average of the stratum-blind "
+            "initial stratum plug-ins at the fit's rule",
+            "bias interval must fall entirely outside the margin",
+        )
+        for label in _LEARNED_STRATA_NECESSITY
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_LEARNED_STRATA_SLUG, "weak_margin_diagnostic", f"{setting}_{part}", "diagnostic"): (
+            "the declared fit and the same fit without strata on the same samples and folds at "
+            "n = 1,000, reported without a verdict",
+            "none. The cell reports both fits' coverage and SE ratio and the boundary "
+            "stratum's fold-rule disagreement",
+        )
+        for setting in ("binary_weak", "binary_moderate")
         for part in _STRATA_PARTS
     }
 )

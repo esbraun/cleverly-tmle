@@ -77,6 +77,7 @@ learned-rule-cvtmle-boundary
 learned-rule-compositions
 learned-rule-split-mean
 learned-rule-learners
+learned-rule-strata
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies

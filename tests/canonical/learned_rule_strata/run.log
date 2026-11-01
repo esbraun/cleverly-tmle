@@ -1,0 +1,22 @@
+=== learned-rule-strata declared run
+command: /tmp/venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_strata/regenerate.py --jobs 4 --output /tmp/scr_out
+commit: c2286cfc931f1a491aa5dd55828d11d6d2d7200a; upstream c2286cfc931f1a491aa5dd55828d11d6d2d7200a
+clean tree: True
+cleverly 0.1.7 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 18, sha256 4b1e5a477319c724393d1514868113e17245859cb42ada7eeb47fb6117b4623e
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-31T20:30:49+00:00
+finished: 2026-10-31T21:39:56+00:00
+wall seconds: 4147.6
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: a71d6ea25eb45d8d09a0996ebd082d510b505078e8cdac9f40a5017bed5e7c7a
+sha256 performance-tests.csv: 286bf2cc5ac7eb34548b03a490f80f4c4f533186486b8b27a3223b979e213ec1
+sha256 properties.csv: 0205081af6d7a28e72cab237f30374082d5d461dea1ed34ee4147753a2eb1bbe
+sha256 property-replicates.parquet: f8f34240b3c48f55158e4c4044bd4b70207e35c42722f57350f79f90aa8a9e8b
+sha256 replicates.parquet: 08b94c601dd7209c087a105d58d14a3681604a978b6ca03abdfc88750c7fb21f
+sha256 strata-harness.csv.gz: ee3f2bb8ea5acc5be56881279332864737a6322d4ec5dcd2b91f66d404c74ddd
+sha256 summary.csv: bb3504f89d1cdcbb953bdd306be7c673b93448b27febb65809544b3b1696fb5a
+

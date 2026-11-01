@@ -42,8 +42,14 @@ FIT_DIAGNOSTICS = "fit_diagnostics"
 #: The second optional result file: the truth harness of a learned-rule study, one row per
 #: primary replication.  A study that declares it gains one ``mean_oracle_se_<scenario>``
 #: aggregate per scenario, so a page quotes the descriptive oracle standard error by name.
+#: ``learned-rule-strata`` writes one row per replication and parameter under its own name,
+#: :data:`STRATA_HARNESS_FILE`, and is read under the same short name.
 HARNESS_FILE = "harness.csv.gz"
+STRATA_HARNESS_FILE = "strata-harness.csv.gz"
 HARNESS = "harness"
+#: The descriptive margin columns of a harness (``learned-rule-strata``): each gains a
+#: ``<column>_mean_<scenario>`` aggregate, the mean over the scenario's replications.
+MARGIN_COLUMNS = ("boundary_disagreement", "boundary_treated_share")
 
 #: The failure files (RM39a2), which a study publishes only when a fit failed.  ``accounting``
 #: rows are quotable as ``accounting[performance/<implementation>/<scenario>/<estimand>/<leg>]``
@@ -109,8 +115,9 @@ def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     }
     if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
-    if HARNESS_FILE in record.extra_artifacts:
-        frames[HARNESS] = pd.read_csv(record.artifact(HARNESS_FILE))
+    harness_file = _harness_file(record)
+    if harness_file is not None:
+        frames[HARNESS] = pd.read_csv(record.artifact(harness_file))
     for name, (filename, _) in OPTIONAL_ARTIFACTS.items():
         if filename in record.extra_artifacts:
             frames[name] = pd.read_csv(record.artifact(filename))
@@ -423,11 +430,20 @@ def _mechanism_aggregates(
     }
 
 
+def _harness_file(record: StudyRecord) -> str | None:
+    """The truth-harness file a study publishes, or ``None`` for a study without one."""
+    for filename in (HARNESS_FILE, STRATA_HARNESS_FILE):
+        if filename in record.extra_artifacts:
+            return filename
+    return None
+
+
 def _harness_columns(record: StudyRecord) -> frozenset[str]:
-    """The header of a study's ``harness.csv.gz``, or nothing before the study has run."""
-    if HARNESS_FILE not in record.extra_artifacts:
+    """The header of a study's truth harness, or nothing before the study has run."""
+    harness_file = _harness_file(record)
+    if harness_file is None:
         return frozenset()
-    path = record.artifact(HARNESS_FILE)
+    path = record.artifact(harness_file)
     return frozenset(pd.read_csv(path, nrows=0).columns) if path.exists() else frozenset()
 
 
@@ -443,7 +459,9 @@ def _harness_aggregates(
     A harness that carries ``plug_in_truth`` (a rule-learner study's paired plug-in fit) also
     gains, per scenario, the mean, the SD and the positive share of ``truth - plug_in_truth``,
     the primary value gain over the plug-in rule: ``value_gain_mean_<scenario>``,
-    ``value_gain_sd_<scenario>`` and ``value_gain_positive_share_<scenario>``.
+    ``value_gain_sd_<scenario>`` and ``value_gain_positive_share_<scenario>``.  A harness that
+    carries a column of :data:`MARGIN_COLUMNS` gains its mean per scenario,
+    ``<column>_mean_<scenario>``.
 
     Parameters
     ----------
@@ -455,10 +473,22 @@ def _harness_aggregates(
     dict
         Empty for a study that publishes no harness.
     """
-    if HARNESS_FILE not in record.extra_artifacts:
+    if _harness_file(record) is None:
         return {}
     out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {}
+    margins = [column for column in MARGIN_COLUMNS if column in _harness_columns(record)]
     for scenario in record.scenarios:
+        for column in margins:
+
+            def margin_mean(
+                data: Mapping[str, pd.DataFrame], scenario: str = scenario, column: str = column
+            ) -> float:
+                rows = _scenario(data[HARNESS], scenario)
+                if rows.empty:
+                    raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
+                return float(rows[column].mean())
+
+            out[f"{column}_mean_{scenario}"] = margin_mean
 
         def mean_oracle_se(data: Mapping[str, pd.DataFrame], scenario: str = scenario) -> float:
             rows = _scenario(data[HARNESS], scenario)
@@ -466,7 +496,10 @@ def _harness_aggregates(
                 raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
             return float(rows["oracle_se"].mean())
 
-        out[f"mean_oracle_se_{scenario}"] = mean_oracle_se
+        # A harness with one row per parameter (``estimand``) pools several parameters' oracle
+        # standard errors, so a single mean would describe none of them.
+        if "estimand" not in _harness_columns(record):
+            out[f"mean_oracle_se_{scenario}"] = mean_oracle_se
         if "plug_in_truth" not in _harness_columns(record):
             continue
 
