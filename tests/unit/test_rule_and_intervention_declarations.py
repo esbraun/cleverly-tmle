@@ -142,7 +142,8 @@ ESTIMATED_RULE = _ESTIMATED_RULE
 #: ``DynamicRegimen`` share the text, so both refusals carry both sentences.
 ROUTES = (
     "For a point treatment, LearnedRuleValue estimates the average value of rules learned "
-    "inside each training fold (docs/technical-reference/point-treatment-tmle.md, Learned rules).",
+    "inside each training fold, or with cross_fit=False the value of one rule learned on every "
+    "row (docs/technical-reference/point-treatment-tmle.md, Learned rules).",
     "A learned longitudinal regimen has no supported path (X11 in docs/roadmap.md).",
 )
 UNDECLARED_CLASS = _UNDECLARED_INTERVENTION

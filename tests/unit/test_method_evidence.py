@@ -1786,6 +1786,11 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # on the same clustered draws and folds, its bias and the paired error difference
         # reported with no verdict.
         "fold_evaluated_reporting",
+        # X11 PR F2 (``learned-rule-in-sample``): the in-sample fit read against the
+        # fold-average target of the same draw, and the targeted and untargeted fits of a
+        # learner whose rule flips between samples, each reported with no verdict.
+        "target_distinction",
+        "weak_limit_necessity",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
@@ -2310,10 +2315,16 @@ class TestTheStudyStillMeasuresTheCode:
                 f"targeting_necessity family, so nothing separates targeting from a plug-in"
             )
             pytest.skip(f"{study.reference} publishes no untargeted plug-in")
-        assert reference["initial_estimate"].notna().all(), (
-            "the reference publishes a plug-in for some replications and not others"
+        # A comparator can lack a plug-in for one model only: survtmle 1.1.1's bounded mean
+        # method crashes under Gcomp = TRUE, so survival-node-bounds publishes the plug-in of
+        # its hazard model alone.  Within each model the plug-in is all or nothing.
+        present = reference["initial_estimate"].notna().groupby(reference["scenario"])
+        mixed = sorted(name for name, flags in present if flags.any() and not flags.all())
+        assert not mixed, (
+            f"the reference publishes a plug-in for some replications and not others in {mixed}"
         )
-        moved = (reference["estimate"] - reference["initial_estimate"]).abs()
+        published = reference.loc[reference["initial_estimate"].notna()]
+        moved = (published["estimate"] - published["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
 
     def test_native_interval_scales_are_recorded_instead_of_forced_to_match(

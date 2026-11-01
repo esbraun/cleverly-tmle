@@ -244,10 +244,15 @@ class TestEachRowRefusesBeforeAnyLearner:
         assert estimate.support.row == "T42.rows"
 
     def test_the_in_sample_fit_is_no_row(self) -> None:
-        """``cross_fit=False`` fits the full-sample rule's value (X11 (a)), keyed and experimental."""
+        """``cross_fit=False`` fits the full-sample rule's value (X11 (a)), keyed and experimental.
+
+        The helper's outcome learner is a ``Pipeline``, which keys ``adaptive``, so T43, the
+        row of parametric in-sample learners, does not cover it.
+        """
         result = support.fit(cross_fit=False, cv_evaluation=False)
         assert result.extra["learned_rule"].scheme == "in_sample"
         assert result.config.support_key.splitting == ("in_sample",)
+        assert dict(result.config.support_key.options)["outcome_learner_family"] == "adaptive"
         assert result.estimates[support.NAME].support.label == "experimental"
 
     def test_the_in_sample_bootstrap_keeps_the_in_sample_target(self) -> None:

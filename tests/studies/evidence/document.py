@@ -660,6 +660,29 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"paired error difference {render(float(row.paired_error_difference))}"
         )
+    if family == "target_distinction":
+        # X11 PR F2: the in-sample fit read against the fold-average target of the same draw.
+        # Its rows carry no bootstrap SE-ratio interval, and no margin reads them.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"truth-gap SD / error SD {render(float(row.truth_gap_sd_ratio))}, "
+            f"grid disagreement {render(float(row.mean_grid_disagreement))}"
+        )
+    if family == "weak_limit_necessity":
+        # X11 PR F2: the weak-limit pair, with the flip share and the targeted arm's bias on
+        # settled and flipped draws, which the summary writes on both rows of the pair.
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        )
+        if str(row.cell).endswith("__targeted"):
+            measured += (
+                f", flip share {render(float(row.weak_limit_flip_share))}, "
+                f"bias on settled draws {render(float(row.weak_limit_settled_bias))} SD, "
+                f"on flipped draws {render(float(row.weak_limit_flipped_bias))} SD"
+            )
+        return measured
     if family == "unbounded_fit":
         # The unbounded fit's accuracy, and the RMSE of both fits on the same draws.
         return (

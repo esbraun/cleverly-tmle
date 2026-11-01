@@ -1116,12 +1116,12 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
 
 The registered study [point survival hazard](method-evidence/point-survival-hazard.md) validates
-the per-horizon algorithm on repeated samples of two exact laws. Its `survtmle` comparator runs
-are pending.
+the per-horizon algorithm on repeated samples of two exact laws. Its 21 paired comparisons with R
+`survtmle`, `method = "hazard"`, pass under the default margins.
 
 The registered study [point survival curve](method-evidence/point-survival-curve.md) validates the
 one-step walk on repeated samples of the `survival` law and on further exact laws in its property
-cells. Its `tmle3` comparator runs are pending.
+cells. Its 15 paired comparisons with R `tmle3` `tmle_survival` pass under the default margins.
 
 The registered study [point survival curve crossfit](method-evidence/point-survival-curve-crossfit.md)
 validates the one-step walk at five folds on the same exact laws. It has no comparator.
@@ -1425,7 +1425,10 @@ the full history.
 A static node adds no block, because its arm is one constant among the rows that follow the plan.
 A rule node in the window adds its arm. The rule reads the full history, so the window's
 covariates do not determine the arm. The arm blocks start at $t-k-1$, as the mechanism's arms
-do and as `LmtpVars$history` in `lmtp` does. Indices below 1 are dropped.
+do, so the outcome regression conditions on every arm the mechanism reads. `lmtp`'s
+`LmtpVars$history` starts the mechanism's arms at $t-k-1$ too, but its outcome history starts
+them at $t-k$, so `markov_order=k` holds one more arm in the outcome regression than `lmtp` at
+the same $k$. Indices below 1 are dropped.
 
 When the restriction is false, the nuisance fits converge to projections on the window. The fit
 is consistent when one nuisance family, fitted on the window, is consistent. That family needs the
