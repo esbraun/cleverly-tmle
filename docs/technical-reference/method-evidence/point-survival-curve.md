@@ -42,8 +42,9 @@ A replicate with an unsolved score and no nonzero step fails the run. A replicat
 step and an unsolved score stays in the paired rows. The run log counts it. In the
 declared run every one of the 3,200 `tmle3` fits (1,600 samples, two arms) solved its score
 within `maxit`, with 1 to 38 nonzero steps and no printed error. The standard error from the
-per-unit influence curve differs from the `tmle3` summary by at most $4.6 \times 10^{-6}$. The run
-log of Study queue row 21 in `TRACKER.md` records these counts.
+per-unit influence curve differs from the `tmle3` summary by at most $4.6 \times 10^{-6}$. The
+[run log](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve/run.log)
+records these counts.
 
 The declared unmatched settings are the cause of any difference between the two sides.
 

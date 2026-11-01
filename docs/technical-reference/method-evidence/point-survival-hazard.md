@@ -36,10 +36,15 @@ construction. The runner declares `tol = 1/n` and `maxIter = 100`. The `survtmle
 `tol = 1/sqrt(n)` stops before any targeting step at the laws of this study.
 
 None of the 8,000 `survtmle` calls (1,600 samples, two scenarios, five horizons) failed. In 199
-calls (2.5%) the loop stopped at `maxIter` with `max |meanIC|` above `1/n`, against about 4%
-declared from the smoke run. Those fits stay in the paired rows, as the manifest's pairing rule
-says. The run log of Study queue row 20 in `TRACKER.md` records the counts. The only other R
-messages were `glm` rank-deficiency warnings and `speedglm` falling back to `glm`.
+calls (2.5%) the loop ended with `max |meanIC|` above `1/n`, against about 4% declared from the
+smoke run. Those fits stay in the paired rows, as the manifest's pairing rule says. The only other
+R messages were `glm` rank-deficiency warnings and `speedglm` falling back to `glm`.
+
+The
+[run log](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_hazard/run.log)
+records these counts. It holds three invocations in order. The first stopped at a time limit after
+927 of the 1,600 `survtmle` samples, and the second stopped on its resume check. The third reused
+the first's `cleverly` rows, refitted every `survtmle` sample and wrote the artifacts.
 
 Twenty paired rows read equivalent and one reads superior on coverage: the difference in relapse
 incidence at visit 2. Its intervals disagree in 7 of the 1,600 samples, all 7 covered by
