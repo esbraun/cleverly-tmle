@@ -430,7 +430,10 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     baseline strata refuses as an implementation gap (X11 (n2)): a stratum value needs the
     combined representer restricted to the stratum's rows of each fold, and the marginal
     value is the share mixture of fold-evaluated stratum values, and no witness checks the
-    bias of either against :math:`E[\Delta\bar Q\,\Delta\alpha]`.
+    bias of either against :math:`E[\Delta\bar Q\,\Delta\alpha]`.  The stacked report
+    (``cv_evaluation=False``) refuses as an implementation gap (X11 (n2)) too: its value
+    weights the fold rules by :math:`W_v/W`, and no witness checks the bound of that
+    combined representer.
     """
     n_splits = int(getattr(result, "n_repeats", 1))
     if n_splits > 1:
@@ -459,6 +462,22 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
             alternative=(
                 "Fit the learned-rule value without strata= and run the omitted-variable "
                 "bound on that fit, which bounds the marginal value."
+            ),
+            roadmap="X11",
+        )
+    record = getattr(result, "extra", {}).get("learned_rule")
+    if getattr(record, "scheme", "fold_evaluated") == "stacked":
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "the omitted-variable bound of the stacked learned-rule report "
+            "(cv_evaluation=False) is not built. Its value weights fold v's rule by the fold's "
+            "share W_v / W of the weight mass, so the combined representer would average the "
+            "fold rules with those weights rather than 1/V, and no witness checks the bias "
+            "against it (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Fit the learned-rule value with cv_evaluation=True "
+                "(CrossFitting(fold_evaluation=True) on the method) and run the "
+                "omitted-variable bound on that fit."
             ),
             roadmap="X11",
         )

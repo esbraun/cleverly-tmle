@@ -2386,6 +2386,42 @@ def _learned_rule_strata_cases() -> tuple[RowCase, ...]:
     return tuple(case(scenario) for scenario in rows)
 
 
+def _learned_rule_stacked_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-stacked`` (X11 PR F1, X11 (e)).
+
+    Each runs the study's own stacked fit on a draw of its setting at the primary size, up to
+    the classifier. ``T42.clustered_equal_sizes`` runs the same clustered fit on the
+    ``learned-rule-compositions`` cluster draw, 200 clusters of 10 rows, because the study's own
+    cluster law draws unequal sizes.
+    """
+    module, slug = "_learned_rule_stacked_law", "learned-rule-stacked"
+
+    def case(row: str, scenario: str, draw: Callable[[Any], Any]) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:233",
+            module,
+            draw,
+            lambda study, frame: study.fit(frame, scenario, study.base.outcome_learner(), 0),
+        )
+
+    def own(scenario: str) -> Callable[[Any], Any]:
+        return lambda study: study.draw(scenario, 2_000, 0)
+
+    return (
+        case("T42.rows", "rows", own("rows")),
+        case("T42.weighted", "weighted", own("weighted")),
+        case("T42.clustered", "clustered", own("clustered")),
+        case(
+            "T42.clustered_equal_sizes",
+            "clustered",
+            lambda study: study.compositions.draw("clustered", 2_000, 0),
+        ),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2707,6 +2743,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_learners_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
+    *_learned_rule_stacked_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
