@@ -171,7 +171,7 @@ def test_a_run_stopped_in_the_reference_resumes_without_drawing_again(
 
 def test_the_archive_is_replicate_major_and_holds_only_the_prefix(tmp_path: Path) -> None:
     record = dataclasses.replace(synthetic.compared(), reference_replicates={"a": 3, "b": 2})
-    paths = regenerate.write_reference_inputs(synthetic, record, 60, tmp_path, jobs=1)  # type: ignore[arg-type]
+    paths = regenerate.write_reference_inputs(synthetic, record, 60, tmp_path, jobs=1)
     samples = pd.read_csv(paths["samples.csv.gz"])
     order = samples[["replicate", "scenario"]].drop_duplicates().itertuples(index=False)
     assert [tuple(key) for key in order] == [(0, "a"), (0, "b"), (1, "a"), (1, "b"), (2, "a")]

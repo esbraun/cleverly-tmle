@@ -186,6 +186,10 @@ horizon_row <- function(scenario, replicate, name, truth, estimate, initial, ic,
 horizon_lmtp_scenario <- function(frame, scenario, truths, comparator) {
   replicate <- frame$replicate[[1]]
   frame <- horizon_typed(frame[order(frame$row), ])
+  # "design": the sample names its comparator (design__sdr), as the parity record's scenarios do.
+  if (identical(comparator, "design")) {
+    comparator <- if (horizon_constant(frame, "design__sdr") == 1L) "lmtp_sdr" else "lmtp_tmle"
+  }
   wanted <- truths[truths$scenario == scenario & truths$replicate == replicate, ]
   if (!nrow(wanted)) stop(sprintf("no truth rows for %s replication %s", scenario, replicate))
   fits <- list()

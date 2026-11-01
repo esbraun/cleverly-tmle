@@ -11,7 +11,9 @@ Run from the repository root, with Docker for every step but ``identity`` and ``
     python -m tests.canonical.x59_smoke sizing --timings runs/x59/timing --workers 12 \\
         --tier1 30 --tier3 17
 
-``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3).  Every step prints what it
+``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3), and for ``run``,
+``mutations`` and ``timing`` also ``ltmle-parity`` or ``lmtp-parity`` (section 5).  A parity
+record's subject phase runs first (``python tests/canonical/<dir>/regenerate.py``).  Every step prints what it
 read and ends with ``PASS`` or ``FAIL`` (``memory``, ``timing`` and ``sizing`` print numbers
 only).  A smoke run writes outside the committed directories, at the smoke prefix of
 :data:`SMOKE_PREFIX` replicates, and the driver writes its parity table at the floor tolerance
@@ -48,7 +50,21 @@ STUDIES = {
         "lmtp_tmle",
     ),
     "sdr": ("tests.studies.canonical_long_horizon_sdr", "long_horizon_sdr", "lmtp_sdr"),
+    # The section 5 parity records, where the mutations run cheaply.  They commit no subject
+    # rows before their first run, so the identity gate does not apply to them.
+    "ltmle-parity": (
+        "tests.studies.canonical_long_horizon_ltmle_parity",
+        "long_horizon_ltmle_parity",
+        "ltmle",
+    ),
+    "lmtp-parity": (
+        "tests.studies.canonical_long_horizon_lmtp_parity",
+        "long_horizon_lmtp_parity",
+        "design",
+    ),
 }
+#: The studies whose committed subject rows the identity gate refits.
+IDENTITY_STUDIES = ("ltmle", "categorical", "sdr")
 #: The smoke prefix: the first eight replicates of every paired scenario (section 4.1).
 SMOKE_PREFIX = 8
 #: The images G0 compares.
@@ -458,7 +474,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     step.add_argument("--out", type=Path, default=Path("runs/x59/g0"))
     step.add_argument("--no-build", action="store_true")
     step = steps.add_parser("identity")
-    step.add_argument("study", choices=STUDIES)
+    step.add_argument("study", choices=IDENTITY_STUDIES)
     step.add_argument("--replicates", type=int, default=SMOKE_PREFIX)
     for name in ("run", "mutations"):
         step = steps.add_parser(name)
