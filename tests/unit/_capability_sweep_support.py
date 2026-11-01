@@ -210,8 +210,8 @@ def fit_regime() -> Any:
 def fit_learned_rule() -> Any:
     """The fold-evaluated learned-rule fit of :mod:`tests.unit._learned_rule_support`.
 
-    The fit cross-fits in five folds, because the learned-rule value has no in-sample fit.
-    A refit relearns the rules, so ``refute`` and ``benchmark`` read unavailable, as do
+    The fit cross-fits in five folds, the fold-evaluated report that the registered
+    learned-rule studies measure.  A refit relearns the rules, so ``refute`` and ``benchmark`` read unavailable, as do
     the E-value, the omitted-variable bound, simulated confounding and the missingness
     tilt (F27 in ``docs/roadmap.md``).  The summarize rows and ``truncation_curve`` run.
     """

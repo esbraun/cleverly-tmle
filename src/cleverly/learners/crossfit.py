@@ -105,12 +105,22 @@ _MAX_SEED = 2**32 - 1
 #: seed that happen to succeed were chosen by looking at the data the split must not read.
 _IN_SAMPLE_REMEDY = "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 
+#: The in-sample offer to a learned-rule caller on the engine. An in-sample learned-rule fit
+#: estimates the value of one rule learned on every row, a different target from the
+#: cross-fitted learned-rule value (X11 (a)), so an offer of it never reads as a bare "fit in
+#: sample". :data:`cleverly.interventions.learned.LEARNED_RULE_REMEDY` is this text.
+LEARNED_RULE_IN_SAMPLE = (
+    "fit the value of the full-sample rule with cross_fit=False, a different target from the "
+    "cross-fitted learned-rule value"
+)
+
 #: The sentence that ends each method-layer fold-policy refusal that offers an in-sample
 #: fit. :class:`~cleverly.CrossFitting` and :class:`~cleverly.TMLEMethod` refuse at
-#: construction, before they see the estimand, so they cannot drop that offer for the one
-#: estimand that has no in-sample fit. This sentence names its remedy.
+#: construction, before they see the estimand, so they cannot reword that offer for the one
+#: estimand whose in-sample fit has another target. This sentence names both fits.
 _LEARNED_RULE_METHOD_CLAUSE = (
-    "LearnedRuleValue has no in-sample fit (X11 (a) in docs/roadmap.md), so for it use "
+    "For LearnedRuleValue, CrossFitting(enabled=False) fits the value of the full-sample rule, "
+    "a different target from the cross-fitted learned-rule value, which needs "
     "CrossFitting(enabled=True) with n_folds of at least 2; CrossFitting(fold_evaluation=True) "
     "gives the fold-evaluated report that the registered studies cover"
 )
@@ -166,9 +176,10 @@ def fold_strata_refusal(
     collaborative : bool
         Whether the fit draws collaborative selection folds even without cross-fitting.
     learned_rule : bool or None, default=False
-        Whether the fit estimates the learned-rule value, which has no in-sample fit.
-        ``True`` drops the in-sample alternative. ``None`` means that the caller cannot
-        see the estimand, and the reason then ends with the learned-rule remedy.
+        Whether the fit estimates the learned-rule value, whose in-sample fit has another
+        target. ``True`` words the in-sample alternative as that target change. ``None``
+        means that the caller cannot see the estimand, and the reason then ends with the
+        learned-rule clause.
 
     Returns
     -------
@@ -196,6 +207,7 @@ def fold_strata_refusal(
         tail = _in_sample_offer(
             f" Otherwise {_IN_SAMPLE_REMEDY}, which draws no split for a policy to apply to.",
             learned_rule,
+            f" Otherwise {LEARNED_RULE_IN_SAMPLE}; it draws no split for a policy to apply to.",
         )
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
@@ -212,7 +224,7 @@ def fold_strata_refusal(
     )
 
 
-def _in_sample_offer(offer: str, learned_rule: bool | None) -> str:
+def _in_sample_offer(offer: str, learned_rule: bool | None, learned: str) -> str:
     """Return the in-sample ``offer`` of a fold-policy refusal, as the caller may make it.
 
     Parameters
@@ -220,9 +232,13 @@ def _in_sample_offer(offer: str, learned_rule: bool | None) -> str:
     offer : str
         The text that offers the in-sample fit, with its leading separator.
     learned_rule : bool or None
-        ``False`` keeps the offer. ``True`` drops it, because the learned-rule value has
-        no in-sample fit. ``None`` keeps it and adds
-        :data:`_LEARNED_RULE_METHOD_CLAUSE`, for a caller that cannot see the estimand.
+        ``False`` keeps the offer. ``True`` returns ``learned``, because the in-sample fit
+        of a learned rule estimates the value of the full-sample rule, a different target.
+        ``None`` keeps the offer and adds :data:`_LEARNED_RULE_METHOD_CLAUSE`, for a caller
+        that cannot see the estimand.
+    learned : str
+        The same offer to a learned-rule caller, with its leading separator, naming
+        :data:`LEARNED_RULE_IN_SAMPLE`.
 
     Returns
     -------
@@ -231,7 +247,7 @@ def _in_sample_offer(offer: str, learned_rule: bool | None) -> str:
     """
     if learned_rule is None:
         return f"{offer.rstrip('.')}. {_LEARNED_RULE_METHOD_CLAUSE}."
-    return "" if learned_rule else offer
+    return learned if learned_rule else offer
 
 
 def _cross_fit_policy_refusal(
@@ -287,10 +303,11 @@ def _cross_fit_policy_refusal(
         The caller's spelling of the cross-fitting switch, ``"enabled"`` on
         :class:`~cleverly.CrossFitting` and ``"cross_fit"`` on the engine.
     learned_rule : bool or None, default=None
-        Whether the fit estimates the learned-rule value, which has no in-sample fit. The engine
-        knows and passes a bool, and ``True`` drops every in-sample alternative. The two
-        method-layer callers cannot see the estimand and leave ``None``, so each reason that offers
-        an in-sample fit ends with the learned-rule remedy.
+        Whether the fit estimates the learned-rule value, whose in-sample fit has another
+        target. The engine knows and passes a bool, and ``True`` words every in-sample
+        alternative as that target change (:data:`LEARNED_RULE_IN_SAMPLE`). The two
+        method-layer callers cannot see the estimand and leave ``None``, so each reason that
+        offers an in-sample fit ends with the learned-rule clause.
 
     Returns
     -------
@@ -319,7 +336,11 @@ def _cross_fit_policy_refusal(
             invalid,
             "repeats combines independent cross-fitting splits, and "
             f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting"
-            + _in_sample_offer(" or set repeats=1", learned_rule),
+            + _in_sample_offer(
+                " or set repeats=1",
+                learned_rule,
+                f", or set repeats=1 and {LEARNED_RULE_IN_SAMPLE}",
+            ),
         )
     if cross_fit and n_folds < 2:
         return Refusal(
@@ -327,7 +348,11 @@ def _cross_fit_policy_refusal(
             f"{option_name}=True with n_folds={n_folds} leaves one fold, so every nuisance "
             "is fitted on the rows it predicts while the fit reports the cross-fitted "
             "estimator's name and variance rule. Set n_folds to at least 2"
-            + _in_sample_offer(", or fit in sample with CrossFitting(enabled=False)", learned_rule),
+            + _in_sample_offer(
+                ", or fit in sample with CrossFitting(enabled=False)",
+                learned_rule,
+                f", or {LEARNED_RULE_IN_SAMPLE}",
+            ),
         )
     if cross_fit or collaborative:
         return fold_strata_refusal(

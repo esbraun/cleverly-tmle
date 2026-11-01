@@ -127,7 +127,7 @@ not change the package version.
 | after beta | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | the shipped support rows and per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | after beta | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; the reviewed worked examples | [X69](#x69-documentation-review-for-new-and-changed-methods) |
-| B5 | Learned-policy follow-ups | natural extension for parts (i2), (k2) and (n2); published support; pending source read for parts (a), (b) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Learned-policy follow-ups | natural extension for parts (i2), (k2) and (n2); published support; pending source read for parts (b) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -922,13 +922,12 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 ### X11. Learned-policy follow-ups
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
-construction. Each part below is a published follow-up outside that contract. For parts (a) to
+construction. Each part below is a published follow-up outside that contract. For parts (b) to
 (d), the refusal of the request cites the part. No request reaches part (f). Each part needs its
 own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
 | --- | --- | --- | --- |
-| (a) the value of one rule fitted on all rows | `cross_fit=False`, or one fold | van der Laan and Luedtke (2015), Section 6 and Theorem 5, under an empirical process condition | published support; pending source read |
 | (b) learned longitudinal regimens | `DynamicRegimen(..., rule_kind="estimated")` | van der Laan and Luedtke (2015), Sections 2 and 7, at two time points | published support; pending source read |
 | (c) a contrast of the learned-rule value with a known regime or an arm | `learned_rule=` beside `interventions=` or an arm estimand | Theorem 6 of the same paper for each value. The contrast follows by linearity of the fold-local curves, an [Eligibility](#eligibility) step that the contract must record | source audit |
 | (d) categorical treatments | a treatment with more than two arms | Nordland and Holst (2026), Section 3.4, for discrete actions | source audit |
@@ -962,6 +961,15 @@ Nordland and Holst (2026), Algorithm 4, does. Its key reads `stacked`, which no 
 every stacked fit reads experimental until the `learned-rule-stacked` study registers. A stacked
 fit with unequal cluster sizes keeps the `unequal_clusters` qualifier unless that study's
 declared cluster cell passes. Its omitted-variable bound joins part (n2).
+
+The in-sample fit of part (a) now ships
+([one rule fitted on all rows](technical-reference/point-treatment-tmle.md#learned-rules)).
+`cross_fit=False` learns one rule on every row and estimates the value of that full-sample rule,
+a different target, under the Donsker condition of van der Laan and Luedtke (2015), Theorem 5.
+Its key reads the learner families, so the `learned-rule-in-sample` study can cover parametric
+learners. No row covers it yet, so every in-sample fit reads experimental, and an adaptive
+learner also warns. Every remedy that offers it to a learned-rule caller names the change of
+target.
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).

@@ -1037,9 +1037,17 @@ need a margin rate, which condition C3 does not give.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, and a
 conservative option, a cross-fitted $\nu^2_{\rm diag} \ge \nu^2$, that is recorded and not built.
 
-The summaries print a note that the bound keeps each fold's learned rule fixed. No study measures
-the bound, and the registry has no row for it: the `ovb_limit` rows license limits, and this bound
-has none.
+The summaries print a note that the bound keeps the rules the fit learned fixed. No study
+measures the bound, and the registry has no row for it: the `ovb_limit` rows license limits, and
+a cross-fitted bound has none.
+
+An in-sample fit ([one rule fitted on all rows](point-treatment-tmle.md#learned-rules))
+has one rule $d_n$, so $g^\star(a \mid w) = 1\{a = d_n(w)\}$ and the combined representer is the
+known-regime representer at $d_n$. The limits above are withheld because rules applied to rows
+they were learned on need a Donsker-type condition that C5 excludes. The in-sample fit assumes
+that condition already (C5a), so its limits run under it. No `ovb_limit` row covers them, so they
+read as descriptive. `tests/unit/test_learned_rule_in_sample.py` checks that the bound and its
+limits equal those of the known rule fitted in sample.
 
 `tests/unit/test_learned_rule_bound.py` checks these claims:
 

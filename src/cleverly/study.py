@@ -4169,8 +4169,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         refuse before any learner.  For :class:`LearnedRuleValue`, the default
         ``TMLEMethod()`` fits the stacked report, and
         ``TMLEMethod(cross_fitting=CrossFitting(fold_evaluation=True))`` fits the
-        fold-evaluated report; ``CrossFitting(enabled=False)`` refuses (X11 (a) in
-        ``docs/roadmap.md``).
+        fold-evaluated report; ``CrossFitting(enabled=False)`` fits the value of the one rule
+        learned on every row, a different target (experimental).
         """
         point = not self.functional.longitudinal
         target = self.functional.target

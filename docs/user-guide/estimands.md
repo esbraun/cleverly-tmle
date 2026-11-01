@@ -221,8 +221,8 @@ a higher outcome under treatment. A tie assigns control. The outcome learner the
 rule, so give it the treatment-by-covariate terms that the rule can depend on.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
-rules. It is not the value of one rule fitted on all rows, and it is not the value of the optimal
-rule. The table gives what the result holds.
+rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not
+the value of the optimal rule. The table gives what the result holds.
 
 | where | content |
 | --- | --- |
@@ -237,9 +237,17 @@ default `CrossFitting()` also runs: it scores all held-out rows together and wei
 its share of the rows (of the total weight, when you pass `weights=`). Its result is marked
 experimental until a study measures it.
 
-Either way the fit needs, among other things, cross-fitting with at least two folds, a binary
-treatment, complete outcomes and no intermediate variable. A fit that lacks one of them refuses
-before any model is fitted. The refusal table under
+`CrossFitting(enabled=False)` runs too, and it answers a different question. It learns one rule
+from all the rows and reports the value of that one rule, scored on the same rows that chose it.
+Its interval holds only when the models cannot bend to fit noise: a fixed set of terms with
+nothing selected from the data. The fit therefore warns unless every model is a
+`LogisticRegression`, a `LinearRegression`, a `GLM`, or a class you mark with
+`cleverly_learner_family = "parametric"`. No study measures this fit yet, so its result is marked
+experimental.
+
+Every one of these fits needs, among other things, a binary treatment, complete outcomes and no
+intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of
+them refuses before any model is fitted. The refusal table under
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) lists the rest.
 
 A refit that relearned the rules would estimate the value of other rules. So the `subset`,

@@ -4080,7 +4080,7 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "those fixed rules, not of the procedure that learned them."
         ),
         "learned_rule_bound": (
-            "The bound keeps each fold's learned rule fixed, so it reads confounding of the "
+            "The bound keeps the rules the fit learned fixed, so it reads confounding of the "
             "value of those fixed rules, not of the procedure that learned them."
         ),
         "observation_reads": (

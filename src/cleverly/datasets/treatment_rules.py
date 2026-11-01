@@ -228,7 +228,9 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
     report weights each fold by ``1/V``, and the stacked report weights it by its share of the
     rows.  This function refits ``outcome_learner`` on each fold's training rows, checks that its
     rule matches the fit's rule on every row of the fold, and averages the exact values of the
-    refitted rules with the fit's own fold weights.
+    refitted rules with the fit's own fold weights.  An in-sample fit (``cross_fit=False``)
+    learns one rule on every row, and its target is the value of that one rule, which this
+    function refits on every row.
 
     Parameters
     ----------
@@ -290,10 +292,12 @@ def learned_rule_truth(result: Any, outcome_learner: Any) -> float:
 
     values = []
     weights_of_folds = result.extra["learned_rule"].splits[0].fold_weights
-    for fold, (train, test) in enumerate(result.nuisance.folds):
-        model = fit_on_rows(
-            outcome_learner, design, outcome, weights, np.asarray(train), "classification", None
-        )
+    folds = result.nuisance.folds
+    for fold, (train, test) in enumerate(folds):
+        # An in-sample fit (cross_fit=False) has one pseudo-fold, whose rule is learned on
+        # every row.
+        rows = np.arange(data.n) if folds.is_single else np.asarray(train)
+        model = fit_on_rows(outcome_learner, design, outcome, weights, rows, "classification", None)
         if np.any((blip(model, covariates[test]) > 0.0) != fitted[test]):
             raise ValueError(f"the refitted rule of fold {fold} differs from the fit's rule")
 

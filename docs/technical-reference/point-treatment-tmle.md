@@ -1248,8 +1248,9 @@ Here $\bar Q_{nv}$ is the outcome regression that the fit trains on the training
 $v$, and $d_{nv}$ is its plug-in rule, the default `LearnedRule()`. A tie assigns control. Under
 the rule learners described below, a declared learner fits the rule on the same training rows
 instead, and the target keeps its form. The target is not the value of one rule fitted on all
-rows, and it is not the value of the optimal rule.
-[X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets. The
+rows, which the in-sample fit of [one rule fitted on all rows](#learned-rules)
+estimates, and it is not the value of the optimal rule, which
+[X11](../roadmap.md#x11-learned-policy-follow-ups) part (f) holds. The
 [treatment-rules example](../examples/treatment-rules.ipynb) fits this target end to end.
 
 This is the target of the fold-evaluated report, `cv_evaluation=True`
@@ -1569,7 +1570,7 @@ $\tilde\psi^{s}_{0n}$.
 | --- | --- |
 | known weights, `targeting_scheme="fold"`, `id=`, a rule learner | admitted, experimental. Each changes only the rule, the fluctuation or the variance rule that the construction reads |
 | `repeats` above 1 on rows | admitted, experimental. The fit reports the mean of the split estimates, and the variance is the centred rule applied to the mean of the split curves, each centred at its own pooled estimate |
-| `repeats` above 1 with `id=` | refused, row 10 of the table below |
+| `repeats` above 1 with `id=` | refused, row 9 of the table below |
 | `strata=` | admitted, experimental. Stratum $s$ targets $\sum_v (W_{v,s}/W_s)\,\Psi_{s,d_{nv}}(P_0)$, with $W_{v,s}$ the weight mass of fold $v$ in the stratum, and the shipped stratified fluctuation solves each stratum's pooled score under that weighting |
 | `strata=` with `id=` | refused, row 8 of the table below, as under fold evaluation |
 | the omitted-variable bound | refused as an implementation gap, [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2): its combined representer would average the fold rules with the weights $W_v/W$, and no witness checks its bias |
@@ -1592,10 +1593,83 @@ splits reports their mean, and each stratum estimate weights its folds by $W_{v,
 each stratum's pooled score is solved. `cleverly.datasets.learned_rule_truth` weights the
 refitted fold rules by the fit's own `fold_weights`.
 
+#### One rule fitted on all rows
+
+`cross_fit=False` (`CrossFitting(enabled=False)` on the method) learns one rule $d_n$ on every
+row: the plug-in rule of the outcome regression fitted on every row, or the rule of a rule
+learner fitted on every row, whose inner cross-fit then runs over all rows. The target is the
+value of that full-sample rule (JCI, Section 6):
+
+$$
+\Psi_{d_n}(P_0) = E_{P_0}\,\bar Q_0(d_n(W), W).
+$$
+
+It is neither the fold average $\tilde\psi_{0n}$ nor the value of the optimal rule. The estimator
+is the shipped in-sample regime TMLE at $d = d_n$, with $d_n$ treated as known: it solves
+$P_n D^*(d_n, \bar Q^*_n, g_n) = 0$ with $H_i = \mathbb 1\{A_i = d_n(W_i)\} / g_n(A_i \mid W_i)$,
+reports the plug-in mean of $\bar Q^*_n(d_n(W_i), W_i)$, and stores the centred variance
+$\{n(n-1)\}^{-1}\sum_i (\phi_i - \bar\phi)^2$ of the regime report. The score is solved, so
+$\bar\phi = 0$ to solver tolerance, and this is $n/(n-1)$ times $n^{-2}\sum_i \phi_i^2$.
+
+JCI, Theorem 5, licenses the interval. C1, C2 and C6 stay, and three conditions replace C3 to C5.
+
+| id | condition |
+| --- | --- |
+| C3a | $d_n$ converges to a fixed rule $d_1$, and $P_0\{D^*(d_n, \bar Q^*_n, g_n) - D^*(d_1, \bar Q_{d_1}, g_0)\}^2 \to 0$. JCI prints $O_P(1)$ in its Equation (12); the proof needs convergence to 0 |
+| C4a | the remainder $R_1$ is the product remainder of the outcome and treatment fits, $o_P(n^{-1/2})$, the first branch of C4. It is 0 with known treatment probabilities (`treatment_probabilities=`), and with $g$ a maximum-likelihood fit in a correct model the interval is conservative (JCI, Corollary 2) |
+| C5a | $D^*(d_n, \bar Q^*_n, g_n)$ lies in a $P_0$-Donsker class with probability tending to 1. It limits how adaptive the rule, the outcome regression and the fitted treatment model can be, and it replaces C5 |
+
+The non-exceptional law is not assumed: $d_n$ need only converge to some $d_1$. No data check
+confirms C5a, so the support label carries it.
+
+Under the in-sample scheme only, the support key
+reads the family of each learner the fit uses (`outcome_learner_family`,
+`treatment_learner_family`, which is `known` under `treatment_probabilities=`, and
+`rule_learner_family` for a rule learner), as the `AdaptiveIPTW` key does. A parametric learner
+is the exact class `LogisticRegression`, `LinearRegression` or `GLM`, or a fixed-dimension class
+that declares `cleverly_learner_family = "parametric"`, and it meets C5a. Every other learner is
+adaptive, a scikit-learn `Pipeline` included. An adaptive in-sample fit reads experimental with
+a condition that names its adaptive learners, and it warns that the interval needs a Donsker
+class and that cross-fitting removes that condition. Cross-fitted learned-rule keys hold no
+family, so the rows of the cross-fitted studies keep matching their fits. No study yet measures
+an in-sample learned-rule fit, so every one reads experimental.
+
+| composition | result |
+| --- | --- |
+| known weights | admitted, experimental. The rule is the plug-in of the weighted outcome regression on every row, the rule of the weighted population, as in [fold targeting, weights and clusters](#learned-rules) |
+| `id=` | admitted, experimental. The shipped in-sample variance of the cluster totals and its few-cluster $t$ reference ([F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals)) apply, a natural extension from iid rows |
+| `strata=` | admitted, experimental. The one rule is read stratum by stratum, and each stratum estimate is the plug-in over the stratum's rows under the shipped stratified fluctuation |
+| a rule learner, known treatment probabilities | admitted, experimental |
+| `strata=` with `id=` | refused, row 8 of the table below |
+| `n_bootstrap` above 0 | refused, row 10 of the table below. Its remedy keeps the in-sample fit, with `n_bootstrap=0` |
+| `repeats` above 1, or `cross_fit=True` with one fold | the shared fold-policy refusal. Its in-sample offer reads "fit the value of the full-sample rule with cross_fit=False, a different target from the cross-fitted learned-rule value" |
+| the omitted-variable bound | runs, with its limits. With one rule the combined representer is the known-regime representer $\mathbb 1\{a = d_n(w)\}/g$, and the limits rest on C5a, which the interval already needs. No `ovb_limit` row licenses them, so they read as descriptive |
+
+Every remedy that offers an in-sample fit to a learned-rule caller names the change of target in
+those words, never as a bare "fit in sample": the shared fold-policy sentences on the engine,
+the post-draw and arm-minimum remedies, the outcome-scale remedy, and the learned-rule clause
+that ends each method-layer sentence ([the refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet)).
+
+`tests/unit/test_learned_rule_in_sample.py` holds the witnesses. A stub outcome regression whose
+blip has the sign of $W_1$ gives the point, the curve and the standard error of the known rule
+$\mathbb 1\{W_1 > 0\}$ fitted in sample, at a fluctuation of $|\varepsilon| > 0.01$, and the
+two omitted-variable bounds agree, limits included. Each row's rule is the sign of the blip of
+the outcome regression refitted on every row, and the rule read off cross-fitted predictions
+differs on at least 1% of the rows. A rule learner's rule is reproduced from the whole sample.
+
+On a fixed draw of the study law, at least one fold rule of a 10-fold split disagrees with the
+full-sample rule on at least 2% of the truth grid, and the fold-rule harness of the learned-rule
+studies refuses the in-sample fit by its rule L4. With `treatment_probabilities=` the score is
+solved at the supplied probabilities, and the mutation that substitutes an estimated $g$ leaves
+it unsolved and moves the point by more than 0.01. A cross-fitted fit of the
+[gated study](method-evidence/learned-rule-cvtmle.md) configuration keeps its row `T24`.
+`cleverly.datasets.learned_rule_truth` refits the one rule on every row.
+
 #### Refusals and the result record
 
-The fit needs cross-fitting with at least two folds, `CrossFitting(enabled=True)`, and no
-full-refit bootstrap. Either report runs.
+A cross-fitted fit needs at least two folds, `CrossFitting(enabled=True)`, and every fit needs
+no full-refit bootstrap. Either report runs, and so does the in-sample fit of
+[one rule fitted on all rows](#learned-rules).
 `refuse_learned_rule_composition` in
 [`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
 refuses every other composition before any learner, in the order that the table gives. A refusal
@@ -1614,14 +1688,14 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | 6 | `intermediate=` | X11 (j) |
 | 7 | estimated weights, `weights_estimated=True` | X11 (k2) |
 | 8 | `strata=` with clusters, `id=` | [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). The remedy is a fit without one of the two |
-| 9 | `cross_fit=False`, or one fold | X11 (a) |
-| 10 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
-| 11 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
-| 12 | `loss="blip"` with `weights=` and a learner whose `fit` takes no `sample_weight`, or a `SuperLearner` with such a member | a declaration error. The unweighted fit would learn the rule of the unweighted population |
+| 9 | `repeats` above 1 with clusters, `id=` | X11 (i2). The remedy is `repeats=1` |
+| 10 | `n_bootstrap` above 0, the full-refit bootstrap | F27. The remedy keeps the caller's scheme |
+| 11 | `loss="blip"` with `weights=` and a learner whose `fit` takes no `sample_weight`, or a `SuperLearner` with such a member | a declaration error. The unweighted fit would learn the rule of the unweighted population |
 
 The first two rows run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
-constructor also refuse a fold policy that the shared rules forbid, before the data exist. On a
-learned-rule `TMLE`, the setting rows replace such a refusal where one of them applies.
+constructor also refuse a fold policy that the shared rules forbid, before the data exist, such
+as `cross_fit=True` with one fold or `repeats` above 1 without cross-fitting. On a learned-rule
+`TMLE`, the setting rows replace such a refusal where one of them applies.
 [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy.
 
 The result records the fit under `result.extra["learned_rule"]`, a `LearnedRuleRecord`. Its
@@ -1630,8 +1704,8 @@ gives the fields of a split.
 
 | field | content |
 | --- | --- |
-| `seed`, `scheme`, `estimate` | the seed of the split, the report (`"fold_evaluated"` or `"stacked"`), and its estimate $\hat\psi_r$ |
-| `fold_sizes`, `fold_masses`, `fold_weights` | the validation rows of each fold, its weight mass $W_v$ on the mean-one weight scale, and its weight in the target: $1/V$ under fold evaluation and $W_v/W$ under the stacked report |
+| `seed`, `scheme`, `estimate` | the seed of the split, the scheme (`"fold_evaluated"`, `"stacked"`, or `"in_sample"` under `cross_fit=False`), and its estimate $\hat\psi_r$ |
+| `fold_sizes`, `fold_masses`, `fold_weights` | the validation rows of each fold, its weight mass $W_v$ on the mean-one weight scale, and its weight in the target: $1/V$ under fold evaluation and $W_v/W$ under the stacked report. An in-sample fit has one pseudo-fold of every row, with weight 1, whose estimate is the fit's |
 | `fold_estimates` | $\psi^*_{nv}$ for each fold. Under the stacked report each is descriptive: the weighted mean of $\bar Q^*(d_i, W_i)$ over the fold's rows at the pooled fluctuation, which does not solve the fold's score |
 | `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
 | `blip_quantiles` | quantiles of the outer outcome regression's blip on each fold's validation rows. For the plug-in rule this is the rule's own score, so its mass at 0 speaks to C3. Under a rule learner it describes that regression, not the rule |
@@ -1665,7 +1739,9 @@ functional of the stochastic regime that averages the $V$ rules, and the bound r
 representer from `fold_rules`
 ([omitted-variable bounds](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 
-The bound is a point bound: its limits and `benchmark()` refuse. A fit of several splits refuses as
+The bound of a cross-fitted fit is a point bound: its limits and `benchmark()` refuse. The
+in-sample fit's bound publishes its limits ([one rule fitted on all rows](#learned-rules)),
+and its `benchmark()` refuses too, because a refit relearns the rule. A fit of several splits refuses as
 an implementation gap, because the bound of their mean would read the average of every split's fold
 rules, which is not built. So does a fit with baseline strata
 ([baseline strata of a learned rule](#learned-rules)), and so does the stacked report, whose
