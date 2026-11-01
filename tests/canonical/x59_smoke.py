@@ -12,14 +12,15 @@ Run from the repository root, with Docker for every step but ``identity``, ``qbo
     python -m tests.canonical.x59_smoke memory categorical --container-mb 32000 \\
         --out runs/x59/memory
     python -m tests.canonical.x59_smoke timing sdr --out runs/x59/timing
-    python -m tests.canonical.x59_smoke sizing --timings runs/x59/timing --workers 12 \\
-        --tier1 30 --tier3 17
+    python -m tests.canonical.x59_smoke sizing --timings runs/x59/timing \\
+        --memory runs/x59/memory --contention 1.3
     python -m tests.canonical.x59_smoke declared-sources ltmle categorical sdr
 
-``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3), and for ``run``,
-``mutations``, ``qbound`` and ``timing`` also ``ltmle-parity`` or ``lmtp-parity`` (section 5).
-A parity record commits no subject before its declared run, so its smoke fits the subject on
-the prefix into ``--out``'s ``subject`` directory and pairs the reference with it (``--subject``).
+``STUDY`` is ``ltmle`` (S1), ``categorical`` (S2) or ``sdr`` (S3), and for every step but
+``identity`` also ``ltmle-parity`` or ``lmtp-parity`` (section 5).  A parity record commits no
+subject before its declared run, so its smoke fits the subject on the prefix into the run's
+``subject`` directory and pairs the reference with it (``--subject``).  ``memory`` keeps each
+study under ``--out/<study>``, so one ``--out`` serves every study.
 Every step prints what it read and ends with ``PASS`` or ``FAIL`` (``timing``, ``sizing`` and
 ``declared-sources`` print numbers only).  A smoke run writes outside the committed
 directories, at the smoke prefix of :data:`SMOKE_PREFIX` replicates, and the driver writes its
@@ -699,50 +700,102 @@ def qbound(study: str, replicates: Mapping[str, int], out: Path, jobs: int) -> i
 
 
 # ----------------------------------------------------------------------------- memory and timing
-def memory(study: str, container_mb: float, out: Path, prefix: int, jobs: int) -> int:
-    """M7: a prefix smoke under ``docker run --memory``, its calibration peaks, and ``w``.
+def memory_readings(study: str, scratch: Path, *, cores: int) -> pd.DataFrame:
+    """Each scenario's calibration in ``scratch``, and the read chunk and workers it plans.
 
-    The run keeps its scratch in ``out/memory-scratch``, where the driver's calibration writes
-    one ``*.calibration.json`` per scenario run; the peak is the largest per-worker cost in them.
+    The driver writes one ``<leaf>.calibration.json`` per scenario run, its leaf ending in
+    ``reference-results__<scenario>``, and plans the real run from it with
+    :func:`tests.canonical.regenerate.stream_plan`; this reads the same files the same way.
     """
     from tests.canonical import regenerate
-    from tests.studies.evidence import parity
 
-    scratch = out / "memory-scratch"
+    rows = []
+    for path in sorted(scratch.rglob("*.calibration.json")):
+        scenario = path.name.removesuffix(".calibration.json").split("reference-results__")[-1]
+        measured = json.loads(path.read_text())
+        groups = [g for g in measured.get("groups", []) if g.get("per_worker") is not None]
+        if not groups:
+            continue
+        heaviest = max(groups, key=lambda group: float(group["per_worker"]))
+        available = regenerate.calibration_available(measured["memory"])
+        parent = float(measured["parent_private_mb"])
+        chunk, cost = regenerate.stream_plan(
+            float(heaviest["per_worker"]), parent, available, cores
+        )
+        rows.append(
+            {
+                "study": study,
+                "scenario": scenario,
+                "per_worker_mb": float(heaviest["per_worker"]),
+                "peak_growth_mb": float(heaviest["peak_growth"]),
+                "private_after_gc_mb": float(heaviest["private_after_gc"]),
+                "parent_mb": parent,
+                "available_mb": available,
+                "planned_mb": cost,
+                "chunk": chunk,
+                "workers": regenerate.harness_workers(cores, cost, available),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def memory(study: str, container_mb: float, out: Path, prefix: int, jobs: int) -> int:
+    """M7: a prefix smoke under ``docker run --memory``, and each scenario's memory plan.
+
+    Each study keeps its own run and scratch, ``out/<study>/memory`` and
+    ``out/<study>/memory-scratch``, where the driver's calibration writes one
+    ``*.calibration.json`` per scenario.  Writes ``out/memory-<study>.csv``: per scenario, the
+    calibration's readings and the read chunk and workers the run plans from them, which the
+    ``sizing`` step reads.
+    """
+    from tests.canonical import regenerate
+
+    home = out / study
+    scratch = home / "memory-scratch"
     smoke_run(
         study,
-        out,
+        home,
         prefix=prefix,
         jobs=jobs,
-        target=out / "memory",
+        target=home / "memory",
         cache=scratch,
         env={regenerate.DOCKER_MEMORY_ENV: f"{container_mb:.0f}m"},
     )
-    peaks = []
-    for path in sorted(scratch.glob("*.calibration.json")):
-        measured = json.loads(path.read_text())
-        # study_harness.R's calibration file: one entry per calibrated replicate group, each
-        # with its measured per-worker cost in MB (peak growth or private memory after gc).
-        groups = [g for g in measured.get("groups", []) if g.get("per_worker") is not None]
-        for group in groups:
-            print(f"{path.name} {group['id']}: per_worker {group['per_worker']:.0f} MB", flush=True)
-        peaks += [float(group["per_worker"]) for group in groups]
-    if not peaks:
+    frame = memory_readings(study, scratch, cores=jobs)
+    if frame.empty:
         print(f"FAIL: no calibration measured a per-worker peak in {scratch}", flush=True)
         return 1
-    peak = max(peaks)
-    workers = parity.worker_count(container_mb, peak)
-    print(f"peak {peak:.0f} MB per worker; w = {workers} in {container_mb:.0f} MB", flush=True)
+    print(frame.to_string(index=False), flush=True)
+    frame.to_csv(out / f"memory-{study}.csv", index=False)
     return 0
+
+
+def reference_tier(study: str, name: str) -> int:
+    """A paired scenario's section 6 tier: its study's ``REFERENCE_TIERS``, else tier 3.
+
+    The parity records declare no tiers: every scenario of theirs is tier 3, at the record's
+    fixed count.
+    """
+    from tests.studies.evidence import parity
+
+    module = _module(study)
+    tiers = getattr(module, "REFERENCE_TIERS", None)
+    if tiers is None:
+        return parity.PARITY_TIER
+    if name not in tiers:
+        raise SystemExit(f"{study}: {name} is paired but has no reference tier")
+    return int(tiers[name])
 
 
 def timing(study: str, out: Path, replicates: int) -> int:
     """R seconds per replicate for each paired scenario, from the runner's ``fit_seconds``.
 
     One reference run per scenario on one core.  The runner times each replicate's fit alone
-    (``horizon_timed``), so neither the container start nor the calibration fork counts.
+    (``horizon_timed``), so neither the container start nor the calibration fork counts.  A
+    parity record's scenarios are tier 3 at the record's fixed count.
     """
     from tests.canonical import regenerate
+    from tests.studies.evidence import parity
 
     module = _module(study)
     reference = _reference(study)
@@ -772,12 +825,14 @@ def timing(study: str, out: Path, replicates: int) -> int:
         )
         fitted = pd.read_csv(output).groupby("replicate")["fit_seconds"].first()
         seconds = float(fitted.mean())
+        tier = reference_tier(study, name)
         rows.append(
             {
                 "study": study,
                 "scenario": name,
-                "tier": module.REFERENCE_TIERS[name],
-                "cpu_hours": seconds / 3600.0,
+                "tier": tier,
+                "replicates": base.replicates if tier == parity.PARITY_TIER else None,
+                "seconds": seconds,
             }
         )
         print(f"{name}: {seconds:.1f} s per replicate over {len(fitted)}", flush=True)
@@ -836,32 +891,63 @@ def declared_sources(studies: Sequence[str]) -> int:
     return 0
 
 
-def sizing(timings: Path, workers: int, tier1: float, tier3: float) -> int:
-    """Section 6: every paired scenario's prefix, from the smoke timings and ``w`` alone."""
+def sizing_costs(timings: Path, memory: Path) -> dict[str, Any]:
+    """Every timed scenario's :class:`~tests.studies.evidence.parity.ScenarioCost`.
+
+    Joins ``timing-*.csv`` in ``timings`` with ``memory-*.csv`` in ``memory`` on study and
+    scenario, and refuses a timed scenario that has no memory plan.
+    """
     from tests.studies.evidence import parity
 
-    frame = pd.concat(
-        [pd.read_csv(path) for path in sorted(timings.glob("timing-*.csv"))], ignore_index=True
-    )
-    keys = [f"{row.study}:{row.scenario}" for row in frame.itertuples(index=False)]
-    sized = parity.reference_sizes(
-        dict(zip(keys, frame["cpu_hours"], strict=True)),
-        dict(zip(keys, frame["tier"].astype(int), strict=True)),
-        workers=workers,
-        tier1_cpu_hours=tier1,
-        tier3_cpu_hours=tier3,
-    )
+    def read(directory: Path, pattern: str) -> pd.DataFrame:
+        paths = sorted(directory.glob(pattern))
+        if not paths:
+            raise SystemExit(f"no {pattern} in {directory}")
+        return pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+
+    timed = read(timings, "timing-*.csv")
+    planned = read(memory, "memory-*.csv").loc[:, ["study", "scenario", "workers", "chunk"]]
+    joined = timed.merge(planned, on=["study", "scenario"], how="left")
+    missing = joined.loc[joined["workers"].isna(), ["study", "scenario"]]
+    if not missing.empty:
+        names = ", ".join(f"{row.study}:{row.scenario}" for row in missing.itertuples())
+        raise SystemExit(f"no memory plan for {names}; run the memory step of its study")
+    return {
+        f"{row.study}:{row.scenario}": parity.ScenarioCost(
+            seconds=float(row.seconds),
+            workers=int(row.workers),
+            chunk=int(row.chunk),
+            tier=int(row.tier),
+            replicates=None if pd.isna(row.replicates) else int(row.replicates),
+        )
+        for row in joined.itertuples(index=False)
+    }
+
+
+def sizing(timings: Path, memory: Path, tier1_hours: float, contention: float) -> int:
+    """Section 6: every paired scenario's prefix, from the smoke timings and memory plans."""
+    from tests.studies.evidence import parity
+
+    costs = sizing_costs(timings, memory)
+    sized = parity.reference_sizes(costs, tier1_hours=tier1_hours, contention=contention)
+    hours = ", ".join(f"tier {tier} {value:.1f} h" for tier, value in sorted(sized.hours.items()))
     print(
-        f"B = {sized.budget:.0f} CPU-h; tier 2 at {sized.tier2}, tier 4 at {sized.tier4}; "
-        f"{sized.cost:.1f} CPU-h, {sized.wall_hours:.1f} h on {sized.workers} workers",
+        f"tier 2 at {sized.tier2}, tier 4 at {sized.tier4}; {hours}; "
+        f"{sized.wall_hours:.1f} of {parity.RUN_HOURS:.0f} wall hours",
         flush=True,
     )
     for key, count in sized.counts.items():
-        print(f"  {key}: {count}", flush=True)
+        cost = costs[key]
+        print(
+            f"  {key}: {count} (tier {cost.tier}, {cost.seconds:.1f} s, "
+            f"{cost.workers} workers, chunk {cost.chunk})",
+            flush=True,
+        )
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line of every smoke step."""
     parser = argparse.ArgumentParser(prog="python -m tests.canonical.x59_smoke")
     steps = parser.add_subparsers(dest="step", required=True)
     step = steps.add_parser("g0")
@@ -899,11 +985,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     step = steps.add_parser("declared-sources")
     step.add_argument("studies", nargs="+", choices=STUDIES)
     step = steps.add_parser("sizing")
-    step.add_argument("--timings", type=Path, required=True)
-    step.add_argument("--workers", type=int, required=True)
-    step.add_argument("--tier1", type=float, required=True)
-    step.add_argument("--tier3", type=float, required=True)
-    arguments = parser.parse_args(argv)
+    step.add_argument("--timings", type=Path, required=True, help="the timing-*.csv directory")
+    step.add_argument("--memory", type=Path, required=True, help="the memory-*.csv directory")
+    step.add_argument("--tier1-hours", type=float, default=0.0)
+    step.add_argument(
+        "--contention",
+        type=float,
+        default=1.0,
+        help="a smoke run's measured wall over its modelled wall (parity.scenario_wall_seconds)",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = build_parser().parse_args(argv)
     if arguments.step == "g0":
         return g0(arguments.out, build=not arguments.no_build)
     if arguments.step == "identity":
@@ -929,7 +1024,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return timing(arguments.study, arguments.out, arguments.replicates)
     if arguments.step == "declared-sources":
         return declared_sources(arguments.studies)
-    return sizing(arguments.timings, arguments.workers, arguments.tier1, arguments.tier3)
+    return sizing(arguments.timings, arguments.memory, arguments.tier1_hours, arguments.contention)
 
 
 if __name__ == "__main__":

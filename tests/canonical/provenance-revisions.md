@@ -472,3 +472,10 @@ correlation with it can screen a correct input. The screen now holds every node'
 ratio to its exact mean of one over the units still on the path (`horizon_ratio_moments`), and
 the policy adapter applies the same check. The declaration digests were refreshed again, and no
 reference process has run.
+
+The smoke's memory readings showed a worker costing up to 4.7 GB, most of it its copy of the
+parent's read and the garbage of earlier plans. The adapters now collect garbage after each
+plan's fit and fit a one-scenario replicate without a split copy (`long_horizon_lmtp_adapter.R`
+and the S1 `run_study.R`), and the chunk comments of both horizon adapters name the driver's new
+rule. A collection draws no random number and moves no fitted value, so the edit is
+result-neutral. The declaration digests were refreshed again, and no reference process has run.

@@ -214,7 +214,13 @@ horizon_lmtp_scenario <- function(frame, scenario, truths, comparator) {
   if (!nrow(wanted)) stop(sprintf("no truth rows for %s replication %s", scenario, replicate))
   fits <- list()
   get_fit <- function(plan) {
-    if (is.null(fits[[plan]])) fits[[plan]] <<- horizon_lmtp_plan(frame, plan, comparator)
+    if (is.null(fits[[plan]])) {
+      fits[[plan]] <<- horizon_lmtp_plan(frame, plan, comparator)
+      # Only the plan's estimate, curve and plug-in outlive its fit.  A collection here frees
+      # the fit's copies before the next plan allocates its own, so a worker's peak is one
+      # plan's and not the sum of what the automatic collector has not reached yet.
+      invisible(gc())
+    }
     fits[[plan]]
   }
   rows <- lapply(seq_len(nrow(wanted)), function(index) {
@@ -238,8 +244,12 @@ horizon_lmtp_scenario <- function(frame, scenario, truths, comparator) {
 }
 
 horizon_lmtp_replicate <- function(frame, truths, comparator) {
-  # A reference-only run holds one scenario per archive (regenerate.py); a frame of several
-  # scenarios is split all the same.
+  # A reference-only run holds one scenario per archive (regenerate.py), which is fitted
+  # without a split copy of the replicate; a frame of several scenarios is split.
+  scenarios <- unique(frame$scenario)
+  if (length(scenarios) == 1L) {
+    return(horizon_lmtp_scenario(frame, scenarios[[1]], truths, comparator))
+  }
   pieces <- split(frame, frame$scenario)
   do.call(rbind, lapply(names(pieces), function(scenario) {
     horizon_lmtp_scenario(pieces[[scenario]], scenario, truths, comparator)
@@ -247,8 +257,8 @@ horizon_lmtp_replicate <- function(frame, truths, comparator) {
 }
 
 horizon_chunk_lines <- function() {
-  # The driver sizes the read chunk to (cores + 1) replicates of one scenario
-  # (regenerate.py, chunk_lines), so study_stream fits a chunk's replicates in parallel.
+  # The driver sizes the read chunk in whole replicates of one scenario (regenerate.py,
+  # chunk_lines and stream_plan), so study_stream fits a chunk's replicates in parallel.
   value <- suppressWarnings(as.integer(study_env("CLEVERLY_R_CHUNK_LINES", "64000")))
   if (length(value) != 1L || is.na(value) || value < 1L) {
     stop("CLEVERLY_R_CHUNK_LINES must be a positive integer")

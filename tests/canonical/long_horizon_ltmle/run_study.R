@@ -69,7 +69,13 @@ fit_scenario <- function(frame, scenario) {
   if (!nrow(wanted)) stop(sprintf("no truth rows for %s replication %s", scenario, replicate))
   plans <- plans_of(frame)
   if (!length(plans)) stop(sprintf("%s has no deterministic plan to fit", scenario))
-  fits <- setNames(lapply(plans, function(plan) horizon_ltmle_plan(frame, plan)), plans)
+  fits <- setNames(lapply(plans, function(plan) {
+    fit <- horizon_ltmle_plan(frame, plan)
+    # Only the plan's estimates and curve outlive its two ltmle fits; a collection here frees
+    # those fits before the next plan allocates its own.
+    invisible(gc())
+    fit
+  }), plans)
   if (isTRUE(as.logical(unique(frame$design__msm)))) {
     durations <- vapply(plans, function(plan) unique(frame[[sprintf("msmdesign__%s", plan)]]), numeric(1))
     fits <- c(fits, horizon_msm(fits, durations))
@@ -98,8 +104,10 @@ fit_scenario <- function(frame, scenario) {
 }
 
 fit_one <- function(frame) {
-  # A reference-only run holds one scenario per archive (regenerate.py); a frame of several
-  # scenarios is split all the same.
+  # A reference-only run holds one scenario per archive (regenerate.py), which is fitted
+  # without a split copy of the replicate; a frame of several scenarios is split.
+  scenarios <- unique(frame$scenario)
+  if (length(scenarios) == 1L) return(fit_scenario(frame, scenarios[[1]]))
   pieces <- split(frame, frame$scenario)
   do.call(rbind, lapply(names(pieces), function(scenario) fit_scenario(pieces[[scenario]], scenario)))
 }

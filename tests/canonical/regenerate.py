@@ -44,6 +44,7 @@ import enum
 import gzip
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -653,41 +654,137 @@ def _calibrate(
     work: Path,
     leaf: str,
     key12: str,
+    *,
+    cores: int,
+    replicate_lines: int | None = None,
 ) -> dict[str, str]:
-    """Run calibration once per key, and return the memory variables for the real run."""
+    """Run calibration once per key, and return the memory variables for the real run.
+
+    A streamed run (``replicate_lines`` given) calibrates on a read of
+    :data:`CALIBRATION_REPLICATES` replicates, and :func:`stream_plan` sizes the real run's
+    read chunk and its per-worker cost from that measurement.
+    """
     calibration = work / f"{leaf}.calibration.json"
     stamp = work / f"{leaf}.calibration.key"
-    if not (calibration.exists() and stamp.exists() and stamp.read_text().strip() == key12):
+    extra = {"CLEVERLY_HARNESS_CALIBRATE": "1"}
+    expected = key12
+    if replicate_lines is not None:
+        extra[CHUNK_LINES_ENV] = str(CALIBRATION_REPLICATES * replicate_lines)
+        expected = f"{key12} chunk {extra[CHUNK_LINES_ENV]}"
+    if not (calibration.exists() and stamp.exists() and stamp.read_text().strip() == expected):
         calibration.unlink(missing_ok=True)
-        code = run({"CLEVERLY_HARNESS_CALIBRATE": "1"})
+        code = run(extra)
         if code != 0 or not calibration.exists():
             raise RuntimeError(
                 f"the calibration run of {leaf} exited {code} and wrote no calibration file"
             )
-        stamp.write_text(key12 + "\n", encoding="utf-8", newline="\n")
+        stamp.write_text(expected + "\n", encoding="utf-8", newline="\n")
     else:
         print(f"reusing the calibration of {leaf}", flush=True)
     measured = json.loads(calibration.read_text(encoding="utf-8"))
     heaviest = max(measured["groups"], key=lambda group: group["per_worker"])
     declared = reference.worker_memory_mb or 0.0
-    per_worker = max(float(heaviest["per_worker"]), float(declared))
+    factor, share = HARNESS_FACTOR, HARNESS_SHARE
+    if reference.memory_override is not None:
+        factor, share = float(reference.memory_override[0]), float(reference.memory_override[1])
+    cost = float(heaviest["per_worker"])
+    note = ""
+    chunk: int | None = None
+    if replicate_lines is not None:
+        chunk, cost = stream_plan(
+            cost,
+            float(measured["parent_private_mb"]),
+            calibration_available(measured["memory"]),
+            cores,
+            factor=factor,
+            share=share,
+        )
+        note = f"; planned {cost:.0f} MB per worker for a read of {chunk} replicates"
+    per_worker = max(cost, float(declared))
     variables = {
         "CLEVERLY_R_WORKER_MB": f"{per_worker:.0f}",
-        "CLEVERLY_R_WORKER_BASIS": "declared" if declared > heaviest["per_worker"] else "measured",
+        "CLEVERLY_R_WORKER_BASIS": "declared" if declared > cost else "measured",
         "CLEVERLY_R_MEASURED": (
             f"group {heaviest['id']}: peak_growth {heaviest['peak_growth']:.0f} MB, "
             f"private_after_gc {heaviest['private_after_gc']:.0f} MB, "
-            f"per_worker {heaviest['per_worker']:.0f} MB"
+            f"per_worker {heaviest['per_worker']:.0f} MB{note}"
         ),
         "CLEVERLY_R_DECLARED_MB": "none" if not declared else f"{declared:.0f}",
     }
+    if chunk is not None and replicate_lines is not None:
+        variables[CHUNK_LINES_ENV] = str(chunk * replicate_lines)
     if reference.memory_override is not None:
-        factor, share, reason = reference.memory_override
-        variables["CLEVERLY_R_MEMORY_FACTOR"] = repr(float(factor))
-        variables["CLEVERLY_R_MEMORY_SHARE"] = repr(float(share))
+        reason = reference.memory_override[2]
+        variables["CLEVERLY_R_MEMORY_FACTOR"] = repr(factor)
+        variables["CLEVERLY_R_MEMORY_SHARE"] = repr(share)
         variables["CLEVERLY_R_MEMORY_REASON"] = reason
         print(f"memory override for {leaf}: factor {factor}, share {share}: {reason}", flush=True)
     return variables
+
+
+#: ``study_worker_plan``'s defaults (study_harness.R): planned memory per worker is the
+#: measured cost times the factor, and the workers may take the share of what is available.
+HARNESS_FACTOR = 1.25
+HARNESS_SHARE = 0.85
+#: The replicates a streamed run's calibration read holds: the one it fits and the one it
+#: carries (``study_stream``).
+CALIBRATION_REPLICATES = 2
+
+
+def harness_workers(
+    cores: int,
+    per_worker_mb: float,
+    available_mb: float,
+    *,
+    factor: float = HARNESS_FACTOR,
+    share: float = HARNESS_SHARE,
+) -> int:
+    """``study_worker_plan``'s count: ``min(cores, floor(share x available / (factor x cost)))``."""
+    if per_worker_mb <= 0.0:
+        return max(1, int(cores))
+    affordable = math.floor(share * available_mb / (factor * per_worker_mb))
+    return max(1, min(int(cores), affordable))
+
+
+def calibration_available(memory: Mapping[str, float | None]) -> float:
+    """The memory a calibration file says is available, under the cgroup limit when one is set."""
+    available = float(memory["available"] or 0.0)
+    limit, current = memory.get("limit"), memory.get("current")
+    if limit is not None and current is not None:
+        available = min(available, float(limit) - float(current))
+    return available
+
+
+def stream_plan(
+    per_worker_mb: float,
+    parent_mb: float,
+    available_mb: float,
+    cores: int,
+    *,
+    factor: float = HARNESS_FACTOR,
+    share: float = HARNESS_SHARE,
+) -> tuple[int, float]:
+    """The read chunk, in replicates, and the per-worker cost to plan it with.
+
+    ``per_worker_mb`` and ``parent_mb`` are a calibration's measurements on a read of
+    :data:`CALIBRATION_REPLICATES` replicates.  A forked worker's private memory holds its
+    copy of the parent heap, which grows with the replicates a read holds (the read's lines,
+    its frame and its groups); the rest of the cost is the fit's.  A read of ``c`` replicates
+    holds at most ``c + 1`` (the carried one), so the parent is bounded by
+    ``parent_mb x (c + 1) / 2``, the whole parent scaled, its fixed part included.  The chunk is
+    the smallest ``c`` that keeps the most workers busy, ``min(c, workers(c))``: a chunk above
+    the worker count fits in two rounds, and a heavier read costs every worker its copy.
+    """
+    fit = max(per_worker_mb - parent_mb, 0.0)
+    best: tuple[int, int, float] | None = None
+    for chunk in range(1, max(int(cores), 1) + 1):
+        held = max(chunk + 1, CALIBRATION_REPLICATES) / CALIBRATION_REPLICATES
+        cost = max(fit + parent_mb * held, per_worker_mb)
+        busy = min(chunk, harness_workers(cores, cost, available_mb, factor=factor, share=share))
+        if best is None or busy > best[0]:
+            best = (busy, chunk, cost)
+    assert best is not None
+    return best[1], best[2]
 
 
 def _run_resumable(
@@ -753,7 +850,20 @@ def _run_resumable(
         return subprocess.run(command).returncode
 
     source = (root / runner).read_text(encoding="utf-8")
-    memory = _calibrate(reference, run, work, leaf, key12) if _CALIBRATES.search(source) else {}
+    lines = env.get(REPLICATE_LINES_ENV)
+    memory = (
+        _calibrate(
+            reference,
+            run,
+            work,
+            leaf,
+            key12,
+            cores=cores,
+            replicate_lines=None if lines is None else int(lines),
+        )
+        if _CALIBRATES.search(source)
+        else {}
+    )
     cap: int | None = None
     for attempt in (1, 2):
         variables = dict(memory)
@@ -1605,15 +1715,19 @@ def _reference_rows(
 
 #: The runner reads its archive in chunks of this many lines (``study_stream``'s ``chunk_lines``).
 CHUNK_LINES_ENV = "CLEVERLY_R_CHUNK_LINES"
+#: The archive lines of one replicate, which a streamed run's calibration sizes its chunk by.
+REPLICATE_LINES_ENV = "CLEVERLY_R_REPLICATE_LINES"
 
 
 def chunk_lines(lines: int, cores: int) -> int:
-    """A read chunk of ``cores + 1`` replicates of ``lines`` archive lines each.
+    """A read chunk of ``cores`` replicates of ``lines`` archive lines each.
 
-    ``study_stream`` carries a chunk's last replicate into the next read and fits the rest
-    across its workers, so a chunk of ``cores + 1`` whole replicates keeps every worker busy.
+    ``study_stream`` carries a chunk's last replicate into the next read and fits the rest, so
+    after the first read every read fits ``cores`` replicates: one round on ``cores`` workers,
+    and one round on any worker count that divides it.  A calibrated run replaces it with
+    :func:`stream_plan`'s chunk.
     """
-    return (max(cores, 1) + 1) * max(lines, 1)
+    return max(cores, 1) * max(lines, 1)
 
 
 def _concatenate_csv(sources: Sequence[Path], target: Path) -> None:
@@ -1642,8 +1756,9 @@ def _reference_rows_by_scenario(
 ) -> pd.DataFrame:
     """A reference-only run: the comparator once per paired scenario, its rows concatenated.
 
-    One replicate of one scenario is one ``study_stream`` group, and the read chunk holds
-    ``cores + 1`` of them, so the scenario's replicates fit in parallel.  Each scenario's run
+    One replicate of one scenario is one ``study_stream`` group, and a read holds as many as
+    the calibration says keep the most workers busy (:func:`stream_plan`), so the scenario's
+    replicates fit in parallel.  Each scenario's run
     is resumable and cached on its own key.
     """
     cores = getattr(arguments, "reference_jobs", None) or arguments.jobs
@@ -1672,7 +1787,11 @@ def _reference_rows_by_scenario(
             inputs.truth,
             output,
             cores=cores,
-            env={**environment, CHUNK_LINES_ENV: str(chunk_lines(inputs.lines, cores))},
+            env={
+                **environment,
+                CHUNK_LINES_ENV: str(chunk_lines(inputs.lines, cores)),
+                REPLICATE_LINES_ENV: str(inputs.lines),
+            },
         )
         if expected is not None and reference.interpreter != "Rscript":
             stamp.write_text(expected, encoding="utf-8", newline="\n")

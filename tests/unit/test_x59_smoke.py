@@ -8,6 +8,8 @@ example, and the smoke declaration on a table it writes.
 
 from __future__ import annotations
 
+import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -92,31 +94,99 @@ def test_the_smoke_merge_keeps_g1_out_of_the_declaration() -> None:
     assert parity.ParityDeclaration(cells=(), tolerance=merged).tau("G1") == parity.G1_TOLERANCE
 
 
-def test_the_sizing_step_reads_the_timing_files(
+def _calibration(path: Path, per_worker: float, parent: float, available: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    group = {
+        "id": "r000000000",
+        "rss_start": 100.0,
+        "hwm_end": 100.0 + per_worker / 2,
+        "peak_growth": per_worker / 2,
+        "private_after_gc": per_worker / 2,
+        "per_worker": per_worker,
+    }
+    memory = {"total": 24_000.0, "available": available, "limit": None, "current": None}
+    path.write_text(json.dumps({"groups": [group], "parent_private_mb": parent, "memory": memory}))
+
+
+def test_the_memory_readings_plan_each_scenario_from_its_own_calibration(tmp_path: Path) -> None:
+    leaf = "run_study__reference-results__{}.calibration.json"
+    _calibration(tmp_path / "a" / leaf.format("light"), 300.0, 150.0, 22_000.0)
+    _calibration(tmp_path / leaf.format("heavy"), 3_400.0, 550.0, 21_700.0)
+    frame = x59_smoke.memory_readings("sdr", tmp_path, cores=12).set_index("scenario")
+    assert frame.loc["light", "workers"] == 12 and frame.loc["light", "chunk"] == 12
+    assert frame.loc["heavy", "workers"] == 3 and frame.loc["heavy", "chunk"] == 3
+    assert frame.loc["heavy", "planned_mb"] >= 3_400.0
+
+
+def _sizing_inputs(tmp_path: Path, *, memory: bool = True) -> None:
+    pd.DataFrame(
+        {
+            "study": ["sdr", "sdr", "lmtp-parity"],
+            "scenario": ["exact", "margins", "parity_tmle_mix"],
+            "tier": [2, 4, parity.PARITY_TIER],
+            "replicates": [None, None, 500],
+            "seconds": [40.0, 20.0, 2.0],
+        }
+    ).to_csv(tmp_path / "timing-sdr.csv", index=False)
+    if memory:
+        pd.DataFrame(
+            {
+                "study": ["sdr", "sdr", "lmtp-parity"],
+                "scenario": ["exact", "margins", "parity_tmle_mix"],
+                "workers": [3, 6, 12],
+                "chunk": [3, 6, 12],
+            }
+        ).to_csv(tmp_path / "memory-sdr.csv", index=False)
+
+
+def test_the_sizing_step_reads_the_timing_and_memory_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    pd.DataFrame(
-        {"study": ["ltmle", "ltmle"], "scenario": ["exact", "margins"], "tier": [2, 4]}
-    ).assign(cpu_hours=[0.91, 0.99]).to_csv(tmp_path / "timing-ltmle.csv", index=False)
-    assert (
-        x59_smoke.main(
-            [
-                "sizing",
-                "--timings",
-                str(tmp_path),
-                "--workers",
-                "12",
-                "--tier1",
-                "30",
-                "--tier3",
-                "17",
-            ]
-        )
-        == 0
-    )
+    _sizing_inputs(tmp_path)
+    arguments = ["sizing", "--timings", str(tmp_path), "--memory", str(tmp_path)]
+    assert x59_smoke.main(arguments) == 0
     printed = capsys.readouterr().out
-    assert "tier 2 at 100, tier 4 at 100" in printed
-    assert "ltmle:exact: 100" in printed
+    expected = parity.reference_sizes(x59_smoke.sizing_costs(tmp_path, tmp_path), tier1_hours=0.0)
+    assert f"tier 2 at {expected.tier2}, tier 4 at {expected.tier4}" in printed
+    assert "lmtp-parity:parity_tmle_mix: 500 (tier 3" in printed
+    assert "sdr:exact" in printed and "3 workers, chunk 3" in printed
+
+
+def test_the_sizing_step_refuses_a_timed_scenario_without_a_memory_plan(tmp_path: Path) -> None:
+    _sizing_inputs(tmp_path, memory=False)
+    pd.DataFrame(columns=["study", "scenario", "workers", "chunk"]).to_csv(
+        tmp_path / "memory-other.csv", index=False
+    )
+    with pytest.raises(SystemExit, match="no memory plan for sdr:exact"):
+        x59_smoke.sizing_costs(tmp_path, tmp_path)
+
+
+@pytest.mark.parametrize("study", sorted(x59_smoke.STUDIES))
+def test_every_paired_scenario_of_every_record_has_a_tier(study: str) -> None:
+    """``timing`` and ``sizing`` read a tier for each of the five records' paired scenarios."""
+    from tests.canonical import regenerate
+
+    module = x59_smoke._module(study)
+    here = x59_smoke.CANONICAL / x59_smoke.STUDIES[study][1]
+    base = regenerate.compared_record(
+        module, argparse.Namespace(reference_prefix=None, output=here), here
+    )
+    tiers = {
+        name: x59_smoke.reference_tier(study, name) for name in base.reported(str(base.reference))
+    }
+    assert tiers and set(tiers.values()) <= {2, 4, parity.PARITY_TIER}
+    parity_record = study in x59_smoke.PARITY_STUDIES
+    assert (set(tiers.values()) == {parity.PARITY_TIER}) == parity_record
+
+
+@pytest.mark.parametrize(
+    "step", ["run", "mutations", "subject-mutation", "qbound", "memory", "timing"]
+)
+def test_every_record_reaches_every_smoke_step(step: str) -> None:
+    extra = ["--container-mb", "1000"] if step == "memory" else []
+    for study in x59_smoke.STUDIES:
+        parsed = x59_smoke.build_parser().parse_args([step, study, "--out", "x", *extra])
+        assert parsed.study == study
 
 
 @pytest.mark.filterwarnings("ignore::tests.studies.fractional_glm.QuasiBinomialSeparationWarning")

@@ -235,9 +235,34 @@ def test_every_read_at_the_declared_sizes_keeps_every_worker_busy(cores: int) ->
         chunk = regenerate.chunk_lines(n, cores)
         fitted = _fitted_per_chunk(n, 30, chunk)
         assert sum(count for count, _ in fitted) == 30, name
-        # Every full read fits at least one replicate per worker; only the archive's tail
-        # holds fewer.
-        assert min(count for count, full in fitted if full) >= cores, (name, fitted)
+        # Every full read after the first fits one replicate per worker, one round; the first
+        # carries one of its replicates, and only the archive's tail holds fewer.
+        full = [count for count, whole in fitted if whole]
+        assert max(full) == cores and set(full[1:]) <= {cores}, (name, fitted)
+
+
+def test_a_read_of_one_replicate_more_than_the_workers_costs_a_second_round() -> None:
+    # The deliberate mutation: the earlier ``cores + 1`` chunk fits ``cores + 1`` per full read.
+    n, cores = 4_000, 12
+    fitted = _fitted_per_chunk(n, 30, (cores + 1) * n)
+    assert max(count for count, full in fitted if full) == cores + 1
+
+
+def test_the_stream_plan_reads_as_many_replicates_as_the_memory_keeps_busy() -> None:
+    """The smoke's S3 readings, scaled to a calibration read of two replicates."""
+    from tests.canonical import regenerate
+
+    # sdr_categorical_k5: a 3.4 GB worker, of which 0.55 GB is its copy of the parent.
+    chunk, cost = regenerate.stream_plan(3_406.0, 552.0, 21_700.0, 12)
+    assert (chunk, regenerate.harness_workers(12, cost, 21_700.0)) == (3, 3)
+    assert cost >= 3_406.0
+    # The same scenario read twelve replicates at a time keeps fewer workers busy.
+    twelve = 3_406.0 - 552.0 + 552.0 * 13 / 2
+    assert regenerate.harness_workers(12, twelve, 21_700.0) < 3
+    # sdr_binary_k3: light enough that every core is busy at a read of twelve.
+    assert regenerate.stream_plan(176.0, 132.0, 22_500.0, 12)[0] == 12
+    # One replicate per read plans the measured cost unchanged.
+    assert regenerate.stream_plan(5_000.0, 500.0, 6_000.0, 12) == (1, 5_000.0)
 
 
 def test_the_harness_default_chunk_fits_one_replicate_at_a_time() -> None:

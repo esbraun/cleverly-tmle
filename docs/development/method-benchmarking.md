@@ -555,9 +555,10 @@ them from the smoke maxima, and a declared run with one still at `None` is refus
 anything. A smoke maximum that would declare a tolerance above `1e-5` fails the smoke.
 
 The driver runs the comparator once per paired scenario, each on its own archive of that
-scenario's replicates. The R harness fits one replicate per worker, and the driver sizes the
-harness's read chunk to hold one more replicate than there are workers, so every worker has a
-replicate to fit. The manifest records the hashes of the modules that drew the inputs under
+scenario's replicates. The R harness fits one replicate per worker, and each forked worker
+copies the replicates the parent holds. So the driver calibrates on a read of two replicates and
+then sizes the read chunk to the most replicates that keep a worker busy each, scaling the
+parent's share of the measured cost with the chunk (`regenerate.stream_plan`). The manifest records the hashes of the modules that drew the inputs under
 `generated_with.reference.input_module_sha256`, because the subject's module hashes are those of
 the committed run. `tests/canonical/x59_smoke.py` runs the smoke steps of the long-horizon
 studies, one command each.

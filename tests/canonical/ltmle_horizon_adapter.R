@@ -207,8 +207,8 @@ horizon_msm <- function(fits, durations) {
 }
 
 horizon_chunk_lines <- function() {
-  # The driver sizes the read chunk to (cores + 1) replicates of one scenario
-  # (regenerate.py, chunk_lines), so study_stream fits a chunk's replicates in parallel.
+  # The driver sizes the read chunk in whole replicates of one scenario (regenerate.py,
+  # chunk_lines and stream_plan), so study_stream fits a chunk's replicates in parallel.
   value <- suppressWarnings(as.integer(study_env("CLEVERLY_R_CHUNK_LINES", "64000")))
   if (length(value) != 1L || is.na(value) || value < 1L) {
     stop("CLEVERLY_R_CHUNK_LINES must be a positive integer")

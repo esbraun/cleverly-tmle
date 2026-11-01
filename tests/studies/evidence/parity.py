@@ -28,8 +28,8 @@ not either implementation targets correctly.
 witness inputs that ``replicates.parquet`` does not carry.  The fast tier recomputes the first
 from the second and the replicate file (``tests/unit/test_x59_parity.py``).
 
-The section 6 sizing rule lives here too: it takes only measured timings and a memory-gated
-worker count, never a gate value, and returns the replicate prefix of every scenario.
+The section 6 sizing rule lives here too: it takes only each scenario's measured timing and
+memory plan, never a gate value, and returns the replicate prefix of every scenario.
 """
 
 from __future__ import annotations
@@ -343,108 +343,169 @@ def mutation_detected(table: pd.DataFrame, declaration: ParityDeclaration) -> bo
 TIER2_COUNTS = (50, 100, 150, 200, 300)
 #: The tier-4 (descriptive pairs) prefixes.
 TIER4_COUNTS = (25, 50, 100)
+#: The tier of the section 5 parity records, whose replicate count is fixed.
+PARITY_TIER = 3
 #: Wall hours of the run, after the 3-hour reserve of the 24-hour cap.
 RUN_HOURS = 21.0
-#: The share of the budget left after tiers 1 and 3 that tier 2 may take.
+#: The share of the wall hours left after tiers 1 and 3 that tier 2 may take.
 TIER2_SHARE = 0.65
 #: The most workers the laptop offers.
 MAX_WORKERS = 12
-#: The memory factor of the M7 worker rule.
-MEMORY_FACTOR = 1.25
 
 
-def worker_count(container_mb: float, peak_mb: float, *, cores: int = MAX_WORKERS) -> int:
-    """``w = min(cores, floor(container memory / (1.25 x peak)))``, at least one (M7)."""
-    if peak_mb <= 0.0 or container_mb <= 0.0:
-        raise ValueError("the container memory and the measured peak must be positive")
-    return max(1, min(int(cores), math.floor(container_mb / (MEMORY_FACTOR * peak_mb))))
+@dataclass(frozen=True)
+class ScenarioCost:
+    """One paired scenario's measured inputs to the sizing rule.
+
+    Parameters
+    ----------
+    seconds : float
+        R seconds per replicate on one core (the smoke's ``timing`` step).
+    workers : int
+        The workers its run plans from its calibration (the smoke's ``memory`` step).
+    chunk : int
+        The replicates one read of its archive holds, from the same calibration.
+    tier : int
+        2 (exact cells), 4 (descriptive pairs) or :data:`PARITY_TIER`.
+    replicates : int or None
+        A parity record's fixed count; ``None`` for tiers 2 and 4, whose count the rule sets.
+    """
+
+    seconds: float
+    workers: int
+    chunk: int
+    tier: int
+    replicates: int | None = None
+
+
+def stream_rounds(replicates: int, workers: int, chunk: int) -> int:
+    """The fitting rounds of ``study_stream`` on ``replicates`` replicates.
+
+    Each read takes ``chunk`` replicates, carries its last one into the next read and fits the
+    rest on ``workers`` workers, one round per ``workers`` of them; the final, empty read fits
+    the last carried replicate alone (study_harness.R).
+    """
+    if replicates <= 0:
+        return 0
+    if workers < 1 or chunk < 1:
+        raise ValueError("a run has at least one worker and reads at least one replicate")
+    rounds, held, left = 0, 0, int(replicates)
+    while left:
+        taken = min(chunk, left)
+        left -= taken
+        fitted, held = held + taken - 1, 1
+        rounds += math.ceil(fitted / workers)
+    return rounds + 1
+
+
+def scenario_wall_seconds(cost: ScenarioCost, replicates: int, *, contention: float = 1.0) -> float:
+    """One scenario's wall seconds: its calibration fit, then its rounds, each one fit long.
+
+    ``contention`` scales a one-core fit to a fit beside the run's other workers and carries the
+    container starts and the archive writing; the smoke measures it (``x59_smoke sizing``).
+    """
+    if replicates <= 0:
+        return 0.0
+    rounds = 1 + stream_rounds(replicates, cost.workers, cost.chunk)
+    return contention * cost.seconds * rounds
 
 
 @dataclass(frozen=True)
 class Sizing:
-    """What the sizing rule chose, and the arithmetic behind it.
+    """What the sizing rule chose, and the wall hours behind it.
 
     Parameters
     ----------
-    workers : int
-        The memory-gated worker count.
-    budget : float
-        ``workers x RUN_HOURS``, in CPU-hours.
     tier2 : int
         The tier-2 prefix, or 0 when not even the smallest fits.
     tier4 : int
         The tier-4 prefix, or 0 when not even the smallest fits.
-    cost : float
-        The CPU-hours of tiers 2 and 4 at those prefixes.
+    hours : dict
+        Tier -> its wall hours at the chosen prefix (tier 1 as given, tier 3 at its fixed
+        counts).
     counts : dict
         Scenario -> its prefix; a scenario whose tier fits no prefix is absent.
     """
 
-    workers: int
-    budget: float
     tier2: int
     tier4: int
-    cost: float
+    hours: Mapping[int, float]
     counts: Mapping[str, int]
 
     @property
     def wall_hours(self) -> float:
-        """The wall time of tiers 2 and 4 on :attr:`workers`."""
-        return self.cost / self.workers
+        """The wall hours of every tier."""
+        return float(sum(self.hours.values()))
+
+
+def tier_hours(
+    costs: Mapping[str, ScenarioCost], tier: int, replicates: int, *, contention: float = 1.0
+) -> float:
+    """The wall hours of every scenario of ``tier`` at ``replicates`` (tier 3 at its own)."""
+    seconds = sum(
+        scenario_wall_seconds(
+            cost,
+            cost.replicates if cost.replicates is not None else replicates,
+            contention=contention,
+        )
+        for cost in costs.values()
+        if cost.tier == tier
+    )
+    return seconds / 3600.0
 
 
 def reference_sizes(
-    timings: Mapping[str, float],
-    tiers: Mapping[str, int],
+    costs: Mapping[str, ScenarioCost],
     *,
-    workers: int,
-    tier1_cpu_hours: float,
-    tier3_cpu_hours: float,
+    tier1_hours: float,
+    contention: float = 1.0,
+    run_hours: float = RUN_HOURS,
 ) -> Sizing:
-    """The section 6 rule: the prefix of every paired scenario, from smoke timings alone.
+    """The section 6 rule: the prefix of every paired scenario, from smoke readings alone.
 
-    ``timings`` maps a scenario to its measured R CPU-hours per replicate; ``tiers`` maps it to
-    2 (holds an exact cell) or 4 (descriptive pairs only).  Tier 2 takes the largest count in
-    :data:`TIER2_COUNTS` whose cost is at most ``TIER2_SHARE`` of what tiers 1 and 3 leave of
-    ``workers x RUN_HOURS``; tier 4 the largest in :data:`TIER4_COUNTS` that fits the rest.
-    No gate or margins value enters.
+    The scenarios run one after another, so a tier's wall time is the sum of its scenarios'
+    (:func:`scenario_wall_seconds`), each on the workers its own memory affords.  Tier 3 runs
+    at its fixed counts.  Tier 2 takes the largest count in :data:`TIER2_COUNTS` whose wall
+    time is at most ``TIER2_SHARE`` of what tiers 1 and 3 leave of ``run_hours``; tier 4 the
+    largest in :data:`TIER4_COUNTS` that fits the rest.  The inputs are timings and memory
+    readings, and no gate or margins value enters.
 
     A timing is the cost of one replicate of everything the scenario's comparator run fits,
     so a tier-2 scenario is charged its descriptive plans too: they ride along at the tier-2
-    prefix, at about twice the cost of the exact cells alone in the long-horizon studies.  A
-    tier's cost is therefore the cost of its whole scenarios, not of its cells.
+    prefix.  A tier's cost is therefore the cost of its whole scenarios, not of its cells.
     """
-    unknown = set(tiers) - set(timings)
-    if unknown:
-        raise ValueError(f"no timing for {sorted(unknown)}")
-    if any(value not in (2, 4) for value in tiers.values()):
-        raise ValueError("a scenario's tier is 2 (exact cells) or 4 (descriptive pairs)")
-    if any(not math.isfinite(timings[name]) or timings[name] <= 0.0 for name in tiers):
-        raise ValueError("every timing must be a positive number of CPU-hours")
-    budget = workers * RUN_HOURS
-    left = budget - tier1_cpu_hours - tier3_cpu_hours
-    per = {
-        tier: sum(timings[name] for name, value in tiers.items() if value == tier)
-        for tier in (2, 4)
-    }
-    tier2 = _largest(TIER2_COUNTS, per[2], TIER2_SHARE * left)
-    tier4 = _largest(TIER4_COUNTS, per[4], left - tier2 * per[2])
+    for name, cost in costs.items():
+        if cost.tier not in (2, 4, PARITY_TIER):
+            raise ValueError(f"{name}: a tier is 2, 4 or {PARITY_TIER}")
+        if not math.isfinite(cost.seconds) or cost.seconds <= 0.0:
+            raise ValueError(f"{name}: a timing is a positive number of seconds")
+        if (cost.tier == PARITY_TIER) != (cost.replicates is not None):
+            raise ValueError(f"{name}: tier {PARITY_TIER} and only it fixes its replicates")
+    tier3 = tier_hours(costs, PARITY_TIER, 0, contention=contention)
+    left = run_hours - tier1_hours - tier3
+
+    def largest(options: Sequence[int], tier: int, room: float) -> tuple[int, float]:
+        fitting = [
+            (count, hours)
+            for count in options
+            for hours in (tier_hours(costs, tier, count, contention=contention),)
+            if hours <= room
+        ]
+        return max(fitting) if fitting else (0, 0.0)
+
+    tier2, hours2 = largest(TIER2_COUNTS, 2, TIER2_SHARE * left)
+    tier4, hours4 = largest(TIER4_COUNTS, 4, left - hours2)
     counts = {
         name: count
-        for name, value in tiers.items()
-        for count in ((tier2 if value == 2 else tier4),)
+        for name, cost in costs.items()
+        for count in (
+            cost.replicates if cost.tier == PARITY_TIER else tier2 if cost.tier == 2 else tier4,
+        )
         if count
     }
     return Sizing(
-        workers=int(workers),
-        budget=budget,
         tier2=tier2,
         tier4=tier4,
-        cost=tier2 * per[2] + tier4 * per[4],
+        hours={1: float(tier1_hours), 2: hours2, PARITY_TIER: tier3, 4: hours4},
         counts=counts,
     )
-
-
-def _largest(options: Sequence[int], per_replicate: float, room: float) -> int:
-    fitting = [count for count in options if count * per_replicate <= room]
-    return max(fitting) if fitting else 0

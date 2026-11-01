@@ -299,9 +299,18 @@ class FakeDocker:
     harness writes and, on exit 0, the output.
     """
 
-    def __init__(self, codes: list[int], *, per_worker: float = 300.0) -> None:
+    def __init__(
+        self,
+        codes: list[int],
+        *,
+        per_worker: float = 300.0,
+        parent: float = 120.0,
+        available: float = 20_000.0,
+    ) -> None:
         self.codes = list(codes)
         self.per_worker = per_worker
+        self.parent = parent
+        self.available = available
         self.runs: list[list[str]] = []
 
     @staticmethod
@@ -334,7 +343,14 @@ class FakeDocker:
                                 "private_after_gc": self.per_worker - 50.0,
                                 "per_worker": self.per_worker,
                             }
-                        ]
+                        ],
+                        "parent_private_mb": self.parent,
+                        "memory": {
+                            "total": 24_000.0,
+                            "available": self.available,
+                            "limit": None,
+                            "current": None,
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -414,6 +430,28 @@ def test_a_declared_worker_floor_binds_above_the_measured_cost(
     assert real["CLEVERLY_R_MEMORY_FACTOR"] == "1.5"
     assert real["CLEVERLY_R_MEMORY_SHARE"] == "0.7"
     assert real["CLEVERLY_R_MEMORY_REASON"] == "heavy tails"
+
+
+def test_a_streamed_run_calibrates_on_two_replicates_and_reads_the_planned_chunk(
+    resumable: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference, here, samples, truths, _ = resumable
+    docker = FakeDocker([0, 0], per_worker=3_400.0, parent=550.0, available=21_700.0)
+    monkeypatch.setattr(regenerate.subprocess, "run", docker)
+    env = {regenerate.CHUNK_LINES_ENV: "800", regenerate.REPLICATE_LINES_ENV: "100"}
+    _run(reference, here, samples, truths, env=env)
+    calibration, real = (FakeDocker.env(command) for command in docker.runs)
+    assert calibration[regenerate.CHUNK_LINES_ENV] == "200"
+    chunk, cost = regenerate.stream_plan(3_400.0, 550.0, 21_700.0, 8)
+    assert chunk == 3
+    assert real[regenerate.CHUNK_LINES_ENV] == str(chunk * 100)
+    assert real["CLEVERLY_R_WORKER_MB"] == f"{cost:.0f}"
+    assert "for a read of 3 replicates" in real["CLEVERLY_R_MEASURED"]
+    # A calibration read at another chunk is not reused: the stamp names the chunk.
+    stamp = next(samples.parent.resolve().glob("*.calibration.key"))
+    stamp.write_text(stamp.read_text().split(" ")[0] + "\n")
+    _run(reference, here, samples, truths, env=env)
+    assert FakeDocker.env(docker.runs[2]).get("CLEVERLY_HARNESS_CALIBRATE") == "1"
 
 
 def test_exit_3_stops_with_the_harness_message(

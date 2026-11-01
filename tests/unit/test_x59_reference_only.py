@@ -191,14 +191,17 @@ def test_each_scenario_has_its_own_archive_in_replicate_order(tmp_path: Path) ->
     assert drawn.tolist() == frame["x"].tolist(), "a re-drawn replicate is not its seeded sample"
 
 
-def test_each_scenario_runs_alone_with_a_chunk_of_one_replicate_per_worker_and_one(
+def test_each_scenario_runs_alone_with_a_chunk_of_one_replicate_per_worker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     here = tmp_path / "study"
     _committed(monkeypatch, here)
     _main(monkeypatch, here, "--reference-only", "--reference-jobs", "3")
     chunks = [run[regenerate.CHUNK_LINES_ENV] for run in synthetic.RUNS]
-    assert chunks == [str((3 + 1) * synthetic.PRIMARY_N)] * len(synthetic.STUDY.scenarios)
+    assert chunks == [str(3 * synthetic.PRIMARY_N)] * len(synthetic.STUDY.scenarios)
+    # The replicate's lines go with it, so a calibrated run can size its own chunk.
+    lines = [run[regenerate.REPLICATE_LINES_ENV] for run in synthetic.RUNS]
+    assert lines == [str(synthetic.PRIMARY_N)] * len(synthetic.STUDY.scenarios)
     assert all(run[synthetic.MUTATION_ENV] == "none" for run in synthetic.RUNS)
 
 

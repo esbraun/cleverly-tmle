@@ -8,6 +8,8 @@ check on two equal columns cannot tell a working gate from one that reads nothin
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -132,35 +134,69 @@ def test_the_declared_tolerance_is_ten_smoke_maxima_above_the_floor() -> None:
     assert maxima["G-P"] == pytest.approx(4e-7)
 
 
-def test_the_sizing_rule_reproduces_the_plans_worked_examples() -> None:
-    """``X59-plan.md`` section 6 at the rev 3.1 rates: 0.91 and 0.99 CPU-h per replicate."""
-    timings = {"exact": 0.91, "margins": 0.99}
-    tiers = {"exact": 2, "margins": 4}
-    twelve = parity.reference_sizes(
-        timings, tiers, workers=12, tier1_cpu_hours=30.0, tier3_cpu_hours=17.0
+def test_a_streamed_run_fits_each_read_but_its_carried_replicate_then_the_tail() -> None:
+    # The smoke's eight replicates in one read of thirteen: seven fitted, then the tail.
+    assert parity.stream_rounds(8, 3, 13) == 3 + 1
+    # Fifty in reads of twelve on twelve workers: 11, 12, 12, 12, 2, then the tail.
+    assert parity.stream_rounds(50, 12, 12) == 5 + 1
+    assert parity.stream_rounds(1, 4, 4) == 1
+    assert parity.stream_rounds(0, 4, 4) == 0
+
+
+def test_a_read_above_the_worker_count_costs_a_second_round() -> None:
+    """The deliberate mutation: a chunk of ``w + 1`` on ``w`` workers doubles the rounds."""
+    # 100 in reads of twelve: 11, then seven of 12, then 4 and the tail.
+    assert parity.stream_rounds(100, 12, 12) == 1 + 7 + 1 + 1
+    # In reads of thirteen: 12, then six of 13 in two rounds each, then 9 and the tail.
+    assert parity.stream_rounds(100, 12, 13) == 1 + 12 + 1 + 1
+
+
+def _cost(seconds: float, workers: int, tier: int, replicates: int | None = None) -> Any:
+    return parity.ScenarioCost(
+        seconds=seconds, workers=workers, chunk=workers, tier=tier, replicates=replicates
     )
-    assert (twelve.tier2, twelve.tier4) == (100, 100)
-    assert twelve.cost + 47.0 == pytest.approx(237.0)
-    assert twelve.wall_hours + 47.0 / 12 == pytest.approx(19.75)
-    eight = parity.reference_sizes(
-        timings, tiers, workers=8, tier1_cpu_hours=30.0, tier3_cpu_hours=17.0
-    )
-    assert (eight.tier2, eight.tier4) == (50, 50)
-    assert eight.counts == {"exact": 50, "margins": 50}
+
+
+def test_the_sizing_rule_charges_each_scenario_on_its_own_workers() -> None:
+    costs = {
+        "light": _cost(10.0, 12, 2),
+        "heavy": _cost(600.0, 3, 2),
+        "margins": _cost(60.0, 6, 4),
+        "parity": _cost(5.0, 12, parity.PARITY_TIER, replicates=500),
+    }
+    sizing = parity.reference_sizes(costs, tier1_hours=0.0)
+    three = 1 + parity.stream_rounds(500, 12, 12)
+    assert sizing.hours[parity.PARITY_TIER] == pytest.approx(5.0 * three / 3600.0)
+    left = parity.RUN_HOURS - sizing.hours[parity.PARITY_TIER]
+    assert sizing.hours[2] <= parity.TIER2_SHARE * left
+    bigger = [c for c in parity.TIER2_COUNTS if c > sizing.tier2]
+    if bigger:
+        assert parity.tier_hours(costs, 2, bigger[0]) > parity.TIER2_SHARE * left
+    assert sizing.hours[4] <= left - sizing.hours[2]
+    assert sizing.counts["parity"] == 500
+    assert sizing.counts["heavy"] == sizing.tier2 and sizing.counts["margins"] == sizing.tier4
+    assert sizing.wall_hours == pytest.approx(sum(sizing.hours.values()))
+    # The same heavy scenario on one worker instead of three takes a smaller tier-2 prefix.
+    starved = parity.reference_sizes({**costs, "heavy": _cost(600.0, 1, 2)}, tier1_hours=0.0)
+    assert starved.tier2 < sizing.tier2
+
+
+def test_contention_and_tier1_take_wall_hours_from_the_tiers() -> None:
+    costs = {"exact": _cost(900.0, 4, 2), "margins": _cost(300.0, 4, 4)}
+    free = parity.reference_sizes(costs, tier1_hours=0.0)
+    slowed = parity.reference_sizes(costs, tier1_hours=6.0, contention=1.3)
+    assert free.tier2 == 200 and slowed.tier2 == 100
 
 
 def test_a_tier_that_fits_no_prefix_pairs_nothing() -> None:
     sizing = parity.reference_sizes(
-        {"exact": 5.0, "margins": 5.0},
-        {"exact": 2, "margins": 4},
-        workers=4,
-        tier1_cpu_hours=30.0,
-        tier3_cpu_hours=17.0,
+        {"exact": _cost(3600.0, 1, 2), "margins": _cost(3600.0, 1, 4)}, tier1_hours=0.0
     )
     assert sizing.tier2 == 0 and sizing.counts == {}
 
 
-def test_the_worker_count_follows_the_memory_rule() -> None:
-    assert parity.worker_count(32_000, 2_000) == 12
-    assert parity.worker_count(16_000, 2_000) == 6
-    assert parity.worker_count(1_000, 2_000) == 1
+def test_only_the_parity_tier_fixes_its_replicates() -> None:
+    with pytest.raises(ValueError, match="fixes its replicates"):
+        parity.reference_sizes({"exact": _cost(1.0, 1, 2, replicates=50)}, tier1_hours=0.0)
+    with pytest.raises(ValueError, match="fixes its replicates"):
+        parity.reference_sizes({"parity": _cost(1.0, 1, parity.PARITY_TIER)}, tier1_hours=0.0)
