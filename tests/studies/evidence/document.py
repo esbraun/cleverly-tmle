@@ -652,6 +652,14 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "fold_evaluated_reporting":
+        # X11 PR F1: the fold-evaluated report's bias beside the stacked report on the same
+        # draws. Its rows carry no bootstrap SE-ratio interval, and no margin reads them.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"paired error difference {render(float(row.paired_error_difference))}"
+        )
     if family == "unbounded_fit":
         # The unbounded fit's accuracy, and the RMSE of both fits on the same draws.
         return (

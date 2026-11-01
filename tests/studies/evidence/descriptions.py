@@ -993,6 +993,10 @@ ARMS.update(
     }
 )
 
+#: The equal-fold setting of ``learned-rule-stacked`` (X11 PR F1, X11 (e)). Its ``weighted``
+#: and ``clustered`` labels are shared, so :data:`STUDY_ARMS` scopes their words to the study.
+ARMS["rows"] = "the learned-rule law with the blip 0.1 + W1 on rows, in ten equal folds"
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1771,6 +1775,11 @@ PROPERTIES: dict[str, str] = {
         "the coverage and SE ratio of the stratified learned-rule fit and of the unstratified "
         "learned-rule fit on the same draws, on binary laws with a weak margin at the rule "
         "boundary, reported rather than gated"
+    ),
+    "fold_evaluated_reporting": (
+        "the bias of the fold-evaluated report of the learned-rule value beside the stacked "
+        "report on the same draws and folds, at 200 clusters whose size rises with the "
+        "outcome, reported rather than gated"
     ),
     "sparse_event_diagnostic": (
         "the coverage and SE ratio of the fold-evaluated and the stacked stratified fits on a "
@@ -6073,4 +6082,64 @@ STUDY_ARM_CELLS.update(
         for setting in ("binary_weak", "binary_moderate")
         for part in _STRATA_PARTS
     }
+)
+
+
+#: ``learned-rule-stacked`` (X11 PR F1, X11 (e)): the stacked report of the learned-rule value.
+#: The laws are those of ``tests/studies/_learned_rule_stacked_law.py``.
+_STACKED_SLUG = "learned-rule-stacked"
+IMPLEMENTATIONS["cleverly-learned-rule-stacked"] = (
+    "`cleverly` stacked report of the learned-rule value: one pooled fluctuation over every "
+    "validation row, each fold weighted by its share of the weight mass, and the curve centred "
+    "at the pooled estimate"
+)
+STUDY_ESTIMANDS[_STACKED_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold-mass-weighted average of the value of the rule learned on each fold's training rows"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_STACKED_SLUG, "rows"): (
+            "learned-rule law with the blip 0.1 + W1, rows only, ten equal folds"
+        ),
+        (_STACKED_SLUG, "weighted"): (
+            "learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight "
+            "1 + 1.5 * 1{W1 > 0}, a misspecified outcome learner"
+        ),
+        (_STACKED_SLUG, "clustered"): (
+            "learned-rule law with the blip 0.1 + W1 and a cluster effect of SD 1.0 on the logit "
+            "scale, 200 clusters of size 5 + Binomial(10, expit(1.5 z)) that rises with the "
+            "effect"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_STACKED_SLUG, "weighted"): (
+            "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight "
+            "1 + 1.5 * 1{W1 > 0}"
+        ),
+        (_STACKED_SLUG, "clustered"): (
+            "the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters "
+            "whose size rises with the effect"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_STACKED_SLUG, "interval_calibration", label, "declared"): (
+            "the declared stacked fit with the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("rows", "weighted", "clustered")
+    }
+)
+STUDY_ARM_CELLS[(_STACKED_SLUG, "interval_calibration", "clustered", "row_variance_control")] = (
+    "the same estimate with the row-level centred standard error that ignores the clusters",
+    "the SE-ratio interval must fall below the calibration band",
+)
+STUDY_ARM_CELLS[(_STACKED_SLUG, "fold_evaluated_reporting", "clustered", "fold_evaluated")] = (
+    "the fold-evaluated fit (cv_evaluation=True) on every clustered calibration draw, with the "
+    "same folds and rules, read against the 1/V average of the same fold values",
+    "none. The cell reports the fold-evaluated bias beside the stacked bias and their paired "
+    "error difference",
 )
