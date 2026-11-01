@@ -420,7 +420,7 @@ The [node-bounds study](method-evidence/survival-node-bounds.md) adds repeated-s
 `node_bounds=` with `hazard_pooling="pooled"` on a held survival design. Its 15 gated cells pass,
 for the iterated-mean fit and the hazard fit. On the hazard fit the bounds rarely bind. The
 estimate moved on 10% of the draws, so the study reports that witness and does not gate it. Its
-`survtmle` comparator runs are pending. No registered study covers `ratio_trim=` or
+12 paired cells against `survtmle` 1.1.1 pass. No registered study covers `ratio_trim=` or
 `markov_order=`.
 
 The R comparators of the seven options named first have scripts, a registry and a self-test in
@@ -445,6 +445,22 @@ touch. [Candidate sequences](collaborative-tmle.md#candidate-sequences) lists th
 The declared differences from the comparators are D4, D7 and D7b.
 [Stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) and
 [patience](collaborative-tmle.md#patience) state them.
+
+`ratio_trim=`, `markov_order=` and `hazard_pooling="pooled"` have R parity fixtures in
+`tests/canonical/longitudinal_option_fixtures/`, printed in the pinned images by the local Study
+queue and compared in `tests/unit/test_longitudinal_option_fixtures.py`.
+
+| fixture | comparator | option | compared |
+| --- | --- | --- | --- |
+| `lmtp_trim.json` | `lmtp` 1.5.4 `trim()` on a fixed matrix, and a two-fold `lmtp_tmle(mtp = FALSE)` at `.trim = 1` and `.trim = 0.9` | `ratio_trim=` | threshold and trimmed matrix to $10^{-15}$; the zero pattern of the per-node ratios exactly |
+| `lmtp_history.json` | `lmtp` 1.5.4 `LmtpVars$history()` for $T = 4$ and $k \in \{0, 1, 2, \infty\}$ | `markov_order=` | the mechanism and outcome-regression column sets |
+| `survtmle_pooled.json` | `survtmle` 1.1.1 `glm.ctime` per visit and as `trt + W1 + W2 + t` | `hazard_pooling=` | retention at every at-risk row to $10^{-6}$ |
+
+Two conventions are declared, not matched. The outcome regression's arm blocks under
+`markov_order=k` start at $t-k-1$, as the mechanism's do, and `lmtp`'s outcome history starts
+them at $t-k$, so the package's design holds one more arm. The survival comparison declares node
+1's retention known, as `survtmle` sets $G_{dC} = 1$ at the first visit, and a declared-known
+node stays out of the pooled censoring fit.
 
 ## Longitudinal estimands outside the target registry
 

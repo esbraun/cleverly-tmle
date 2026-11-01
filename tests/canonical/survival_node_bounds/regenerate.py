@@ -1,9 +1,9 @@
 """Regenerate node-bound evidence on survival fits (``survival-node-bounds``).
 
-The ``survtmle`` comparator (P1 with ``method="mean"``, P2 with ``method="hazard"``) is pending
-(``STUDY.pending_reference``).  The driver runs no reference process.  :data:`REFERENCE` names
-the declared sources, so the manifest records their bytes at the run.  The runner is
-``run_study.R`` beside this file.
+The ``survtmle`` comparator (P1 with ``method="mean"``, P2 with ``method="hazard"``) runs in the
+image :data:`REFERENCE` builds, through ``run_study.R`` beside this file, and the manifest
+records the bytes of its Dockerfile, runner and harness.  The declared comparator run reuses the
+committed property phase: ``regenerate --skip-properties``.
 """
 
 from pathlib import Path
