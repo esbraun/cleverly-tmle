@@ -184,3 +184,64 @@ def test_the_comparator_declaration_validates(module) -> None:  # type: ignore[n
     assert set(module.REFERENCE_TIERS) == set(record.reference_scenarios)
     for cell in module.PARITY.cells:
         assert cell.estimand in record.reference_scenarios[cell.scenario], cell
+
+
+# ---- the read chunk of a reference-only run (review item 1) ----------------------------------
+def _fitted_per_chunk(lines: int, replicates: int, chunk: int) -> list[tuple[int, bool]]:
+    """``(groups fitted, whether the read was full)`` for each read of ``study_stream``.
+
+    A read takes ``chunk`` lines after what was carried; every replicate it holds is fitted
+    except the last, which is carried into the next read, until a read finds nothing
+    (study_harness.R).
+    """
+    total = lines * replicates
+    start, end, fitted = 0, 0, []
+    while True:
+        read = min(chunk, total - end)
+        if read == 0:
+            fitted.append((replicates - start // lines, False))
+            return [(count, full) for count, full in fitted if count]
+        end += read
+        last = (end - 1) // lines
+        fitted.append((last - start // lines, read == chunk))
+        start = last * lines
+
+
+def _declared_scenarios():  # type: ignore[no-untyped-def]
+    from tests.studies import canonical_long_horizon_lmtp_parity as lmtp_parity
+    from tests.studies import canonical_long_horizon_ltmle_parity as ltmle_parity
+
+    for module in (s1, s2, s3, ltmle_parity, lmtp_parity):
+        record = module.STUDY
+        reference = str(record.pending_reference or record.reference)
+        for name in record.reported(reference):
+            yield module, name, record.n_of(name)
+
+
+def test_an_archive_line_is_one_unit_so_a_replicate_holds_n_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The plug-in of a small sample can leave the Q bound; only the frame's length is read.
+    monkeypatch.setattr(reference_, "plugins", lambda frame, scenario: {})
+    for module, name, _ in _declared_scenarios():
+        assert len(module.reference_sample(name, 400, 0).frame) == 400, name
+
+
+@pytest.mark.parametrize("cores", [1, 2, 4, 8, 12])
+def test_every_read_at_the_declared_sizes_keeps_every_worker_busy(cores: int) -> None:
+    from tests.canonical import regenerate
+
+    for _, name, n in _declared_scenarios():
+        chunk = regenerate.chunk_lines(n, cores)
+        fitted = _fitted_per_chunk(n, 30, chunk)
+        assert sum(count for count, _ in fitted) == 30, name
+        # Every full read fits at least one replicate per worker; only the archive's tail
+        # holds fewer.
+        assert min(count for count, full in fitted if full) >= cores, (name, fitted)
+
+
+def test_the_harness_default_chunk_fits_one_replicate_at_a_time() -> None:
+    # The control: the 64,000-line default holds less than two replicates of the large
+    # scenarios, so their fits would run one at a time on any number of workers.
+    largest = max(n for _, _, n in _declared_scenarios())
+    assert max(count for count, _ in _fitted_per_chunk(largest, 30, 64_000)) <= 1

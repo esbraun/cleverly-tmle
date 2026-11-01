@@ -31,7 +31,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -296,10 +295,24 @@ def identity(study: str, replicates: int) -> int:
 
 
 # ----------------------------------------------------------------------------- smoke runs
-def smoke_run(study: str, out: Path, *, prefix: int, mutation: str = "none", jobs: int = 4) -> Path:
-    """A reference-only run of the first ``prefix`` replicates, into ``out/<mutation>``."""
-    target = out / mutation
-    environment = {**os.environ, "CLEVERLY_X59_MUTATION": mutation}
+def smoke_run(
+    study: str,
+    out: Path,
+    *,
+    prefix: int,
+    mutation: str = "none",
+    jobs: int = 4,
+    target: Path | None = None,
+    cache: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path:
+    """A reference-only run of the first ``prefix`` replicates, into ``out/<mutation>``.
+
+    The mutation enters the driver's resume key (``REFERENCE_ENVIRONMENT``), so each one draws
+    its own archive and runs its own comparator; no mutated run reads an unmutated checkpoint.
+    """
+    target = out / mutation if target is None else target
+    variables = {"CLEVERLY_X59_MUTATION": mutation, **dict(env or {})}
     command = [
         sys.executable,
         str(CANONICAL / STUDIES[study][1] / "regenerate.py"),
@@ -310,9 +323,11 @@ def smoke_run(study: str, out: Path, *, prefix: int, mutation: str = "none", job
         str(jobs),
         "--output",
         str(target),
+        *(("--cache", str(cache)) if cache is not None else ()),
     ]
-    print("$", f"CLEVERLY_X59_MUTATION={mutation}", " ".join(command), flush=True)
-    subprocess.run(command, check=True, env=environment, cwd=ROOT)
+    shown = " ".join(f"{name}={value}" for name, value in variables.items())
+    print("$", shown, " ".join(command), flush=True)
+    subprocess.run(command, check=True, env={**os.environ, **variables}, cwd=ROOT)
     return target
 
 
@@ -524,15 +539,27 @@ def qbound(study: str, replicates: Mapping[str, int], out: Path, jobs: int) -> i
 
 
 # ----------------------------------------------------------------------------- memory and timing
-def memory(study: str, container_mb: float, runs: Path) -> int:
-    """M7: the largest per-worker peak the driver's calibration measured, and the worker count."""
+def memory(study: str, container_mb: float, out: Path, prefix: int, jobs: int) -> int:
+    """M7: a prefix smoke under ``docker run --memory``, its calibration peaks, and ``w``.
+
+    The run keeps its scratch in ``out/memory-scratch``, where the driver's calibration writes
+    one ``*.calibration.json`` per scenario run; the peak is the largest per-worker cost in them.
+    """
+    from tests.canonical import regenerate
     from tests.studies.evidence import parity
 
-    leaf = STUDIES[study][1]
+    scratch = out / "memory-scratch"
+    smoke_run(
+        study,
+        out,
+        prefix=prefix,
+        jobs=jobs,
+        target=out / "memory",
+        cache=scratch,
+        env={regenerate.DOCKER_MEMORY_ENV: f"{container_mb:.0f}m"},
+    )
     peaks = []
-    for path in sorted(runs.rglob("*.calibration.json")):
-        if leaf not in str(path):
-            continue
+    for path in sorted(scratch.glob("*.calibration.json")):
         measured = json.loads(path.read_text())
         # study_harness.R's calibration file: one entry per calibrated replicate group, each
         # with its measured per-worker cost in MB (peak growth or private memory after gc).
@@ -540,6 +567,9 @@ def memory(study: str, container_mb: float, runs: Path) -> int:
         for group in groups:
             print(f"{path.name} {group['id']}: per_worker {group['per_worker']:.0f} MB", flush=True)
         peaks += [float(group["per_worker"]) for group in groups]
+    if not peaks:
+        print(f"FAIL: no calibration measured a per-worker peak in {scratch}", flush=True)
+        return 1
     peak = max(peaks)
     workers = parity.worker_count(container_mb, peak)
     print(f"peak {peak:.0f} MB per worker; w = {workers} in {container_mb:.0f} MB", flush=True)
@@ -547,7 +577,11 @@ def memory(study: str, container_mb: float, runs: Path) -> int:
 
 
 def timing(study: str, out: Path, replicates: int) -> int:
-    """R seconds per replicate for each paired scenario, one scenario per reference run."""
+    """R seconds per replicate for each paired scenario, from the runner's ``fit_seconds``.
+
+    One reference run per scenario on one core.  The runner times each replicate's fit alone
+    (``horizon_timed``), so neither the container start nor the calibration fork counts.
+    """
     from tests.canonical import regenerate
 
     module = _module(study)
@@ -556,25 +590,28 @@ def timing(study: str, out: Path, replicates: int) -> int:
     base = regenerate.compared_record(
         module, argparse.Namespace(reference_prefix=None, output=here), here
     )
+    paired = base.reported(str(base.reference))
     rows = []
-    for name in module.REFERENCE_SCENARIOS:
+    for name in paired:
         record = dataclasses.replace(
             base,
-            reference_scenarios={name: base.reference_scenarios[name]},
+            reference_scenarios={name: paired[name]},
             reference_replicates={name: replicates},
         )
         scratch = out / study / name
         scratch.mkdir(parents=True, exist_ok=True)
-        paths = regenerate.write_reference_inputs(module, record, base.n, scratch, jobs=4)
-        started = time.monotonic()
+        inputs = regenerate.write_reference_inputs(module, record, base.n, scratch, jobs=4)
+        output = scratch / "reference.csv"
         reference.run(
             here,
-            paths["samples.csv.gz"],
-            paths["truth.csv"],
-            scratch / "reference.csv",
+            inputs.scenarios[name].samples,
+            inputs.scenarios[name].truth,
+            output,
             cores=1,
+            env=regenerate.reference_environment(module),
         )
-        seconds = (time.monotonic() - started) / replicates
+        fitted = pd.read_csv(output).groupby("replicate")["fit_seconds"].first()
+        seconds = float(fitted.mean())
         rows.append(
             {
                 "study": study,
@@ -583,7 +620,7 @@ def timing(study: str, out: Path, replicates: int) -> int:
                 "cpu_hours": seconds / 3600.0,
             }
         )
-        print(f"{name}: {seconds:.1f} s per replicate", flush=True)
+        print(f"{name}: {seconds:.1f} s per replicate over {len(fitted)}", flush=True)
     frame = pd.DataFrame(rows)
     frame.to_csv(out / f"timing-{study}.csv", index=False)
     return 0
@@ -607,6 +644,36 @@ def _reference(study: str) -> Any:
     finally:
         regenerate.main = original
     return captured["reference"]
+
+
+def declared_sources(studies: Sequence[str]) -> int:
+    """Rewrite each pending manifest's ``declared_sources_sha256`` to today's reference bytes.
+
+    A pending study's manifest records the digests of the comparator sources it declares, and
+    the fast tier compares them with the files.  An edit of a declared source (an R adapter, a
+    runner, or a Dockerfile whose package hashes the smoke fills in) refreshes the digests in
+    the same commit; the edit is result-neutral only while no reference has run.
+    """
+    from tests.studies.evidence.manifest import reference_hashes, write_lines
+
+    for study in studies:
+        here = CANONICAL / STUDIES[study][1]
+        path = here / "manifest.json"
+        if not path.exists():
+            print(f"{study}: no committed manifest; nothing declared", flush=True)
+            continue
+        manifest = json.loads(path.read_text())
+        if "comparator" not in manifest:
+            raise SystemExit(f"{study} is compared already; its reference_sha256 is a run's")
+        before = manifest["comparator"]["declared_sources_sha256"]
+        after = reference_hashes(_reference(study).files(here))
+        manifest["comparator"]["declared_sources_sha256"] = after
+        write_lines(path, json.dumps(manifest, indent=2) + "\n")
+        for name in sorted(set(before) | set(after)):
+            if before.get(name) != after.get(name):
+                old, new = before.get(name, "-")[:12], after.get(name, "-")[:12]
+                print(f"{study}: {name} {old} -> {new}", flush=True)
+    return 0
 
 
 def sizing(timings: Path, workers: int, tier1: float, tier3: float) -> int:
@@ -662,11 +729,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     step = steps.add_parser("memory")
     step.add_argument("study", choices=STUDIES)
     step.add_argument("--container-mb", type=float, required=True)
-    step.add_argument("--runs", type=Path, default=None, help="default: the driver's runs root")
+    step.add_argument("--out", type=Path, required=True)
+    step.add_argument("--prefix", type=int, default=SMOKE_PREFIX)
+    step.add_argument("--jobs", type=int, default=4)
     step = steps.add_parser("timing")
     step.add_argument("study", choices=STUDIES)
     step.add_argument("--out", type=Path, required=True)
     step.add_argument("--replicates", type=int, default=2)
+    step = steps.add_parser("declared-sources")
+    step.add_argument("studies", nargs="+", choices=STUDIES)
     step = steps.add_parser("sizing")
     step.add_argument("--timings", type=Path, required=True)
     step.add_argument("--workers", type=int, required=True)
@@ -691,11 +762,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.jobs,
         )
     if arguments.step == "memory":
-        from tests.canonical.regenerate import runs_root
-
-        return memory(arguments.study, arguments.container_mb, arguments.runs or runs_root())
+        return memory(
+            arguments.study, arguments.container_mb, arguments.out, arguments.prefix, arguments.jobs
+        )
     if arguments.step == "timing":
         return timing(arguments.study, arguments.out, arguments.replicates)
+    if arguments.step == "declared-sources":
+        return declared_sources(arguments.studies)
     return sizing(arguments.timings, arguments.workers, arguments.tier1, arguments.tier3)
 
 

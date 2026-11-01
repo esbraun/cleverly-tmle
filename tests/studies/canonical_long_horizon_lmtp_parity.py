@@ -96,7 +96,14 @@ CONFIGURATION: dict[str, Any] = {
 }
 
 #: Every margins pair is descriptive: the record reads its exact gates only.
-COMPARATOR_DECLARATION = {"paired_role": "descriptive"}
+COMPARATOR_DECLARATION = {
+    "paired_role": "descriptive",
+    # Every replicate is paired: the parity gates read each one, and the record's 500 were
+    # chosen for them (section 4.2).
+    "reference_replicates": dict.fromkeys(STUDY.scenarios, STUDY.replicates),
+}
+#: The comparator's declared environment: no mutation, and the declared learner (M2).
+REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
 PARITY = ParityDeclaration(
     cells=tuple(ParityCell("G1", name, "ey_regimen[mix]") for name in ESTIMATORS)
 )

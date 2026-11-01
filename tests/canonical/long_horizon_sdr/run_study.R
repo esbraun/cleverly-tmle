@@ -21,5 +21,7 @@ if (as.character(packageVersion("lmtp")) != "1.5.5") stop("this runner needs lmt
 fit_one <- function(frame) horizon_lmtp_replicate(frame, truths, "lmtp_sdr")
 
 expected <- length(unique(truths$replicate))
-results <- study_stream(paths$samples, fit_one, expected)
+results <- study_stream(
+  paths$samples, horizon_timed(fit_one), expected, chunk_lines = horizon_chunk_lines()
+)
 study_collect(results, expected, paths$output, versions = study_version("lmtp"))

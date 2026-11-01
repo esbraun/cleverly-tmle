@@ -451,3 +451,8 @@ among their declared sources, each with the hash of its bytes at the X59 commit.
 process ran for the committed rows, so the declared digests describe no committed result, and
 the subject rows, the property files and every recorded artifact hash are unchanged. The
 reference-only run writes the manifest's reference provenance from the bytes it runs.
+
+The first X59 review changed the declared sources again: the runners read their read-chunk size
+from the driver and time each replicate's fit. Each declaration digest was refreshed in the same commit with
+`python -m tests.canonical.x59_smoke declared-sources`. No reference process has run, so the
+refreshed digests describe no committed result.

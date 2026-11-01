@@ -186,3 +186,24 @@ horizon_msm <- function(fits, durations) {
     )
   }), terms)
 }
+
+horizon_chunk_lines <- function() {
+  # The driver sizes the read chunk to (cores + 1) replicates of one scenario
+  # (regenerate.py, chunk_lines), so study_stream fits a chunk's replicates in parallel.
+  value <- suppressWarnings(as.integer(study_env("CLEVERLY_R_CHUNK_LINES", "64000")))
+  if (length(value) != 1L || is.na(value) || value < 1L) {
+    stop("CLEVERLY_R_CHUNK_LINES must be a positive integer")
+  }
+  value
+}
+
+horizon_timed <- function(fit) {
+  # Adds fit_seconds, the wall time of this replicate's fit alone, after the declared columns,
+  # for the smoke's timing step; the published schema drops it.
+  function(frame) {
+    started <- proc.time()[["elapsed"]]
+    rows <- fit(frame)
+    rows$fit_seconds <- proc.time()[["elapsed"]] - started
+    rows
+  }
+}

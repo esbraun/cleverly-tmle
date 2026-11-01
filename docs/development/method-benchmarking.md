@@ -537,18 +537,30 @@ truths and the subject's untargeted values (`tests.studies.evidence.parity.Refer
 
 | field or flag | what it does |
 | --- | --- |
-| `reference_replicates` | `StudyRecord` field. Maps a paired scenario to the number of leading replicates the reference fits. A scenario it omits pairs every replicate. Each count is at least 2 and at most `replicates` |
+| `reference_replicates` | `StudyRecord` field. Maps a paired scenario to the number of leading replicates the reference fits. Each count is at least 2 and at most `replicates`. A declared `--reference-only` run refuses a paired scenario without a count, so a record that pairs every replicate says so |
 | `COMPARATOR_DECLARATION` | Study-module mapping of the record fields the comparator run declares, such as `reference_replicates`, `reference_scenarios` and `paired_role`. A `--reference-only` run of a pending record promotes the record with them. The registration commit then moves them into the `StudyRecord` |
 | `--reference-prefix N` | Pairs the first `N` replicates of every paired scenario, for a smoke run. The driver refuses it into the committed directory, so pass `--output` |
-| `--reference-jobs J` | Worker processes that write the comparator inputs |
+| `REFERENCE_ENVIRONMENT` | Study-module mapping of an environment variable to its default, for an input that changes what the comparator fits, such as the long-horizon studies' declared mutation and `lmtp` learner. The value in force enters the resume key and the input stamp, reaches the container, and is recorded under `generated_with.reference.environment` |
+| `--reference-jobs J` | Cores of each reference container (`docker run --cpus`), which is also the number of R workers. The inputs are written by `--jobs` processes |
+| `CLEVERLY_DOCKER_MEMORY` | Environment variable. When set, each reference container runs under `docker run --memory` with its value, and the harness sizes its workers to that limit |
 
 The subject keeps all `replicates` rows. Equivalence, failure accounting and the paired tables read
 each cell on its paired prefix only. A study that defines `PARITY` (a
 `tests.studies.evidence.parity.ParityDeclaration`) also gets `parity.csv` and
 `parity-replicates.csv`. Those tables hold the per-replicate exact gates, and
-`tests/unit/test_x59_parity.py` recomputes them from the committed rows. A tolerance left at `None`
-refuses to read until the declaration commit sets it from the smoke maxima.
-`tests/canonical/x59_smoke.py` runs the smoke steps of the long-horizon studies, one command each.
+`tests/unit/test_x59_parity.py` recomputes them from the committed rows.
+
+G1 is fixed at `1e-6`. The G-P and G-C tolerances stay `None` until the declaration commit sets
+them from the smoke maxima, and a declared run with one still at `None` is refused before it draws
+anything. A smoke maximum that would declare a tolerance above `1e-5` fails the smoke.
+
+The driver runs the comparator once per paired scenario, each on its own archive of that
+scenario's replicates. The R harness fits one replicate per worker, and the driver sizes the
+harness's read chunk to hold one more replicate than there are workers, so every worker has a
+replicate to fit. The manifest records the hashes of the modules that drew the inputs under
+`generated_with.reference.input_module_sha256`, because the subject's module hashes are those of
+the committed run. `tests/canonical/x59_smoke.py` runs the smoke steps of the long-horizon
+studies, one command each.
 
 ## Red cells
 

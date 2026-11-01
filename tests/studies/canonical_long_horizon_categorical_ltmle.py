@@ -410,7 +410,10 @@ COMPARATOR_DECLARATION = {
     "reference_scenarios": REFERENCE_SCENARIOS,
     "paired_role": "descriptive",
 }
+#: The comparator's declared environment: no mutation, and the declared learner (M2).
+REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
 #: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+#: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
 REFERENCE_TIERS = {
     name: 2 if "ey_regimen[mix]" in cells else 4 for name, cells in REFERENCE_SCENARIOS.items()
 }

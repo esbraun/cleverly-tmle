@@ -51,7 +51,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -62,7 +62,13 @@ import pandas as pd
 from tests.parallel import available_cores
 from tests.studies.evidence import failures, parity, property_failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
-from tests.studies.evidence.manifest import read_rows, write_csv, write_manifest, write_rows
+from tests.studies.evidence.manifest import (
+    read_rows,
+    study_module_hashes,
+    write_csv,
+    write_manifest,
+    write_rows,
+)
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord
@@ -228,6 +234,10 @@ THREAD_CAPS = dict.fromkeys(
 )
 
 
+#: The environment variable whose value a reference container gets as ``docker run --memory``.
+DOCKER_MEMORY_ENV = "CLEVERLY_DOCKER_MEMORY"
+
+
 def _docker_command(
     reference: Reference,
     root: Path,
@@ -253,12 +263,16 @@ def _docker_command(
         **(env or {}),
     }
     flags = [part for name, value in variables.items() for part in ("-e", f"{name}={value}")]
+    # A container memory limit, for a host that must leave memory to other work.  The harness
+    # reads the limit from its cgroup and sizes its workers to it; no result depends on it.
+    memory = os.environ.get(DOCKER_MEMORY_ENV, "")
     return [
         "docker",
         "run",
         "--rm",
         "--cpus",
         str(max(cores, 1)),
+        *(("--memory", memory) if memory else ()),
         *extra,
         *flags,
         *mounts,
@@ -396,13 +410,27 @@ def _declared_sizes(record: StudyRecord, n: int) -> dict[str, int]:
     return dict(record.scenario_n) if n == record.n else {}
 
 
-def run_key(record: StudyRecord) -> dict[str, Any]:
+def reference_environment(study: ModuleType) -> dict[str, str]:
+    """The study's declared reference inputs read from the environment, defaults filled in.
+
+    A study module's ``REFERENCE_ENVIRONMENT`` maps a variable to its default.  Each one changes
+    what the comparator fits (X59's declared mutation and learner), so its value enters the
+    resume key, the reference-input stamp, the container's environment and the manifest.
+    """
+    declared = getattr(study, "REFERENCE_ENVIRONMENT", None) or {}
+    return {
+        name: os.environ.get(name) or str(default) for name, default in sorted(declared.items())
+    }
+
+
+def run_key(record: StudyRecord, environment: Mapping[str, str] | None = None) -> dict[str, Any]:
     """The resume-key fields known before the Python phase draws anything."""
     return {
         "declaration": declaration_hash(record),
         "git": git_state(),
         "n": record.n,
         **({"scenario_n": dict(sorted(record.scenario_n.items()))} if record.scenario_n else {}),
+        **({"reference_environment": dict(environment)} if environment else {}),
         "replicates": record.replicates,
         "versions": python_versions(),
     }
@@ -815,6 +843,8 @@ class _Phase:
     subject_failures: pd.DataFrame | None = None
     #: Whether a failed subject fit leaves its replicate without a reference input.
     reference_input_from_fit: bool = False
+    #: A reference-only run's per-scenario comparator inputs; the comparator runs once each.
+    scenario_inputs: dict[str, ScenarioInput] = field(default_factory=dict)
 
     def recorded(self, record: StudyRecord) -> pd.DataFrame | None:
         """Both sides' records, the induced reference records included, or ``None``.
@@ -954,7 +984,7 @@ def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> Non
     text = json.dumps(canonical(key), sort_keys=True, indent=1) + "\n"
     cached = [
         name for name in (*_PYTHON_CACHE, "reference-results.csv") if (scratch / name).exists()
-    ]
+    ] + [path.name for path in scratch.glob("reference-results__*.csv")]
     checkpointed = (scratch / CHECKPOINTS).exists()
     if fresh:
         for name in cached:
@@ -1156,6 +1186,31 @@ def compared_record(study: ModuleType, arguments: argparse.Namespace, here: Path
     return record
 
 
+def check_comparator_declaration(
+    study: ModuleType, record: StudyRecord, arguments: argparse.Namespace
+) -> None:
+    """Refuse a declared reference-only run whose prefix or parity tolerance is undeclared.
+
+    Both refusals come before any input is drawn.  A paired scenario without a declared
+    ``reference_replicates`` entry would pair every replicate, which no sizing rule chose.  A
+    parity gate without its tolerance would fail only after the comparator ran.  A smoke run
+    (``--reference-prefix``) declares its own prefix and reads its gates at the floor.
+    """
+    if getattr(arguments, "reference_prefix", None) is not None:
+        return
+    paired = record.reported(str(record.reference))
+    missing = sorted(set(paired) - set(record.reference_replicates))
+    if missing:
+        raise RuntimeError(
+            f"{record.slug} declares no reference_replicates for {missing}: the declared run "
+            "pairs a declared prefix, so add it to COMPARATOR_DECLARATION (or pass "
+            "--reference-prefix for a smoke run)"
+        )
+    declaration = getattr(study, "PARITY", None)
+    if declaration is not None:
+        declaration.check_declared()
+
+
 def _paired_keys(record: StudyRecord, n: int) -> list[tuple[str, int, int]]:
     """``(scenario, replicate, n)`` of every paired replicate, replicate-major (M6)."""
     reference = str(record.reference)
@@ -1169,26 +1224,20 @@ def _paired_keys(record: StudyRecord, n: int) -> list[tuple[str, int, int]]:
     ]
 
 
-def _archive_columns(module: ModuleType, record: StudyRecord) -> list[str]:
-    """The archive's columns: each paired scenario's, first seen first, after the keys.
-
-    One archive holds every scenario, so its header is the union; a runner drops the columns
-    another scenario wrote (``typed`` in the long-horizon runners).
-    """
-    columns = ["scenario", "replicate", "row"]
-    for name in record.reported(str(record.reference)):
-        sample = module.reference_sample(name, _COLUMN_PROBE_N, 0)
-        columns += [column for column in sample.frame.columns if column not in columns]
-    return columns
+def _archive_columns(module: ModuleType, scenario: str) -> list[str]:
+    """One scenario archive's columns: the keys, then what the scenario's hook writes."""
+    sample = module.reference_sample(scenario, _COLUMN_PROBE_N, 0)
+    keys = ["scenario", "replicate", "row"]
+    return keys + [column for column in sample.frame.columns if column not in keys]
 
 
 def _reference_input(
     module_name: str,
-    columns: list[str],
+    columns: Mapping[str, list[str]],
     reported: dict[str, tuple[str, ...]],
     key: tuple[str, int, int],
-) -> tuple[bytes, list[dict[str, Any]], list[dict[str, Any]]]:
-    """One paired replicate of one scenario: its gzip CSV member, truth rows and plug-ins."""
+) -> tuple[str, bytes, int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """One paired replicate of one scenario: its gzip CSV member, line count, truths, plug-ins."""
     import importlib
     import io
 
@@ -1196,14 +1245,16 @@ def _reference_input(
     module = importlib.import_module(module_name)
     sample = module.reference_sample(scenario, n, replicate)
     frame = sample.frame.copy()
-    unknown = sorted(set(frame.columns) - set(columns))
+    unknown = sorted(set(frame.columns) - set(columns[scenario]))
     if unknown:
         raise RuntimeError(f"{scenario} replicate {replicate} wrote undeclared columns {unknown}")
     frame.insert(0, "row", range(len(frame)))
     frame.insert(0, "replicate", replicate)
     frame.insert(0, "scenario", scenario)
     text = io.StringIO()
-    frame.reindex(columns=columns).to_csv(text, index=False, header=False, lineterminator="\n")
+    frame.reindex(columns=columns[scenario]).to_csv(
+        text, index=False, header=False, lineterminator="\n"
+    )
     member = gzip.compress(text.getvalue().encode("utf-8"), mtime=0)
     wanted = reported[scenario]
     truths = [
@@ -1220,7 +1271,7 @@ def _reference_input(
         for name, value in sample.plugins.items()
         if name in wanted
     ]
-    return member, truths, plugins
+    return scenario, member, len(frame), truths, plugins
 
 
 def _ordered_map(function: Any, keys: list[Any], jobs: int) -> Iterator[Any]:
@@ -1247,56 +1298,110 @@ def _ordered_map(function: Any, keys: list[Any], jobs: int) -> Iterator[Any]:
                 break
 
 
+@dataclass(frozen=True)
+class ScenarioInput:
+    """One paired scenario's comparator inputs.
+
+    Parameters
+    ----------
+    samples : Path
+        The scenario's archive: one gzip member per paired replicate, in replicate order.
+    truth : Path
+        The scenario's truth rows.
+    lines : int
+        The most archive lines one replicate holds, which sizes the runner's read chunk.
+    """
+
+    samples: Path
+    truth: Path
+    lines: int
+
+
+@dataclass(frozen=True)
+class ReferenceInputs:
+    """What :func:`write_reference_inputs` writes.
+
+    Parameters
+    ----------
+    paths : dict[str, Path]
+        ``truth.csv`` (every scenario's truth rows) and the subject's plug-ins.
+    scenarios : dict[str, ScenarioInput]
+        Each paired scenario's own archive and truth, in record order.
+    """
+
+    paths: dict[str, Path]
+    scenarios: dict[str, ScenarioInput]
+
+
+def scenario_input_paths(scratch: Path, scenario: str) -> tuple[Path, Path]:
+    """Where one scenario's archive and truth rows live in ``scratch``."""
+    return scratch / f"samples__{scenario}.csv.gz", scratch / f"truth__{scenario}.csv"
+
+
 def write_reference_inputs(
     study: ModuleType, record: StudyRecord, n: int, scratch: Path, *, jobs: int
-) -> dict[str, Path]:
+) -> ReferenceInputs:
     """Re-draw the paired prefix from its seeds and write the comparator's inputs (M6).
 
     No ``cleverly`` fit runs.  Each paired ``(scenario, replicate)`` is drawn by the study's own
     ``reference_sample`` hook, which builds every column the runner reads from the law and the
-    plan.  The archive is one gzip file of concatenated members, replicate-major across the
-    scenarios, so ``study_stream`` reads one replicate's scenarios as one group.  Returns the
-    paths of the archive, the truth table and the plug-in table.
+    plan.  Each scenario gets its own archive of concatenated gzip members in replicate order,
+    so ``study_stream`` reads one replicate of one scenario as one group, and its own truth
+    file.  The comparator runs once per scenario (:func:`_reference_rows`).
     """
     import functools
 
-    paths = {
-        "samples.csv.gz": scratch / "samples.csv.gz",
-        "truth.csv": scratch / "truth.csv",
-        _SUBJECT_PLUGINS: scratch / _SUBJECT_PLUGINS,
-    }
     keys = _paired_keys(record, n)
     if not keys:
         raise RuntimeError(f"{record.slug}: the reference pairs no replicate")
-    columns = _archive_columns(study, record)
     reported = {
         name: tuple(cells) for name, cells in record.reported(str(record.reference)).items()
     }
+    names = [name for name in record.scenarios if name in reported]
+    columns = {name: _archive_columns(study, name) for name in names}
     worker = functools.partial(_reference_input, study.__name__, columns, reported)
-    truths: list[dict[str, Any]] = []
+    truths: dict[str, list[dict[str, Any]]] = {name: [] for name in names}
     plugins: list[dict[str, Any]] = []
-    archive = paths["samples.csv.gz"]
-    partial = archive.with_name(archive.name + ".partial")
-    with partial.open("wb") as stream:
-        stream.write(gzip.compress((",".join(columns) + "\n").encode("utf-8"), mtime=0))
-        for done, (member, truth_rows, plugin_rows) in enumerate(
+    lines = dict.fromkeys(names, 0)
+    archives = {name: scenario_input_paths(scratch, name) for name in names}
+    partials = {
+        name: archives[name][0].with_name(archives[name][0].name + ".partial") for name in names
+    }
+    streams = {name: partials[name].open("wb") for name in names}
+    try:
+        for name in names:
+            header = (",".join(columns[name]) + "\n").encode("utf-8")
+            streams[name].write(gzip.compress(header, mtime=0))
+        for done, (name, member, count, truth_rows, plugin_rows) in enumerate(
             _ordered_map(worker, keys, jobs), start=1
         ):
-            stream.write(member)
-            truths += truth_rows
+            streams[name].write(member)
+            lines[name] = max(lines[name], count)
+            truths[name] += truth_rows
             plugins += plugin_rows
             if done % 50 == 0 or done == len(keys):
                 print(f"wrote {done}/{len(keys)} paired samples", flush=True)
-    partial.replace(archive)
+    finally:
+        for stream in streams.values():
+            stream.close()
+    truth_columns = ["scenario", "replicate", "estimand", "truth"]
+    for name in names:
+        partials[name].replace(archives[name][0])
+        write_csv(pd.DataFrame(truths[name], columns=truth_columns), archives[name][1])
+    paths = {"truth.csv": scratch / "truth.csv", _SUBJECT_PLUGINS: scratch / _SUBJECT_PLUGINS}
     write_csv(
-        pd.DataFrame(truths, columns=["scenario", "replicate", "estimand", "truth"]),
+        pd.DataFrame([row for name in names for row in truths[name]], columns=truth_columns),
         paths["truth.csv"],
     )
     write_csv(
         pd.DataFrame(plugins, columns=["scenario", "replicate", "estimand", "subject_plugin"]),
         paths[_SUBJECT_PLUGINS],
     )
-    return paths
+    scenarios = {
+        name: ScenarioInput(samples=archives[name][0], truth=archives[name][1], lines=lines[name])
+        for name in names
+    }
+    return ReferenceInputs(paths=paths, scenarios=scenarios)
 
 
 def _reference_only_phase(
@@ -1310,27 +1415,51 @@ def _reference_only_phase(
 
     The subject rows and records are the committed ones, checked against the committed manifest
     as ``--reuse-subject`` checks them.  The inputs are re-drawn from the seeds, reused from the
-    scratch when a finished phase of the same resume key is there.
+    scratch when a finished phase of the same paired keys and reference environment is there.
     """
     phase = _committed_subject(study, arguments, here)
-    paths = {
-        name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv", _SUBJECT_PLUGINS)
+    phase.paths = {
+        name: scratch / name for name in ("truth.csv", "reference-results.csv", _SUBJECT_PLUGINS)
     }
     stamp = scratch / _REFERENCE_INPUTS
     keys = [list(key) for key in _paired_keys(record, arguments.n)]
+    environment = reference_environment(study)
     if stamp.exists():
         written = json.loads(stamp.read_text(encoding="utf-8"))
-        if written.get("keys") == keys and all(
-            paths[name].exists() for name in ("samples.csv.gz", "truth.csv", _SUBJECT_PLUGINS)
+        lines = written.get("lines", {})
+        scenarios = {
+            name: ScenarioInput(*scenario_input_paths(scratch, name), lines=int(count))
+            for name, count in lines.items()
+        }
+        held = [phase.paths["truth.csv"], phase.paths[_SUBJECT_PLUGINS]] + [
+            path for inputs in scenarios.values() for path in (inputs.samples, inputs.truth)
+        ]
+        if (
+            written.get("keys") == keys
+            and written.get("environment") == environment
+            and scenarios
+            and all(path.exists() for path in held)
         ):
             print(f"reusing the reference inputs in {scratch}", flush=True)
             RUN_NOTES.append(f"resumed from {scratch}, reused the reference inputs")
-            phase.paths = paths
+            phase.scenario_inputs = scenarios
             return phase
         stamp.unlink()
-    write_reference_inputs(study, record, arguments.n, scratch, jobs=arguments.jobs)
-    stamp.write_text(json.dumps({"keys": keys}, indent=1) + "\n", encoding="utf-8", newline="\n")
-    phase.paths = paths
+    inputs = write_reference_inputs(study, record, arguments.n, scratch, jobs=arguments.jobs)
+    stamp.write_text(
+        json.dumps(
+            {
+                "environment": environment,
+                "keys": keys,
+                "lines": {name: value.lines for name, value in inputs.scenarios.items()},
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    phase.scenario_inputs = dict(inputs.scenarios)
     return phase
 
 
@@ -1361,15 +1490,15 @@ def parity_inputs(phase: _Phase) -> pd.DataFrame:
     )
 
 
-def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
+def _reference_key(
+    reference: Reference, here: Path, samples: Path | None, truths: Path | None
+) -> str | None:
     """What a cached reference result must have been written under, or ``None``.
 
     The key is the reference run's resume key and its image content: equal sources, inputs,
-    declaration, code and versions.  Outside :func:`main` there is no key.
+    declaration, environment, code and versions.  Outside :func:`main` there is no key.
     """
     active = _ACTIVE.get()
-    samples = phase.paths.get("samples.csv.gz")
-    truths = phase.paths.get("truth.csv")
     if active is None or samples is None or truths is None or not samples.exists():
         return None
     fields = leaf_key(reference, active.key, here, samples, truths)
@@ -1415,10 +1544,14 @@ def _reference_rows(
             ]
             phase.reference_failures = _failures_below(committed_failures, arguments.replicates)
         return rows
+    if phase.scenario_inputs:
+        return _reference_rows_by_scenario(study, reference, arguments, here, phase, record)
     cached_reference = phase.paths["reference-results.csv"]
     phase.reference_results = cached_reference
     stamp = cached_reference.with_name(f"{cached_reference.name}.key")
-    expected = _reference_key(reference, here, phase)
+    expected = _reference_key(
+        reference, here, phase.paths.get("samples.csv.gz"), phase.paths.get("truth.csv")
+    )
     if (
         expected is not None
         and cached_reference.exists()
@@ -1430,18 +1563,104 @@ def _reference_rows(
         phase.reference_failures = _reference_failures(str(record.reference), cached_reference)
         return pd.read_csv(cached_reference)
     stamp.unlink(missing_ok=True)
+    environment = reference_environment(study)
     reference.run(
         here,
         phase.paths["samples.csv.gz"],
         phase.paths["truth.csv"],
         cached_reference,
         cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
+        # Only a study that declares REFERENCE_ENVIRONMENT forwards one.
+        **({"env": environment} if environment else {}),  # type: ignore[arg-type]
     )
     if expected is not None and reference.interpreter != "Rscript":
         # An R run writes its own stamp when it completes; any other reference gets it here.
         stamp.write_text(expected, encoding="utf-8", newline="\n")
     phase.reference_failures = _reference_failures(str(record.reference), cached_reference)
     return pd.read_csv(cached_reference)
+
+
+#: The runner reads its archive in chunks of this many lines (``study_stream``'s ``chunk_lines``).
+CHUNK_LINES_ENV = "CLEVERLY_R_CHUNK_LINES"
+
+
+def chunk_lines(lines: int, cores: int) -> int:
+    """A read chunk of ``cores + 1`` replicates of ``lines`` archive lines each.
+
+    ``study_stream`` carries a chunk's last replicate into the next read and fits the rest
+    across its workers, so a chunk of ``cores + 1`` whole replicates keeps every worker busy.
+    """
+    return (max(cores, 1) + 1) * max(lines, 1)
+
+
+def _concatenate_csv(sources: Sequence[Path], target: Path) -> None:
+    """``sources`` as one CSV of their bytes, under the first header; refuses another header."""
+    header: str | None = None
+    with target.open("w", encoding="utf-8", newline="\n") as out:
+        for source in sources:
+            with source.open(encoding="utf-8", newline="") as stream:
+                first = stream.readline()
+                if header is None:
+                    header = first
+                    out.write(first)
+                elif first != header:
+                    raise RuntimeError(f"{source.name} has another header than {sources[0].name}")
+                body = stream.read()
+            out.write(body if not body or body.endswith("\n") else body + "\n")
+
+
+def _reference_rows_by_scenario(
+    study: ModuleType,
+    reference: Reference,
+    arguments: argparse.Namespace,
+    here: Path,
+    phase: _Phase,
+    record: StudyRecord,
+) -> pd.DataFrame:
+    """A reference-only run: the comparator once per paired scenario, its rows concatenated.
+
+    One replicate of one scenario is one ``study_stream`` group, and the read chunk holds
+    ``cores + 1`` of them, so the scenario's replicates fit in parallel.  Each scenario's run
+    is resumable and cached on its own key.
+    """
+    cores = getattr(arguments, "reference_jobs", None) or arguments.jobs
+    environment = reference_environment(study)
+    combined = phase.paths["reference-results.csv"]
+    outputs: list[Path] = []
+    for name, inputs in phase.scenario_inputs.items():
+        output = combined.with_name(f"reference-results__{name}.csv")
+        outputs.append(output)
+        stamp = output.with_name(f"{output.name}.key")
+        expected = _reference_key(reference, here, inputs.samples, inputs.truth)
+        if (
+            expected is not None
+            and output.exists()
+            and stamp.exists()
+            and stamp.read_text(encoding="utf-8") == expected
+        ):
+            print(f"reusing the cached reference rows of {name}", flush=True)
+            RUN_NOTES.append(f"resumed from {output.parent}, reused the reference rows of {name}")
+            continue
+        stamp.unlink(missing_ok=True)
+        print(f"reference run of {name}", flush=True)
+        reference.run(
+            here,
+            inputs.samples,
+            inputs.truth,
+            output,
+            cores=cores,
+            env={**environment, CHUNK_LINES_ENV: str(chunk_lines(inputs.lines, cores))},
+        )
+        if expected is not None and reference.interpreter != "Rscript":
+            stamp.write_text(expected, encoding="utf-8", newline="\n")
+    _concatenate_csv(outputs, combined)
+    failed = [failures_path(output) for output in outputs if failures_path(output).exists()]
+    failures_path(combined).unlink(missing_ok=True)
+    if failed:
+        _concatenate_csv(failed, failures_path(combined))
+    phase.reference_results = combined
+    phase.reference_failures = _reference_failures(str(record.reference), combined)
+    return pd.read_csv(combined)
 
 
 def _failures_below(frame: pd.DataFrame, replicates: int) -> pd.DataFrame | None:
@@ -1656,6 +1875,7 @@ def main(
         if reference is None:
             raise RuntimeError(f"{base.slug}: --reference-only needs a Reference to run")
         base = compared_record(study, arguments, here)
+        check_comparator_declaration(study, base, arguments)
         declared_reference = None
         print(
             f"reference-only run of {base.reference}: {len(_paired_keys(base, arguments.n))} "
@@ -1676,7 +1896,7 @@ def main(
         n=arguments.n,
         scenario_n=_declared_sizes(base, arguments.n),
     )
-    key = run_key(declared)
+    key = run_key(declared, reference_environment(study))
     cache = getattr(arguments, "cache", None)
     scratch = Path(cache) if cache else runs_root() / declared.slug / digest(key)[:12]
     scratch.mkdir(parents=True, exist_ok=True)
@@ -1894,6 +2114,23 @@ def _regenerate(
     # exist.
     artifact_names = (*artifact_names, *property_failure_names)
 
+    reference_metadata = dict(getattr(study, "REFERENCE_METADATA", None) or {})
+    environment = reference_environment(study)
+    if reference is not None and environment:
+        reference_metadata["environment"] = environment
+    if reference_only:
+        # The subject's module hashes are the committed run's; the bytes that drew this run's
+        # comparator inputs are today's, and are recorded beside the reference.
+        reference_metadata["input_module_sha256"] = dict(
+            sorted(
+                {
+                    _repository_name(Path(str(study.__file__))): _file_sha(
+                        Path(str(study.__file__))
+                    ),
+                    **study_module_hashes(record),
+                }.items()
+            )
+        )
     write_manifest(
         out / "manifest.json",
         record,
@@ -1903,7 +2140,7 @@ def _regenerate(
             if reference is not None
             else (() if declared_reference is None else declared_reference.files(here))
         ),
-        reference_metadata=getattr(study, "REFERENCE_METADATA", None),
+        reference_metadata=reference_metadata or None,
         configuration={
             **dict(study.CONFIGURATION or {}),
             **_property_failure_bound(properties, arguments, here),

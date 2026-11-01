@@ -97,7 +97,7 @@ _RUNNER = re.compile(r"""runner\s*=\s*["'](?P<runner>[^"']+\.R)["']""")
 
 
 @pytest.mark.parametrize("study", STUDIES, ids=lambda module: module.STUDY.slug)
-def test_the_declared_runner_is_a_stub_that_stops(study: object) -> None:
+def test_the_declared_runner_streams_one_scenario_per_worker(study: object) -> None:
     record = study.STUDY  # type: ignore[attr-defined]
     regenerate = (record.artifacts / "regenerate.py").read_text(encoding="utf-8")
     runner = _RUNNER.search(regenerate)
@@ -108,7 +108,10 @@ def test_the_declared_runner_is_a_stub_that_stops(study: object) -> None:
     assert b"\r\n" not in source
     text = source.decode("utf-8")
     assert "X59" in text
-    assert re.search(r"^stop\(", text, re.M)
+    # X59 replaced the stub: the runner streams its archive in chunks the driver sizes.
+    assert 'source("/fixture/study_harness.R")' in text
+    assert "chunk_lines = horizon_chunk_lines()" in text
+    assert not re.search(r"^stop\(", text, re.M)
 
 
 @pytest.mark.parametrize("study", STUDIES[1:], ids=lambda module: module.STUDY.slug)

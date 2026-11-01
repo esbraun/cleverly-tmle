@@ -10,6 +10,7 @@ too, so the G-C and witness rows have something to read.
 from __future__ import annotations
 
 import dataclasses
+import os
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,14 @@ PARITY = ParityDeclaration(
 
 CONFIGURATION: dict[str, Any] = {}
 
+#: The comparator's declared environment.  A ``shift`` mutation moves every drawn value by
+#: :data:`SHIFT`, so a mutated archive differs from the unmutated one.
+MUTATION_ENV = "CLEVERLY_X59_MUTATION"
+REFERENCE_ENVIRONMENT = {MUTATION_ENV: "none"}
+SHIFT = 0.01
+#: The environment of every :func:`fake_reference_run` call, in order.
+RUNS: list[dict[str, str]] = []
+
 #: Set by a test to make :func:`reference_sample` refuse, proving that a resumed run reused
 #: its inputs instead of drawing them again.
 DRAWS_REFUSED = False
@@ -83,6 +92,8 @@ def reference_sample(scenario: str, n: int, replicate: int) -> ReferenceSample:
     if DRAWS_REFUSED:
         raise AssertionError("a resumed reference-only run drew its inputs again")
     frame, truths = draw_scenario(scenario, n, replicate)
+    if os.environ.get(MUTATION_ENV, "none") == "shift":
+        frame["x"] = frame["x"] + SHIFT
     plugin = float(frame["x"].mean()) - MOVE
     return ReferenceSample(frame, truths, {f"ey[{scenario}]": plugin})
 
@@ -170,7 +181,8 @@ def fake_reference_run(
     env: Any = None,
 ) -> None:
     """What an R runner would write: the mean per replicate, and its untargeted value."""
-    del self, here, cores, runner, env
+    del self, here, cores, runner
+    RUNS.append(dict(env or {}))
     frame = pd.read_csv(samples, float_precision="round_trip")
     wanted = pd.read_csv(truths)
     out = []

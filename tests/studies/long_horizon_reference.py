@@ -77,6 +77,14 @@ MUTATIONS = {
 }
 #: The comparator families.
 COMPARATORS = ("ltmle", "lmtp_tmle", "lmtp_sdr")
+#: The R ``lmtp`` outcome learner (``long_horizon_lmtp_adapter.R``): the declared plan-stratified
+#: regression, or the pooled diagnostic of the follower-mapping check.
+LEARNER_ENV = "CLEVERLY_X59_LEARNER"
+LEARNERS = ("stratified", "pooled")
+#: A study module's ``REFERENCE_ENVIRONMENT``: what the driver keys, forwards and records
+#: (``tests/canonical/regenerate.py``, ``reference_environment``).  ``ltmle`` reads no learner.
+LTMLE_ENVIRONMENT = {MUTATION_ENV: "none"}
+LMTP_ENVIRONMENT = {MUTATION_ENV: "none", LEARNER_ENV: "stratified"}
 
 
 def mutation() -> str:

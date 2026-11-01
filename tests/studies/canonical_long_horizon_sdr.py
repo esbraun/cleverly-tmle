@@ -431,6 +431,8 @@ COMPARATOR_DECLARATION = {
     "reference_scenarios": REFERENCE_SCENARIOS,
     "paired_role": "descriptive",
 }
+#: The comparator's declared environment: no mutation, and the declared learner (M2).
+REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
 #: The G1 cells (section 4.2, B1 and B2): ``coin`` at two arms, ``mix`` at three.
 G1_CELLS = (
     ("sdr_binary_k3", "ey_regimen[coin]"),
@@ -443,6 +445,7 @@ G1_CELLS = (
     ("sdr_policy_k5_mix", "ey_regimen[mix]"),
 )
 #: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+#: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
 REFERENCE_TIERS = {
     name: 2 if name in {scenario for scenario, _ in G1_CELLS} else 4 for name in REFERENCE_SCENARIOS
 }

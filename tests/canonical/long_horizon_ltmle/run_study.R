@@ -16,7 +16,7 @@ truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
 z <- qnorm(0.975)
 
 typed <- function(frame) {
-  # One archive holds every scenario, so a column another scenario wrote is empty here.
+  # Reads the text columns back to their types and drops a column that is empty throughout.
   frame[] <- lapply(frame, function(column) {
     if (is.character(column)) type.convert(column, as.is = TRUE, na.strings = c("", "NA")) else column
   })
@@ -98,11 +98,14 @@ fit_scenario <- function(frame, scenario) {
 }
 
 fit_one <- function(frame) {
-  # One replicate holds every paired scenario's sample, contiguous in the archive.
+  # A reference-only run holds one scenario per archive (regenerate.py); a frame of several
+  # scenarios is split all the same.
   pieces <- split(frame, frame$scenario)
   do.call(rbind, lapply(names(pieces), function(scenario) fit_scenario(pieces[[scenario]], scenario)))
 }
 
 expected <- length(unique(truths$replicate))
-results <- study_stream(paths$samples, fit_one, expected)
+results <- study_stream(
+  paths$samples, horizon_timed(fit_one), expected, chunk_lines = horizon_chunk_lines()
+)
 study_collect(results, expected, paths$output, versions = study_version("ltmle"))

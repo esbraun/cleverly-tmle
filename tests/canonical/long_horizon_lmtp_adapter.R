@@ -21,7 +21,7 @@ horizon_q_bounds <- c(5e-4, 0.9995)
 horizon_z <- qnorm(0.975)
 
 horizon_typed <- function(frame) {
-  # One archive holds every scenario, so a column another scenario wrote is empty here.
+  # Reads the text columns back to their types and drops a column that is empty throughout.
   frame[] <- lapply(frame, function(column) {
     if (is.character(column)) type.convert(column, as.is = TRUE, na.strings = c("", "NA")) else column
   })
@@ -218,9 +218,31 @@ horizon_lmtp_scenario <- function(frame, scenario, truths, comparator) {
 }
 
 horizon_lmtp_replicate <- function(frame, truths, comparator) {
-  # One replicate holds every paired scenario's sample, contiguous in the archive.
+  # A reference-only run holds one scenario per archive (regenerate.py); a frame of several
+  # scenarios is split all the same.
   pieces <- split(frame, frame$scenario)
   do.call(rbind, lapply(names(pieces), function(scenario) {
     horizon_lmtp_scenario(pieces[[scenario]], scenario, truths, comparator)
   }))
+}
+
+horizon_chunk_lines <- function() {
+  # The driver sizes the read chunk to (cores + 1) replicates of one scenario
+  # (regenerate.py, chunk_lines), so study_stream fits a chunk's replicates in parallel.
+  value <- suppressWarnings(as.integer(study_env("CLEVERLY_R_CHUNK_LINES", "64000")))
+  if (length(value) != 1L || is.na(value) || value < 1L) {
+    stop("CLEVERLY_R_CHUNK_LINES must be a positive integer")
+  }
+  value
+}
+
+horizon_timed <- function(fit) {
+  # Adds fit_seconds, the wall time of this replicate's fit alone, after the declared columns,
+  # for the smoke's timing step; the published schema drops it.
+  function(frame) {
+    started <- proc.time()[["elapsed"]]
+    rows <- fit(frame)
+    rows$fit_seconds <- proc.time()[["elapsed"]] - started
+    rows
+  }
 }

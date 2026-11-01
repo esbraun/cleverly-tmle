@@ -415,7 +415,7 @@
     "metadata": {},
     "declared_sources_sha256": {
       "tests/canonical/lmtp_9996b04/Dockerfile": "9d84036d14f690bbb5658ec5abf752e7734a2f7b099261bbbd9da64b1d9e351c",
-      "tests/canonical/long_horizon_sdr/run_study.R": "f3bd095aaecac1abcf15e798ba907f1d707a75a6c466912a63b7e97bed9aa2f8",
+      "tests/canonical/long_horizon_sdr/run_study.R": "7581546aa74331def9941cd5b87243ecb2aa52a32adfd5b61b97ccb5a580a8ac",
       "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
       "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
       "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
@@ -423,7 +423,7 @@
       "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "0151d703c3c025d857696d15f27f48a5d1740b25cf49eec023d5d425a65a11b3",
       "tests/canonical/lmtp_9996b04_policy_adapter.R": "34a7d35428292f99c8acff17e26ff142cb4c002253771ac711983614a82da3ae",
       "tests/canonical/lmtp_horizon_learners.R": "23f34af876ed2cb9291febb1b4566981ace8f89ee40c4f80b7508fed5e5d30d6",
-      "tests/canonical/long_horizon_lmtp_adapter.R": "ad04564204fa186fd4b471e5eca6d99db87ae7c821df3c355e3f95580b3bd753"
+      "tests/canonical/long_horizon_lmtp_adapter.R": "73a017084884625bc0c170fc9331dc3538ac9a56b5b33c0598f3fa7c5a204230"
     }
   }
 }

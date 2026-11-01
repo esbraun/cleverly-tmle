@@ -366,7 +366,10 @@ COMPARATOR_DECLARATION = {
     "reference_scenarios": REFERENCE_SCENARIOS,
     "paired_role": "descriptive",
 }
+#: The comparator's declared environment: no mutation (M2); ``ltmle`` reads no learner.
+REFERENCE_ENVIRONMENT = reference_.LTMLE_ENVIRONMENT
 #: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+#: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
 REFERENCE_TIERS = {"binary_k3": 2, "binary_k4": 2, "binary_k5": 2, "binary_k5_msm": 4}
 #: The scenarios whose G-C and witness rows need ``cleverly``'s untargeted plug-in.
 PARITY_SCENARIOS = frozenset({"binary_k3", "binary_k4", "binary_k5"})

@@ -408,6 +408,11 @@ def reference_sizes(
     :data:`TIER2_COUNTS` whose cost is at most ``TIER2_SHARE`` of what tiers 1 and 3 leave of
     ``workers x RUN_HOURS``; tier 4 the largest in :data:`TIER4_COUNTS` that fits the rest.
     No gate or margins value enters.
+
+    A timing is the cost of one replicate of everything the scenario's comparator run fits,
+    so a tier-2 scenario is charged its descriptive plans too: they ride along at the tier-2
+    prefix, at about twice the cost of the exact cells alone in the long-horizon studies.  A
+    tier's cost is therefore the cost of its whole scenarios, not of its cells.
     """
     unknown = set(tiers) - set(timings)
     if unknown:

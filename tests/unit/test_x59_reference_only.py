@@ -38,6 +38,9 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPath
     monkeypatch.setattr(regenerate, "image_content", lambda image: "content:fake")
     monkeypatch.setattr(regenerate.Reference, "run", synthetic.fake_reference_run)
     monkeypatch.setattr(synthetic, "DRAWS_REFUSED", False)
+    monkeypatch.setattr(synthetic, "RUNS", [])
+    monkeypatch.delenv(synthetic.MUTATION_ENV, raising=False)
+    monkeypatch.delenv(regenerate.DOCKER_MEMORY_ENV, raising=False)
 
 
 def _reference() -> regenerate.Reference:
@@ -165,21 +168,114 @@ def test_a_run_stopped_in_the_reference_resumes_without_drawing_again(
     monkeypatch.setattr(regenerate.Reference, "run", resumed)
     monkeypatch.setattr(synthetic, "DRAWS_REFUSED", True)
     _main(monkeypatch, here, "--reference-only")
-    assert len(seen) == 2 and seen[0] == seen[1]
+    # Per scenario: the stopped run of the first, then its resumed run on the same archive.
+    assert len(seen) == 1 + len(synthetic.STUDY.scenarios) and seen[0] == seen[1]
     assert not _reference_rows(read_rows(here / "replicates.parquet")).empty
 
 
-def test_the_archive_is_replicate_major_and_holds_only_the_prefix(tmp_path: Path) -> None:
+def test_each_scenario_has_its_own_archive_in_replicate_order(tmp_path: Path) -> None:
     record = dataclasses.replace(synthetic.compared(), reference_replicates={"a": 3, "b": 2})
-    paths = regenerate.write_reference_inputs(synthetic, record, 60, tmp_path, jobs=1)
-    samples = pd.read_csv(paths["samples.csv.gz"])
-    order = samples[["replicate", "scenario"]].drop_duplicates().itertuples(index=False)
-    assert [tuple(key) for key in order] == [(0, "a"), (0, "b"), (1, "a"), (1, "b"), (2, "a")]
-    truths = pd.read_csv(paths["truth.csv"])
-    assert len(truths) == 5
+    inputs = regenerate.write_reference_inputs(synthetic, record, 60, tmp_path, jobs=1)
+    assert list(inputs.scenarios) == ["a", "b"]
+    for name, count in (("a", 3), ("b", 2)):
+        held = inputs.scenarios[name]
+        samples = pd.read_csv(held.samples)
+        assert set(samples["scenario"]) == {name}
+        assert samples["replicate"].drop_duplicates().tolist() == list(range(count))
+        assert held.lines == 60
+        assert pd.read_csv(held.truth)["replicate"].tolist() == list(range(count))
+    assert len(pd.read_csv(inputs.paths["truth.csv"])) == 5
     frame, _ = synthetic.draw_scenario("b", 60, 1)
-    drawn = samples.loc[(samples["scenario"] == "b") & (samples["replicate"] == 1), "x"]
+    drawn = pd.read_csv(inputs.scenarios["b"].samples)
+    drawn = drawn.loc[drawn["replicate"] == 1, "x"]
     assert drawn.tolist() == frame["x"].tolist(), "a re-drawn replicate is not its seeded sample"
+
+
+def test_each_scenario_runs_alone_with_a_chunk_of_one_replicate_per_worker_and_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    _main(monkeypatch, here, "--reference-only", "--reference-jobs", "3")
+    chunks = [run[regenerate.CHUNK_LINES_ENV] for run in synthetic.RUNS]
+    assert chunks == [str((3 + 1) * synthetic.PRIMARY_N)] * len(synthetic.STUDY.scenarios)
+    assert all(run[synthetic.MUTATION_ENV] == "none" for run in synthetic.RUNS)
+
+
+def test_a_second_mutation_draws_its_own_archive_and_reference_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    archives: list[str] = []
+    original = synthetic.fake_reference_run
+
+    def recorded(self: Any, here_: Path, samples: Path, *args: Any, **kwargs: Any) -> None:
+        archives.append(regenerate.content_sha(samples))
+        original(self, here_, samples, *args, **kwargs)
+
+    monkeypatch.setattr(regenerate.Reference, "run", recorded)
+    unmutated = tmp_path / "none"
+    _main(
+        monkeypatch, here, "--reference-only", "--reference-prefix", "7", "--output", str(unmutated)
+    )
+    monkeypatch.setenv(synthetic.MUTATION_ENV, "shift")
+    mutated = tmp_path / "shift"
+    _main(
+        monkeypatch, here, "--reference-only", "--reference-prefix", "7", "--output", str(mutated)
+    )
+    scenarios = len(synthetic.STUDY.scenarios)
+    assert len(archives) == 2 * scenarios, "the mutated run reused the unmutated reference rows"
+    assert set(archives[:scenarios]).isdisjoint(archives[scenarios:])
+    assert [run[synthetic.MUTATION_ENV] for run in synthetic.RUNS] == ["none"] * scenarios + [
+        "shift"
+    ] * scenarios
+    before = _reference_rows(read_rows(unmutated / "replicates.parquet"))
+    after = _reference_rows(read_rows(mutated / "replicates.parquet"))
+    assert (after["estimate"] - before["estimate"]).round(9).eq(synthetic.SHIFT).all()
+    manifest = json.loads((mutated / "manifest.json").read_text())
+    reference = manifest["generated_with"]["reference"]
+    assert reference["environment"] == {synthetic.MUTATION_ENV: "shift"}
+    assert "tests/unit/_x59_reference_only_support.py" in reference["input_module_sha256"]
+
+
+def test_a_declared_run_without_a_prefix_is_refused_before_any_draw(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    monkeypatch.setattr(synthetic, "COMPARATOR_DECLARATION", {"paired_role": "descriptive"})
+    monkeypatch.setattr(synthetic, "DRAWS_REFUSED", True)
+    with pytest.raises(RuntimeError, match="declares no reference_replicates for"):
+        _main(monkeypatch, here, "--reference-only")
+    assert synthetic.RUNS == []
+
+
+def test_an_undeclared_tolerance_is_refused_before_any_draw(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    monkeypatch.setattr(synthetic, "PARITY", parity.ParityDeclaration(cells=synthetic.PARITY.cells))
+    monkeypatch.setattr(synthetic, "DRAWS_REFUSED", True)
+    with pytest.raises(ValueError, match="not declared yet"):
+        _main(monkeypatch, here, "--reference-only")
+    assert synthetic.RUNS == []
+
+
+def test_the_memory_limit_reaches_the_container(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    samples = tmp_path / "samples.csv.gz"
+    command = regenerate._docker_command(
+        _reference(), tmp_path, samples, tmp_path / "t.csv", tmp_path / "o.csv", "r.R", 2, None
+    )
+    assert "--memory" not in command
+    monkeypatch.setenv(regenerate.DOCKER_MEMORY_ENV, "6000m")
+    command = regenerate._docker_command(
+        _reference(), tmp_path, samples, tmp_path / "t.csv", tmp_path / "o.csv", "r.R", 2, None
+    )
+    assert command[command.index("--memory") + 1] == "6000m"
 
 
 def test_the_prefix_declaration_is_checked() -> None:
