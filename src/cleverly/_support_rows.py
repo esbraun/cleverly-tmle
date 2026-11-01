@@ -748,6 +748,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # X11 (d): the plug-in rule over K > 2 arms keys ``treatment=("arms{K}",)``, and every P11
     # row declares ``binary``, so every such fit reads experimental until the
     # ``learned-rule-arms`` study registers its rows.
+    # X11 (j): the plug-in rule with the intermediate held at each level (``intermediate=``) keys
+    # ``missing=("intermediate",)``, and every P11 row declares complete data, so every such fit
+    # reads experimental, at each level, until the ``learned-rule-intermediate`` study registers
+    # its rows.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.

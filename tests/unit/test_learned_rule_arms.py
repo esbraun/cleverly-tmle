@@ -566,7 +566,8 @@ class TestWd3Ties:
         original = nuisance_module._by_arm_rule_step
 
         def last(fold: int, values: Any, *, best: Any, **kwargs: Any) -> Any:
-            return original(fold, values, best=best - 1e-12, **kwargs)
+            lowered = {key: slab - 1e-12 for key, slab in best.items()}
+            return original(fold, values, best=lowered, **kwargs)
 
         monkeypatch.setattr(nuisance_module, "_by_arm_rule_step", last)
         with pytest.raises(RuntimeError, match="defect in cleverly"):

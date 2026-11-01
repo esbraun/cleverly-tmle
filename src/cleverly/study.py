@@ -3848,6 +3848,21 @@ class ExplicitAdjustmentProvider:
                 )
             if estimand.intermediate not in (0.0, 1.0):
                 raise DataError("the evidenced binary intermediate must be fixed at 0 or 1")
+        elif design.intermediate is not None and isinstance(actual, LEARNED_RULE_ESTIMANDS):
+            # X11 (j) ships on the engine only: ControlledDirectEffect wraps an arm contrast,
+            # and no study estimand holds a learned rule at a level of the intermediate.
+            raise CapabilityError(
+                f"{type(actual).__name__} with PointTreatment(intermediate=...) has no "
+                "spelling on the method layer: ControlledDirectEffect wraps an arm contrast, "
+                "and no study estimand holds the learned rule at a level of the intermediate "
+                "(X11 (j2) in docs/roadmap.md).",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "TMLE(learned_rule=LearnedRule()).fit(..., intermediate=...) on the engine "
+                    "reports the value of the rules learned at each level of the intermediate."
+                ),
+                roadmap="X11",
+            )
         elif design.intermediate is not None:
             raise CapabilityError(
                 "a design with intermediate= must identify ControlledDirectEffect explicitly",

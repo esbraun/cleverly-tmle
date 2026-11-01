@@ -33,6 +33,10 @@ estimate.  This module adds the fold-local rule, the result record, the mean ove
 number of splits (:func:`mean_over_splits`) and the refusals.  No new submodel, fluctuation or
 influence curve enters.  Known regimes declared beside the rule (X11 (c)) are more columns of
 the same regime set, and a contrast's curve is the difference of the two columns' curves.
+With a binary intermediate (``intermediate=``, X11 (j)) each level :math:`z` learns its own
+plug-in fold rules :math:`d^z_{nv}(w) = \arg\max_a \bar Q_{nv}(a, z, w)` and targets
+:math:`V^{-1}\sum_v E_0\bar Q_0(d^z_{nv}(W), z, W)` with the shipped controlled-direct-effect
+covariate; both rule learners refuse there (X11 (j2)).
 """
 
 from __future__ import annotations
@@ -81,6 +85,7 @@ __all__ = [
     "check_fold_rules",
     "fold_rules",
     "freeze_learned_rule",
+    "frozen_level_refusal",
     "frozen_rule_replay",
     "in_sample_learner_condition",
     "learned_rule_configuration_refusal",
@@ -522,10 +527,16 @@ class FrozenLearnedRule(LearnedRule):
     levels : tuple
         The treatment levels of the original fit, in code order.  A refit whose levels
         differ refuses, because its codes would name other arms.  Empty skips the check.
+    intermediate_level : float or None
+        The level of the intermediate that the original result held, or ``None`` for a fit
+        without one.  Each level of a controlled-direct-effect fit learns its own rules
+        (X11 (j)), so a replay at another level, or without the intermediate, refuses
+        (:func:`frozen_level_refusal`).
     """
 
     treat: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int8), compare=False)
     levels: tuple[Any, ...] = field(default=(), compare=False)
+    intermediate_level: float | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -623,12 +634,57 @@ def freeze_learned_rule(result: Any) -> FrozenLearnedRule:
         raise CapabilityError.from_refusal(refusal)
     values = realized_arms(result.nuisance.regimes)
     rule = result.estimator.learned_rule
+    level = getattr(result, "intermediate_value", None)
     return FrozenLearnedRule(
         rule.name,
         values,
         tuple(result.data.treatment_levels),
+        None if level is None else float(level),
         loss=rule.loss,
         learner=rule.learner,
+    )
+
+
+def frozen_level_refusal(rule: LearnedRule | None, level: float | None) -> Refusal | None:
+    """Refuse a frozen-rule replay at another level of the intermediate, or ``None``.
+
+    A controlled-direct-effect fit learns the rules of each level from the outcome
+    regression at that level (X11 (j)), so the frozen rules of one level are not the rules
+    of another.  A replay holds them at the level they were learned at, and ``TMLE.fit``,
+    which reports every level, refuses a frozen rule beside ``intermediate=``.
+
+    Parameters
+    ----------
+    rule : LearnedRule or None
+        The estimator's learned rule.
+    level : float or None
+        The level the replay holds the intermediate at, or ``None`` for a fit without one.
+
+    Returns
+    -------
+    Refusal or None
+        An ``INVALID_DECLARATION`` record when ``rule`` is a frozen rule of another level,
+        else ``None``.
+    """
+    if not isinstance(rule, FrozenLearnedRule):
+        return None
+    frozen = rule.intermediate_level
+    replay = None if level is None else float(level)
+    if frozen == replay:
+        return None
+
+    def spell(value: float | None) -> str:
+        return "no intermediate" if value is None else f"the intermediate at {value:g}"
+
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"this FrozenLearnedRule holds the rules learned with {spell(frozen)}, and the replay "
+        f"holds {spell(replay)}. Each level of the intermediate learns its own rules, so the "
+        "frozen rules of one level are not the rules of another (X11 (j)).",
+        alternative=(
+            "Replay the frozen rule at the level it was frozen from, one level at a time, or "
+            "refit LearnedRule() with intermediate= to learn the rules of every level."
+        ),
     )
 
 
@@ -889,6 +945,12 @@ class LearnedRuleRecord:
         The target the fit reports: ``"ey_learned_rule"``, the value of the learned rules,
         or :data:`OPTIMAL_RULE_TARGET`, the value of the optimal rule (X11 (f)), which the
         same arithmetic estimates under further conditions.
+    intermediate_name : str or None
+        The intermediate column of a controlled-direct-effect fit (X11 (j)), or ``None``.
+    intermediate_level : float or None
+        The level ``z`` at which this result holds the intermediate, or ``None``.  Each
+        fold's rule is the plug-in rule of the fold's outcome regression at
+        :math:`(a, z)`: the best treatment given :math:`Z = z`, one rule per level.
 
     Attributes
     ----------
@@ -905,6 +967,8 @@ class LearnedRuleRecord:
     learner: str | None
     arms: tuple[str, ...]
     estimand: str = "ey_learned_rule"
+    intermediate_name: str | None = None
+    intermediate_level: float | None = None
 
     @property
     def n_splits(self) -> int:
@@ -950,12 +1014,29 @@ class LearnedRuleRecord:
             The stacked report also gives the range of the fold weights.  A fit of several
             splits also names the split count, and gives both ranges over every split.  A fit
             of the value of the optimal rule says so instead, with the conditions it adds
-            and the share of rows on which the fold rules disagree.
+            and the share of rows on which the fold rules disagree.  A fit with an
+            intermediate also names the level the rules hold it at.
         """
         if self.estimand == OPTIMAL_RULE_TARGET:
             return self._describe_optimal()
         if self.scheme == "in_sample":
-            return self._describe_in_sample()
+            return self._describe_in_sample() + self._describe_level()
+        return self._describe_scheme() + self._describe_level()
+
+    def _describe_level(self) -> str:
+        """The sentence of a controlled-direct-effect fit's level (X11 (j)), or ``""``."""
+        if self.intermediate_level is None:
+            return ""
+        name = self.intermediate_name or "Z"
+        level = f"{name} = {self.intermediate_level:g}"
+        return (
+            f" Every rule holds the intermediate at {level}: it reads the outcome regression "
+            f"at that level, so it is the best treatment given {level}, not the best pair of "
+            "treatment and intermediate, and each level has its own rules."
+        )
+
+    def _describe_scheme(self) -> str:
+        """The summary line of a cross-fitted fit of the learned-rule value."""
         learned = {
             "plug_in": (
                 "Each rule is the plug-in rule of the fold's outcome regression."
@@ -1567,6 +1648,8 @@ def learned_rule_record(
     arms: Sequence[Any],
     *,
     estimand: str = "ey_learned_rule",
+    intermediate_name: str | None = None,
+    intermediate_level: float | None = None,
 ) -> LearnedRuleRecord:
     """Build the record of a learned-rule fit from the records of its splits.
 
@@ -1581,6 +1664,10 @@ def learned_rule_record(
         (:attr:`~cleverly.data.CausalData.treatment_levels`).
     estimand : str
         The target the fit reports, ``"ey_learned_rule"`` or :data:`OPTIMAL_RULE_TARGET`.
+    intermediate_name : str or None
+        The intermediate column of a controlled-direct-effect fit, or ``None``.
+    intermediate_level : float or None
+        The level of the intermediate the result holds, or ``None`` (X11 (j)).
 
     Returns
     -------
@@ -1596,6 +1683,8 @@ def learned_rule_record(
         learner=None if rule.learner is None else learner_name(rule.learner),
         arms=tuple(str(arm) for arm in arms),
         estimand=estimand,
+        intermediate_name=intermediate_name if intermediate_level is not None else None,
+        intermediate_level=None if intermediate_level is None else float(intermediate_level),
     )
 
 
@@ -1965,12 +2054,32 @@ def _data_refusal(
             f"{_FIXED_RULE} takes delta= for a fixed rule.",
             "F27",
         )
-    if data.has_intermediate:
+    if (
+        data.has_intermediate
+        and rule is not None
+        and rule.loss != "plug_in"
+        and not isinstance(rule, FrozenLearnedRule)
+    ):
         return _gap(
-            "a learned rule with intermediate= is refused. A learned rule at the treatment and "
-            "the static Z = z at the intermediate form a two-time-point rule pair, which is "
-            f"not implemented ({_X11.format(part='j')}).",
+            f"LearnedRule(loss={rule.loss!r}) with intermediate= is refused. Its "
+            "pseudo-outcome (2A - 1) / g(A | W) (Y - Qbar(A, W)) + Qbar(1, W) - Qbar(0, W) "
+            "does not read Z, so it would learn the rule of another blip. The rule at Z = z "
+            "needs the pseudo-outcome 1{Z = z} (2A - 1) / (g(A | W) q(z | A, W)) "
+            "(Y - Qbar(A, z, W)) + Qbar(1, z, W) - Qbar(0, z, W) and its own exact witness, "
+            f"which are not built ({_X11.format(part='j2')}).",
+            "LearnedRule() (loss='plug_in') learns the rule at each level z from the fit's own "
+            "outcome regression at (a, z), and "
             f"{_FIXED_RULE} takes intermediate= for a fixed rule.",
+            "X11",
+        )
+    if data.has_intermediate and optimal:
+        return _gap(
+            "the value of the optimal rule with intermediate= is refused. At each level z its "
+            "target would be the value of the rule argmax_a Qbar0(a, z, W), and no witness "
+            "checks the regret of the fold rules at a level of Z "
+            f"({_X11.format(part='f3')}).",
+            "Fit the value of the rules learned at each level with estimands=None "
+            "(ey_learned_rule), or the value of the optimal rule without intermediate=.",
             "X11",
         )
     if data.declares_estimated_weights:
@@ -2182,7 +2291,8 @@ def refuse_learned_rule_composition(
             ``"weighted_classification"``) on more than two
             arms
     5       missing outcomes, ``delta=``                         F27
-    6       ``intermediate=``                                    X11 (j)
+    6       a rule learner with ``intermediate=``                X11 (j2)
+            ``ey_optimal_rule`` with ``intermediate=``           X11 (f3)
     7       estimated weights, ``weights_estimated=True``        X11 (k2)
     8       ``strata=`` with clusters, ``id=``                   X28
     9       ``ey_optimal_rule`` with ``weights=``                X11 (f3)
@@ -2204,6 +2314,8 @@ def refuse_learned_rule_composition(
     change of target.
 
     More than two arms is no row: the plug-in rule is the argmax over every arm (X11 (d)).
+    Nor is ``intermediate=`` with the plug-in rule: each level ``z`` learns its fold rules
+    from the outcome regression at :math:`(a, z)` (X11 (j)).
 
     ``TMLE`` runs it first in its preflight, before any learner.
     ``CausalStudy.identify`` runs it with no estimator and the estimand's rule, so the data

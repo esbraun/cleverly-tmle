@@ -712,7 +712,19 @@ class NuisanceEstimates:
     #: from the fold models that made the out-of-fold predictions.  A plug-in learned-rule
     #: fit moves it into its regime set
     #: (:func:`~cleverly.interventions.learned.learned_rule_treat`) and clears it here.
+    #: With an intermediate it is the matrix of the level :attr:`outcome` is evaluated at.
     fold_plug_in_rules: np.ndarray | None = None
+    #: The ``(n, V)`` matrix of :attr:`fold_plug_in_rules` at every level of the
+    #: intermediate, from the outcome regression at :math:`(a, z)`: entry ``[i, v]`` at level
+    #: ``z`` is :math:`\arg\max_a \bar Q_v(a, z, W_i)` (X11 (j)).  Empty without an
+    #: intermediate or without ``fold_plug_in_rules=True``.  A plug-in learned-rule fit moves
+    #: each level's matrix into that level's regime set and clears it here.
+    fold_plug_in_rules_by_level: dict[float, np.ndarray] = field(default_factory=dict)
+    #: The regime set of each level of the intermediate, when the regimes depend on the
+    #: level: a learned rule beside an intermediate learns its fold rules from the outcome
+    #: regression at that level (X11 (j)), so each level has its own.  Empty on every
+    #: other fit, whose one :attr:`regimes` serves every level.  :meth:`at_level` swaps it.
+    regimes_by_level: dict[float, RegimeSet] = field(default_factory=dict)
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
         """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
@@ -819,14 +831,24 @@ class NuisanceEstimates:
         return realised
 
     def at_level(self, value: float) -> NuisanceEstimates:
-        """The same nuisances, with the outcome regression evaluated at ``Z = value``."""
-        fit = self.outcome_by_level.get(check_level(value))
+        """The same nuisances, with the outcome regression evaluated at ``Z = value``.
+
+        A learned rule's regime set and fold rules depend on the level (X11 (j)), so they
+        are swapped with the regression when the fit kept one per level.
+        """
+        level = check_level(value)
+        fit = self.outcome_by_level.get(level)
         if fit is None:
             raise KeyError(
                 f"no outcome regression was computed at intermediate level {value!r}; "
                 f"have {sorted(self.outcome_by_level)}"
             )
-        return replace(self, outcome=fit)
+        changes: dict[str, Any] = {"outcome": fit}
+        if self.regimes_by_level:
+            changes["regimes"] = self.regimes_by_level[level]
+        if self.fold_plug_in_rules_by_level:
+            changes["fold_plug_in_rules"] = self.fold_plug_in_rules_by_level[level]
+        return replace(self, **changes)
 
     def bounded_propensity(self, bounds: tuple[float, float]) -> FloatArray:
         """``g(a | W)`` truncated into ``bounds``, ``(n, K)`` -- see :meth:`Propensity.bounded`."""
@@ -1634,7 +1656,9 @@ def _fit_outcome_by_arm(
         order, and each fold worker after the first compares its model with the running
         best of the same fold, keeping the earlier arm on a tie, so the last arm hands
         back no float slab.  It needs a treatment of at least two arms, no ``companion``,
-        no ``companion_rows`` and every fold.
+        no ``companion_rows`` and every fold.  With an intermediate variable the rule is
+        taken at every level ``z`` the queries name, from the models at :math:`(a, z)`, and
+        returned under ``_rule_arm_key(z)`` (X11 (j)).
 
     Returns
     -------
@@ -1687,16 +1711,19 @@ def _fit_outcome_by_arm(
     for arm in arms:
         _check_arm_training(data, folds, eligible[arm], arm, left_out, only)
 
+    # The levels the rule is taken at: the counterfactual levels of an intermediate fit,
+    # whose rule at z reads the models at (a, z), and otherwise the training design.
+    rule_levels: list[float | None] = [level for level in levels if level is not None] or [None]
     per_arm: dict[float, dict[str, FloatArray]] = {}
     per_arm_companion: dict[float, dict[str, FloatArray]] = {}
     diagnostics: list[SuperLearnerDiagnostics] = []
-    signs: np.ndarray | None = None
-    best_slab: np.ndarray | None = None
-    best_index: np.ndarray | None = None
+    signs: dict[str, np.ndarray] | None = None
+    best_slab: dict[str, np.ndarray] | None = None
+    best_index: dict[str, np.ndarray] | None = None
     for position, arm in enumerate(arms):
         reduce: CompanionReduce | None = None
         if fold_plug_in_rules:
-            companion_designs = {"x": train_design}
+            companion_designs = {_rule_design_key(level): design_at(level) for level in rule_levels}
             if best_slab is not None:
                 reduce = functools.partial(
                     _by_arm_rule_step,
@@ -1724,14 +1751,16 @@ def _fit_outcome_by_arm(
         )
         per_arm[arm] = predictions
         diagnostics.extend(arm_diagnostics)
+        keys = [_rule_design_key(level) for level in rule_levels]
         if not fold_plug_in_rules:
             per_arm_companion[arm] = at_companion
         elif best_slab is None:
-            best_slab = at_companion["x"]
+            best_slab = {key: at_companion[key] for key in keys}
         elif position < len(arms) - 1:
-            best_slab, best_index = at_companion["best"], at_companion["index"]
+            best_slab = {key: at_companion[f"best|{key}"] for key in keys}
+            best_index = {key: at_companion[f"index|{key}"] for key in keys}
         else:
-            signs = at_companion[_RULE_ARM]
+            signs = {key: at_companion[f"{_RULE_ARM}|{key}"] for key in keys}
     del best_slab, best_index
 
     out = {
@@ -1742,7 +1771,8 @@ def _fit_outcome_by_arm(
     }
     at_companion_out: dict[str, np.ndarray] = {}
     if signs is not None:
-        at_companion_out[_RULE_ARM] = signs
+        for level in rule_levels:
+            at_companion_out[_rule_arm_key(level)] = signs[_rule_design_key(level)]
     elif companion_designs:
         where = data if companion is None else companion
         for name, query in companion_queries.items():
@@ -1757,14 +1787,30 @@ def _arm_key(arm: float) -> str:
     return f"arm@{arm}"
 
 
-def _rule_key(arm: float) -> str:
-    """Name of the design at which every fold's outcome model predicts ``arm`` at every row."""
-    return f"rule@{arm}"
+def _rule_key(arm: float, level: float | None = None) -> str:
+    """Name of the design at which every fold's outcome model predicts ``arm`` at every row.
+
+    With an intermediate it also sets ``Z = level`` (X11 (j)).
+    """
+    return f"rule@{arm}" if level is None else f"rule@{arm}|z@{level}"
 
 
 #: The companion name of every fold's plug-in rule at every row, ``(K, n)`` ``int8`` arm
 #: indices.
 _RULE_ARM = "rule_arm"
+
+
+def _rule_arm_key(level: float | None) -> str:
+    """The companion name of every fold's plug-in rule at intermediate ``level``.
+
+    :data:`_RULE_ARM` itself without an intermediate.
+    """
+    return _RULE_ARM if level is None else f"{_RULE_ARM}|z@{level}"
+
+
+def _rule_design_key(level: float | None) -> str:
+    """The companion design of a per-arm model at every row, at intermediate ``level``."""
+    return "x" if level is None else f"x|z@{level}"
 
 
 def plug_in_arm(predictions: Sequence[np.ndarray]) -> np.ndarray:
@@ -1789,16 +1835,22 @@ def plug_in_arm(predictions: Sequence[np.ndarray]) -> np.ndarray:
 
 
 def _pooled_rule_arm(
-    fold: int, values: dict[str, FloatArray], *, arms: Sequence[float]
+    fold: int,
+    values: dict[str, FloatArray],
+    *,
+    arms: Sequence[float],
+    levels: Sequence[float | None] = (None,),
 ) -> dict[str, np.ndarray]:
     """Reduce one fold's pooled model at every arm of every row to its plug-in rule.
 
     Runs inside the fold worker (:data:`CompanionReduce`), so the worker hands back ``n``
     one-byte indices in place of ``Kn`` floats.  A tie assigns the lowest arm code
-    (:func:`plug_in_arm`).
+    (:func:`plug_in_arm`).  With an intermediate the rule is taken at each of ``levels``,
+    from the model at :math:`(a, z)` (X11 (j)).
     """
     out = dict(values)
-    out[_RULE_ARM] = plug_in_arm([out.pop(_rule_key(arm)) for arm in arms])
+    for level in levels:
+        out[_rule_arm_key(level)] = plug_in_arm([out.pop(_rule_key(arm, level)) for arm in arms])
     return out
 
 
@@ -1806,26 +1858,33 @@ def _by_arm_rule_step(
     fold: int,
     values: dict[str, FloatArray],
     *,
-    best: np.ndarray,
-    index: np.ndarray | None,
+    best: Mapping[str, np.ndarray],
+    index: Mapping[str, np.ndarray] | None,
     position: int,
     last: bool,
 ) -> dict[str, np.ndarray]:
     """Compare one fold's model of arm ``position`` at every row with the fold's running best.
 
     Runs inside the fold worker of each arm after the first (:func:`_fit_outcome_by_arm`).
-    ``best`` is the largest prediction of the arms before it, and ``index`` the index of
-    that arm (``None`` after the first arm, whose index is 0).  The new arm replaces the
-    best only where it is strictly larger, so a tie keeps the lower arm code, as
-    :func:`plug_in_arm` does.  The last arm hands back the indices only.
+    ``values`` holds the model's predictions at every row, one design per intermediate
+    level (:func:`_rule_design_key`).  ``best`` is, per design, the largest prediction of
+    the arms before it, and ``index`` the index of that arm (``None`` after the first arm,
+    whose index is 0).  The new arm replaces the best only where it is strictly larger, so
+    a tie keeps the lower arm code, as :func:`plug_in_arm` does.  The last arm hands back
+    the indices only.
     """
-    current = np.asarray(values["x"], dtype=float)
-    better = current > best[fold]
-    previous = np.zeros(current.shape, dtype=np.int8) if index is None else index[fold]
-    chosen = np.where(better, np.int8(position), previous).astype(np.int8)
-    if last:
-        return {_RULE_ARM: chosen}
-    return {"best": np.where(better, current, best[fold]), "index": chosen}
+    out: dict[str, np.ndarray] = {}
+    for key, predictions in values.items():
+        current = np.asarray(predictions, dtype=float)
+        better = current > best[key][fold]
+        previous = np.zeros(current.shape, dtype=np.int8) if index is None else index[key][fold]
+        chosen = np.where(better, np.int8(position), previous).astype(np.int8)
+        if last:
+            out[f"{_RULE_ARM}|{key}"] = chosen
+        else:
+            out[f"best|{key}"] = np.where(better, current, best[key][fold])
+            out[f"index|{key}"] = chosen
+    return out
 
 
 def _design_key(arm: float, level: float | None) -> str:
@@ -2131,19 +2190,19 @@ def fit_nuisances(
     without a refit.  The pooled regression reduces its ``K`` predictions to the index
     inside each fold worker, so no ``(V, n)`` float slab is kept.  The per-arm regression
     keeps a running best ``(V, n)`` float slab and its index until the last arm's fold
-    workers have compared against it.  It needs an arm-coded treatment and no intermediate
-    variable or companion, which the learned-rule refusal table guarantees.
+    workers have compared against it.  It needs an arm-coded treatment and no companion,
+    which the learned-rule refusal table guarantees.  With an intermediate variable the rule
+    is taken at every requested level ``z`` from the outcome regression at :math:`(a, z)`,
+    one ``(n, V)`` matrix per level on
+    :attr:`NuisanceEstimates.fold_plug_in_rules_by_level`, and
+    :attr:`NuisanceEstimates.fold_plug_in_rules` holds the primary level's (X11 (j)).
     """
     if fold_plug_in_rules and (
-        not fit_outcome
-        or data.treatment_kind != "discrete"
-        or data.has_intermediate
-        or companion is not None
+        not fit_outcome or data.treatment_kind != "discrete" or companion is not None
     ):
         raise ValueError(
             "fold_plug_in_rules=True reads the outcome regression at every arm of an "
-            "arm-coded treatment, and needs a fitted outcome regression, no intermediate "
-            "variable and no companion"
+            "arm-coded treatment, and needs a fitted outcome regression and no companion"
         )
     if fold_plug_in_rules and data.n_arms > np.iinfo(np.int8).max + 1:
         raise ValueError(
@@ -2457,6 +2516,7 @@ def fit_nuisances(
     probes = dict(probe_doses or {})
     companion_estimates: CompanionEstimates | None = None
     fold_rules: np.ndarray | None = None
+    fold_rules_by_level: dict[float, np.ndarray] = {}
     if not fit_outcome:
         # The outcome-free path of an estimator that weights the observed outcomes
         # (`AdaptiveIPTW`): no outcome learner runs, and every outcome accessor raises.
@@ -2518,9 +2578,13 @@ def fit_nuisances(
             # Every fold's model at both arms of every row, from the model object that made
             # the out-of-fold predictions (``cross_fit_companion``), reduced to the sign of
             # the blip inside the fold worker so that no float slab reaches the parent.
-            for arm in arms:
-                companion_designs[_rule_key(arm)] = designs[_design_key(arm, levels[0])]
-            pooled_reduce = functools.partial(_pooled_rule_arm, arms=tuple(arms))
+            # With an intermediate, at every level z, from the model at (a, z) (X11 (j)).
+            for level in levels:
+                for arm in arms:
+                    companion_designs[_rule_key(arm, level)] = designs[_design_key(arm, level)]
+            pooled_reduce = functools.partial(
+                _pooled_rule_arm, arms=tuple(arms), levels=tuple(levels)
+            )
         outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
@@ -2577,9 +2641,15 @@ def fit_nuisances(
         primary = by_level[levels[0]]
 
         if fold_plug_in_rules:
-            fold_rules = np.ascontiguousarray(
-                np.asarray(outcome_companion.pop(_RULE_ARM), dtype=np.int8).T
-            )
+            rules_by_level = {
+                level: np.ascontiguousarray(
+                    np.asarray(outcome_companion.pop(_rule_arm_key(level)), dtype=np.int8).T
+                )
+                for level in levels
+            }
+            fold_rules = rules_by_level[levels[0]]
+            if data.has_intermediate:
+                fold_rules_by_level = rules_by_level
 
         companion_estimates = None
         if companion is not None:
@@ -2623,6 +2693,7 @@ def fit_nuisances(
         companion=companion_estimates,
         outcome_probes={key: outcome_out[f"probe:{key}"] for key in probes},
         fold_plug_in_rules=fold_rules,
+        fold_plug_in_rules_by_level=fold_rules_by_level,
     )
 
 

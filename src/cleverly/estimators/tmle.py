@@ -210,6 +210,7 @@ from ..interventions.learned import (
     LearnedRule,
     _learned_rule_regimes,
     check_fold_rules,
+    frozen_level_refusal,
     in_sample_learner_condition,
     learned_rule_configuration_refusal,
     learned_rule_estimands,
@@ -304,6 +305,7 @@ from .composite import (
     missing_treatment_refusal,
     unidentified_targets,
 )
+from .direct_effect import check_level
 from .targeting import (
     DEFAULT_MAX_OUTER,
     ProjectionFluctuation,
@@ -1537,6 +1539,19 @@ class TMLE:
         ).with_dose_declarations(treatment_support, dose_atoms)
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
+        if isinstance(self.learned_rule, FrozenLearnedRule):
+            # Each level learns its own rules (X11 (j)), and this call reports every level, so
+            # one level's frozen rules would stand in for the other's.
+            raise CapabilityError.from_refusal(
+                Refusal(
+                    RefusalReason.INVALID_DECLARATION,
+                    "TMLE.fit with intermediate= reports every level of the intermediate, "
+                    "and a FrozenLearnedRule holds the rules of at most one level, because "
+                    "each level learns its own rules (X11 (j)).",
+                    alternative="Refit LearnedRule() with intermediate= to learn the rules "
+                    "of every level.",
+                )
+            )
 
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
         # Run the full preflight here as well, so every unsupported intermediate
@@ -2100,6 +2115,9 @@ class TMLE:
         estimates, which is what a band needs. A repeated fit that reports one estimate
         builds no band, so it is allowed.
         """
+        frozen = frozen_level_refusal(self.learned_rule, intermediate_value)
+        if frozen is not None:
+            raise CapabilityError.from_refusal(frozen)
         preflight = self._preflight_fit_configuration(data)
         estimands = preflight.estimands
         classification = classify_point_fit(
@@ -2223,7 +2241,12 @@ class TMLE:
             extra = {
                 **extra,
                 "learned_rule": learned_rule_record(
-                    self.learned_rule, splits, data.treatment_levels, estimand=stem
+                    self.learned_rule,
+                    splits,
+                    data.treatment_levels,
+                    estimand=stem,
+                    intermediate_name=data.intermediate_name,
+                    intermediate_level=intermediate_value,
                 ),
             }
         result = TMLEResult(
@@ -4159,11 +4182,28 @@ class TMLE:
         # caller's rules or its design.
         # A plug-in learned rule moves the fold rules into its regime set, so the nuisances
         # do not carry a second copy.
+        regimes_by_level: dict[float, RegimeSet] = {}
+        regimes: RegimeSet | None
+        if self.learned_rule is not None and data.has_intermediate:
+            # X11 (j): the rule at Z = z is learned from the outcome regression at (a, z), so
+            # each level gets its own fold rules and regime set; ``at_level`` swaps them.
+            # The level fits share every model, so the levels' rules come from one fold loop.
+            for level in estimates.outcome_by_level:
+                at_level = estimates.at_level(level)
+                regimes_by_level[level] = cast(
+                    "RegimeSet", self._regimes(data, at_level, seed=seed)
+                )
+            primary = check_level(cast("float", intermediate_value))
+            regimes = regimes_by_level[primary]
+        else:
+            regimes = self._regimes(data, estimates, seed=seed)
         return replace(
             estimates,
-            regimes=self._regimes(data, estimates, seed=seed),
+            regimes=regimes,
+            regimes_by_level=regimes_by_level,
             msm=msm,
             fold_plug_in_rules=None,
+            fold_plug_in_rules_by_level={},
         )
 
     def _reads_fold_plug_in_rules(self) -> bool:

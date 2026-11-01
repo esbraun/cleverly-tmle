@@ -1287,7 +1287,7 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 | C3 | a limiting rule: the fold curves converge to the curve of one fixed rule. Over more than two arms the package asks that the top two arms of the learner's limit tie only on a set of probability zero (its best arm is unique almost surely) |
 | C4 | the fold-average remainder is $o_P(n^{-1/2})$. Alternatively, Corollary 3 requires Theorem 6 with $g=g_0$, negligible remainder replacement, and the linearization in Equation (14). Under these conditions, each fold's maximum-likelihood mechanism fit in a correct model gives a conservative interval |
 | C5 | no Donsker condition, so the learners can be flexible |
-| C6 | iid rows; or, under `id=`, iid clusters of bounded size whose number grows with $n$, with a fixed number of folds and at least 2 clusters in every validation fold; known, fixed and bounded observation weights under `weights=`; no missing outcomes or intermediate variable |
+| C6 | iid rows; or, under `id=`, iid clusters of bounded size whose number grows with $n$, with a fixed number of folds and at least 2 clusters in every validation fold; known, fixed and bounded observation weights under `weights=`; no missing outcomes; an intermediate only as [an intermediate held at each level](#learned-rules) states |
 
 C3 fails at an exceptional law, where the effect is zero for a share of units and the learner is
 consistent. The fold rules then have no fixed limit, and the interval can under-cover. Two
@@ -1888,6 +1888,71 @@ main-terms learner treats nobody, and $\Psi_{d_0} - \Psi_{d_1}$ by quadrature is
 `non_exceptional` law, and the amplitude 1 would need about 16,400 rows. Under known $g$ the score
 is solved at the supplied probabilities, and an estimated $g$ moves the point by more than 0.01.
 
+#### An intermediate held at each level
+
+`TMLE(learned_rule=LearnedRule()).fit(..., intermediate="Z")` learns a rule for the treatment
+with a binary intermediate $Z$ held at each of its levels. As every controlled-direct-effect fit
+does, it returns one result per level $z$, a `TMLEResultSet` keyed by the level, and the two
+levels share every nuisance fit. Each level learns its own fold rules from the outcome regression
+at $(a, z)$, and its target is
+
+$$
+\tilde\psi^z_{0n} = \frac1V \sum_{v=1}^V E_{P_0}\,\bar Q_0(d^z_{nv}(W), z, W),\qquad
+d^z_{nv}(w) = \arg\max_a \bar Q_{nv}(a, z, w),
+$$
+
+with $\bar Q_0(a, z, w) = E_0(Y \mid A = a, Z = z, W = w)$, under the identification of
+[controlled direct effects](#missing-outcomes-and-controlled-direct-effects). The rule
+$d^z_{nv}$ is the best treatment given $Z = z$, not the best pair of treatment and intermediate.
+A tie assigns the lowest arm code. No source names this per-level target, so the contract states
+it.
+
+The fit changes one step of the table above. The clever covariate is
+$H_i = \mathbb 1\{A_i = d^z_i\}\,\mathbb 1\{Z_i = z\} / (g_{n,v(i)}(A_i \mid W_i)\,
+q_{n,v(i)}(z \mid A_i, W_i))$, with $q$ truncated below at `nuisance_bound`, which is the shipped
+controlled-direct-effect covariate at the regime $d^z$. The fluctuation, the influence curve, the
+variance and both reports are the shipped ones, read at the level. JCI, Section 2, lets the rule
+class hold a constant component, and Theorems 5 and 6 hold for any rule estimator into that class
+with a fixed limit, so the pair of the learned rule at $A$ and the static $Z = z$ takes the same
+curve with the factor $\mathbb 1\{Z = z\}/q$. Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Section 4, learn
+the first rule of a pair under a fixed, possibly suboptimal, later rule, which is the reading of
+$d^z$ here.
+
+C1 and C3 to C5 hold at each level. C2 adds positivity of the intermediate:
+$q_0(z \mid a, W)$ is bounded away from 0 at every arm $a$. C3 asks for a limiting rule at each
+level separately, and C6 admits the intermediate on complete data. Missing outcomes keep row 5 of
+the table below.
+
+| composition | result |
+| --- | --- |
+| the plug-in rule under either report, in sample, with fold targeting, `repeats` above 1 on rows, known weights, `id=`, known treatment probabilities, the per-arm regression, more than two arms, `strata=` under the stacked report, and known regimes beside the rule | admitted, experimental. The key's missing-data axis reads `intermediate`, which no learned-rule row declares, so every fit reads experimental until the `learned-rule-intermediate` study registers |
+| `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 6 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (j2). The shipped pseudo-outcome does not read $Z$, so it would learn the rule of another blip. The rule at $Z = z$ needs $\mathbb 1\{Z = z\}(2A - 1)/(g\,q)\,(Y - \bar Q(A, z, W)) + \bar Q(1, z, W) - \bar Q(0, z, W)$ and its own exact witness. The remedy is the plug-in rule `LearnedRule()` |
+| `ey_optimal_rule` (`OptimalRuleValue`) | refused, row 6, X11 (f3). No witness checks the regret of the fold rules at a level of $Z$. The remedy is the learned-rule value at each level |
+| missing outcomes, `delta=` | refused, row 5, [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| `strata=` under `cv_evaluation=True` | refused, the [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata) refusal of an intermediate variable beside fold-evaluated strata. The remedy is the stacked report |
+| `LearnedRuleValue` or `OptimalRuleValue` beside `PointTreatment(intermediate=...)` | refused at `CausalStudy.identify`, X11 (j2) and X11 (f3). `ControlledDirectEffect` wraps an arm contrast, so the method layer has no spelling, and the remedy is the engine fit |
+| the omitted-variable bound of every name of the fit | refused, X11 (n2). No witness checks the bias of a learned rule at a level of $Z$ against its combined representer. A fixed rule's regime bound covers the controlled direct effect |
+| `simulated_confounding` and the E-value | refused. An engine fit records no identification metadata for `simulated_confounding`, and the method layer cannot spell the fit. The E-value keeps its F27 row |
+| `refute`, and a `FrozenLearnedRule` replay | run at the level the rules were frozen from. A replay at another level, or `TMLE.fit` with `intermediate=` and a frozen rule, refuses, because each level learns its own rules |
+
+Each level's result records its rules under `result.extra["learned_rule"]`, whose
+`intermediate_name` and `intermediate_level` name the level, and whose summary line says that the
+rule holds the intermediate there. The regime set and `fold_rules` of `result.nuisance` are the
+level's, and a frozen rule keeps the level in `intermediate_level`.
+
+`tests/unit/test_learned_rule_intermediate.py` holds the witnesses. A stub outcome regression whose
+blip has the sign of $W_1$ at both levels makes every fold rule $\mathbb 1\{W_1 > 0\}$, and each
+level's fit then equals the controlled-direct-effect fit of `Rule(1{W1 > 0}, known)` bit for bit,
+at a nonzero $\varepsilon$, under either report, in sample, with fold targeting, beside
+`Static(1)` and with strata under the stacked report (W-j1). With the blip $W_1 - 0.5 Z$ the rules
+at the two levels differ on about a quarter of the rows, and the fit that holds the level-0 rule
+at level 1 misses the level-1 value (W-j2). The targeted fit solves the score of $H$, and the
+covariate without $\mathbb 1\{Z = z\}/q$ leaves a score above 0.015 at each level (W-j3). A
+longhand refit of each fold's outcome regression gives the stored fold rules at each level, pooled,
+per arm and over three arms (rule L4). At oracle nuisances on the complete-outcome rows of
+`tests/discrete_law_cde.py`, each level's in-sample curve is the Gateaux derivative of the value
+of its rule, and the functional that lets $Z$ follow $A$ fails.
+
 #### Refusals and the result record
 
 A cross-fitted fit needs at least two folds, `CrossFitting(enabled=True)`, and every fit needs
@@ -1908,7 +1973,7 @@ decide, and `IdentifiedEffect.estimate` runs the rows that the settings decide.
 | 3 | a continuous treatment | F27 |
 | 4 | a rule learner, `loss="blip"` or `loss="weighted_classification"`, on a treatment with more than two arms | X11 (d2). The remedy is the plug-in rule, `LearnedRule()` |
 | 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |
-| 6 | `intermediate=` | X11 (j) |
+| 6 | `intermediate=` with a rule learner, `loss="blip"` or `loss="weighted_classification"`; or `ey_optimal_rule` with `intermediate=` | X11 (j2) for a rule learner, whose remedy is the plug-in rule, and X11 (f3) for the optimal value, whose remedy is the learned-rule value at each level ([an intermediate held at each level](#learned-rules)) |
 | 7 | estimated weights, `weights_estimated=True` | X11 (k2) |
 | 8 | `strata=` with clusters, `id=` | [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). The remedy is a fit without one of the two |
 | 9 | `ey_optimal_rule` with `weights=` | X11 (f3). The remedy is the optimal value without weights, or the learned-rule value with them |
@@ -1941,7 +2006,8 @@ gives the fields of a split.
 
 The record has no fold fields of its own, because fold 3 of one split is not fold 3 of another.
 `loss` and `learner` name the rule learner, `arms` the treatment levels in arm-code order,
-`estimand` the reported target (`ey_learned_rule` or `ey_optimal_rule`), and `scheme`, `rule`,
+`estimand` the reported target (`ey_learned_rule` or `ey_optimal_rule`), `intermediate_name` and
+`intermediate_level` the level of a fit with an intermediate (`None` otherwise), and `scheme`, `rule`,
 `target` and `quantile_levels` give the report, the rule class of that loss, the target kind and
 the levels of both quantile fields.
 
@@ -1985,9 +2051,11 @@ rules, which is not built. So does a fit with baseline strata
 value averages the fold rules with the weights $W_v/W$ rather than $1/V$.
 On a fit with known regimes the bound of each value runs, and the bound of a contrast refuses
 ([contrasts with known regimes](#learned-rules)).
-So does a fit over more than two arms ([more than two arms](#learned-rules)).
+So does a fit over more than two arms ([more than two arms](#learned-rules)), and so does a fit
+with an intermediate ([an intermediate held at each level](#learned-rules)).
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, the
-mean over splits, the strata, the stacked report, the contrasts and more than two arms. A
+mean over splits, the strata, the stacked report, the contrasts, more than two arms and the
+intermediate. A
 `FrozenLearnedRule` replay refuses, because it holds no fold rule.
 
 The E-value and the missingness tilt read `unavailable`, because the package does not implement
