@@ -1799,7 +1799,8 @@ assigns that arm.
 
 | composition | result |
 | --- | --- |
-| the plug-in rule under either report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule | admitted, experimental. The key's treatment reads `arms3` (for three arms) in place of `binary`, and no row declares it until a study registers one |
+| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, supported. The key's treatment reads `arms3` in place of `binary`, and the [three-arm study](method-evidence/learned-rule-arms.md) registers row `T45` for it |
+| the plug-in rule under the stacked report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule; and every fit over four or more arms | admitted, experimental. The key's treatment reads `arms3` or `arms4` and above, and no row declares these compositions |
 | `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 4 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (d2). Both pseudo-outcomes compare two arms. The remedy is the plug-in rule `LearnedRule()`, or a fixed rule `TMLE(interventions=[Rule(..., rule_kind="known")])` |
 | the omitted-variable bound | refused, X11 (n2): no witness checks the bias of a learned argmax rule against the combined representer over every arm. A fixed rule's regime bound covers every arm |
 | `simulated_confounding` and the `refute` tests that hold the rules | run, with each row's realized arm held fixed. Over more than two arms `simulated_confounding` swaps one declared `arm_pair`, as for any multi-arm fit |
@@ -1815,6 +1816,15 @@ at a nonzero $\varepsilon$. Exact ties between two and between three arms assign
 under the pooled and the per-arm regression, and the last-code mutation moves the tied rows or
 breaks the stored diagonal. The record's arm shares are those of the rule on each fold, and they
 match the population shares of the stub's argmax regions, which an arm-index shift fails.
+
+The [three-arm study](method-evidence/learned-rule-arms.md) calibrates the fold-evaluated value
+over three arms at n = 2,000 with ten folds, on one law whose learners' limits give every arm a
+share of at least 0.175 and put the top two arms within 0.01 of each other on at most 1.8% of
+the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9425 over
+3,200 draws. When arm 2's outcome regression omits its quadratic term, with the correct
+multinomial $g$ fitted by maximum likelihood, the interval covers 0.940 at an SE ratio of 0.996.
+There the omitted projection term is negligible (a predicted SE ratio of 1.0004), so the study
+measures coverage under a misspecified arm and does not test the conservative-variance route.
 
 #### Refusals and the result record
 

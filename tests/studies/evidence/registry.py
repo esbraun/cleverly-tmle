@@ -664,6 +664,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
@@ -735,6 +736,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_STACKED,
         LEARNED_RULE_IN_SAMPLE,
         LEARNED_RULE_CONTRAST,
+        LEARNED_RULE_ARMS,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

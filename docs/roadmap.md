@@ -1009,10 +1009,15 @@ Nordland and Holst (2026), Sections 3.1 to 3.4. At two arms it is the binary rul
 C3 for the argmax, no tie between the top two arms of the learner's limit on a set of positive
 mass, is the package's own step, because the sources are silent on multi-arm exceptional laws.
 
-The stored fold rules are `int8` arm codes. The key's treatment reads `arms3` at three arms, so every such
-fit reads experimental until the `learned-rule-arms` study registers. The rule learners over more
-than two arms are part (d2), and the omitted-variable bound over more than two arms joins part
-(n2).
+The stored fold rules are `int8` arm codes, and the key's treatment reads `arms3` at three arms.
+The [three-arm study](technical-reference/method-evidence/learned-rule-arms.md) calibrates the
+plug-in rule over three arms under the fold-evaluated report on rows at n = 2,000 with ten folds,
+on one law whose learners' limits meet the no-tie condition, so such a fit reads supported (row
+`T45`). When one arm's outcome regression is misspecified it measured coverage at or above 0.92
+with a correct maximum-likelihood $g$, not a conservative interval. Four or more arms, and three
+arms with weights, clusters, strata, fold targeting, several splits, the stacked report, the
+in-sample fit or known regimes, read experimental. The rule learners over more than two arms are
+part (d2), and the omitted-variable bound over more than two arms joins part (n2).
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).

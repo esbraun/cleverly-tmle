@@ -1035,6 +1035,25 @@ ARMS["drop_w1_contrast_0"] = (
     "learned-rule value minus the value of Static(0) under the fold-evaluated report"
 )
 
+#: The labels of ``learned-rule-arms`` (X11 PR H, X11 (d)): the three-arm law with each of its
+#: outcome learners. Mirrored from ``tests.studies._learned_rule_arms_law.TERMS``, which this
+#: module cannot import.
+ARMS.update(
+    {
+        "three_arms": (
+            "the three-arm law with the arm-interacted logistic outcome learner, a correct model"
+        ),
+        "missing_quadratic": (
+            "the three-arm law with the arm-interacted logistic outcome learner without arm 2's "
+            "quadratic term, so arm 2's regression is misspecified and arms 0 and 1 are exact"
+        ),
+        "drop_w1": (
+            "the three-arm law with an outcome learner that has no W1 term, the cell means of "
+            "(A, W2)"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1844,6 +1863,12 @@ PROPERTIES: dict[str, str] = {
     "independent_se_diagnostic": (
         "the SE ratio and coverage of each contrast with the SE it would have if the learned "
         "and the known value were independent, reported rather than gated"
+    ),
+    "rule_margin_diagnostic": (
+        "how far the fitted rules over three arms sit from the outcome learner's limit rule: "
+        "the share of rows whose rule differs from it, the share whose top two arms lie within "
+        "0.01, the smallest arm share and the share of draws that leave an arm with no rows, "
+        "reported rather than gated"
     ),
     "sparse_event_diagnostic": (
         "the coverage and SE ratio of the fold-evaluated and the stacked stratified fits on a "
@@ -6411,5 +6436,63 @@ STUDY_ARM_CELLS.update(
             "untargeted values, with no fluctuation",
             "bias interval must fall entirely outside the margin",
         ),
+    }
+)
+
+
+#: ``learned-rule-arms`` (X11 PR H, X11 (d)): the plug-in rule over three arms, the argmax of
+#: each fold's outcome model with a tie to the lowest arm code. The law and learners are those
+#: of ``tests/studies/_learned_rule_arms_law.py``; the cell names are those of
+#: ``tests/studies/learned_rule_arms.py``.
+_ARMS_SLUG = "learned-rule-arms"
+IMPLEMENTATIONS["cleverly-learned-rule-arms"] = (
+    "`cleverly` cross-validated TMLE of the learned-rule value over three arms: each fold's "
+    "rule the argmax of its outcome model over the arms, a tie to the lowest arm code, one "
+    "pooled fluctuation and the fold-evaluated report"
+)
+STUDY_ESTIMANDS[_ARMS_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold average of the values of the three-arm rules learned on each training fold"
+)
+STUDY_SCENARIOS[(_ARMS_SLUG, "three_arms")] = (
+    "three-arm law with a multinomial logistic treatment mechanism, a correct arm-interacted "
+    "logistic outcome learner, fold-evaluated report"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_ARMS_SLUG, "interval_calibration", "three_arms", "declared"): (
+            "the declared fit with the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_ARMS_SLUG, "conservative_coverage", "missing_quadratic", "declared"): (
+            "the declared fit with the correct multinomial logistic treatment model fitted by "
+            "maximum likelihood",
+            "bias interval inside the margin, and the coverage interval's lower end at or above "
+            "0.92; the SE ratio is read by no verdict",
+        ),
+        (_ARMS_SLUG, "conservative_coverage", "missing_quadratic", "shrunken_coverage_control"): (
+            "the declared fit's standard errors multiplied by 0.60",
+            "the coverage interval must lie wholly below 0.92",
+        ),
+        (_ARMS_SLUG, "targeting_necessity", "drop_w1", "targeted"): (
+            "the declared fit with that learner, so targeting does the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_ARMS_SLUG, "targeting_necessity", "drop_w1", "untargeted"): (
+            "the same fit's untargeted fold average of the initial plug-ins at its fold rules, "
+            "with no fluctuation",
+            "bias interval must fall entirely outside the margin",
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_ARMS_SLUG, "rule_margin_diagnostic", label, "rule_margin"): (
+            "the declared fit's rules on every draw of the law cell, read against the outcome "
+            "learner's limit rule",
+            "none. The cell reports the mean share of rows whose rule differs from the limit "
+            "rule, the mean share whose own fold's top two arms lie within 0.01, the mean "
+            "smallest arm share and the share of draws that leave an arm with no rows",
+        )
+        for label in ("three_arms", "missing_quadratic")
     }
 )

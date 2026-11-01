@@ -745,9 +745,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # X11 (c): known regimes beside a learned rule (``interventions=``) key the qualifier
     # ``known_regimes``. The rows T44 of the ``learned-rule-contrast`` study cover such a fit on
     # rows under each report, and every other composition with known regimes matches no row.
-    # X11 (d): the plug-in rule over K > 2 arms keys ``treatment=("arms{K}",)``, and every P11
-    # row declares ``binary``, so every such fit reads experimental until the
-    # ``learned-rule-arms`` study registers its rows.
+    # X11 (d): the plug-in rule over K > 2 arms keys ``treatment=("arms{K}",)``. The row T45 of
+    # the ``learned-rule-arms`` study covers the fold-evaluated report on rows at three arms, and
+    # every other composition over more than two arms matches no row.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.
@@ -1221,6 +1221,62 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 limits=[contrast_measured[report], *contrast_limits],
             )
         )
+    # X11 (d) (X11 PR H): the plug-in rule over three arms, the argmax over every arm with a tie
+    # to the lowest arm code, keyed ``treatment=("arms3",)``. One row, for the fold-evaluated
+    # report on rows, because the study's declared support condition held: the primary bias
+    # leg, coverage floor and SE sanity, every ``interval_calibration`` verdict, both
+    # ``conservative_coverage`` verdicts and the ``targeting_necessity`` verdicts passed. Four or
+    # more arms key ``arms4`` and above, and weights, clusters, strata, fold targeting, repeats
+    # above 1, the stacked report, the in-sample fit and known regimes beside the rule key other
+    # axes or qualifiers, so each of those compositions matches no row. The numbers are the
+    # committed results (``tests/canonical/learned_rule_arms``).
+    rows.append(
+        point_row(
+            "T45",
+            ["learned-rule-arms"],
+            families=("P11",),
+            treatment=("arms3",),
+            splitting=("fold_evaluated",),
+            cells=["three_arms", "missing_quadratic"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise interval of the plug-in rule (LearnedRule()) "
+                "over three arms at n = 2,000 on one law, with 10 equal folds, repeats=1, pooled "
+                "targeting, an arm-interacted logistic outcome model and a correct multinomial "
+                "logistic treatment model fitted by maximum likelihood. Binary outcome, iid "
+                "rows, no weights. The key holds neither n, the fold count nor the learner, so "
+                "another n, V or learner reads supported and was not measured.",
+                "With the correct outcome model the calibration positive reads SE ratio 0.986 "
+                "and coverage 0.9425 (3,200 draws), and the primary cell 0.997 and 0.947 (1,200 "
+                "draws).",
+                "The margin condition holds at both outcome learners' limits: every arm's share "
+                "is at least 0.175 and 0.2455, and the top two arms lie within 0.01 of each "
+                "other on 1.6% and 1.8% of the population. Over the draws the fitted rules "
+                "differ from the limit rule on 3.6% and 3.8% of rows on average, the smallest "
+                "arm share averages 0.177 and 0.245, and no draw leaves an arm without rows. "
+                "The no-tie form of C3 for the argmax is the package's own step.",
+                "When arm 2's outcome regression omits its quadratic term (arms 0 and 1 are "
+                "exact at the limit), the cells claim coverage at or above 0.92, not SE "
+                "calibration: coverage 0.940 at SE ratio 0.996 (1,200 draws). The reported "
+                "curve omits the treatment model's projection term, which Corollary 2 of van "
+                "der Laan and Luedtke (2015) makes conservative for a maximum-likelihood g in a "
+                "correct model, extended to the cross-validated TMLE by analogy only. On this "
+                "law the predicted SE ratio of that term is 1.0004, so the study does not test "
+                "conservativeness.",
+                "The necessity pair (an outcome model without W1) reads bias only. Its fold "
+                "rules have not settled at n = 2,000, so its targeted SE ratio 0.948 and "
+                "coverage 0.932 are a weak-margin reading, not calibration evidence or valid "
+                "inference under a misspecified outcome model.",
+                "The coverage was measured only with a correct parametric g fitted by maximum "
+                "likelihood. A known g (treatment_probabilities=, which keys known_mechanism "
+                "and matches no row) and a super-learner g were not measured.",
+                "The harness counts solver warnings: one necessity draw of 1,200 raised two and "
+                "was kept, and no primary, calibration or coverage draw warned. No rule reads "
+                "the counts. No comparator: no maintained package fits a cross-validated TMLE "
+                "of a learned rule over more than two arms.",
+            ],
+        )
+    )
     rows.append(
         point_row(
             "T25",

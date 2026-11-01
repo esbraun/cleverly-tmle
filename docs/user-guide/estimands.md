@@ -221,9 +221,18 @@ a higher outcome under treatment. A tie assigns control. The outcome learner the
 rule, so give it the treatment-by-covariate terms that the rule can depend on.
 
 The treatment can also have three or more options. The rule then gives each unit the option with
-the highest predicted outcome, and a tie goes to the first option in sorted order. No validation
-study covers that case yet, so cleverly marks the estimate experimental. The two rule learners
-described in [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules),
+the highest predicted outcome, and a tie goes to the first option in sorted order. A
+[study](../technical-reference/method-evidence/learned-rule-arms.md) measured this with three
+options, ten folds scored one at a time (`fold_evaluation=True`) and 2,000 rows, on data where
+one option's predicted outcome was clearly the highest for almost every unit. Over 3,200 samples
+its 95% interval covered the target 0.9425 of the time. With three options and
+`fold_evaluation=True`, cleverly marks the estimate supported at any number of folds, although
+the study measured ten only.
+
+With four or more options, or with three and any other setting on this page (the default
+`CrossFitting()`, the in-sample fit, weights, clusters, strata, several splits or a comparison
+with a fixed policy), cleverly marks the estimate experimental. The two rule learners described
+in [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules),
 `loss="blip"` and `loss="weighted_classification"`, compare two options only, so with more than
 two they raise `CapabilityError` and name the default rule as the way out.
 
@@ -287,8 +296,8 @@ full_sample = study.estimate(LearnedRuleValue(), method=in_sample, random_state=
 
 The mark is your statement that the model has fixed terms, and cleverly does not test it. With
 it the fit gives no warning. The result is marked supported when both models have fixed terms,
-the rule comes from the outcome model as above, the outcome is binary, and the fit has no
-weights, clusters or strata. An
+the rule comes from the outcome model as above, the outcome and the treatment are binary, and the
+fit has no weights, clusters or strata. An
 [in-sample study](../technical-reference/method-evidence/learned-rule-in-sample.md) measures
 this fit at n = 2,000. Over 14,400 samples of each of two settings, its 95% interval covered the
 value of the chosen rule 0.947 to 0.950 of the time.
@@ -317,13 +326,14 @@ each 95% interval covered its target 0.946 to 0.956 of the time over 5,600 sampl
 outcome model left out a term the treated outcomes needed, coverage stayed between 0.942 and
 0.951. That study measured a correct treatment model only.
 
-The three rows are marked supported when the fit uses the default cross-fitting with one split
-and the rule comes from the outcome model, with no weights, clusters or strata. Otherwise they
+The three rows are marked supported when the treatment has two options, the fit uses the default
+cross-fitting with one split and the rule comes from the outcome model, with no weights, clusters
+or strata. Otherwise they
 are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
 its message names this spelling.
 
-Every one of these fits needs, among other things, a binary treatment, complete outcomes and no
-intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of
+Every one of these fits needs, among other things, a treatment with distinct options rather than
+a continuous dose, complete outcomes and no intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of
 them refuses before any model is fitted. The refusal table under
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) lists the rest.
 
