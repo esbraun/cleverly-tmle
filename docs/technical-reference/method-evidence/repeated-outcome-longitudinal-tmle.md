@@ -6,15 +6,14 @@ and horizon $h$. The section [repeated outcomes](../longitudinal-tmle.md#repeate
 the estimator and its exact-law evidence. The declared comparator is R
 [`ltmle`](https://www.jstatsoft.org/article/view/v081i01) 1.3-0 with `survivalOutcome = FALSE`.
 
-Its runs are pending as TRACKER Study queue item 14(c). This page holds Python property evidence, with comparator runs pending.
+The R runs paired with the Python runs on the same 2,400 draws. The Agreement section holds the 13
+paired verdicts and the parity check against R's own targeting move.
 
 The study reports each unique parameter once. The dynamic plan equals the always-treated plan at the
 first node, so its mean and contrast at $t = 1$ duplicate those of `always`. A fast test checks that
 identity. The duplicates are not cells of this study.
 
 ## What was compared
-
-The R column states the declared design of the pending comparator runs.
 
 | setting | `cleverly` | R `ltmle` |
 | --- | --- | --- |
@@ -50,25 +49,64 @@ followers have a cumulative product below 0.05.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | `cleverly` | -0.000963 to 0.000622 | 0.9442 | 0.9791 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | R `ltmle` | -0.000963 to 0.000622 | 0.9442 | 0.9791 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | `cleverly` | -0.0012 to 0.000960 | 0.9529 | 1.0090 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | R `ltmle` | -0.0012 to 0.000960 | 0.9529 | 1.0090 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | `cleverly` | -0.0012 to 0.0021 | 0.9483 | 0.9930 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | R `ltmle` | -0.0012 to 0.0021 | 0.9483 | 0.9930 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | `cleverly` | -0.0013 to 0.000903 | 0.9567 | 1.0266 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | R `ltmle` | -0.0013 to 0.000903 | 0.9567 | 1.0266 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | `cleverly` | -0.0018 to 0.0018 | 0.9387 | 0.9625 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | R `ltmle` | -0.0018 to 0.0018 | 0.9387 | 0.9625 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | `cleverly` | -0.000482 to 0.000368 | 0.9496 | 0.9964 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | R `ltmle` | -0.000482 to 0.000368 | 0.9496 | 0.9964 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | `cleverly` | -0.0011 to 0.000149 | 0.9454 | 0.9993 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | R `ltmle` | -0.0011 to 0.000149 | 0.9454 | 0.9993 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | `cleverly` | -0.000869 to 0.0012 | 0.9387 | 0.9786 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | R `ltmle` | -0.000869 to 0.0012 | 0.9387 | 0.9786 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | `cleverly` | -0.000552 to 0.000779 | 0.9508 | 0.9786 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | R `ltmle` | -0.000552 to 0.000779 | 0.9508 | 0.9786 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | `cleverly` | -0.0012 to 0.000485 | 0.9433 | 1.0014 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | R `ltmle` | -0.0012 to 0.000485 | 0.9433 | 1.0014 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | `cleverly` | -0.0015 to 0.0010 | 0.9529 | 0.9863 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | R `ltmle` | -0.0015 to 0.0010 | 0.9529 | 0.9863 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | `cleverly` | -0.0013 to 0.000135 | 0.9475 | 1.0089 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | R `ltmle` | -0.0013 to 0.000135 | 0.9475 | 1.0089 | pass |
 | three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | `cleverly` | -0.0014 to 0.000993 | 0.9325 | 0.9647 | pass |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | R `ltmle` | -0.0014 to 0.000993 | 0.9325 | 0.9647 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The R `ltmle` 1.3-0 runs have not run on
-the declared draws, so this study publishes no paired verdict. The change that registers them adds
-the paired verdicts and the parity gate `test_cleverly_reproduces_r_targeting_move_in_every_cell`.
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `ltmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | -9.577e-11 | 4.241e-08 | 1.0000 | 0 | matching implementation | 1.337e-09 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | 6.720e-10 | 2.210e-07 | 1.0000 | 0 | matching implementation | 2.434e-07 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | 5.634e-09 | 0.000001 | 1.0000 | 0 | matching implementation | 6.401e-07 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | 8.182e-10 | 2.622e-07 | 1.0000 | 0 | matching implementation | 1.719e-08 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | -2.389e-09 | 4.671e-07 | 1.0000 | 0 | matching implementation | 2.310e-07 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | -1.229e-10 | 1.016e-07 | 1.0000 | 0 | matching implementation | 2.092e-09 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | 6.457e-10 | 3.556e-07 | 1.0000 | 0 | matching implementation | 4.996e-07 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | 5.517e-09 | 0.000002 | 1.0000 | 0 | matching implementation | 0.000001 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | -2.717e-11 | 1.432e-08 | 1.0000 | 0 | matching implementation | 1.347e-09 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | -2.622e-11 | 1.060e-08 | 1.0000 | 0 | matching implementation | 2.742e-09 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | -1.173e-10 | 3.187e-08 | 1.0000 | 0 | matching implementation | 4.289e-10 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | 7.920e-10 | 3.916e-07 | 1.0000 | 0 | matching implementation | 4.071e-07 vs 0.0500 | equivalent |
+| three-time-point law with a three-valued baseline covariate, a repeated binary outcome that reads the two previous nodes, and monotone censoring | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | -2.506e-09 | 7.270e-07 | 1.0000 | 0 | matching implementation | 4.171e-07 vs 0.0500 | equivalent |
+<!-- /generated -->
+
+The paired margins cannot tell a plug-in from a targeted fit on this law, because the untargeted
+sequential regression is nearly unbiased here. The parity check
+`test_cleverly_reproduces_r_targeting_move_in_every_cell` reads the R plug-in from the
+`gcomp = TRUE` call and compares the two implementations with the size of R's own targeting move.
+The rule was declared before the run. In each cell the root-mean-square difference from R must stay
+below 1% of R's root-mean-square targeting move, and no replication may differ from R by more than
+1% of R's mean standard error. Across the 13 cells the largest ratio is 1.4e-4, and the largest
+single difference is 2.7e-4 of R's mean standard error. R's targeting move is at least 4.2e-5 in
+root-mean-square in every cell, so the check has a move to measure.
 
 ## Theory properties
 
@@ -225,10 +263,10 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 2400 | primary replications per scenario |
 | `n` | 3000 | observations per primary replication |
-| `independent_tests_total` | 13 | implementation-estimand tests against the truth |
-| `independent_tests_passed` | 13 | of those, passing |
-| `paired_tests_total` | 0 | paired comparisons with R `ltmle` |
-| `paired_tests_passed` | 0 | of those, passing |
+| `independent_tests_total` | 26 | implementation-estimand tests against the truth |
+| `independent_tests_passed` | 26 | of those, passing |
+| `paired_tests_total` | 13 | paired comparisons with R `ltmle` |
+| `paired_tests_passed` | 13 | of those, passing |
 | `property_cells_total` | 97 | repeated-sampling property cells, reported cells excluded |
 | `property_cells_passed` | 97 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 10 | cells reported and not gated, as the `small_sample_calibration` diagnostics |
@@ -264,13 +302,16 @@ the committed results and checked at the precision printed.
 | `margin:shrunken_se_factor` | 0.7000 | factor the shrunken-SE control multiplies the standard error by |
 | `margin:necessity_displacement` | 0.2500 | smallest paired displacement of a necessity control, in empirical standard deviations |
 | `margin:targeting_displacement` | 0.2500 | smallest displacement of the untargeted plug-in from the targeted fit, in empirical standard deviations of the targeted arm |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 24 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `ltmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 24 | the same bound, in primary replications |
 
 ## Limitations
 
 | limit | what it means for use |
 | --- | --- |
 | one law with three nodes and a binary outcome | the continuous outcome has one calibration arm, and the rate in $n$ is not measured |
-| the comparator runs are pending | the `targeting_necessity` family carries the claim that targeting moves the estimate. The pending parity gate `test_cleverly_reproduces_r_targeting_move_in_every_cell` adds a check against R. In each cell the root-mean-square difference from R must stay below 1% of R's root-mean-square targeting move. No replication may differ from R by more than 1% of R's mean standard error |
 | the declared comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The comparison does not claim parity for learned treatment or censoring models |
 | the in-sample interval is mildly anticonservative at $n$ = 2,000 | the `small_sample_calibration` cells report the shortfall and no rule gates them. The gated calibration cells draw $n$ = 8,000. The primary cells draw $n$ = 3,000 and answer to the coverage floor |
 | the cross-fitted learners are one GLM and one shallow booster | the study does not cover a larger learner library or a different fold count |
@@ -287,7 +328,7 @@ positivity, and conditionally independent censoring.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/README.md)
 gives the regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/manifest.json)
-records the pending comparator, the declared R sources, the seeds and the artifact hashes.
+records the R comparator and its sources, the seeds and the artifact hashes.
 The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/properties.csv)
 carry every published row.
