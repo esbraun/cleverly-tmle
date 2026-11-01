@@ -67,6 +67,7 @@ __all__ = [
     "LEARNED_RULE_REMEDY",
     "LEARNED_RULE_TILT_REFUSAL",
     "LOSSES",
+    "OPTIMAL_REPLAY_TARGET_KIND",
     "OPTIMAL_RULE_SENSITIVITY_REFUSAL",
     "OPTIMAL_RULE_TARGET",
     "OPTIMAL_TARGET_KIND",
@@ -151,6 +152,13 @@ OPTIMAL_RULE_TARGET = "ey_optimal_rule"
 #: What the reported value is when the fit targets the value of the optimal rule.  It is
 #: one fixed parameter under every report, so it does not depend on the scheme.
 OPTIMAL_TARGET_KIND = "value of the optimal rule, a fixed parameter"
+
+#: What the reported value is on a frozen-rule replay of a fit of the value of the optimal
+#: rule (as ``refute`` subsets and the bootstrap build).  It keeps the estimand's name, so
+#: that the estimates match, but its rules are fixed and learn nothing.
+OPTIMAL_REPLAY_TARGET_KIND = (
+    "replay of the frozen fold rules of a fit of the value of the optimal rule"
+)
 
 #: The three schemes of a learned-rule fit, the values of :attr:`LearnedRuleSplit.scheme`:
 #: the two reports of a cross-fitted fit, and the in-sample fit of one rule learned on
@@ -919,9 +927,10 @@ class LearnedRuleRecord:
 
         :data:`TARGET_KIND` of the scheme for the learned-rule value, and
         :data:`OPTIMAL_TARGET_KIND` for the value of the optimal rule, under every scheme.
+        A frozen-rule replay of an optimal fit reads :data:`OPTIMAL_REPLAY_TARGET_KIND`.
         """
         if self.estimand == OPTIMAL_RULE_TARGET:
-            return OPTIMAL_TARGET_KIND
+            return OPTIMAL_REPLAY_TARGET_KIND if self._frozen() else OPTIMAL_TARGET_KIND
         return TARGET_KIND[self.scheme]
 
     @property
@@ -1036,6 +1045,10 @@ class LearnedRuleRecord:
         )
         return f"Unweighted share of rows the rules assign to each arm, {over}: {parts}."
 
+    def _frozen(self) -> bool:
+        """Whether the record is a frozen-rule replay, whose disagreement share is nan."""
+        return any(np.isnan(split.rule_disagreement) for split in self.splits)
+
     def _describe_optimal(self) -> str:
         """The summary line of a fit of the value of the optimal rule (X11 (f))."""
         folds = self.splits[0].n_folds
@@ -1047,11 +1060,16 @@ class LearnedRuleRecord:
             "row (the stacked report)",
         }[self.scheme]
         splits = "" if self.n_splits == 1 else f", averaged over {self.n_splits} random splits"
+        if self._frozen():
+            return (
+                "Target: a replay of the frozen fold rules of a fit of the value of the "
+                f"optimal rule. The rules are held fixed and learn nothing, so the estimate "
+                f"is the value of those fixed rules, {report}{splits}. "
+                f"{self._shares('by fold')}"
+            )
         disagreement = [split.rule_disagreement for split in self.splits]
         shown = (
-            ""
-            if any(np.isnan(disagreement))
-            else " The fold rules assign different arms to "
+            " The fold rules assign different arms to "
             + (
                 f"{min(disagreement):.3g} to {max(disagreement):.3g}"
                 if self.n_splits > 1
@@ -1059,13 +1077,19 @@ class LearnedRuleRecord:
             )
             + " of the rows, a share that rules near one limit keep small."
         )
+        if len(self.arms) == 2:
+            tie = "the effect is zero for almost no unit"
+            zero = "the effect is zero for a share of units"
+        else:
+            tie = "the best arm ties with another for almost no unit"
+            zero = "the best arm ties with another for a share of units"
         return (
             "Target: the value of the optimal rule, the arm with the best mean outcome for "
             f"each unit, a fixed parameter. The estimate is {report}{splits}, as for the "
             "learned rule's value, and it estimates the optimal value only when the learned "
-            "rules converge to the optimal rule, the effect is zero for almost no unit, and "
+            f"rules converge to the optimal rule, {tie}, and "
             "the rules approach their limit fast enough (van der Laan and Luedtke 2015, "
-            "Section 7.2). Where the effect is zero for a share of units the interval can "
+            f"Section 7.2). Where {zero} the interval can "
             f"under-cover.{shown} {self._shares('by fold')}"
         )
 
@@ -1972,11 +1996,11 @@ def _data_refusal(
         )
     if optimal and data.is_weighted:
         return _gap(
-            "the value of the optimal rule with observation weights (weights=) is refused. "
-            "Under weights= the fit learns the rule of the weighted population, so its "
-            "optimal value is the optimum of the weighted, tilted law, another parameter "
-            "than the optimal value of the sampled population, and no source or witness "
-            f"covers it ({_X11.format(part='f3')}).",
+            "the value of the optimal rule with observation weights (weights=) is refused, "
+            "because no source or witness covers the regret of the fold rules under "
+            "weights. A weighted fit would target the optimum over the weighted population, "
+            "as a weighted fit does for every other estimand "
+            f"({_X11.format(part='f3')}).",
             "Fit the value of the optimal rule without weights=, or the value of the rules "
             "learned in the weighted population with estimands=None (ey_learned_rule), "
             "which takes known weights.",

@@ -2063,6 +2063,8 @@ class LearnedRuleValue:
     See Also
     --------
     cleverly.interventions.LearnedRule : The rule this estimand holds.
+    OptimalRuleValue : The value of the optimal rule, read from the same fit under further
+        conditions.
     RegimeMean : The value of a known rule, fixed before the fit.
     cleverly.CrossFitting : The cross-fitting that chooses the fold-evaluated or stacked report.
 
@@ -2104,8 +2106,9 @@ class OptimalRuleValue:
     Section 7.2, give the conditions under which it estimates the optimal value: the fold
     rules converge to :math:`d_0`, the effect is zero for almost no unit (a non-exceptional
     law), and the rules approach :math:`d_0` fast enough that the regret is
-    :math:`o_P(n^{-1/2})`.  At an exceptional law nothing is guaranteed, and the interval can
-    under-cover.
+    :math:`o_P(n^{-1/2})`.  Over more than two arms the package reads the second condition as
+    the best arm tying with another for almost no unit, its own step.  At an exceptional law
+    nothing is guaranteed, and the interval can under-cover.
 
     The fit needs cross-fitting with at least two folds, under either report.  It refuses
     ``weights=``, ``strata=``, known regimes beside it and the in-sample fit (X11 (f3) in
@@ -3436,7 +3439,7 @@ def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
     if axis == "learned_rule":
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "LearnedRuleValue over a continuous treatment is not implemented.",
+            f"{name} over a continuous treatment is not implemented.",
             alternative=(
                 "A fixed policy is available: ModifiedTreatmentPolicy([ModifiedPolicy(..., "
                 "policy_kind='known')])."

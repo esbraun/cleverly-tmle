@@ -231,17 +231,25 @@ _OPTIMAL_RULE_ID = Identification(
         "the regret: the fold average of Psi_d0(P0) - Psi_dnv(P0), which is at least 0, is "
         "o_P(n^-1/2). Lemma 1 of van der Laan and Luedtke (2015) gives it under the margin "
         "condition P0(0 < |blip| <= t) <= C t^alpha (moment condition (6)) and the rates of "
-        "Table 1 for the outcome regression or the rule learner. None of these conditions "
-        "involves g",
+        "Table 1 for the outcome regression or the rule learner. With more than two arms the "
+        "margin is read on the gap between the top two arms, P0(0 < Qbar0(d0(W), W) - "
+        "max_{a != d0(W)} Qbar0(a, W) <= t) <= C t^alpha, the package's own step, since "
+        "Lemma 1 is a two-arm result. Under id= the regret condition is read with clusters "
+        "as units, the package's step. For the plug-in rule these conditions read only the "
+        "outcome regression. For a pseudo-outcome rule learner the blip estimate is built "
+        "with g_n (or the known g), so its rate, and with it this condition, also depends "
+        "on g_n",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
         "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
         "with g = g0, a negligible remainder-replacement error, and the remainder "
         "linearization in Equation (14)",
         "estimated g: the error splits as (psi_n - psi_0n) + (psi_0n - Psi_d0), with psi_0n "
         "the learned-rule value. The first term is the learned-rule claim, which covers an "
-        "estimated g under C4 or Corollary 3, and the second is the regret, which does not "
-        "involve g. The source states the result with g known (Section 7.2), so an "
-        "estimated g is the package's step",
+        "estimated g under C4 or Corollary 3, and the second is the regret. For the plug-in "
+        "rule the regret reads only the outcome regression; for a pseudo-outcome rule "
+        "learner its rate also depends on g_n through the learner's pseudo-outcome. The "
+        "source states the result with g known (Section 7.2), so an estimated g is the "
+        "package's step",
         "C5: no Donsker condition is needed, so the learners may be flexible",
         "C6: iid rows; or, under id=, iid clusters of bounded size whose number grows with "
         "n, with a fixed number of folds and at least 2 clusters in every validation fold; "
@@ -255,8 +263,9 @@ _OPTIMAL_RULE_ID = Identification(
     dr_condition=(
         "the remainder is the fold average of the product of the outcome-regression and "
         "mechanism errors along each fold's learned rule (C4), and the regret of the fold "
-        "rules is o_P(n^-1/2) under the margin and rate conditions of Lemma 1, which read "
-        "the outcome regression or the rule learner and not g"
+        "rules is o_P(n^-1/2) under the margin and rate conditions of Lemma 1. For the plug-in "
+        "rule these read only the outcome regression; for a pseudo-outcome rule learner the "
+        "blip estimate is built with g_n (or the known g), so its rate also depends on g_n"
     ),
     references=(
         "van der Laan & Luedtke (2015)",

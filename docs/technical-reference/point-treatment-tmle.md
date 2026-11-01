@@ -1831,7 +1831,7 @@ $\Psi_{d_0}$ is not pathwise differentiable.
 | --- | --- |
 | C3f | the fold rules converge to the optimal rule itself, $d_1 = d_0$. A learner whose limit rule differs from $d_0$ estimates $\Psi_{d_1} \le \Psi_{d_0}$, and the interval need not cover $\Psi_{d_0}$ |
 | C7 | a non-exceptional law: the blip is 0 with probability zero. Over more than two arms the top two arms of $\bar Q_0$ tie with probability zero, the package's own step |
-| C8 | the fold-average regret is $o_P(n^{-1/2})$, by Lemma 1 under the margin condition and the Table 1 rates. None of these conditions involves $g$ |
+| C8 | the fold-average regret is $o_P(n^{-1/2})$, by Lemma 1 under the margin condition and the Table 1 rates. Over more than two arms the margin is read on the gap between the top two arms, $P_0(0 < \bar Q_0(d_0(W), W) - \max_{a \ne d_0(W)} \bar Q_0(a, W) \le t) \le C t^{\alpha}$, the package's own step, since Lemma 1 is a two-arm result. Under `id=` the condition is read with clusters as units, the package's step. For the plug-in rule these conditions read only the outcome regression. For a pseudo-outcome rule learner the blip estimate is built with $g_n$ (or the known $g$), so its rate, and with it C8, also depends on $g_n$ |
 
 The source states the result with $g$ known. The package admits an estimated $g$ on the
 decomposition
@@ -1841,8 +1841,11 @@ $$
 $$
 
 The first term is the learned-rule claim, which covers an estimated $g$ under C4 or Corollary 3.
-The second is the regret, which C8 makes $o_P(n^{-1/2})$ without reading $g$. That step is the
-package's, so an estimated $g$ reads experimental like every other composition here.
+The second is the regret, which C8 makes $o_P(n^{-1/2})$. For the plug-in rule it reads only the
+outcome regression. For a pseudo-outcome rule learner the blip estimate is built with $g_n$, so
+the regret's rate also depends on $g_n$, and C8 then needs that learner's rate under the estimated
+$g$. That step is the package's, so an estimated $g$ reads experimental like every other
+composition here.
 
 With `repeats` above 1 the fit reports the mean of $R$ estimators of this one fixed parameter.
 Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1, warn that averaging
@@ -1856,19 +1859,23 @@ estimator, which is valid there, is a different estimator, and
 | either report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, known or estimated $g$, more than two arms | admitted, experimental. The key's family reads `P12` in place of `P11`, and no row declares it until a study registers one |
 | known regimes beside it (`interventions=`, `reference=`, `ey_known_regime`, `ate_learned_rule`) | refused, row 2 of the table below, X11 (f3) |
 | `ey_learned_rule` beside it | refused as a declaration, row 2: the two names read one estimate as two targets |
-| `weights=` | refused, row 9, X11 (f3). The rule is the rule of the weighted population, so the optimum is that of the tilted law, another parameter |
+| `weights=` | refused, row 9, X11 (f3). No witness covers the regret under weights. The weighted fit would target the optimum over the weighted population, as a weighted fit does for every other estimand |
 | `strata=` | refused, row 10, X11 (f3) |
 | `cross_fit=False` | refused, row 13, X11 (f3). The source states the CV-TMLE, and the in-sample fit would add the regret of the full-sample rule to condition C5a |
 | the omitted-variable bound and `simulated_confounding` | refused, X11 (f3). Both hold the fold rules fixed, so they read the value of those rules, and confounding also moves which rule is optimal. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
 
 The record's target reads `"value of the optimal rule, a fixed parameter"`, and its summary line
-states C3f, C7 and C8 in words. Its `rule_disagreement` gives, for each split, the share of rows
+states C3f, C7 and C8 in words, with C7 read as a tie of the best arm with another when there are
+more than two arms. A frozen-rule replay of such a fit, which `refute` builds for its subset and
+bootstrap tests, keeps the name `ey_optimal_rule[...]` so that the estimates match, but its rules
+learn nothing. Its target reads `"replay of the frozen fold rules of a fit of the value of the
+optimal rule"`, and its summary line drops the three conditions. Its `rule_disagreement` gives, for each split, the share of rows
 at which the fold rules do not all assign the same arm. Rules near one limit keep it small. On the
 fixed draws of the witness at n = 4,000 it is 0.052 at the `non_exceptional` law and 0.284 at the
 `exceptional` law. The share is descriptive, and no threshold detects an exceptional law.
 
-`tests/unit/test_learned_rule_optimal.py` holds the witnesses. Under seven compositions (both
-reports, `repeats=3`, fold targeting, a blip learner, clusters and known $g$) the point, variance,
+`tests/unit/test_learned_rule_optimal.py` holds the witnesses. Under eight compositions (both
+reports, `repeats=3`, fold targeting, a blip learner, clusters, known $g$ and three arms) the point, variance,
 interval, curve and record equal the learned-rule fit's bit for bit, at a nonzero $\varepsilon$. At
 oracle nuisances on the discrete law of `tests/discrete_law.py`, every fold learns $d_0$ and each
 fold's curve is the Gateaux derivative of $\Psi_{d_0}$, which the value of the worst arm fails. At

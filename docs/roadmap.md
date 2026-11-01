@@ -932,7 +932,7 @@ own contract, witnesses and registered study before it ships, as the learned-rul
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f) | published support |
-| (f3) the value of the optimal rule with weights, with strata, beside known regimes, in sample, and its sensitivity analyses | `estimands=["ey_optimal_rule"]` with `weights=`, `strata=`, `interventions=`, `reference=` or `cross_fit=False`, and the omitted-variable bound and `simulated_confounding` of such a fit | under `weights=` the optimum is that of the tilted law, another parameter. A stratum value and a contrast add the regret to a claim that no witness checks. The in-sample fit adds the regret of the full-sample rule to condition C5a. Both analyses hold the fold rules fixed, and confounding also moves which rule is optimal | natural extension |
+| (f3) the value of the optimal rule with weights, with strata, beside known regimes, in sample, and its sensitivity analyses | `estimands=["ey_optimal_rule"]` with `weights=`, `strata=`, `interventions=`, `reference=` or `cross_fit=False`, and the omitted-variable bound and `simulated_confounding` of such a fit | under `weights=` no witness covers the regret, and the fit would target the optimum over the weighted population. A stratum value and a contrast add the regret to a claim that no witness checks. The in-sample fit adds the regret of the full-sample rule to condition C5a. Both analyses hold the fold rules fixed, and confounding also moves which rule is optimal | natural extension |
 
 A rule learned on separate training data and frozen before evaluation is a known rule.
 `Rule(..., rule_kind="known")` and `DynamicRegimen(..., rule_kind="known")` evaluate it, and the
@@ -1014,8 +1014,9 @@ The value of the optimal rule, part (f), now ships
 learned-rule estimate as an estimate of the fixed parameter $\Psi_{d_0}(P_0)$, as van der Laan
 and Luedtke (2015), Section 7.2, last paragraph, licenses under a limit rule equal to the optimal
 rule, a non-exceptional law and a fold-average regret of order $o_P(n^{-1/2})$. An estimated
-$g$ is admitted on the decomposition into the learned-rule claim and the regret, which reads no
-$g$. Its key's family is `P12`, so every such fit reads experimental until the
+$g$ is admitted on the decomposition into the learned-rule claim and the regret. For the plug-in
+rule the regret reads only the outcome regression; for a pseudo-outcome rule learner its rate also
+depends on $g_n$. Its key's family is `P12`, so every such fit reads experimental until the
 `learned-rule-optimal-value` study registers. Weights, strata, known regimes, the in-sample fit and
 the two sensitivity analyses that hold the rules fixed are part (f3). The online estimator that
 holds at an exceptional law is part (f2b).

@@ -50,6 +50,7 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import LearnedRule, Static
 from cleverly.interventions.learned import (
+    OPTIMAL_REPLAY_TARGET_KIND,
     OPTIMAL_RULE_SENSITIVITY_REFUSAL,
     OPTIMAL_RULE_TARGET,
     OPTIMAL_TARGET_KIND,
@@ -65,10 +66,12 @@ from cleverly.sensitivity.omitted_variable import (
     benchmark_refusal,
     fit_wide_bound_refusal,
 )
+from cleverly.study import _continuous_dose_refusal
 from cleverly.targets import TARGETS
 from cleverly.validation.refute import refute_refusal
 from tests import discrete_law as exact
 from tests.conftest import OracleOutcome, OracleTreatment
+from tests.studies import _learned_rule_arms_law as arms_law
 from tests.studies import _learned_rule_law as law
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
@@ -147,6 +150,7 @@ PAIRS = {
     ),
     "clusters": _clustered,
     "known_g": _known_g,
+    "three_arms": lambda: _pair(arms_law.draw(300, 0), outcome_learner=arms_law.outcome_learner()),
 }
 
 
@@ -537,7 +541,10 @@ class TestTheTarget:
             "non-exceptional law",
             "nothing is guaranteed",
             "regret",
-            "None of these conditions involves g",
+            "For the plug-in rule these conditions read only the outcome regression",
+            "For a pseudo-outcome rule learner the blip estimate is built with g_n",
+            "the gap between the top two arms",
+            "read with clusters as units",
             "estimated g",
             "Section 5.1",
         ):
@@ -588,6 +595,14 @@ class TestTheTarget:
         study = CausalStudy(frame, design=design)
         with pytest.raises(CapabilityError, match="OptimalRuleValue is a point-treatment target"):
             study.identify(OptimalRuleValue())
+
+    def test_the_continuous_dose_refusal_names_the_estimand(self) -> None:
+        """The axis branch names the estimand's own type; the learned-rule rows refuse first."""
+        refusal = _continuous_dose_refusal(OptimalRuleValue(), "learned_rule")
+        assert refusal.condition.startswith("OptimalRuleValue over a continuous treatment")
+        assert _continuous_dose_refusal(LearnedRuleValue(), "learned_rule").condition.startswith(
+            "LearnedRuleValue"
+        )
 
 
 # --------------------------------------------------------------------------- the refusals
@@ -792,6 +807,12 @@ class TestTheRecord:
         _, repeated = _pairs("repeats")
         assert "averaged over 3 random splits" in repeated.extra["learned_rule"].describe()
 
+    def test_the_three_arm_line_names_the_top_two_tie(self) -> None:
+        _, arms = _pairs("three_arms")
+        line = arms.extra["learned_rule"].describe()
+        assert "the best arm ties with another for almost no unit" in line
+        assert "the effect is zero" not in line
+
 
 class TestTheRuleDisagreement:
     """The record's share of rows on which the fold rules disagree."""
@@ -803,10 +824,10 @@ class TestTheRuleDisagreement:
         assert rules is not None
         longhand = float(np.mean([len(set(row)) > 1 for row in rules.tolist()]))
         assert split.rule_disagreement == longhand
-        # The nonzero witness, and the mutation that reads only the realized rule.
+        # The nonzero witness, and the deliberate mutation that compares two fold rules only.
         assert longhand > 0.05
-        realized = rules[np.arange(rules.shape[0]), np.asarray(result.nuisance.folds.assignment)]
-        assert float(np.mean(realized != realized)) == 0.0 != split.rule_disagreement
+        two_folds = float(np.mean(rules[:, 0] != rules[:, 1]))
+        assert two_folds != split.rule_disagreement
 
     def test_an_exceptional_law_shows_more_disagreement(self) -> None:
         """Descriptive, on fixed draws at n = 4,000: the boundary blip ``0`` keeps rules apart."""
@@ -830,6 +851,13 @@ class TestTheRuleDisagreement:
         replay = frozen_rule_replay(result.estimator, freeze_learned_rule(result))
         refit = replay.fit(support.law_frame(), **FIT).single()
         assert np.isnan(refit.extra["learned_rule"].splits[0].rule_disagreement)
+        optimal = support.fit(estimands=[OPTIMAL_RULE_TARGET])
+        replay = frozen_rule_replay(optimal.estimator, freeze_learned_rule(optimal))
+        record = replay.fit(support.law_frame(), **FIT).single().extra["learned_rule"]
+        assert record.target == OPTIMAL_REPLAY_TARGET_KIND
+        line = record.describe()
+        assert line.startswith("Target: a replay of the frozen fold rules") and "C3" not in line
+        assert "converge to the optimal rule" not in line
 
 
 # ------------------------------------------------------------------------ the assessments
@@ -855,6 +883,10 @@ class TestTheAssessments:
         refusal = simulated_confounding_refusal(result, OPTIMAL)
         assert refusal is OPTIMAL_RULE_SENSITIVITY_REFUSAL
         assert simulated_confounding_refusal(support.fit(), LEARNED) is not refusal
+        # At repeats above 1 the optimal refusal comes first: the splits refusal's remedy,
+        # a refit at repeats=1, would be refused by the optimal rule.
+        _, repeated = _pairs("repeats")
+        assert simulated_confounding_refusal(repeated, OPTIMAL) is refusal
 
     def test_the_remedy_runs(self, result: Any) -> None:
         learned = support.fit()

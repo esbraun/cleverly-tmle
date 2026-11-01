@@ -307,7 +307,7 @@ To estimate the value of the best possible rule instead, ask for `OptimalRuleVal
 `LearnedRuleValue()`. The best rule gives every unit the option with the highest average outcome
 among units with the same covariates. The fit and its numbers are the same as above, reported as
 `ey_optimal_rule[learned rule]`, and only the question changes. The answer is the best rule's value
-only if the outcome model can learn the true pattern of benefit, the benefit is exactly zero for
+only if the outcome model (or the rule learner) can learn the true pattern of benefit, the benefit is exactly zero for
 almost no unit, and the learned rules settle on the best rule fast enough as the data grow. When
 the outcome model misses the pattern, the fit estimates the value of a worse rule, which sits below
 the best value, and its interval need not contain the best value.
